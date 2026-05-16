@@ -1,9 +1,18 @@
-import { AppShell } from "@/components/layout/app-shell";
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { AppShell } from '@/components/layout/app-shell';
 
-export default function SellUpLayout({
+export default async function SellUpLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <AppShell>{children}</AppShell>;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect('/login');
+
+  return <AppShell user={user}>{children}</AppShell>;
 }
