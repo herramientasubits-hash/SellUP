@@ -1,2 +1,1 @@
-// Módulo de autenticación
-// Pendiente de implementación: login, registro, sesión, middleware de auth
+export { signInWithGoogle, signOut } from './actions';

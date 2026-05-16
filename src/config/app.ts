@@ -17,8 +17,8 @@ export const appConfig = {
 
   // Características habilitadas por fase
   features: {
-    auth: false,
-    supabase: false,
+    auth: true,
+    supabase: true,
     agents: false,
     integrations: false,
   },
