@@ -459,11 +459,9 @@ export function SlackDisconnectDialog({ open, onOpenChange }: DisconnectDialogPr
 
 interface SlackActionsPanelProps {
   isConnected: boolean;
-  hasChannel: boolean;
 }
 
-export function SlackActionsPanel({ isConnected, hasChannel }: SlackActionsPanelProps) {
-  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+export function SlackActionsPanel({ isConnected }: SlackActionsPanelProps) {
   const [disconnectOpen, setDisconnectOpen] = useState(false);
 
   if (!isConnected) {
@@ -478,14 +476,6 @@ export function SlackActionsPanel({ isConnected, hasChannel }: SlackActionsPanel
     <div className="flex flex-wrap items-start gap-3">
       <SlackTestConnectionButton />
 
-      {!hasChannel ? (
-        <Button variant="outline" onClick={() => setCreateChannelOpen(true)}>
-          Crear canal de SellUp
-        </Button>
-      ) : (
-        <SlackSendTestMessageButton />
-      )}
-
       <Button
         variant="ghost"
         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -494,10 +484,6 @@ export function SlackActionsPanel({ isConnected, hasChannel }: SlackActionsPanel
         Desconectar
       </Button>
 
-      <SlackCreateChannelModal
-        open={createChannelOpen}
-        onOpenChange={setCreateChannelOpen}
-      />
       <SlackDisconnectDialog open={disconnectOpen} onOpenChange={setDisconnectOpen} />
     </div>
   );

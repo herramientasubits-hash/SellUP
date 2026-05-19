@@ -258,13 +258,11 @@ export default async function SlackIntegrationPage({ searchParams }: PageProps) 
           title="Acciones"
           description={
             isConnected
-              ? hasChannel
-                ? 'Prueba la conexión, envía un mensaje al canal o desconecta Slack.'
-                : 'Prueba la conexión, crea el canal oficial de SellUp o desconecta.'
+              ? 'Prueba la conexión o desconecta Slack.'
               : 'Conecta SellUp con el workspace de Slack mediante OAuth.'
           }
         />
-        <SlackActionsPanel isConnected={isConnected} hasChannel={hasChannel} />
+        <SlackActionsPanel isConnected={isConnected} />
       </SurfaceCard>
 
       {/* Nota de seguridad */}
