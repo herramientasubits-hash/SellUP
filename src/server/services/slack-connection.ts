@@ -218,12 +218,16 @@ export async function storeSlackOAuthConfig(
       oauth_redirect_uri: redirectUri,
     };
 
-    const { error: updateError } = await admin
+    const { error: updateError, count } = await admin
       .from('external_integration_connections')
       .update({ metadata: updatedMeta, updated_at: new Date().toISOString() })
-      .eq('integration_key', INTEGRATION_KEY);
+      .eq('integration_key', INTEGRATION_KEY)
+      .select();
 
     console.log('[storeSlackOAuthConfig] update error:', updateError ?? 'none');
+    console.log('[storeSlackOAuthConfig] rows updated:', count ?? 'unknown');
+
+    if (updateError) throw updateError;
 
     return { success: true };
   } catch (err: unknown) {
