@@ -80,6 +80,7 @@ export async function getAllUsers(): Promise<InternalUser[]> {
         avatar_url,
         access_status,
         role_id,
+        manager_id,
         requested_at,
         approved_at,
         rejected_at,
@@ -100,6 +101,7 @@ export async function getAllUsers(): Promise<InternalUser[]> {
   return (usersResult.data ?? []).map((u) => ({
     ...u,
     role_key: u.role_id ? rolesMap.get(u.role_id) ?? null : null,
+    manager_id: u.manager_id ?? null,
   })) as InternalUser[];
 }
 
@@ -185,6 +187,7 @@ export async function getUserAccessHistory(
 export async function approveUser(
   userId: string,
   roleId: string,
+  managerId?: string | null,
   reason?: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
@@ -223,6 +226,7 @@ export async function approveUser(
     .update({
       access_status: 'active',
       role_id: roleId,
+      manager_id: managerId ?? null,
       approved_at: new Date().toISOString(),
       approved_by: adminUser.id,
       updated_at: new Date().toISOString(),
@@ -486,6 +490,37 @@ export async function changeUserRole(
     p_new_role_id: newRoleId,
     p_reason: reason,
   });
+
+  return { success: true };
+}
+
+export async function changeUserManager(
+  userId: string,
+  newManagerId: string | null,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user: currentUser },
+  } = await supabase.auth.getUser();
+
+  if (!currentUser) return { success: false, error: 'No autenticado' };
+
+  const { data: adminUser } = await supabase
+    .from('internal_users')
+    .select('id')
+    .eq('auth_user_id', currentUser.id)
+    .eq('access_status', 'active')
+    .single();
+
+  if (!adminUser) return { success: false, error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('internal_users')
+    .update({ manager_id: newManagerId, updated_at: new Date().toISOString() })
+    .eq('id', userId);
+
+  if (error) return { success: false, error: error.message };
 
   return { success: true };
 }

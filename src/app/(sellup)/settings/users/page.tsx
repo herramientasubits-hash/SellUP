@@ -1,23 +1,18 @@
 import { redirect } from 'next/navigation';
-import { Users as UsersIcon, UserPlus, UserCheck, UserX, Pause, Play, Shield } from 'lucide-react';
+import { Users as UsersIcon, UserPlus, UserCheck, UserX, Pause, GitBranch } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   getAllUsers,
   getUsersSummary,
   getAllRoles,
   isCurrentUserAdmin,
-  approveUser,
-  rejectUser,
-  suspendUser,
-  reactivateUser,
-  changeUserRole,
 } from '@/modules/access/actions';
 import { UserActions } from './user-actions';
+import { OrgChart } from './org-chart';
 import type { InternalUser, Role } from '@/modules/access/types';
 
 function getStatusBadge(status: string) {
@@ -38,12 +33,7 @@ function getRoleLabel(roleKey: string | null, roles: Role[]): string {
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .slice(0, 2)
-      .join('')
-      .toUpperCase();
+    return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
   }
   return email.slice(0, 2).toUpperCase();
 }
@@ -59,13 +49,21 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
+function getManagerLabel(managerId: string | null, users: InternalUser[]): string {
+  if (!managerId) return 'Sin jefe asignado';
+  const manager = users.find((u) => u.id === managerId);
+  return manager ? (manager.full_name ?? manager.email) : 'Sin jefe asignado';
+}
+
 interface UserRowProps {
   user: InternalUser;
   roles: Role[];
+  allUsers: InternalUser[];
+  activeUsers: InternalUser[];
   isAdmin: boolean;
 }
 
-function UserRow({ user, roles, isAdmin }: UserRowProps) {
+function UserRow({ user, roles, allUsers, activeUsers, isAdmin }: UserRowProps) {
   const statusBadge = getStatusBadge(user.access_status);
 
   return (
@@ -92,6 +90,12 @@ function UserRow({ user, roles, isAdmin }: UserRowProps) {
         {getRoleLabel(user.role_key, roles)}
       </div>
 
+      <div className="hidden min-w-[120px] text-xs text-muted-foreground md:block">
+        {user.access_status === 'active'
+          ? getManagerLabel(user.manager_id, allUsers)
+          : null}
+      </div>
+
       <div className="hidden min-w-[140px] text-xs text-muted-foreground md:block">
         {user.access_status === 'pending_approval'
           ? `Solicitado: ${formatDate(user.requested_at)}`
@@ -103,7 +107,7 @@ function UserRow({ user, roles, isAdmin }: UserRowProps) {
       </div>
 
       {isAdmin && (
-        <UserActions user={user} roles={roles} />
+        <UserActions user={user} roles={roles} activeUsers={activeUsers} />
       )}
     </div>
   );
@@ -131,7 +135,7 @@ export default async function UsersManagementPage() {
     <div className="space-y-6">
       <PageHeader
         title="Usuarios y acceso"
-        description="Gestionar solicitudes, roles y estados de acceso de SellUp."
+        description="Gestionar solicitudes, roles, jerarquía y estados de acceso de SellUp."
         backHref="/settings"
       />
 
@@ -186,7 +190,7 @@ export default async function UsersManagementPage() {
         </SurfaceCard>
       </div>
 
-      {/* Users list with tabs */}
+      {/* Tabs */}
       <Tabs defaultValue="all" className="space-y-4">
         <TabsList className="bg-muted/50">
           <TabsTrigger value="all" className="gap-2">
@@ -209,66 +213,41 @@ export default async function UsersManagementPage() {
             <UserX className="h-4 w-4" />
             Rechazados ({rejectedUsers.length})
           </TabsTrigger>
+          <TabsTrigger value="org" className="gap-2">
+            <GitBranch className="h-4 w-4" />
+            Organigrama
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="all" className="space-y-3">
-          {users.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay usuarios registrados.
-            </div>
-          ) : (
-            users.map((user) => (
-              <UserRow key={user.id} user={user} roles={roles} isAdmin={isAdmin} />
-            ))
-          )}
-        </TabsContent>
+        {[
+          { value: 'all', list: users, empty: 'No hay usuarios registrados.' },
+          { value: 'pending', list: pendingUsers, empty: 'No hay solicitudes pendientes.' },
+          { value: 'active', list: activeUsers, empty: 'No hay usuarios activos.' },
+          { value: 'suspended', list: suspendedUsers, empty: 'No hay usuarios suspendidos.' },
+          { value: 'rejected', list: rejectedUsers, empty: 'No hay usuarios rechazados.' },
+        ].map(({ value, list, empty }) => (
+          <TabsContent key={value} value={value} className="space-y-3">
+            {list.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground">{empty}</div>
+            ) : (
+              list.map((user) => (
+                <UserRow
+                  key={user.id}
+                  user={user}
+                  roles={roles}
+                  allUsers={users}
+                  activeUsers={activeUsers}
+                  isAdmin={isAdmin}
+                />
+              ))
+            )}
+          </TabsContent>
+        ))}
 
-        <TabsContent value="pending" className="space-y-3">
-          {pendingUsers.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay solicitudes pendientes.
-            </div>
-          ) : (
-            pendingUsers.map((user) => (
-              <UserRow key={user.id} user={user} roles={roles} isAdmin={isAdmin} />
-            ))
-          )}
-        </TabsContent>
-
-        <TabsContent value="active" className="space-y-3">
-          {activeUsers.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay usuarios activos.
-            </div>
-          ) : (
-            activeUsers.map((user) => (
-              <UserRow key={user.id} user={user} roles={roles} isAdmin={isAdmin} />
-            ))
-          )}
-        </TabsContent>
-
-        <TabsContent value="suspended" className="space-y-3">
-          {suspendedUsers.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay usuarios suspendidos.
-            </div>
-          ) : (
-            suspendedUsers.map((user) => (
-              <UserRow key={user.id} user={user} roles={roles} isAdmin={isAdmin} />
-            ))
-          )}
-        </TabsContent>
-
-        <TabsContent value="rejected" className="space-y-3">
-          {rejectedUsers.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay usuarios rechazados.
-            </div>
-          ) : (
-            rejectedUsers.map((user) => (
-              <UserRow key={user.id} user={user} roles={roles} isAdmin={isAdmin} />
-            ))
-          )}
+        <TabsContent value="org">
+          <SurfaceCard className="overflow-hidden">
+            <OrgChart users={users} roles={roles} />
+          </SurfaceCard>
         </TabsContent>
       </Tabs>
     </div>

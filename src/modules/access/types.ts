@@ -16,6 +16,7 @@ export interface InternalUser {
   access_status: AccessStatus;
   role_id: string | null;
   role_key: string | null;
+  manager_id: string | null;
   requested_at: string;
   approved_at: string | null;
   rejected_at: string | null;

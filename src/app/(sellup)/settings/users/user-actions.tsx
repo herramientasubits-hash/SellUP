@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Check, X, Pause } from 'lucide-react';
+import { MoreHorizontal, Check, X, Pause, UserCog } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,27 +25,45 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { approveUser, rejectUser, suspendUser, reactivateUser, changeUserRole } from '@/modules/access/actions';
+import {
+  approveUser,
+  rejectUser,
+  suspendUser,
+  reactivateUser,
+  changeUserRole,
+  changeUserManager,
+} from '@/modules/access/actions';
 import type { InternalUser, Role } from '@/modules/access/types';
+
+const SELF_MANAGER_VALUE = '__self__';
 
 interface UserActionsProps {
   user: InternalUser;
   roles: Role[];
+  activeUsers: InternalUser[];
 }
 
-export function UserActions({ user, roles }: UserActionsProps) {
+export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
   const [showReactivateDialog, setShowReactivateDialog] = useState(false);
   const [showRoleDialog, setShowRoleDialog] = useState(false);
+  const [showManagerDialog, setShowManagerDialog] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>('');
+  const [selectedManager, setSelectedManager] = useState<string>('');
   const [loading, setLoading] = useState(false);
+
+  // Possible managers: active users excluding the user being edited
+  const possibleManagers = activeUsers.filter((u) => u.id !== user.id);
+
+  const resolveManagerId = (val: string): string | null =>
+    val === SELF_MANAGER_VALUE || val === '' ? null : val;
 
   const handleApprove = async () => {
     if (!selectedRole) return;
     setLoading(true);
-    await approveUser(user.id, selectedRole);
+    await approveUser(user.id, selectedRole, resolveManagerId(selectedManager));
     setLoading(false);
     setShowApproveDialog(false);
     window.location.reload();
@@ -84,8 +102,13 @@ export function UserActions({ user, roles }: UserActionsProps) {
     window.location.reload();
   };
 
-  const handleRoleSelect = (value: string | null) => {
-    if (value) setSelectedRole(value);
+  const handleManagerChange = async () => {
+    if (!selectedManager) return;
+    setLoading(true);
+    await changeUserManager(user.id, resolveManagerId(selectedManager));
+    setLoading(false);
+    setShowManagerDialog(false);
+    window.location.reload();
   };
 
   return (
@@ -117,6 +140,13 @@ export function UserActions({ user, roles }: UserActionsProps) {
               }}>
                 Cambiar rol
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                setSelectedManager(user.manager_id ?? SELF_MANAGER_VALUE);
+                setShowManagerDialog(true);
+              }}>
+                <UserCog className="mr-2 h-4 w-4" />
+                Cambiar jefe directo
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowSuspendDialog(true)}>
                 <Pause className="mr-2 h-4 w-4" />
@@ -138,36 +168,100 @@ export function UserActions({ user, roles }: UserActionsProps) {
           <DialogHeader>
             <DialogTitle>Aprobar solicitud</DialogTitle>
             <DialogDescription>
-              Asigna un rol a {user.full_name ?? user.email} para aprobar su acceso a SellUp.
+              Asigna un rol y jefe directo a {user.full_name ?? user.email}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-foreground">Rol</p>
+              <Select
+                value={selectedRole || undefined}
+                onValueChange={(v) => setSelectedRole(v || '')}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-foreground">Jefe directo</p>
+              <Select
+                value={selectedManager || undefined}
+                onValueChange={(v) => setSelectedManager(v || '')}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar jefe directo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SELF_MANAGER_VALUE}>
+                    👤 Soy mi propio jefe
+                  </SelectItem>
+                  {possibleManagers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.full_name ?? u.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowApproveDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleApprove}
+              disabled={!selectedRole || !selectedManager || loading}
+            >
+              Aprobar acceso
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Manager Dialog */}
+      <Dialog open={showManagerDialog} onOpenChange={setShowManagerDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar jefe directo</DialogTitle>
+            <DialogDescription>
+              Actualiza el jefe directo de {user.full_name ?? user.email} en el organigrama.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <Select 
-              value={selectedRole || undefined} 
-              onValueChange={(value) => setSelectedRole(value || '')}
+            <Select
+              value={selectedManager || undefined}
+              onValueChange={(v) => setSelectedManager(v || '')}
             >
-              <SelectTrigger className="w-full justify-between">
-                {selectedRole ? (
-                  <span className="truncate">{roles.find(r => r.id === selectedRole)?.name}</span>
-                ) : (
-                  <SelectValue placeholder="Seleccionar rol" />
-                )}
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar jefe directo" />
               </SelectTrigger>
               <SelectContent>
-                {roles.map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
+                <SelectItem value={SELF_MANAGER_VALUE}>
+                  👤 Soy mi propio jefe
+                </SelectItem>
+                {possibleManagers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.full_name ?? u.email}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowApproveDialog(false)}>
+            <Button variant="outline" onClick={() => setShowManagerDialog(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleApprove} disabled={!selectedRole || loading}>
-              Aprobar acceso
+            <Button onClick={handleManagerChange} disabled={!selectedManager || loading}>
+              Guardar
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -183,12 +277,8 @@ export function UserActions({ user, roles }: UserActionsProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={handleReject} disabled={loading}>
-              Rechazar
-            </Button>
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleReject} disabled={loading}>Rechazar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -204,12 +294,8 @@ export function UserActions({ user, roles }: UserActionsProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSuspendDialog(false)}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={handleSuspend} disabled={loading}>
-              Suspender
-            </Button>
+            <Button variant="outline" onClick={() => setShowSuspendDialog(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleSuspend} disabled={loading}>Suspender</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -224,12 +310,8 @@ export function UserActions({ user, roles }: UserActionsProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowReactivateDialog(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleReactivate} disabled={loading}>
-              Reactivar
-            </Button>
+            <Button variant="outline" onClick={() => setShowReactivateDialog(false)}>Cancelar</Button>
+            <Button onClick={handleReactivate} disabled={loading}>Reactivar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -244,16 +326,12 @@ export function UserActions({ user, roles }: UserActionsProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <Select 
-              value={selectedRole || undefined} 
-              onValueChange={(value) => setSelectedRole(value || '')}
+            <Select
+              value={selectedRole || undefined}
+              onValueChange={(v) => setSelectedRole(v || '')}
             >
-              <SelectTrigger className="w-full justify-between">
-                {selectedRole ? (
-                  <span className="truncate">{roles.find(r => r.id === selectedRole)?.name}</span>
-                ) : (
-                  <SelectValue placeholder="Seleccionar rol" />
-                )}
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar rol" />
               </SelectTrigger>
               <SelectContent>
                 {roles.map((role) => (
@@ -265,12 +343,8 @@ export function UserActions({ user, roles }: UserActionsProps) {
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRoleDialog(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleRoleChange} disabled={!selectedRole || loading}>
-              Guardar
-            </Button>
+            <Button variant="outline" onClick={() => setShowRoleDialog(false)}>Cancelar</Button>
+            <Button onClick={handleRoleChange} disabled={!selectedRole || loading}>Guardar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
