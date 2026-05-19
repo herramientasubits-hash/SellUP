@@ -4,6 +4,53 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
 
+export async function POST(request: Request) {
+  const admin = createAdminClient(supabaseUrl, supabaseServiceKey);
+  const { email } = await request.json() as { email: string };
+
+  // Get bot token from Vault
+  const { data: botToken } = await admin.rpc('get_vault_secret_decrypted', {
+    p_name: 'sellup_integration_slack_bot_token',
+  });
+
+  if (!botToken) return Response.json({ error: 'No bot token' }, { status: 500 });
+
+  // Look up user by email
+  const lookupRes = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
+    headers: { Authorization: `Bearer ${botToken}` },
+  });
+  const lookupData = await lookupRes.json() as { ok: boolean; user?: { id: string }; error?: string };
+
+  if (!lookupData.ok) return Response.json({ error: `users.lookupByEmail failed: ${lookupData.error}` }, { status: 400 });
+
+  const slackUserId = lookupData.user!.id;
+
+  // Open DM conversation
+  const openRes = await fetch('https://slack.com/api/conversations.open', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${botToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ users: slackUserId }),
+  });
+  const openData = await openRes.json() as { ok: boolean; channel?: { id: string }; error?: string };
+
+  if (!openData.ok) return Response.json({ error: `conversations.open failed: ${openData.error}` }, { status: 400 });
+
+  const dmChannelId = openData.channel!.id;
+
+  // Send message
+  const msgRes = await fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${botToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      channel: dmChannelId,
+      text: `Hola! Este es un mensaje de prueba de SellUp. Tu canal DM ID es: ${dmChannelId}`,
+    }),
+  });
+  const msgData = await msgRes.json() as { ok: boolean; error?: string };
+
+  return Response.json({ ok: msgData.ok, slackUserId, dmChannelId, error: msgData.error ?? null });
+}
+
 export async function GET() {
   const admin = createAdminClient(supabaseUrl, supabaseServiceKey);
 
