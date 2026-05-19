@@ -69,7 +69,7 @@ export async function GET() {
       has_vault_secret_id: !!connection?.vault_secret_id,
       metadata_keys: Object.keys(meta),
       has_oauth_client_id: !!meta.oauth_client_id,
-      has_oauth_redirect_uri: !!meta.oauth_redirect_uri,
+      oauth_redirect_uri: (meta.oauth_redirect_uri as string) ?? null,
       has_team_id: !!meta.team_id,
     },
     vault: {
