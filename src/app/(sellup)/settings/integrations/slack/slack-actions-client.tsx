@@ -52,13 +52,17 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
   function handleSubmit() {
     setError(null);
     startTransition(async () => {
-      const result = await configureSlackOAuthApp(clientId, clientSecret, redirectUri);
-      if (!result.success) {
-        setError(result.error ?? 'Error al guardar la configuración.');
-        return;
+      try {
+        const result = await configureSlackOAuthApp(clientId, clientSecret, redirectUri);
+        if (!result.success) {
+          setError(result.error ?? 'Error al guardar la configuración.');
+          return;
+        }
+        // Credenciales guardadas — iniciar flujo OAuth
+        window.location.href = '/api/integrations/slack/oauth/start';
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error inesperado. Intenta nuevamente.');
       }
-      // Credenciales guardadas — iniciar flujo OAuth
-      window.location.href = '/api/integrations/slack/oauth/start';
     });
   }
 
