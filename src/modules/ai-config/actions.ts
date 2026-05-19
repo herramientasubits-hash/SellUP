@@ -338,6 +338,13 @@ export async function setActiveConfig(
     return { success: false, error: upsertError.message, debugLogs: logs };
   }
 
+  // Auditoría: configuración activa cambiada — solo IDs, nunca secretos
+  await supabase.rpc('log_ai_provider_audit', {
+    p_event_type: 'ai_active_config_changed',
+    p_provider_id: providerId,
+    p_details: { model_id: modelId },
+  });
+
   return { success: true, debugLogs: logs };
 }
 
@@ -381,6 +388,13 @@ export async function addModelPricing(
   if (insertError) {
     return { success: false, error: insertError.message };
   }
+
+  // Auditoría: tarifa de modelo registrada — solo model_id, sin costos sensibles
+  await supabase.rpc('log_ai_provider_audit', {
+    p_event_type: 'ai_model_pricing_added',
+    p_provider_id: null,
+    p_details: { model_id: modelId },
+  });
 
   return { success: true };
 }
@@ -571,11 +585,18 @@ export async function connectAiProvider(
 
   debugLogs.push('COMPLETADO');
   console.log('[connectAiProvider] COMPLETADO');
-  
-  return { 
-    success: true, 
+
+  // Auditoría: credencial almacenada — metadata segura, nunca el secreto
+  await supabase.rpc('log_ai_provider_audit', {
+    p_event_type: 'ai_provider_credential_stored',
+    p_provider_id: provider.id,
+    p_details: { provider_key: providerKey },
+  });
+
+  return {
+    success: true,
     message: 'Proveedor conectado correctamente. Ahora puedes probar la conexión.',
-    debugLogs 
+    debugLogs
   };
 }
 
@@ -592,13 +613,22 @@ export async function updateAiProviderCredential(
 
   const { data: adminUser } = await supabase
     .from('internal_users')
-    .select('id')
+    .select('id, role_id')
     .eq('auth_user_id', user.id)
     .eq('access_status', 'active')
-    .eq('role', 'Administrador')
     .single();
 
   if (!adminUser) {
+    return { success: false, error: 'No autorizado' };
+  }
+
+  const { data: role } = await supabase
+    .from('roles')
+    .select('key')
+    .eq('id', adminUser.role_id)
+    .single();
+
+  if (role?.key !== 'admin') {
     return { success: false, error: 'No autorizado' };
   }
 
@@ -626,9 +656,16 @@ export async function updateAiProviderCredential(
     })
     .eq('id', provider.id);
 
-  return { 
-    success: true, 
-    message: 'Credencial actualizada correctamente. Debes probar la conexión.' 
+  // Auditoría: credencial actualizada — metadata segura, nunca el secreto
+  await supabase.rpc('log_ai_provider_audit', {
+    p_event_type: 'ai_provider_credential_updated',
+    p_provider_id: provider.id,
+    p_details: { provider_key: providerKey },
+  });
+
+  return {
+    success: true,
+    message: 'Credencial actualizada correctamente. Debes probar la conexión.'
   };
 }
 
@@ -708,6 +745,13 @@ export async function disconnectAiProvider(
       })
       .eq('id', activeConfig.id);
   }
+
+  // Auditoría: proveedor desconectado — metadata segura, nunca el secreto
+  await supabase.rpc('log_ai_provider_audit', {
+    p_event_type: 'ai_provider_disconnected',
+    p_provider_id: provider.id,
+    p_details: { provider_key: providerKey },
+  });
 
   return {
     success: true,
@@ -829,6 +873,18 @@ export async function testAiProviderConnectionWithVault(
     .select();
 
   log('[testVault] UPDATE data: ' + JSON.stringify(updateData) + ' error: ' + (updateError?.message ?? 'NONE'));
+
+  // Auditoría: resultado de prueba de conexión — sin secretos, solo estado y error_code
+  await supabase.rpc('log_ai_provider_audit', {
+    p_event_type: testResult.success
+      ? 'ai_provider_connection_succeeded'
+      : 'ai_provider_connection_failed',
+    p_provider_id: provider.id,
+    p_details: {
+      provider_key: providerKey,
+      ...(testResult.success ? {} : { error_code: testResult.error ?? null }),
+    },
+  });
 
   return {
     success: testResult.success,

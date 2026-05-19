@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Search, Bot, Users } from "lucide-react";
+import { Settings, Cpu, Link2, Search, Bot, Users, Activity } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
@@ -44,6 +44,14 @@ const CONFIG_SECTIONS = [
     status: "Funcional",
     icon: Search,
     href: "/settings/prospecting",
+    adminOnly: true,
+  },
+  {
+    title: "Estado y auditoría",
+    description: "Monitorea la salud de configuraciones clave y revisa cambios administrativos recientes en SellUp.",
+    status: "Funcional",
+    icon: Activity,
+    href: "/settings/system-status",
     adminOnly: true,
   },
 ];
