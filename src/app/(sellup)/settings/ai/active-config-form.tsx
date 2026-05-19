@@ -114,10 +114,10 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
       </button>
 
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-lg border z-50 ${
+        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-lg border z-50 bg-card ${
           toast.type === 'success'
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-            : 'bg-destructive/10 border-destructive/30 text-destructive'
+            ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-400'
+            : 'border-destructive/50 text-destructive'
         }`}>
           {toast.message}
         </div>

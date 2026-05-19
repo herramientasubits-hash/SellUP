@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Rocket, Key, Users } from "lucide-react";
+import { Settings, Cpu, Link2, Rocket, Bot, Users } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
@@ -23,6 +23,14 @@ const CONFIG_SECTIONS = [
     adminOnly: true,
   },
   {
+    title: "Automatizaciones",
+    description: "Define qué acciones de SellUp se ejecutan manualmente, como sugerencia o de forma automática.",
+    status: "Funcional",
+    icon: Bot,
+    href: "/settings/automations",
+    adminOnly: true,
+  },
+  {
     title: "Integración HubSpot",
     description: "Sincronización de cuentas y contactos",
     status: "Pendiente",
@@ -34,13 +42,6 @@ const CONFIG_SECTIONS = [
     description: "Enriquecimiento automático de prospectos",
     status: "Pendiente",
     icon: Rocket,
-    href: null,
-  },
-  {
-    title: "Automatización",
-    description: "Niveles de automatización por módulo",
-    status: "Pendiente",
-    icon: Key,
     href: null,
   },
 ];
