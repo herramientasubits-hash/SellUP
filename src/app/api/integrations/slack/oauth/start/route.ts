@@ -117,21 +117,53 @@ export async function GET(): Promise<NextResponse> {
     .eq('integration_key', 'slack')
     .single();
 
+  console.log('[slack/oauth/start] integration found:', integration ? integration.id : 'NULL');
+
   if (integration) {
     const { data: conn } = await adminClient
       .from('external_integration_connections')
-      .select('metadata')
+      .select('id, metadata')
       .eq('integration_id', integration.id)
-      .single();
+      .maybeSingle();
+
+    console.log('[slack/oauth/start] connection row found:', conn ? conn.id : 'NULL');
 
     const prevMeta = (conn?.metadata ?? {}) as Record<string, unknown>;
-    await adminClient
-      .from('external_integration_connections')
-      .update({
-        metadata: { ...prevMeta, oauth_state: state, oauth_state_at: new Date().toISOString() },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('integration_id', integration.id);
+    const newMeta = { ...prevMeta, oauth_state: state, oauth_state_at: new Date().toISOString() };
+
+    if (conn) {
+      const { data: updatedRows, error: updateError } = await adminClient
+        .from('external_integration_connections')
+        .update({ metadata: newMeta, updated_at: new Date().toISOString() })
+        .eq('id', conn.id)
+        .select();
+
+      console.log('[slack/oauth/start] state UPDATE error:', updateError ?? 'none', '| rows updated:', updatedRows?.length ?? 0);
+
+      if (updateError) {
+        return NextResponse.redirect(new URL(`/settings/integrations/slack?error=${encodeURIComponent('Error al guardar estado OAuth en DB.')}`, APP_BASE_URL));
+      }
+    } else {
+      // Fila de conexión no existe — crearla ahora
+      const { error: insertError } = await adminClient
+        .from('external_integration_connections')
+        .insert({
+          integration_id: integration.id,
+          auth_type: 'oauth2',
+          credentials_status: 'missing',
+          connection_status: 'not_tested',
+          metadata: newMeta,
+        });
+
+      console.log('[slack/oauth/start] state INSERT error:', insertError ?? 'none');
+
+      if (insertError) {
+        return NextResponse.redirect(new URL(`/settings/integrations/slack?error=${encodeURIComponent('Error al inicializar conexión OAuth en DB.')}`, APP_BASE_URL));
+      }
+    }
+  } else {
+    console.log('[slack/oauth/start] CRITICAL: slack integration row not found in external_integrations');
+    return NextResponse.redirect(new URL(`/settings/integrations/slack?error=${encodeURIComponent('Integración de Slack no configurada en el sistema.')}`, APP_BASE_URL));
   }
 
   // 5. Registrar auditoría de inicio de OAuth
