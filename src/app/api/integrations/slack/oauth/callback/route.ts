@@ -97,13 +97,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   console.log('[callback] cookie state:', cookieState ? 'PRESENT' : 'MISSING');
   console.log('[callback] state match:', cookieState === state);
   if (!cookieState || cookieState !== state) {
-    const adminForLog = getAdminSupabase();
-    await adminForLog.from('integration_audit').insert({
-      integration_key: 'slack',
-      event_type: 'oauth_failed',
-      actor_user_id: '00000000-0000-0000-0000-000000000000',
-      metadata: { error_code: 'state_mismatch', cookie_present: !!cookieState, state_present: !!state },
-    }).catch(() => {});
+    try {
+      const adminForLog = getAdminSupabase();
+      await adminForLog.from('integration_audit').insert({
+        integration_key: 'slack',
+        event_type: 'oauth_failed',
+        actor_user_id: '00000000-0000-0000-0000-000000000000',
+        metadata: { error_code: 'state_mismatch', cookie_present: !!cookieState, state_present: !!state },
+      });
+    } catch { /* non-blocking */ }
     return errorRedirect('Validación de estado fallida. Intenta conectar Slack nuevamente.');
   }
 
@@ -113,13 +115,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   console.log('[callback] actorId:', actorId ? 'FOUND' : 'NULL');
 
   if (!actorId) {
-    const adminForLog = getAdminSupabase();
-    await adminForLog.from('integration_audit').insert({
-      integration_key: 'slack',
-      event_type: 'oauth_failed',
-      actor_user_id: '00000000-0000-0000-0000-000000000000',
-      metadata: { error_code: 'unauthorized', detail: 'actorId null in callback' },
-    }).catch(() => {});
+    try {
+      const adminForLog = getAdminSupabase();
+      await adminForLog.from('integration_audit').insert({
+        integration_key: 'slack',
+        event_type: 'oauth_failed',
+        actor_user_id: '00000000-0000-0000-0000-000000000000',
+        metadata: { error_code: 'unauthorized', detail: 'actorId null in callback' },
+      });
+    } catch { /* non-blocking */ }
     return errorRedirect('No autorizado. Solo administradores pueden conectar Slack.');
   }
 
