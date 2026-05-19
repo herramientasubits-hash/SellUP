@@ -165,38 +165,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return errorRedirect('Parámetros inválidos en el callback.');
   }
 
-  // 3. Validar state contra DB (más fiable que cookie en flujos cross-site)
+  // 3. Validar state contra integration_audit
+  //    El start route guarda el state en integration_audit (INSERT siempre funciona).
   const admin = getAdminSupabase();
-  const { data: slackIntegration } = await admin
-    .from('external_integrations')
-    .select('id')
+
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data: auditRow } = await admin
+    .from('integration_audit')
+    .select('metadata, created_at')
     .eq('integration_key', 'slack')
-    .single();
+    .eq('event_type', 'oauth_started')
+    .filter('metadata->>oauth_state', 'eq', state)
+    .gte('created_at', tenMinutesAgo)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  const { data: connRow } = slackIntegration
-    ? await admin
-        .from('external_integration_connections')
-        .select('metadata')
-        .eq('integration_id', slackIntegration.id)
-        .single()
-    : { data: null };
-
-  const connMeta = (connRow?.metadata ?? {}) as Record<string, unknown>;
-  const dbState = connMeta.oauth_state as string | undefined;
-  const stateStoredAt = connMeta.oauth_state_at as string | undefined;
-  const stateAgeMs = stateStoredAt ? Date.now() - new Date(stateStoredAt).getTime() : Infinity;
+  const stateAgeMs = auditRow?.created_at
+    ? Date.now() - new Date(auditRow.created_at as string).getTime()
+    : Infinity;
 
   console.log('[callback] state param:', state ? state.slice(0, 8) + '...' : 'MISSING');
-  console.log('[callback] db state:', dbState ? dbState.slice(0, 8) + '...' : 'MISSING');
-  console.log('[callback] state match:', dbState === state, '| age ms:', stateAgeMs);
+  console.log('[callback] audit row found:', !!auditRow, '| age ms:', stateAgeMs);
 
-  if (!dbState || dbState !== state || stateAgeMs > 10 * 60 * 1000) {
+  if (!auditRow) {
     try {
       await admin.from('integration_audit').insert({
         integration_key: 'slack',
         event_type: 'oauth_failed',
         actor_user_id: '00000000-0000-0000-0000-000000000000',
-        metadata: { error_code: 'state_mismatch', db_state_present: !!dbState, state_match: dbState === state, age_ms: stateAgeMs },
+        metadata: { error_code: 'state_not_found', state_prefix: state.slice(0, 8) },
       });
     } catch { /* non-blocking */ }
     return errorRedirect('Validación de estado fallida. Intenta conectar Slack nuevamente.');

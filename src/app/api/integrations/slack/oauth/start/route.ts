@@ -3,27 +3,18 @@
  *
  * Inicia el flujo OAuth v2 de Slack.
  * - Valida que el usuario sea Administrador activo.
- * - Genera un state aleatorio y lo persiste en una cookie HTTP-only (5 min).
+ * - Genera un state CSRF-safe y lo persiste en integration_audit (INSERT siempre funciona).
  * - Redirige al browser a la URL de autorización de Slack.
- *
- * NOTA: Slack exige que el redirect_uri use HTTPS en producción.
- * Para pruebas locales utiliza un túnel HTTPS (ngrok, cloudflared, etc.)
- * y configura SLACK_REDIRECT_URI con esa URL.
  */
 
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { getSlackOAuthConfig } from '@/server/services/slack-connection';
 
-// Bot Token Scopes solicitados al instalar la Slack App:
-//   channels:manage    → crear el canal oficial de SellUp
-//   chat:write         → enviar mensajes como bot
-//   app_mentions:read  → leer menciones directas a la app
-//   channels:history   → leer historial de canales públicos donde el bot esté agregado
-//   im:write           → abrir mensajes directos hacia usuarios
-//   im:history         → leer historial de DMs donde el bot participe
+export const dynamic = 'force-dynamic';
+
 const SLACK_SCOPES =
   'channels:manage,chat:write,app_mentions:read,channels:history,im:write,im:history';
 
@@ -68,28 +59,21 @@ async function getAdminInternalUserId(
   return internalUser.id;
 }
 
-export async function GET(): Promise<NextResponse> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function GET(_request: NextRequest): Promise<NextResponse> {
   const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
   // 1. Resolver credenciales: env vars tienen prioridad, luego DB/Vault
   let clientId = process.env.SLACK_CLIENT_ID ?? '';
   let redirectUri = process.env.SLACK_REDIRECT_URI ?? '';
 
-  console.log('[slack/oauth/start] env SLACK_CLIENT_ID:', clientId ? 'SET' : 'MISSING');
-  console.log('[slack/oauth/start] env SLACK_REDIRECT_URI:', redirectUri ? 'SET' : 'MISSING');
-
   if (!clientId || !redirectUri) {
-    console.log('[slack/oauth/start] falling back to DB config...');
     const dbConfig = await getSlackOAuthConfig();
-    console.log('[slack/oauth/start] dbConfig:', dbConfig ? JSON.stringify({ clientId: dbConfig.clientId ? 'SET' : 'MISSING', redirectUri: dbConfig.redirectUri ? 'SET' : 'MISSING' }) : 'NULL');
     if (dbConfig) {
       if (!clientId) clientId = dbConfig.clientId;
       if (!redirectUri) redirectUri = dbConfig.redirectUri;
     }
   }
-
-  console.log('[slack/oauth/start] final clientId:', clientId ? 'SET' : 'MISSING');
-  console.log('[slack/oauth/start] final redirectUri:', redirectUri ? 'SET' : 'MISSING');
 
   if (!clientId || !redirectUri) {
     const params = new URLSearchParams({
@@ -109,72 +93,32 @@ export async function GET(): Promise<NextResponse> {
   // 3. Generar state CSRF-safe (16 bytes = 32 hex chars)
   const state = randomBytes(16).toString('hex');
 
-  // 4. Persistir state en DB para validación en el callback (evita problemas de cookies cross-site)
+  // 4. Persistir state en integration_audit — INSERT siempre funciona,
+  //    evita el problema intermitente con UPDATE de metadata en connection row.
   const adminClient = getAdminSupabase();
-  const { data: integration } = await adminClient
-    .from('external_integrations')
-    .select('id')
-    .eq('integration_key', 'slack')
-    .single();
+  const { error: auditInsertError } = await adminClient
+    .from('integration_audit')
+    .insert({
+      integration_key: 'slack',
+      event_type: 'oauth_started',
+      actor_user_id: actorId,
+      metadata: {
+        oauth_state: state,
+        oauth_state_at: new Date().toISOString(),
+      },
+    });
 
-  console.log('[slack/oauth/start] integration found:', integration ? integration.id : 'NULL');
-
-  if (integration) {
-    const { data: conn } = await adminClient
-      .from('external_integration_connections')
-      .select('id, metadata')
-      .eq('integration_id', integration.id)
-      .maybeSingle();
-
-    console.log('[slack/oauth/start] connection row found:', conn ? conn.id : 'NULL');
-
-    const prevMeta = (conn?.metadata ?? {}) as Record<string, unknown>;
-    const newMeta = { ...prevMeta, oauth_state: state, oauth_state_at: new Date().toISOString() };
-
-    if (conn) {
-      const { data: updatedRows, error: updateError } = await adminClient
-        .from('external_integration_connections')
-        .update({ metadata: newMeta, updated_at: new Date().toISOString() })
-        .eq('id', conn.id)
-        .select();
-
-      console.log('[slack/oauth/start] state UPDATE error:', updateError ?? 'none', '| rows updated:', updatedRows?.length ?? 0);
-
-      if (updateError) {
-        return NextResponse.redirect(new URL(`/settings/integrations/slack?error=${encodeURIComponent('Error al guardar estado OAuth en DB.')}`, APP_BASE_URL));
-      }
-    } else {
-      // Fila de conexión no existe — crearla ahora
-      const { error: insertError } = await adminClient
-        .from('external_integration_connections')
-        .insert({
-          integration_id: integration.id,
-          auth_type: 'oauth2',
-          credentials_status: 'missing',
-          connection_status: 'not_tested',
-          metadata: newMeta,
-        });
-
-      console.log('[slack/oauth/start] state INSERT error:', insertError ?? 'none');
-
-      if (insertError) {
-        return NextResponse.redirect(new URL(`/settings/integrations/slack?error=${encodeURIComponent('Error al inicializar conexión OAuth en DB.')}`, APP_BASE_URL));
-      }
-    }
-  } else {
-    console.log('[slack/oauth/start] CRITICAL: slack integration row not found in external_integrations');
-    return NextResponse.redirect(new URL(`/settings/integrations/slack?error=${encodeURIComponent('Integración de Slack no configurada en el sistema.')}`, APP_BASE_URL));
+  if (auditInsertError) {
+    console.error('[slack/oauth/start] failed to store state in audit:', auditInsertError.message);
+    return NextResponse.redirect(
+      new URL(
+        `/settings/integrations/slack?error=${encodeURIComponent('Error interno al iniciar OAuth. Intenta nuevamente.')}`,
+        APP_BASE_URL
+      )
+    );
   }
 
-  // 5. Registrar auditoría de inicio de OAuth
-  await adminClient.from('integration_audit').insert({
-    integration_key: 'slack',
-    event_type: 'oauth_started',
-    actor_user_id: actorId,
-    metadata: null,
-  });
-
-  // 6. Construir URL de autorización de Slack
+  // 5. Construir URL de autorización de Slack
   const slackAuthUrl = new URL('https://slack.com/oauth/v2/authorize');
   slackAuthUrl.searchParams.set('client_id', clientId);
   slackAuthUrl.searchParams.set('scope', SLACK_SCOPES);
