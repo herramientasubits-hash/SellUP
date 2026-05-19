@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Rocket, Bot, Users } from "lucide-react";
+import { Settings, Cpu, Link2, Search, Bot, Users } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
@@ -31,18 +31,20 @@ const CONFIG_SECTIONS = [
     adminOnly: true,
   },
   {
-    title: "Integración HubSpot",
-    description: "Sincronización de cuentas y contactos",
-    status: "Pendiente",
+    title: "Integraciones comerciales",
+    description: "Conecta HubSpot y futuras herramientas externas que alimentan la operación comercial de SellUp.",
+    status: "Funcional",
     icon: Link2,
-    href: null,
+    href: "/settings/integrations",
+    adminOnly: true,
   },
   {
-    title: "Integración Apollo.io",
-    description: "Enriquecimiento automático de prospectos",
-    status: "Pendiente",
-    icon: Rocket,
-    href: null,
+    title: "Prospección y enriquecimiento",
+    description: "Prepara la conexión con proveedores externos para generar, validar y enriquecer cuentas comerciales.",
+    status: "Funcional",
+    icon: Search,
+    href: "/settings/prospecting",
+    adminOnly: true,
   },
 ];
 
@@ -141,7 +143,7 @@ export default async function SettingsPage() {
         features={[
           { label: "Proveedores de IA y selección de modelos" },
           { label: "Integración con HubSpot CRM" },
-          { label: "Integración con Apollo.io" },
+          { label: "Conexión con proveedor de prospección activo" },
           { label: "Niveles de automatización por agente" },
           { label: "Gestión de claves API" },
           { label: "Parámetros globales del sistema" },
