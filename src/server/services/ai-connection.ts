@@ -1,42 +1,30 @@
 /**
  * AI Provider Connection Service
- * 
- * Maneja la verificación segura de conexiones a proveedores de IA.
- * Las API keys se almacenan en Supabase (tabla local alternativa a Vault).
+ *
+ * Gestión segura de credenciales de proveedores de IA usando Supabase Vault.
+ * Las API keys se almacenan CIFRADAS en vault.secrets.
+ * Las tablas funcionales (ai_providers) solo guardan vault_secret_id — nunca el secreto.
+ *
+ * Naming convention de secretos en Vault: sellup_ai_{provider_key}
+ * Ejemplo: sellup_ai_openai, sellup_ai_google, sellup_ai_anthropic
  */
 
-import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  'https://lrdruowtadwbdulndlph.supabase.co';
+const supabaseServiceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
 
 function getAdminSupabase() {
   return createAdminClient(supabaseUrl, supabaseServiceKey);
 }
 
-async function ensureCredentialsTable(adminClient: any) {
-  try {
-    await adminClient
-      .from('ai_provider_credentials')
-      .select('id')
-      .limit(1);
-  } catch (err: any) {
-    if (err.message?.includes('does not exist')) {
-      console.log('Creando tabla ai_provider_credentials...');
-      await adminClient
-        .from('ai_provider_credentials')
-        .insert({
-          provider_key: '_init',
-          encrypted_key: '_init'
-        })
-        .then(() => adminClient
-          .from('ai_provider_credentials')
-          .delete()
-          .eq('provider_key', '_init'))
-        .catch(() => {});
-    }
-  }
+/** Nombre canónico del secreto en Vault para un proveedor de IA. */
+function vaultSecretName(providerKey: string): string {
+  return `sellup_ai_${providerKey}`;
 }
 
 export interface ConnectionTestResult {
@@ -45,215 +33,155 @@ export interface ConnectionTestResult {
   message?: string;
 }
 
+// ============================================================
+// Gestión de credenciales via Vault
+// ============================================================
+
+/**
+ * Guarda (o actualiza) la API key de un proveedor en Vault.
+ * Retorna el vault_secret_id para almacenar en ai_providers.
+ */
 export async function storeAiProviderCredential(
   providerKey: string,
   apiKey: string
-): Promise<{ success: boolean; error?: string; message?: string }> {
-  console.log('[storeAiProviderCredential] Iniciando...', { providerKey, apiKeyLength: apiKey?.length });
-  
-  const adminClient = getAdminSupabase();
-  console.log('[storeAiProviderCredential] AdminClient creado');
+): Promise<{ success: boolean; vaultSecretId?: string; error?: string; message?: string }> {
+  const admin = getAdminSupabase();
+  const secretName = vaultSecretName(providerKey);
 
   try {
-    console.log('[storeAiProviderCredential] Verificando tabla...');
-    await ensureCredentialsTable(adminClient);
+    const { data, error } = await admin.rpc('upsert_vault_secret', {
+      p_name: secretName,
+      p_secret: apiKey,
+      p_description: `API key para proveedor de IA: ${providerKey}`,
+    });
 
-    console.log('[storeAiProviderCredential] Buscando credencial existente...');
-    const { data: existing, error: selectError } = await adminClient
-      .from('ai_provider_credentials')
-      .select('id')
-      .eq('provider_key', providerKey)
-      .single();
-    
-    console.log('[storeAiProviderCredential] Existing:', existing, 'SelectError:', selectError);
+    if (error) throw error;
 
-    if (existing) {
-      console.log('[storeAiProviderCredential] Actualizando...');
-      const { error: updateError } = await adminClient
-        .from('ai_provider_credentials')
-        .update({ 
-          encrypted_key: apiKey,
-          updated_at: new Date().toISOString()
-        })
-        .eq('provider_key', providerKey);
+    const vaultSecretId = data as string;
 
-      console.log('[storeAiProviderCredential] UpdateError:', updateError);
-      if (updateError) throw updateError;
-    } else {
-      console.log('[storeAiProviderCredential] Insertando nueva...');
-      const { error: insertError } = await adminClient
-        .from('ai_provider_credentials')
-        .insert({
-          provider_key: providerKey,
-          encrypted_key: apiKey
-        });
+    // Guardar referencia en ai_providers (solo el UUID, nunca el secreto)
+    await admin
+      .from('ai_providers')
+      .update({
+        vault_secret_id: vaultSecretId,
+        credentials_status: 'configured',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('key', providerKey);
 
-      if (insertError) throw insertError;
-    }
-
-    console.log('[storeAiProviderCredential] Éxito!');
-    return { success: true, message: 'Credencial almacenada de forma segura' };
-  } catch (error: unknown) {
-    console.error('[storeAiProviderCredential] Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Error al almacenar la credencial';
-    return { 
-      success: false, 
-      error: 'STORAGE_ERROR', 
-      message: errorMessage
+    return {
+      success: true,
+      vaultSecretId,
+      message: 'Credencial almacenada de forma segura en Vault',
     };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error al almacenar en Vault';
+    return { success: false, error: 'VAULT_STORAGE_ERROR', message: msg };
   }
 }
 
+/**
+ * Elimina la API key de Vault y limpia la referencia en ai_providers.
+ */
 export async function removeAiProviderCredential(
   providerKey: string
-): Promise<{ success: boolean; error?: string; message?: string }> {
-  const adminClient = getAdminSupabase();
+): Promise<{ success: boolean; error?: string }> {
+  const admin = getAdminSupabase();
+  const secretName = vaultSecretName(providerKey);
 
   try {
-    const { error: deleteError } = await adminClient
-      .from('ai_provider_credentials')
-      .delete()
-      .eq('provider_key', providerKey);
+    await admin.rpc('delete_vault_secret', { p_name: secretName });
 
-    if (deleteError) throw deleteError;
+    await admin
+      .from('ai_providers')
+      .update({
+        vault_secret_id: null,
+        credentials_status: 'missing',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('key', providerKey);
 
-    return { success: true, message: 'Credencial eliminada' };
-  } catch (error: unknown) {
-    console.error('Error removing credential:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Error al eliminar la credencial';
-    return { 
-      success: false, 
-      error: 'REMOVAL_ERROR', 
-      message: errorMessage
-    };
+    return { success: true };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error al eliminar de Vault';
+    return { success: false, error: msg };
   }
 }
 
-export async function getAiProviderCredential(
-  providerKey: string
-): Promise<{ success: boolean; apiKey?: string; error?: string }> {
-  const adminClient = getAdminSupabase();
+/**
+ * Verifica si existe credencial almacenada en Vault para el proveedor.
+ */
+export async function hasAiProviderCredential(providerKey: string): Promise<boolean> {
+  const admin = getAdminSupabase();
+  const secretName = vaultSecretName(providerKey);
 
   try {
-    const { data: credential, error } = await adminClient
-      .from('ai_provider_credentials')
-      .select('encrypted_key')
-      .eq('provider_key', providerKey)
-      .single();
-
-    if (error || !credential) {
-      return { success: false, error: 'CREDENTIAL_NOT_FOUND' };
-    }
-
-    return { success: true, apiKey: credential.encrypted_key };
-  } catch (error: unknown) {
-    console.error('Error getting credential:', error);
-    return { success: false, error: 'READ_ERROR' };
-  }
-}
-
-export async function hasAiProviderCredential(
-  providerKey: string
-): Promise<boolean> {
-  const adminClient = getAdminSupabase();
-
-  try {
-    const { data } = await adminClient
-      .from('ai_provider_credentials')
-      .select('id')
-      .eq('provider_key', providerKey)
-      .single();
-
-    return !!data;
+    const { data } = await admin.rpc('has_vault_secret', { p_name: secretName });
+    return data === true;
   } catch {
     return false;
   }
 }
 
-export async function testGeminiConnection(): Promise<ConnectionTestResult> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  
-  if (!apiKey) {
-    return {
-      success: false,
-      error: 'MISSING_API_KEY',
-      message: 'No se encontró GEMINI_API_KEY en las variables de entorno del servidor'
-    };
-  }
+/**
+ * Recupera la API key descifrada desde Vault.
+ * USO EXCLUSIVO en backend seguro para probar conexiones.
+ * NUNCA retornar al frontend. NUNCA loggear el valor.
+ */
+export async function getAiProviderCredential(
+  providerKey: string
+): Promise<{ success: boolean; apiKey?: string; error?: string }> {
+  const admin = getAdminSupabase();
+  const secretName = vaultSecretName(providerKey);
 
-  return testGeminiWithKey(apiKey);
+  try {
+    const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
+      p_name: secretName,
+    });
+
+    if (error) throw error;
+    if (!data) return { success: false, error: 'CREDENTIAL_NOT_FOUND' };
+
+    return { success: true, apiKey: data as string };
+  } catch {
+    return { success: false, error: 'VAULT_READ_ERROR' };
+  }
 }
 
+// ============================================================
+// Pruebas de conexión con cada proveedor
+// ============================================================
+
 export async function testGeminiWithKey(apiKey: string): Promise<ConnectionTestResult> {
-  console.log('[testGeminiWithKey] API key primeras 10 chars:', apiKey.substring(0, 10));
-  console.log('[testGeminiWithKey] API key longitud:', apiKey.length);
-  
-try {
-    // Google AI Studio usa x-goog-api-key en lugar de Bearer
+  try {
     const response = await fetch(
       'https://generativelanguage.googleapis.com/v1beta/models?pageSize=10',
       {
         method: 'GET',
         headers: {
           'x-goog-api-key': apiKey,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       }
     );
 
-    console.log('[testGeminiWithKey] Response status:', response.status);
-    console.log('[testGeminiWithKey] Response ok:', response.ok);
-
     if (!response.ok) {
-      let bodyText = '';
-      try { bodyText = await response.text(); } catch {}
-      console.log('[testGeminiWithKey] Error body:', bodyText);
-
       if (response.status === 401) {
-        return {
-          success: false,
-          error: 'INVALID_API_KEY',
-          message: 'La API key de Gemini no es válida o está vencida'
-        };
+        return { success: false, error: 'INVALID_API_KEY', message: 'La API key de Gemini no es válida o está vencida' };
       }
-
       if (response.status === 403) {
-        return {
-          success: false,
-          error: 'PERMISSION_DENIED',
-          message: 'La API key no tiene permisos para acceder a la API de Gemini'
-        };
+        return { success: false, error: 'PERMISSION_DENIED', message: 'La API key no tiene permisos para acceder a Gemini' };
       }
-
-      return {
-        success: false,
-        error: 'API_ERROR',
-        message: `Error de la API de Gemini: ${response.status} — ${bodyText.slice(0, 200)}`
-      };
+      const body = await response.text().catch(() => '');
+      return { success: false, error: 'API_ERROR', message: `Error de Gemini: ${response.status} — ${body.slice(0, 200)}` };
     }
 
     const data = await response.json();
-    
-    if (data.models && data.models.length > 0) {
-      return {
-        success: true,
-        message: `Conexión exitosa. Modelos disponibles: ${data.models.length}`
-      };
-    }
-
-    return {
-      success: false,
-      error: 'NO_MODELS',
-      message: 'Conexión exitosa pero no se encontraron modelos disponibles'
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-    
-    return {
-      success: false,
-      error: 'CONNECTION_ERROR',
-      message: `Error de conexión: ${errorMessage}`
-    };
+    const modelCount: number = data.models?.length ?? 0;
+    return { success: true, message: `Conexión exitosa. Modelos disponibles: ${modelCount}` };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error desconocido';
+    return { success: false, error: 'CONNECTION_ERROR', message: `Error de conexión: ${msg}` };
   }
 }
 
@@ -261,41 +189,22 @@ export async function testOpenAIConnection(apiKey: string): Promise<ConnectionTe
   try {
     const response = await fetch('https://api.openai.com/v1/models', {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      }
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     });
 
     if (!response.ok) {
       if (response.status === 401) {
-        return {
-          success: false,
-          error: 'INVALID_API_KEY',
-          message: 'La API key de OpenAI no es válida'
-        };
+        return { success: false, error: 'INVALID_API_KEY', message: 'La API key de OpenAI no es válida' };
       }
-      return {
-        success: false,
-        error: 'API_ERROR',
-        message: `Error de OpenAI: ${response.status}`
-      };
+      return { success: false, error: 'API_ERROR', message: `Error de OpenAI: ${response.status}` };
     }
 
     const data = await response.json();
-    const modelCount = data.data?.length || 0;
-
-    return {
-      success: true,
-      message: `Conexión exitosa. Modelos disponibles: ${modelCount}`
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-    return {
-      success: false,
-      error: 'CONNECTION_ERROR',
-      message: `Error de conexión: ${errorMessage}`
-    };
+    const modelCount: number = (data.data as unknown[])?.length ?? 0;
+    return { success: true, message: `Conexión exitosa. Modelos disponibles: ${modelCount}` };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error desconocido';
+    return { success: false, error: 'CONNECTION_ERROR', message: `Error de conexión: ${msg}` };
   }
 }
 
@@ -303,40 +212,30 @@ export async function testClaudeConnection(apiKey: string): Promise<ConnectionTe
   try {
     const response = await fetch('https://api.anthropic.com/v1/models', {
       method: 'GET',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      }
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     });
 
     if (!response.ok) {
       if (response.status === 401) {
-        return {
-          success: false,
-          error: 'INVALID_API_KEY',
-          message: 'La API key de Claude no es válida'
-        };
+        return { success: false, error: 'INVALID_API_KEY', message: 'La API key de Claude no es válida' };
       }
-      return {
-        success: false,
-        error: 'API_ERROR',
-        message: `Error de Claude: ${response.status}`
-      };
+      return { success: false, error: 'API_ERROR', message: `Error de Claude: ${response.status}` };
     }
 
     const data = await response.json();
-    const modelCount = data.data?.length || 0;
-
-    return {
-      success: true,
-      message: `Conexión exitosa. Modelos disponibles: ${modelCount}`
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-    return {
-      success: false,
-      error: 'CONNECTION_ERROR',
-      message: `Error de conexión: ${errorMessage}`
-    };
+    const modelCount: number = (data.data as unknown[])?.length ?? 0;
+    return { success: true, message: `Conexión exitosa. Modelos disponibles: ${modelCount}` };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error desconocido';
+    return { success: false, error: 'CONNECTION_ERROR', message: `Error de conexión: ${msg}` };
   }
+}
+
+/** Unused — kept for backward compat with legacy callers during transition */
+export async function testGeminiConnection(): Promise<ConnectionTestResult> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    return { success: false, error: 'MISSING_API_KEY', message: 'No se encontró GEMINI_API_KEY en variables de entorno del servidor' };
+  }
+  return testGeminiWithKey(apiKey);
 }

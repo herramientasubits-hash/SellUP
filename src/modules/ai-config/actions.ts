@@ -80,21 +80,9 @@ export async function getAllAIProviders(): Promise<AIProvider[]> {
     countMap.set(m.provider_id, (countMap.get(m.provider_id) ?? 0) + 1);
   });
 
-  // Obtener estado de credenciales
-  const { data: credentials } = await (adminSupabase as any)
-    .from('ai_provider_credentials')
-    .select('provider_key');
-
-  
-  const connectedProviders = new Set((credentials ?? []).map((c: any) => c.provider_key));
-
   return (providers ?? []).map((p: any) => ({
     ...p,
     model_count: countMap.get(p.id) ?? 0,
-    credentials_status: connectedProviders.has(p.key) ? 'configured' : 'missing',
-    connection_status: connectedProviders.has(p.key)
-      ? (p.connection_status && p.connection_status !== 'not_configured' ? p.connection_status : 'not_tested')
-      : 'not_configured'
   })) as AIProvider[];
 }
 
