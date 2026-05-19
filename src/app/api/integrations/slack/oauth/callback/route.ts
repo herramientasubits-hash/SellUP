@@ -165,18 +165,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return errorRedirect('Parámetros inválidos en el callback.');
   }
 
-  // 3. Validar state contra cookie (protección CSRF)
-  const cookieState = request.cookies.get('slack_oauth_state')?.value;
-  console.log('[callback] state param:', state ? 'PRESENT' : 'MISSING');
-  console.log('[callback] cookie state:', cookieState ? 'PRESENT' : 'MISSING');
-  console.log('[callback] state match:', cookieState === state);
-  if (!cookieState || cookieState !== state) {
+  // 3. Validar state contra DB (más fiable que cookie en flujos cross-site)
+  const admin = getAdminSupabase();
+  const { data: slackIntegration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  const { data: connRow } = slackIntegration
+    ? await admin
+        .from('external_integration_connections')
+        .select('metadata')
+        .eq('integration_id', slackIntegration.id)
+        .single()
+    : { data: null };
+
+  const connMeta = (connRow?.metadata ?? {}) as Record<string, unknown>;
+  const dbState = connMeta.oauth_state as string | undefined;
+  const stateStoredAt = connMeta.oauth_state_at as string | undefined;
+  const stateAgeMs = stateStoredAt ? Date.now() - new Date(stateStoredAt).getTime() : Infinity;
+
+  console.log('[callback] state param:', state ? state.slice(0, 8) + '...' : 'MISSING');
+  console.log('[callback] db state:', dbState ? dbState.slice(0, 8) + '...' : 'MISSING');
+  console.log('[callback] state match:', dbState === state, '| age ms:', stateAgeMs);
+
+  if (!dbState || dbState !== state || stateAgeMs > 10 * 60 * 1000) {
     try {
-      await getAdminSupabase().from('integration_audit').insert({
+      await admin.from('integration_audit').insert({
         integration_key: 'slack',
         event_type: 'oauth_failed',
         actor_user_id: '00000000-0000-0000-0000-000000000000',
-        metadata: { error_code: 'state_mismatch', cookie_present: !!cookieState, state_present: !!state },
+        metadata: { error_code: 'state_mismatch', db_state_present: !!dbState, state_match: dbState === state, age_ms: stateAgeMs },
       });
     } catch { /* non-blocking */ }
     return errorRedirect('Validación de estado fallida. Intenta conectar Slack nuevamente.');

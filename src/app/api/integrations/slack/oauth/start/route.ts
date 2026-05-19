@@ -106,8 +106,35 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/settings', APP_BASE_URL));
   }
 
-  // 3. Registrar auditoría de inicio de OAuth
+  // 3. Generar state CSRF-safe (16 bytes = 32 hex chars)
+  const state = randomBytes(16).toString('hex');
+
+  // 4. Persistir state en DB para validación en el callback (evita problemas de cookies cross-site)
   const adminClient = getAdminSupabase();
+  const { data: integration } = await adminClient
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (integration) {
+    const { data: conn } = await adminClient
+      .from('external_integration_connections')
+      .select('metadata')
+      .eq('integration_id', integration.id)
+      .single();
+
+    const prevMeta = (conn?.metadata ?? {}) as Record<string, unknown>;
+    await adminClient
+      .from('external_integration_connections')
+      .update({
+        metadata: { ...prevMeta, oauth_state: state, oauth_state_at: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('integration_id', integration.id);
+  }
+
+  // 5. Registrar auditoría de inicio de OAuth
   await adminClient.from('integration_audit').insert({
     integration_key: 'slack',
     event_type: 'oauth_started',
@@ -115,25 +142,12 @@ export async function GET(): Promise<NextResponse> {
     metadata: null,
   });
 
-  // 4. Generar state CSRF-safe (16 bytes = 32 hex chars)
-  const state = randomBytes(16).toString('hex');
-
-  // 5. Construir URL de autorización de Slack
+  // 6. Construir URL de autorización de Slack
   const slackAuthUrl = new URL('https://slack.com/oauth/v2/authorize');
   slackAuthUrl.searchParams.set('client_id', clientId);
   slackAuthUrl.searchParams.set('scope', SLACK_SCOPES);
   slackAuthUrl.searchParams.set('redirect_uri', redirectUri);
   slackAuthUrl.searchParams.set('state', state);
 
-  // 6. Responder con redirect y cookie de state (HTTP-only, 5 min)
-  const response = NextResponse.redirect(slackAuthUrl.toString());
-  response.cookies.set('slack_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 300, // 5 minutos
-    path: '/',
-  });
-
-  return response;
+  return NextResponse.redirect(slackAuthUrl.toString());
 }
