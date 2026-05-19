@@ -75,13 +75,21 @@ export async function GET(): Promise<NextResponse> {
   let clientId = process.env.SLACK_CLIENT_ID ?? '';
   let redirectUri = process.env.SLACK_REDIRECT_URI ?? '';
 
+  console.log('[slack/oauth/start] env SLACK_CLIENT_ID:', clientId ? 'SET' : 'MISSING');
+  console.log('[slack/oauth/start] env SLACK_REDIRECT_URI:', redirectUri ? 'SET' : 'MISSING');
+
   if (!clientId || !redirectUri) {
+    console.log('[slack/oauth/start] falling back to DB config...');
     const dbConfig = await getSlackOAuthConfig();
+    console.log('[slack/oauth/start] dbConfig:', dbConfig ? JSON.stringify({ clientId: dbConfig.clientId ? 'SET' : 'MISSING', redirectUri: dbConfig.redirectUri ? 'SET' : 'MISSING' }) : 'NULL');
     if (dbConfig) {
       if (!clientId) clientId = dbConfig.clientId;
       if (!redirectUri) redirectUri = dbConfig.redirectUri;
     }
   }
+
+  console.log('[slack/oauth/start] final clientId:', clientId ? 'SET' : 'MISSING');
+  console.log('[slack/oauth/start] final redirectUri:', redirectUri ? 'SET' : 'MISSING');
 
   if (!clientId || !redirectUri) {
     const params = new URLSearchParams({
