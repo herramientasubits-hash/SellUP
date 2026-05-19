@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Search, Bot, Users, Activity } from "lucide-react";
+import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
-import { isCurrentUserAdmin } from "@/modules/access/actions";
+import { isCurrentUserAdmin, getUsersSummary, hasActiveAccess } from "@/modules/access/actions";
+import { getUserDriveConnection } from "@/modules/drive/actions";
 
 const CONFIG_SECTIONS = [
   {
@@ -67,6 +68,12 @@ interface ConfigSection {
 
 export default async function SettingsPage() {
   const isAdmin = await isCurrentUserAdmin();
+  const isActive = await hasActiveAccess();
+  const summary = isAdmin ? await getUsersSummary() : null;
+
+  // Drive connection for personal card (any active user)
+  const driveConn = isActive ? await getUserDriveConnection() : null;
+  const driveConnected = driveConn?.connection_status === 'connected';
 
   const visibleSections = CONFIG_SECTIONS.filter(
     (section) => !section.adminOnly || isAdmin
@@ -82,28 +89,38 @@ export default async function SettingsPage() {
       {/* Config section cards */}
       <div className="grid gap-4 md:grid-cols-2">
         {visibleSections.map((section) => {
+          const isPendingUsersSection = section.href === '/settings/users';
+          const pendingCount = isPendingUsersSection && summary ? summary.pending : 0;
+
           const CardContent = (
             <>
               <SurfaceCardHeader
                 title={section.title}
                 description={section.description}
                 actions={
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
-                      section.status === 'Funcional'
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                        : 'border-border/40 bg-muted/30 text-muted-foreground/60'
-                    }`}
-                  >
+                  <div className="flex items-center gap-2">
+                    {pendingCount > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-500">
+                        {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
+                      </span>
+                    )}
                     <span
-                      className={`h-1.5 w-1.5 rounded-full ${
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
                         section.status === 'Funcional'
-                          ? 'bg-emerald-500'
-                          : 'bg-muted-foreground/25'
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                          : 'border-border/40 bg-muted/30 text-muted-foreground/60'
                       }`}
-                    />
-                    {section.status}
-                  </span>
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          section.status === 'Funcional'
+                            ? 'bg-emerald-500'
+                            : 'bg-muted-foreground/25'
+                        }`}
+                      />
+                      {section.status}
+                    </span>
+                  </div>
                 }
               />
               <div className="flex items-center gap-3">
@@ -142,6 +159,39 @@ export default async function SettingsPage() {
             </SurfaceCard>
           );
         })}
+
+        {/* Mi Google Drive — visible para todo usuario activo */}
+        {isActive && (
+          <Link href="/settings/my-drive">
+            <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
+              <SurfaceCardHeader
+                title="Mi Google Drive"
+                description="Conecta tu Drive para guardar propuestas, business cases y archivos generados por SellUp en tu propio espacio de trabajo."
+                actions={
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                      driveConnected
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                        : 'border-border/40 bg-muted/30 text-muted-foreground/60'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        driveConnected ? 'bg-emerald-500' : 'bg-muted-foreground/25'
+                      }`}
+                    />
+                    {driveConnected ? 'Conectado' : 'No conectado'}
+                  </span>
+                }
+              />
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl transition-colors bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20">
+                  <HardDrive className="h-4 w-4" />
+                </div>
+              </div>
+            </SurfaceCard>
+          </Link>
+        )}
       </div>
 
       <ModulePlaceholder
