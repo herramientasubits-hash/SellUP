@@ -10,13 +10,16 @@
  * - Redirige a /settings/integrations/slack con resultado.
  *
  * Nunca expone el token, el client_secret ni el code en logs ni en UI.
+ *
+ * NOTA: No importa desde @/modules/integrations/actions ('use server')
+ * porque ese directive rompe la resolución del route handler en Next.js.
+ * Toda la lógica se ejecuta directamente aquí usando el admin client.
  */
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
-import { completeSlackOAuth } from '@/modules/integrations/actions';
-import { getSlackOAuthConfig, getSlackClientSecret } from '@/server/services/slack-connection';
+import { storeSlackCredential, getSlackOAuthConfig, getSlackClientSecret } from '@/server/services/slack-connection';
 import type { SlackMetadata } from '@/modules/integrations/types';
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
@@ -71,6 +74,77 @@ function errorRedirect(message: string): NextResponse {
   return response;
 }
 
+async function persistSlackOAuth(
+  botToken: string,
+  metadata: SlackMetadata,
+  actorId: string
+): Promise<{ success: boolean; error?: string }> {
+  const storeResult = await storeSlackCredential(botToken);
+  if (!storeResult.success) return storeResult;
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (integration) {
+    const now = new Date().toISOString();
+    const safeMetadata: SlackMetadata = {
+      team_id: metadata.team_id,
+      team_name: metadata.team_name,
+      bot_user_id: metadata.bot_user_id,
+      app_id: metadata.app_id,
+      scopes: metadata.scopes,
+    };
+
+    const { data: existing } = await admin
+      .from('external_integration_connections')
+      .select('id')
+      .eq('integration_id', integration.id)
+      .single();
+
+    if (existing) {
+      await admin
+        .from('external_integration_connections')
+        .update({
+          auth_type: 'oauth2',
+          credentials_status: 'stored',
+          connection_status: 'connected',
+          last_connection_error: null,
+          connected_at: now,
+          connected_by: actorId,
+          disconnected_at: null,
+          disconnected_by: null,
+          metadata: safeMetadata,
+          updated_at: now,
+        })
+        .eq('id', existing.id);
+    } else {
+      await admin.from('external_integration_connections').insert({
+        integration_id: integration.id,
+        auth_type: 'oauth2',
+        credentials_status: 'stored',
+        connection_status: 'connected',
+        connected_at: now,
+        connected_by: actorId,
+        metadata: safeMetadata,
+      });
+    }
+
+    await admin.from('integration_audit').insert({
+      integration_key: 'slack',
+      event_type: 'oauth_connected',
+      actor_user_id: actorId,
+      metadata: { team_id: metadata.team_id, team_name: metadata.team_name },
+    });
+  }
+
+  return { success: true };
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = request.nextUrl;
   const code = searchParams.get('code');
@@ -98,8 +172,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   console.log('[callback] state match:', cookieState === state);
   if (!cookieState || cookieState !== state) {
     try {
-      const adminForLog = getAdminSupabase();
-      await adminForLog.from('integration_audit').insert({
+      await getAdminSupabase().from('integration_audit').insert({
         integration_key: 'slack',
         event_type: 'oauth_failed',
         actor_user_id: '00000000-0000-0000-0000-000000000000',
@@ -116,8 +189,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!actorId) {
     try {
-      const adminForLog = getAdminSupabase();
-      await adminForLog.from('integration_audit').insert({
+      await getAdminSupabase().from('integration_audit').insert({
         integration_key: 'slack',
         event_type: 'oauth_failed',
         actor_user_id: '00000000-0000-0000-0000-000000000000',
@@ -187,8 +259,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // 7. Verificar respuesta de Slack
   if (!oauthData.ok) {
     const errCode = oauthData.error ?? 'unknown_error';
-    const adminClient = getAdminSupabase();
-    await adminClient.from('integration_audit').insert({
+    await getAdminSupabase().from('integration_audit').insert({
       integration_key: 'slack',
       event_type: 'oauth_failed',
       actor_user_id: actorId,
@@ -213,8 +284,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     scopes,
   };
 
-  // 10. Persistir en Vault + base de datos
-  const result = await completeSlackOAuth(botToken, metadata, actorId);
+  // 10. Persistir en Vault + base de datos (sin depender de 'use server' actions)
+  const result = await persistSlackOAuth(botToken, metadata, actorId);
 
   if (!result.success) {
     return errorRedirect(result.error ?? 'Error al almacenar la conexión de Slack.');
