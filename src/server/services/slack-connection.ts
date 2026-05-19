@@ -29,6 +29,16 @@ function getAdminSupabase() {
   return createAdminClient(supabaseUrl, supabaseServiceKey);
 }
 
+async function getSlackIntegrationId(): Promise<string | null> {
+  const admin = getAdminSupabase();
+  const { data } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_id', await getSlackIntegrationId())
+    .single();
+  return data?.id ?? null;
+}
+
 // ============================================================
 // Types
 // ============================================================
@@ -94,7 +104,7 @@ export async function storeSlackCredential(
         credentials_status: 'stored',
         updated_at: new Date().toISOString(),
       })
-      .eq('integration_key', INTEGRATION_KEY);
+      .eq('integration_id', await getSlackIntegrationId());
 
     return {
       success: true,
@@ -126,7 +136,7 @@ export async function removeSlackCredential(): Promise<{
         connection_status: 'disconnected',
         updated_at: new Date().toISOString(),
       })
-      .eq('integration_key', INTEGRATION_KEY);
+      .eq('integration_id', await getSlackIntegrationId());
 
     return { success: true };
   } catch (err: unknown) {
@@ -205,7 +215,7 @@ export async function storeSlackOAuthConfig(
     const { data: existing, error: fetchError } = await admin
       .from('external_integration_connections')
       .select('metadata')
-      .eq('integration_key', INTEGRATION_KEY)
+      .eq('integration_id', await getSlackIntegrationId())
       .single();
 
     console.log('[storeSlackOAuthConfig] fetch existing error:', fetchError ?? 'none');
@@ -221,7 +231,7 @@ export async function storeSlackOAuthConfig(
     const { error: updateError, count } = await admin
       .from('external_integration_connections')
       .update({ metadata: updatedMeta, updated_at: new Date().toISOString() })
-      .eq('integration_key', INTEGRATION_KEY)
+      .eq('integration_id', await getSlackIntegrationId())
       .select();
 
     console.log('[storeSlackOAuthConfig] update error:', updateError ?? 'none');
@@ -248,7 +258,7 @@ export async function getSlackOAuthConfig(): Promise<SlackOAuthConfig | null> {
     const { data, error } = await admin
       .from('external_integration_connections')
       .select('metadata')
-      .eq('integration_key', INTEGRATION_KEY)
+      .eq('integration_id', await getSlackIntegrationId())
       .single();
 
     console.log('[getSlackOAuthConfig] db error:', error ?? 'none');
