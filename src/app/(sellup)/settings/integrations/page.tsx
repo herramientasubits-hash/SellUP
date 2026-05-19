@@ -20,7 +20,7 @@ const INTEGRATION_META: Record<
     href: '/settings/integrations/hubspot',
     cta: 'Administrar conexión',
   },
-  slack: { icon: MessageSquare, href: null, cta: 'Próximamente' },
+  slack: { icon: MessageSquare, href: '/settings/integrations/slack', cta: 'Administrar conexión' },
   google_drive: { icon: HardDrive, href: null, cta: 'Próximamente' },
   samu_ia: { icon: Bot, href: null, cta: 'Próximamente' },
 };

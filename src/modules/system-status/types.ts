@@ -49,6 +49,15 @@ export interface HubSpotHealth {
   last_connection_error: string | null;
 }
 
+export interface SlackHealth {
+  credentials_status: 'stored' | 'missing';
+  connection_status: 'not_tested' | 'connected' | 'error' | 'disconnected';
+  last_tested_at: string | null;
+  team_name: string | null;
+  channel_name: string | null;
+  last_connection_error: string | null;
+}
+
 export interface ConfigurationHealthDetails {
   ai_providers: AIProviderHealth[];
   active_ai: {
@@ -57,6 +66,7 @@ export interface ConfigurationHealthDetails {
     updated_at: string | null;
   } | null;
   hubspot: HubSpotHealth;
+  slack: SlackHealth;
   prospecting: {
     total: number;
     prepared: number;

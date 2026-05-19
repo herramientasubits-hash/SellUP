@@ -8,10 +8,20 @@ import {
   hasHubSpotCredential,
   testHubSpotConnection,
 } from '@/server/services/hubspot-connection';
+import {
+  storeSlackCredential,
+  removeSlackCredential,
+  hasSlackCredential,
+  testSlackConnection,
+  createSlackChannel,
+  sendSlackTestMessage,
+  storeSlackOAuthConfig,
+} from '@/server/services/slack-connection';
 import type {
   ExternalIntegration,
   ExternalIntegrationConnection,
   IntegrationWithConnection,
+  SlackMetadata,
 } from './types';
 
 const supabaseUrl =
@@ -372,4 +382,419 @@ export async function disconnectHubSpot(): Promise<{
     success: true,
     message: 'HubSpot desconectado correctamente.',
   };
+}
+
+// ============================================================
+// Slack: Leer integración
+// ============================================================
+
+export async function getSlackIntegration(): Promise<IntegrationWithConnection | null> {
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('*')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (!integration) return null;
+
+  const { data: connection } = await admin
+    .from('external_integration_connections')
+    .select('*')
+    .eq('integration_id', integration.id)
+    .single();
+
+  const hasCredential = await hasSlackCredential();
+  const credentialsStatus = hasCredential ? 'stored' : 'missing';
+
+  const enrichedConnection = connection
+    ? { ...connection, credentials_status: credentialsStatus }
+    : null;
+
+  return {
+    ...(integration as ExternalIntegration),
+    connection: enrichedConnection,
+  };
+}
+
+// ============================================================
+// Slack: Completar OAuth (llamado desde el callback route handler)
+// ============================================================
+
+/**
+ * Persiste el bot token recibido del OAuth callback de Slack.
+ * Solo debe ser llamado desde el route handler del callback — nunca desde UI directamente.
+ */
+export async function completeSlackOAuth(
+  botToken: string,
+  metadata: SlackMetadata,
+  actorId: string
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  const storeResult = await storeSlackCredential(botToken);
+  if (!storeResult.success) return storeResult;
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (integration) {
+    const now = new Date().toISOString();
+    const safeMetadata: SlackMetadata = {
+      team_id: metadata.team_id,
+      team_name: metadata.team_name,
+      bot_user_id: metadata.bot_user_id,
+      app_id: metadata.app_id,
+      scopes: metadata.scopes,
+    };
+
+    const { data: existing } = await admin
+      .from('external_integration_connections')
+      .select('id')
+      .eq('integration_id', integration.id)
+      .single();
+
+    if (existing) {
+      await admin
+        .from('external_integration_connections')
+        .update({
+          auth_type: 'oauth2',
+          credentials_status: 'stored',
+          connection_status: 'connected',
+          last_connection_error: null,
+          connected_at: now,
+          connected_by: actorId,
+          disconnected_at: null,
+          disconnected_by: null,
+          metadata: safeMetadata,
+          updated_at: now,
+        })
+        .eq('id', existing.id);
+    } else {
+      await admin.from('external_integration_connections').insert({
+        integration_id: integration.id,
+        auth_type: 'oauth2',
+        credentials_status: 'stored',
+        connection_status: 'connected',
+        connected_at: now,
+        connected_by: actorId,
+        metadata: safeMetadata,
+      });
+    }
+  }
+
+  await logAuditEvent('slack', 'oauth_connected', actorId, {
+    team_id: metadata.team_id,
+    team_name: metadata.team_name,
+  });
+
+  return {
+    success: true,
+    message: 'Slack conectado correctamente.',
+  };
+}
+
+// ============================================================
+// Slack: Probar conexión
+// ============================================================
+
+export async function testSlackConnectionAction(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (!integration) {
+    return { success: false, error: 'Integración Slack no encontrada.' };
+  }
+
+  await logAuditEvent('slack', 'connection_tested', actorId);
+
+  const result = await testSlackConnection();
+  const now = new Date().toISOString();
+
+  if (result.success && result.tokenInfo) {
+    const { data: existing } = await admin
+      .from('external_integration_connections')
+      .select('metadata')
+      .eq('integration_id', integration.id)
+      .single();
+
+    const prevMeta = (existing?.metadata ?? {}) as Record<string, unknown>;
+    const updatedMeta: SlackMetadata = {
+      ...(prevMeta as SlackMetadata),
+      team_id: result.tokenInfo.teamId,
+      team_name: result.tokenInfo.teamName,
+      bot_user_id: result.tokenInfo.botUserId,
+      app_id: result.tokenInfo.appId,
+    };
+
+    await admin
+      .from('external_integration_connections')
+      .update({
+        connection_status: 'connected',
+        last_tested_at: now,
+        last_tested_by: actorId,
+        last_connection_error: null,
+        metadata: updatedMeta,
+        updated_at: now,
+      })
+      .eq('integration_id', integration.id);
+
+    await logAuditEvent('slack', 'connection_succeeded', actorId, {
+      team_id: result.tokenInfo.teamId,
+      team_name: result.tokenInfo.teamName,
+    });
+  } else {
+    const sanitizedError = result.message ? result.message.slice(0, 500) : 'Error desconocido';
+
+    await admin
+      .from('external_integration_connections')
+      .update({
+        connection_status: 'error',
+        last_tested_at: now,
+        last_tested_by: actorId,
+        last_connection_error: sanitizedError,
+        updated_at: now,
+      })
+      .eq('integration_id', integration.id);
+
+    await logAuditEvent('slack', 'connection_failed', actorId, {
+      error_code: result.error,
+    });
+  }
+
+  return {
+    success: result.success,
+    error: result.error,
+    message: result.message,
+  };
+}
+
+// ============================================================
+// Slack: Crear canal oficial
+// ============================================================
+
+export async function createSlackChannelAction(channelName: string): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+  alreadyExists?: boolean;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  if (!channelName || channelName.trim().length === 0) {
+    return { success: false, error: 'El nombre del canal es requerido.' };
+  }
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (!integration) {
+    return { success: false, error: 'Integración Slack no encontrada.' };
+  }
+
+  const result = await createSlackChannel(channelName.trim());
+
+  if (result.success && result.channelId) {
+    const { data: existing } = await admin
+      .from('external_integration_connections')
+      .select('metadata')
+      .eq('integration_id', integration.id)
+      .single();
+
+    const prevMeta = (existing?.metadata ?? {}) as SlackMetadata;
+    const updatedMeta: SlackMetadata = {
+      ...prevMeta,
+      channel_id: result.channelId,
+      channel_name: result.channelName,
+    };
+
+    await admin
+      .from('external_integration_connections')
+      .update({
+        metadata: updatedMeta,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('integration_id', integration.id);
+
+    await logAuditEvent('slack', 'channel_created', actorId, {
+      channel_id: result.channelId,
+      channel_name: result.channelName,
+    });
+  }
+
+  return {
+    success: result.success,
+    error: result.error,
+    message: result.message,
+    alreadyExists: result.alreadyExists,
+  };
+}
+
+// ============================================================
+// Slack: Enviar mensaje de prueba
+// ============================================================
+
+export async function sendSlackTestMessageAction(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (!integration) {
+    return { success: false, error: 'Integración Slack no encontrada.' };
+  }
+
+  const { data: connection } = await admin
+    .from('external_integration_connections')
+    .select('metadata')
+    .eq('integration_id', integration.id)
+    .single();
+
+  const meta = (connection?.metadata ?? {}) as SlackMetadata;
+
+  if (!meta.channel_id) {
+    return {
+      success: false,
+      error: 'Crea primero el canal oficial de SellUp antes de enviar el mensaje.',
+    };
+  }
+
+  const result = await sendSlackTestMessage(meta.channel_id);
+
+  if (result.success) {
+    await logAuditEvent('slack', 'test_message_sent', actorId, {
+      channel_id: meta.channel_id,
+      channel_name: meta.channel_name,
+    });
+  }
+
+  return {
+    success: result.success,
+    error: result.error,
+    message: result.message,
+  };
+}
+
+// ============================================================
+// Slack: Desconectar
+// ============================================================
+
+export async function disconnectSlack(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  await removeSlackCredential();
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'slack')
+    .single();
+
+  if (integration) {
+    await admin
+      .from('external_integration_connections')
+      .update({
+        credentials_status: 'missing',
+        connection_status: 'disconnected',
+        last_connection_error: null,
+        disconnected_at: new Date().toISOString(),
+        disconnected_by: actorId,
+        // Preservar metadata no sensible (team, canal) para referencia histórica
+        updated_at: new Date().toISOString(),
+      })
+      .eq('integration_id', integration.id);
+  }
+
+  await logAuditEvent('slack', 'disconnected', actorId);
+
+  return {
+    success: true,
+    message: 'Slack desconectado correctamente.',
+  };
+}
+
+// Slack: Configurar OAuth App desde la UI
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Guarda las credenciales de la Slack App (Client ID, Client Secret, Redirect URI)
+ * desde el formulario de administración.
+ * - client_id y redirect_uri se almacenan en metadata (no sensibles).
+ * - client_secret se almacena en Supabase Vault.
+ * Después de llamar a este action, el frontend debe redirigir a
+ * /api/integrations/slack/oauth/start para iniciar el flujo OAuth.
+ */
+export async function configureSlackOAuthApp(
+  clientId: string,
+  clientSecret: string,
+  redirectUri: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { id: actorId } = await getAdminInternalUserId(supabase);
+
+  if (!actorId) {
+    return { success: false, error: 'No autorizado.' };
+  }
+
+  if (!clientId.trim() || !clientSecret.trim() || !redirectUri.trim()) {
+    return { success: false, error: 'Todos los campos son requeridos.' };
+  }
+
+  const result = await storeSlackOAuthConfig(
+    clientId.trim(),
+    clientSecret.trim(),
+    redirectUri.trim()
+  );
+
+  if (!result.success) {
+    return { success: false, error: result.error ?? 'Error al guardar la configuración.' };
+  }
+
+  await logAuditEvent('slack', 'oauth_started', actorId, {
+    note: 'OAuth app configured via UI',
+  });
+
+  return { success: true };
 }

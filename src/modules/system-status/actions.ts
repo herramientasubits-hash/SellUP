@@ -20,6 +20,7 @@ import type {
   ConfigurationHealthDetails,
   AIProviderHealth,
   HubSpotHealth,
+  SlackHealth,
   AdminRisk,
   AdminActivityEvent,
 } from './types';
@@ -64,6 +65,7 @@ export async function getSystemHealthSummary(): Promise<SystemHealthSummary> {
   const [
     aiProvidersResult,
     hubspotIntegResult,
+    slackIntegResult,
     automationsResult,
     pendingUsersResult,
     activeConfigResult,
@@ -73,6 +75,11 @@ export async function getSystemHealthSummary(): Promise<SystemHealthSummary> {
       .from('external_integrations')
       .select('id')
       .eq('integration_key', 'hubspot')
+      .single(),
+    admin
+      .from('external_integrations')
+      .select('id')
+      .eq('integration_key', 'slack')
       .single(),
     admin
       .from('system_automations')
@@ -89,7 +96,7 @@ export async function getSystemHealthSummary(): Promise<SystemHealthSummary> {
       .single(),
   ]);
 
-  // HubSpot connection status (requires integration ID)
+  // HubSpot connection status
   let hubspotConnStatus = 'not_configured';
   if (hubspotIntegResult.data?.id) {
     const { data: conn } = await admin
@@ -103,6 +110,17 @@ export async function getSystemHealthSummary(): Promise<SystemHealthSummary> {
     }
   }
 
+  // Slack connection status
+  let slackConnStatus = 'not_configured';
+  if (slackIntegResult.data?.id) {
+    const { data: conn } = await admin
+      .from('external_integration_connections')
+      .select('connection_status, credentials_status')
+      .eq('integration_id', slackIntegResult.data.id)
+      .single();
+    slackConnStatus = conn?.connection_status ?? 'not_configured';
+  }
+
   const aiProviders = aiProvidersResult.data ?? [];
   const hasActiveAIConfig = !!activeConfigResult.data?.active_provider_id;
   const hasConnectedAI =
@@ -113,8 +131,7 @@ export async function getSystemHealthSummary(): Promise<SystemHealthSummary> {
     (a) => a.execution_mode === 'automatic'
   ).length;
 
-  // Count configured/issues across key components:
-  // AI, HubSpot, Automations (prospecting skipped — not yet actionable)
+  // Count configured/issues: AI, HubSpot, Slack, Automations
   let configured = 0;
   let withIssues = 0;
 
@@ -123,6 +140,8 @@ export async function getSystemHealthSummary(): Promise<SystemHealthSummary> {
 
   if (hubspotConnStatus === 'connected') configured++;
   else withIssues++;
+
+  if (slackConnStatus === 'connected') configured++;
 
   if (automations.length > 0) configured++;
 
@@ -150,6 +169,14 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
         hub_id: null,
         last_connection_error: null,
       },
+      slack: {
+        credentials_status: 'missing',
+        connection_status: 'not_tested',
+        last_tested_at: null,
+        team_name: null,
+        channel_name: null,
+        last_connection_error: null,
+      },
       prospecting: { total: 0, prepared: 0, active_provider: null },
       automations: { total: 0, manual: 0, suggested: 0, automatic: 0 },
     };
@@ -161,6 +188,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     aiProvidersResult,
     activeConfigResult,
     hubspotIntegResult,
+    slackIntegResult,
     prospectingResult,
     automationsResult,
   ] = await Promise.all([
@@ -179,6 +207,11 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
       .from('external_integrations')
       .select('id')
       .eq('integration_key', 'hubspot')
+      .single(),
+    admin
+      .from('external_integrations')
+      .select('id')
+      .eq('integration_key', 'slack')
       .single(),
     admin.from('prospecting_providers').select('lifecycle_status, provider_key'),
     admin
@@ -241,6 +274,35 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     }
   }
 
+  // Slack
+  let slack: SlackHealth = {
+    credentials_status: 'missing',
+    connection_status: 'not_tested',
+    last_tested_at: null,
+    team_name: null,
+    channel_name: null,
+    last_connection_error: null,
+  };
+  if (slackIntegResult.data?.id) {
+    const { data: conn } = await admin
+      .from('external_integration_connections')
+      .select('credentials_status, connection_status, last_tested_at, last_connection_error, metadata')
+      .eq('integration_id', slackIntegResult.data.id)
+      .single();
+
+    if (conn) {
+      const meta = conn.metadata as Record<string, unknown> | null;
+      slack = {
+        credentials_status: (conn.credentials_status as 'stored' | 'missing') ?? 'missing',
+        connection_status: (conn.connection_status as SlackHealth['connection_status']) ?? 'not_tested',
+        last_tested_at: conn.last_tested_at ?? null,
+        team_name: (meta?.team_name as string) ?? null,
+        channel_name: (meta?.channel_name as string) ?? null,
+        last_connection_error: conn.last_connection_error ?? null,
+      };
+    }
+  }
+
   // Prospecting
   const prospData = prospectingResult.data ?? [];
   const activeProsp = prospData.find((p) => p.lifecycle_status === 'connected');
@@ -252,6 +314,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     ai_providers: aiProviders,
     active_ai,
     hubspot,
+    slack,
     prospecting: {
       total: prospData.length,
       prepared: prospData.filter(
@@ -393,6 +456,11 @@ const INTEGRATION_AUDIT_LABELS: Record<string, string> = {
   connection_succeeded: 'Conexión exitosa',
   connection_failed: 'Conexión fallida',
   disconnected: 'Integración desconectada',
+  oauth_started: 'OAuth iniciado',
+  oauth_connected: 'OAuth completado',
+  oauth_failed: 'OAuth fallido',
+  channel_created: 'Canal creado',
+  test_message_sent: 'Mensaje de prueba enviado',
 };
 
 const INTEGRATION_KEY_LABELS: Record<string, string> = {

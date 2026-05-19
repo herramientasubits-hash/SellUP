@@ -54,6 +54,19 @@ export interface HubSpotMetadata {
   scopes?: string[];
 }
 
+export interface SlackMetadata {
+  team_id?: string;
+  team_name?: string;
+  bot_user_id?: string;
+  app_id?: string;
+  scopes?: string[];
+  channel_id?: string;
+  channel_name?: string;
+  // OAuth App config (non-sensitive; secret goes to Vault)
+  oauth_client_id?: string;
+  oauth_redirect_uri?: string;
+}
+
 export interface IntegrationAuditEntry {
   id: string;
   integration_key: string;
@@ -63,7 +76,12 @@ export interface IntegrationAuditEntry {
     | 'connection_tested'
     | 'connection_succeeded'
     | 'connection_failed'
-    | 'disconnected';
+    | 'disconnected'
+    | 'oauth_started'
+    | 'oauth_connected'
+    | 'oauth_failed'
+    | 'channel_created'
+    | 'test_message_sent';
   actor_user_id: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
