@@ -132,6 +132,7 @@ export default async function UsersManagementPage() {
       <PageHeader
         title="Usuarios y acceso"
         description="Gestionar solicitudes, roles y estados de acceso de SellUp."
+        backHref="/settings"
       />
 
       {/* Summary cards */}

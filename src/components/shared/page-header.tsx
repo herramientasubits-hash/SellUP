@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PageHeaderProps {
@@ -6,6 +8,7 @@ interface PageHeaderProps {
   description?: string;
   actions?: ReactNode;
   className?: string;
+  backHref?: string;
 }
 
 export function PageHeader({
@@ -13,13 +16,24 @@ export function PageHeader({
   description,
   actions,
   className,
+  backHref,
 }: PageHeaderProps) {
   return (
     <div className={cn("flex items-start justify-between gap-4 pb-2", className)}>
       <div className="min-w-0 space-y-1.5">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground font-heading">
-          {title}
-        </h1>
+        <div className="flex items-center gap-2">
+          {backHref && (
+            <Link
+              href={backHref}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          )}
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground font-heading">
+            {title}
+          </h1>
+        </div>
         {description && (
           <p className="text-sm text-muted-foreground leading-relaxed max-w-prose">
             {description}

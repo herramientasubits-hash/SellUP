@@ -79,8 +79,9 @@ export default async function AIConfigPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="IA, modelos y costos"
+        title="Proveedores y tarifas de IA"
         description="Administra los proveedores, modelos y tarifas base que SellUp utilizará para calcular y gobernar el consumo de inteligencia artificial."
+        backHref="/settings"
       />
 
       {/* Summary Cards */}

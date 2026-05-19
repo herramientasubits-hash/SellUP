@@ -15,8 +15,8 @@ const CONFIG_SECTIONS = [
     adminOnly: true,
   },
   {
-    title: "IA, modelos y costos",
-    description: "Proveedores, modelos y tarifas de inteligencia artificial",
+    title: "Proveedores y tarifas de IA",
+    description: "Proveedores, modelos y tarifas base de inteligencia artificial",
     status: "Funcional",
     icon: Cpu,
     href: "/settings/ai",
