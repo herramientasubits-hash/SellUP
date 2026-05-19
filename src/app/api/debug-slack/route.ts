@@ -53,6 +53,44 @@ export async function GET() {
     .order('created_at', { ascending: false })
     .limit(5);
 
+  // 6. test metadata write: add a test key and read it back
+  let metaWriteResult: { success: boolean; error: string | null; wrote_key: boolean } = {
+    success: false,
+    error: null,
+    wrote_key: false,
+  };
+
+  if (connection && integration) {
+    const testMeta = { ...(meta as Record<string, unknown>), _debug_write_test: new Date().toISOString() };
+    const { error: writeErr } = await admin
+      .from('external_integration_connections')
+      .update({ metadata: testMeta, updated_at: new Date().toISOString() })
+      .eq('id', connection.id);
+
+    if (writeErr) {
+      metaWriteResult = { success: false, error: writeErr.message, wrote_key: false };
+    } else {
+      // Read back to verify
+      const { data: verify } = await admin
+        .from('external_integration_connections')
+        .select('metadata')
+        .eq('id', connection.id)
+        .single();
+
+      const verifyMeta = (verify?.metadata ?? {}) as Record<string, unknown>;
+      const wrote = '_debug_write_test' in verifyMeta;
+      metaWriteResult = { success: true, error: null, wrote_key: wrote };
+
+      // Restore original metadata (remove debug key)
+      const restoredMeta = { ...verifyMeta };
+      delete restoredMeta['_debug_write_test'];
+      await admin
+        .from('external_integration_connections')
+        .update({ metadata: restoredMeta, updated_at: new Date().toISOString() })
+        .eq('id', connection.id);
+    }
+  }
+
   return NextResponse.json({
     integration: {
       found: !!integration,
@@ -63,6 +101,7 @@ export async function GET() {
     connection: {
       found: !!connection,
       error: connError?.message ?? null,
+      id: connection?.id ?? null,
       credentials_status: connection?.credentials_status ?? null,
       connection_status: connection?.connection_status ?? null,
       connected_at: connection?.connected_at ?? null,
@@ -76,6 +115,7 @@ export async function GET() {
       bot_token: { present: hasBotToken, error: vaultBotTokenError },
       client_secret: { present: hasClientSecret, error: vaultClientSecretError },
     },
+    meta_write_test: metaWriteResult,
     recent_audit: auditRows ?? [],
   });
 }
