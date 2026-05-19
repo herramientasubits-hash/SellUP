@@ -93,15 +93,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // 3. Validar state contra cookie (protección CSRF)
   const cookieState = request.cookies.get('slack_oauth_state')?.value;
+  console.log('[callback] state param:', state ? 'PRESENT' : 'MISSING');
+  console.log('[callback] cookie state:', cookieState ? 'PRESENT' : 'MISSING');
+  console.log('[callback] state match:', cookieState === state);
   if (!cookieState || cookieState !== state) {
+    const adminForLog = getAdminSupabase();
+    await adminForLog.from('integration_audit').insert({
+      integration_key: 'slack',
+      event_type: 'oauth_failed',
+      actor_user_id: '00000000-0000-0000-0000-000000000000',
+      metadata: { error_code: 'state_mismatch', cookie_present: !!cookieState, state_present: !!state },
+    }).catch(() => {});
     return errorRedirect('Validación de estado fallida. Intenta conectar Slack nuevamente.');
   }
 
   // 4. Verificar que el usuario sea Administrador activo
   const supabase = await createClient();
   const actorId = await getAdminInternalUserId(supabase);
+  console.log('[callback] actorId:', actorId ? 'FOUND' : 'NULL');
 
   if (!actorId) {
+    const adminForLog = getAdminSupabase();
+    await adminForLog.from('integration_audit').insert({
+      integration_key: 'slack',
+      event_type: 'oauth_failed',
+      actor_user_id: '00000000-0000-0000-0000-000000000000',
+      metadata: { error_code: 'unauthorized', detail: 'actorId null in callback' },
+    }).catch(() => {});
     return errorRedirect('No autorizado. Solo administradores pueden conectar Slack.');
   }
 
