@@ -313,6 +313,48 @@ export async function getSlackClientSecret(): Promise<string | null> {
 }
 
 // ============================================================
+// DM por usuario — lookupByEmail + conversations.open
+// ============================================================
+
+/**
+ * Busca al usuario en Slack por email, abre un DM con el bot
+ * y retorna el channel ID del DM.
+ * Retorna null si Slack no está conectado o el usuario no existe en el workspace.
+ * NUNCA bloquea el login — todos los errores se capturan silenciosamente.
+ */
+export async function openSlackDMForUser(email: string): Promise<string | null> {
+  const token = await getSlackToken();
+  if (!token) return null;
+
+  try {
+    // 1. Buscar Slack user ID por email
+    const lookupRes = await fetch(
+      `https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const lookupData = await lookupRes.json() as { ok: boolean; user?: { id: string }; error?: string };
+
+    if (!lookupData.ok) return null;
+
+    const slackUserId = lookupData.user!.id;
+
+    // 2. Abrir DM
+    const openRes = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ users: slackUserId }),
+    });
+    const openData = await openRes.json() as { ok: boolean; channel?: { id: string }; error?: string };
+
+    if (!openData.ok) return null;
+
+    return openData.channel!.id;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================
 // Prueba de conexión — auth.test
 // ============================================================
 
