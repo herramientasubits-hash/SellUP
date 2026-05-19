@@ -9,6 +9,8 @@ const errorMessages: Record<string, string> = {
     'La respuesta de autenticación fue incompleta. Intenta nuevamente.',
   oauth:
     'No fue posible iniciar el flujo de autenticación. Intenta nuevamente.',
+  domain_not_authorized:
+    'Tu cuenta no tiene acceso a SellUp. Ingresa con tu correo corporativo de UBITS.',
 };
 
 export default async function LoginPage({

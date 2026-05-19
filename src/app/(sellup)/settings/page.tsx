@@ -1,36 +1,66 @@
-import { Settings, Cpu, Link2, Rocket, Key } from "lucide-react";
+import Link from 'next/link';
+import { Settings, Cpu, Link2, Rocket, Key, Users } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
+import { isCurrentUserAdmin } from "@/modules/access/actions";
 
 const CONFIG_SECTIONS = [
   {
-    title: "Proveedores de IA",
-    description: "Modelos, claves API y parámetros de generación",
-    status: "Pendiente",
+    title: "Usuarios y acceso",
+    description: "Gestionar solicitudes, roles y estados de acceso",
+    status: "Funcional",
+    icon: Users,
+    href: "/settings/users",
+    adminOnly: true,
+  },
+  {
+    title: "IA, modelos y costos",
+    description: "Proveedores, modelos y tarifas de inteligencia artificial",
+    status: "Funcional",
     icon: Cpu,
+    href: "/settings/ai",
+    adminOnly: true,
   },
   {
     title: "Integración HubSpot",
     description: "Sincronización de cuentas y contactos",
     status: "Pendiente",
     icon: Link2,
+    href: null,
   },
   {
     title: "Integración Apollo.io",
     description: "Enriquecimiento automático de prospectos",
     status: "Pendiente",
     icon: Rocket,
+    href: null,
   },
   {
     title: "Automatización",
     description: "Niveles de automatización por módulo",
     status: "Pendiente",
     icon: Key,
+    href: null,
   },
 ];
 
-export default function SettingsPage() {
+interface ConfigSection {
+  title: string;
+  description: string;
+  status: string;
+  icon: React.ComponentType<{ className?: string }>;
+  href: string | null;
+  adminOnly?: boolean;
+}
+
+export default async function SettingsPage() {
+  const isAdmin = await isCurrentUserAdmin();
+
+  const visibleSections = CONFIG_SECTIONS.filter(
+    (section) => !section.adminOnly || isAdmin
+  );
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -40,29 +70,67 @@ export default function SettingsPage() {
 
       {/* Config section cards */}
       <div className="grid gap-4 md:grid-cols-2">
-        {CONFIG_SECTIONS.map((section) => (
-          <SurfaceCard key={section.title} className="group">
-            <SurfaceCardHeader
-              title={section.title}
-              description={section.description}
-              actions={
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
-                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
-                  {section.status}
-                </span>
-              }
-            />
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground/40 transition-colors group-hover:bg-su-brand/10 group-hover:text-su-brand/60">
-                <section.icon className="h-4 w-4" />
+        {visibleSections.map((section) => {
+          const CardContent = (
+            <>
+              <SurfaceCardHeader
+                title={section.title}
+                description={section.description}
+                actions={
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                      section.status === 'Funcional'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                        : 'border-border/40 bg-muted/30 text-muted-foreground/60'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        section.status === 'Funcional'
+                          ? 'bg-emerald-500'
+                          : 'bg-muted-foreground/25'
+                      }`}
+                    />
+                    {section.status}
+                  </span>
+                }
+              />
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                    section.status === 'Funcional'
+                      ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
+                      : 'bg-accent/60 text-muted-foreground/40 group-hover:bg-su-brand/10 group-hover:text-su-brand/60'
+                  }`}
+                >
+                  <section.icon className="h-4 w-4" />
+                </div>
+                {section.status !== 'Funcional' && (
+                  <div className="flex-1 space-y-2">
+                    <div className="h-1.5 w-3/4 rounded-full su-skeleton" />
+                    <div className="h-1.5 w-1/2 rounded-full su-skeleton" />
+                  </div>
+                )}
               </div>
-              <div className="flex-1 space-y-2">
-                <div className="h-1.5 w-3/4 rounded-full su-skeleton" />
-                <div className="h-1.5 w-1/2 rounded-full su-skeleton" />
-              </div>
-            </div>
-          </SurfaceCard>
-        ))}
+            </>
+          );
+
+          if (section.href) {
+            return (
+              <Link key={section.title} href={section.href}>
+                <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
+                  {CardContent}
+                </SurfaceCard>
+              </Link>
+            );
+          }
+
+          return (
+            <SurfaceCard key={section.title} className="group">
+              {CardContent}
+            </SurfaceCard>
+          );
+        })}
       </div>
 
       <ModulePlaceholder

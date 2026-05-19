@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Menu, LogOut, Settings, Sparkles } from "lucide-react";
+import { Menu, LogOut, Settings } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
@@ -54,11 +54,8 @@ export function AppHeader({ user }: AppHeaderProps) {
       <div className="flex items-center gap-3">
         <Link
           href="/pipeline"
-          className="group flex items-center gap-2 select-none"
+          className="flex items-center gap-2 select-none"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-su-brand text-white shadow-sm shadow-su-brand/25 transition-transform duration-200 group-hover:scale-105">
-            <Sparkles className="h-3.5 w-3.5" />
-          </span>
           <span className="text-lg font-bold tracking-tight font-heading">
             <span className="text-foreground">Sell</span>
             <span className="su-gradient-text">Up</span>
