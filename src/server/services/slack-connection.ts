@@ -34,7 +34,7 @@ async function getSlackIntegrationId(): Promise<string | null> {
   const { data } = await admin
     .from('external_integrations')
     .select('id')
-    .eq('integration_id', await getSlackIntegrationId())
+    .eq('integration_key', INTEGRATION_KEY)
     .single();
   return data?.id ?? null;
 }
@@ -204,22 +204,35 @@ export async function storeSlackOAuthConfig(
 
   try {
     // Guardar client_secret en Vault
+    console.log('[storeSlackOAuthConfig] calling vault RPC...');
     const vaultResult = await admin.rpc('upsert_vault_secret', {
       p_name: VAULT_CLIENT_SECRET_NAME,
       p_secret: clientSecret,
       p_description: 'Client Secret de la Slack App para SellUp',
     });
-    console.log('[storeSlackOAuthConfig] vault upsert error:', vaultResult.error ?? 'none');
+    console.log('[storeSlackOAuthConfig] vault done. error:', vaultResult.error?.message ?? 'none');
+
+    if (vaultResult.error) {
+      return { success: false, error: `Vault error: ${vaultResult.error.message}` };
+    }
+
+    // Obtener integration_id
+    console.log('[storeSlackOAuthConfig] fetching integration id...');
+    const integrationId = await getSlackIntegrationId();
+    console.log('[storeSlackOAuthConfig] integration id:', integrationId ? 'FOUND' : 'NULL');
+
+    if (!integrationId) {
+      return { success: false, error: 'Integración Slack no encontrada en la base de datos.' };
+    }
 
     // Guardar client_id y redirect_uri en metadata (no sensibles)
     const { data: existing, error: fetchError } = await admin
       .from('external_integration_connections')
       .select('metadata')
-      .eq('integration_id', await getSlackIntegrationId())
+      .eq('integration_id', integrationId)
       .single();
 
-    console.log('[storeSlackOAuthConfig] fetch existing error:', fetchError ?? 'none');
-    console.log('[storeSlackOAuthConfig] existing row found:', existing ? 'YES' : 'NO');
+    console.log('[storeSlackOAuthConfig] fetch error:', fetchError?.message ?? 'none', '| found:', existing ? 'YES' : 'NO');
 
     const prevMeta = (existing?.metadata ?? {}) as Record<string, unknown>;
     const updatedMeta = {
@@ -228,16 +241,14 @@ export async function storeSlackOAuthConfig(
       oauth_redirect_uri: redirectUri,
     };
 
-    const { error: updateError, count } = await admin
+    const { error: updateError } = await admin
       .from('external_integration_connections')
       .update({ metadata: updatedMeta, updated_at: new Date().toISOString() })
-      .eq('integration_id', await getSlackIntegrationId())
-      .select();
+      .eq('integration_id', integrationId);
 
-    console.log('[storeSlackOAuthConfig] update error:', updateError ?? 'none');
-    console.log('[storeSlackOAuthConfig] rows updated:', count ?? 'unknown');
+    console.log('[storeSlackOAuthConfig] update error:', updateError?.message ?? 'none');
 
-    if (updateError) throw updateError;
+    if (updateError) throw new Error(updateError.message);
 
     return { success: true };
   } catch (err: unknown) {
