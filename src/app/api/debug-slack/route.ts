@@ -7,21 +7,51 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJ
 export async function GET() {
   const admin = createAdminClient(supabaseUrl, supabaseServiceKey);
 
-  // 1. Check external_integrations row
+  // 1. integration row
   const { data: integration, error: intError } = await admin
     .from('external_integrations')
     .select('id, integration_key, is_available')
     .eq('integration_key', 'slack')
     .single();
 
-  // 2. Check external_integration_connections row
+  // 2. connection row
   const { data: connection, error: connError } = await admin
     .from('external_integration_connections')
-    .select('id, integration_id, credentials_status, connection_status, metadata')
-    .eq('integration_key', 'slack')
+    .select('id, integration_id, credentials_status, connection_status, connected_at, metadata, vault_secret_id')
+    .eq('integration_id', integration?.id ?? '')
     .single();
 
   const meta = (connection?.metadata ?? {}) as Record<string, unknown>;
+
+  // 3. vault: bot token
+  let hasBotToken = false;
+  let vaultBotTokenError: string | null = null;
+  try {
+    const { data, error } = await admin.rpc('has_vault_secret', { p_name: 'sellup_integration_slack_bot_token' });
+    hasBotToken = data === true;
+    vaultBotTokenError = error?.message ?? null;
+  } catch (e) {
+    vaultBotTokenError = e instanceof Error ? e.message : String(e);
+  }
+
+  // 4. vault: client secret
+  let hasClientSecret = false;
+  let vaultClientSecretError: string | null = null;
+  try {
+    const { data, error } = await admin.rpc('has_vault_secret', { p_name: 'sellup_integration_slack_client_secret' });
+    hasClientSecret = data === true;
+    vaultClientSecretError = error?.message ?? null;
+  } catch (e) {
+    vaultClientSecretError = e instanceof Error ? e.message : String(e);
+  }
+
+  // 5. recent audit events
+  const { data: auditRows } = await admin
+    .from('integration_audit')
+    .select('event_type, created_at, metadata')
+    .eq('integration_key', 'slack')
+    .order('created_at', { ascending: false })
+    .limit(5);
 
   return NextResponse.json({
     integration: {
@@ -35,9 +65,17 @@ export async function GET() {
       error: connError?.message ?? null,
       credentials_status: connection?.credentials_status ?? null,
       connection_status: connection?.connection_status ?? null,
+      connected_at: connection?.connected_at ?? null,
+      has_vault_secret_id: !!connection?.vault_secret_id,
       metadata_keys: Object.keys(meta),
       has_oauth_client_id: !!meta.oauth_client_id,
       has_oauth_redirect_uri: !!meta.oauth_redirect_uri,
+      has_team_id: !!meta.team_id,
     },
+    vault: {
+      bot_token: { present: hasBotToken, error: vaultBotTokenError },
+      client_secret: { present: hasClientSecret, error: vaultClientSecretError },
+    },
+    recent_audit: auditRows ?? [],
   });
 }
