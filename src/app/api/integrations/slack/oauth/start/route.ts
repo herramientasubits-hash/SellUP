@@ -16,7 +16,7 @@ import { getSlackOAuthConfig } from '@/server/services/slack-connection';
 export const dynamic = 'force-dynamic';
 
 const SLACK_SCOPES =
-  'channels:manage,chat:write,app_mentions:read,channels:history,im:write,im:history';
+  'channels:manage,chat:write,app_mentions:read,channels:history,im:write,im:history,users:read,users:read.email';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
