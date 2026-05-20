@@ -16,11 +16,6 @@ import {
   getConfigurationHealthDetails,
   deriveAdministrativeRisks,
 } from '@/modules/system-status/actions';
-import {
-  getActivityViewerContext,
-  getPlatformActivity,
-} from '@/modules/system-status/activity-actions';
-import { ActivityFeedClient } from '@/app/(sellup)/settings/activity/activity-feed-client';
 import type { AdminRisk, RiskSeverity } from '@/modules/system-status/types';
 
 // ============================================================
@@ -119,11 +114,9 @@ export default async function SystemStatusPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
 
-  const [summary, health, activityContext, initialActivity] = await Promise.all([
+  const [summary, health] = await Promise.all([
     getSystemHealthSummary(),
     getConfigurationHealthDetails(),
-    getActivityViewerContext(),
-    getPlatformActivity({ limit: 30 }),
   ]);
 
   const risks = await deriveAdministrativeRisks(health, summary.pending_access_requests);
@@ -487,15 +480,6 @@ export default async function SystemStatusPage() {
         )}
       </div>
 
-      {/* ── Bloque 4: Actividad administrativa reciente ──────── */}
-      {activityContext && (
-        <ActivityFeedClient
-          context={activityContext}
-          initialEvents={initialActivity.events}
-          initialHasMore={initialActivity.hasMore}
-          embedded
-        />
-      )}
     </div>
   );
 }
