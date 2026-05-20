@@ -57,15 +57,6 @@ const CONFIG_SECTIONS = [
   },
 ];
 
-interface ConfigSection {
-  title: string;
-  description: string;
-  status: string;
-  icon: React.ComponentType<{ className?: string }>;
-  href: string | null;
-  adminOnly?: boolean;
-}
-
 export default async function SettingsPage() {
   const isAdmin = await isCurrentUserAdmin();
   const isActive = await hasActiveAccess();

@@ -13,6 +13,7 @@ const INTEGRATION_META: Record<
     icon: React.ComponentType<{ className?: string }>;
     href: string | null;
     cta: string;
+    personalNote?: string;
   }
 > = {
   hubspot: {
@@ -21,7 +22,14 @@ const INTEGRATION_META: Record<
     cta: 'Administrar conexión',
   },
   slack: { icon: MessageSquare, href: '/settings/integrations/slack', cta: 'Administrar conexión' },
-  google_drive: { icon: HardDrive, href: null, cta: 'Próximamente' },
+  google_drive: {
+    icon: HardDrive,
+    href: '/settings/my-drive',
+    cta: 'Ir a Mi Google Drive',
+    // Nota: Google Drive es una integración personal, no global.
+    // Cada usuario conecta su propio Drive desde /settings/my-drive.
+    personalNote: 'Conexión personal disponible en Mi Google Drive',
+  },
   samu_ia: { icon: Bot, href: null, cta: 'Próximamente' },
 };
 
@@ -92,24 +100,35 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
   const Icon = meta?.icon ?? Plug;
   const isAvailable = integration.is_available;
   const conn = integration.connection;
+  const isPersonal = !!meta?.personalNote;
+
+  const statusBadge = isPersonal ? (
+    // Google Drive: conexión personal, no gestionada aquí
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-[10px] font-medium text-su-brand">
+      <span className="h-1.5 w-1.5 rounded-full bg-su-brand" />
+      Personal
+    </span>
+  ) : (
+    <ConnectionStatusBadge
+      credentialsStatus={conn?.credentials_status}
+      connectionStatus={conn?.connection_status}
+      isAvailable={isAvailable}
+    />
+  );
 
   const cardContent = (
     <>
       <SurfaceCardHeader
         title={integration.name}
-        description={integration.description ?? undefined}
-        actions={
-          <ConnectionStatusBadge
-            credentialsStatus={conn?.credentials_status}
-            connectionStatus={conn?.connection_status}
-            isAvailable={isAvailable}
-          />
-        }
+        description={isPersonal ? meta.personalNote : (integration.description ?? undefined)}
+        actions={statusBadge}
       />
       <div className="flex items-center justify-between">
         <div
           className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
-            isAvailable && conn?.connection_status === 'connected'
+            isPersonal
+              ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
+              : isAvailable && conn?.connection_status === 'connected'
               ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
               : isAvailable
               ? 'bg-su-brand-soft/60 text-su-brand/70 group-hover:bg-su-brand/15'
@@ -118,7 +137,7 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
         >
           <Icon className="h-4 w-4" />
         </div>
-        {isAvailable && meta?.href && (
+        {(isAvailable || isPersonal) && meta?.href && (
           <span className="flex items-center gap-1 text-[11px] font-medium text-su-brand opacity-0 transition-opacity group-hover:opacity-100">
             {meta.cta}
             <ExternalLink className="h-3 w-3" />
@@ -134,7 +153,7 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
     </>
   );
 
-  if (isAvailable && meta?.href) {
+  if ((isAvailable || isPersonal) && meta?.href) {
     return (
       <Link href={meta.href}>
         <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
