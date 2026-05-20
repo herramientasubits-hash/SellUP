@@ -55,6 +55,14 @@ const CONFIG_SECTIONS = [
     href: "/settings/system-status",
     adminOnly: true,
   },
+  {
+    title: "Actividad de la plataforma",
+    description: "Historial de acciones de usuarios, integraciones y configuración de IA. Los líderes pueden ver la actividad de su equipo.",
+    status: "Funcional",
+    icon: Activity,
+    href: "/settings/activity",
+    adminOnly: false,
+  },
 ];
 
 export default async function SettingsPage() {

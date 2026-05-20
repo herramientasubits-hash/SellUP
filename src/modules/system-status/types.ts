@@ -125,3 +125,44 @@ export interface AdminActivityEvent {
   description: string | null;
   created_at: string;
 }
+
+// ----------------------------------------------------------------
+// Feed de actividad de plataforma (con usuarios enriquecidos)
+// ----------------------------------------------------------------
+
+export interface ActivityUser {
+  id: string;
+  email: string;
+  full_name: string | null;
+}
+
+export interface PlatformActivityEvent {
+  id: string;
+  source: AdminActivitySource;
+  event_type: string;
+  label: string;
+  description: string | null;
+  created_at: string;
+  actor: ActivityUser | null;
+  target: ActivityUser | null;
+}
+
+export interface PlatformActivityFilter {
+  userId?: string;
+  source?: AdminActivitySource | 'all';
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PlatformActivityResult {
+  events: PlatformActivityEvent[];
+  hasMore: boolean;
+}
+
+export interface ActivityViewerContext {
+  currentUserId: string;
+  isAdmin: boolean;
+  isManager: boolean;
+  allowedUsers: ActivityUser[];
+}
