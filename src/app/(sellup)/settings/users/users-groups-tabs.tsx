@@ -146,9 +146,9 @@ export function UsersTab({
     rejected:    users.filter(u => u.access_status === 'rejected').length,
   }), [users, preapprovals]);
 
-  const showOrgChart = filter === 'active' || filter === 'all';
+  const showOrgChart = (filter === 'active' || filter === 'all') && viewMode === 'org';
   const showPreapprovedList = filter === 'preapproved';
-  const showUserList = !showOrgChart && !showPreapprovedList;
+  const showUserList = viewMode === 'list' && !showPreapprovedList;
 
   return (
     <div className="space-y-4">
