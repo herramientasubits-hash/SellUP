@@ -6,9 +6,15 @@
 --   2. RLS: cada usuario solo ve/actualiza las suyas. Sin INSERT público.
 --   3. create_notifications_for_recipients(): función reutilizable SECURITY DEFINER
 --      para que cualquier módulo futuro pueda emitir notificaciones sin repetir lógica.
---   4. notify_admins_of_pending_user(): evento específico para pending_approval.
+--   4. notify_admins_of_pending_user(): counts ALL pending users on each call,
+--      sends ONE notification per admin with total count (not one per user).
 --   5. sync_internal_user() actualizada: llama a notify_admins_of_pending_user
 --      solo al crear un nuevo usuario pendiente (no en updates ni en preaprobados).
+--
+-- Comportamiento de contadores:
+--   Cada vez que llega un nuevo usuario pendiente, se envía una notificación a cada
+--   admin con el TOTAL de usuarios pendientes en ese momento, sin duplicados gracias
+--   al unique index sobre (recipient_id, notification_type, NULL).
 --
 -- Anti-duplicados:
 --   Unique index en (recipient_id, notification_type, entity_id) WHERE entity_id IS NOT NULL.
@@ -48,6 +54,11 @@ CREATE INDEX IF NOT EXISTS idx_notifications_unread
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_no_dup
     ON user_notifications(recipient_internal_user_id, notification_type, entity_id)
     WHERE entity_id IS NOT NULL;
+
+-- Una sola notificación pendiente por admin (entity_id NULL = contador agrupado)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_pending_approval_once
+    ON user_notifications(recipient_internal_user_id, notification_type)
+    WHERE notification_type = 'user_pending_approval' AND entity_id IS NULL;
 
 -- ── RLS ───────────────────────────────────────────────────────────────────────
 
@@ -138,35 +149,47 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 --   notify_admins_of_<event>(p_entity_id, ...params)
 --   → llama a create_notifications_for_recipients(...)
 
-CREATE OR REPLACE FUNCTION notify_admins_of_pending_user(
-    p_pending_user_id   UUID,
-    p_email             TEXT
-)
+CREATE OR REPLACE FUNCTION notify_admins_of_pending_user()
 RETURNS VOID AS $$
 DECLARE
-    v_admin_ids UUID[];
+    v_admin RECORD;
+    v_pending_count INTEGER;
+    v_plural TEXT;
 BEGIN
-    SELECT ARRAY_AGG(u.id)
-    INTO v_admin_ids
-    FROM internal_users u
-    JOIN roles r ON u.role_id = r.id
-    WHERE u.access_status = 'active'
-      AND r.key = 'admin';
+    SELECT COUNT(*) INTO v_pending_count
+    FROM internal_users
+    WHERE access_status = 'pending_approval';
 
-    IF v_admin_ids IS NULL OR ARRAY_LENGTH(v_admin_ids, 1) = 0 THEN
+    IF v_pending_count = 0 THEN
         RETURN;
     END IF;
 
-    PERFORM create_notifications_for_recipients(
-        v_admin_ids,
-        'user_pending_approval',
-        'Nuevo usuario pendiente de aprobación',
-        p_email || ' solicitó acceso a SellUp y requiere revisión.',
-        'Revisar usuarios',
-        '/settings/users?tab=pending',
-        'internal_user',
-        p_pending_user_id
-    );
+    v_plural := CASE WHEN v_pending_count > 1 THEN 'n' ELSE '' END;
+
+    FOR v_admin IN
+        SELECT u.id
+        FROM internal_users u
+        JOIN roles r ON u.role_id = r.id
+        WHERE u.access_status = 'active'
+          AND r.key = 'admin'
+    LOOP
+        -- Reemplazar notificación pendiente anterior (sin leer) para este admin
+        DELETE FROM user_notifications
+        WHERE recipient_internal_user_id = v_admin.id
+          AND notification_type = 'user_pending_approval'
+          AND is_read = FALSE;
+
+        PERFORM create_notifications_for_recipients(
+            ARRAY[v_admin.id],
+            'user_pending_approval',
+            'Usuarios pendientes de aprobación',
+            v_pending_count || ' usuario' || v_plural || ' pendiente' || v_plural || ' de revisión.',
+            'Revisar usuarios',
+            '/settings/users?tab=pending',
+            'internal_user',
+            NULL
+        );
+    END LOOP;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -239,14 +262,18 @@ BEGIN
                 updated_at              = NOW()
             WHERE id = v_preapproval.id;
 
-        ELSE
+ELSE
             -- Flujo normal: nuevo usuario pendiente de aprobación
-            INSERT INTO internal_users (auth_user_id, email, full_name, avatar_url, access_status)
-            VALUES (p_auth_user_id, p_email, p_full_name, p_avatar_url, 'pending_approval')
+            INSERT INTO internal_users (
+                auth_user_id, email, full_name, avatar_url, access_status
+            ) VALUES (
+                p_auth_user_id, p_email, COALESCE(p_full_name, split_part(p_email, '@', 1)),
+                p_avatar_url, 'pending_approval'
+            )
             RETURNING id INTO v_internal_user_id;
 
-            -- Notificar a todos los admins activos (primera y única vez)
-            PERFORM notify_admins_of_pending_user(v_internal_user_id, p_email);
+            -- Notificar a admins: counts current pending users dynamically
+            PERFORM notify_admins_of_pending_user();
         END IF;
     END IF;
 
