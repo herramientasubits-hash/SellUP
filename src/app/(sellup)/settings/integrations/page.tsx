@@ -174,7 +174,10 @@ export default async function IntegrationsPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
 
-  const integrations = await getAllIntegrations();
+  const allIntegrations = await getAllIntegrations();
+  const integrations = allIntegrations.filter(
+    (i) => i.integration_key !== 'google_drive'
+  );
 
   return (
     <div className="space-y-8">
