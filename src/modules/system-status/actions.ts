@@ -15,12 +15,14 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import type {
   SystemHealthSummary,
   ConfigurationHealthDetails,
   AIProviderHealth,
   HubSpotHealth,
   SlackHealth,
+  ApolloHealth,
   AdminRisk,
   AdminActivityEvent,
 } from './types';
@@ -177,6 +179,12 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
         channel_name: null,
         last_connection_error: null,
       },
+      apollo: {
+        credentials_status: 'missing',
+        connection_status: 'not_connected',
+        last_tested_at: null,
+        last_connection_error: null,
+      },
       prospecting: { total: 0, prepared: 0, active_provider: null },
       automations: { total: 0, manual: 0, suggested: 0, automatic: 0 },
     };
@@ -189,6 +197,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     activeConfigResult,
     hubspotIntegResult,
     slackIntegResult,
+    apolloProviderResult,
     prospectingResult,
     automationsResult,
   ] = await Promise.all([
@@ -212,6 +221,11 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
       .from('external_integrations')
       .select('id')
       .eq('integration_key', 'slack')
+      .single(),
+    admin
+      .from('prospecting_providers')
+      .select('id')
+      .eq('provider_key', 'apollo')
       .single(),
     admin.from('prospecting_providers').select('lifecycle_status, provider_key'),
     admin
@@ -303,6 +317,31 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     }
   }
 
+  // Apollo
+  let apollo: ApolloHealth = {
+    credentials_status: 'missing',
+    connection_status: 'not_connected',
+    last_tested_at: null,
+    last_connection_error: null,
+  };
+  if (apolloProviderResult.data?.id) {
+    const { data: apolloConn } = await admin
+      .from('prospecting_provider_connections')
+      .select('credentials_status, connection_status, last_tested_at, last_connection_error')
+      .eq('provider_id', apolloProviderResult.data.id)
+      .single();
+
+    if (apolloConn) {
+      const hasKey = await hasApolloApiKey();
+      apollo = {
+        credentials_status: hasKey ? 'stored' : 'missing',
+        connection_status: (apolloConn.connection_status as ApolloHealth['connection_status']) ?? 'not_connected',
+        last_tested_at: apolloConn.last_tested_at ?? null,
+        last_connection_error: apolloConn.last_connection_error ?? null,
+      };
+    }
+  }
+
   // Prospecting
   const prospData = prospectingResult.data ?? [];
   const activeProsp = prospData.find((p) => p.lifecycle_status === 'connected');
@@ -315,6 +354,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     active_ai,
     hubspot,
     slack,
+    apollo,
     prospecting: {
       total: prospData.length,
       prepared: prospData.filter(
@@ -402,13 +442,22 @@ export async function deriveAdministrativeRisks(
     });
   }
 
-  // Prospección
-  if (!health.prospecting.active_provider) {
+  // Apollo.io
+  if (health.apollo.connection_status === 'error') {
     risks.push({
-      id: 'prospecting_no_active',
+      id: 'apollo_error',
+      severity: 'attention',
+      message: 'La conexión con Apollo.io falló. Verifica la API Key.',
+      action_href: '/settings/prospecting',
+    });
+  } else if (
+    health.apollo.credentials_status === 'stored' &&
+    health.apollo.connection_status === 'not_tested'
+  ) {
+    risks.push({
+      id: 'apollo_not_tested',
       severity: 'pending',
-      message:
-        'No hay proveedor de prospección activo. Pendiente de decisión de negocio.',
+      message: 'Apollo.io tiene credencial guardada pero aún no se ha probado la conexión.',
       action_href: '/settings/prospecting',
     });
   }
@@ -468,6 +517,7 @@ const INTEGRATION_KEY_LABELS: Record<string, string> = {
   slack: 'Slack',
   google_drive: 'Google Drive',
   samu_ia: 'Samu IA',
+  apollo: 'Apollo.io',
 };
 
 const AI_AUDIT_LABELS: Record<string, string> = {

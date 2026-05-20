@@ -3,8 +3,13 @@ import { Search, Sparkles, Database, CircleDashed, CheckCircle2, Clock } from 'l
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
-import { getAllProspectingProviders, getProspectingStats } from '@/modules/prospecting-config/actions';
+import {
+  getAllProspectingProviders,
+  getProspectingStats,
+  getApolloConnection,
+} from '@/modules/prospecting-config/actions';
 import type { ProspectingProvider, ProviderType, LifecycleStatus } from '@/modules/prospecting-config/types';
+import { ApolloProviderCard } from './apollo-provider-card';
 
 // ============================================================
 // Helpers de presentación
@@ -79,7 +84,7 @@ function StatCard({
   );
 }
 
-function ProviderCard({ provider }: { provider: ProspectingProvider }) {
+function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
   const lifecycle = lifecycleLabel(provider.lifecycle_status);
 
   return (
@@ -98,7 +103,6 @@ function ProviderCard({ provider }: { provider: ProspectingProvider }) {
       />
 
       <div className="flex items-center justify-between">
-        {/* Tipo de proveedor */}
         <div className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground/50">
             {provider.provider_type === 'enrichment' ? (
@@ -112,7 +116,6 @@ function ProviderCard({ provider }: { provider: ProspectingProvider }) {
           </span>
         </div>
 
-        {/* CTA informativo — no funcional hasta que negocio defina el proveedor */}
         <span className="text-[11px] font-medium text-muted-foreground/50 cursor-default select-none">
           Conexión pendiente de definición
         </span>
@@ -129,16 +132,20 @@ export default async function ProspectingPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
 
-  const [providers, stats] = await Promise.all([
+  const [providers, stats, apolloConnection] = await Promise.all([
     getAllProspectingProviders(),
     getProspectingStats(),
+    getApolloConnection(),
   ]);
+
+  const apolloProvider = providers.find((p) => p.provider_key === 'apollo');
+  const otherProviders = providers.filter((p) => p.provider_key !== 'apollo');
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Prospección y enriquecimiento"
-        description="Administra la arquitectura base de proveedores externos que SellUp podrá usar para generar y enriquecer prospectos."
+        description="Administra los proveedores externos que SellUp usa para generar y enriquecer prospectos."
         backHref="/settings"
       />
 
@@ -154,7 +161,7 @@ export default async function ProspectingPage() {
             icon={Database}
           />
           <StatCard
-            label="Preparados para futura conexión"
+            label="Preparados para conexión"
             value={stats.prepared}
             icon={CheckCircle2}
             valueClassName="text-su-brand"
@@ -173,32 +180,24 @@ export default async function ProspectingPage() {
         </div>
       </div>
 
-      {/* Listado de proveedores */}
+      {/* Proveedores */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3">
           Proveedores
         </p>
         <div className="grid gap-4 md:grid-cols-2">
-          {providers.map((provider) => (
-            <ProviderCard key={provider.id} provider={provider} />
-          ))}
-        </div>
-      </div>
+          {/* Apollo — tarjeta interactiva con conexión real */}
+          {apolloProvider && (
+            <ApolloProviderCard
+              connection={apolloConnection}
+              description={apolloProvider.description}
+            />
+          )}
 
-      {/* Nota informativa de preparación futura */}
-      <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/50 p-4">
-        <div className="flex gap-3">
-          <CircleDashed className="mt-0.5 h-4 w-4 shrink-0 text-su-brand/70" />
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">
-              Pendiente de decisión de negocio
-            </p>
-            <p className="text-xs text-muted-foreground">
-              La arquitectura de proveedores está preparada. Cuando se defina el proveedor activo,
-              se habilitará la configuración de credenciales, prueba de conexión y uso en
-              automatizaciones de generación y enriquecimiento de prospectos.
-            </p>
-          </div>
+          {/* Lusha y futuros — tarjetas estáticas */}
+          {otherProviders.map((provider) => (
+            <StaticProviderCard key={provider.id} provider={provider} />
+          ))}
         </div>
       </div>
     </div>

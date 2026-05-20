@@ -326,11 +326,11 @@ export default async function SystemStatusPage() {
             </div>
           </SurfaceCard>
 
-          {/* Prospección */}
+          {/* Apollo.io */}
           <SurfaceCard>
             <SurfaceCardHeader
-              title="Prospección y enriquecimiento"
-              description="Proveedores externos de datos"
+              title="Apollo.io"
+              description="Prospección y enriquecimiento"
               actions={
                 <Link
                   href="/settings/prospecting"
@@ -343,34 +343,36 @@ export default async function SystemStatusPage() {
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Proveedores contemplados</span>
-                <span className="text-xs font-medium text-foreground">
-                  {health.prospecting.total}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Preparados para conexión</span>
-                <span className="text-xs font-medium text-foreground">
-                  {health.prospecting.prepared}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Proveedor activo</span>
+                <span className="text-xs text-muted-foreground">Credencial</span>
                 <span
                   className={`text-xs font-medium ${
-                    health.prospecting.active_provider
+                    health.apollo.credentials_status === 'stored'
                       ? 'text-emerald-500'
                       : 'text-muted-foreground'
                   }`}
                 >
-                  {health.prospecting.active_provider ?? 'No definido'}
+                  {health.apollo.credentials_status === 'stored' ? 'Guardada' : 'No configurada'}
                 </span>
               </div>
-              <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5">
-                <p className="text-[10px] text-muted-foreground">
-                  Arquitectura lista · pendiente decisión de negocio sobre proveedor activo.
-                </p>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Conexión</span>
+                <ConnectionBadge status={health.apollo.connection_status} />
               </div>
+              {health.apollo.last_tested_at && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Última prueba</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatRelativeTime(health.apollo.last_tested_at)}
+                  </span>
+                </div>
+              )}
+              {health.apollo.last_connection_error && (
+                <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
+                  <p className="text-[10px] text-destructive line-clamp-2">
+                    {health.apollo.last_connection_error}
+                  </p>
+                </div>
+              )}
             </div>
           </SurfaceCard>
 
