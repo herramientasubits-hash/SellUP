@@ -28,6 +28,7 @@ export default async function SellUpLayout({
       pending_approval: '/access-pending',
       rejected: '/access-rejected',
       suspended: '/access-suspended',
+      archived: '/access-archived',
     };
 
     redirect(accessRedirects[accessStatus] ?? '/access-pending');

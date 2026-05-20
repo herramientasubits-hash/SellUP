@@ -26,6 +26,16 @@ interface UsersTabProps {
   groups: OrganizationGroup[];
   preapprovals: UserPreapproval[];
   isAdmin: boolean;
+  initialFilter?: UserFilter;
+  onFilterChange?: (filter: UserFilter) => void;
+}
+
+interface GroupsTabProps {
+  users: InternalUser[];
+  groups: OrganizationGroup[];
+  roles: Role[];
+  initialGroupFilter?: string;
+  onGroupFilterChange?: (g: string | null) => void;
 }
 
 const USER_FILTERS: { id: UserFilter; label: string }[] = [
@@ -120,8 +130,9 @@ function PreapprovalCard({ preapproval, isAdmin }: PreapprovalCardProps) {
 
 export function UsersTab({
   users, roles, allUsers, activeUsers, groups, preapprovals, isAdmin,
+  initialFilter = 'active', onFilterChange,
 }: UsersTabProps) {
-  const [filter, setFilter] = useState<UserFilter>('active');
+  const [filter, setFilter] = useState<UserFilter>(initialFilter);
   const [viewMode, setViewMode] = useState<UserViewMode>('list');
 
   const statusMap: Record<string, string> = {
@@ -131,14 +142,16 @@ export function UsersTab({
     rejected: 'rejected',
   };
 
+  const activeFilters = new Set(['active', 'pending_approval', 'suspended', 'rejected']);
   const filteredUsers = useMemo(() => {
-    if (filter === 'all') return users;
+    if (filter === 'all') return users.filter(u => activeFilters.has(u.access_status));
+    if (filter === 'preapproved') return [];
     const mapped = statusMap[filter];
     return mapped ? users.filter(u => u.access_status === mapped) : [];
   }, [users, filter]);
 
   const filterCounts = useMemo(() => ({
-    all:         users.length,
+    all:         users.filter(u => activeFilters.has(u.access_status)).length,
     active:      users.filter(u => u.access_status === 'active').length,
     pending:     users.filter(u => u.access_status === 'pending_approval').length,
     preapproved: preapprovals.length,
@@ -159,7 +172,10 @@ export function UsersTab({
           {USER_FILTERS.map(f => (
             <button
               key={f.id}
-              onClick={() => setFilter(f.id)}
+              onClick={() => {
+                setFilter(f.id);
+                onFilterChange?.(f.id);
+              }}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
                 filter === f.id

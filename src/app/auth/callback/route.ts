@@ -78,6 +78,7 @@ export async function GET(request: Request) {
     pending_approval: '/access-pending',
     rejected: '/access-rejected',
     suspended: '/access-suspended',
+    archived: '/access-archived',
     active: '/pipeline',
   };
 

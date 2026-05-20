@@ -8,6 +8,7 @@ interface SurfaceCardProps {
   elevated?: boolean;
   /** Sin padding interno */
   noPadding?: boolean;
+  onClick?: () => void;
 }
 
 export function SurfaceCard({
@@ -15,6 +16,7 @@ export function SurfaceCard({
   className,
   elevated = false,
   noPadding = false,
+  onClick,
 }: SurfaceCardProps) {
   return (
     <div
@@ -25,9 +27,11 @@ export function SurfaceCard({
           : "border-border/50 bg-card shadow-[0_1px_3px_0_rgb(0_0_0/0.03),0_1px_2px_-1px_rgb(0_0_0/0.03)]",
         "hover:shadow-[0_4px_12px_0_rgb(0_0_0/0.05),0_1px_3px_-1px_rgb(0_0_0/0.04)]",
         "hover:border-border/70",
+        onClick && "cursor-pointer hover:border-su-brand/30",
         !noPadding && "p-5",
         className,
       )}
+      onClick={onClick}
     >
       {children}
     </div>

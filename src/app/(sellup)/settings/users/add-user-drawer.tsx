@@ -99,7 +99,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
   return (
     <>
-      <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
+      <Button size="sm" variant="outline" className="gap-2 text-xs font-medium" onClick={() => setOpen(true)}>
         <UserPlus className="h-4 w-4" />
         Agregar usuario
       </Button>
@@ -330,6 +330,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
             <Button
               onClick={handleSubmit}
               disabled={!emailValid || !roleId || loading}
+              variant="outline"
               className="text-sm gap-2"
             >
               <UserPlus className="h-4 w-4" />

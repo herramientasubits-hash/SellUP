@@ -247,13 +247,14 @@ BEGIN
             -- Notificar a admins del nuevo pendiente
             PERFORM notify_admins_of_pending_user();
         ELSE
-            -- Usuario existente no archivado: solo actualizar metadatos
-            UPDATE internal_users
-            SET full_name  = COALESCE(p_full_name, full_name),
-                avatar_url = COALESCE(p_avatar_url, avatar_url),
-                updated_at = NOW()
-            WHERE auth_user_id = p_auth_user_id
-            RETURNING id INTO v_internal_user_id;
+-- Usuario existente no archivado: solo actualizar metadatos
+        UPDATE internal_users
+        SET full_name  = COALESCE(p_full_name, full_name),
+            avatar_url = COALESCE(p_avatar_url, avatar_url),
+            updated_at = NOW()
+        WHERE auth_user_id = p_auth_user_id
+        RETURNING id INTO v_internal_user_id;
+        -- NOTA: usuarios archived deben solicitar reingreso via /access-archived
         END IF;
 
     ELSE
