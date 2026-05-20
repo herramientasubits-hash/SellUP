@@ -15,6 +15,10 @@ export type ConnectionStatus =
 
 export type AuthType = 'private_app_access_token' | 'oauth2' | 'api_key';
 
+export interface SamuMetadata extends Record<string, unknown> {
+  user_count?: number;
+}
+
 export interface ExternalIntegration {
   id: string;
   integration_key: string;
@@ -81,7 +85,13 @@ export interface IntegrationAuditEntry {
     | 'oauth_connected'
     | 'oauth_failed'
     | 'channel_created'
-    | 'test_message_sent';
+    | 'test_message_sent'
+    | 'samu_api_key_stored'
+    | 'samu_api_key_updated'
+    | 'samu_connection_tested'
+    | 'samu_connection_succeeded'
+    | 'samu_connection_failed'
+    | 'samu_disconnected';
   actor_user_id: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;

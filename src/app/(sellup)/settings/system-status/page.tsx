@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Link2,
   Cpu,
   ChevronRight,
 } from 'lucide-react';
@@ -389,6 +388,64 @@ export default async function SystemStatusPage() {
                 <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
                   <p className="text-[10px] text-destructive line-clamp-2">
                     {health.lusha.last_connection_error}
+                  </p>
+                </div>
+              )}
+            </div>
+          </SurfaceCard>
+
+          {/* Samu IA */}
+          <SurfaceCard>
+            <SurfaceCardHeader
+              title="Samu IA"
+              description="Integración de reuniones y transcripciones"
+              actions={
+                <Link
+                  href="/settings/integrations/samu"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              }
+            />
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Credencial</span>
+                <span
+                  className={`text-xs font-medium ${
+                    health.samu.credentials_status === 'stored'
+                      ? 'text-emerald-500'
+                      : 'text-muted-foreground'
+                  }`}
+                >
+                  {health.samu.credentials_status === 'stored' ? 'Guardada' : 'No configurada'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Conexión</span>
+                <ConnectionBadge status={health.samu.connection_status} />
+              </div>
+              {health.samu.user_count != null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Usuarios en entorno</span>
+                  <span className="text-xs font-medium text-foreground">
+                    {health.samu.user_count}
+                  </span>
+                </div>
+              )}
+              {health.samu.last_tested_at && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Última prueba</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatRelativeTime(health.samu.last_tested_at)}
+                  </span>
+                </div>
+              )}
+              {health.samu.last_connection_error && (
+                <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
+                  <p className="text-[10px] text-destructive line-clamp-2">
+                    {health.samu.last_connection_error}
                   </p>
                 </div>
               )}

@@ -30,7 +30,7 @@ const INTEGRATION_META: Record<
     // Cada usuario conecta su propio Drive desde /settings/my-drive.
     personalNote: 'Conexión personal disponible en Mi Google Drive',
   },
-  samu_ia: { icon: Bot, href: null, cta: 'Próximamente' },
+  samu_ia: { icon: Bot, href: '/settings/integrations/samu', cta: 'Administrar conexión' },
 };
 
 function ConnectionStatusBadge({

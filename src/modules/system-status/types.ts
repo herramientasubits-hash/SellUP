@@ -72,6 +72,14 @@ export interface LushaHealth {
   last_connection_error: string | null;
 }
 
+export interface SamuHealth {
+  credentials_status: 'stored' | 'missing';
+  connection_status: 'not_tested' | 'connected' | 'error' | 'disconnected';
+  last_tested_at: string | null;
+  user_count: number | null;
+  last_connection_error: string | null;
+}
+
 export interface ConfigurationHealthDetails {
   ai_providers: AIProviderHealth[];
   active_ai: {
@@ -83,6 +91,7 @@ export interface ConfigurationHealthDetails {
   slack: SlackHealth;
   apollo: ApolloHealth;
   lusha: LushaHealth;
+  samu: SamuHealth;
   prospecting: {
     total: number;
     prepared: number;

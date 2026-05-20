@@ -17,11 +17,18 @@ import {
   sendSlackTestMessage,
   storeSlackOAuthConfig,
 } from '@/server/services/slack-connection';
+import {
+  storeSamuApiKey,
+  removeSamuApiKey,
+  hasSamuApiKey,
+  testSamuHealth,
+} from '@/server/services/samu-connection';
 import type {
   ExternalIntegration,
   ExternalIntegrationConnection,
   IntegrationWithConnection,
   SlackMetadata,
+  SamuMetadata,
 } from './types';
 
 const supabaseUrl =
@@ -753,6 +760,281 @@ export async function disconnectSlack(): Promise<{
   return {
     success: true,
     message: 'Slack desconectado correctamente.',
+  };
+}
+
+// ============================================================
+// Samu IA: Leer integración
+// ============================================================
+
+export async function getSamuIntegration(): Promise<IntegrationWithConnection | null> {
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('*')
+    .eq('integration_key', 'samu_ia')
+    .single();
+
+  if (!integration) return null;
+
+  const { data: connection } = await admin
+    .from('external_integration_connections')
+    .select('*')
+    .eq('integration_id', integration.id)
+    .single();
+
+  const hasCredential = await hasSamuApiKey();
+  const credentialsStatus = hasCredential ? 'stored' : 'missing';
+
+  const enrichedConnection = connection
+    ? { ...connection, credentials_status: credentialsStatus }
+    : null;
+
+  return {
+    ...(integration as ExternalIntegration),
+    connection: enrichedConnection,
+  };
+}
+
+// ============================================================
+// Samu IA: Conectar (guardar API Key por primera vez)
+// ============================================================
+
+export async function connectSamu(apiKey: string): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  if (!apiKey || apiKey.trim().length < 8) {
+    return { success: false, error: 'API Key inválida o demasiado corta.' };
+  }
+
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const storeResult = await storeSamuApiKey(apiKey.trim());
+  if (!storeResult.success) return storeResult;
+
+  await logAuditEvent('samu_ia', 'samu_api_key_stored', actorId);
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'samu_ia')
+    .single();
+
+  if (integration) {
+    const now = new Date().toISOString();
+    const { data: existing } = await admin
+      .from('external_integration_connections')
+      .select('id')
+      .eq('integration_id', integration.id)
+      .single();
+
+    if (existing) {
+      await admin
+        .from('external_integration_connections')
+        .update({
+          credentials_status: 'stored',
+          connection_status: 'not_tested',
+          last_connection_error: null,
+          connected_at: now,
+          connected_by: actorId,
+          disconnected_at: null,
+          disconnected_by: null,
+          metadata: null,
+          updated_at: now,
+        })
+        .eq('id', existing.id);
+    } else {
+      await admin.from('external_integration_connections').insert({
+        integration_id: integration.id,
+        auth_type: 'api_key',
+        credentials_status: 'stored',
+        connection_status: 'not_tested',
+        connected_at: now,
+        connected_by: actorId,
+      });
+    }
+  }
+
+  return {
+    success: true,
+    message: 'API Key guardada correctamente. Ahora puedes probar la conexión.',
+  };
+}
+
+// ============================================================
+// Samu IA: Actualizar API Key
+// ============================================================
+
+export async function updateSamuApiKey(newApiKey: string): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  if (!newApiKey || newApiKey.trim().length < 8) {
+    return { success: false, error: 'API Key inválida o demasiado corta.' };
+  }
+
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const storeResult = await storeSamuApiKey(newApiKey.trim());
+  if (!storeResult.success) return storeResult;
+
+  await logAuditEvent('samu_ia', 'samu_api_key_updated', actorId);
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'samu_ia')
+    .single();
+
+  if (integration) {
+    await admin
+      .from('external_integration_connections')
+      .update({
+        credentials_status: 'stored',
+        connection_status: 'not_tested',
+        last_tested_at: null,
+        last_connection_error: null,
+        metadata: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('integration_id', integration.id);
+  }
+
+  return {
+    success: true,
+    message: 'API Key actualizada. Prueba la conexión para verificar la nueva clave.',
+  };
+}
+
+// ============================================================
+// Samu IA: Probar conexión
+// ============================================================
+
+export async function testSamuConnectionAction(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'samu_ia')
+    .single();
+
+  if (!integration) {
+    return { success: false, error: 'Integración Samu IA no encontrada.' };
+  }
+
+  await logAuditEvent('samu_ia', 'samu_connection_tested', actorId);
+
+  const result = await testSamuHealth();
+  const now = new Date().toISOString();
+
+  if (result.success) {
+    const safeMetadata: SamuMetadata = {
+      user_count: result.userCount,
+    };
+
+    await admin
+      .from('external_integration_connections')
+      .update({
+        connection_status: 'connected',
+        last_tested_at: now,
+        last_tested_by: actorId,
+        last_connection_error: null,
+        metadata: safeMetadata,
+        updated_at: now,
+      })
+      .eq('integration_id', integration.id);
+
+    await logAuditEvent('samu_ia', 'samu_connection_succeeded', actorId, safeMetadata);
+  } else {
+    const sanitizedError = result.message ? result.message.slice(0, 500) : 'Error desconocido';
+
+    await admin
+      .from('external_integration_connections')
+      .update({
+        connection_status: 'error',
+        last_tested_at: now,
+        last_tested_by: actorId,
+        last_connection_error: sanitizedError,
+        updated_at: now,
+      })
+      .eq('integration_id', integration.id);
+
+    await logAuditEvent('samu_ia', 'samu_connection_failed', actorId, {
+      error_code: result.error,
+    });
+  }
+
+  return {
+    success: result.success,
+    error: result.error,
+    message: result.message,
+  };
+}
+
+// ============================================================
+// Samu IA: Desconectar
+// ============================================================
+
+export async function disconnectSamu(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  await removeSamuApiKey();
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'samu_ia')
+    .single();
+
+  if (integration) {
+    await admin
+      .from('external_integration_connections')
+      .update({
+        credentials_status: 'missing',
+        connection_status: 'disconnected',
+        last_connection_error: null,
+        disconnected_at: new Date().toISOString(),
+        disconnected_by: actorId,
+        metadata: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('integration_id', integration.id);
+  }
+
+  await logAuditEvent('samu_ia', 'samu_disconnected', actorId);
+
+  return {
+    success: true,
+    message: 'Samu IA desconectado correctamente.',
   };
 }
 

@@ -17,6 +17,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { hasLushaApiKey } from '@/server/services/lusha-connection';
+import { hasSamuApiKey } from '@/server/services/samu-connection';
 import type {
   SystemHealthSummary,
   ConfigurationHealthDetails,
@@ -25,6 +26,7 @@ import type {
   SlackHealth,
   ApolloHealth,
   LushaHealth,
+  SamuHealth,
   AdminRisk,
   AdminActivityEvent,
 } from './types';
@@ -193,6 +195,13 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
         last_tested_at: null,
         last_connection_error: null,
       },
+      samu: {
+        credentials_status: 'missing',
+        connection_status: 'not_tested',
+        last_tested_at: null,
+        user_count: null,
+        last_connection_error: null,
+      },
       prospecting: { total: 0, prepared: 0, active_provider: null },
       automations: { total: 0, manual: 0, suggested: 0, automatic: 0 },
     };
@@ -209,6 +218,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     lushaProviderResult,
     prospectingResult,
     automationsResult,
+    samuIntegResult,
   ] = await Promise.all([
     admin
       .from('ai_providers')
@@ -246,6 +256,11 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
       .from('system_automations')
       .select('execution_mode')
       .eq('is_available', true),
+    admin
+      .from('external_integrations')
+      .select('id')
+      .eq('integration_key', 'samu_ia')
+      .single(),
   ]);
 
   // AI providers
@@ -381,6 +396,34 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     }
   }
 
+  // Samu IA
+  let samu: SamuHealth = {
+    credentials_status: 'missing',
+    connection_status: 'not_tested',
+    last_tested_at: null,
+    user_count: null,
+    last_connection_error: null,
+  };
+  if (samuIntegResult.data?.id) {
+    const { data: samuConn } = await admin
+      .from('external_integration_connections')
+      .select('credentials_status, connection_status, last_tested_at, last_connection_error, metadata')
+      .eq('integration_id', samuIntegResult.data.id)
+      .single();
+
+    if (samuConn) {
+      const hasKey = await hasSamuApiKey();
+      const meta = samuConn.metadata as Record<string, unknown> | null;
+      samu = {
+        credentials_status: hasKey ? 'stored' : 'missing',
+        connection_status: (samuConn.connection_status as SamuHealth['connection_status']) ?? 'not_tested',
+        last_tested_at: samuConn.last_tested_at ?? null,
+        user_count: (meta?.user_count as number) ?? null,
+        last_connection_error: samuConn.last_connection_error ?? null,
+      };
+    }
+  }
+
   // Prospecting
   const prospData = prospectingResult.data ?? [];
   const activeProsp = prospData.find((p) => p.lifecycle_status === 'connected');
@@ -395,6 +438,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     slack,
     apollo,
     lusha,
+    samu,
     prospecting: {
       total: prospData.length,
       prepared: prospData.filter(
@@ -519,6 +563,26 @@ export async function deriveAdministrativeRisks(
       severity: 'pending',
       message: 'Lusha tiene credencial guardada pero aún no se ha probado la conexión.',
       action_href: '/settings/prospecting',
+    });
+  }
+
+  // Samu IA
+  if (health.samu.connection_status === 'error') {
+    risks.push({
+      id: 'samu_error',
+      severity: 'pending',
+      message: 'La conexión con Samu IA falló. Verifica la API Key.',
+      action_href: '/settings/integrations/samu',
+    });
+  } else if (
+    health.samu.credentials_status === 'stored' &&
+    health.samu.connection_status === 'not_tested'
+  ) {
+    risks.push({
+      id: 'samu_not_tested',
+      severity: 'pending',
+      message: 'Samu IA tiene credencial guardada pero aún no se ha probado la conexión.',
+      action_href: '/settings/integrations/samu',
     });
   }
 
