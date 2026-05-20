@@ -132,7 +132,7 @@ export function UsersSettingsClient({
       <Tabs
         value={activeTab}
         onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
-        className="flex flex-col flex-1 min-h-0 overflow-hidden"
+        className="flex flex-col flex-1 min-h-0 overflow-hidden mt-6"
       >
         <TabsList className="bg-muted/50 flex-wrap h-auto gap-1">
           <TabsTrigger value="usuarios" className="gap-2">
