@@ -16,6 +16,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
+import { hasLushaApiKey } from '@/server/services/lusha-connection';
 import type {
   SystemHealthSummary,
   ConfigurationHealthDetails,
@@ -23,6 +24,7 @@ import type {
   HubSpotHealth,
   SlackHealth,
   ApolloHealth,
+  LushaHealth,
   AdminRisk,
   AdminActivityEvent,
 } from './types';
@@ -185,6 +187,12 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
         last_tested_at: null,
         last_connection_error: null,
       },
+      lusha: {
+        credentials_status: 'missing',
+        connection_status: 'not_connected',
+        last_tested_at: null,
+        last_connection_error: null,
+      },
       prospecting: { total: 0, prepared: 0, active_provider: null },
       automations: { total: 0, manual: 0, suggested: 0, automatic: 0 },
     };
@@ -198,6 +206,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     hubspotIntegResult,
     slackIntegResult,
     apolloProviderResult,
+    lushaProviderResult,
     prospectingResult,
     automationsResult,
   ] = await Promise.all([
@@ -226,6 +235,11 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
       .from('prospecting_providers')
       .select('id')
       .eq('provider_key', 'apollo')
+      .single(),
+    admin
+      .from('prospecting_providers')
+      .select('id')
+      .eq('provider_key', 'lusha')
       .single(),
     admin.from('prospecting_providers').select('lifecycle_status, provider_key'),
     admin
@@ -342,6 +356,31 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     }
   }
 
+  // Lusha
+  let lusha: LushaHealth = {
+    credentials_status: 'missing',
+    connection_status: 'not_connected',
+    last_tested_at: null,
+    last_connection_error: null,
+  };
+  if (lushaProviderResult.data?.id) {
+    const { data: lushaConn } = await admin
+      .from('prospecting_provider_connections')
+      .select('credentials_status, connection_status, last_tested_at, last_connection_error')
+      .eq('provider_id', lushaProviderResult.data.id)
+      .single();
+
+    if (lushaConn) {
+      const hasKey = await hasLushaApiKey();
+      lusha = {
+        credentials_status: hasKey ? 'stored' : 'missing',
+        connection_status: (lushaConn.connection_status as LushaHealth['connection_status']) ?? 'not_connected',
+        last_tested_at: lushaConn.last_tested_at ?? null,
+        last_connection_error: lushaConn.last_connection_error ?? null,
+      };
+    }
+  }
+
   // Prospecting
   const prospData = prospectingResult.data ?? [];
   const activeProsp = prospData.find((p) => p.lifecycle_status === 'connected');
@@ -355,6 +394,7 @@ export async function getConfigurationHealthDetails(): Promise<ConfigurationHeal
     hubspot,
     slack,
     apollo,
+    lusha,
     prospecting: {
       total: prospData.length,
       prepared: prospData.filter(
@@ -462,6 +502,26 @@ export async function deriveAdministrativeRisks(
     });
   }
 
+  // Lusha
+  if (health.lusha.connection_status === 'error') {
+    risks.push({
+      id: 'lusha_error',
+      severity: 'attention',
+      message: 'La conexión con Lusha falló. Verifica la API Key.',
+      action_href: '/settings/prospecting',
+    });
+  } else if (
+    health.lusha.credentials_status === 'stored' &&
+    health.lusha.connection_status === 'not_tested'
+  ) {
+    risks.push({
+      id: 'lusha_not_tested',
+      severity: 'pending',
+      message: 'Lusha tiene credencial guardada pero aún no se ha probado la conexión.',
+      action_href: '/settings/prospecting',
+    });
+  }
+
   // Usuarios pendientes
   if (pendingUsers > 0) {
     risks.push({
@@ -518,6 +578,7 @@ const INTEGRATION_KEY_LABELS: Record<string, string> = {
   google_drive: 'Google Drive',
   samu_ia: 'Samu IA',
   apollo: 'Apollo.io',
+  lusha: 'Lusha',
 };
 
 const AI_AUDIT_LABELS: Record<string, string> = {

@@ -8,6 +8,12 @@ import {
   hasApolloApiKey,
   testApolloHealth,
 } from '@/server/services/apollo-connection';
+import {
+  storeLushaApiKey,
+  removeLushaApiKey,
+  hasLushaApiKey,
+  testLushaHealth,
+} from '@/server/services/lusha-connection';
 import type {
   ProspectingProvider,
   ProspectingStats,
@@ -369,6 +375,302 @@ export async function testApolloConnectionAction(): Promise<{
     success: result.success,
     error: result.error,
     message: result.message,
+  };
+}
+
+// ============================================================
+// Helpers privados — Lusha
+// ============================================================
+
+async function getLushaProviderId(): Promise<string | null> {
+  const admin = getAdminSupabase();
+  const { data } = await admin
+    .from('prospecting_providers')
+    .select('id')
+    .eq('provider_key', 'lusha')
+    .single();
+  return data?.id ?? null;
+}
+
+async function logLushaAuditEvent(
+  eventType: string,
+  actorId: string,
+  metadata?: Record<string, unknown>
+): Promise<void> {
+  const admin = getAdminSupabase();
+  await admin.from('integration_audit').insert({
+    integration_key: 'lusha',
+    event_type: eventType,
+    actor_user_id: actorId,
+    metadata: metadata ?? null,
+  });
+}
+
+// ============================================================
+// Lusha: Leer estado de conexión
+// ============================================================
+
+export async function getLushaConnection(): Promise<ProspectingProviderConnection | null> {
+  const admin = getAdminSupabase();
+
+  const providerId = await getLushaProviderId();
+  if (!providerId) return null;
+
+  const { data } = await admin
+    .from('prospecting_provider_connections')
+    .select('*')
+    .eq('provider_id', providerId)
+    .single();
+
+  if (!data) return null;
+
+  const hasKey = await hasLushaApiKey();
+  return {
+    ...(data as ProspectingProviderConnection),
+    credentials_status: hasKey ? 'stored' : 'missing',
+  };
+}
+
+// ============================================================
+// Lusha: Conectar (guardar API Key por primera vez)
+// ============================================================
+
+export async function connectLusha(apiKey: string): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  if (!apiKey || apiKey.trim().length < 10) {
+    return { success: false, error: 'La API Key es inválida o demasiado corta.' };
+  }
+
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminActorId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const storeResult = await storeLushaApiKey(apiKey.trim());
+  if (!storeResult.success) return { success: false, error: storeResult.message };
+
+  const providerId = await getLushaProviderId();
+  if (!providerId) {
+    return { success: false, error: 'Proveedor Lusha no encontrado en el catálogo.' };
+  }
+
+  const admin = getAdminSupabase();
+  const now = new Date().toISOString();
+
+  const { data: existing } = await admin
+    .from('prospecting_provider_connections')
+    .select('id')
+    .eq('provider_id', providerId)
+    .single();
+
+  if (existing) {
+    await admin
+      .from('prospecting_provider_connections')
+      .update({
+        vault_secret_id: storeResult.vaultSecretId ?? null,
+        credentials_status: 'stored',
+        connection_status: 'not_tested',
+        last_connection_error: null,
+        configured_by: actorId,
+        updated_at: now,
+      })
+      .eq('id', existing.id);
+  } else {
+    await admin.from('prospecting_provider_connections').insert({
+      provider_id: providerId,
+      vault_secret_id: storeResult.vaultSecretId ?? null,
+      credentials_status: 'stored',
+      connection_status: 'not_tested',
+      configured_by: actorId,
+    });
+  }
+
+  await logLushaAuditEvent('credential_stored', actorId);
+
+  return {
+    success: true,
+    message: 'API Key guardada correctamente. Prueba la conexión para verificarla.',
+  };
+}
+
+// ============================================================
+// Lusha: Actualizar API Key existente
+// ============================================================
+
+export async function updateLushaApiKey(newApiKey: string): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  if (!newApiKey || newApiKey.trim().length < 10) {
+    return { success: false, error: 'La API Key es inválida o demasiado corta.' };
+  }
+
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminActorId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const storeResult = await storeLushaApiKey(newApiKey.trim());
+  if (!storeResult.success) return { success: false, error: storeResult.message };
+
+  const providerId = await getLushaProviderId();
+  if (!providerId) {
+    return { success: false, error: 'Proveedor Lusha no encontrado en el catálogo.' };
+  }
+
+  const admin = getAdminSupabase();
+
+  await admin
+    .from('prospecting_provider_connections')
+    .update({
+      vault_secret_id: storeResult.vaultSecretId ?? null,
+      credentials_status: 'stored',
+      connection_status: 'not_tested',
+      last_tested_at: null,
+      last_connection_error: null,
+      configured_by: actorId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('provider_id', providerId);
+
+  await logLushaAuditEvent('credential_updated', actorId);
+
+  return {
+    success: true,
+    message: 'API Key actualizada. Prueba la conexión para verificar la nueva key.',
+  };
+}
+
+// ============================================================
+// Lusha: Probar conexión
+// ============================================================
+
+export async function testLushaConnectionAction(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminActorId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const providerId = await getLushaProviderId();
+  if (!providerId) {
+    return { success: false, error: 'Proveedor Lusha no encontrado en el catálogo.' };
+  }
+
+  await logLushaAuditEvent('connection_tested', actorId);
+
+  const result = await testLushaHealth();
+  const now = new Date().toISOString();
+  const admin = getAdminSupabase();
+
+  if (result.success) {
+    await admin
+      .from('prospecting_provider_connections')
+      .update({
+        connection_status: 'connected',
+        last_tested_at: now,
+        last_connected_at: now,
+        last_connection_error: null,
+        updated_at: now,
+      })
+      .eq('provider_id', providerId);
+
+    await admin
+      .from('prospecting_providers')
+      .update({
+        lifecycle_status: 'connected',
+        is_available_for_selection: true,
+        updated_at: now,
+      })
+      .eq('provider_key', 'lusha');
+
+    await logLushaAuditEvent('connection_succeeded', actorId);
+  } else {
+    const sanitizedError = result.message
+      ? result.message.slice(0, 500)
+      : 'Error desconocido';
+
+    await admin
+      .from('prospecting_provider_connections')
+      .update({
+        connection_status: 'error',
+        last_tested_at: now,
+        last_connection_error: sanitizedError,
+        updated_at: now,
+      })
+      .eq('provider_id', providerId);
+
+    await admin
+      .from('prospecting_providers')
+      .update({
+        lifecycle_status: 'prepared',
+        is_available_for_selection: false,
+        updated_at: now,
+      })
+      .eq('provider_key', 'lusha');
+
+    await logLushaAuditEvent('connection_failed', actorId, {
+      error_code: result.error,
+    });
+  }
+
+  return {
+    success: result.success,
+    error: result.error,
+    message: result.message,
+  };
+}
+
+// ============================================================
+// Lusha: Desconectar
+// ============================================================
+
+export async function disconnectLusha(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminActorId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  await removeLushaApiKey();
+
+  const providerId = await getLushaProviderId();
+  if (providerId) {
+    const admin = getAdminSupabase();
+    const now = new Date().toISOString();
+
+    await admin
+      .from('prospecting_provider_connections')
+      .update({
+        credentials_status: 'missing',
+        connection_status: 'disconnected',
+        vault_secret_id: null,
+        last_connection_error: null,
+        updated_at: now,
+      })
+      .eq('provider_id', providerId);
+
+    await admin
+      .from('prospecting_providers')
+      .update({
+        lifecycle_status: 'prepared',
+        is_available_for_selection: false,
+        updated_at: now,
+      })
+      .eq('provider_key', 'lusha');
+  }
+
+  await logLushaAuditEvent('disconnected', actorId);
+
+  return {
+    success: true,
+    message: 'Lusha desconectado correctamente.',
   };
 }
 

@@ -7,9 +7,11 @@ import {
   getAllProspectingProviders,
   getProspectingStats,
   getApolloConnection,
+  getLushaConnection,
 } from '@/modules/prospecting-config/actions';
 import type { ProspectingProvider, ProviderType, LifecycleStatus } from '@/modules/prospecting-config/types';
 import { ApolloProviderCard } from './apollo-provider-card';
+import { LushaProviderCard } from './lusha-provider-card';
 
 // ============================================================
 // Helpers de presentación
@@ -132,14 +134,18 @@ export default async function ProspectingPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
 
-  const [providers, stats, apolloConnection] = await Promise.all([
+  const [providers, stats, apolloConnection, lushaConnection] = await Promise.all([
     getAllProspectingProviders(),
     getProspectingStats(),
     getApolloConnection(),
+    getLushaConnection(),
   ]);
 
   const apolloProvider = providers.find((p) => p.provider_key === 'apollo');
-  const otherProviders = providers.filter((p) => p.provider_key !== 'apollo');
+  const lushaProvider = providers.find((p) => p.provider_key === 'lusha');
+  const otherProviders = providers.filter(
+    (p) => p.provider_key !== 'apollo' && p.provider_key !== 'lusha'
+  );
 
   return (
     <div className="space-y-8">
@@ -194,7 +200,15 @@ export default async function ProspectingPage() {
             />
           )}
 
-          {/* Lusha y futuros — tarjetas estáticas */}
+          {/* Lusha — tarjeta interactiva con conexión real */}
+          {lushaProvider && (
+            <LushaProviderCard
+              connection={lushaConnection}
+              description={lushaProvider.description}
+            />
+          )}
+
+          {/* Futuros proveedores — tarjetas estáticas */}
           {otherProviders.map((provider) => (
             <StaticProviderCard key={provider.id} provider={provider} />
           ))}

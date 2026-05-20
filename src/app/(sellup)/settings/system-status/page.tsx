@@ -376,6 +376,56 @@ export default async function SystemStatusPage() {
             </div>
           </SurfaceCard>
 
+          {/* Lusha */}
+          <SurfaceCard>
+            <SurfaceCardHeader
+              title="Lusha"
+              description="Prospección y enriquecimiento"
+              actions={
+                <Link
+                  href="/settings/prospecting"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              }
+            />
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Credencial</span>
+                <span
+                  className={`text-xs font-medium ${
+                    health.lusha.credentials_status === 'stored'
+                      ? 'text-emerald-500'
+                      : 'text-muted-foreground'
+                  }`}
+                >
+                  {health.lusha.credentials_status === 'stored' ? 'Guardada' : 'No configurada'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Conexión</span>
+                <ConnectionBadge status={health.lusha.connection_status} />
+              </div>
+              {health.lusha.last_tested_at && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Última prueba</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatRelativeTime(health.lusha.last_tested_at)}
+                  </span>
+                </div>
+              )}
+              {health.lusha.last_connection_error && (
+                <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
+                  <p className="text-[10px] text-destructive line-clamp-2">
+                    {health.lusha.last_connection_error}
+                  </p>
+                </div>
+              )}
+            </div>
+          </SurfaceCard>
+
           {/* Automatizaciones */}
           <SurfaceCard>
             <SurfaceCardHeader
