@@ -277,6 +277,7 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
         <PageHeader
           title="Actividad de la plataforma"
           description="Historial de acciones administrativas, integraciones y configuración de IA."
+          backHref="/settings"
         />
       )}
       {embedded && (
