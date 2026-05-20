@@ -1,7 +1,4 @@
 import { redirect } from 'next/navigation';
-import {
-  UserPlus, UserCheck, UserX, Pause, Clock, Layers,
-} from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import {
   getAllUsers,
@@ -31,32 +28,36 @@ export default async function UsersManagementPage() {
   const rejectedUsers  = users.filter(u => u.access_status === 'rejected');
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="flex flex-col max-h-screen overflow-hidden">
+      <div className="flex items-start justify-between gap-4 shrink-0 px-8 pt-8 pb-4">
         <PageHeader
           title="Usuarios y acceso"
           description="Gestionar solicitudes, roles, jerarquía y estados de acceso de SellUp."
           backHref="/settings"
         />
         {isAdmin && (
-          <div className="shrink-0 flex items-center gap-2 pt-1">
+          <div className="flex items-center gap-2">
             <ActionButtons groups={groups} />
             <AddUserDrawer roles={roles} activeUsers={activeUsers} groups={groups} />
           </div>
         )}
       </div>
 
-      <UsersSettingsClient
-        users={users}
-        roles={roles}
-        activeUsers={activeUsers}
-        pendingUsers={pendingUsers}
-        suspendedUsers={suspendedUsers}
-        rejectedUsers={rejectedUsers}
-        preapprovals={preapprovals}
-        groups={groups}
-        isAdmin={isAdmin}
-      />
+      <div className="flex-1 min-h-0 px-8 pb-4 overflow-hidden">
+        <div className="h-full max-w-6xl mx-auto">
+          <UsersSettingsClient
+            users={users}
+            roles={roles}
+            activeUsers={activeUsers}
+            pendingUsers={pendingUsers}
+            suspendedUsers={suspendedUsers}
+            rejectedUsers={rejectedUsers}
+            preapprovals={preapprovals}
+            groups={groups}
+            isAdmin={isAdmin}
+          />
+        </div>
+      </div>
     </div>
   );
 }

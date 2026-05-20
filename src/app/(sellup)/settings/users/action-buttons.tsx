@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, ChevronDown } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -69,17 +69,15 @@ export function ActionButtons({ groups }: ActionButtonsProps) {
 
   return (
     <>
-      <div className="shrink-0 flex items-center gap-2 pt-1">
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-2 h-9 text-xs font-medium"
-          onClick={() => setShowGroupDialog(true)}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Nuevo grupo
-        </Button>
-      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        className="gap-2 h-9 text-xs font-medium"
+        onClick={() => setShowGroupDialog(true)}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Agregar grupo
+      </Button>
 
       <Dialog open={showGroupDialog} onOpenChange={v => { setShowGroupDialog(v); if (!v) reset(); }}>
         <DialogContent>

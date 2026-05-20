@@ -100,9 +100,9 @@ export function UsersSettingsClient({
   }
 
   return (
-    <>
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Summary cards */}
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 shrink-0">
         {SUMMARY_CARDS.map(card => (
           <SurfaceCard
             key={card.key}
@@ -132,7 +132,7 @@ export function UsersSettingsClient({
       <Tabs
         value={activeTab}
         onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
-        className="space-y-4"
+        className="flex flex-col flex-1 min-h-0 overflow-hidden"
       >
         <TabsList className="bg-muted/50 flex-wrap h-auto gap-1">
           <TabsTrigger value="usuarios" className="gap-2">
@@ -145,28 +145,32 @@ export function UsersSettingsClient({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="usuarios">
-          <UsersTab
-            users={users}
-            roles={roles}
-            allUsers={users}
-            activeUsers={activeUsers}
-            groups={groups}
-            preapprovals={preapprovals}
-            isAdmin={isAdmin}
-            initialFilter={activeFilter}
-            onFilterChange={(f) => navigate('usuarios', f)}
-          />
+        <TabsContent value="usuarios" className="flex-1 min-h-0 overflow-hidden mt-2">
+          <div className="h-full overflow-y-auto pr-1">
+            <UsersTab
+              users={users}
+              roles={roles}
+              allUsers={users}
+              activeUsers={activeUsers}
+              groups={groups}
+              preapprovals={preapprovals}
+              isAdmin={isAdmin}
+              initialFilter={activeFilter}
+              onFilterChange={(f) => navigate('usuarios', f)}
+            />
+          </div>
         </TabsContent>
 
-        <TabsContent value="grupos">
-          <GroupsTab
-            users={users}
-            groups={groups}
-            roles={roles}
-          />
+        <TabsContent value="grupos" className="flex-1 min-h-0 overflow-hidden mt-2">
+          <div className="h-full overflow-y-auto pr-1">
+            <GroupsTab
+              users={users}
+              groups={groups}
+              roles={roles}
+            />
+          </div>
         </TabsContent>
       </Tabs>
-    </>
+    </div>
   );
 }
