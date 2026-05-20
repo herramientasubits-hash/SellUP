@@ -214,20 +214,47 @@ RETURNS UUID AS $$
 DECLARE
     v_internal_user_id  UUID;
     v_exists            BOOLEAN;
+    v_status            TEXT;
     v_preapproval       RECORD;
 BEGIN
-    SELECT EXISTS(
-        SELECT 1 FROM internal_users WHERE auth_user_id = p_auth_user_id
-    ) INTO v_exists;
+    -- Obtener estado del usuario si existe
+    SELECT access_status INTO v_status
+    FROM internal_users WHERE auth_user_id = p_auth_user_id
+    LIMIT 1;
+
+    v_exists := (v_status IS NOT NULL);
 
     IF v_exists THEN
-        -- Usuario existente: solo actualizar metadatos, no status ni notificaciones
-        UPDATE internal_users
-        SET full_name  = COALESCE(p_full_name, full_name),
-            avatar_url = COALESCE(p_avatar_url, avatar_url),
-            updated_at = NOW()
-        WHERE auth_user_id = p_auth_user_id
-        RETURNING id INTO v_internal_user_id;
+        IF v_status = 'archived' THEN
+            -- Usuario archivado que vuelve a hacer login: reactiva como pendiente de aprobación
+            UPDATE internal_users
+            SET access_status  = 'pending_approval',
+                full_name      = COALESCE(p_full_name, full_name),
+                avatar_url     = COALESCE(p_avatar_url, avatar_url),
+                requested_at   = NOW(),
+                approved_at    = NULL,
+                rejected_at    = NULL,
+                suspended_at   = NULL,
+                archived_at    = NULL,
+                archived_by    = NULL,
+                updated_at     = NOW()
+            WHERE auth_user_id = p_auth_user_id
+            RETURNING id INTO v_internal_user_id;
+
+            -- Limpiar columnas de rol del registro anterior
+            UPDATE internal_users SET role_id = NULL, manager_id = NULL, group_id = NULL WHERE id = v_internal_user_id;
+
+            -- Notificar a admins del nuevo pendiente
+            PERFORM notify_admins_of_pending_user();
+        ELSE
+            -- Usuario existente no archivado: solo actualizar metadatos
+            UPDATE internal_users
+            SET full_name  = COALESCE(p_full_name, full_name),
+                avatar_url = COALESCE(p_avatar_url, avatar_url),
+                updated_at = NOW()
+            WHERE auth_user_id = p_auth_user_id
+            RETURNING id INTO v_internal_user_id;
+        END IF;
 
     ELSE
         -- Buscar preautorización pendiente (case-insensitive)
@@ -262,7 +289,7 @@ BEGIN
                 updated_at              = NOW()
             WHERE id = v_preapproval.id;
 
-ELSE
+        ELSE
             -- Flujo normal: nuevo usuario pendiente de aprobación
             INSERT INTO internal_users (
                 auth_user_id, email, full_name, avatar_url, access_status
