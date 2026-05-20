@@ -177,20 +177,24 @@ export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
         };
       }
 
+      // Expose Lusha's response body so we can diagnose the exact error
+      const errorBody = await response.text().catch(() => '');
       return {
         success: false,
         error: 'API_ERROR',
-        message: `Error de Lusha API: ${response.status}`,
+        message: `Lusha ${response.status}: ${errorBody.slice(0, 300)}`,
       };
     }
 
     const body = await response.json().catch(() => ({}));
 
-    // Lusha devuelve un objeto con `usage` que contiene créditos.
-    // La presencia de una respuesta 200 con datos válidos confirma autenticación.
-    const hasUsageData = body?.usage !== undefined || body?.bulkCredits !== undefined;
+    // Any 200 response confirms authentication is valid
+    const hasUsageData =
+      body?.usage !== undefined ||
+      body?.bulkCredits !== undefined ||
+      Object.keys(body).length > 0;
 
-    if (!hasUsageData && Object.keys(body).length === 0) {
+    if (!hasUsageData) {
       return {
         success: false,
         error: 'UNEXPECTED_RESPONSE',
