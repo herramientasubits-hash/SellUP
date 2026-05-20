@@ -26,6 +26,8 @@ interface Props {
   context: ActivityViewerContext;
   initialEvents: PlatformActivityEvent[];
   initialHasMore: boolean;
+  /** Cuando es true oculta el PageHeader (usado dentro de system-status) */
+  embedded?: boolean;
 }
 
 type SourceFilter = AdminActivitySource | 'all';
@@ -192,7 +194,7 @@ const SOURCE_TABS: { key: SourceFilter; label: string }[] = [
 
 // ─── Main component ───────────────────────────────────────────────
 
-export function ActivityFeedClient({ context, initialEvents, initialHasMore }: Props) {
+export function ActivityFeedClient({ context, initialEvents, initialHasMore, embedded = false }: Props) {
   const [events, setEvents] = useState<PlatformActivityEvent[]>(initialEvents);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [isPending, startTransition] = useTransition();
@@ -271,10 +273,17 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore }: P
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Actividad de la plataforma"
-        description="Historial de acciones administrativas, integraciones y configuración de IA."
-      />
+      {!embedded && (
+        <PageHeader
+          title="Actividad de la plataforma"
+          description="Historial de acciones administrativas, integraciones y configuración de IA."
+        />
+      )}
+      {embedded && (
+        <h2 className="text-base font-semibold text-foreground">
+          Actividad administrativa reciente
+        </h2>
+      )}
 
       {/* ── Filters ────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">

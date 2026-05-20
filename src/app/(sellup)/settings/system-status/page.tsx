@@ -1,12 +1,10 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Activity,
   AlertTriangle,
   CheckCircle2,
   Clock,
   Link2,
-  Users,
   Cpu,
   ChevronRight,
 } from 'lucide-react';
@@ -17,9 +15,13 @@ import {
   getSystemHealthSummary,
   getConfigurationHealthDetails,
   deriveAdministrativeRisks,
-  getRecentAdminActivity,
 } from '@/modules/system-status/actions';
-import type { AdminActivityEvent, AdminRisk, RiskSeverity } from '@/modules/system-status/types';
+import {
+  getActivityViewerContext,
+  getPlatformActivity,
+} from '@/modules/system-status/activity-actions';
+import { ActivityFeedClient } from '@/app/(sellup)/settings/activity/activity-feed-client';
+import type { AdminRisk, RiskSeverity } from '@/modules/system-status/types';
 
 // ============================================================
 // Helpers de presentación
@@ -93,33 +95,6 @@ function RiskBadge({ severity }: { severity: RiskSeverity }) {
   );
 }
 
-function ActivitySourceBadge({ source }: { source: AdminActivityEvent['source'] }) {
-  const map: Record<AdminActivityEvent['source'], { label: string; classes: string }> = {
-    users: {
-      label: 'Usuarios',
-      classes: 'border-su-brand/20 bg-su-brand-soft text-su-brand',
-    },
-    integrations: {
-      label: 'Integraciones',
-      classes: 'border-violet-500/20 bg-violet-500/10 text-violet-500',
-    },
-    ai: {
-      label: 'IA',
-      classes: 'border-sky-500/20 bg-sky-500/10 text-sky-500',
-    },
-  };
-
-  const config = map[source];
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${config.classes}`}
-    >
-      {config.label}
-    </span>
-  );
-}
-
 function formatRelativeTime(isoDate: string): string {
   const now = Date.now();
   const then = new Date(isoDate).getTime();
@@ -144,10 +119,11 @@ export default async function SystemStatusPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
 
-  const [summary, health, activity] = await Promise.all([
+  const [summary, health, activityContext, initialActivity] = await Promise.all([
     getSystemHealthSummary(),
     getConfigurationHealthDetails(),
-    getRecentAdminActivity(30),
+    getActivityViewerContext(),
+    getPlatformActivity({ limit: 30 }),
   ]);
 
   const risks = await deriveAdministrativeRisks(health, summary.pending_access_requests);
@@ -512,61 +488,14 @@ export default async function SystemStatusPage() {
       </div>
 
       {/* ── Bloque 4: Actividad administrativa reciente ──────── */}
-      <div className="space-y-4">
-        <h2 className="text-base font-semibold text-foreground">
-          Actividad administrativa reciente
-        </h2>
-
-        <SurfaceCard noPadding>
-          {activity.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-              <Activity className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">
-                No hay eventos administrativos registrados todavía.
-              </p>
-            </div>
-          ) : (
-            <ul className="divide-y divide-border/40">
-              {activity.map((event) => (
-                <li key={event.id} className="flex items-start gap-3 px-5 py-3.5">
-                  {/* Source icon */}
-                  <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted/40">
-                    {event.source === 'users' ? (
-                      <Users className="h-3 w-3 text-muted-foreground" />
-                    ) : (
-                      <Link2 className="h-3 w-3 text-muted-foreground" />
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-medium text-foreground">
-                        {event.label}
-                      </span>
-                      <ActivitySourceBadge source={event.source} />
-                    </div>
-                    {event.description && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {event.description}
-                      </p>
-                    )}
-                  </div>
-
-                  <span className="shrink-0 text-[10px] text-muted-foreground/60 mt-0.5">
-                    {formatRelativeTime(event.created_at)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SurfaceCard>
-
-        <p className="text-[11px] text-muted-foreground/60">
-          Mostrando actividad de gestión de usuarios e integraciones. Los cambios de
-          configuración de IA se registran en auditoría cuando se implementen los flujos
-          de log correspondientes.
-        </p>
-      </div>
+      {activityContext && (
+        <ActivityFeedClient
+          context={activityContext}
+          initialEvents={initialActivity.events}
+          initialHasMore={initialActivity.hasMore}
+          embedded
+        />
+      )}
     </div>
   );
 }
