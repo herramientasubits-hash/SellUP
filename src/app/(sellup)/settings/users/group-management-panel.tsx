@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Folder, FolderOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { Folder, FolderOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -168,15 +168,9 @@ export function GroupManagementPanel({ groups: initialGroups }: GroupManagementP
   return (
     <div className="space-y-3">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'} · máximo 3 niveles
-        </p>
-        <Button size="sm" variant="outline" className="gap-2 h-8 text-xs" onClick={() => setShowDialog(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          Nuevo grupo
-        </Button>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'} · máximo 3 niveles
+      </p>
 
       {/* Tree */}
       {tree.length === 0 ? (

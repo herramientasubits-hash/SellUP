@@ -12,6 +12,7 @@ import {
 } from '@/modules/access/actions';
 import { UsersTab, GroupsTab } from './users-groups-tabs';
 import { AddUserDrawer } from './add-user-drawer';
+import { ActionButtons } from './action-buttons';
 
 export default async function UsersManagementPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -47,7 +48,8 @@ export default async function UsersManagementPage() {
           backHref="/settings"
         />
         {isAdmin && (
-          <div className="shrink-0 pt-1">
+          <div className="shrink-0 flex items-center gap-2 pt-1">
+            <ActionButtons groups={groups} />
             <AddUserDrawer roles={roles} activeUsers={activeUsers} groups={groups} />
           </div>
         )}

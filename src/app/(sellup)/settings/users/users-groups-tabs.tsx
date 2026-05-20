@@ -149,6 +149,7 @@ export function UsersTab({
   const showOrgChart = (filter === 'active' || filter === 'all') && viewMode === 'org';
   const showPreapprovedList = filter === 'preapproved';
   const showUserList = viewMode === 'list' && !showPreapprovedList;
+  const showViewToggle = filter === 'active' || filter === 'all';
 
   return (
     <div className="space-y-4">
@@ -177,7 +178,7 @@ export function UsersTab({
           ))}
         </div>
 
-        {showOrgChart && (
+        {showViewToggle && (
           <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
             <button
               onClick={() => setViewMode('list')}
