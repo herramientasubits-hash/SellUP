@@ -132,9 +132,9 @@ export function UsersSettingsClient({
       <Tabs
         value={activeTab}
         onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
-        className="flex flex-col flex-1 min-h-0 overflow-hidden mt-6"
+        className="flex flex-col flex-1 min-h-0 mt-6"
       >
-        <TabsList className="bg-muted/50 flex-wrap h-auto gap-1">
+        <TabsList className="bg-muted/50 flex-wrap h-auto gap-1 shrink-0">
           <TabsTrigger value="usuarios" className="gap-2">
             <UserCheck className="h-4 w-4" />
             Usuarios
@@ -145,7 +145,7 @@ export function UsersSettingsClient({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="usuarios" className="flex-1 min-h-0 overflow-hidden mt-2">
+        <TabsContent value="usuarios" className="flex-1 min-h-0 mt-2">
           <div className="h-full overflow-y-auto pr-1">
             <UsersTab
               users={users}
@@ -161,7 +161,7 @@ export function UsersSettingsClient({
           </div>
         </TabsContent>
 
-        <TabsContent value="grupos" className="flex-1 min-h-0 overflow-hidden mt-2">
+        <TabsContent value="grupos" className="flex-1 min-h-0 mt-2">
           <div className="h-full overflow-y-auto pr-1">
             <GroupsTab
               users={users}

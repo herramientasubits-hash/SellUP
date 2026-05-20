@@ -169,9 +169,9 @@ export function UsersTab({
   const showViewToggle = filter === 'active' || filter === 'all';
 
   return (
-    <div className="space-y-4">
-      {/* Filter bar + view toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-col h-full min-h-0">
+      {/* Filter bar + view toggle - fuera del scroll */}
+      <div className="flex flex-wrap items-center justify-between gap-3 shrink-0 pb-3">
         <div className="flex flex-wrap gap-1 rounded-xl border border-border/60 bg-muted/40 p-1">
           {USER_FILTERS.map(f => (
             <button
@@ -224,9 +224,11 @@ export function UsersTab({
         )}
       </div>
 
-      {/* Preapproved list */}
-      {showPreapprovedList && (
-        <div className="space-y-2">
+      {/* Scrollable content */}
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
+        {/* Preapproved list */}
+        {showPreapprovedList && (
+          <div className="space-y-2">
           {preapprovals.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">
               No hay preautorizaciones pendientes.
@@ -262,6 +264,7 @@ export function UsersTab({
           />
         )
       )}
+      </div>
     </div>
   );
 }
@@ -279,8 +282,8 @@ export function GroupsTab({ users, groups, roles }: GroupsTabProps) {
   const activeUsers = useMemo(() => users.filter(u => u.access_status === 'active'), [users]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center justify-between shrink-0 pb-3">
         <span className="text-sm text-muted-foreground">
           {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
         </span>
@@ -308,15 +311,17 @@ export function GroupsTab({ users, groups, roles }: GroupsTabProps) {
         </div>
       </div>
 
-      {viewMode === 'list' && (
-        <SurfaceCard>
-          <GroupManagementPanel groups={groups} />
-        </SurfaceCard>
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {viewMode === 'list' && (
+          <SurfaceCard>
+            <GroupManagementPanel groups={groups} />
+          </SurfaceCard>
+        )}
 
-      {viewMode === 'org' && (
-        <GroupsView users={activeUsers} groups={groups} roles={roles} />
-      )}
+        {viewMode === 'org' && (
+          <GroupsView users={activeUsers} groups={groups} roles={roles} />
+        )}
+      </div>
     </div>
   );
 }
