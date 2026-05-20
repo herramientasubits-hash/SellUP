@@ -266,18 +266,19 @@ export function SelectableUsersList({
         </div>
       )}
 
-      {/* User rows */}
-      {users.map(user => {
-        const statusBadge = getStatusBadge(user.access_status);
-        const isSelected = selectedIds.includes(user.id);
+      {/* User rows — scrollable area */}
+      <div className="max-h-[calc(100vh-320px)] min-h-0 overflow-y-auto pr-1 space-y-2">
+        {users.map(user => {
+          const statusBadge = getStatusBadge(user.access_status);
+          const isSelected = selectedIds.includes(user.id);
 
-        return (
-          <div
-            key={user.id}
-            className={`flex items-center gap-3 rounded-xl border bg-card p-4 transition-colors ${
-              isSelected ? 'border-su-brand/40 bg-su-brand-soft/20' : 'border-border/50 hover:border-border/80'
-            }`}
-          >
+          return (
+            <div
+              key={user.id}
+              className={`flex items-center gap-3 rounded-xl border bg-card p-4 transition-colors ${
+                isSelected ? 'border-su-brand/40 bg-su-brand-soft/20' : 'border-border/50 hover:border-border/80'
+              }`}
+            >
             {isAdmin && bulkActions.length > 0 && (
               <input
                 type="checkbox"
@@ -323,6 +324,7 @@ export function SelectableUsersList({
           </div>
         );
       })}
+      </div>
 
       {/* Floating bulk toolbar */}
       {selectedIds.length > 0 && isAdmin && (

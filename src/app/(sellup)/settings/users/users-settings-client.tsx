@@ -65,12 +65,23 @@ const SUMMARY_CARDS: {
   },
 ];
 
+function buildUrl(searchParams: URLSearchParams, tab: string, filter?: UserFilter) {
+  const params = new URLSearchParams(searchParams.toString());
+  params.set('tab', tab);
+  if (tab === 'usuarios' && filter) {
+    params.set('filter', filter);
+  } else {
+    params.delete('filter');
+  }
+  return `/settings/users?${params.toString()}`;
+}
+
 export function UsersSettingsClient({
   users, roles, activeUsers, pendingUsers, suspendedUsers, rejectedUsers,
   preapprovals, groups, isAdmin,
 }: UsersSettingsClientProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const activeTab = searchParams.get('tab') ?? 'usuarios';
   const activeFilter = (searchParams.get('filter') as UserFilter) ?? 'active';
@@ -85,14 +96,7 @@ export function UsersSettingsClient({
   };
 
   function navigate(tab: string, filter?: UserFilter) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', tab);
-    if (tab === 'usuarios' && filter) {
-      params.set('filter', filter);
-    } else {
-      params.delete('filter');
-    }
-    router.push(`/settings/users?${params.toString()}`);
+    router.push(buildUrl(searchParams, tab, filter));
   }
 
   return (
@@ -105,9 +109,9 @@ export function UsersSettingsClient({
             className="cursor-pointer transition-colors hover:border-su-brand/30"
             onClick={() => {
               if (card.key === 'groups') {
-                navigate('grupos');
+                router.push(buildUrl(searchParams, 'grupos'));
               } else {
-                navigate('usuarios', card.key as UserFilter);
+                router.push(buildUrl(searchParams, 'usuarios', card.key as UserFilter));
               }
             }}
           >

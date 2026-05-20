@@ -99,8 +99,8 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
   return (
     <>
-      <Button size="sm" variant="outline" className="gap-2 text-xs font-medium" onClick={() => setOpen(true)}>
-        <UserPlus className="h-4 w-4" />
+      <Button size="sm" className="gap-2 h-9 text-xs font-medium" onClick={() => setOpen(true)}>
+        <UserPlus className="h-3.5 w-3.5" />
         Agregar usuario
       </Button>
 
@@ -330,10 +330,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
             <Button
               onClick={handleSubmit}
               disabled={!emailValid || !roleId || loading}
-              variant="outline"
-              className="text-sm gap-2"
+              className="text-sm gap-2 h-9"
             >
-              <UserPlus className="h-4 w-4" />
+              <UserPlus className="h-3.5 w-3.5" />
               {loading ? 'Preautorizando...' : 'Preautorizar'}
             </Button>
           </div>
