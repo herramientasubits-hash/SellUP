@@ -28,7 +28,7 @@ export default async function UsersManagementPage() {
   const rejectedUsers  = users.filter(u => u.access_status === 'rejected');
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-start justify-between gap-4 shrink-0 px-8 pt-6 pb-2">
         <PageHeader
           title="Usuarios y acceso"

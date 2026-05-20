@@ -17,9 +17,9 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0 }: AppS
   const { collapsed } = useSidebar();
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col bg-background overflow-hidden">
       <AppHeader user={user} initialUnreadCount={initialUnreadCount} />
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-h-0">
         {/* Sidebar — deepest layer for visual depth */}
         <aside
           className={cn(
@@ -32,8 +32,8 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0 }: AppS
         </aside>
 
         {/* Main content area */}
-        <main className={cn("flex-1 min-w-0 p-5 md:p-8", className)}>
-          <div className="mx-auto max-w-6xl animate-su-fade-in">
+        <main className={cn("flex-1 min-h-0 min-w-0 overflow-y-auto", className)}>
+          <div className="mx-auto max-w-6xl h-full p-5 md:p-8 animate-su-fade-in">
             {children}
           </div>
         </main>
