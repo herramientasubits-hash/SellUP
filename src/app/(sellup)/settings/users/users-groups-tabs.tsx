@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { LayoutList, GitBranch } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -134,6 +134,10 @@ export function UsersTab({
 }: UsersTabProps) {
   const [filter, setFilter] = useState<UserFilter>(initialFilter);
   const [viewMode, setViewMode] = useState<UserViewMode>('list');
+
+  useEffect(() => {
+    setFilter(initialFilter);
+  }, [initialFilter]);
 
   const statusMap: Record<string, string> = {
     active: 'active',

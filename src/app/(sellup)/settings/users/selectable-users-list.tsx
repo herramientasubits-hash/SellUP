@@ -267,7 +267,7 @@ export function SelectableUsersList({
       )}
 
       {/* User rows — scrollable area */}
-      <div className="max-h-[calc(100vh-320px)] min-h-0 overflow-y-auto pr-1 space-y-2">
+      <div className="max-h-[calc(100vh-230px)] min-h-0 overflow-y-auto pr-1 space-y-2">
         {users.map(user => {
           const statusBadge = getStatusBadge(user.access_status);
           const isSelected = selectedIds.includes(user.id);
