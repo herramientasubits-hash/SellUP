@@ -132,6 +132,24 @@ export async function getLushaApiKey(): Promise<string | null> {
  *
  * Fuente oficial: https://docs.lusha.com/apis/openapi/account-management
  */
+/**
+ * Intenta autenticar contra Lusha usando un formato de header dado.
+ * Retorna true si la respuesta indica autenticación válida (200 o 429).
+ * Retorna el status y body para diagnóstico en caso de fallo.
+ */
+async function attemptLushaAuth(
+  apiKeyValue: string
+): Promise<{ ok: boolean; status: number; body: string }> {
+  const response = await fetch('https://api.lusha.com/account/usage', {
+    method: 'GET',
+    headers: { 'api_key': apiKeyValue },
+  });
+  const body = await response.text().catch(() => '');
+  // 200 = success, 429 = rate limited (key is valid — Lusha only throttles authenticated requests)
+  const ok = response.status === 200 || response.status === 429;
+  return { ok, status: response.status, body: body.slice(0, 300) };
+}
+
 export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
   const apiKey = await getLushaApiKey();
 
@@ -144,67 +162,60 @@ export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
   }
 
   try {
-    // Lusha requires "Bearer {key}" as the api_key header value
-    const response = await fetch('https://api.lusha.com/account/usage', {
-      method: 'GET',
-      headers: {
-        'api_key': `Bearer ${apiKey.trim()}`,
-      },
-    });
+    const key = apiKey.trim();
 
-    if (!response.ok) {
-      if (response.status === 401) {
+    // Attempt 1: raw key (most common format per Lusha docs)
+    const attempt1 = await attemptLushaAuth(key);
+    if (attempt1.ok) {
+      return { success: true, message: 'Conexión con Lusha verificada correctamente.' };
+    }
+
+    // Attempt 2: Bearer-prefixed key (some Lusha plans require this format)
+    if (attempt1.status === 400) {
+      const attempt2 = await attemptLushaAuth(`Bearer ${key}`);
+      if (attempt2.ok) {
+        return { success: true, message: 'Conexión con Lusha verificada correctamente.' };
+      }
+
+      // Both formats failed — report last error body for diagnosis
+      const lastBody = attempt2.body || attempt1.body;
+      const lastStatus = attempt2.status;
+
+      if (lastStatus === 401) {
         return {
           success: false,
           error: 'INVALID_API_KEY',
-          message: 'La API Key de Lusha no es válida o no tiene permisos.',
+          message: 'La API Key de Lusha no es válida.',
         };
       }
 
-      if (response.status === 403) {
-        return {
-          success: false,
-          error: 'PERMISSION_DENIED',
-          message: 'La API Key no tiene permisos para este endpoint de Lusha.',
-        };
-      }
-
-      if (response.status === 429) {
-        // 429 confirms the key is valid — Lusha only rate-limits authenticated requests
-        return {
-          success: true,
-          message: 'Conexión con Lusha verificada correctamente.',
-        };
-      }
-
-      // Expose Lusha's response body so we can diagnose the exact error
-      const errorBody = await response.text().catch(() => '');
       return {
         success: false,
         error: 'API_ERROR',
-        message: `Lusha ${response.status}: ${errorBody.slice(0, 300)}`,
+        message: `Lusha ${lastStatus}: ${lastBody}`,
       };
     }
 
-    const body = await response.json().catch(() => ({}));
-
-    // Any 200 response confirms authentication is valid
-    const hasUsageData =
-      body?.usage !== undefined ||
-      body?.bulkCredits !== undefined ||
-      Object.keys(body).length > 0;
-
-    if (!hasUsageData) {
+    if (attempt1.status === 401) {
       return {
         success: false,
-        error: 'UNEXPECTED_RESPONSE',
-        message: 'Lusha respondió pero sin datos de cuenta reconocibles.',
+        error: 'INVALID_API_KEY',
+        message: 'La API Key de Lusha no es válida o no tiene permisos.',
+      };
+    }
+
+    if (attempt1.status === 403) {
+      return {
+        success: false,
+        error: 'PERMISSION_DENIED',
+        message: 'La API Key no tiene permisos para este endpoint de Lusha.',
       };
     }
 
     return {
-      success: true,
-      message: 'Conexión con Lusha verificada correctamente.',
+      success: false,
+      error: 'API_ERROR',
+      message: `Lusha ${attempt1.status}: ${attempt1.body}`,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error de red desconocido';
