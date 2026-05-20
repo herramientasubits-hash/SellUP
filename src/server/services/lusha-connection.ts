@@ -144,11 +144,11 @@ export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
   }
 
   try {
-    // GET request: no Content-Type header — Lusha returns 400 if present on bodyless requests
+    // Lusha requires "Bearer {key}" as the api_key header value
     const response = await fetch('https://api.lusha.com/account/usage', {
       method: 'GET',
       headers: {
-        'api_key': apiKey,
+        'api_key': `Bearer ${apiKey.trim()}`,
       },
     });
 
