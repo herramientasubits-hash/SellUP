@@ -33,5 +33,15 @@ export default async function SellUpLayout({
     redirect(accessRedirects[accessStatus] ?? '/access-pending');
   }
 
-  return <AppShell user={user}>{children}</AppShell>;
+  const { count: unreadCount } = await supabase
+    .from('user_notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('is_read', false)
+    .then((r) => ({ count: r.count ?? 0 }));
+
+  return (
+    <AppShell user={user} initialUnreadCount={unreadCount}>
+      {children}
+    </AppShell>
+  );
 }

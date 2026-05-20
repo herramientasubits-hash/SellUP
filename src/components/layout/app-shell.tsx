@@ -10,14 +10,15 @@ interface AppShellProps {
   children: React.ReactNode;
   className?: string;
   user: User;
+  initialUnreadCount?: number;
 }
 
-function ShellLayout({ children, className, user }: AppShellProps) {
+function ShellLayout({ children, className, user, initialUnreadCount = 0 }: AppShellProps) {
   const { collapsed } = useSidebar();
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <AppHeader user={user} />
+      <AppHeader user={user} initialUnreadCount={initialUnreadCount} />
       <div className="flex flex-1">
         {/* Sidebar — deepest layer for visual depth */}
         <aside

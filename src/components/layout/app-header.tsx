@@ -7,6 +7,7 @@ import { Menu, LogOut, Settings } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { MobileNavLink } from "@/components/layout/app-sidebar";
 import { mainNavItems } from "@/config/navigation";
@@ -24,9 +25,10 @@ import { createClient } from "@/lib/supabase/client";
 
 interface AppHeaderProps {
   user: User;
+  initialUnreadCount?: number;
 }
 
-export function AppHeader({ user }: AppHeaderProps) {
+export function AppHeader({ user, initialUnreadCount = 0 }: AppHeaderProps) {
   const router = useRouter();
 
   const displayName =
@@ -95,6 +97,8 @@ export function AppHeader({ user }: AppHeaderProps) {
             </nav>
           </SheetContent>
         </Sheet>
+
+        <NotificationBell initialUnreadCount={initialUnreadCount} />
 
         <ThemeToggle />
 
