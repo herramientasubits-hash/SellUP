@@ -153,6 +153,8 @@ export async function searchApolloOrganizations(
   params: SearchOrganizationsParams
 ): Promise<ApolloSearchResult<ApolloOrganization>> {
   const result = await apolloFetch<{
+    // Apollo returns results in `accounts` for basic plans; `organizations` is empty
+    accounts?: ApolloOrganization[];
     organizations?: ApolloOrganization[];
     pagination?: { total_entries: number; page: number; per_page: number };
   }>('/api/v1/mixed_companies/search', {
@@ -173,7 +175,7 @@ export async function searchApolloOrganizations(
 
   return {
     success: true,
-    data: result.data?.organizations ?? [],
+    data: result.data?.accounts ?? result.data?.organizations ?? [],
     total: result.data?.pagination?.total_entries,
     page: result.data?.pagination?.page,
     per_page: result.data?.pagination?.per_page,
