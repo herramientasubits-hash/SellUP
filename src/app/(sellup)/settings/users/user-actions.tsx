@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Check, X, Pause, UserCog } from 'lucide-react';
+import { MoreHorizontal, Check, X, Pause, UserCog, Archive, RotateCcw } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +32,8 @@ import {
   reactivateUser,
   changeUserRole,
   changeUserManager,
+  archiveUser,
+  activateFromRejected,
 } from '@/modules/access/actions';
 import type { InternalUser, Role } from '@/modules/access/types';
 
@@ -50,6 +52,8 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
   const [showReactivateDialog, setShowReactivateDialog] = useState(false);
   const [showRoleDialog, setShowRoleDialog] = useState(false);
   const [showManagerDialog, setShowManagerDialog] = useState(false);
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [showActivateRejectedDialog, setShowActivateRejectedDialog] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [selectedManager, setSelectedManager] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -111,6 +115,23 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
     window.location.reload();
   };
 
+  const handleArchive = async () => {
+    setLoading(true);
+    await archiveUser(user.id);
+    setLoading(false);
+    setShowArchiveDialog(false);
+    window.location.reload();
+  };
+
+  const handleActivateFromRejected = async () => {
+    if (!selectedRole) return;
+    setLoading(true);
+    await activateFromRejected(user.id, selectedRole, resolveManagerId(selectedManager));
+    setLoading(false);
+    setShowActivateRejectedDialog(false);
+    window.location.reload();
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -155,9 +176,34 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
             </>
           )}
           {user.access_status === 'suspended' && (
-            <DropdownMenuItem onClick={() => setShowReactivateDialog(true)}>
-              Reactivar acceso
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem onClick={() => setShowReactivateDialog(true)}>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Reactivar acceso
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} className="text-muted-foreground">
+                <Archive className="mr-2 h-4 w-4" />
+                Archivar usuario
+              </DropdownMenuItem>
+            </>
+          )}
+          {user.access_status === 'rejected' && (
+            <>
+              <DropdownMenuItem onClick={() => {
+                setSelectedRole('');
+                setSelectedManager('');
+                setShowActivateRejectedDialog(true);
+              }}>
+                <Check className="mr-2 h-4 w-4" />
+                Activar (asignar rol)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} className="text-muted-foreground">
+                <Archive className="mr-2 h-4 w-4" />
+                Archivar usuario
+              </DropdownMenuItem>
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -345,6 +391,74 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRoleDialog(false)}>Cancelar</Button>
             <Button onClick={handleRoleChange} disabled={!selectedRole || loading}>Guardar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Archive Dialog */}
+      <Dialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Archivar usuario</DialogTitle>
+            <DialogDescription>
+              {user.full_name ?? user.email} quedará archivado y no podrá acceder a SellUp.
+              Esta acción es reversible solo por un administrador.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowArchiveDialog(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleArchive} disabled={loading}>
+              <Archive className="mr-2 h-4 w-4" />
+              Archivar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Activate from Rejected Dialog */}
+      <Dialog open={showActivateRejectedDialog} onOpenChange={setShowActivateRejectedDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Activar usuario rechazado</DialogTitle>
+            <DialogDescription>
+              Asigna un rol a {user.full_name ?? user.email} para activar su acceso.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-foreground">Rol <span className="text-destructive">*</span></p>
+              <Select value={selectedRole || undefined} onValueChange={(v) => setSelectedRole(v || '')}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-foreground">Jefe directo <span className="text-xs text-muted-foreground">(opcional)</span></p>
+              <Select value={selectedManager || undefined} onValueChange={(v) => setSelectedManager(v || '')}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Sin jefe directo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SELF_MANAGER_VALUE}>Sin jefe directo</SelectItem>
+                  {possibleManagers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.full_name ?? u.email}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowActivateRejectedDialog(false)}>Cancelar</Button>
+            <Button onClick={handleActivateFromRejected} disabled={!selectedRole || loading}>
+              <Check className="mr-2 h-4 w-4" />
+              Activar acceso
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

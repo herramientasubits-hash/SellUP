@@ -7,6 +7,7 @@ import {
   Pause,
   Clock,
   Layers,
+  Archive,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -28,9 +29,10 @@ import { GroupsView } from './groups-view';
 import { GroupManagementPanel } from './group-management-panel';
 import { AddUserDrawer } from './add-user-drawer';
 import { PreapprovalCancelButton } from './preapproval-cancel-button';
+import { SelectableUsersList } from './selectable-users-list';
 import type { InternalUser, Role, UserPreapproval } from '@/modules/access/types';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getStatusBadge(status: string) {
   const cfg: Record<string, { label: string; className: string }> = {
@@ -38,6 +40,7 @@ function getStatusBadge(status: string) {
     active:           { label: 'Activo',       className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' },
     rejected:         { label: 'Rechazado',    className: 'bg-destructive/10 text-destructive border-destructive/30' },
     suspended:        { label: 'Suspendido',   className: 'bg-orange-500/10 text-orange-500 border-orange-500/30' },
+    archived:         { label: 'Archivado',    className: 'bg-slate-500/10 text-slate-500 border-slate-500/30' },
   };
   return cfg[status] ?? { label: status, className: '' };
 }
@@ -66,7 +69,7 @@ function getManagerLabel(managerId: string | null, users: InternalUser[]): strin
   return m ? (m.full_name ?? m.email) : 'Sin jefe asignado';
 }
 
-// ─── UserRow ─────────────────────────────────────────────────────────────────
+// ─── UserRow (for All / Archived tabs that don't need bulk select) ─────────────
 
 interface UserRowProps {
   user: InternalUser;
@@ -112,6 +115,7 @@ function UserRow({ user, roles, allUsers, activeUsers, isAdmin }: UserRowProps) 
         {user.access_status === 'active'           && `Aprobado: ${formatDate(user.approved_at)}`}
         {user.access_status === 'rejected'         && `Rechazado: ${formatDate(user.rejected_at)}`}
         {user.access_status === 'suspended'        && `Suspendido: ${formatDate(user.suspended_at)}`}
+        {user.access_status === 'archived'         && `Archivado: ${formatDate(user.archived_at)}`}
       </div>
 
       {isAdmin && (
@@ -125,12 +129,28 @@ function UserRow({ user, roles, allUsers, activeUsers, isAdmin }: UserRowProps) 
 
 interface PreapprovalRowProps {
   preapproval: UserPreapproval;
+  isSelected?: boolean;
+  onToggle?: () => void;
   isAdmin: boolean;
+  showCheckbox?: boolean;
 }
 
-function PreapprovalRow({ preapproval, isAdmin }: PreapprovalRowProps) {
+function PreapprovalRow({ preapproval, isSelected, onToggle, isAdmin, showCheckbox }: PreapprovalRowProps) {
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 p-4">
+    <div className={`flex items-center gap-4 rounded-xl border p-4 transition-colors ${
+      isSelected
+        ? 'border-su-brand/40 bg-su-brand-soft/20'
+        : 'border-su-brand/20 bg-su-brand-soft/30'
+    }`}>
+      {showCheckbox && isAdmin && (
+        <input
+          type="checkbox"
+          checked={isSelected ?? false}
+          onChange={onToggle}
+          className="h-4 w-4 shrink-0 rounded border-border accent-su-brand cursor-pointer"
+        />
+      )}
+
       <Avatar className="h-10 w-10">
         <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
           {getInitials(preapproval.full_name, preapproval.email)}
@@ -186,6 +206,7 @@ export default async function UsersManagementPage() {
   const activeUsers    = users.filter(u => u.access_status === 'active');
   const suspendedUsers = users.filter(u => u.access_status === 'suspended');
   const rejectedUsers  = users.filter(u => u.access_status === 'rejected');
+  const archivedUsers  = users.filter(u => u.access_status === 'archived');
 
   return (
     <div className="space-y-6">
@@ -203,14 +224,14 @@ export default async function UsersManagementPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <SurfaceCard>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
-              <UserPlus className="h-5 w-5 text-amber-500" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10">
+              <UserPlus className="h-4 w-4 text-amber-500" />
             </div>
             <div>
-              <p className="text-xl font-semibold text-foreground">{summary.pending}</p>
+              <p className="text-lg font-semibold text-foreground">{summary.pending}</p>
               <p className="text-xs text-muted-foreground">Pendientes</p>
             </div>
           </div>
@@ -218,11 +239,11 @@ export default async function UsersManagementPage() {
 
         <SurfaceCard>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-su-brand-soft">
-              <Clock className="h-5 w-5 text-su-brand" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-su-brand-soft">
+              <Clock className="h-4 w-4 text-su-brand" />
             </div>
             <div>
-              <p className="text-xl font-semibold text-foreground">{summary.preapproved}</p>
+              <p className="text-lg font-semibold text-foreground">{summary.preapproved}</p>
               <p className="text-xs text-muted-foreground">Preautorizados</p>
             </div>
           </div>
@@ -230,11 +251,11 @@ export default async function UsersManagementPage() {
 
         <SurfaceCard>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
-              <UserCheck className="h-5 w-5 text-emerald-500" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10">
+              <UserCheck className="h-4 w-4 text-emerald-500" />
             </div>
             <div>
-              <p className="text-xl font-semibold text-foreground">{summary.active}</p>
+              <p className="text-lg font-semibold text-foreground">{summary.active}</p>
               <p className="text-xs text-muted-foreground">Activos</p>
             </div>
           </div>
@@ -242,11 +263,11 @@ export default async function UsersManagementPage() {
 
         <SurfaceCard>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10">
-              <Pause className="h-5 w-5 text-orange-500" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/10">
+              <Pause className="h-4 w-4 text-orange-500" />
             </div>
             <div>
-              <p className="text-xl font-semibold text-foreground">{summary.suspended}</p>
+              <p className="text-lg font-semibold text-foreground">{summary.suspended}</p>
               <p className="text-xs text-muted-foreground">Suspendidos</p>
             </div>
           </div>
@@ -254,12 +275,24 @@ export default async function UsersManagementPage() {
 
         <SurfaceCard>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10">
-              <UserX className="h-5 w-5 text-destructive" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10">
+              <UserX className="h-4 w-4 text-destructive" />
             </div>
             <div>
-              <p className="text-xl font-semibold text-foreground">{summary.rejected}</p>
+              <p className="text-lg font-semibold text-foreground">{summary.rejected}</p>
               <p className="text-xs text-muted-foreground">Rechazados</p>
+            </div>
+          </div>
+        </SurfaceCard>
+
+        <SurfaceCard>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-500/10">
+              <Archive className="h-4 w-4 text-slate-500" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold text-foreground">{summary.archived}</p>
+              <p className="text-xs text-muted-foreground">Archivados</p>
             </div>
           </div>
         </SurfaceCard>
@@ -288,6 +321,10 @@ export default async function UsersManagementPage() {
             <UserX className="h-4 w-4" />
             Rechazados ({rejectedUsers.length})
           </TabsTrigger>
+          <TabsTrigger value="archived" className="gap-2">
+            <Archive className="h-4 w-4" />
+            Archivados ({archivedUsers.length})
+          </TabsTrigger>
           <TabsTrigger value="all" className="gap-2">
             <UsersIcon className="h-4 w-4" />
             Todos ({users.length})
@@ -298,7 +335,7 @@ export default async function UsersManagementPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Active tab — with Lista / Organigrama / Grupos */}
+        {/* Active — with Lista / Organigrama / Grupos view + bulk select */}
         <TabsContent value="active">
           {activeUsers.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">No hay usuarios activos.</div>
@@ -306,11 +343,15 @@ export default async function UsersManagementPage() {
             <ActiveUsersPanel
               userCount={activeUsers.length}
               listContent={
-                <div className="space-y-3">
-                  {activeUsers.map(user => (
-                    <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
-                  ))}
-                </div>
+                <SelectableUsersList
+                  users={activeUsers}
+                  roles={roles}
+                  allUsers={users}
+                  activeUsers={activeUsers}
+                  groups={groups}
+                  mode="active"
+                  isAdmin={isAdmin}
+                />
               }
               orgContent={
                 <SurfaceCard className="overflow-hidden">
@@ -324,14 +365,20 @@ export default async function UsersManagementPage() {
           )}
         </TabsContent>
 
-        {/* Pending */}
-        <TabsContent value="pending" className="space-y-3">
+        {/* Pending — bulk reject */}
+        <TabsContent value="pending">
           {pendingUsers.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">No hay solicitudes pendientes.</div>
           ) : (
-            pendingUsers.map(user => (
-              <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
-            ))
+            <SelectableUsersList
+              users={pendingUsers}
+              roles={roles}
+              allUsers={users}
+              activeUsers={activeUsers}
+              groups={groups}
+              mode="pending"
+              isAdmin={isAdmin}
+            />
           )}
         </TabsContent>
 
@@ -348,8 +395,8 @@ export default async function UsersManagementPage() {
           ) : (
             <>
               <p className="text-xs text-muted-foreground">
-                Estos usuarios han sido preautorizados manualmente. Ingresarán al sistema
-                automáticamente cuando inicien sesión con su correo corporativo por primera vez.
+                Estos usuarios han sido preautorizados manualmente. Ingresarán automáticamente
+                cuando inicien sesión con su correo corporativo por primera vez.
               </p>
               {preapprovals.map(p => (
                 <PreapprovalRow key={p.id} preapproval={p} isAdmin={isAdmin} />
@@ -358,25 +405,56 @@ export default async function UsersManagementPage() {
           )}
         </TabsContent>
 
-        {/* Suspended */}
-        <TabsContent value="suspended" className="space-y-3">
+        {/* Suspended — bulk reactivate + archive */}
+        <TabsContent value="suspended">
           {suspendedUsers.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">No hay usuarios suspendidos.</div>
           ) : (
-            suspendedUsers.map(user => (
-              <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
-            ))
+            <SelectableUsersList
+              users={suspendedUsers}
+              roles={roles}
+              allUsers={users}
+              activeUsers={activeUsers}
+              groups={groups}
+              mode="suspended"
+              isAdmin={isAdmin}
+            />
           )}
         </TabsContent>
 
-        {/* Rejected */}
-        <TabsContent value="rejected" className="space-y-3">
+        {/* Rejected — bulk archive, individual activate */}
+        <TabsContent value="rejected">
           {rejectedUsers.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">No hay usuarios rechazados.</div>
           ) : (
-            rejectedUsers.map(user => (
-              <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
-            ))
+            <SelectableUsersList
+              users={rejectedUsers}
+              roles={roles}
+              allUsers={users}
+              activeUsers={activeUsers}
+              groups={groups}
+              mode="rejected"
+              isAdmin={isAdmin}
+            />
+          )}
+        </TabsContent>
+
+        {/* Archived — read-only list */}
+        <TabsContent value="archived" className="space-y-3">
+          {archivedUsers.length === 0 ? (
+            <div className="py-12 text-center">
+              <Archive className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-30" />
+              <p className="text-sm text-muted-foreground">No hay usuarios archivados.</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Usuarios archivados. No tienen acceso a SellUp. Usa el menú &quot;…&quot; individual para gestionar.
+              </p>
+              {archivedUsers.map(user => (
+                <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
+              ))}
+            </>
           )}
         </TabsContent>
 

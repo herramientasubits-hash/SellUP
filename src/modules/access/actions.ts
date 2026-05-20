@@ -85,6 +85,7 @@ export async function getAllUsers(): Promise<InternalUser[]> {
         approved_at,
         rejected_at,
         suspended_at,
+        archived_at,
         last_login_at
       `)
       .order('created_at', { ascending: false }),
@@ -142,7 +143,7 @@ export async function getUsersByStatus(status: string): Promise<InternalUser[]> 
 export async function getUsersSummary(): Promise<UsersSummary> {
   const supabase = await createClient();
 
-  const [pending, active, suspended, rejected, preapproved] = await Promise.all([
+  const [pending, active, suspended, rejected, preapproved, archived] = await Promise.all([
     supabase
       .from('internal_users')
       .select('id', { count: 'exact', head: true })
@@ -163,6 +164,10 @@ export async function getUsersSummary(): Promise<UsersSummary> {
       .from('user_preapprovals')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'pending_claim'),
+    supabase
+      .from('internal_users')
+      .select('id', { count: 'exact', head: true })
+      .eq('access_status', 'archived'),
   ]);
 
   return {
@@ -171,6 +176,7 @@ export async function getUsersSummary(): Promise<UsersSummary> {
     suspended: suspended.count ?? 0,
     rejected: rejected.count ?? 0,
     preapproved: preapproved.count ?? 0,
+    archived: archived.count ?? 0,
   };
 }
 
@@ -751,4 +757,239 @@ export async function createOrganizationGroup(data: {
   }
 
   return { success: true, id: newGroup.id };
+}
+
+// ─── Archive & Activate from Rejected ─────────────────────────────────────────
+
+export async function archiveUser(
+  userId: string,
+  reason?: string,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  if (!currentUser) return { success: false, error: 'No autenticado' };
+
+  const { data: adminUser } = await supabase
+    .from('internal_users').select('id')
+    .eq('auth_user_id', currentUser.id).eq('access_status', 'active').single();
+  if (!adminUser) return { success: false, error: 'No autorizado' };
+
+  const { data: targetUser } = await supabase
+    .from('internal_users').select('id, access_status')
+    .eq('id', userId).single();
+  if (!targetUser) return { success: false, error: 'Usuario no encontrado' };
+
+  const { error: updateError } = await supabase
+    .from('internal_users')
+    .update({
+      access_status: 'archived',
+      archived_at: new Date().toISOString(),
+      archived_by: adminUser.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', userId);
+
+  if (updateError) return { success: false, error: updateError.message };
+
+  await supabase.rpc('log_access_event', {
+    p_actor_user_id: adminUser.id,
+    p_target_user_id: userId,
+    p_action_type: 'archived',
+    p_previous_status: targetUser.access_status,
+    p_new_status: 'archived',
+    p_reason: reason,
+  });
+
+  return { success: true };
+}
+
+export async function activateFromRejected(
+  userId: string,
+  roleId: string,
+  managerId?: string | null,
+  groupId?: string | null,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  if (!currentUser) return { success: false, error: 'No autenticado' };
+
+  const { data: adminUser } = await supabase
+    .from('internal_users').select('id')
+    .eq('auth_user_id', currentUser.id).eq('access_status', 'active').single();
+  if (!adminUser) return { success: false, error: 'No autorizado' };
+
+  const { data: targetUser } = await supabase
+    .from('internal_users').select('id, access_status, role_id')
+    .eq('id', userId).single();
+  if (!targetUser) return { success: false, error: 'Usuario no encontrado' };
+
+  const { error: updateError } = await supabase
+    .from('internal_users')
+    .update({
+      access_status: 'active',
+      role_id: roleId,
+      manager_id: managerId ?? null,
+      group_id: groupId ?? null,
+      approved_at: new Date().toISOString(),
+      approved_by: adminUser.id,
+      rejected_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', userId);
+
+  if (updateError) return { success: false, error: updateError.message };
+
+  await supabase.rpc('log_access_event', {
+    p_actor_user_id: adminUser.id,
+    p_target_user_id: userId,
+    p_action_type: 'activated_from_rejected',
+    p_previous_status: 'rejected',
+    p_new_status: 'active',
+    p_previous_role_id: targetUser.role_id,
+    p_new_role_id: roleId,
+    p_reason: 'Activado manualmente desde rechazado',
+  });
+
+  return { success: true };
+}
+
+// ─── Bulk Actions ─────────────────────────────────────────────────────────────
+
+async function getAdminUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  if (!currentUser) return null;
+  const { data } = await supabase
+    .from('internal_users').select('id')
+    .eq('auth_user_id', currentUser.id).eq('access_status', 'active').single();
+  return data?.id ?? null;
+}
+
+export async function bulkSuspend(
+  userIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  if (!userIds.length) return { success: true };
+  const supabase = await createClient();
+  const adminId = await getAdminUserId();
+  if (!adminId) return { success: false, error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('internal_users')
+    .update({ access_status: 'suspended', suspended_at: new Date().toISOString(), suspended_by: adminId, updated_at: new Date().toISOString() })
+    .in('id', userIds);
+  if (error) return { success: false, error: error.message };
+
+  await Promise.allSettled(userIds.map(id =>
+    supabase.rpc('log_access_event', { p_actor_user_id: adminId, p_target_user_id: id, p_action_type: 'suspended', p_previous_status: 'active', p_new_status: 'suspended' })
+  ));
+  return { success: true };
+}
+
+export async function bulkReactivate(
+  userIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  if (!userIds.length) return { success: true };
+  const supabase = await createClient();
+  const adminId = await getAdminUserId();
+  if (!adminId) return { success: false, error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('internal_users')
+    .update({ access_status: 'active', suspended_at: null, suspended_by: null, updated_at: new Date().toISOString() })
+    .in('id', userIds);
+  if (error) return { success: false, error: error.message };
+
+  await Promise.allSettled(userIds.map(id =>
+    supabase.rpc('log_access_event', { p_actor_user_id: adminId, p_target_user_id: id, p_action_type: 'reactivated', p_previous_status: 'suspended', p_new_status: 'active' })
+  ));
+  return { success: true };
+}
+
+export async function bulkArchive(
+  userIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  if (!userIds.length) return { success: true };
+  const supabase = await createClient();
+  const adminId = await getAdminUserId();
+  if (!adminId) return { success: false, error: 'No autorizado' };
+
+  const { data: targets } = await supabase
+    .from('internal_users').select('id, access_status').in('id', userIds);
+
+  const { error } = await supabase
+    .from('internal_users')
+    .update({ access_status: 'archived', archived_at: new Date().toISOString(), archived_by: adminId, updated_at: new Date().toISOString() })
+    .in('id', userIds);
+  if (error) return { success: false, error: error.message };
+
+  const statusMap = new Map((targets ?? []).map(u => [u.id, u.access_status]));
+  await Promise.allSettled(userIds.map(id =>
+    supabase.rpc('log_access_event', { p_actor_user_id: adminId, p_target_user_id: id, p_action_type: 'archived', p_previous_status: statusMap.get(id) ?? null, p_new_status: 'archived' })
+  ));
+  return { success: true };
+}
+
+export async function bulkReject(
+  userIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  if (!userIds.length) return { success: true };
+  const supabase = await createClient();
+  const adminId = await getAdminUserId();
+  if (!adminId) return { success: false, error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('internal_users')
+    .update({ access_status: 'rejected', rejected_at: new Date().toISOString(), rejected_by: adminId, updated_at: new Date().toISOString() })
+    .in('id', userIds);
+  if (error) return { success: false, error: error.message };
+
+  await Promise.allSettled(userIds.map(id =>
+    supabase.rpc('log_access_event', { p_actor_user_id: adminId, p_target_user_id: id, p_action_type: 'rejected', p_previous_status: 'pending_approval', p_new_status: 'rejected' })
+  ));
+  return { success: true };
+}
+
+export async function bulkCancelPreapprovals(
+  preapprovalIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  if (!preapprovalIds.length) return { success: true };
+  const supabase = await createClient();
+  const adminId = await getAdminUserId();
+  if (!adminId) return { success: false, error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('user_preapprovals')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .in('id', preapprovalIds)
+    .eq('status', 'pending_claim');
+  if (error) return { success: false, error: error.message };
+
+  await supabase.rpc('log_access_event', {
+    p_actor_user_id: adminId,
+    p_target_user_id: adminId,
+    p_action_type: 'preapproval_cancelled',
+    p_metadata: { cancelled_count: preapprovalIds.length, preapproval_ids: preapprovalIds },
+  });
+  return { success: true };
+}
+
+export async function bulkAssignGroup(
+  userIds: string[],
+  groupId: string | null,
+): Promise<{ success: boolean; error?: string }> {
+  if (!userIds.length) return { success: true };
+  const supabase = await createClient();
+  const adminId = await getAdminUserId();
+  if (!adminId) return { success: false, error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('internal_users')
+    .update({ group_id: groupId, updated_at: new Date().toISOString() })
+    .in('id', userIds);
+  if (error) return { success: false, error: error.message };
+
+  await Promise.allSettled(userIds.map(id =>
+    supabase.rpc('log_access_event', { p_actor_user_id: adminId, p_target_user_id: id, p_action_type: 'group_assigned', p_metadata: { new_group_id: groupId } })
+  ));
+  return { success: true };
 }

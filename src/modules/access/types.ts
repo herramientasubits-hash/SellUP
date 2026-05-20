@@ -1,4 +1,4 @@
-export type AccessStatus = 'pending_approval' | 'active' | 'rejected' | 'suspended';
+export type AccessStatus = 'pending_approval' | 'active' | 'rejected' | 'suspended' | 'archived';
 export type PreapprovalStatus = 'pending_claim' | 'claimed' | 'cancelled';
 
 export interface Role {
@@ -53,6 +53,7 @@ export interface InternalUser {
   approved_at: string | null;
   rejected_at: string | null;
   suspended_at: string | null;
+  archived_at: string | null;
   last_login_at: string | null;
 }
 
@@ -74,4 +75,5 @@ export interface UsersSummary {
   suspended: number;
   rejected: number;
   preapproved: number;
+  archived: number;
 }
