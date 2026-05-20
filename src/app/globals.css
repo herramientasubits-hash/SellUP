@@ -93,9 +93,9 @@
   --popover: oklch(0.997 0.001 260);
   --popover-foreground: oklch(0.13 0.02 260);
 
-  /* Primary — vivid indigo-blue, punchier than before */
-  --primary: oklch(0.50 0.19 265);
-  --primary-foreground: oklch(0.99 0 0);
+  /* Primary — always mirrors su-brand token */
+  --primary: var(--su-brand);
+  --primary-foreground: var(--su-brand-foreground);
 
   /* Secondary — cool neutral */
   --secondary: oklch(0.955 0.005 260);
@@ -168,9 +168,9 @@
   --popover: oklch(0.180 0.014 265);
   --popover-foreground: oklch(0.950 0.004 260);
 
-  /* Primary — brighter for dark backgrounds */
-  --primary: oklch(0.66 0.20 265);
-  --primary-foreground: oklch(0.99 0 0);
+  /* Primary — always mirrors su-brand token */
+  --primary: var(--su-brand);
+  --primary-foreground: var(--su-brand-foreground);
 
   /* Secondary */
   --secondary: oklch(0.200 0.014 265);
