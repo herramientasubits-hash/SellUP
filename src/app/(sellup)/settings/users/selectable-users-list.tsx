@@ -131,6 +131,14 @@ const BULK_ACTIONS: Record<string, BulkActionDef[]> = {
   ],
   rejected: [
     {
+      id: 'suspend',
+      label: 'Suspender',
+      icon: <Pause className="h-3.5 w-3.5" />,
+      variant: 'destructive',
+      confirmTitle: n => `Suspender ${n} usuario${n > 1 ? 's' : ''}`,
+      confirmDesc: n => `${n} usuario${n > 1 ? 's' : ''} perderá acceso a SellUp hasta ser reactivado.`,
+    },
+    {
       id: 'archive',
       label: 'Archivar',
       icon: <Archive className="h-3.5 w-3.5" />,

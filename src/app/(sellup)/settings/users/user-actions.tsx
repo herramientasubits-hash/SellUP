@@ -198,6 +198,10 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
                 <Check className="mr-2 h-4 w-4" />
                 Activar (asignar rol)
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowSuspendDialog(true)}>
+                <Pause className="mr-2 h-4 w-4" />
+                Suspender acceso
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} className="text-muted-foreground">
                 <Archive className="mr-2 h-4 w-4" />
