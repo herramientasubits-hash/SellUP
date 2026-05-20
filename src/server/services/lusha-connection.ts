@@ -170,10 +170,10 @@ export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
       }
 
       if (response.status === 429) {
+        // 429 confirms the key is valid — Lusha only rate-limits authenticated requests
         return {
-          success: false,
-          error: 'RATE_LIMITED',
-          message: 'Límite de solicitudes alcanzado. La API Key es válida pero hay rate limiting activo.',
+          success: true,
+          message: 'Conexión con Lusha verificada correctamente.',
         };
       }
 
