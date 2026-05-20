@@ -1,5 +1,13 @@
 import { redirect } from 'next/navigation';
-import { Users as UsersIcon, UserPlus, UserCheck, UserX, Pause, GitBranch } from 'lucide-react';
+import {
+  Users as UsersIcon,
+  UserPlus,
+  UserCheck,
+  UserX,
+  Pause,
+  Clock,
+  Layers,
+} from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -10,50 +18,55 @@ import {
   getUsersSummary,
   getAllRoles,
   isCurrentUserAdmin,
+  getPreapprovals,
+  getOrganizationGroups,
 } from '@/modules/access/actions';
 import { UserActions } from './user-actions';
 import { OrgChart } from './org-chart';
-import type { InternalUser, Role } from '@/modules/access/types';
+import { ActiveUsersPanel } from './active-users-panel';
+import { GroupsView } from './groups-view';
+import { GroupManagementPanel } from './group-management-panel';
+import { AddUserDrawer } from './add-user-drawer';
+import { PreapprovalCancelButton } from './preapproval-cancel-button';
+import type { InternalUser, Role, UserPreapproval } from '@/modules/access/types';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getStatusBadge(status: string) {
-  const statusConfig: Record<string, { label: string; className: string }> = {
-    pending_approval: { label: 'Pendiente', className: 'bg-amber-500/10 text-amber-500 border-amber-500/30' },
-    active: { label: 'Activo', className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' },
-    rejected: { label: 'Rechazado', className: 'bg-destructive/10 text-destructive border-destructive/30' },
-    suspended: { label: 'Suspendido', className: 'bg-orange-500/10 text-orange-500 border-orange-500/30' },
+  const cfg: Record<string, { label: string; className: string }> = {
+    pending_approval: { label: 'Pendiente',   className: 'bg-amber-500/10 text-amber-500 border-amber-500/30' },
+    active:           { label: 'Activo',       className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' },
+    rejected:         { label: 'Rechazado',    className: 'bg-destructive/10 text-destructive border-destructive/30' },
+    suspended:        { label: 'Suspendido',   className: 'bg-orange-500/10 text-orange-500 border-orange-500/30' },
   };
-  return statusConfig[status] ?? { label: status, className: '' };
+  return cfg[status] ?? { label: status, className: '' };
 }
 
 function getRoleLabel(roleKey: string | null, roles: Role[]): string {
   if (!roleKey) return 'Sin rol';
-  const role = roles.find((r) => r.key === roleKey);
-  return role?.name ?? roleKey;
+  return roles.find(r => r.key === roleKey)?.name ?? roleKey;
 }
 
 function getInitials(name: string | null, email: string): string {
-  if (name) {
-    return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
-  }
+  if (name) return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   return email.slice(0, 2).toUpperCase();
 }
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('es-CO', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
   });
 }
 
 function getManagerLabel(managerId: string | null, users: InternalUser[]): string {
   if (!managerId) return 'Sin jefe asignado';
-  const manager = users.find((u) => u.id === managerId);
-  return manager ? (manager.full_name ?? manager.email) : 'Sin jefe asignado';
+  const m = users.find(u => u.id === managerId);
+  return m ? (m.full_name ?? m.email) : 'Sin jefe asignado';
 }
+
+// ─── UserRow ─────────────────────────────────────────────────────────────────
 
 interface UserRowProps {
   user: InternalUser;
@@ -91,19 +104,14 @@ function UserRow({ user, roles, allUsers, activeUsers, isAdmin }: UserRowProps) 
       </div>
 
       <div className="hidden min-w-[120px] text-xs text-muted-foreground md:block">
-        {user.access_status === 'active'
-          ? getManagerLabel(user.manager_id, allUsers)
-          : null}
+        {user.access_status === 'active' ? getManagerLabel(user.manager_id, allUsers) : null}
       </div>
 
       <div className="hidden min-w-[140px] text-xs text-muted-foreground md:block">
-        {user.access_status === 'pending_approval'
-          ? `Solicitado: ${formatDate(user.requested_at)}`
-          : user.access_status === 'active'
-          ? `Aprobado: ${formatDate(user.approved_at)}`
-          : user.access_status === 'rejected'
-          ? `Rechazado: ${formatDate(user.rejected_at)}`
-          : `Suspendido: ${formatDate(user.suspended_at)}`}
+        {user.access_status === 'pending_approval' && `Solicitado: ${formatDate(user.requested_at)}`}
+        {user.access_status === 'active'           && `Aprobado: ${formatDate(user.approved_at)}`}
+        {user.access_status === 'rejected'         && `Rechazado: ${formatDate(user.rejected_at)}`}
+        {user.access_status === 'suspended'        && `Suspendido: ${formatDate(user.suspended_at)}`}
       </div>
 
       {isAdmin && (
@@ -113,97 +121,164 @@ function UserRow({ user, roles, allUsers, activeUsers, isAdmin }: UserRowProps) 
   );
 }
 
+// ─── PreapprovalRow ───────────────────────────────────────────────────────────
+
+interface PreapprovalRowProps {
+  preapproval: UserPreapproval;
+  isAdmin: boolean;
+}
+
+function PreapprovalRow({ preapproval, isAdmin }: PreapprovalRowProps) {
+  return (
+    <div className="flex items-center gap-4 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 p-4">
+      <Avatar className="h-10 w-10">
+        <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
+          {getInitials(preapproval.full_name, preapproval.email)}
+        </AvatarFallback>
+      </Avatar>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate font-medium text-foreground">
+            {preapproval.full_name ?? 'Sin nombre registrado'}
+          </span>
+          <Badge variant="outline" className="text-[10px] bg-su-brand-soft text-su-brand border-su-brand/30">
+            Esperando primer login
+          </Badge>
+        </div>
+        <div className="truncate text-xs text-muted-foreground">{preapproval.email}</div>
+      </div>
+
+      <div className="hidden min-w-[100px] text-sm text-muted-foreground md:block">
+        {preapproval.role_name ?? 'Sin rol'}
+      </div>
+
+      <div className="hidden min-w-[120px] text-xs text-muted-foreground md:block">
+        {preapproval.manager_name ?? 'Sin jefe'}
+      </div>
+
+      <div className="hidden min-w-[140px] text-xs text-muted-foreground md:block">
+        Preautorizado: {formatDate(preapproval.created_at)}
+      </div>
+
+      {isAdmin && (
+        <PreapprovalCancelButton preapprovalId={preapproval.id} email={preapproval.email} />
+      )}
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default async function UsersManagementPage() {
   const isAdmin = await isCurrentUserAdmin();
+  if (!isAdmin) redirect('/settings');
 
-  if (!isAdmin) {
-    redirect('/settings');
-  }
-
-  const [users, summary, roles] = await Promise.all([
+  const [users, summary, roles, preapprovals, groups] = await Promise.all([
     getAllUsers(),
     getUsersSummary(),
     getAllRoles(),
+    getPreapprovals(),
+    getOrganizationGroups(),
   ]);
 
-  const pendingUsers = users.filter((u) => u.access_status === 'pending_approval');
-  const activeUsers = users.filter((u) => u.access_status === 'active');
-  const suspendedUsers = users.filter((u) => u.access_status === 'suspended');
-  const rejectedUsers = users.filter((u) => u.access_status === 'rejected');
+  const pendingUsers   = users.filter(u => u.access_status === 'pending_approval');
+  const activeUsers    = users.filter(u => u.access_status === 'active');
+  const suspendedUsers = users.filter(u => u.access_status === 'suspended');
+  const rejectedUsers  = users.filter(u => u.access_status === 'rejected');
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Usuarios y acceso"
-        description="Gestionar solicitudes, roles, jerarquía y estados de acceso de SellUp."
-        backHref="/settings"
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="Usuarios y acceso"
+          description="Gestionar solicitudes, roles, jerarquía y estados de acceso de SellUp."
+          backHref="/settings"
+        />
+        {isAdmin && (
+          <div className="shrink-0 pt-1">
+            <AddUserDrawer roles={roles} activeUsers={activeUsers} groups={groups} />
+          </div>
+        )}
+      </div>
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <SurfaceCard>
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10">
-              <UserPlus className="h-6 w-6 text-amber-500" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
+              <UserPlus className="h-5 w-5 text-amber-500" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-foreground">{summary.pending}</p>
-              <p className="text-sm text-muted-foreground">Pendientes</p>
+              <p className="text-xl font-semibold text-foreground">{summary.pending}</p>
+              <p className="text-xs text-muted-foreground">Pendientes</p>
             </div>
           </div>
         </SurfaceCard>
 
         <SurfaceCard>
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10">
-              <UserCheck className="h-6 w-6 text-emerald-500" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-su-brand-soft">
+              <Clock className="h-5 w-5 text-su-brand" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-foreground">{summary.active}</p>
-              <p className="text-sm text-muted-foreground">Activos</p>
+              <p className="text-xl font-semibold text-foreground">{summary.preapproved}</p>
+              <p className="text-xs text-muted-foreground">Preautorizados</p>
             </div>
           </div>
         </SurfaceCard>
 
         <SurfaceCard>
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500/10">
-              <Pause className="h-6 w-6 text-orange-500" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
+              <UserCheck className="h-5 w-5 text-emerald-500" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-foreground">{summary.suspended}</p>
-              <p className="text-sm text-muted-foreground">Suspendidos</p>
+              <p className="text-xl font-semibold text-foreground">{summary.active}</p>
+              <p className="text-xs text-muted-foreground">Activos</p>
             </div>
           </div>
         </SurfaceCard>
 
         <SurfaceCard>
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10">
-              <UserX className="h-6 w-6 text-destructive" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10">
+              <Pause className="h-5 w-5 text-orange-500" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-foreground">{summary.rejected}</p>
-              <p className="text-sm text-muted-foreground">Rechazados</p>
+              <p className="text-xl font-semibold text-foreground">{summary.suspended}</p>
+              <p className="text-xs text-muted-foreground">Suspendidos</p>
+            </div>
+          </div>
+        </SurfaceCard>
+
+        <SurfaceCard>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10">
+              <UserX className="h-5 w-5 text-destructive" />
+            </div>
+            <div>
+              <p className="text-xl font-semibold text-foreground">{summary.rejected}</p>
+              <p className="text-xs text-muted-foreground">Rechazados</p>
             </div>
           </div>
         </SurfaceCard>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="all" className="space-y-4">
-        <TabsList className="bg-muted/50">
-          <TabsTrigger value="all" className="gap-2">
-            <UsersIcon className="h-4 w-4" />
-            Todos ({users.length})
+      {/* Main tabs */}
+      <Tabs defaultValue="active" className="space-y-4">
+        <TabsList className="bg-muted/50 flex-wrap h-auto gap-1">
+          <TabsTrigger value="active" className="gap-2">
+            <UserCheck className="h-4 w-4" />
+            Activos ({activeUsers.length})
           </TabsTrigger>
           <TabsTrigger value="pending" className="gap-2">
             <UserPlus className="h-4 w-4" />
             Pendientes ({pendingUsers.length})
           </TabsTrigger>
-          <TabsTrigger value="active" className="gap-2">
-            <UserCheck className="h-4 w-4" />
-            Activos ({activeUsers.length})
+          <TabsTrigger value="preapproved" className="gap-2">
+            <Clock className="h-4 w-4" />
+            Preautorizados ({preapprovals.length})
           </TabsTrigger>
           <TabsTrigger value="suspended" className="gap-2">
             <Pause className="h-4 w-4" />
@@ -213,40 +288,119 @@ export default async function UsersManagementPage() {
             <UserX className="h-4 w-4" />
             Rechazados ({rejectedUsers.length})
           </TabsTrigger>
-          <TabsTrigger value="org" className="gap-2">
-            <GitBranch className="h-4 w-4" />
-            Organigrama
+          <TabsTrigger value="all" className="gap-2">
+            <UsersIcon className="h-4 w-4" />
+            Todos ({users.length})
+          </TabsTrigger>
+          <TabsTrigger value="groups_mgmt" className="gap-2">
+            <Layers className="h-4 w-4" />
+            Grupos ({groups.length})
           </TabsTrigger>
         </TabsList>
 
-        {[
-          { value: 'all', list: users, empty: 'No hay usuarios registrados.' },
-          { value: 'pending', list: pendingUsers, empty: 'No hay solicitudes pendientes.' },
-          { value: 'active', list: activeUsers, empty: 'No hay usuarios activos.' },
-          { value: 'suspended', list: suspendedUsers, empty: 'No hay usuarios suspendidos.' },
-          { value: 'rejected', list: rejectedUsers, empty: 'No hay usuarios rechazados.' },
-        ].map(({ value, list, empty }) => (
-          <TabsContent key={value} value={value} className="space-y-3">
-            {list.length === 0 ? (
-              <div className="py-12 text-center text-muted-foreground">{empty}</div>
-            ) : (
-              list.map((user) => (
-                <UserRow
-                  key={user.id}
-                  user={user}
-                  roles={roles}
-                  allUsers={users}
-                  activeUsers={activeUsers}
-                  isAdmin={isAdmin}
-                />
-              ))
-            )}
-          </TabsContent>
-        ))}
+        {/* Active tab — with Lista / Organigrama / Grupos */}
+        <TabsContent value="active">
+          {activeUsers.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">No hay usuarios activos.</div>
+          ) : (
+            <ActiveUsersPanel
+              userCount={activeUsers.length}
+              listContent={
+                <div className="space-y-3">
+                  {activeUsers.map(user => (
+                    <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
+                  ))}
+                </div>
+              }
+              orgContent={
+                <SurfaceCard className="overflow-hidden">
+                  <OrgChart users={users} roles={roles} />
+                </SurfaceCard>
+              }
+              groupsContent={
+                <GroupsView users={activeUsers} groups={groups} roles={roles} />
+              }
+            />
+          )}
+        </TabsContent>
 
-        <TabsContent value="org">
-          <SurfaceCard className="overflow-hidden">
-            <OrgChart users={users} roles={roles} />
+        {/* Pending */}
+        <TabsContent value="pending" className="space-y-3">
+          {pendingUsers.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">No hay solicitudes pendientes.</div>
+          ) : (
+            pendingUsers.map(user => (
+              <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
+            ))
+          )}
+        </TabsContent>
+
+        {/* Preapproved */}
+        <TabsContent value="preapproved" className="space-y-3">
+          {preapprovals.length === 0 ? (
+            <div className="py-12 text-center">
+              <Clock className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-30" />
+              <p className="text-sm text-muted-foreground">No hay preautorizaciones pendientes.</p>
+              <p className="text-xs text-muted-foreground mt-1 opacity-70">
+                Usa &quot;Agregar usuario&quot; para preautorizar un correo corporativo.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Estos usuarios han sido preautorizados manualmente. Ingresarán al sistema
+                automáticamente cuando inicien sesión con su correo corporativo por primera vez.
+              </p>
+              {preapprovals.map(p => (
+                <PreapprovalRow key={p.id} preapproval={p} isAdmin={isAdmin} />
+              ))}
+            </>
+          )}
+        </TabsContent>
+
+        {/* Suspended */}
+        <TabsContent value="suspended" className="space-y-3">
+          {suspendedUsers.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">No hay usuarios suspendidos.</div>
+          ) : (
+            suspendedUsers.map(user => (
+              <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
+            ))
+          )}
+        </TabsContent>
+
+        {/* Rejected */}
+        <TabsContent value="rejected" className="space-y-3">
+          {rejectedUsers.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">No hay usuarios rechazados.</div>
+          ) : (
+            rejectedUsers.map(user => (
+              <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
+            ))
+          )}
+        </TabsContent>
+
+        {/* All */}
+        <TabsContent value="all" className="space-y-3">
+          {users.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">No hay usuarios registrados.</div>
+          ) : (
+            users.map(user => (
+              <UserRow key={user.id} user={user} roles={roles} allUsers={users} activeUsers={activeUsers} isAdmin={isAdmin} />
+            ))
+          )}
+        </TabsContent>
+
+        {/* Groups management */}
+        <TabsContent value="groups_mgmt">
+          <SurfaceCard>
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-foreground">Estructura de grupos</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Define la estructura organizacional. Máximo 3 niveles. Independiente de la jerarquía de jefes directos.
+              </p>
+            </div>
+            <GroupManagementPanel groups={groups} />
           </SurfaceCard>
         </TabsContent>
       </Tabs>

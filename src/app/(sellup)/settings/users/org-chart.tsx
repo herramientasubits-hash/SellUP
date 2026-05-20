@@ -65,10 +65,9 @@ function NodeCard({ user, roles }: NodeCardProps) {
 interface TreeNodeProps {
   node: OrgNode;
   roles: Role[];
-  isLast: boolean;
 }
 
-function TreeNode({ node, roles, isLast }: TreeNodeProps) {
+function TreeNode({ node, roles }: TreeNodeProps) {
   const hasChildren = node.children.length > 0;
 
   return (
@@ -98,14 +97,13 @@ function TreeNode({ node, roles, isLast }: TreeNodeProps) {
             </div>
           )}
           <div className="flex items-start gap-8">
-            {node.children.map((child, i) => (
+            {node.children.map((child) => (
               <div key={child.user.id} className="flex flex-col items-center">
                 {/* Vertical connector from bar to child */}
                 <div className="h-6 w-px bg-border/60" />
                 <TreeNode
                   node={child}
                   roles={roles}
-                  isLast={i === node.children.length - 1}
                 />
               </div>
             ))}
@@ -139,11 +137,11 @@ export function OrgChart({ users, roles }: OrgChartProps) {
         {roots.length > 1 ? (
           <div className="flex items-start gap-16">
             {roots.map((root) => (
-              <TreeNode key={root.user.id} node={root} roles={roles} isLast={false} />
+              <TreeNode key={root.user.id} node={root} roles={roles} />
             ))}
           </div>
         ) : roots.length === 1 ? (
-          <TreeNode node={roots[0]} roles={roles} isLast={true} />
+          <TreeNode node={roots[0]} roles={roles} />
         ) : null}
       </div>
     </div>
