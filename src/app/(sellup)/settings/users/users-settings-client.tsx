@@ -145,30 +145,26 @@ export function UsersSettingsClient({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="usuarios" className="flex-1 min-h-0 mt-2">
-          <div className="h-full overflow-y-auto pr-1">
-            <UsersTab
-              users={users}
-              roles={roles}
-              allUsers={users}
-              activeUsers={activeUsers}
-              groups={groups}
-              preapprovals={preapprovals}
-              isAdmin={isAdmin}
-              initialFilter={activeFilter}
-              onFilterChange={(f) => navigate('usuarios', f)}
-            />
-          </div>
+        <TabsContent value="usuarios" className="flex-1 min-h-0 mt-2 overflow-y-auto">
+          <UsersTab
+            users={users}
+            roles={roles}
+            allUsers={users}
+            activeUsers={activeUsers}
+            groups={groups}
+            preapprovals={preapprovals}
+            isAdmin={isAdmin}
+            initialFilter={activeFilter}
+            onFilterChange={(f) => navigate('usuarios', f)}
+          />
         </TabsContent>
 
-        <TabsContent value="grupos" className="flex-1 min-h-0 mt-2">
-          <div className="h-full overflow-y-auto pr-1">
-            <GroupsTab
-              users={users}
-              groups={groups}
-              roles={roles}
-            />
-          </div>
+        <TabsContent value="grupos" className="flex-1 min-h-0 mt-2 overflow-y-auto">
+          <GroupsTab
+            users={users}
+            groups={groups}
+            roles={roles}
+          />
         </TabsContent>
       </Tabs>
     </div>
