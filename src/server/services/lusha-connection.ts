@@ -124,32 +124,11 @@ export async function getLushaApiKey(): Promise<string | null> {
  *
  * Endpoint: GET https://api.lusha.com/account/usage
  * Header:   api_key: {api_key}
- * Respuesta exitosa: 200 OK con objeto usage { bulkCredits, ... }
+ * Respuesta exitosa: 200 OK (o 429 rate-limited — key válida, Lusha solo throttlea requests autenticadas)
  *
- * Este endpoint retorna datos de créditos de la cuenta — NO consume
- * créditos de enriquecimiento. Es el endpoint de menor impacto
- * disponible en la API de Lusha para validar autenticación.
- *
- * Fuente oficial: https://docs.lusha.com/apis/openapi/account-management
+ * NO consume créditos de enriquecimiento.
+ * Rate limit específico: 5 req/minuto.
  */
-/**
- * Intenta autenticar contra Lusha usando un formato de header dado.
- * Retorna true si la respuesta indica autenticación válida (200 o 429).
- * Retorna el status y body para diagnóstico en caso de fallo.
- */
-async function attemptLushaAuth(
-  apiKeyValue: string
-): Promise<{ ok: boolean; status: number; body: string }> {
-  const response = await fetch('https://api.lusha.com/account/usage', {
-    method: 'GET',
-    headers: { 'api_key': apiKeyValue },
-  });
-  const body = await response.text().catch(() => '');
-  // 200 = success, 429 = rate limited (key is valid — Lusha only throttles authenticated requests)
-  const ok = response.status === 200 || response.status === 429;
-  return { ok, status: response.status, body: body.slice(0, 300) };
-}
-
 export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
   const apiKey = await getLushaApiKey();
 
@@ -162,49 +141,26 @@ export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
   }
 
   try {
-    const key = apiKey.trim();
+    const response = await fetch('https://api.lusha.com/account/usage', {
+      method: 'GET',
+      headers: { 'api_key': apiKey.trim() },
+    });
+    const body = await response.text().catch(() => '');
 
-    // Attempt 1: raw key (most common format per Lusha docs)
-    const attempt1 = await attemptLushaAuth(key);
-    if (attempt1.ok) {
+    // 200 = success, 429 = rate limited (key valid)
+    if (response.status === 200 || response.status === 429) {
       return { success: true, message: 'Conexión con Lusha verificada correctamente.' };
     }
 
-    // Attempt 2: Bearer-prefixed key (some Lusha plans require this format)
-    if (attempt1.status === 400) {
-      const attempt2 = await attemptLushaAuth(`Bearer ${key}`);
-      if (attempt2.ok) {
-        return { success: true, message: 'Conexión con Lusha verificada correctamente.' };
-      }
-
-      // Both formats failed — report last error body for diagnosis
-      const lastBody = attempt2.body || attempt1.body;
-      const lastStatus = attempt2.status;
-
-      if (lastStatus === 401) {
-        return {
-          success: false,
-          error: 'INVALID_API_KEY',
-          message: 'La API Key de Lusha no es válida.',
-        };
-      }
-
-      return {
-        success: false,
-        error: 'API_ERROR',
-        message: `Lusha ${lastStatus}: ${lastBody}`,
-      };
-    }
-
-    if (attempt1.status === 401) {
+    if (response.status === 400 || response.status === 401) {
       return {
         success: false,
         error: 'INVALID_API_KEY',
-        message: 'La API Key de Lusha no es válida o no tiene permisos.',
+        message: 'La API Key de Lusha no es válida o tiene un formato incorrecto.',
       };
     }
 
-    if (attempt1.status === 403) {
+    if (response.status === 403) {
       return {
         success: false,
         error: 'PERMISSION_DENIED',
@@ -215,7 +171,7 @@ export async function testLushaHealth(): Promise<LushaHealthCheckResult> {
     return {
       success: false,
       error: 'API_ERROR',
-      message: `Lusha ${attempt1.status}: ${attempt1.body}`,
+      message: `Lusha ${response.status}: ${body.slice(0, 200)}`,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error de red desconocido';

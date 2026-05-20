@@ -117,11 +117,12 @@ async function lushaFetch<T>(
     return { ok: false, status: 401, errorBody: 'No API key configured' };
   }
 
+  const isPost = options.method === 'POST';
   const response = await fetch(`${LUSHA_BASE_URL}${path}`, {
     ...options,
     headers: {
-      'api_key': apiKey,
-      'Content-Type': 'application/json',
+      'api_key': apiKey.trim(),
+      ...(isPost ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
   });
@@ -187,7 +188,7 @@ export async function enrichLushaCompany(
   if (params.domain) qs.set('domain', params.domain);
   if (params.name) qs.set('name', params.name);
 
-  const result = await lushaFetch<LushaCompany>(`/company?${qs.toString()}`, {
+  const result = await lushaFetch<LushaCompany>(`/v2/company?${qs.toString()}`, {
     method: 'GET',
   });
 
