@@ -1,0 +1,196 @@
+import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import {
+  ArrowLeft,
+  Building2,
+  CheckCircle2,
+  XCircle,
+  GitMerge,
+  ArrowRightCircle,
+  AlertTriangle,
+  Layers,
+} from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
+import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
+import {
+  getProspectBatchById,
+  getCandidatesByBatch,
+} from '@/modules/prospect-batches/actions';
+import {
+  BATCH_STATUS_LABELS,
+  BATCH_SOURCE_LABELS,
+  BATCH_SEARCH_DEPTH_LABELS,
+} from '@/modules/prospect-batches/types';
+import type { BatchStatus } from '@/modules/prospect-batches/types';
+
+const STATUS_STYLES: Record<BatchStatus, string> = {
+  draft: 'bg-muted text-muted-foreground',
+  generating: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  ready_for_review: 'bg-su-brand-soft text-su-brand',
+  in_review: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  completed: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  cancelled: 'bg-muted/60 text-muted-foreground/60',
+  failed: 'bg-destructive/10 text-destructive',
+};
+
+interface Props {
+  params: Promise<{ batchId: string }>;
+}
+
+export default async function BatchDetailPage({ params }: Props) {
+  const { batchId } = await params;
+
+  const [batch, candidates] = await Promise.all([
+    getProspectBatchById(batchId),
+    getCandidatesByBatch(batchId),
+  ]);
+
+  if (!batch) notFound();
+
+  const counts = {
+    total: batch.total_candidates,
+    needs_review: batch.needs_review_count,
+    approved: batch.approved_count,
+    discarded: batch.discarded_count,
+    converted: batch.converted_count,
+    duplicates: batch.duplicate_count,
+  };
+
+  const summaryCards = [
+    {
+      label: 'Total candidatos',
+      value: counts.total,
+      icon: Building2,
+      color: 'text-foreground',
+      bg: 'bg-muted/60',
+    },
+    {
+      label: 'Necesitan revisión',
+      value: counts.needs_review,
+      icon: AlertTriangle,
+      color: 'text-amber-600 dark:text-amber-400',
+      bg: 'bg-amber-500/10',
+    },
+    {
+      label: 'Aprobados',
+      value: counts.approved,
+      icon: CheckCircle2,
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-emerald-500/10',
+    },
+    {
+      label: 'Descartados',
+      value: counts.discarded,
+      icon: XCircle,
+      color: 'text-muted-foreground',
+      bg: 'bg-muted/60',
+    },
+    {
+      label: 'Convertidos',
+      value: counts.converted,
+      icon: ArrowRightCircle,
+      color: 'text-su-brand',
+      bg: 'bg-su-brand-soft',
+    },
+    {
+      label: 'Posibles duplicados',
+      value: counts.duplicates,
+      icon: GitMerge,
+      color: 'text-orange-600 dark:text-orange-400',
+      bg: 'bg-orange-500/10',
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div>
+        <Link
+          href="/prospect-batches"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Lotes de prospectos
+        </Link>
+      </div>
+
+      {/* Header */}
+      <PageHeader
+        title={batch.name}
+        description={batch.description ?? undefined}
+        actions={<CreateCandidateDrawer batchId={batch.id} />}
+      />
+
+      {/* Batch meta */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>
+          {BATCH_STATUS_LABELS[batch.status]}
+        </Badge>
+        <Badge variant="outline" className="text-[10px]">
+          {BATCH_SOURCE_LABELS[batch.source]}
+        </Badge>
+        <Badge variant="outline" className="text-[10px]">
+          Profundidad: {BATCH_SEARCH_DEPTH_LABELS[batch.search_depth]}
+        </Badge>
+        {batch.country && (
+          <Badge variant="outline" className="text-[10px]">
+            {batch.country}
+          </Badge>
+        )}
+        {batch.industry && (
+          <Badge variant="outline" className="text-[10px]">
+            {batch.industry}
+          </Badge>
+        )}
+        {batch.estimated_cost_usd !== null && batch.estimated_cost_usd > 0 && (
+          <Badge variant="outline" className="text-[10px]">
+            Costo est.: ${Number(batch.estimated_cost_usd).toFixed(4)}
+          </Badge>
+        )}
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {summaryCards.map((card) => (
+          <SurfaceCard key={card.label} className="py-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  {card.label}
+                </p>
+                <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
+                  {card.value}
+                </p>
+              </div>
+              <div className={`rounded-lg p-1 ${card.bg}`}>
+                <card.icon className={`h-3.5 w-3.5 ${card.color}`} />
+              </div>
+            </div>
+          </SurfaceCard>
+        ))}
+      </div>
+
+      {/* Candidates table */}
+      <SurfaceCard noPadding>
+        <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5">
+          <p className="text-sm font-semibold text-foreground">
+            {candidates.length === 0
+              ? 'Sin candidatos'
+              : `${candidates.length} candidato${candidates.length !== 1 ? 's' : ''}`}
+          </p>
+          <div className="flex items-center gap-2">
+            <Layers className="h-3.5 w-3.5 text-muted-foreground/60" />
+            <span className="text-xs text-muted-foreground/60">
+              {batch.target_count ? `Objetivo: ${batch.target_count}` : ''}
+            </span>
+          </div>
+        </div>
+        <CandidatesTableClient candidates={candidates} />
+      </SurfaceCard>
+    </div>
+  );
+}

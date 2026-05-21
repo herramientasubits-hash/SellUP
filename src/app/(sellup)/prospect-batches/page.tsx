@@ -1,0 +1,99 @@
+import { Layers, CheckCircle2, GitMerge, Trophy, ThumbsUp } from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { CreateBatchDrawer } from '@/components/prospect-batches/create-batch-drawer';
+import { BatchesListClient } from '@/components/prospect-batches/batches-list-client';
+import {
+  getProspectBatchesSummary,
+  getProspectBatchesList,
+  getActiveUsers,
+} from '@/modules/prospect-batches/actions';
+
+export default async function ProspectBatchesPage() {
+  const [summary, batches, users] = await Promise.all([
+    getProspectBatchesSummary(),
+    getProspectBatchesList(),
+    getActiveUsers(),
+  ]);
+
+  const summaryCards = [
+    {
+      label: 'Total lotes',
+      value: summary.total,
+      icon: Layers,
+      color: 'text-su-brand',
+      bg: 'bg-su-brand-soft',
+    },
+    {
+      label: 'Listos para revisión',
+      value: summary.ready_for_review,
+      icon: CheckCircle2,
+      color: 'text-amber-600 dark:text-amber-400',
+      bg: 'bg-amber-500/10',
+    },
+    {
+      label: 'En revisión',
+      value: summary.in_review,
+      icon: GitMerge,
+      color: 'text-blue-600 dark:text-blue-400',
+      bg: 'bg-blue-500/10',
+    },
+    {
+      label: 'Completados',
+      value: summary.completed,
+      icon: Trophy,
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-emerald-500/10',
+    },
+    {
+      label: 'Candidatos aprobados',
+      value: summary.total_approved_candidates,
+      icon: ThumbsUp,
+      color: 'text-su-brand',
+      bg: 'bg-su-brand-soft',
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Lotes de prospectos"
+        description="Revisa y convierte candidatos generados manualmente o por agentes antes de crear cuentas definitivas."
+        actions={<CreateBatchDrawer users={users} />}
+      />
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {summaryCards.map((card) => (
+          <SurfaceCard key={card.label} className="py-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  {card.label}
+                </p>
+                <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">
+                  {card.value}
+                </p>
+              </div>
+              <div className={`rounded-lg p-1.5 ${card.bg}`}>
+                <card.icon className={`h-4 w-4 ${card.color}`} />
+              </div>
+            </div>
+          </SurfaceCard>
+        ))}
+      </div>
+
+      {/* Batches table */}
+      <SurfaceCard noPadding>
+        <div className="border-b border-border/40 px-5 py-3.5">
+          <p className="text-sm font-semibold text-foreground">
+            {batches.length === 0
+              ? 'Sin lotes registrados'
+              : `${batches.length} lote${batches.length !== 1 ? 's' : ''}`}
+          </p>
+        </div>
+        <BatchesListClient batches={batches} />
+      </SurfaceCard>
+    </div>
+  );
+}
