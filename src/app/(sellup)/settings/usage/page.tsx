@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { BarChart2, Bot, Plug, Star, AlertCircle, Info } from 'lucide-react';
+import { BarChart2, Bot, Plug, Star, Info } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
@@ -385,19 +385,20 @@ export default async function UsagePage() {
         </div>
       )}
 
-      {/* ── Advertencia de precios sin configurar ───────────── */}
+      {/* ── Estado de configuración de precios ──────────────── */}
       <SurfaceCard>
         <div className="flex items-start gap-3">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
           <div className="space-y-1">
             <p className="text-xs font-medium text-foreground">
-              Precios de proveedores sin configurar
+              Configuración de costos por proveedor
             </p>
             <p className="text-xs text-muted-foreground">
-              Los costos estimados de Apollo, Lusha y modelos de IA aparecen en{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">provider_pricing_config</code>{' '}
-              con valor <strong>$0.00</strong> hasta que un administrador configure los valores
-              reales según el plan y contrato vigente. Los costos mostrados arriba reflejan este estado.
+              Los costos mostrados dependen de{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">provider_pricing_config</code>.{' '}
+              Apollo y Lusha ya cuentan con costo estimado por crédito según los contratos vigentes.
+              Otros proveedores (Anthropic, OpenAI) pueden requerir configuración adicional según el
+              modelo activo.
             </p>
           </div>
         </div>

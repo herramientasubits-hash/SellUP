@@ -6,7 +6,6 @@ import {
   Zap,
   TrendingUp,
   FlaskConical,
-  AlertCircle,
   Info,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
@@ -365,13 +364,14 @@ export default function AIUsagePage() {
         />
         <ProviderEffectivenessTable providers={MOCK_PROVIDERS} />
 
-        {/* Nota sobre precios sin configurar */}
-        <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+        {/* Nota sobre metodología de costos */}
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-su-brand/20 bg-su-brand/5 px-3 py-2.5">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Apollo y Lusha muestran <strong className="text-foreground font-medium">&ldquo;sin config.&rdquo;</strong> porque
-            los precios reales varían según el plan y contrato. Un administrador puede configurarlos en{' '}
-            <span className="font-medium text-foreground">Configuración → Uso, costos y efectividad</span>.
+            Los costos de Apollo y Lusha se calculan como{' '}
+            <strong className="text-foreground font-medium">estimación por crédito</strong>{' '}
+            según los contratos configurados. El costo real puede variar si el proveedor reporta consumo
+            exacto por operación.
           </p>
         </div>
       </SurfaceCard>

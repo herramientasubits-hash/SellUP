@@ -65,10 +65,13 @@ export interface ProviderPlanInfo {
 // ============================================================
 
 // Apollo: $4,200 USD anuales — 480,000 créditos compartidos — corte Oct 13
-// Lusha:  $300 USD/mes (cobrado anualmente) — 40,800 créditos/mes — corte Nov
+//         4200 / 480000 = $0.00875 por crédito
+// Lusha:  $300 USD/mes cobrados anualmente = $3,600/año — 40,800 créditos/mes — corte Nov
+//         3600 / 40800 = $0.088235 por crédito
+//         (Error anterior: se dividía el pago mensual, no el anual)
 
-const APOLLO_UNIT_COST = 4200 / 480000;   // $0.00875 por crédito
-const LUSHA_UNIT_COST  = 300  / 40800;    // $0.007353 por crédito (≈ $0.0074)
+const APOLLO_UNIT_COST = 4200 / 480000;   // $0.00875000 por crédito
+const LUSHA_UNIT_COST  = 3600 / 40800;    // $0.08823529 por crédito
 
 export const PROVIDER_PLANS: ProviderPlanInfo[] = [
   {
@@ -89,9 +92,9 @@ export const PROVIDER_PLANS: ProviderPlanInfo[] = [
     billingPeriod: 'monthly_billed_annually',
     totalCredits: 40800,
     creditRenewalDate: 'Nov',
-    unitCostUsd: Math.round(LUSHA_UNIT_COST * 1e8) / 1e8,   // $0.00735294
+    unitCostUsd: Math.round(LUSHA_UNIT_COST * 1e8) / 1e8,   // $0.08823529 (anual / créditos)
     unitLabel: 'por crédito / contacto',
-    notes: '$300 USD/mes (cobrado anualmente) · 40,800 créditos/mes · Corte Nov',
+    notes: '$300 USD/mes (cobrado anualmente = $3,600/año) · 40,800 créditos compartidos/mes · Corte Nov',
   },
 ];
 
@@ -100,13 +103,13 @@ export const PROVIDER_PLANS: ProviderPlanInfo[] = [
 // Costos incluyen IA + llamadas a proveedores del agente
 // ============================================================
 
-// Apollo: 820 resultados × $0.00875 = $7.175
-// Lusha:  187 contactos  × $0.00735 = $1.375
-// IA (Anthropic): $9.94
+// Apollo: 820 resultados × $0.00875   = $7.18
+// Lusha:  187 contactos  × $0.08824   = $16.50  (costo anual / créditos)
+// IA (Anthropic): $4.82
 // Los costos de Apollo/Lusha se asignan al agente Generación de prospectos
 
 const APOLLO_DEMO_COST = 820 * APOLLO_UNIT_COST;  // $7.18
-const LUSHA_DEMO_COST  = 187 * LUSHA_UNIT_COST;   // $1.38
+const LUSHA_DEMO_COST  = 187 * LUSHA_UNIT_COST;   // $16.50
 
 export const MOCK_AGENTS: MockAgentStat[] = [
   {
