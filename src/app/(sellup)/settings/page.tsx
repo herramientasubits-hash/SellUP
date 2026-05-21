@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive } from "lucide-react";
+import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive, BarChart2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
@@ -62,6 +62,14 @@ const CONFIG_SECTIONS = [
     icon: Activity,
     href: "/settings/activity",
     adminOnly: false,
+  },
+  {
+    title: "Uso, costos y efectividad",
+    description: "Foundation operativa para monitorear ejecuciones de agentes, llamadas a proveedores y costos estimados por resultado.",
+    status: "Foundation",
+    icon: BarChart2,
+    href: "/settings/usage",
+    adminOnly: true,
   },
 ];
 

@@ -1,0 +1,225 @@
+// ============================================================
+// usage-tracking — domain types
+// ============================================================
+
+export type AgentRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export type AgentRunStepStatus = 'skipped' | 'attempted' | 'success' | 'error';
+
+export type ProviderUsageStatus = 'success' | 'error' | 'rate_limited' | 'quota_exceeded';
+
+export type PricingUnit = 'per_request' | 'per_result' | 'per_1k_tokens' | 'per_credit';
+
+export type ResultType = 'prospect' | 'company' | 'contact' | 'meeting' | 'other';
+
+export type ResultEventType =
+  | 'generated'
+  | 'normalized'
+  | 'duplicate_detected'
+  | 'discarded'
+  | 'approved'
+  | 'converted_to_account'
+  | 'sent_to_hubspot'
+  | 'contact_useful'
+  | 'contact_invalid';
+
+export type SourceKey =
+  | 'internal_db'
+  | 'hubspot'
+  | 'apollo'
+  | 'lusha'
+  | 'samu_ia'
+  | 'web_ai'
+  | 'preloaded';
+
+// ============================================================
+// DB row types (read)
+// ============================================================
+
+export interface AgentRun {
+  id: string;
+  agent_key: string;
+  agent_name: string | null;
+  triggered_by: string | null;
+  status: AgentRunStatus;
+  input_params: Record<string, unknown>;
+  results_requested: number | null;
+  results_generated: number;
+  results_unique: number;
+  results_approved: number;
+  results_discarded: number;
+  estimated_cost_usd: number;
+  real_cost_usd: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentRunStep {
+  id: string;
+  agent_run_id: string;
+  step_key: string;
+  step_name: string | null;
+  provider_key: string | null;
+  status: AgentRunStepStatus;
+  results_returned: number;
+  results_useful: number;
+  estimated_cost_usd: number;
+  real_cost_usd: number | null;
+  duration_ms: number | null;
+  error_message: string | null;
+  metadata: Record<string, unknown>;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface ProviderUsageLog {
+  id: string;
+  agent_run_id: string | null;
+  agent_run_step_id: string | null;
+  provider_key: string;
+  operation_key: string;
+  model: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  credits_used: number | null;
+  results_returned: number;
+  estimated_cost_usd: number;
+  real_cost_usd: number | null;
+  status: ProviderUsageStatus;
+  error_code: string | null;
+  error_message: string | null;
+  duration_ms: number | null;
+  triggered_by: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ProviderPricingConfig {
+  id: string;
+  provider_key: string;
+  operation_key: string;
+  unit: PricingUnit;
+  unit_cost_usd: number;
+  currency: string;
+  notes: string | null;
+  effective_from: string;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResultQualityEvent {
+  id: string;
+  agent_run_id: string | null;
+  result_type: ResultType;
+  result_id: string | null;
+  external_id: string | null;
+  event_type: ResultEventType;
+  source_key: SourceKey | null;
+  performed_by: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+// ============================================================
+// Input types for logging helpers
+// ============================================================
+
+export interface CreateAgentRunInput {
+  agent_key: string;
+  agent_name?: string;
+  triggered_by?: string;
+  input_params?: Record<string, unknown>;
+  results_requested?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateAgentRunInput {
+  status?: AgentRunStatus;
+  results_generated?: number;
+  results_unique?: number;
+  results_approved?: number;
+  results_discarded?: number;
+  estimated_cost_usd?: number;
+  real_cost_usd?: number;
+  finished_at?: string;
+  error_message?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateAgentRunStepInput {
+  agent_run_id: string;
+  step_key: string;
+  step_name?: string;
+  provider_key?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FinishAgentRunStepInput {
+  status: AgentRunStepStatus;
+  results_returned?: number;
+  results_useful?: number;
+  estimated_cost_usd?: number;
+  real_cost_usd?: number;
+  duration_ms?: number;
+  error_message?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LogProviderUsageInput {
+  agent_run_id?: string;
+  agent_run_step_id?: string;
+  provider_key: string;
+  operation_key: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  credits_used?: number;
+  results_returned?: number;
+  estimated_cost_usd?: number;
+  real_cost_usd?: number;
+  status?: ProviderUsageStatus;
+  error_code?: string;
+  error_message?: string;
+  duration_ms?: number;
+  triggered_by?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LogResultQualityEventInput {
+  agent_run_id?: string;
+  result_type: ResultType;
+  result_id?: string;
+  external_id?: string;
+  event_type: ResultEventType;
+  source_key?: SourceKey;
+  performed_by?: string;
+  notes?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// ============================================================
+// Summary types for admin UI
+// ============================================================
+
+export interface UsageSummary {
+  total_agent_runs: number;
+  running_agent_runs: number;
+  failed_agent_runs: number;
+  total_provider_calls: number;
+  total_estimated_cost_usd: number;
+  error_calls: number;
+}
+
+export interface RecentUsageActivity {
+  agent_runs: AgentRun[];
+  provider_logs: ProviderUsageLog[];
+  quality_events: ResultQualityEvent[];
+}
