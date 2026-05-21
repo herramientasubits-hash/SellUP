@@ -29,14 +29,10 @@ import {
   type InternalUserOption,
   type BatchSearchDepth,
 } from '@/modules/prospect-batches/types';
+import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 
 interface CreateBatchDrawerProps {
   users: InternalUserOption[];
-}
-
-function getFlagEmoji(code: string): string {
-  const offset = 0x1f1e6 - 'A'.charCodeAt(0);
-  return [...code.toUpperCase()].map((c) => String.fromCodePoint(c.charCodeAt(0) + offset)).join('');
 }
 
 const EMPTY: {
@@ -57,33 +53,6 @@ const EMPTY: {
   owner_id: '',
 };
 
-function Section({ icon: Icon, title, children }: {
-  icon: React.ElementType;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-          {title}
-        </span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      {children}
-    </div>
-  );
-}
-
 export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState({ ...EMPTY });
@@ -91,6 +60,11 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
 
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  function handleClose() {
+    setOpen(false);
+    setForm({ ...EMPTY });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,8 +86,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
         owner_id: form.owner_id || undefined,
       });
       toast.success('Lote creado correctamente');
-      setForm({ ...EMPTY });
-      setOpen(false);
+      handleClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al crear el lote');
     } finally {
@@ -128,37 +101,45 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
         Crear lote
       </Button>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-[70vw] overflow-y-auto"
-        >
-          <SheetHeader className="mb-6">
-            <SheetTitle className="flex items-center gap-2">
-              <Layers className="h-4 w-4 text-su-brand" />
-              Nuevo lote de prospectos
-            </SheetTitle>
-            <SheetDescription>
-              Los candidatos creados en este lote deben ser aprobados antes de convertirse en cuentas.
-            </SheetDescription>
+      <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
+        <SheetContent className="flex flex-col gap-0 overflow-hidden sm:w-[40vw] sm:min-w-[520px] sm:max-w-none">
+          {/* Header */}
+          <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
+                <Layers className="h-4 w-4 text-su-brand" />
+              </div>
+              <div className="space-y-0.5">
+                <SheetTitle className="text-base font-semibold">Nuevo lote de prospectos</SheetTitle>
+                <SheetDescription className="text-xs text-muted-foreground/70">
+                  Los candidatos deben ser aprobados antes de convertirse en cuentas.
+                </SheetDescription>
+              </div>
+            </div>
           </SheetHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-7">
+          {/* Body scrollable */}
+          <form
+            id="create-batch-form"
+            onSubmit={handleSubmit}
+            className="flex-1 space-y-8 overflow-y-auto px-7 py-6"
+          >
             {/* Identificación */}
-            <Section icon={Layers} title="Identificación">
-              <Field label="Nombre del lote *">
+            <Section icon={Layers} label="Identificación">
+              <Field label="Nombre del lote" required>
                 <Input
                   value={form.name}
                   onChange={(e) => set('name', e.target.value)}
                   placeholder="Ej. Tech Colombia Q3 2026"
                   disabled={saving}
+                  autoFocus
                 />
               </Field>
               <Field label="Descripción">
                 <Textarea
                   value={form.description}
                   onChange={(e) => set('description', e.target.value)}
-                  placeholder="Objetivo del lote, criterios de búsqueda..."
+                  placeholder="Objetivo, criterios de segmentación..."
                   rows={3}
                   disabled={saving}
                 />
@@ -166,16 +147,16 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
             </Section>
 
             {/* Segmentación */}
-            <Section icon={Globe} title="Segmentación">
-              <div className="grid grid-cols-2 gap-3">
+            <Section icon={Globe} label="Segmentación">
+              <Row>
                 <Field label="País">
                   <Select
                     value={form.country_code}
                     onValueChange={(v) => set('country_code', v ?? '')}
                     disabled={saving}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar país" />
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
                       {LATAM_COUNTRIES.map((c) => (
@@ -192,8 +173,8 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                     onValueChange={(v) => set('industry', v ?? '')}
                     disabled={saving}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar industria" />
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
                       {INDUSTRIES.map((ind) => (
@@ -202,12 +183,12 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                     </SelectContent>
                   </Select>
                 </Field>
-              </div>
+              </Row>
             </Section>
 
             {/* Parámetros */}
-            <Section icon={Target} title="Parámetros">
-              <div className="grid grid-cols-2 gap-3">
+            <Section icon={Target} label="Parámetros">
+              <Row>
                 <Field label="Cantidad objetivo">
                   <Input
                     type="number"
@@ -225,7 +206,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                     onValueChange={(v) => set('search_depth', (v ?? 'standard') as BatchSearchDepth)}
                     disabled={saving}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -237,19 +218,19 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                     </SelectContent>
                   </Select>
                 </Field>
-              </div>
+              </Row>
             </Section>
 
-            {/* Owner */}
+            {/* Asignación */}
             {users.length > 0 && (
-              <Section icon={User} title="Asignación">
+              <Section icon={User} label="Asignación">
                 <Field label="Responsable (owner)">
                   <Select
                     value={form.owner_id}
                     onValueChange={(v) => set('owner_id', v ?? '')}
                     disabled={saving}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Sin asignar (tú por defecto)" />
                     </SelectTrigger>
                     <SelectContent>
@@ -263,17 +244,27 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 </Field>
               </Section>
             )}
+          </form>
 
-            <SheetFooter className="gap-2 pt-2">
+          {/* Footer */}
+          <SheetFooter className="shrink-0 border-t border-border/50 px-7 py-4">
+            <div className="flex w-full items-center justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                size="sm"
+                onClick={handleClose}
                 disabled={saving}
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={saving} className="gap-1.5">
+              <Button
+                form="create-batch-form"
+                type="submit"
+                size="sm"
+                disabled={saving}
+                className="gap-1.5"
+              >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
@@ -281,8 +272,8 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 )}
                 Guardar lote
               </Button>
-            </SheetFooter>
-          </form>
+            </div>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
     </>

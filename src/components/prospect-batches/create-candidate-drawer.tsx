@@ -31,14 +31,10 @@ import {
   type TaxIdentifierType,
   type CandidateSourcePrimary,
 } from '@/modules/prospect-batches/types';
+import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 
 interface CreateCandidateDrawerProps {
   batchId: string;
-}
-
-function getFlagEmoji(code: string): string {
-  const offset = 0x1f1e6 - 'A'.charCodeAt(0);
-  return [...code.toUpperCase()].map((c) => String.fromCodePoint(c.charCodeAt(0) + offset)).join('');
 }
 
 const EMPTY = {
@@ -56,33 +52,6 @@ const EMPTY = {
   review_notes: '',
 };
 
-function Section({ icon: Icon, title, children }: {
-  icon: React.ElementType;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-          {title}
-        </span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      {children}
-    </div>
-  );
-}
-
 export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState({ ...EMPTY });
@@ -90,6 +59,11 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
 
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  function handleClose() {
+    setOpen(false);
+    setForm({ ...EMPTY });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -117,8 +91,7 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
         review_notes: form.review_notes.trim() || undefined,
       });
       toast.success('Candidato agregado correctamente');
-      setForm({ ...EMPTY });
-      setOpen(false);
+      handleClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al crear candidato');
     } finally {
@@ -133,30 +106,38 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
         Agregar candidato
       </Button>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-[70vw] overflow-y-auto"
-        >
-          <SheetHeader className="mb-6">
-            <SheetTitle className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-su-brand" />
-              Nuevo candidato
-            </SheetTitle>
-            <SheetDescription>
-              Agrega una empresa candidata manualmente. Deberá ser aprobada antes de convertirse en cuenta.
-            </SheetDescription>
+      <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
+        <SheetContent className="flex flex-col gap-0 overflow-hidden sm:w-[40vw] sm:min-w-[520px] sm:max-w-none">
+          {/* Header */}
+          <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
+                <Building2 className="h-4 w-4 text-su-brand" />
+              </div>
+              <div className="space-y-0.5">
+                <SheetTitle className="text-base font-semibold">Nuevo candidato</SheetTitle>
+                <SheetDescription className="text-xs text-muted-foreground/70">
+                  Agrega una empresa candidata manualmente. Deberá ser aprobada antes de convertirse en cuenta.
+                </SheetDescription>
+              </div>
+            </div>
           </SheetHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-7">
+          {/* Body scrollable */}
+          <form
+            id="create-candidate-form"
+            onSubmit={handleSubmit}
+            className="flex-1 space-y-8 overflow-y-auto px-7 py-6"
+          >
             {/* Empresa */}
-            <Section icon={Building2} title="Empresa">
-              <Field label="Nombre de la empresa *">
+            <Section icon={Building2} label="Empresa">
+              <Field label="Nombre de la empresa" required>
                 <Input
                   value={form.name}
                   onChange={(e) => set('name', e.target.value)}
                   placeholder="Ej. Acme Corp"
                   disabled={saving}
+                  autoFocus
                 />
               </Field>
               <Field label="Razón social">
@@ -178,16 +159,16 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
             </Section>
 
             {/* Ubicación */}
-            <Section icon={Globe} title="Ubicación">
-              <div className="grid grid-cols-3 gap-3">
+            <Section icon={Globe} label="Ubicación">
+              <Row>
                 <Field label="País">
                   <Select
                     value={form.country_code}
                     onValueChange={(v) => set('country_code', v ?? '')}
                     disabled={saving}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="País" />
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
                       {LATAM_COUNTRIES.map((c) => (
@@ -206,28 +187,28 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
                     disabled={saving}
                   />
                 </Field>
-                <Field label="Región / Dpto.">
-                  <Input
-                    value={form.region}
-                    onChange={(e) => set('region', e.target.value)}
-                    placeholder="Cundinamarca"
-                    disabled={saving}
-                  />
-                </Field>
-              </div>
+              </Row>
+              <Field label="Región / Dpto.">
+                <Input
+                  value={form.region}
+                  onChange={(e) => set('region', e.target.value)}
+                  placeholder="Cundinamarca"
+                  disabled={saving}
+                />
+              </Field>
             </Section>
 
             {/* Perfil de empresa */}
-            <Section icon={Briefcase} title="Perfil de empresa">
-              <div className="grid grid-cols-2 gap-3">
+            <Section icon={Briefcase} label="Perfil de empresa">
+              <Row>
                 <Field label="Industria">
                   <Select
                     value={form.industry}
                     onValueChange={(v) => set('industry', v ?? '')}
                     disabled={saving}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Industria" />
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
                       {INDUSTRIES.map((ind) => (
@@ -242,7 +223,7 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
                     onValueChange={(v) => set('company_size', v ?? '')}
                     disabled={saving}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Empleados" />
                     </SelectTrigger>
                     <SelectContent>
@@ -252,19 +233,19 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
                     </SelectContent>
                   </Select>
                 </Field>
-              </div>
+              </Row>
             </Section>
 
             {/* Identificador fiscal */}
-            <Section icon={Hash} title="Identificador fiscal">
-              <div className="grid grid-cols-2 gap-3">
+            <Section icon={Hash} label="Identificador fiscal">
+              <Row>
                 <Field label="Tipo">
                   <Select
                     value={form.tax_identifier_type}
                     onValueChange={(v) => set('tax_identifier_type', (v ?? '') as TaxIdentifierType)}
                     disabled={saving}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Tipo" />
                     </SelectTrigger>
                     <SelectContent>
@@ -284,18 +265,18 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
                     disabled={saving}
                   />
                 </Field>
-              </div>
+              </Row>
             </Section>
 
             {/* Fuente y notas */}
-            <Section icon={FileText} title="Fuente y notas">
+            <Section icon={FileText} label="Fuente y notas">
               <Field label="Fuente principal">
                 <Select
                   value={form.source_primary}
                   onValueChange={(v) => set('source_primary', (v ?? 'manual') as CandidateSourcePrimary)}
                   disabled={saving}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -317,17 +298,27 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
                 />
               </Field>
             </Section>
+          </form>
 
-            <SheetFooter className="gap-2 pt-2">
+          {/* Footer */}
+          <SheetFooter className="shrink-0 border-t border-border/50 px-7 py-4">
+            <div className="flex w-full items-center justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                size="sm"
+                onClick={handleClose}
                 disabled={saving}
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={saving} className="gap-1.5">
+              <Button
+                form="create-candidate-form"
+                type="submit"
+                size="sm"
+                disabled={saving}
+                className="gap-1.5"
+              >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
@@ -335,8 +326,8 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
                 )}
                 Agregar candidato
               </Button>
-            </SheetFooter>
-          </form>
+            </div>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
     </>
