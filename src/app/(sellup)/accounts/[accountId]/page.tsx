@@ -18,6 +18,8 @@ import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
+import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
+import { ContactsTab } from '@/components/contacts/contacts-tab';
 import {
   PIPELINE_STATUS_LABELS,
   SOURCE_LABELS,
@@ -69,10 +71,12 @@ const AUDIT_ICONS: Record<AccountAuditAction, typeof Activity> = {
 export default async function AccountDetailPage({ params }: AccountDetailPageProps) {
   const { accountId } = await params;
 
-  const [account, auditLog, users] = await Promise.all([
+  const [account, auditLog, users, contacts, contactsSummary] = await Promise.all([
     getAccountById(accountId),
     getAccountAudit(accountId),
     getActiveUsers(),
+    getContactsByAccount(accountId),
+    getContactsSummary(accountId),
   ]);
 
   if (!account) notFound();
@@ -198,10 +202,10 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
         {/* ── Contactos ────────────────────────────────────────── */}
         <TabsContent value="contactos">
-          <PlaceholderTab
-            icon={Users}
-            title="Contactos — Próxima fase"
-            description="Aquí se listarán los decisores, sponsors económicos y contactos clave vinculados a esta cuenta. Se poblarán desde Agente 1 (enriquecimiento), Apollo o ingreso manual."
+          <ContactsTab
+            accountId={account.id}
+            contacts={contacts}
+            summary={contactsSummary}
           />
         </TabsContent>
 
