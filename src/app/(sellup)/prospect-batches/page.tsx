@@ -57,8 +57,8 @@ export default async function ProspectBatchesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Lotes de prospectos"
-        description="Revisa y convierte candidatos generados manualmente o por agentes antes de crear cuentas definitivas."
+        title="Prospección"
+        description="Genera, revisa y aprueba empresas candidatas antes de convertirlas en prospectos dentro de SellUp."
         actions={<CreateBatchDrawer users={users} />}
       />
 
@@ -83,13 +83,18 @@ export default async function ProspectBatchesPage() {
         ))}
       </div>
 
+      {/* Info note */}
+      <div className="rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5 text-xs text-muted-foreground">
+        Los lotes son una bandeja temporal de revisión. Las empresas candidatas aprobadas se convierten en empresas/prospectos con expediente propio en SellUp. Ningún candidato se envía a HubSpot ni se convierte en empresa definitiva sin revisión humana.
+      </div>
+
       {/* Batches table */}
       <SurfaceCard noPadding>
         <div className="border-b border-border/40 px-5 py-3.5">
           <p className="text-sm font-semibold text-foreground">
             {batches.length === 0
-              ? 'Sin lotes registrados'
-              : `${batches.length} lote${batches.length !== 1 ? 's' : ''}`}
+              ? 'Todavía no hay lotes de prospección'
+              : `Lotes para revisión · ${batches.length} lote${batches.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <BatchesListClient batches={batches} />

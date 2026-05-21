@@ -21,7 +21,7 @@ export const mainNavItems: NavItem[] = [
     icon: LayoutDashboard,
   },
   {
-    title: "Cuentas",
+    title: "Empresas",
     href: "/accounts",
     icon: Building2,
   },
@@ -31,7 +31,7 @@ export const mainNavItems: NavItem[] = [
     icon: Users,
   },
   {
-    title: "Lotes de prospectos",
+    title: "Prospección",
     href: "/prospect-batches",
     icon: Layers,
   },

@@ -98,7 +98,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
     <>
       <Button onClick={() => setOpen(true)} size="sm" className="gap-1.5">
         <Plus className="h-3.5 w-3.5" />
-        Crear lote
+        Crear lote manual
       </Button>
 
       <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -110,9 +110,9 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 <Layers className="h-4 w-4 text-su-brand" />
               </div>
               <div className="space-y-0.5">
-                <SheetTitle className="text-base font-semibold">Nuevo lote de prospectos</SheetTitle>
+                <SheetTitle className="text-base font-semibold">Nuevo lote manual</SheetTitle>
                 <SheetDescription className="text-xs text-muted-foreground/70">
-                  Los candidatos deben ser aprobados antes de convertirse en cuentas.
+                  Un lote agrupa empresas candidatas antes de convertirlas en prospectos con expediente propio.
                 </SheetDescription>
               </div>
             </div>

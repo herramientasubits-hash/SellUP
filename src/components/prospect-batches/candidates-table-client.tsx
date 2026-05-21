@@ -58,9 +58,9 @@ function EmptyState() {
       <div className="mb-3 rounded-full bg-muted/60 p-3">
         <Building2 className="h-6 w-6 text-muted-foreground/40" />
       </div>
-      <p className="text-sm font-medium text-muted-foreground">Sin candidatos todavía</p>
+      <p className="text-sm font-medium text-muted-foreground">Sin empresas candidatas</p>
       <p className="mt-1 text-xs text-muted-foreground/60">
-        Usa el botón &quot;Agregar candidato&quot; para comenzar.
+        Usa el botón &quot;Agregar empresa candidata&quot; para comenzar.
       </p>
     </div>
   );

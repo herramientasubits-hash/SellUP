@@ -119,7 +119,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       const accountName = form.name.trim();
       handleClose();
       router.refresh();
-      toast.success(`Cuenta "${accountName}" creada`, {
+      toast.success(`Empresa "${accountName}" creada`, {
         description: 'Puedes enriquecerla con IA desde el detalle.',
       });
     } finally {
@@ -131,7 +131,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
     <>
       <Button onClick={() => setOpen(true)} size="sm">
         <Plus className="h-4 w-4" />
-        Crear cuenta
+        Crear empresa
       </Button>
 
       <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -143,7 +143,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 <Building2 className="h-4 w-4 text-su-brand" />
               </div>
               <div className="space-y-0.5">
-                <SheetTitle className="text-base font-semibold">Nueva cuenta</SheetTitle>
+                <SheetTitle className="text-base font-semibold">Nueva empresa</SheetTitle>
                 <SheetDescription className="text-xs text-muted-foreground/70">
                   Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante.
                 </SheetDescription>
@@ -406,7 +406,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     Guardando…
                   </>
                 ) : (
-                  'Guardar cuenta'
+                  'Guardar empresa'
                 )}
               </Button>
             </div>

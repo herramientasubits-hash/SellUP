@@ -18,7 +18,7 @@ export default async function AccountsPage() {
 
   const summaryCards = [
     {
-      label: 'Total cuentas',
+      label: 'Total empresas',
       value: summary.total,
       icon: Building2,
       color: 'text-su-brand',
@@ -57,8 +57,8 @@ export default async function AccountsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Cuentas"
-        description="Centraliza empresas, prospectos y cuentas preparadas para investigación comercial."
+        title="Empresas"
+        description="Centraliza empresas, prospectos y cuentas comerciales con su expediente vivo."
         actions={<CreateAccountDrawer users={users} />}
       />
 
@@ -88,8 +88,8 @@ export default async function AccountsPage() {
         <div className="border-b border-border/40 px-5 py-3.5">
           <p className="text-sm font-semibold text-foreground">
             {accounts.length === 0
-              ? 'Sin cuentas registradas'
-              : `${accounts.length} cuenta${accounts.length !== 1 ? 's' : ''}`}
+              ? 'Sin empresas registradas'
+              : `${accounts.length} empresa${accounts.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <AccountsTable accounts={accounts} users={users} />

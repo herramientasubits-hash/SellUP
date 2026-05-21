@@ -62,7 +62,7 @@ export default async function BatchDetailPage({ params }: Props) {
 
   const summaryCards = [
     {
-      label: 'Total candidatos',
+      label: 'Total emp. candidatas',
       value: counts.total,
       icon: Building2,
       color: 'text-foreground',
@@ -114,7 +114,7 @@ export default async function BatchDetailPage({ params }: Props) {
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Lotes de prospectos
+          Prospección
         </Link>
       </div>
 
@@ -179,8 +179,8 @@ export default async function BatchDetailPage({ params }: Props) {
         <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5">
           <p className="text-sm font-semibold text-foreground">
             {candidates.length === 0
-              ? 'Sin candidatos'
-              : `${candidates.length} candidato${candidates.length !== 1 ? 's' : ''}`}
+              ? 'Sin empresas candidatas'
+              : `${candidates.length} empresa${candidates.length !== 1 ? 's' : ''} candidata${candidates.length !== 1 ? 's' : ''}`}
           </p>
           <div className="flex items-center gap-2">
             <Layers className="h-3.5 w-3.5 text-muted-foreground/60" />

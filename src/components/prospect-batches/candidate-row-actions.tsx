@@ -95,12 +95,12 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
       await convertCandidateToAccount(candidate.id);
       toast.success(
         <span>
-          Cuenta creada.{' '}
+          Empresa prospecto creada.{' '}
           <button
             className="underline font-medium"
             onClick={() => router.push(`/accounts`)}
           >
-            Ver cuentas
+            Ver empresas
           </button>
         </span>
       );
@@ -133,7 +133,7 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
           {canConvert && (
             <DropdownMenuItem onClick={handleConvert}>
               <ArrowRightCircle className="mr-2 h-3.5 w-3.5 text-su-brand" />
-              Convertir en cuenta
+              Crear empresa prospecto
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />

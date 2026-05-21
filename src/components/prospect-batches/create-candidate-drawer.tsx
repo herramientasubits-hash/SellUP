@@ -90,10 +90,10 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
         source_primary: form.source_primary,
         review_notes: form.review_notes.trim() || undefined,
       });
-      toast.success('Candidato agregado correctamente');
+      toast.success('Empresa candidata agregada');
       handleClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al crear candidato');
+      toast.error(err instanceof Error ? err.message : 'Error al agregar empresa candidata');
     } finally {
       setSaving(false);
     }
@@ -103,7 +103,7 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
     <>
       <Button onClick={() => setOpen(true)} variant="outline" size="sm" className="gap-1.5">
         <Plus className="h-3.5 w-3.5" />
-        Agregar candidato
+        Agregar empresa candidata
       </Button>
 
       <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -115,9 +115,9 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
                 <Building2 className="h-4 w-4 text-su-brand" />
               </div>
               <div className="space-y-0.5">
-                <SheetTitle className="text-base font-semibold">Nuevo candidato</SheetTitle>
+                <SheetTitle className="text-base font-semibold">Nueva empresa candidata</SheetTitle>
                 <SheetDescription className="text-xs text-muted-foreground/70">
-                  Agrega una empresa candidata manualmente. Deberá ser aprobada antes de convertirse en cuenta.
+                  Agrega una empresa candidata manualmente. Deberá ser aprobada antes de convertirse en prospecto.
                 </SheetDescription>
               </div>
             </div>
