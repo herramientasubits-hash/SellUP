@@ -17,7 +17,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { getAccountById, getAccountAudit } from '@/modules/accounts/actions';
+import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import {
   PIPELINE_STATUS_LABELS,
   SOURCE_LABELS,
@@ -26,6 +26,7 @@ import {
   type AccountSource,
   type AccountAuditAction,
 } from '@/modules/accounts/types';
+import { AccountDetailActions } from '@/components/accounts/account-detail-actions';
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
@@ -68,9 +69,10 @@ const AUDIT_ICONS: Record<AccountAuditAction, typeof Activity> = {
 export default async function AccountDetailPage({ params }: AccountDetailPageProps) {
   const { accountId } = await params;
 
-  const [account, auditLog] = await Promise.all([
+  const [account, auditLog, users] = await Promise.all([
     getAccountById(accountId),
     getAccountAudit(accountId),
+    getActiveUsers(),
   ]);
 
   if (!account) notFound();
@@ -82,12 +84,19 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
         description={account.legal_name ?? undefined}
         backHref="/accounts"
         actions={
-          <Badge
-            variant="outline"
-            className={`text-xs ${STATUS_STYLES[account.pipeline_status]}`}
-          >
-            {PIPELINE_STATUS_LABELS[account.pipeline_status]}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className={`text-xs ${STATUS_STYLES[account.pipeline_status]}`}
+            >
+              {PIPELINE_STATUS_LABELS[account.pipeline_status]}
+            </Badge>
+            <AccountDetailActions
+              accountId={account.id}
+              currentStatus={account.pipeline_status}
+              users={users}
+            />
+          </div>
         }
       />
 

@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Plus,
   Loader2,
   Building2,
   Globe,
@@ -30,9 +29,10 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { createAccount } from '@/modules/accounts/actions';
+import { getAccountById, updateAccount } from '@/modules/accounts/actions';
 import {
   LATAM_COUNTRIES,
   COMPANY_SIZES,
@@ -48,10 +48,11 @@ import {
   getFlagEmoji,
 } from './account-form-helpers';
 
-// ── Drawer principal ──────────────────────────────────────────
-
-interface CreateAccountDrawerProps {
+interface AccountEditDrawerProps {
+  accountId: string;
   users: InternalUserOption[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 const EMPTY_FORM = {
@@ -69,9 +70,14 @@ const EMPTY_FORM = {
   notes: '',
 };
 
-export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
+export function AccountEditDrawer({
+  accountId,
+  users,
+  open,
+  onOpenChange,
+}: AccountEditDrawerProps) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [form, setForm] = React.useState(EMPTY_FORM);
@@ -80,10 +86,46 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const account = await getAccountById(accountId);
+        if (cancelled) return;
+        if (!account) {
+          setError('Cuenta no encontrada');
+          return;
+        }
+        setForm({
+          name: account.name ?? '',
+          legal_name: account.legal_name ?? '',
+          website: account.website ?? '',
+          country_code: account.country_code ?? '',
+          city: account.city ?? '',
+          region: account.region ?? '',
+          industry: account.industry ?? '',
+          company_size: account.company_size ?? '',
+          tax_identifier: account.tax_identifier ?? '',
+          tax_identifier_type: (account.tax_identifier_type as TaxIdentifierType) ?? '',
+          owner_id: account.owner_id ?? '',
+          notes: account.notes ?? '',
+        });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => { cancelled = true; };
+  }, [open, accountId]);
+
   function handleClose() {
-    setOpen(false);
+    onOpenChange(false);
     setError(null);
-    setForm(EMPTY_FORM);
   }
 
   const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === form.country_code);
@@ -97,7 +139,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
     }
     setPending(true);
     try {
-      const result = await createAccount({
+      const result = await updateAccount(accountId, {
         name: form.name,
         legal_name: form.legal_name || undefined,
         website: form.website || undefined,
@@ -116,52 +158,67 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
         setError(result.error);
         return;
       }
-      const accountName = form.name.trim();
       handleClose();
       router.refresh();
-      toast.success(`Cuenta "${accountName}" creada`, {
-        description: 'Puedes enriquecerla con IA desde el detalle.',
-      });
+      toast.success('Cuenta actualizada correctamente');
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <>
-      <Button onClick={() => setOpen(true)} size="sm">
-        <Plus className="h-4 w-4" />
-        Crear cuenta
-      </Button>
-
-      <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
-        <SheetContent className="flex flex-col gap-0 overflow-hidden sm:w-[42vw] sm:min-w-[580px] sm:max-w-none">
-          {/* ── Header ── */}
-          <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
-            <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
-                <Building2 className="h-4 w-4 text-su-brand" />
-              </div>
-              <div className="space-y-0.5">
-                <SheetTitle className="text-base font-semibold">Nueva cuenta</SheetTitle>
-                <SheetDescription className="text-xs text-muted-foreground/70">
-                  Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante.
-                </SheetDescription>
-              </div>
+    <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
+      <SheetContent className="flex flex-col gap-0 overflow-hidden sm:w-[42vw] sm:min-w-[580px] sm:max-w-none">
+        {/* ── Header ── */}
+        <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
+              <Building2 className="h-4 w-4 text-su-brand" />
             </div>
-          </SheetHeader>
+            <div className="space-y-0.5">
+              <SheetTitle className="text-base font-semibold">Editar cuenta</SheetTitle>
+              <SheetDescription className="text-xs text-muted-foreground/70">
+                Modifica los datos de la cuenta. Los cambios quedan registrados en auditoría.
+              </SheetDescription>
+            </div>
+          </div>
+        </SheetHeader>
 
-          {/* ── Cuerpo scrollable ── */}
+        {/* ── Loading skeleton ── */}
+        {loading ? (
+          <div className="flex-1 space-y-8 overflow-y-auto px-7 py-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-3 w-3 rounded" />
+                  <Skeleton className="h-2.5 w-24" />
+                  <Skeleton className="h-px flex-1" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-2.5 w-20" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-2.5 w-20" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* ── Form ── */
           <form
-            id="create-account-form"
+            id="edit-account-form"
             onSubmit={handleSubmit}
             className="flex-1 space-y-8 overflow-y-auto px-7 py-6"
           >
             {/* Identificación */}
             <Section icon={Building2} label="Identificación">
-              <Field id="name" label="Nombre de empresa / prospecto" required>
+              <Field id="edit-name" label="Nombre de empresa / prospecto" required>
                 <Input
-                  id="name"
+                  id="edit-name"
                   placeholder="Ej. Bancolombia, Rappi, Nubank…"
                   value={form.name}
                   onChange={(e) => set('name', e.target.value)}
@@ -169,19 +226,19 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 />
               </Field>
               <Row>
-                <Field id="legal_name" label="Razón social">
+                <Field id="edit-legal_name" label="Razón social">
                   <Input
-                    id="legal_name"
+                    id="edit-legal_name"
                     placeholder="Nombre legal registrado"
                     value={form.legal_name}
                     onChange={(e) => set('legal_name', e.target.value)}
                   />
                 </Field>
-                <Field id="website" label="Sitio web">
+                <Field id="edit-website" label="Sitio web">
                   <div className="relative">
                     <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
                     <Input
-                      id="website"
+                      id="edit-website"
                       type="url"
                       placeholder="https://ejemplo.com"
                       value={form.website}
@@ -256,18 +313,18 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field id="city" label="Ciudad">
+                <Field id="edit-city" label="Ciudad">
                   <Input
-                    id="city"
+                    id="edit-city"
                     placeholder="Bogotá, CDMX, São Paulo…"
                     value={form.city}
                     onChange={(e) => set('city', e.target.value)}
                   />
                 </Field>
               </Row>
-              <Field id="region" label="Departamento / Estado / Provincia">
+              <Field id="edit-region" label="Departamento / Estado / Provincia">
                 <Input
-                  id="region"
+                  id="edit-region"
                   placeholder="Cundinamarca, Jalisco, São Paulo…"
                   value={form.region}
                   onChange={(e) => set('region', e.target.value)}
@@ -300,18 +357,10 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field id="tax_id_number" label="Número">
+                <Field id="edit-tax-number" label="Número">
                   <Input
-                    id="tax_id_number"
-                    placeholder={
-                      form.tax_identifier_type === 'NIT'
-                        ? '890.903.938-8'
-                        : form.tax_identifier_type === 'RFC'
-                          ? 'XAXX010101000'
-                          : form.tax_identifier_type === 'CNPJ'
-                            ? '00.000.000/0001-00'
-                            : 'Número de identificación'
-                    }
+                    id="edit-tax-number"
+                    placeholder="Número de identificación"
                     value={form.tax_identifier}
                     onChange={(e) => set('tax_identifier', e.target.value)}
                   />
@@ -361,11 +410,11 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                   </Select>
                 </Field>
               )}
-              <Field id="notes" label="Notas iniciales">
+              <Field id="edit-notes" label="Notas">
                 <div className="relative">
                   <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/40" />
                   <Textarea
-                    id="notes"
+                    id="edit-notes"
                     placeholder="Contexto, señales de compra, próximos pasos…"
                     value={form.notes}
                     onChange={(e) => set('notes', e.target.value)}
@@ -376,43 +425,41 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
               </Field>
             </Section>
           </form>
+        )}
 
-          {/* ── Footer sticky ── */}
-          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/50 px-7 py-4">
-            {error && (
-              <p className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
-                {error}
-              </p>
+        {/* ── Footer ── */}
+        <SheetFooter className="shrink-0 flex-row items-center justify-end gap-3 border-t border-border/50 px-7 py-4">
+          {error && (
+            <p className="mr-auto flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+              {error}
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={pending}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            form="edit-account-form"
+            size="sm"
+            disabled={pending || loading || !form.name.trim()}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Guardando…
+              </>
+            ) : (
+              'Guardar cambios'
             )}
-            <div className="flex shrink-0 items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleClose}
-                disabled={pending}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                form="create-account-form"
-                size="sm"
-                disabled={pending || !form.name.trim()}
-              >
-                {pending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Guardando…
-                  </>
-                ) : (
-                  'Guardar cuenta'
-                )}
-              </Button>
-            </div>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    </>
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
