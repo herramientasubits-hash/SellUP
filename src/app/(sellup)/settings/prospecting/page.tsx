@@ -147,6 +147,16 @@ export default async function ProspectingPage() {
     (p) => p.provider_key !== 'apollo' && p.provider_key !== 'lusha'
   );
 
+  const activeProviderNames = [
+    apolloConnection?.connection_status === 'connected' ? 'Apollo' : null,
+    lushaConnection?.connection_status === 'connected' ? 'Lusha' : null,
+  ].filter(Boolean) as string[];
+
+  const activeProviderLabel = activeProviderNames.length === 1 ? 'Proveedor activo' : 'Proveedores activos';
+  const activeProviderValue = activeProviderNames.length > 0
+    ? activeProviderNames.join(' + ')
+    : 'No definido';
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -178,10 +188,10 @@ export default async function ProspectingPage() {
             icon={Clock}
           />
           <StatCard
-            label="Proveedor activo"
-            value={stats.active_provider ?? 'No definido'}
+            label={activeProviderLabel}
+            value={activeProviderValue}
             icon={CircleDashed}
-            valueClassName={stats.active_provider ? 'text-emerald-500' : 'text-muted-foreground/60 text-base'}
+            valueClassName={activeProviderNames.length > 0 ? 'text-emerald-500 text-lg' : 'text-muted-foreground/60 text-base'}
           />
         </div>
       </div>
