@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { createAccount } from '@/modules/accounts/actions';
 import {
   LATAM_COUNTRIES,
@@ -307,8 +308,12 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
         setError(result.error);
         return;
       }
+      const accountName = form.name.trim();
       handleClose();
       router.refresh();
+      toast.success(`Cuenta "${accountName}" creada`, {
+        description: 'Puedes enriquecerla con IA desde el detalle.',
+      });
     } finally {
       setPending(false);
     }
@@ -566,16 +571,9 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
 
           {/* ── Footer sticky ── */}
           <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/50 px-7 py-4">
-            {error ? (
+            {error && (
               <p className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
                 {error}
-              </p>
-            ) : (
-              <p className="flex-1 text-[11px] text-muted-foreground/50">
-                Estado inicial:{' '}
-                <span className="font-medium text-muted-foreground">Nueva</span>
-                {' · '}Fuente:{' '}
-                <span className="font-medium text-muted-foreground">Manual</span>
               </p>
             )}
             <div className="flex shrink-0 items-center gap-2">
