@@ -19,7 +19,7 @@ export const mainNavItems: NavItem[] = [
     icon: LayoutDashboard,
   },
   {
-    title: "Empresas / Cuentas",
+    title: "Cuentas",
     href: "/accounts",
     icon: Building2,
   },
