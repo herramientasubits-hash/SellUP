@@ -2,6 +2,7 @@ import { Layers, CheckCircle2, GitMerge, Trophy, ThumbsUp } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { CreateBatchDrawer } from '@/components/prospect-batches/create-batch-drawer';
+import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
 import { BatchesListClient } from '@/components/prospect-batches/batches-list-client';
 import {
   getProspectBatchesSummary,
@@ -59,7 +60,12 @@ export default async function ProspectBatchesPage() {
       <PageHeader
         title="Prospección"
         description="Genera, revisa y aprueba empresas candidatas antes de convertirlas en prospectos dentro de SellUp."
-        actions={<CreateBatchDrawer users={users} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <GenerateAIBatchDrawer />
+            <CreateBatchDrawer users={users} />
+          </div>
+        }
       />
 
       {/* Summary cards */}

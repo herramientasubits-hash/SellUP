@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
 import type {
   ProspectBatch,
   ProspectBatchWithMeta,
@@ -683,4 +684,58 @@ export async function getBatchAudit(batchId: string): Promise<ProspectCandidateA
 
 export async function changeBatchStatus(id: string, status: BatchStatus): Promise<void> {
   await updateProspectBatch(id, { status });
+}
+
+// ── Agente 1: Generación asistida de empresas candidatas ──────
+
+export interface GenerateAIBatchInput {
+  country: string;
+  countryCode: string;
+  industry: string;
+  targetCount: number;
+  searchDepth: 'basic' | 'standard';
+}
+
+export interface GenerateAIBatchResult {
+  batchId: string;
+  candidatesCreated: number;
+  estimatedCostUsd: number;
+}
+
+export async function generateAIProspectBatch(
+  input: GenerateAIBatchInput
+): Promise<GenerateAIBatchResult> {
+  const { internalUserId } = await requireActiveUser();
+
+  if (!input.country || !input.countryCode) {
+    throw new Error('País requerido para la generación asistida');
+  }
+  if (!input.industry) {
+    throw new Error('Industria requerida para la generación asistida');
+  }
+  if (input.targetCount < 1 || input.targetCount > MVP_MAX_CANDIDATES) {
+    throw new Error(`La cantidad debe estar entre 1 y ${MVP_MAX_CANDIDATES}`);
+  }
+
+  const result = await runProspectGenerationAgent({
+    country: input.country,
+    countryCode: input.countryCode,
+    industry: input.industry,
+    targetCount: input.targetCount,
+    searchDepth: input.searchDepth,
+    internalUserId,
+  });
+
+  if (!result.success || !result.batchId) {
+    throw new Error(result.error ?? 'El agente no pudo generar candidatos');
+  }
+
+  revalidatePath('/prospect-batches');
+  revalidatePath(`/prospect-batches/${result.batchId}`);
+
+  return {
+    batchId: result.batchId,
+    candidatesCreated: result.candidatesCreated,
+    estimatedCostUsd: result.estimatedCostUsd,
+  };
 }

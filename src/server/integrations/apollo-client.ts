@@ -66,8 +66,9 @@ export interface SearchOrganizationsParams {
   q_organization_domains?: string[];
   organization_industry_tag_ids?: string[];
   organization_num_employees_ranges?: string[];
-  page?: number;
+  organization_locations?: string[];
   per_page?: number;
+  page?: number;
 }
 
 export interface EnrichOrganizationParams {
