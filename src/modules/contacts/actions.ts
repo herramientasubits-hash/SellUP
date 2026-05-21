@@ -81,6 +81,33 @@ function sanitizeEmail(email?: string): string | null {
 }
 
 // ============================================================
+// getAllContacts — vista global
+// ============================================================
+
+export interface ContactListItem extends Contact {
+  account_name: string | null;
+}
+
+export async function getAllContacts(): Promise<ContactListItem[]> {
+  await requireActiveUser();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contacts')
+    .select('*, account:account_id ( name )')
+    .is('archived_at', null)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (error) throw new Error(`getAllContacts: ${error.message}`);
+
+  return (data ?? []).map((row) => ({
+    ...(row as unknown as Contact),
+    account_name: (row.account as unknown as { name: string } | null)?.name ?? null,
+  }));
+}
+
+// ============================================================
 // getContactsByAccount
 // ============================================================
 

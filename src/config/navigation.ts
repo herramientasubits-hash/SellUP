@@ -2,6 +2,7 @@ import { type LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
   Building2,
+  Users,
   BrainCircuit,
   Settings,
 } from "lucide-react";
@@ -22,6 +23,11 @@ export const mainNavItems: NavItem[] = [
     title: "Cuentas",
     href: "/accounts",
     icon: Building2,
+  },
+  {
+    title: "Contactos",
+    href: "/contacts",
+    icon: Users,
   },
   {
     title: "Uso de IA y costos",
