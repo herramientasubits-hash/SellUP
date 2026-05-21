@@ -24,11 +24,13 @@ import { EditContactDrawer } from './edit-contact-drawer';
 
 interface ContactRowActionsProps {
   contact: Contact;
+  /** Called after any successful mutation so parent sheets can reload their data. */
+  onActionComplete?: () => void;
 }
 
 const STATUS_OPTIONS: ContactStatus[] = ['active', 'inactive', 'left_company', 'do_not_contact'];
 
-export function ContactRowActions({ contact }: ContactRowActionsProps) {
+export function ContactRowActions({ contact, onActionComplete }: ContactRowActionsProps) {
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
@@ -43,6 +45,7 @@ export function ContactRowActions({ contact }: ContactRowActionsProps) {
         return;
       }
       router.refresh();
+      onActionComplete?.();
       toast.success(`${contact.full_name} marcado como contacto primario`);
     } finally {
       setPending(false);
@@ -59,6 +62,7 @@ export function ContactRowActions({ contact }: ContactRowActionsProps) {
         return;
       }
       router.refresh();
+      onActionComplete?.();
       toast.success(`Estado actualizado: ${CONTACT_STATUS_LABELS[status]}`);
     } finally {
       setPending(false);
@@ -75,6 +79,7 @@ export function ContactRowActions({ contact }: ContactRowActionsProps) {
         return;
       }
       router.refresh();
+      onActionComplete?.();
       toast.success(`${contact.full_name} archivado`);
     } finally {
       setPending(false);

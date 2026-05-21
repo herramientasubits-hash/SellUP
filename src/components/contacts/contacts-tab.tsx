@@ -13,8 +13,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  SENIORITY_LABELS,
-  ROLE_LABELS,
   CONTACT_STATUS_LABELS,
   CONTACT_SOURCE_LABELS,
   type Contact,
@@ -27,6 +25,10 @@ interface ContactsTabProps {
   accountId: string;
   contacts: Contact[];
   summary: ContactsSummary;
+  /** When provided, contact names become clickable and open the detail sheet. */
+  onViewContact?: (contactId: string) => void;
+  /** Called after any mutation so a parent sheet can reload its data. */
+  onContactsChanged?: () => void;
 }
 
 // ── Estilos de estado ─────────────────────────────────────────
@@ -39,16 +41,15 @@ const STATUS_STYLES: Record<string, string> = {
   archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
 };
 
-const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
-  economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
-  champion: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  influencer: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-};
-
 // ── Componente principal ──────────────────────────────────────
 
-export function ContactsTab({ accountId, contacts, summary }: ContactsTabProps) {
+export function ContactsTab({
+  accountId,
+  contacts,
+  summary,
+  onViewContact,
+  onContactsChanged,
+}: ContactsTabProps) {
   return (
     <div className="space-y-4">
       {/* Header interno + botón */}
@@ -64,30 +65,10 @@ export function ContactsTab({ accountId, contacts, summary }: ContactsTabProps) 
 
       {/* Summary mini-cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard
-          icon={Users}
-          label="Total"
-          value={summary.total}
-          color="text-foreground"
-        />
-        <SummaryCard
-          icon={Crown}
-          label="Decisores"
-          value={summary.decision_makers}
-          color="text-su-brand"
-        />
-        <SummaryCard
-          icon={Target}
-          label="Champions"
-          value={summary.champions}
-          color="text-emerald-500"
-        />
-        <SummaryCard
-          icon={Archive}
-          label="Inactivos"
-          value={summary.inactive_or_archived}
-          color="text-muted-foreground"
-        />
+        <SummaryCard icon={Users} label="Total" value={summary.total} color="text-foreground" />
+        <SummaryCard icon={Crown} label="Decisores" value={summary.decision_makers} color="text-su-brand" />
+        <SummaryCard icon={Target} label="Champions" value={summary.champions} color="text-emerald-500" />
+        <SummaryCard icon={Archive} label="Inactivos" value={summary.inactive_or_archived} color="text-muted-foreground" />
       </div>
 
       {/* Tabla de contactos */}
@@ -100,8 +81,6 @@ export function ContactsTab({ accountId, contacts, summary }: ContactsTabProps) 
               <TableRow className="hover:bg-transparent">
                 <TableHead className="pl-4 text-[11px]">Nombre</TableHead>
                 <TableHead className="text-[11px]">Cargo</TableHead>
-                <TableHead className="text-[11px]">Rol</TableHead>
-                <TableHead className="text-[11px]">Seniority</TableHead>
                 <TableHead className="text-[11px]">Email</TableHead>
                 <TableHead className="text-[11px]">Teléfono</TableHead>
                 <TableHead className="text-[11px]">Estado</TableHead>
@@ -111,7 +90,12 @@ export function ContactsTab({ accountId, contacts, summary }: ContactsTabProps) 
             </TableHeader>
             <TableBody>
               {contacts.map((contact) => (
-                <ContactRow key={contact.id} contact={contact} />
+                <ContactRow
+                  key={contact.id}
+                  contact={contact}
+                  onViewContact={onViewContact}
+                  onActionComplete={onContactsChanged}
+                />
               ))}
             </TableBody>
           </Table>
@@ -123,7 +107,15 @@ export function ContactsTab({ accountId, contacts, summary }: ContactsTabProps) 
 
 // ── Fila de contacto ──────────────────────────────────────────
 
-function ContactRow({ contact }: { contact: Contact }) {
+function ContactRow({
+  contact,
+  onViewContact,
+  onActionComplete,
+}: {
+  contact: Contact;
+  onViewContact?: (id: string) => void;
+  onActionComplete?: () => void;
+}) {
   return (
     <TableRow className="group">
       <TableCell className="pl-4">
@@ -133,9 +125,19 @@ function ContactRow({ contact }: { contact: Contact }) {
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-medium text-foreground truncate">
-                {contact.full_name}
-              </span>
+              {onViewContact ? (
+                <button
+                  type="button"
+                  onClick={() => onViewContact(contact.id)}
+                  className="text-xs font-medium text-foreground hover:text-su-brand hover:underline truncate text-left"
+                >
+                  {contact.full_name}
+                </button>
+              ) : (
+                <span className="text-xs font-medium text-foreground truncate">
+                  {contact.full_name}
+                </span>
+              )}
               {contact.is_primary && (
                 <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />
               )}
@@ -148,29 +150,6 @@ function ContactRow({ contact }: { contact: Contact }) {
         <span className="text-xs text-foreground/80 truncate max-w-[120px] block">
           {contact.job_title ?? <span className="text-muted-foreground/40">—</span>}
         </span>
-      </TableCell>
-
-      <TableCell>
-        {contact.role_in_account ? (
-          <Badge
-            variant="outline"
-            className={`text-[10px] ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-          >
-            {ROLE_LABELS[contact.role_in_account]}
-          </Badge>
-        ) : (
-          <span className="text-muted-foreground/40 text-xs">—</span>
-        )}
-      </TableCell>
-
-      <TableCell>
-        {contact.seniority ? (
-          <span className="text-xs text-foreground/70">
-            {SENIORITY_LABELS[contact.seniority]}
-          </span>
-        ) : (
-          <span className="text-muted-foreground/40 text-xs">—</span>
-        )}
       </TableCell>
 
       <TableCell>
@@ -217,7 +196,7 @@ function ContactRow({ contact }: { contact: Contact }) {
       </TableCell>
 
       <TableCell>
-        <ContactRowActions contact={contact} />
+        <ContactRowActions contact={contact} onActionComplete={onActionComplete} />
       </TableCell>
     </TableRow>
   );

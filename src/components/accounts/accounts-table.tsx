@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Building2, MoreHorizontal, Eye, Pencil, Tag, Archive, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -35,6 +34,7 @@ import {
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import { AccountEditDrawer } from './account-edit-drawer';
+import { AccountDetailSheet } from './account-detail-sheet';
 
 const STATUS_STYLES: Record<PipelineStatus, string> = {
   new: 'bg-muted text-muted-foreground',
@@ -85,6 +85,13 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [archiving, setArchiving] = React.useState(false);
+  const [sheetId, setSheetId] = React.useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+
+  function openSheet(id: string) {
+    setSheetId(id);
+    setSheetOpen(true);
+  }
 
   async function handleStatusChange(accountId: string, status: PipelineStatus) {
     const result = await updateAccount(accountId, { pipeline_status: status });
@@ -136,24 +143,16 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b border-border/30">
-              {[
-                'Empresa',
-                'País',
-                'Industria',
-                'Dominio',
-                'Estado',
-                'Owner',
-                'Fuente',
-                'Creación',
-                '',
-              ].map((col) => (
-                <th
-                  key={col}
-                  className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 last:w-12 last:px-3"
-                >
-                  {col}
-                </th>
-              ))}
+              {['Empresa', 'País', 'Industria', 'Dominio', 'Estado', 'Owner', 'Fuente', 'Creación', ''].map(
+                (col) => (
+                  <th
+                    key={col}
+                    className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 last:w-12 last:px-3"
+                  >
+                    {col}
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody>
@@ -163,29 +162,32 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                 className="group border-b border-border/20 transition-colors hover:bg-accent/30 last:border-0 animate-su-slide-in"
                 style={{ animationDelay: `${i * 30}ms` }}
               >
+                {/* Nombre — abre el drawer */}
                 <td className="px-5 py-3.5">
-                  <Link
-                    href={`/accounts/${account.id}`}
-                    className="font-medium text-foreground hover:text-su-brand transition-colors"
+                  <button
+                    type="button"
+                    onClick={() => openSheet(account.id)}
+                    className="font-medium text-foreground hover:text-su-brand transition-colors text-left"
                   >
                     {account.name}
-                  </Link>
+                  </button>
                 </td>
+
                 <td className="px-5 py-3.5 text-muted-foreground">
                   {account.country_code ? (
                     <span className="flex items-center gap-1.5">
-                      <span className="text-base leading-none">
-                        {getFlagEmoji(account.country_code)}
-                      </span>
+                      <span className="text-base leading-none">{getFlagEmoji(account.country_code)}</span>
                       <span className="text-xs">{account.country_code}</span>
                     </span>
                   ) : (
                     <span className="text-muted-foreground/40">—</span>
                   )}
                 </td>
+
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
                   {account.industry ?? <span className="text-muted-foreground/40">—</span>}
                 </td>
+
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
                   {account.domain ? (
                     <span className="font-mono">{account.domain}</span>
@@ -193,18 +195,19 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                     <span className="text-muted-foreground/40">—</span>
                   )}
                 </td>
+
                 <td className="px-5 py-3.5">
                   <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      STATUS_STYLES[account.pipeline_status]
-                    }`}
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[account.pipeline_status]}`}
                   >
                     {PIPELINE_STATUS_LABELS[account.pipeline_status]}
                   </span>
                 </td>
+
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
                   {account.owner_name ?? <span className="text-muted-foreground/40">—</span>}
                 </td>
+
                 <td className="px-5 py-3.5">
                   <Badge
                     variant="outline"
@@ -213,9 +216,11 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                     {SOURCE_LABELS[account.source as AccountSource]}
                   </Badge>
                 </td>
+
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
                   {formatDate(account.created_at)}
                 </td>
+
                 <td className="px-3 py-3.5">
                   <DropdownMenu>
                     <DropdownMenuTrigger>
@@ -225,7 +230,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                       </div>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => router.push(`/accounts/${account.id}`)}>
+                      <DropdownMenuItem onClick={() => openSheet(account.id)}>
                         <Eye className="h-3.5 w-3.5" />
                         Ver detalle
                       </DropdownMenuItem>
@@ -244,11 +249,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                             <DropdownMenuItem
                               key={s.value}
                               onClick={() => handleStatusChange(account.id, s.value)}
-                              className={
-                                account.pipeline_status === s.value
-                                  ? 'font-medium text-su-brand'
-                                  : ''
-                              }
+                              className={account.pipeline_status === s.value ? 'font-medium text-su-brand' : ''}
                             >
                               {s.label}
                             </DropdownMenuItem>
@@ -272,7 +273,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
         </table>
       </div>
 
-      {/* Edit drawer — single instance, controlled by editingId */}
+      {/* Edit drawer */}
       {editingId && (
         <AccountEditDrawer
           accountId={editingId}
@@ -293,20 +294,10 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setArchivingId(null)}
-              disabled={archiving}
-            >
+            <Button variant="outline" size="sm" onClick={() => setArchivingId(null)} disabled={archiving}>
               Cancelar
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleArchive}
-              disabled={archiving}
-            >
+            <Button variant="destructive" size="sm" onClick={handleArchive} disabled={archiving}>
               {archiving ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -319,6 +310,13 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Account detail sheet — 70 % */}
+      <AccountDetailSheet
+        accountId={sheetId}
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+      />
     </>
   );
 }
