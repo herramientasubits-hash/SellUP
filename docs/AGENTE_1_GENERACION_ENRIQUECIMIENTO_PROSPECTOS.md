@@ -751,7 +751,7 @@ Estas pantallas se documentan para orientar el diseño visual en la fase de cons
 ### 19.2 Patrones de diseño
 
 - Seguir el Design System SellUp (tokens CSS, componentes compartidos, modos light/dark)
-- La tabla de revisión es el elemento crítico — debe soportar revisión eficiente de 30–100 candidatos
+- La tabla de revisión es el elemento crítico — debe soportar revisión eficiente de hasta 25 candidatos por lote (máximo MVP)
 - Los estados de candidato deben ser visualmente distinguibles con badges/chips de color
 - La pantalla de progreso debe actualizarse sin recargar (polling o websocket)
 
@@ -771,7 +771,7 @@ Estas decisiones quedan documentadas como abiertas y deben resolverse antes o du
 | 6 | **Uso exacto de Lusha en primera versión** — ¿solo manual en detalle de candidato, o semiautomático? | Medio — Lusha aún no validado funcionalmente | Media |
 | 7 | **Web/IA en MVP o fase posterior** — ¿se implementa el fallback web/IA en la primera versión del agente? | Medio — complejidad adicional | Media |
 | 8 | **Canal Slack por defecto** — canal destino de notificaciones si el usuario no especifica | Bajo | Baja |
-| 9 | **Tamaño máximo de lote** — ¿cuántos candidatos se permiten por ejecución? | Medio — afecta costo y UX de revisión | Media |
+| 9 | **Tamaño máximo de lote** — **Resuelto para MVP: default 25, máximo 25 empresas candidatas por lote.** El límite podrá revisarse después cuando existan métricas reales de costo, calidad y tasa de aprobación. | Medio — afecta costo y UX de revisión | Resuelta |
 | 10 | **Modelo de IA para normalización** — Haiku vs Sonnet para tareas de normalización y clasificación | Bajo — afecta costo por ejecución | Baja |
 
 ---
@@ -807,7 +807,7 @@ La primera versión del agente debe usar una **cascada limitada y controlada**:
 
 El Agente 1 v1 es exitoso si:
 
-1. El usuario puede generar un lote de 20–50 candidatos para un país e industria en menos de 2 minutos
+1. El usuario puede generar un lote de hasta 25 empresas candidatas para un país e industria en menos de 2 minutos (máximo MVP)
 2. El lote tiene una tasa de duplicados exactos detectados superior al 90%
 3. El usuario puede revisar y aprobar candidatos desde una sola pantalla
 4. Cada candidato aprobado se convierte en cuenta con un click

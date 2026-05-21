@@ -35,6 +35,8 @@ interface CreateBatchDrawerProps {
   users: InternalUserOption[];
 }
 
+const MVP_MAX_CANDIDATES = 25;
+
 const EMPTY: {
   name: string;
   description: string;
@@ -48,7 +50,7 @@ const EMPTY: {
   description: '',
   country_code: '',
   industry: '',
-  target_count: '',
+  target_count: String(MVP_MAX_CANDIDATES),
   search_depth: 'standard',
   owner_id: '',
 };
@@ -70,6 +72,11 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
     e.preventDefault();
     if (!form.name.trim()) {
       toast.error('El nombre del lote es obligatorio');
+      return;
+    }
+    const parsedCount = form.target_count ? parseInt(form.target_count) : MVP_MAX_CANDIDATES;
+    if (parsedCount > MVP_MAX_CANDIDATES) {
+      toast.error(`El máximo permitido en el MVP es ${MVP_MAX_CANDIDATES} empresas candidatas por lote`);
       return;
     }
     setSaving(true);
@@ -193,12 +200,21 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                   <Input
                     type="number"
                     min={1}
-                    max={1000}
+                    max={MVP_MAX_CANDIDATES}
                     value={form.target_count}
-                    onChange={(e) => set('target_count', e.target.value)}
-                    placeholder="Ej. 50"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const num = parseInt(val);
+                      if (val === '' || (!isNaN(num) && num <= MVP_MAX_CANDIDATES)) {
+                        set('target_count', val);
+                      }
+                    }}
+                    placeholder="25"
                     disabled={saving}
                   />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Para cuidar calidad y costos, el MVP permite máximo {MVP_MAX_CANDIDATES} empresas candidatas por lote.
+                  </p>
                 </Field>
                 <Field label="Profundidad de búsqueda">
                   <Select

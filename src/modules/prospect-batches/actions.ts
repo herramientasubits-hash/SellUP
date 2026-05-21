@@ -252,9 +252,15 @@ export async function getBatchDetailSummary(batchId: string): Promise<BatchDetai
 
 // ── CRUD lotes ────────────────────────────────────────────────
 
+const MVP_MAX_CANDIDATES = 25;
+
 export async function createProspectBatch(input: CreateBatchInput): Promise<ProspectBatch> {
   const { internalUserId } = await requireActiveUser();
   const supabase = await createClient();
+
+  if (input.target_count !== undefined && input.target_count > MVP_MAX_CANDIDATES) {
+    throw new Error(`El máximo permitido en el MVP es ${MVP_MAX_CANDIDATES} empresas candidatas por lote`);
+  }
 
   const { data, error } = await supabase
     .from('prospect_batches')
@@ -293,6 +299,10 @@ export async function updateProspectBatch(
 ): Promise<ProspectBatch> {
   const { internalUserId } = await requireActiveUser();
   const supabase = await createClient();
+
+  if (input.target_count !== undefined && input.target_count > MVP_MAX_CANDIDATES) {
+    throw new Error(`El máximo permitido en el MVP es ${MVP_MAX_CANDIDATES} empresas candidatas por lote`);
+  }
 
   const { data: existing } = await supabase
     .from('prospect_batches')
