@@ -322,7 +322,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       </Button>
 
       <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
-        <SheetContent className="flex flex-col gap-0 overflow-hidden sm:max-w-[600px]">
+        <SheetContent className="flex flex-col gap-0 overflow-hidden sm:w-[42vw] sm:min-w-[580px] sm:max-w-none">
           {/* ── Header ── */}
           <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
             <div className="flex items-start gap-3">
@@ -394,10 +394,10 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     value={form.company_size}
                     onValueChange={(v) => set('company_size', v ?? '')}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Número de empleados" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
                       {COMPANY_SIZES.map((s) => (
                         <SelectItem key={s} value={s}>
                           {s}
@@ -417,7 +417,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     value={form.country_code}
                     onValueChange={(v) => set('country_code', v ?? '')}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       {form.country_code ? (
                         <span className="flex items-center gap-2 text-sm">
                           <span className="text-base leading-none">
@@ -429,7 +429,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                         <SelectValue placeholder="Seleccionar país" />
                       )}
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
                       {LATAM_COUNTRIES.map((c) => (
                         <SelectItem key={c.code} value={c.code}>
                           <span className="flex items-center gap-2">
@@ -470,10 +470,10 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     value={form.tax_identifier_type}
                     onValueChange={(v) => set('tax_identifier_type', v ?? '')}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="NIT, RFC, RUT…" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
                       {(
                         Object.entries(TAX_IDENTIFIER_TYPE_LABELS) as [
                           TaxIdentifierType,
@@ -514,7 +514,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     value={form.owner_id}
                     onValueChange={(v) => set('owner_id', v ?? '')}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       {form.owner_id ? (
                         <span className="flex items-center gap-2 text-sm">
                           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-su-brand-soft text-[10px] font-semibold text-su-brand">
@@ -533,7 +533,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                         <SelectValue placeholder="Sin asignar" />
                       )}
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
                       {users.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           <span className="flex items-center gap-2">
