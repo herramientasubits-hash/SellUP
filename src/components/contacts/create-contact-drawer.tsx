@@ -12,6 +12,7 @@ import {
   Briefcase,
   Star,
   FileText,
+  Building2,
 } from 'lucide-react';
 import {
   Sheet,
@@ -44,11 +45,18 @@ import {
 } from '@/modules/contacts/types';
 import { Section, Field, Row } from '@/components/accounts/account-form-helpers';
 
+interface AccountOption {
+  id: string;
+  name: string;
+}
+
 interface CreateContactDrawerProps {
-  accountId: string;
+  accountId?: string;
+  accounts?: AccountOption[];
 }
 
 const EMPTY_FORM = {
+  account_id: '',
   first_name: '',
   last_name: '',
   full_name: '',
@@ -65,7 +73,7 @@ const EMPTY_FORM = {
   notes: '',
 };
 
-export function CreateContactDrawer({ accountId }: CreateContactDrawerProps) {
+export function CreateContactDrawer({ accountId, accounts }: CreateContactDrawerProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
@@ -95,10 +103,16 @@ export function CreateContactDrawer({ accountId }: CreateContactDrawerProps) {
       return;
     }
 
+    const resolvedAccountId = accountId ?? form.account_id;
+    if (!resolvedAccountId) {
+      setError('La cuenta es requerida');
+      return;
+    }
+
     setPending(true);
     try {
       const result = await createContact({
-        account_id: accountId,
+        account_id: resolvedAccountId,
         first_name: form.first_name || undefined,
         last_name: form.last_name || undefined,
         full_name: fullName,
@@ -161,6 +175,29 @@ export function CreateContactDrawer({ accountId }: CreateContactDrawerProps) {
             onSubmit={handleSubmit}
             className="flex-1 space-y-8 overflow-y-auto px-7 py-6"
           >
+            {/* Cuenta (solo cuando no viene pre-seleccionada) */}
+            {!accountId && accounts && accounts.length > 0 && (
+              <Section icon={Building2} label="Cuenta">
+                <Field label="Cuenta *">
+                  <Select
+                    value={form.account_id}
+                    onValueChange={(v) => set('account_id', v ?? '')}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar cuenta…" />
+                    </SelectTrigger>
+                    <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
+                      {accounts.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </Section>
+            )}
+
             {/* Identidad */}
             <Section icon={User} label="Identidad">
               <Row>

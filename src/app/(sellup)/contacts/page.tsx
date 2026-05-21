@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Users, Crown, Target, Star, Mail, Phone } from 'lucide-react';
+import { Users, Crown, Target, Star, Mail, Phone, Archive } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getAllContacts } from '@/modules/contacts/actions';
+import { getAccountsList } from '@/modules/accounts/actions';
 import {
   ROLE_LABELS,
   SENIORITY_LABELS,
@@ -20,6 +21,8 @@ import {
   type ContactStatus,
   type ContactRole,
 } from '@/modules/contacts/types';
+import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
+import { ContactRowActions } from '@/components/contacts/contact-row-actions';
 
 const STATUS_STYLES: Record<ContactStatus, string> = {
   active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
@@ -37,27 +40,37 @@ const ROLE_STYLES: Record<string, string> = {
 };
 
 export default async function ContactsPage() {
-  const contacts = await getAllContacts();
+  const [contacts, accountsList] = await Promise.all([
+    getAllContacts(),
+    getAccountsList(),
+  ]);
+
+  const accounts = accountsList.map((a) => ({ id: a.id, name: a.name }));
 
   const total = contacts.length;
   const decisionMakers = contacts.filter((c) => c.role_in_account === 'decision_maker').length;
   const champions = contacts.filter((c) => c.role_in_account === 'champion').length;
   const primary = contacts.filter((c) => c.is_primary).length;
+  const inactiveOrArchived = contacts.filter((c) =>
+    ['inactive', 'archived', 'left_company', 'do_not_contact'].includes(c.contact_status),
+  ).length;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Contactos"
-        description="Decisores, sponsors y personas clave de todas las cuentas."
+        description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
+        actions={<CreateContactDrawer accounts={accounts} />}
       />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {[
           { icon: Users, label: 'Total', value: total, color: 'text-foreground' },
           { icon: Crown, label: 'Decisores', value: decisionMakers, color: 'text-su-brand' },
           { icon: Target, label: 'Champions', value: champions, color: 'text-emerald-500' },
           { icon: Star, label: 'Primarios', value: primary, color: 'text-amber-500' },
+          { icon: Archive, label: 'Inactivos', value: inactiveOrArchived, color: 'text-muted-foreground' },
         ].map(({ icon: Icon, label, value, color }) => (
           <SurfaceCard key={label} className="p-3">
             <div className="flex items-center gap-2.5">
@@ -85,7 +98,8 @@ export default async function ContactsPage() {
             <div className="max-w-xs space-y-1">
               <p className="text-sm font-semibold text-foreground">Sin contactos todavía</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Agrega contactos desde el detalle de cada cuenta.
+                Todavía no hay contactos registrados. Crea contactos manualmente desde una cuenta
+                o agrégalos aquí vinculándolos a una cuenta.
               </p>
             </div>
           </div>
@@ -104,6 +118,8 @@ export default async function ContactsPage() {
                 <TableHead className="text-[11px]">Teléfono</TableHead>
                 <TableHead className="text-[11px]">Estado</TableHead>
                 <TableHead className="text-[11px]">Fuente</TableHead>
+                <TableHead className="text-[11px]">Primario</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -114,14 +130,9 @@ export default async function ContactsPage() {
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground/70">
                         {contact.full_name.charAt(0).toUpperCase()}
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-medium text-foreground">
-                          {contact.full_name}
-                        </span>
-                        {contact.is_primary && (
-                          <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />
-                        )}
-                      </div>
+                      <span className="text-xs font-medium text-foreground">
+                        {contact.full_name}
+                      </span>
                     </div>
                   </TableCell>
 
@@ -209,6 +220,18 @@ export default async function ContactsPage() {
                     >
                       {CONTACT_SOURCE_LABELS[contact.source]}
                     </Badge>
+                  </TableCell>
+
+                  <TableCell>
+                    {contact.is_primary ? (
+                      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                    ) : (
+                      <span className="text-muted-foreground/40 text-xs">—</span>
+                    )}
+                  </TableCell>
+
+                  <TableCell>
+                    <ContactRowActions contact={contact} />
                   </TableCell>
                 </TableRow>
               ))}

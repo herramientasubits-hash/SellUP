@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Star, RefreshCw, Archive } from 'lucide-react';
+import { MoreHorizontal, Pencil, Star, RefreshCw, Archive, Eye } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -91,6 +91,10 @@ export function ContactRowActions({ contact }: ContactRowActionsProps) {
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onClick={() => router.push(`/contacts/${contact.id}`)}>
+            <Eye className="mr-2 h-3.5 w-3.5" />
+            Ver detalle
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil className="mr-2 h-3.5 w-3.5" />
             Editar
