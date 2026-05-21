@@ -211,15 +211,17 @@ CREATE POLICY "admin_all_provider_pricing_config"
     )
   );
 
--- Seed: placeholder rows with unit_cost_usd = 0 to signal "must be configured".
--- Real prices vary by plan and contract — admins must update these values.
+-- Seed: Apollo y Lusha con tarifas reales del plan vigente (2026).
+-- Apollo: $4,200 USD anuales / 480,000 créditos → $0.00875000 por crédito. Corte Oct 13.
+-- Lusha:  $300 USD/mes (cobrado anualmente) / 40,800 créditos/mes → $0.00735294 por crédito. Corte Nov.
+-- Anthropic, OpenAI y HubSpot permanecen en 0 hasta configuración manual por el admin.
 INSERT INTO public.provider_pricing_config
   (provider_key, operation_key, unit, unit_cost_usd, notes, is_active)
 VALUES
-  ('apollo',    'company_search',  'per_result',    0, 'Configure según plan Apollo. Precio varía por contrato.', true),
-  ('apollo',    'person_enrich',   'per_result',    0, 'Configure según plan Apollo. Precio varía por contrato.', true),
-  ('lusha',     'person_enrich',   'per_result',    0, 'Configure según plan Lusha. Precio varía por contrato.', true),
-  ('lusha',     'company_enrich',  'per_result',    0, 'Configure según plan Lusha. Precio varía por contrato.', true),
+  ('apollo',    'company_search',  'per_result',    0.00875000, '$4,200 USD anuales · 480,000 créditos · Corte Oct 13', true),
+  ('apollo',    'person_enrich',   'per_result',    0.00875000, '$4,200 USD anuales · 480,000 créditos · Corte Oct 13', true),
+  ('lusha',     'person_enrich',   'per_result',    0.00735294, '$300 USD/mes (cobrado anualmente) · 40,800 créditos/mes · Corte Nov', true),
+  ('lusha',     'company_enrich',  'per_result',    0.00735294, '$300 USD/mes (cobrado anualmente) · 40,800 créditos/mes · Corte Nov', true),
   ('anthropic', 'input_token',     'per_1k_tokens', 0, 'Configure según modelo Anthropic activo.', true),
   ('anthropic', 'output_token',    'per_1k_tokens', 0, 'Configure según modelo Anthropic activo.', true),
   ('openai',    'input_token',     'per_1k_tokens', 0, 'Configure según modelo OpenAI activo.', true),
