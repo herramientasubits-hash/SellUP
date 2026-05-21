@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
   Plus,
@@ -46,7 +47,7 @@ import {
   type InternalUserOption,
 } from '@/modules/accounts/types';
 
-// ── Combobox buscable para industria ─────────────────────────
+// ── Combobox con portal (evita clipping del overflow-y-auto) ──
 
 function IndustryCombobox({
   value,
@@ -55,99 +56,133 @@ function IndustryCombobox({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const [query, setQuery] = React.useState(value);
+  const [query, setQuery] = React.useState('');
   const [open, setOpen] = React.useState(false);
+  const [rect, setRect] = React.useState<DOMRect | null>(null);
+  const [mounted, setMounted] = React.useState(false);
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const listRef = React.useRef<HTMLDivElement>(null);
 
+  React.useEffect(() => setMounted(true), []);
+
+  const displayValue = open ? query : value;
   const filtered = INDUSTRIES.filter((i) =>
     i.toLowerCase().includes(query.toLowerCase()),
   );
 
-  React.useEffect(() => {
-    if (!open) setQuery(value);
-  }, [value, open]);
+  function updateRect() {
+    if (wrapperRef.current) setRect(wrapperRef.current.getBoundingClientRect());
+  }
+
+  function openDropdown() {
+    updateRect();
+    setQuery('');
+    setOpen(true);
+  }
+
+  function closeDropdown() {
+    setTimeout(() => {
+      setOpen(false);
+      setQuery('');
+    }, 100);
+  }
 
   function select(industry: string) {
     onChange(industry);
-    setQuery(industry);
     setOpen(false);
+    setQuery('');
   }
 
-  function clear() {
+  function clear(e: React.MouseEvent) {
+    e.stopPropagation();
     onChange('');
     setQuery('');
     inputRef.current?.focus();
   }
 
-  return (
-    <div className="relative">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
-        <input
-          ref={inputRef}
-          className={cn(
-            'h-8 w-full rounded-lg border border-input bg-transparent py-1 pl-8 pr-7 text-sm',
-            'placeholder:text-muted-foreground/60 transition-colors outline-none',
-            'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30',
-            open && filtered.length > 0 && 'rounded-b-none border-b-0',
-          )}
-          placeholder="Buscar industria…"
-          value={open ? query : value || query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-            if (value) onChange('');
-          }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 120)}
-        />
-        {(query || value) && (
-          <button
-            type="button"
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 transition-colors hover:text-foreground"
-            onClick={clear}
-            tabIndex={-1}
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+  // Reposicionar al hacer scroll
+  React.useEffect(() => {
+    if (!open) return;
+    const onScroll = () => updateRect();
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, [open]);
 
-      {open && filtered.length > 0 && (
-        <div
-          ref={listRef}
-          className="absolute z-50 w-full rounded-b-lg border border-t-0 border-ring/40 bg-popover shadow-md"
-        >
-          <div className="max-h-44 overflow-y-auto py-1">
-            {filtered.map((ind) => (
-              <button
-                key={ind}
-                type="button"
-                className={cn(
-                  'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent',
-                  value === ind && 'bg-su-brand-soft text-su-brand',
-                )}
-                onMouseDown={() => select(ind)}
-              >
-                <span
+  const dropdown =
+    mounted && open && rect && filtered.length > 0
+      ? createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: rect.bottom + 2,
+              left: rect.left,
+              width: rect.width,
+              zIndex: 9999,
+            }}
+            className="rounded-xl border border-border bg-popover shadow-lg"
+          >
+            <div className="max-h-52 overflow-y-auto py-1">
+              {filtered.map((ind) => (
+                <button
+                  key={ind}
+                  type="button"
                   className={cn(
-                    'flex h-3.5 w-3.5 shrink-0 items-center justify-center',
+                    'flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-accent',
+                    value === ind && 'bg-su-brand-soft text-su-brand font-medium',
                   )}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    select(ind);
+                  }}
                 >
-                  {value === ind && <Check className="h-3.5 w-3.5" />}
-                </span>
-                {ind}
-              </button>
-            ))}
-          </div>
-        </div>
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {value === ind && <Check className="h-3.5 w-3.5" />}
+                  </span>
+                  {ind}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+      <input
+        ref={inputRef}
+        className={cn(
+          'h-8 w-full rounded-lg border border-input bg-transparent py-1 pl-8 pr-7 text-sm outline-none',
+          'placeholder:text-muted-foreground/60 transition-colors',
+          'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30',
+        )}
+        placeholder={value || 'Buscar industria…'}
+        value={displayValue}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          if (!open) openDropdown();
+          if (value) onChange('');
+        }}
+        onFocus={openDropdown}
+        onBlur={closeDropdown}
+      />
+      {(value || query) && (
+        <button
+          type="button"
+          tabIndex={-1}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 transition-colors hover:text-foreground"
+          onMouseDown={clear}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       )}
+      {dropdown}
     </div>
   );
 }
 
-// ── Field + Section helpers ───────────────────────────────────
+// ── Helpers de layout ─────────────────────────────────────────
 
 function Section({
   icon: Icon,
@@ -161,13 +196,13 @@ function Section({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground/40" />}
+        {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />}
         <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/50">
           {label}
         </span>
-        <div className="h-px flex-1 bg-border/50" />
+        <div className="h-px flex-1 bg-border/40" />
       </div>
-      {children}
+      <div className="space-y-4">{children}</div>
     </div>
   );
 }
@@ -185,18 +220,17 @@ function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label
-        htmlFor={id}
-        className="text-xs font-medium text-foreground/70"
-      >
+      <Label htmlFor={id} className="text-xs font-medium text-foreground/70">
         {label}
-        {required && (
-          <span className="ml-0.5 text-destructive/80">*</span>
-        )}
+        {required && <span className="ml-0.5 text-destructive/80">*</span>}
       </Label>
       {children}
     </div>
   );
+}
+
+function Row({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-2 gap-4">{children}</div>;
 }
 
 function getFlagEmoji(code: string): string {
@@ -248,12 +282,10 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
     if (!form.name.trim()) {
       setError('El nombre de la empresa es requerido');
       return;
     }
-
     setPending(true);
     try {
       const result = await createAccount({
@@ -267,17 +299,14 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
         industry: form.industry || undefined,
         company_size: form.company_size || undefined,
         tax_identifier: form.tax_identifier || undefined,
-        tax_identifier_type:
-          (form.tax_identifier_type as TaxIdentifierType) || undefined,
+        tax_identifier_type: (form.tax_identifier_type as TaxIdentifierType) || undefined,
         owner_id: form.owner_id || undefined,
         notes: form.notes || undefined,
       });
-
       if (!result.success) {
         setError(result.error);
         return;
       }
-
       handleClose();
       router.refresh();
     } finally {
@@ -293,22 +322,15 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       </Button>
 
       <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
-        <SheetContent
-          className={cn(
-            'flex flex-col gap-0 overflow-hidden',
-            'sm:max-w-[520px]',
-          )}
-        >
+        <SheetContent className="flex flex-col gap-0 overflow-hidden sm:max-w-[600px]">
           {/* ── Header ── */}
-          <SheetHeader className="shrink-0 border-b border-border/50 px-6 pb-5 pt-6">
+          <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
                 <Building2 className="h-4 w-4 text-su-brand" />
               </div>
               <div className="space-y-0.5">
-                <SheetTitle className="text-base font-semibold">
-                  Nueva cuenta
-                </SheetTitle>
+                <SheetTitle className="text-base font-semibold">Nueva cuenta</SheetTitle>
                 <SheetDescription className="text-xs text-muted-foreground/70">
                   Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante.
                 </SheetDescription>
@@ -320,9 +342,9 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
           <form
             id="create-account-form"
             onSubmit={handleSubmit}
-            className="flex-1 space-y-7 overflow-y-auto px-6 py-6"
+            className="flex-1 space-y-8 overflow-y-auto px-7 py-6"
           >
-            {/* ── Identificación ── */}
+            {/* Identificación */}
             <Section icon={Building2} label="Identificación">
               <Field id="name" label="Nombre de empresa / prospecto" required>
                 <Input
@@ -333,47 +355,47 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                   autoFocus
                 />
               </Field>
-
-              <Field id="legal_name" label="Razón social">
-                <Input
-                  id="legal_name"
-                  placeholder="Nombre legal registrado"
-                  value={form.legal_name}
-                  onChange={(e) => set('legal_name', e.target.value)}
-                />
-              </Field>
-
-              <Field id="website" label="Sitio web">
-                <div className="relative">
-                  <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+              <Row>
+                <Field id="legal_name" label="Razón social">
                   <Input
-                    id="website"
-                    type="url"
-                    placeholder="https://www.ejemplo.com"
-                    value={form.website}
-                    onChange={(e) => set('website', e.target.value)}
-                    className="pl-8"
+                    id="legal_name"
+                    placeholder="Nombre legal registrado"
+                    value={form.legal_name}
+                    onChange={(e) => set('legal_name', e.target.value)}
                   />
-                </div>
-              </Field>
+                </Field>
+                <Field id="website" label="Sitio web">
+                  <div className="relative">
+                    <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+                    <Input
+                      id="website"
+                      type="url"
+                      placeholder="https://ejemplo.com"
+                      value={form.website}
+                      onChange={(e) => set('website', e.target.value)}
+                      className="pl-8"
+                    />
+                  </div>
+                </Field>
+              </Row>
             </Section>
 
-            {/* ── Empresa ── */}
+            {/* Empresa */}
             <Section icon={Briefcase} label="Empresa">
-              <div className="grid grid-cols-2 gap-3">
+              <Row>
                 <Field label="Industria">
                   <IndustryCombobox
                     value={form.industry}
                     onChange={(v) => set('industry', v)}
                   />
                 </Field>
-                <Field label="Tamaño">
+                <Field label="Tamaño de empresa">
                   <Select
                     value={form.company_size}
                     onValueChange={(v) => set('company_size', v ?? '')}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Empleados" />
+                      <SelectValue placeholder="Número de empleados" />
                     </SelectTrigger>
                     <SelectContent>
                       {COMPANY_SIZES.map((s) => (
@@ -384,12 +406,12 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     </SelectContent>
                   </Select>
                 </Field>
-              </div>
+              </Row>
             </Section>
 
-            {/* ── Ubicación ── */}
+            {/* Ubicación */}
             <Section icon={MapPin} label="Ubicación">
-              <div className="grid grid-cols-2 gap-3">
+              <Row>
                 <Field label="País">
                   <Select
                     value={form.country_code}
@@ -398,18 +420,22 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                     <SelectTrigger>
                       {form.country_code ? (
                         <span className="flex items-center gap-2 text-sm">
-                          <span>{getFlagEmoji(form.country_code)}</span>
+                          <span className="text-base leading-none">
+                            {getFlagEmoji(form.country_code)}
+                          </span>
                           <span>{selectedCountry?.name}</span>
                         </span>
                       ) : (
-                        <SelectValue placeholder="Seleccionar" />
+                        <SelectValue placeholder="Seleccionar país" />
                       )}
                     </SelectTrigger>
                     <SelectContent>
                       {LATAM_COUNTRIES.map((c) => (
                         <SelectItem key={c.code} value={c.code}>
                           <span className="flex items-center gap-2">
-                            <span>{getFlagEmoji(c.code)}</span>
+                            <span className="text-base leading-none">
+                              {getFlagEmoji(c.code)}
+                            </span>
                             <span>{c.name}</span>
                           </span>
                         </SelectItem>
@@ -420,13 +446,12 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 <Field id="city" label="Ciudad">
                   <Input
                     id="city"
-                    placeholder="Bogotá, CDMX, SP…"
+                    placeholder="Bogotá, CDMX, São Paulo…"
                     value={form.city}
                     onChange={(e) => set('city', e.target.value)}
                   />
                 </Field>
-              </div>
-
+              </Row>
               <Field id="region" label="Departamento / Estado / Provincia">
                 <Input
                   id="region"
@@ -437,54 +462,51 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
               </Field>
             </Section>
 
-            {/* ── Identificación fiscal ── */}
+            {/* Identificación fiscal */}
             <Section icon={Hash} label="Identificación fiscal">
-              <div className="grid grid-cols-5 gap-3">
-                <div className="col-span-2">
-                  <Field label="Tipo">
-                    <Select
-                      value={form.tax_identifier_type}
-                      onValueChange={(v) =>
-                        set('tax_identifier_type', v ?? '')
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Tipo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(
-                          Object.entries(
-                            TAX_IDENTIFIER_TYPE_LABELS,
-                          ) as [TaxIdentifierType, string][]
-                        ).map(([key, label]) => (
-                          <SelectItem key={key} value={key}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <div className="col-span-3">
-                  <Field id="tax_id_number" label="Número">
-                    <Input
-                      id="tax_id_number"
-                      placeholder={
-                        form.tax_identifier_type === 'NIT'
-                          ? '890.903.938-8'
-                          : form.tax_identifier_type === 'RFC'
-                            ? 'XAXX010101000'
+              <Row>
+                <Field label="Tipo de identificador">
+                  <Select
+                    value={form.tax_identifier_type}
+                    onValueChange={(v) => set('tax_identifier_type', v ?? '')}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="NIT, RFC, RUT…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(
+                        Object.entries(TAX_IDENTIFIER_TYPE_LABELS) as [
+                          TaxIdentifierType,
+                          string,
+                        ][]
+                      ).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field id="tax_id_number" label="Número">
+                  <Input
+                    id="tax_id_number"
+                    placeholder={
+                      form.tax_identifier_type === 'NIT'
+                        ? '890.903.938-8'
+                        : form.tax_identifier_type === 'RFC'
+                          ? 'XAXX010101000'
+                          : form.tax_identifier_type === 'CNPJ'
+                            ? '00.000.000/0001-00'
                             : 'Número de identificación'
-                      }
-                      value={form.tax_identifier}
-                      onChange={(e) => set('tax_identifier', e.target.value)}
-                    />
-                  </Field>
-                </div>
-              </div>
+                    }
+                    value={form.tax_identifier}
+                    onChange={(e) => set('tax_identifier', e.target.value)}
+                  />
+                </Field>
+              </Row>
             </Section>
 
-            {/* ── Asignación ── */}
+            {/* Asignación */}
             <Section icon={User} label="Asignación">
               {users.length > 0 && (
                 <Field label="Owner / Responsable">
@@ -497,15 +519,13 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                         <span className="flex items-center gap-2 text-sm">
                           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-su-brand-soft text-[10px] font-semibold text-su-brand">
                             {(
-                              users.find((u) => u.id === form.owner_id)
-                                ?.full_name ?? 'U'
+                              users.find((u) => u.id === form.owner_id)?.full_name ?? 'U'
                             )
                               .charAt(0)
                               .toUpperCase()}
                           </span>
                           <span>
-                            {users.find((u) => u.id === form.owner_id)
-                              ?.full_name ??
+                            {users.find((u) => u.id === form.owner_id)?.full_name ??
                               users.find((u) => u.id === form.owner_id)?.email}
                           </span>
                         </span>
@@ -528,7 +548,6 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                   </Select>
                 </Field>
               )}
-
               <Field id="notes" label="Notas iniciales">
                 <div className="relative">
                   <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/40" />
@@ -546,7 +565,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
           </form>
 
           {/* ── Footer sticky ── */}
-          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/50 px-6 py-4">
+          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/50 px-7 py-4">
             {error ? (
               <p className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
                 {error}
@@ -559,7 +578,6 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 <span className="font-medium text-muted-foreground">Manual</span>
               </p>
             )}
-
             <div className="flex shrink-0 items-center gap-2">
               <Button
                 type="button"
