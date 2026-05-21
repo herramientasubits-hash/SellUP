@@ -16,7 +16,8 @@ import {
   User,
   Briefcase,
 } from 'lucide-react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { X } from 'lucide-react';
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -125,7 +126,7 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
   return (
     <>
       <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-        <SheetContent className="flex flex-col gap-0 overflow-hidden p-0 sm:w-[70vw] sm:min-w-[700px] sm:max-w-none">
+        <SheetContent showCloseButton={false} className="flex flex-col gap-0 overflow-hidden p-0 sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none">
           {loading || !data ? (
             <div className="flex flex-1 items-center justify-center py-20">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
@@ -160,6 +161,10 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
                       currentStatus={data.account.pipeline_status}
                       users={data.users}
                     />
+                    <SheetClose className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent transition-colors">
+                      <X className="h-4 w-4 text-muted-foreground" />
+                      <span className="sr-only">Cerrar</span>
+                    </SheetClose>
                   </div>
                 </div>
               </SheetHeader>
