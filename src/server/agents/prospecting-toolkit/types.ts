@@ -1,8 +1,7 @@
 /**
- * Prospecting Toolkit — Tipos base para deduplicación determinística.
+ * Prospecting Toolkit — Tipos base.
  *
- * Estos tipos son el contrato entre sellup_duplicate_checker,
- * hubspot_duplicate_checker y el orquestador duplicate-checker.
+ * Contiene los contratos de deduplicación y del catálogo de fuentes.
  * No contienen lógica, no importan nada externo.
  */
 
@@ -47,4 +46,54 @@ export type DuplicateCheckResult = {
   summary: string;
   checkedSources: Array<"sellup" | "hubspot">;
   errors?: string[];
+};
+
+// ============================================================
+// Catalog Context Retriever — tipos
+// ============================================================
+
+export type SearchDepth = "basic" | "standard" | "deep";
+
+export type SourcePriority = "P0" | "P1" | "P2";
+
+export type CatalogSource = {
+  key: string;
+  name: string;
+  countryCodes: string[];
+  sectors: string[];
+  priority: SourcePriority;
+  type:
+    | "official_registry"
+    | "public_dataset"
+    | "procurement"
+    | "industry_association"
+    | "commercial_provider"
+    | "web_search"
+    | "other";
+  url?: string | null;
+  automationLevel: "high" | "medium" | "low" | "manual";
+  recommendedUse: string;
+  limitations?: string[];
+  riskNotes?: string[];
+};
+
+export type CatalogContextInput = {
+  country: string;
+  countryCode: string;
+  industry: string;
+  searchDepth?: SearchDepth;
+};
+
+export type CatalogContextResult = {
+  country: string;
+  countryCode: string;
+  industry: string;
+  searchDepth: SearchDepth;
+  fiscalIdentifierLabel: string | null;
+  recommendedSources: CatalogSource[];
+  sectorSources: CatalogSource[];
+  risks: string[];
+  operatingRules: string[];
+  coverageNotes: string[];
+  promptContext: string;
 };

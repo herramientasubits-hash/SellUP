@@ -29,3 +29,13 @@ export { checkCompanyDuplicate } from './duplicate-checker';
 // Checkers individuales (acceso directo cuando se necesita solo uno)
 export { checkSellUpDuplicates } from './sellup-duplicate-checker';
 export { checkHubSpotDuplicates } from './hubspot-duplicate-checker';
+
+// Catalog Context Retriever — Hito 2
+export type {
+  SearchDepth,
+  SourcePriority,
+  CatalogSource,
+  CatalogContextInput,
+  CatalogContextResult,
+} from './types';
+export { getCatalogContext } from './catalog-context-retriever';
