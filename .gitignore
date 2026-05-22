@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local test scripts (never commit)
+scripts/test-lusha-enrichment.mjs
+scripts/tmp-*.mjs
