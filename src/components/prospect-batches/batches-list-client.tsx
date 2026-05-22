@@ -167,6 +167,11 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                     {batch.description}
                   </p>
                 )}
+                {batch.metadata?.generation_mode === 'controlled_real_test' && (
+                  <Badge className="mt-1 border-0 bg-blue-500/10 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+                    Búsqueda real
+                  </Badge>
+                )}
               </td>
               {/* País */}
               <td className="px-4 py-3 text-muted-foreground">

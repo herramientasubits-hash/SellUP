@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Layers,
   FlaskConical,
+  Globe,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -137,6 +138,23 @@ export default async function BatchDetailPage({ params }: Props) {
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Este lote fue generado con datos mock para validar el flujo del pipeline. No usar estos candidatos para convertirlos en empresas reales.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alerta modo prueba controlada con búsqueda real */}
+      {batch.metadata?.generation_mode === 'controlled_real_test' && (
+        <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 px-5 py-3.5">
+          <div className="flex items-start gap-2.5">
+            <Globe className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+            <div>
+              <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                Lote generado con búsqueda web real (prueba controlada)
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Este lote fue generado usando Tavily para búsquedas reales en modo de prueba controlada. Los datos son reales pero el lote se generó en un entorno de validación — revisar antes de convertir candidatos.
               </p>
             </div>
           </div>
