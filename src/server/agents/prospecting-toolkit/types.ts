@@ -213,6 +213,57 @@ export type CandidateScoringOutput = {
 };
 
 // ============================================================
+// Prospecting Pipeline — tipos (Hito 4)
+// ============================================================
+
+export type ProspectingPipelineInput = {
+  country: string;
+  countryCode: string;
+  industry: string;
+  searchDepth?: SearchDepth;
+  targetCount?: number;
+  webSearchProvider?: WebSearchProviderKey;
+};
+
+export type ProspectingPipelineCandidate = {
+  name: string;
+  website: string | null;
+  domain: string | null;
+  country: string;
+  countryCode: string;
+  industry: string;
+  sourceUrl: string | null;
+  sourceTitle: string | null;
+  sourceSnippet: string | null;
+  websiteVerification: WebsiteVerificationOutput | null;
+  duplicateCheck: DuplicateCheckResult | null;
+  scoring: CandidateScoringOutput;
+};
+
+export type ProspectingPipelineSummary = {
+  requested: number;
+  searched: number;
+  returned: number;
+  highQualityNew: number;
+  needsReview: number;
+  duplicates: number;
+  insufficientData: number;
+  discarded: number;
+  unchecked: number;
+};
+
+export type ProspectingPipelineOutput = {
+  input: ProspectingPipelineInput;
+  catalogContext: CatalogContextResult;
+  searchQuery: string;
+  webSearch: WebSearchOutput;
+  candidates: ProspectingPipelineCandidate[];
+  summary: ProspectingPipelineSummary;
+  warnings: string[];
+  metadata?: Record<string, unknown>;
+};
+
+// ============================================================
 // Website Verifier — tipos (Hito 3B)
 // ============================================================
 

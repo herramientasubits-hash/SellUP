@@ -68,3 +68,12 @@ export type {
   CandidateScoringOutput,
 } from './types';
 export { scoreCandidate } from './candidate-scorer';
+
+// Prospecting Pipeline — Hito 4
+export type {
+  ProspectingPipelineInput,
+  ProspectingPipelineCandidate,
+  ProspectingPipelineSummary,
+  ProspectingPipelineOutput,
+} from './types';
+export { runProspectingPipeline } from './prospecting-pipeline';
