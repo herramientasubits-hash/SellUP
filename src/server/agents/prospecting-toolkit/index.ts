@@ -58,3 +58,13 @@ export type {
   WebsiteVerificationOutput,
 } from './types';
 export { verifyWebsite, scoreCompanyNameAgainstPage } from './website-verifier';
+
+// Candidate Scorer — Hito 3C
+export type {
+  CandidateQualityLabel,
+  CandidateRecommendedAction,
+  CandidateScoringInput,
+  CandidateScoreBreakdown,
+  CandidateScoringOutput,
+} from './types';
+export { scoreCandidate } from './candidate-scorer';

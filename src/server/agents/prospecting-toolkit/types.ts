@@ -150,6 +150,69 @@ export type WebSearchOutput = {
 };
 
 // ============================================================
+// Candidate Scorer — tipos (Hito 3C)
+// ============================================================
+
+export type CandidateQualityLabel =
+  | "high_quality_new"
+  | "needs_review"
+  | "duplicate"
+  | "insufficient_data"
+  | "discard";
+
+export type CandidateRecommendedAction =
+  | "approve_for_review"
+  | "review_manually"
+  | "exclude_existing"
+  | "enrich_before_review"
+  | "discard";
+
+export type CandidateScoringInput = {
+  name: string;
+  legalName?: string | null;
+  country?: string | null;
+  countryCode?: string | null;
+  industry?: string | null;
+  subsector?: string | null;
+  city?: string | null;
+  region?: string | null;
+  website?: string | null;
+  domain?: string | null;
+  linkedinCompanyUrl?: string | null;
+  taxIdentifier?: string | null;
+  companySize?: string | null;
+  sourcePrimary?: string | null;
+  sourcePriority?: SourcePriority | null;
+  reasonForFit?: string | null;
+  websiteVerification?: WebsiteVerificationOutput | null;
+  duplicateCheck?: DuplicateCheckResult | null;
+  catalogContext?: CatalogContextResult | null;
+};
+
+export type CandidateScoreBreakdown = {
+  existenceSignals: number;
+  websiteSignals: number;
+  duplicateSignals: number;
+  sourceSignals: number;
+  fitSignals: number;
+  completenessSignals: number;
+  penalties: number;
+};
+
+export type CandidateScoringOutput = {
+  confidenceScore: number;
+  fitScore: number;
+  dataCompletenessScore: number;
+  qualityLabel: CandidateQualityLabel;
+  recommendedAction: CandidateRecommendedAction;
+  breakdown: CandidateScoreBreakdown;
+  reasons: string[];
+  warnings: string[];
+  blockers: string[];
+  metadata?: Record<string, unknown>;
+};
+
+// ============================================================
 // Website Verifier — tipos (Hito 3B)
 // ============================================================
 
