@@ -2,14 +2,19 @@
  * Web Search Provider — Tavily
  *
  * Adapter real para la Tavily Search API.
- * Solo hace llamadas externas si TAVILY_API_KEY está presente en el entorno.
- * Si la key falta, retorna skipped: true sin lanzar error ni romper el build.
+ *
+ * Prioridad de credencial:
+ *   1. Supabase Vault (integración administrable desde Configuración)
+ *   2. process.env.TAVILY_API_KEY (solo en desarrollo local como fallback)
+ *
+ * Si la key no está disponible en ninguna fuente, retorna skipped: true
+ * sin lanzar error ni romper el build.
  *
  * Pricing: pendiente de configurar en cost config (no se inventa costo).
- * TODO: Mover API key a Vault cuando el proyecto adopte gestión de secretos centralizada.
  */
 
 import type { WebSearchInput, WebSearchOutput, WebSearchResult } from '../types';
+import { getTavilyApiKey } from '@/server/services/tavily-connection';
 
 const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -65,7 +70,8 @@ function mapTavilyResults(
 // ─── Provider público ─────────────────────────────────────────────────────────
 
 export async function runTavilyWebSearch(input: WebSearchInput, maxResults: number): Promise<WebSearchOutput> {
-  const apiKey = process.env.TAVILY_API_KEY;
+  // Prioridad: Vault (integración administrable) → env local (desarrollo)
+  const apiKey = await getTavilyApiKey();
 
   if (!apiKey) {
     return {

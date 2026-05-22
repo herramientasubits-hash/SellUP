@@ -71,6 +71,12 @@ export interface SlackMetadata {
   oauth_redirect_uri?: string;
 }
 
+export interface TavilyMetadata extends Record<string, unknown> {
+  response_time_ms?: number;
+  results_count?: number;
+  search_depth?: string;
+}
+
 export interface IntegrationAuditEntry {
   id: string;
   integration_key: string;
@@ -91,7 +97,13 @@ export interface IntegrationAuditEntry {
     | 'samu_connection_tested'
     | 'samu_connection_succeeded'
     | 'samu_connection_failed'
-    | 'samu_disconnected';
+    | 'samu_disconnected'
+    | 'tavily_api_key_stored'
+    | 'tavily_api_key_updated'
+    | 'tavily_connection_tested'
+    | 'tavily_connection_succeeded'
+    | 'tavily_connection_failed'
+    | 'tavily_disconnected';
   actor_user_id: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;

@@ -23,12 +23,19 @@ import {
   hasSamuApiKey,
   testSamuHealth,
 } from '@/server/services/samu-connection';
+import {
+  storeTavilyApiKey,
+  removeTavilyApiKey,
+  hasTavilyApiKey,
+  testTavilyConnection,
+} from '@/server/services/tavily-connection';
 import type {
   ExternalIntegration,
   ExternalIntegrationConnection,
   IntegrationWithConnection,
   SlackMetadata,
   SamuMetadata,
+  TavilyMetadata,
 } from './types';
 
 const supabaseUrl =
@@ -1035,6 +1042,284 @@ export async function disconnectSamu(): Promise<{
   return {
     success: true,
     message: 'Samu IA desconectado correctamente.',
+  };
+}
+
+// ============================================================
+// Tavily: Leer integración
+// ============================================================
+
+export async function getTavilyIntegration(): Promise<IntegrationWithConnection | null> {
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('*')
+    .eq('integration_key', 'tavily')
+    .single();
+
+  if (!integration) return null;
+
+  const { data: connection } = await admin
+    .from('external_integration_connections')
+    .select('*')
+    .eq('integration_id', integration.id)
+    .single();
+
+  const hasCredential = await hasTavilyApiKey();
+  const credentialsStatus = hasCredential ? 'stored' : 'missing';
+
+  const enrichedConnection = connection
+    ? { ...connection, credentials_status: credentialsStatus }
+    : null;
+
+  return {
+    ...(integration as ExternalIntegration),
+    connection: enrichedConnection,
+  };
+}
+
+// ============================================================
+// Tavily: Conectar (guardar API Key por primera vez)
+// ============================================================
+
+export async function connectTavily(apiKey: string): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  if (!apiKey || apiKey.trim().length < 16) {
+    return { success: false, error: 'API Key inválida o demasiado corta.' };
+  }
+
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const storeResult = await storeTavilyApiKey(apiKey.trim());
+  if (!storeResult.success) return storeResult;
+
+  await logAuditEvent('tavily', 'tavily_api_key_stored', actorId);
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'tavily')
+    .single();
+
+  if (integration) {
+    const now = new Date().toISOString();
+    const { data: existing } = await admin
+      .from('external_integration_connections')
+      .select('id')
+      .eq('integration_id', integration.id)
+      .single();
+
+    if (existing) {
+      await admin
+        .from('external_integration_connections')
+        .update({
+          credentials_status: 'stored',
+          connection_status: 'not_tested',
+          last_connection_error: null,
+          connected_at: now,
+          connected_by: actorId,
+          disconnected_at: null,
+          disconnected_by: null,
+          metadata: null,
+          updated_at: now,
+        })
+        .eq('id', existing.id);
+    } else {
+      await admin.from('external_integration_connections').insert({
+        integration_id: integration.id,
+        auth_type: 'api_key',
+        credentials_status: 'stored',
+        connection_status: 'not_tested',
+        connected_at: now,
+        connected_by: actorId,
+      });
+    }
+  }
+
+  return {
+    success: true,
+    message: 'API Key guardada correctamente. Puedes probar la conexión cuando lo desees.',
+  };
+}
+
+// ============================================================
+// Tavily: Actualizar API Key
+// ============================================================
+
+export async function updateTavilyApiKey(newApiKey: string): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  if (!newApiKey || newApiKey.trim().length < 16) {
+    return { success: false, error: 'API Key inválida o demasiado corta.' };
+  }
+
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const storeResult = await storeTavilyApiKey(newApiKey.trim());
+  if (!storeResult.success) return storeResult;
+
+  await logAuditEvent('tavily', 'tavily_api_key_updated', actorId);
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'tavily')
+    .single();
+
+  if (integration) {
+    await admin
+      .from('external_integration_connections')
+      .update({
+        credentials_status: 'stored',
+        connection_status: 'not_tested',
+        last_tested_at: null,
+        last_connection_error: null,
+        metadata: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('integration_id', integration.id);
+  }
+
+  return {
+    success: true,
+    message: 'API Key actualizada. Prueba la conexión para verificar la nueva clave.',
+  };
+}
+
+// ============================================================
+// Tavily: Probar conexión
+// ADVERTENCIA: Consume 1 crédito de Tavily por ejecución.
+// ============================================================
+
+export async function testTavilyConnectionAction(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'tavily')
+    .single();
+
+  if (!integration) {
+    return { success: false, error: 'Integración Tavily no encontrada.' };
+  }
+
+  await logAuditEvent('tavily', 'tavily_connection_tested', actorId);
+
+  const result = await testTavilyConnection();
+  const now = new Date().toISOString();
+
+  if (result.success) {
+    const safeMetadata: TavilyMetadata = {
+      response_time_ms: result.responseTimeMs,
+      results_count: result.resultsCount,
+      search_depth: 'basic',
+    };
+
+    await admin
+      .from('external_integration_connections')
+      .update({
+        connection_status: 'connected',
+        last_tested_at: now,
+        last_tested_by: actorId,
+        last_connection_error: null,
+        metadata: safeMetadata,
+        updated_at: now,
+      })
+      .eq('integration_id', integration.id);
+
+    await logAuditEvent('tavily', 'tavily_connection_succeeded', actorId, safeMetadata);
+  } else {
+    const sanitizedError = result.message ? result.message.slice(0, 500) : 'Error desconocido';
+
+    await admin
+      .from('external_integration_connections')
+      .update({
+        connection_status: 'error',
+        last_tested_at: now,
+        last_tested_by: actorId,
+        last_connection_error: sanitizedError,
+        updated_at: now,
+      })
+      .eq('integration_id', integration.id);
+
+    await logAuditEvent('tavily', 'tavily_connection_failed', actorId, {
+      error_code: result.error,
+    });
+  }
+
+  return {
+    success: result.success,
+    error: result.error,
+    message: result.message,
+  };
+}
+
+// ============================================================
+// Tavily: Desconectar
+// ============================================================
+
+export async function disconnectTavily(): Promise<{
+  success: boolean;
+  error?: string;
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) return { success: false, error: authError };
+
+  await removeTavilyApiKey();
+
+  const admin = getAdminSupabase();
+
+  const { data: integration } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', 'tavily')
+    .single();
+
+  if (integration) {
+    await admin
+      .from('external_integration_connections')
+      .update({
+        credentials_status: 'missing',
+        connection_status: 'disconnected',
+        last_connection_error: null,
+        disconnected_at: new Date().toISOString(),
+        disconnected_by: actorId,
+        metadata: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('integration_id', integration.id);
+  }
+
+  await logAuditEvent('tavily', 'tavily_disconnected', actorId);
+
+  return {
+    success: true,
+    message: 'Tavily desconectado correctamente.',
   };
 }
 
