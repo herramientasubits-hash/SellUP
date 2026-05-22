@@ -40,7 +40,7 @@ export type {
 } from './types';
 export { getCatalogContext } from './catalog-context-retriever';
 
-// Web Search Tool — Hito 3A
+// Web Search Tool — Hito 3A (query builder + noise filter: Hito 7C)
 export type {
   WebSearchProviderKey,
   WebSearchIntent,
@@ -48,8 +48,21 @@ export type {
   WebSearchResult,
   WebSearchOutput,
 } from './types';
-export { runWebSearch, buildCompanyDiscoveryQuery } from './web-search-tool';
+export {
+  runWebSearch,
+  buildCompanyDiscoveryQuery,
+  buildSectorSpecificSearchTerms,
+  buildNoiseExclusionTerms,
+} from './web-search-tool';
 export type { CompanyDiscoveryQueryOptions } from './web-search-tool';
+
+// Noise Filter — Hito 7C
+export type {
+  WebSearchResultType,
+  NoiseClassification,
+  FilteredSearchResults,
+} from './noise-filter';
+export { classifySearchResult, filterNoiseResults } from './noise-filter';
 
 // Website Verifier — Hito 3B
 export type {

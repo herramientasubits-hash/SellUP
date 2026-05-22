@@ -1,0 +1,263 @@
+/**
+ * Prospecting Toolkit — Query Builder (Hito 7C)
+ *
+ * Construye queries optimizadas para discovery de empresas reales.
+ * Evita "B2B software" salvo en sectores tech/TIC.
+ * Sin llamadas externas. Lógica completamente determinística.
+ */
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+export type CompanyDiscoveryQueryOptions = {
+  industry: string;
+  country: string;
+  countryCode?: string | null;
+  intent?: 'general' | 'linkedin' | 'website';
+  catalogSourceUrls?: Array<string | null | undefined>;
+};
+
+// ─── Sectores tech (permiten términos de software en la query) ─────────────────
+
+const TECH_SECTOR_KEYWORDS = [
+  'tecnología', 'tecnologia', 'technology', 'tech',
+  'software', 'tic', ' ti ', ' it ', 'digital',
+  'informática', 'informatica', 'sistemas', 'desarrollo',
+  'saas', 'datos', 'data', 'ciberseguridad', 'cybersecurity',
+  'ecommerce', 'e-commerce', 'fintech',
+];
+
+function isTechSector(industry: string): boolean {
+  const lower = ` ${industry.toLowerCase()} `;
+  return TECH_SECTOR_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// ─── Términos de sector por industria ────────────────────────────────────────
+
+type SectorTerms = {
+  primary: string[];
+  secondary: string[];
+};
+
+function getSectorTerms(industry: string): SectorTerms {
+  const lower = industry.toLowerCase();
+
+  if (
+    lower.includes('textil') || lower.includes('textile') ||
+    lower.includes('confeccion') || lower.includes('moda') ||
+    lower.includes('garment') || lower.includes('apparel') ||
+    lower.includes('vestido') || lower.includes('clothing')
+  ) {
+    return {
+      primary: ['industria textil', 'empresas textiles', 'manufacturas textiles'],
+      secondary: ['confección', 'moda', 'fabricantes textiles', 'sector textil'],
+    };
+  }
+
+  if (
+    lower.includes('salud') || lower.includes('health') ||
+    lower.includes('clinica') || lower.includes('clínica') ||
+    lower.includes('hospital') || lower.includes('farmaceu') ||
+    lower.includes('medic') || lower.includes('ips') || lower.includes('eps')
+  ) {
+    return {
+      primary: ['sector salud', 'empresas sector salud'],
+      secondary: ['clínicas', 'laboratorios', 'prestadores salud', 'hospitales'],
+    };
+  }
+
+  if (
+    lower.includes('financiero') || lower.includes('financial') ||
+    lower.includes('banca') || lower.includes('banco') ||
+    lower.includes('seguros') || lower.includes('fintech') ||
+    lower.includes('aseguradora')
+  ) {
+    return {
+      primary: ['sector financiero', 'empresas financieras'],
+      secondary: ['bancos', 'aseguradoras', 'instituciones financieras'],
+    };
+  }
+
+  if (
+    lower.includes('automotri') || lower.includes('automotive') ||
+    lower.includes('autopart')
+  ) {
+    return {
+      primary: ['industria automotriz', 'empresas automotrices'],
+      secondary: ['autopartes', 'fabricantes automotriz', 'proveedores automotriz'],
+    };
+  }
+
+  if (
+    lower.includes('manufactur') || lower.includes('manufactu') ||
+    (lower.includes('industrial') && !lower.includes('financi'))
+  ) {
+    return {
+      primary: ['industria manufacturera', 'empresas manufactureras'],
+      secondary: ['fabricantes', 'planta industrial', 'sector manufactura'],
+    };
+  }
+
+  if (
+    lower.includes('agr') || lower.includes('alimento') || lower.includes('food') ||
+    lower.includes('agropec') || lower.includes('agroindustri')
+  ) {
+    return {
+      primary: ['sector agropecuario', 'empresas agroindustriales'],
+      secondary: ['agroalimentos', 'industria alimentaria', 'empresas agro'],
+    };
+  }
+
+  if (
+    lower.includes('construccion') || lower.includes('construcción') ||
+    lower.includes('inmobiliaria') || lower.includes('real estate')
+  ) {
+    return {
+      primary: ['sector construcción', 'empresas constructoras'],
+      secondary: ['inmobiliarias', 'constructoras', 'desarrolladoras'],
+    };
+  }
+
+  if (
+    lower.includes('logística') || lower.includes('logistica') ||
+    lower.includes('transporte') || lower.includes('transport') ||
+    lower.includes('distribuc')
+  ) {
+    return {
+      primary: ['sector logística', 'empresas transporte y logística'],
+      secondary: ['distribución', 'carga', 'operadores logísticos'],
+    };
+  }
+
+  if (
+    lower.includes('educaci') || lower.includes('education') ||
+    lower.includes('formaci') || lower.includes('capacitaci')
+  ) {
+    return {
+      primary: ['sector educativo', 'instituciones educativas'],
+      secondary: ['universidades', 'colegios', 'capacitación empresarial'],
+    };
+  }
+
+  if (
+    lower.includes('retail') || lower.includes('comercio') ||
+    lower.includes('minorista')
+  ) {
+    return {
+      primary: ['sector comercio', 'empresas retail'],
+      secondary: ['comercio minorista', 'distribuidores', 'cadenas comerciales'],
+    };
+  }
+
+  // Default genérico: usar el nombre de la industria directamente
+  return {
+    primary: [`empresas ${industry}`, `sector ${industry}`],
+    secondary: ['empresa', 'compañía', 'corporativo'],
+  };
+}
+
+// ─── Dominios de exclusión para operadores -site: ────────────────────────────
+
+export function buildNoiseExclusionTerms(): string[] {
+  return [
+    '-site:computrabajo.com',
+    '-site:indeed.com',
+    '-site:glassdoor.com',
+    '-site:comparasoftware.com',
+    '-site:capterra.com',
+    '-site:g2.com',
+    '-site:crunchbase.com',
+    '-site:f6s.com',
+    '-site:ensun.io',
+    '-site:linkedin.com/posts',
+    '-site:guiatic.com',
+    '-site:getapp.com',
+  ];
+}
+
+// ─── Query builder principal ──────────────────────────────────────────────────
+
+/**
+ * Genera la query principal de búsqueda para discovery de empresas reales.
+ * Distingue sectores tech (donde "software" es relevante) de otros sectores.
+ * Incluye exclusiones -site: para reducir ruido en la búsqueda.
+ */
+export function buildCompanyDiscoveryQuery(opts: CompanyDiscoveryQueryOptions): string {
+  const { industry, country, intent = 'general' } = opts;
+
+  switch (intent) {
+    case 'linkedin':
+      return `site:linkedin.com/company ${industry} ${country} empresa`;
+
+    case 'website':
+      return buildWebsiteDiscoveryQuery(industry, country);
+
+    default:
+      return buildGeneralDiscoveryQuery(industry, country);
+  }
+}
+
+function buildGeneralDiscoveryQuery(industry: string, country: string): string {
+  const sectorTerms = getSectorTerms(industry);
+  const isTech = isTechSector(industry);
+
+  // Exclusiones: subset compacto para no extender demasiado la query
+  const exclusions = buildNoiseExclusionTerms().slice(0, 4).join(' ');
+
+  if (isTech) {
+    return `empresas ${industry} ${country} sector TIC corporativo ${exclusions}`.trim();
+  }
+
+  const primaryTerm = sectorTerms.primary[0];
+  return `${primaryTerm} ${country} empresa corporativo ${exclusions}`.trim();
+}
+
+function buildWebsiteDiscoveryQuery(industry: string, country: string): string {
+  const sectorTerms = getSectorTerms(industry);
+  const primaryTerm = sectorTerms.primary[0];
+  return `${primaryTerm} ${country} sitio web contacto empresa`;
+}
+
+/**
+ * Genera múltiples queries candidatas para un contexto de búsqueda.
+ * Permite ejecutar búsquedas paralelas y combinar resultados.
+ */
+export function buildSectorSpecificSearchTerms(opts: {
+  industry: string;
+  country: string;
+  countryCode?: string | null;
+  catalogSourceUrls?: Array<string | null | undefined>;
+}): string[] {
+  const { industry, country, catalogSourceUrls = [] } = opts;
+  const sectorTerms = getSectorTerms(industry);
+  const isTech = isTechSector(industry);
+  const queries: string[] = [];
+
+  // Query 1: general optimizada (sin ruido)
+  queries.push(buildCompanyDiscoveryQuery({ industry, country, intent: 'general' }));
+
+  // Query 2: sinónimos de sector
+  if (sectorTerms.secondary.length > 0) {
+    const secondaryTerm = sectorTerms.secondary[0];
+    queries.push(`${secondaryTerm} ${country} empresa oficial sector`);
+  }
+
+  // Query 3: basada en URL de fuente oficial del catálogo
+  const validUrls = catalogSourceUrls.filter(
+    (u): u is string => typeof u === 'string' && u.length > 0,
+  );
+  if (validUrls.length > 0) {
+    try {
+      const sourceHost = new URL(validUrls[0]).hostname;
+      queries.push(`site:${sourceHost} ${industry} ${country}`);
+    } catch {
+      // URL inválida — ignorar
+    }
+  }
+
+  // Query 4: tech-specific si aplica
+  if (isTech) {
+    queries.push(`empresas software ${country} directorio gremio cámara sector`);
+  }
+
+  return queries.filter((q) => q.trim().length > 0);
+}

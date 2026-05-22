@@ -1,9 +1,11 @@
 /**
- * Prospecting Toolkit — Web Search Tool (Hito 3A)
+ * Prospecting Toolkit — Web Search Tool (Hito 3A, actualizado 7C)
  *
  * Herramienta de búsqueda web configurable con abstracción de providers.
  * Provider default: mock (sin costo, sin llamadas externas).
  * Provider real inicial: tavily (requiere TAVILY_API_KEY en entorno).
+ *
+ * Hito 7C: integra filtro anti-ruido post-search y query builder mejorado.
  *
  * Reglas críticas:
  * - No llama a Apollo, Lusha ni HubSpot.
@@ -17,6 +19,15 @@
 import type { WebSearchInput, WebSearchOutput, WebSearchProviderKey } from './types';
 import { runMockWebSearch } from './web-search-providers/mock-web-search-provider';
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
+import { filterNoiseResults } from './noise-filter';
+
+// Re-exportar desde query-builder para mantener la API pública estable
+export {
+  buildCompanyDiscoveryQuery,
+  buildSectorSpecificSearchTerms,
+  buildNoiseExclusionTerms,
+} from './query-builder';
+export type { CompanyDiscoveryQueryOptions } from './query-builder';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -51,7 +62,6 @@ async function dispatchToProvider(
     case 'tavily':
       return runTavilyWebSearch(input, maxResults);
     default:
-      // Provider no implementado — retorna skipped sin lanzar error fatal
       return {
         provider,
         query: input.query,
@@ -72,15 +82,12 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
   const provider = input.provider ?? DEFAULT_PROVIDER;
   const maxResults = resolveMaxResults(input.maxResults);
 
-  const normalizedInput: WebSearchInput = {
-    ...input,
-    query,
-  };
+  const normalizedInput: WebSearchInput = { ...input, query };
 
-  const output = await dispatchToProvider(provider, normalizedInput, maxResults);
+  const raw = await dispatchToProvider(provider, normalizedInput, maxResults);
 
-  // Post-filtro: eliminar resultados sin URL válida (defensa en profundidad)
-  const validResults = output.results.filter((r) => {
+  // Post-filtro 1: eliminar resultados sin URL válida
+  const validResults = raw.results.filter((r) => {
     try {
       new URL(r.url);
       return true;
@@ -89,39 +96,25 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
     }
   });
 
-  // Re-normalizar rank tras filtrado
-  const rankedResults = validResults.map((r, i) => ({ ...r, rank: i + 1 }));
+  // Post-filtro 2: clasificación anti-ruido (Hito 7C)
+  const { kept, filtered, rawCount, keptCount, filteredCount } =
+    filterNoiseResults(validResults);
 
   return {
-    ...output,
+    ...raw,
     query,
-    results: rankedResults,
-    resultsCount: rankedResults.length,
+    results: kept,
+    resultsCount: keptCount,
+    metadata: {
+      ...raw.metadata,
+      noise_filter: {
+        raw_results_count: rawCount,
+        kept_count: keptCount,
+        filtered_out_count: filteredCount,
+        filtered_domains: filtered.map((f) => {
+          try { return new URL(f.result.url).hostname; } catch { return f.result.url; }
+        }),
+      },
+    },
   };
-}
-
-// ─── Query builder helper ─────────────────────────────────────────────────────
-
-export type CompanyDiscoveryQueryOptions = {
-  industry: string;
-  country: string;
-  countryCode?: string | null;
-  intent?: 'general' | 'linkedin' | 'website';
-};
-
-/**
- * Genera queries de búsqueda para discovery de empresas.
- * Hito 3A: retorna una query principal. Multi-query en hitos futuros.
- */
-export function buildCompanyDiscoveryQuery(opts: CompanyDiscoveryQueryOptions): string {
-  const { industry, country, intent = 'general' } = opts;
-
-  switch (intent) {
-    case 'linkedin':
-      return `site:linkedin.com/company ${industry} ${country} empresa`;
-    case 'website':
-      return `empresas ${industry} ${country} sitio web contacto`;
-    default:
-      return `empresas ${industry} ${country} B2B software`;
-  }
 }
