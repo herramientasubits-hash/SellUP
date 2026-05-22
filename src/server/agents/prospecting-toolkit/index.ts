@@ -77,3 +77,17 @@ export type {
   ProspectingPipelineOutput,
 } from './types';
 export { runProspectingPipeline } from './prospecting-pipeline';
+
+// Candidate Writer — Hito 5
+export type {
+  CandidateWriterSource,
+  CandidateWriterStatus,
+  CandidateWriterInput,
+  CandidateWriterSkipped,
+  CandidateWriterOutput,
+  ProspectingPipelineWriteOutput,
+} from './types';
+export {
+  writeProspectingCandidates,
+  runAndWriteProspectingPipeline,
+} from './candidate-writer';

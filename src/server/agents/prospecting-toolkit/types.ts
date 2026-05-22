@@ -264,6 +264,49 @@ export type ProspectingPipelineOutput = {
 };
 
 // ============================================================
+// Candidate Writer — tipos (Hito 5)
+// ============================================================
+
+export type CandidateWriterSource = "agent_1" | "mock" | "web_search";
+
+export type CandidateWriterStatus =
+  | "success"
+  | "partial_success"
+  | "failed"
+  | "dry_run";
+
+export type CandidateWriterInput = {
+  pipelineOutput: ProspectingPipelineOutput;
+  triggeredByUserId?: string | null;
+  ownerId?: string | null;
+  batchName?: string | null;
+  source?: CandidateWriterSource;
+  dryRun?: boolean;
+};
+
+export type CandidateWriterSkipped = {
+  name: string;
+  reason: string;
+};
+
+export type CandidateWriterOutput = {
+  dryRun: boolean;
+  batchId: string | null;
+  candidatesCreated: number;
+  candidatesSkipped: number;
+  createdCandidateIds: string[];
+  skipped: CandidateWriterSkipped[];
+  status: CandidateWriterStatus;
+  errors: string[];
+};
+
+// Combined output for runAndWriteProspectingPipeline
+export type ProspectingPipelineWriteOutput = {
+  pipeline: ProspectingPipelineOutput;
+  writer: CandidateWriterOutput;
+};
+
+// ============================================================
 // Website Verifier — tipos (Hito 3B)
 // ============================================================
 
