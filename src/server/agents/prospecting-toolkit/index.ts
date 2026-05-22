@@ -50,3 +50,11 @@ export type {
 } from './types';
 export { runWebSearch, buildCompanyDiscoveryQuery } from './web-search-tool';
 export type { CompanyDiscoveryQueryOptions } from './web-search-tool';
+
+// Website Verifier — Hito 3B
+export type {
+  WebsiteVerificationStatus,
+  WebsiteVerificationInput,
+  WebsiteVerificationOutput,
+} from './types';
+export { verifyWebsite, scoreCompanyNameAgainstPage } from './website-verifier';

@@ -148,3 +148,42 @@ export type WebSearchOutput = {
   estimatedCostUsd?: number | null;
   metadata?: Record<string, unknown>;
 };
+
+// ============================================================
+// Website Verifier — tipos (Hito 3B)
+// ============================================================
+
+export type WebsiteVerificationStatus =
+  | "verified"
+  | "inferred"
+  | "mismatch"
+  | "not_found"
+  | "error";
+
+export type WebsiteVerificationInput = {
+  candidateName: string;
+  websiteOrDomain?: string | null;
+  country?: string | null;
+  countryCode?: string | null;
+  expectedDomain?: string | null;
+  timeoutMs?: number;
+};
+
+export type WebsiteVerificationOutput = {
+  status: WebsiteVerificationStatus;
+  website: string | null;
+  domain: string | null;
+  finalUrl: string | null;
+  finalDomain: string | null;
+  httpStatus: number | null;
+  redirected: boolean;
+  redirectChain: string[];
+  title?: string | null;
+  metaDescription?: string | null;
+  evidence: string[];
+  confidence: number;
+  skipped: boolean;
+  skipReason?: string | null;
+  error?: string | null;
+  metadata?: Record<string, unknown>;
+};
