@@ -97,3 +97,54 @@ export type CatalogContextResult = {
   coverageNotes: string[];
   promptContext: string;
 };
+
+// ============================================================
+// Web Search Tool — tipos (Hito 3A)
+// ============================================================
+
+export type WebSearchProviderKey =
+  | "mock"
+  | "tavily"
+  | "brave"
+  | "serpapi"
+  | "exa"
+  | "firecrawl";
+
+export type WebSearchIntent =
+  | "company_discovery"
+  | "website_discovery"
+  | "linkedin_company_discovery"
+  | "source_validation";
+
+export type WebSearchInput = {
+  query: string;
+  country?: string | null;
+  countryCode?: string | null;
+  industry?: string | null;
+  intent?: WebSearchIntent;
+  maxResults?: number;
+  provider?: WebSearchProviderKey;
+  searchDepth?: SearchDepth;
+};
+
+export type WebSearchResult = {
+  title: string;
+  url: string;
+  snippet?: string | null;
+  source?: string | null;
+  rank: number;
+  provider: WebSearchProviderKey;
+  confidence?: number | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type WebSearchOutput = {
+  provider: WebSearchProviderKey;
+  query: string;
+  results: WebSearchResult[];
+  resultsCount: number;
+  skipped: boolean;
+  skipReason?: string | null;
+  estimatedCostUsd?: number | null;
+  metadata?: Record<string, unknown>;
+};

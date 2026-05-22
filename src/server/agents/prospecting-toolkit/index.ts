@@ -39,3 +39,14 @@ export type {
   CatalogContextResult,
 } from './types';
 export { getCatalogContext } from './catalog-context-retriever';
+
+// Web Search Tool — Hito 3A
+export type {
+  WebSearchProviderKey,
+  WebSearchIntent,
+  WebSearchInput,
+  WebSearchResult,
+  WebSearchOutput,
+} from './types';
+export { runWebSearch, buildCompanyDiscoveryQuery } from './web-search-tool';
+export type { CompanyDiscoveryQueryOptions } from './web-search-tool';
