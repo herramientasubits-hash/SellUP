@@ -158,11 +158,11 @@
   --su-success: oklch(0.62 0.17 155);
   --su-warning: oklch(0.72 0.18 75);
 
-  /* AI gradient — indigo → violet, reserved for AI-powered elements */
-  --su-ai-from: oklch(0.52 0.24 258);
-  --su-ai-to: oklch(0.50 0.25 300);
-  --su-ai-surface: oklch(0.52 0.22 278 / 7%);
-  --su-ai-glow: oklch(0.52 0.22 278 / 22%);
+  /* AI gradient — same vibrant values as dark mode for visual consistency */
+  --su-ai-from: oklch(0.66 0.25 258);
+  --su-ai-to: oklch(0.63 0.26 300);
+  --su-ai-surface: oklch(0.64 0.24 278 / 10%);
+  --su-ai-glow: oklch(0.64 0.24 278 / 30%);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
