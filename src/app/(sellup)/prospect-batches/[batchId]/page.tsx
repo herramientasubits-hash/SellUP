@@ -9,6 +9,7 @@ import {
   ArrowRightCircle,
   AlertTriangle,
   Layers,
+  FlaskConical,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -124,6 +125,23 @@ export default async function BatchDetailPage({ params }: Props) {
         description={batch.description ?? undefined}
         actions={<CreateCandidateDrawer batchId={batch.id} />}
       />
+
+      {/* Alerta modo mock */}
+      {batch.metadata?.generation_mode === 'mock' && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-3.5">
+          <div className="flex items-start gap-2.5">
+            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <div>
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                Lote generado en modo prueba
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Este lote fue generado con datos mock para validar el flujo del pipeline. No usar estos candidatos para convertirlos en empresas reales.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Batch meta */}
       <div className="flex flex-wrap items-center gap-2">

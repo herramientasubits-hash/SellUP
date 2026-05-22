@@ -229,9 +229,12 @@ export async function writeProspectingCandidates(
 
   const batchSource = source === "mock" || source === "web_search" ? "agent_1" : (source ?? "agent_1");
 
+  const pipelineMeta = pipelineOutput.metadata as Record<string, unknown>;
+  const isMockRun = pipelineMeta?.provider === "mock";
+
   const batchMetadata: Record<string, unknown> = {
     generated_by: "agent_1_candidate_writer",
-    pipeline_version: (pipelineOutput.metadata as Record<string, unknown>)?.pipelineVersion ?? "unknown",
+    pipeline_version: pipelineMeta?.pipelineVersion ?? "unknown",
     pipeline_summary: {
       requested: pipelineOutput.summary.requested,
       returned: pipelineOutput.summary.returned,
@@ -241,14 +244,19 @@ export async function writeProspectingCandidates(
       insufficient_data: pipelineOutput.summary.insufficientData,
       discarded: pipelineOutput.summary.discarded,
     },
-    web_search_provider: (pipelineOutput.metadata as Record<string, unknown>)?.provider ?? "unknown",
-    search_depth: (pipelineOutput.metadata as Record<string, unknown>)?.searchDepth ?? "standard",
+    web_search_provider: pipelineMeta?.provider ?? "unknown",
+    search_depth: pipelineMeta?.searchDepth ?? "standard",
     catalog_sources:
       pipelineOutput.catalogContext?.recommendedSources?.map((s) => s.key) ?? [],
     warnings: pipelineOutput.warnings ?? [],
-    generated_at:
-      (pipelineOutput.metadata as Record<string, unknown>)?.executedAt ?? now.toISOString(),
+    generated_at: pipelineMeta?.executedAt ?? now.toISOString(),
     dry_run: false,
+    ...(isMockRun
+      ? {
+          generation_mode: "mock",
+          warning: "Datos de prueba. No convertir a empresas reales.",
+        }
+      : {}),
   };
 
   // Crear prospect_batch
