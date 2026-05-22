@@ -73,6 +73,12 @@
   --color-su-success: var(--su-success);
   --color-su-warning: var(--su-warning);
 
+  /* AI gradient tokens */
+  --color-su-ai-from: var(--su-ai-from);
+  --color-su-ai-to: var(--su-ai-to);
+  --color-su-ai-surface: var(--su-ai-surface);
+  --color-su-ai-glow: var(--su-ai-glow);
+
   /* Animation tokens */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -151,6 +157,12 @@
   --su-accent-cool: oklch(0.62 0.16 290);
   --su-success: oklch(0.62 0.17 155);
   --su-warning: oklch(0.72 0.18 75);
+
+  /* AI gradient — indigo → violet, reserved for AI-powered elements */
+  --su-ai-from: oklch(0.52 0.24 258);
+  --su-ai-to: oklch(0.50 0.25 300);
+  --su-ai-surface: oklch(0.52 0.22 278 / 7%);
+  --su-ai-glow: oklch(0.52 0.22 278 / 22%);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -223,6 +235,12 @@
   --su-accent-cool: oklch(0.65 0.17 290);
   --su-success: oklch(0.65 0.18 155);
   --su-warning: oklch(0.75 0.18 75);
+
+  /* AI gradient — brighter in dark mode for max contrast on deep surfaces */
+  --su-ai-from: oklch(0.66 0.25 258);
+  --su-ai-to: oklch(0.63 0.26 300);
+  --su-ai-surface: oklch(0.64 0.24 278 / 10%);
+  --su-ai-glow: oklch(0.64 0.24 278 / 30%);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -283,6 +301,12 @@
   50% { opacity: 0.8; }
 }
 
+@keyframes su-ai-flow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 @layer utilities {
   .animate-su-fade-in {
     animation: su-fade-in 0.4s var(--ease-spring) both;
@@ -322,6 +346,76 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  /* ── AI gradient utilities ──────────────────────────────────────────────── */
+
+  /* Solid fill — for primary AI buttons and strong indicators */
+  .su-ai-gradient {
+    background: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%);
+    color: oklch(0.99 0 0);
+  }
+  .su-ai-gradient:hover {
+    background: linear-gradient(135deg,
+      oklch(from var(--su-ai-from) calc(l + 0.04) c h) 0%,
+      oklch(from var(--su-ai-to) calc(l + 0.04) c h) 100%
+    );
+  }
+
+  /* Animated shimmer variant — living gradient for active AI states */
+  .su-ai-gradient-animate {
+    background: linear-gradient(
+      135deg,
+      var(--su-ai-from) 0%,
+      var(--su-ai-to) 50%,
+      var(--su-ai-from) 100%
+    );
+    background-size: 200% 200%;
+    color: oklch(0.99 0 0);
+    animation: su-ai-flow 4s ease-in-out infinite;
+  }
+
+  /* Gradient text — for AI labels, headings, inline mentions */
+  .su-ai-gradient-text {
+    background: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Soft surface — tinted background for AI cards and sections */
+  .su-ai-surface {
+    background: var(--su-ai-surface);
+  }
+
+  /* Gradient border — card or input outline in AI context */
+  .su-ai-border {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) border-box;
+  }
+
+  /* Glow halo — shadow effect for AI buttons and active states */
+  .su-ai-glow {
+    box-shadow: 0 0 0 0 transparent, 0 4px 16px var(--su-ai-glow);
+  }
+  .su-ai-glow:hover {
+    box-shadow: 0 0 0 0 transparent, 0 6px 24px var(--su-ai-glow);
+  }
+
+  /* Badge compound — pill-shaped AI indicator */
+  .su-ai-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    background: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to));
+    color: oklch(0.99 0 0);
   }
 
   /* Skeleton shimmer for placeholders */

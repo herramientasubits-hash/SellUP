@@ -109,7 +109,7 @@ export function GenerateAIBatchDrawer() {
       <Button
         onClick={() => setOpen(true)}
         size="sm"
-        className="gap-1.5 bg-su-brand text-white hover:bg-su-brand/90"
+        className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
       >
         <Sparkles className="h-3.5 w-3.5" />
         Generar con IA
@@ -120,8 +120,8 @@ export function GenerateAIBatchDrawer() {
           {/* Header */}
           <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
-                <Sparkles className="h-4 w-4 text-su-brand" />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-su-ai-from to-su-ai-to">
+                <Sparkles className="h-4 w-4 text-white" />
               </div>
               <div className="space-y-0.5">
                 <SheetTitle className="text-base font-semibold">
@@ -282,7 +282,7 @@ export function GenerateAIBatchDrawer() {
                 type="submit"
                 size="sm"
                 disabled={!canSubmit}
-                className="gap-1.5"
+                className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent disabled:opacity-40"
               >
                 {generating ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

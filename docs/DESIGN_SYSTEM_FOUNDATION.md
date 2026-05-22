@@ -284,5 +284,78 @@ border-su-border-strong → borde con más contraste
 
 ---
 
+## 9. AI Gradient — Tokens y utilidades
+
+### Propósito
+
+El gradiente IA es la única gradación cromática permitida en la app operativa. Sirve como señal visual exclusiva de funcionalidades potenciadas por inteligencia artificial — botones de generación, badges de IA, indicadores de estado activo de agentes, superficies de resultados generados.
+
+**Regla de exclusividad:** este gradiente no se usa en elementos que no sean IA. Su consistencia es lo que lo hace semiótico.
+
+### Tokens
+
+| Token CSS | Tailwind | Descripción |
+|---|---|---|
+| `--su-ai-from` | `text-su-ai-from`, `bg-su-ai-from` | Extremo índigo del gradiente (`oklch ~258°`) |
+| `--su-ai-to` | `text-su-ai-to`, `bg-su-ai-to` | Extremo violeta del gradiente (`oklch ~300°`) |
+| `--su-ai-surface` | `bg-su-ai-surface` | Fondo muy suave tintado (~7-10% opacidad) |
+| `--su-ai-glow` | — | Color del halo/sombra difusa (~22-30% opacidad) |
+
+Los tokens se definen en `:root` (light) y `.dark` (dark). En dark mode los extremos son más luminosos para brillar sobre fondos profundos.
+
+### Utilidades
+
+| Clase | Uso |
+|---|---|
+| `su-ai-gradient` | Relleno sólido — botones primarios de IA |
+| `su-ai-gradient-animate` | Gradiente animado fluido — estados activos de agente |
+| `su-ai-gradient-text` | Texto con gradiente — etiquetas, headings de contexto IA |
+| `su-ai-surface` | Superficie suave tintada — cards de resultados IA |
+| `su-ai-border` | Borde gradiente sobre fondo de card — contenedores de contexto IA |
+| `su-ai-glow` | Sombra difusa — botones IA con profundidad |
+| `su-ai-badge` | Pill compuesto — indicador "IA" / "Generado por IA" |
+
+### Dirección del gradiente
+
+`135deg` — diagonal descendente izquierda→derecha. Consistente en todos los elementos para coherencia visual sistémica.
+
+### Light vs. Dark
+
+| Aspecto | Light | Dark |
+|---|---|---|
+| `--su-ai-from` | `oklch(0.52 0.24 258)` — índigo oscuro | `oklch(0.66 0.25 258)` — índigo brillante |
+| `--su-ai-to` | `oklch(0.50 0.25 300)` — violeta oscuro | `oklch(0.63 0.26 300)` — violeta brillante |
+| Glow opacity | 22% | 30% |
+
+### Ejemplos de uso
+
+```tsx
+{/* Botón de acción IA */}
+<button className="su-ai-gradient su-ai-glow rounded-md px-4 py-2 text-sm font-semibold">
+  Generar con IA
+</button>
+
+{/* Badge de identificación */}
+<span className="su-ai-badge">IA</span>
+
+{/* Card de resultado generado */}
+<div className="su-ai-surface su-ai-border rounded-xl p-4">
+  {/* contenido generado */}
+</div>
+
+{/* Label inline de contexto IA */}
+<span className="su-ai-gradient-text font-semibold text-sm">Generado por Agente 1</span>
+```
+
+### Prohibiciones
+
+- ❌ No usar en botones estándar (solo acciones de IA)
+- ❌ No mezclar con `--su-brand` en el mismo elemento
+- ❌ No usar `su-ai-gradient-animate` en elementos sin estado activo de agente (por distracción)
+- ❌ No recrear el gradiente con valores hardcodeados — siempre usar los tokens
+
+---
+
 *SellUp Design System Foundation v0.1 — Mayo 2026*
+*Actualización § 9 AI Gradient — Mayo 2026*
 *Siguiente iteración: v0.2 tras completar Pipeline funcional.*
