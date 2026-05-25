@@ -171,6 +171,11 @@ export function buildNoiseExclusionTerms(): string[] {
     '-site:linkedin.com/posts',
     '-site:guiatic.com',
     '-site:getapp.com',
+    '-site:cintel.co',
+    '-site:tic-col.net',
+    '-site:impactotic.co',
+    '-site:sciencedirect.com',
+    '-filetype:pdf',
   ];
 }
 
@@ -204,11 +209,48 @@ function buildGeneralDiscoveryQuery(industry: string, country: string): string {
   const exclusions = buildNoiseExclusionTerms().slice(0, 4).join(' ');
 
   if (isTech) {
-    return `empresas ${industry} ${country} sector TIC corporativo ${exclusions}`.trim();
+    return `empresas ${industry} ${country} servicios soluciones contacto ${exclusions}`.trim();
   }
 
   const primaryTerm = sectorTerms.primary[0];
   return `${primaryTerm} ${country} empresa corporativo ${exclusions}`.trim();
+}
+
+/**
+ * Hito 9 Part B: Generate 5 query variants optimized for finding concrete,
+ * prospectable companies rather than sector sources, associations, or directories.
+ *
+ * Each variant uses different linguistic angles to attract company websites:
+ * - Variant 1: Services/solutions language (operational)
+ * - Variant 2: Company contact/engagement language
+ * - Variant 3: Regional domain hints + exclude directories
+ * - Variant 4: Structure/site pattern matching
+ * - Variant 5: Corporate identity language
+ */
+export function buildProspectableCompanyDiscoveryQueries(
+  industry: string,
+  country: string,
+): string[] {
+  const exclusions = buildNoiseExclusionTerms();
+  // Use targeted exclusions without -filetype:pdf (not supported by all providers)
+  const siteExclusions = exclusions.filter((e) => e.startsWith('-site:')).slice(0, 5).join(' ');
+
+  return [
+    // Variante 1: Lenguaje de servicios/contacto → atrae sitios corporativos operacionales
+    `empresas de ${industry} ${country} servicios tecnología contacto ${siteExclusions}`.trim(),
+
+    // Variante 2: Lenguaje de desarrollo/soluciones → evita portales sectoriales
+    `empresas desarrollo de ${industry} ${country} soluciones nosotros ${siteExclusions}`.trim(),
+
+    // Variante 3: Consultoras IT → ángulo de servicios IT concreto
+    `consultoras ${industry} ${country} servicios IT empresas -site:crunchbase.com -site:g2.com -site:capterra.com`.trim(),
+
+    // Variante 4: SaaS/soluciones empresariales → atrae empresas de producto
+    `empresas SaaS ${country} ${industry} soluciones empresariales -site:comparasoftware.com -site:capterra.com`.trim(),
+
+    // Variante 5: Dominio regional + identidad corporativa
+    `empresa ${industry} ${country} corporativo sitio web soluciones -site:cintel.co -site:tic-col.net -site:impactotic.co`.trim(),
+  ];
 }
 
 function buildWebsiteDiscoveryQuery(industry: string, country: string): string {

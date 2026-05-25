@@ -20,6 +20,12 @@ export type WebSearchResultType =
   | 'social_post'
   | 'software_directory'
   | 'startup_database'
+  | 'association_or_chamber'
+  | 'academic_source'
+  | 'pdf_document'
+  | 'news_or_media'
+  | 'sector_report'
+  | 'non_prospectable_source'
   | 'unknown';
 
 export type NoiseClassification = {
@@ -90,6 +96,68 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'einforma.com',
 ]);
 
+const ASSOCIATION_CHAMBER_DOMAINS = new Set([
+  'cintel.co',
+  'cintel.org.co',
+  'tic-col.net',
+  'asobarq.co',
+  'fenalco.com.co',
+  'andi.com.co',
+  'ccb.org.co',
+  'camarabogota.org.co',
+  'camaramedallin.org.co',
+  'cccali.org.co',
+  'acit.org.co',
+  'acofiex.org',
+  'asomicroempresas.com.co',
+  'acopi.org.co',
+  'ascamara.org',
+  'cccomercio.es',
+  'camaras.es',
+  'colombiatic.net',
+  'mintic.gov.co',
+]);
+
+const ACADEMIC_SOURCE_DOMAINS = new Set([
+  'sciencedirect.com',
+  'scholar.google.com',
+  'arxiv.org',
+  'researchgate.net',
+  'ieee.org',
+  'acm.org',
+  'jstor.org',
+  'bibliotecadigital.ccb.org.co',
+  'javeriana.edu.co',
+  'unal.edu.co',
+  'ean.edu.co',
+  'cife.edu.co',
+  'uninorte.edu.co',
+  '.edu.co',
+  '.edu',
+]);
+
+const NEWS_MEDIA_DOMAINS = new Set([
+  'dinero.com',
+  'semana.com',
+  'eltiempo.com',
+  'portafolio.co',
+  'larepublica.co',
+  'elespectador.com',
+  'lafm.com.co',
+  'caracol.com.co',
+  'rcnradio.com',
+  'pulzo.com',
+  'kienyke.com',
+  'forbes.com.co',
+  'forbes.es',
+  'expansion.com',
+  'emprendedores.es',
+  'impactotic.co',
+  'enter.co',
+  'colombiadigital.net',
+  'sistemasenlinea.com.co',
+]);
+
 // Patrones de ruta que indican artículo o blog
 const BLOG_PATH_PATTERNS = [
   '/blog/',
@@ -158,6 +226,211 @@ function isLinkedInCompanyPage(domain: string, path: string): boolean {
   return domain.includes('linkedin.com') && (
     path.startsWith('/company/') || path.includes('/company/')
   );
+}
+
+function isPdfDocument(url: string): boolean {
+  return url.toLowerCase().endsWith('.pdf') || url.toLowerCase().includes('/pdf');
+}
+
+/**
+ * Evalúa si un resultado es una empresa prospectable legítima.
+ *
+ * INCLUSIÓN (lo que QUEREMOS):
+ * - Empresas con dominio corporativo propio (.com, .com.co, .co, .es, .mx, .cl)
+ * - Sitios con estructura oficial (/about, /nosotros, /empresa, /soluciones, /servicios, /contacto)
+ * - Perfiles de empresa en LinkedIn
+ *
+ * EXCLUSIÓN (lo que NO QUEREMOS):
+ * - Asociaciones y cámaras (CINTEL, ANDI, FENALCO, etc.)
+ * - Fuentes académicas (ScienceDirect, scholar.google, bibliotecadigital)
+ * - Documentos PDF
+ * - Medios y noticias (Dinero, Semana, El Tiempo, etc.)
+ * - Directorios de software (Capterra, G2, comparasoftware)
+ * - Bases de datos de startups (Crunchbase, F6S, Ensun)
+ * - Portales de empleo (Computrabajo, Indeed, etc.)
+ * - Posts sociales
+ * - Blogs y artículos
+ */
+export function isProspectableCompanyResult(result: {
+  url: string;
+  title?: string | null;
+  snippet?: string | null;
+}): {
+  isProspectable: boolean;
+  reason: string;
+  resultType: WebSearchResultType;
+} {
+  const domain = extractDomain(result.url);
+  const path = extractPath(result.url);
+
+  if (!domain) {
+    return {
+      isProspectable: false,
+      reason: 'URL inválida o sin dominio extraíble',
+      resultType: 'unknown',
+    };
+  }
+
+  // ─── EXCLUSIONES (Ruido explícito) ───────────────────────────────────────────
+
+  // 1. Documentos PDF
+  if (isPdfDocument(result.url)) {
+    return {
+      isProspectable: false,
+      reason: 'Documento PDF — no es un sitio web de empresa',
+      resultType: 'pdf_document',
+    };
+  }
+
+  // 2. Asociaciones y cámaras
+  if (domainMatchesSet(domain, ASSOCIATION_CHAMBER_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Asociación o cámara (${domain}), no empresa prospectable`,
+      resultType: 'association_or_chamber',
+    };
+  }
+
+  // 3. Fuentes académicas
+  if (
+    domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
+    domain.endsWith('.edu.co') ||
+    domain.endsWith('.edu')
+  ) {
+    return {
+      isProspectable: false,
+      reason: `Fuente académica (${domain})`,
+      resultType: 'academic_source',
+    };
+  }
+
+  // 4. Medios y noticias
+  if (domainMatchesSet(domain, NEWS_MEDIA_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Medio de comunicación o noticia (${domain})`,
+      resultType: 'news_or_media',
+    };
+  }
+
+  // 5. Job boards
+  if (domainMatchesSet(domain, JOB_BOARD_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Portal de empleo (${domain})`,
+      resultType: 'job_board',
+    };
+  }
+
+  // 6. Directorios de software
+  if (domainMatchesSet(domain, SOFTWARE_DIRECTORY_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Directorio de software (${domain}) — no empresa prospectable`,
+      resultType: 'software_directory',
+    };
+  }
+
+  // 6b. Bases de datos de startups
+  if (domainMatchesSet(domain, STARTUP_DATABASE_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Base de datos de startups (${domain}) — no empresa prospectable`,
+      resultType: 'startup_database',
+    };
+  }
+
+  // 6c. Directorios genéricos
+  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Directorio genérico (${domain}) — no empresa prospectable`,
+      resultType: 'directory',
+    };
+  }
+
+  // 7. Posts sociales y blogs
+  for (const { domain: socialDomain, prefix } of SOCIAL_POST_PATH_PREFIXES) {
+    if (domain.includes(socialDomain) && path.includes(prefix)) {
+      return {
+        isProspectable: false,
+        reason: `Post social en ${domain}`,
+        resultType: 'social_post',
+      };
+    }
+  }
+
+  const hasBlogPath = BLOG_PATH_PATTERNS.some((pattern) =>
+    path.includes(pattern)
+  );
+  const hasYearInPath = YEAR_IN_PATH.test(path);
+  const isBlogSubdomain = hasBlogSubdomain(domain);
+
+  if (isBlogSubdomain || hasBlogPath || hasYearInPath) {
+    return {
+      isProspectable: false,
+      reason: 'Artículo o blog — no es sitio oficial de empresa',
+      resultType: 'blog_article',
+    };
+  }
+
+  // ─── INCLUSIONES (Empresa legítima) ──────────────────────────────────────────
+
+  // LinkedIn company pages son útiles para validar empresa
+  if (isLinkedInCompanyPage(domain, path)) {
+    return {
+      isProspectable: true,
+      reason: 'Perfil de empresa en LinkedIn — fuente de validación',
+      resultType: 'company_profile',
+    };
+  }
+
+  // Dominio corporativo con extensión regional/internacional
+  const corpDomainPattern = /\.(com|com\.co|co|es|mx|cl|ar|pe|ve|ec|pa|uy|cr|do|sv|hn|ni|gt|bo|py|br|pt|fr|it|de|uk|nl|be|ch|se|no|fi|dk|pl|cz|at|ie|nz|au|sg|hk|cn|in|jp|kr|th|my|id|ph|vn)$/i;
+
+  if (corpDomainPattern.test(domain)) {
+    // Detectar si parece ser un sitio oficial de empresa
+    // (no es blog ni directorio ni servicio genérico)
+    const hasOfficialPathPatterns = [
+      '/about',
+      '/nosotros',
+      '/empresa',
+      '/quienes-somos',
+      '/company',
+      '/soluciones',
+      '/servicios',
+      '/products',
+      '/services',
+      '/contacto',
+      '/contactanos',
+      '/contact',
+      '/team',
+      '/equipo',
+    ].some((pattern) => path.toLowerCase().includes(pattern));
+
+    // Si tiene patrones de sitio oficial o es root, es prospectable
+    if (hasOfficialPathPatterns || path === '/' || path === '') {
+      return {
+        isProspectable: true,
+        reason: `Dominio corporativo con estructura de sitio oficial (${domain})`,
+        resultType: 'official_company_site',
+      };
+    }
+
+    // Incluso sin patrones obvios, un dominio corporativo sin ruido es candidato
+    return {
+      isProspectable: true,
+      reason: `Dominio corporativo legítimo (${domain}) — candidato a empresa prospectable`,
+      resultType: 'official_company_site',
+    };
+  }
+
+  // Default: no prospectable (no fits corporate domain pattern)
+  return {
+    isProspectable: false,
+    reason: `Dominio no corporativo (${domain}) — no matches patrones de empresa prospectable`,
+    resultType: 'unknown',
+  };
 }
 
 // ─── Clasificador principal ───────────────────────────────────────────────────
@@ -238,7 +511,83 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 7. Artículos de blog por subdominio o patrón de URL
+  // 7. PDFs y documentos
+  if (isPdfDocument(result.url)) {
+    return {
+      resultType: 'pdf_document',
+      shouldKeep: false,
+      reason: 'Documento PDF detectado',
+    };
+  }
+
+  // 8. Asociaciones y cámaras de comercio
+  if (domainMatchesSet(domain, ASSOCIATION_CHAMBER_DOMAINS)) {
+    return {
+      resultType: 'association_or_chamber',
+      shouldKeep: false,
+      reason: `Asociación o cámara: ${domain}`,
+    };
+  }
+
+  // 9. Fuentes académicas
+  if (
+    domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
+    domain.endsWith('.edu.co') ||
+    domain.endsWith('.edu')
+  ) {
+    return {
+      resultType: 'academic_source',
+      shouldKeep: false,
+      reason: `Fuente académica: ${domain}`,
+    };
+  }
+
+  // 10. Noticias y medios de comunicación
+  if (domainMatchesSet(domain, NEWS_MEDIA_DOMAINS)) {
+    return {
+      resultType: 'news_or_media',
+      shouldKeep: false,
+      reason: `Sitio de noticias o media: ${domain}`,
+    };
+  }
+
+  // 11. Reportes, artículos sectoriales e informes académicos (por título/snippet)
+  const titleText = (result.title ?? '').toLowerCase();
+  const snippetText = (result.snippet ?? '').toLowerCase();
+
+  const SECTOR_REPORT_TITLE_SIGNALS = [
+    'biblioteca digital', 'sector tic', 'sector tecnología', 'sector tecnologia',
+    'informe sectorial', 'reporte sectorial', 'estudio de mercado',
+    'análisis del sector', 'analisis del sector', 'panorama del sector',
+    'tendencias del sector', 'industria tic', 'tic colombia',
+  ];
+  const isSectorTitleSignal = SECTOR_REPORT_TITLE_SIGNALS.some(
+    (s) => titleText.includes(s) || snippetText.includes(s),
+  );
+  if (isSectorTitleSignal) {
+    return {
+      resultType: 'sector_report',
+      shouldKeep: false,
+      reason: 'Título o snippet indica reporte/fuente sectorial, no empresa prospectable',
+    };
+  }
+
+  // Reporte genérico si el dominio también es de research/market
+  const hasReportKeyword =
+    /reporte|análisis|estudio|tendencias|informe/i.test(result.snippet ?? '') ||
+    /reporte|análisis|estudio|tendencias|informe/i.test(result.title ?? '');
+  if (
+    hasReportKeyword &&
+    (domain.includes('research') || domain.includes('market') || domain.includes('analyst'))
+  ) {
+    return {
+      resultType: 'sector_report',
+      shouldKeep: false,
+      reason: 'Reporte o análisis de sector detectado',
+    };
+  }
+
+  // 12. Artículos de blog por subdominio o patrón de URL
   const hasBlogPath = BLOG_PATH_PATTERNS.some((pattern) => path.includes(pattern));
   const hasYearInPath = YEAR_IN_PATH.test(path);
   const isBlogSubdomain = hasBlogSubdomain(domain);
@@ -255,7 +604,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 8. Default: candidato a sitio oficial de empresa
+  // 13. Default: candidato a sitio oficial de empresa
   return {
     resultType: 'official_company_site',
     shouldKeep: true,
