@@ -1,10 +1,18 @@
 /**
- * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C)
+ * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C, actualizado Hito 10B)
  *
  * Clasificación determinística de resultados de búsqueda web.
  * Sin IA ni llamadas externas.
- * Excluye job boards, blogs, posts sociales, directorios de software, startup DBs.
+ * Excluye job boards, blogs, posts sociales, directorios de software, startup DBs,
+ * plataformas sociales completas (Facebook, Instagram, YouTube, TikTok, X),
+ * directorios empresariales genéricos y contenido con año embebido en la URL.
  * Preserva sitios oficiales de empresa y perfiles de company en LinkedIn.
+ *
+ * Hito 10B — Ruido residual corregido:
+ *   - Facebook videos/páginas ahora bloqueados a nivel de dominio (social_page)
+ *   - Directorios empresariales (DataCrédito, PáginasAmarillas CO, etc.) añadidos
+ *   - YEAR_IN_PATH actualizado: detecta años embebidos en segmento (/web2019/, /blog2024/)
+ *   - Path /directorio/ bloqueado en cualquier dominio
  */
 
 import type { WebSearchResult } from './types';
@@ -18,6 +26,7 @@ export type WebSearchResultType =
   | 'job_board'
   | 'blog_article'
   | 'social_post'
+  | 'social_page'
   | 'software_directory'
   | 'startup_database'
   | 'association_or_chamber'
@@ -92,9 +101,45 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'yellowpages.com',
   'paginasamarillas.com.mx',
   'paginasamarillas.cl',
+  'paginasamarillas.com.co',   // Hito 10B: PáginasAmarillas Colombia
   'infocif.es',
   'einforma.com',
+  'datacreditoempresas.com.co', // Hito 10B: directorio empresarial DataCrédito
+  'empresite.eleconomistaamerica.co', // Hito 10B: directorio El Economista CO
+  'guiaempresas.universia.net.co',    // Hito 10B: guía empresas Universia CO
 ]);
+
+/**
+ * Plataformas sociales que NUNCA son candidatos prospectables.
+ * Todo URL de estos dominios se descarta como social_page o social_post.
+ * Excepción explícita: linkedin.com/company/ se trata por separado como company_profile.
+ *
+ * Hito 10B: añadido para bloquear Facebook videos/páginas que pasaban el filtro anterior.
+ */
+const SOCIAL_PLATFORM_DOMAINS = new Set([
+  'facebook.com',
+  'fb.com',
+  'instagram.com',
+  'x.com',
+  'twitter.com',
+  'youtube.com',
+  'youtu.be',
+  'tiktok.com',
+  'pinterest.com',
+  'snapchat.com',
+]);
+
+/**
+ * Segmentos de ruta que indican listado de directorio empresarial.
+ * Se aplican sobre cualquier dominio para capturar directorios embebidos
+ * (ej. /directorio/ en un portal que también tiene otras secciones).
+ */
+const DIRECTORY_PATH_SEGMENTS = [
+  '/directorio/',
+  '/directorio-empresas/',
+  '/empresas-directorio/',
+  '/listado-empresas/',
+];
 
 const ASSOCIATION_CHAMBER_DOMAINS = new Set([
   'cintel.co',
@@ -176,10 +221,16 @@ const BLOG_PATH_PATTERNS = [
   '/opinión/',
 ];
 
-// Patrón de año en ruta (indica artículo con fecha)
-const YEAR_IN_PATH = /\/20(1[5-9]|2[0-9])\//;
+// Patrón de año en ruta (indica artículo con fecha).
+// Hito 10B: actualizado para capturar años embebidos en segmentos de path:
+//   Antes detectaba: /2019/  /2024/
+//   Ahora detecta:   /2019/  /2024/  /web2019/  /blog2020/  /noticias2019/
+// La expresión \w* permite cero o más caracteres de palabra antes/después del año.
+const YEAR_IN_PATH = /\/\w*20(?:1[5-9]|2\d)\w*\//i;
 
-// Patrones de posts sociales (domain + path prefix)
+// Patrones de posts/contenido social dentro de plataformas con excepciones (LinkedIn).
+// Facebook, Twitter/X quedan cubiertos por SOCIAL_PLATFORM_DOMAINS y ya no necesitan
+// estar aquí, pero se mantienen como capa de defensa en profundidad.
 const SOCIAL_POST_PATH_PREFIXES: Array<{ domain: string; prefix: string }> = [
   { domain: 'linkedin.com', prefix: '/posts/' },
   { domain: 'linkedin.com', prefix: '/pulse/' },
@@ -282,7 +333,18 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 2. Asociaciones y cámaras
+  // 2. Plataformas sociales completas (Hito 10B).
+  // Ninguna URL de facebook, instagram, youtube, tiktok, x/twitter es candidato.
+  // LinkedIn se trata por separado más adelante (excepción /company/).
+  if (domainMatchesSet(domain, SOCIAL_PLATFORM_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Plataforma social (${domain}) — no es sitio oficial de empresa`,
+      resultType: 'social_page',
+    };
+  }
+
+  // 3. Asociaciones y cámaras
   if (domainMatchesSet(domain, ASSOCIATION_CHAMBER_DOMAINS)) {
     return {
       isProspectable: false,
@@ -291,7 +353,7 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 3. Fuentes académicas
+  // 4. Fuentes académicas
   if (
     domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
     domain.endsWith('.edu.co') ||
@@ -304,7 +366,7 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 4. Medios y noticias
+  // 5. Medios y noticias
   if (domainMatchesSet(domain, NEWS_MEDIA_DOMAINS)) {
     return {
       isProspectable: false,
@@ -313,7 +375,7 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 5. Job boards
+  // 6. Job boards
   if (domainMatchesSet(domain, JOB_BOARD_DOMAINS)) {
     return {
       isProspectable: false,
@@ -322,7 +384,7 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 6. Directorios de software
+  // 7. Directorios de software
   if (domainMatchesSet(domain, SOFTWARE_DIRECTORY_DOMAINS)) {
     return {
       isProspectable: false,
@@ -331,7 +393,7 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 6b. Bases de datos de startups
+  // 7b. Bases de datos de startups
   if (domainMatchesSet(domain, STARTUP_DATABASE_DOMAINS)) {
     return {
       isProspectable: false,
@@ -340,16 +402,25 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 6c. Directorios genéricos
+  // 7c. Directorios genéricos (por dominio)
   if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS)) {
     return {
       isProspectable: false,
-      reason: `Directorio genérico (${domain}) — no empresa prospectable`,
+      reason: `Directorio empresarial (${domain}) — no empresa prospectable`,
       resultType: 'directory',
     };
   }
 
-  // 7. Posts sociales y blogs
+  // 7d. Directorios por path (Hito 10B): /directorio/ en cualquier dominio
+  if (DIRECTORY_PATH_SEGMENTS.some((seg) => path.includes(seg))) {
+    return {
+      isProspectable: false,
+      reason: `Path indica listado de directorio — no empresa prospectable`,
+      resultType: 'directory',
+    };
+  }
+
+  // 8. Posts sociales y blogs
   for (const { domain: socialDomain, prefix } of SOCIAL_POST_PATH_PREFIXES) {
     if (domain.includes(socialDomain) && path.includes(prefix)) {
       return {
@@ -363,6 +434,7 @@ export function isProspectableCompanyResult(result: {
   const hasBlogPath = BLOG_PATH_PATTERNS.some((pattern) =>
     path.includes(pattern)
   );
+  // Hito 10B: YEAR_IN_PATH actualizado — captura /web2019/, /blog2020/, etc.
   const hasYearInPath = YEAR_IN_PATH.test(path);
   const isBlogSubdomain = hasBlogSubdomain(domain);
 
@@ -455,7 +527,18 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 1. Posts sociales (verificar antes de company pages)
+  // 1. Plataformas sociales completas (Hito 10B).
+  // Facebook, Instagram, YouTube, TikTok, X/Twitter y similares nunca son candidatos,
+  // independientemente del path. LinkedIn es la única excepción (tratada en paso 2).
+  if (domainMatchesSet(domain, SOCIAL_PLATFORM_DOMAINS)) {
+    return {
+      resultType: 'social_page',
+      shouldKeep: false,
+      reason: `Plataforma social (${domain}) — no es sitio oficial de empresa`,
+    };
+  }
+
+  // 2. Posts/contenido de LinkedIn (antes de la excepción de company page)
   for (const { domain: socialDomain, prefix } of SOCIAL_POST_PATH_PREFIXES) {
     if (domain.includes(socialDomain) && path.includes(prefix)) {
       return {
@@ -466,7 +549,7 @@ export function classifySearchResult(result: {
     }
   }
 
-  // 2. LinkedIn company pages → útiles para identificar empresa
+  // 3. LinkedIn company pages → útiles para identificar empresa
   if (isLinkedInCompanyPage(domain, path)) {
     return {
       resultType: 'company_profile',
@@ -475,7 +558,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 3. Job boards (incluyendo subdominios como co.computrabajo.com)
+  // 4. Job boards (incluyendo subdominios como co.computrabajo.com)
   if (domainMatchesSet(domain, JOB_BOARD_DOMAINS)) {
     return {
       resultType: 'job_board',
@@ -484,7 +567,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 4. Directorios de software
+  // 5. Directorios de software
   if (domainMatchesSet(domain, SOFTWARE_DIRECTORY_DOMAINS)) {
     return {
       resultType: 'software_directory',
@@ -493,7 +576,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 5. Bases de datos de startups
+  // 6. Bases de datos de startups
   if (domainMatchesSet(domain, STARTUP_DATABASE_DOMAINS)) {
     return {
       resultType: 'startup_database',
@@ -502,16 +585,26 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 6. Directorios genéricos
+  // 7. Directorios genéricos (por dominio)
   if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS)) {
     return {
       resultType: 'directory',
       shouldKeep: false,
-      reason: `Directorio genérico: ${domain}`,
+      reason: `Directorio empresarial: ${domain}`,
     };
   }
 
-  // 7. PDFs y documentos
+  // 7b. Directorios por patrón de path (Hito 10B).
+  // Captura listados de empresas embebidos en portales que no son directorios puros.
+  if (DIRECTORY_PATH_SEGMENTS.some((seg) => path.includes(seg))) {
+    return {
+      resultType: 'directory',
+      shouldKeep: false,
+      reason: `Path indica listado de directorio (${path.split('/').slice(0, 3).join('/')})`,
+    };
+  }
+
+  // 8. PDFs y documentos
   if (isPdfDocument(result.url)) {
     return {
       resultType: 'pdf_document',
@@ -520,7 +613,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 8. Asociaciones y cámaras de comercio
+  // 9. Asociaciones y cámaras de comercio
   if (domainMatchesSet(domain, ASSOCIATION_CHAMBER_DOMAINS)) {
     return {
       resultType: 'association_or_chamber',
@@ -529,7 +622,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 9. Fuentes académicas
+  // 10. Fuentes académicas
   if (
     domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
     domain.endsWith('.edu.co') ||
@@ -542,7 +635,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 10. Noticias y medios de comunicación
+  // 11. Noticias y medios de comunicación
   if (domainMatchesSet(domain, NEWS_MEDIA_DOMAINS)) {
     return {
       resultType: 'news_or_media',
@@ -551,7 +644,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 11. Reportes, artículos sectoriales e informes académicos (por título/snippet)
+  // 12. Reportes, artículos sectoriales e informes académicos (por título/snippet)
   const titleText = (result.title ?? '').toLowerCase();
   const snippetText = (result.snippet ?? '').toLowerCase();
 
@@ -587,7 +680,7 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 12. Artículos de blog por subdominio o patrón de URL
+  // 13. Artículos de blog por subdominio o patrón de URL (Hito 10B: incluye año embebido)
   const hasBlogPath = BLOG_PATH_PATTERNS.some((pattern) => path.includes(pattern));
   const hasYearInPath = YEAR_IN_PATH.test(path);
   const isBlogSubdomain = hasBlogSubdomain(domain);
@@ -600,11 +693,11 @@ export function classifySearchResult(result: {
         ? `Subdominio de blog: ${domain}`
         : hasBlogPath
           ? 'Patrón de blog/artículo en la URL'
-          : 'Fecha en la URL (artículo con timestamp)',
+          : 'Año en segmento de URL (contenido con fecha)',
     };
   }
 
-  // 13. Default: candidato a sitio oficial de empresa
+  // 14. Default: candidato a sitio oficial de empresa
   return {
     resultType: 'official_company_site',
     shouldKeep: true,

@@ -169,17 +169,127 @@ empresas desarrollo de software Colombia soluciones tecnología nosotros -site:s
 
 ---
 
-## Próximo paso — Hito 10
+## Iteración Hito 10B — Ruido residual detectado en lote Tavily V2
 
-**✓ Condiciones cumplidas para generar lote real:**
-- Query ganadora identificada con tasa 4/5 prospectables
-- Noise filter actualizado y validado con 12/12 fixtures
-- Dominios ruidosos específicos (CINTEL, TIC Colombia, Impacto TIC) bloqueados
-- `classifySearchResult` sin bugs de runtime
+**Fecha:** 2026-05-25  
+**Lote de referencia:** `313a15ea-0722-484c-9d86-bd53a8126cd6` — Tavily V2 Colombia Tecnología
 
-**Configuración sugerida para Hito 10:**
-- Query: V2 (arriba)
-- `targetCount`: 10
+### Problema detectado
+
+El lote real controlado del Hito 10 produjo 5 candidatos de los cuales 2 no eran prospectables:
+
+| # | Empresa/URL | Tipo real | Clasificado como |
+|---|---|---|---|
+| 3 | `facebook.com/Solutekinformatica/videos/...` | Facebook video | `official_company_site` ← **falso positivo** |
+| 2 | `datacreditoempresas.com.co/directorio/...` | Directorio DataCrédito | `official_company_site` ← **falso positivo** |
+| 4 | `bctecnologia.com/web2019/cuales-son...` | Artículo de blog con año embebido | `official_company_site` ← **falso positivo** |
+
+### Causa raíz por bug
+
+**Bug 1 — Facebook no bloqueado a nivel de dominio**  
+`SOCIAL_POST_PATH_PREFIXES` sólo cubría `facebook.com/posts/`. Un video en `/videos/` no coincidía con ningún prefijo, por lo que pasaba como candidato.  
+Solución: nuevo `SOCIAL_PLATFORM_DOMAINS` que bloquea todo `facebook.com` (y otros) independientemente del path.
+
+**Bug 2 — `datacreditoempresas.com.co` no estaba en `GENERIC_DIRECTORY_DOMAINS`**  
+El dominio no era conocido por el filtro. Aunque la URL tiene `/directorio/` en el path, el filtro de path tampoco existía.  
+Solución: dominio añadido a `GENERIC_DIRECTORY_DOMAINS` + nueva comprobación `DIRECTORY_PATH_SEGMENTS` para cualquier dominio.
+
+**Bug 3 — `YEAR_IN_PATH` no detectaba años embebidos en segmentos**  
+El regex original `/\/20(1[5-9]|2[0-9])\//` requería la barra inmediatamente antes del año. `/web2019/` no coincidía porque el segmento empieza con `web`.  
+Solución: `/\/\w*20(?:1[5-9]|2\d)\w*\//i` — captura cualquier segmento que contenga un año 2015–2029 con caracteres opcionales antes/después.
+
+### Reglas nuevas implementadas
+
+#### Plataformas sociales (`SOCIAL_PLATFORM_DOMAINS`)
+Dominios bloqueados a nivel completo — ningún path de estas plataformas es candidato prospectable:
+```
+facebook.com, fb.com, instagram.com, x.com, twitter.com,
+youtube.com, youtu.be, tiktok.com, pinterest.com, snapchat.com
+```
+Nuevo `resultType`: `social_page`  
+Excepción mantenida: `linkedin.com/company/` sigue siendo `company_profile` (keep).
+
+#### Directorios empresariales extendidos (`GENERIC_DIRECTORY_DOMAINS`)
+Nuevos dominios añadidos:
+```
+paginasamarillas.com.co
+datacreditoempresas.com.co
+empresite.eleconomistaamerica.co
+guiaempresas.universia.net.co
+```
+
+#### Detección de directorios por path (`DIRECTORY_PATH_SEGMENTS`)
+Nuevos patrones que aplican en cualquier dominio:
+```
+/directorio/
+/directorio-empresas/
+/empresas-directorio/
+/listado-empresas/
+```
+
+#### Año embebido en segmento de URL (`YEAR_IN_PATH` actualizado)
+```typescript
+// Antes (Hito 7C):
+const YEAR_IN_PATH = /\/20(1[5-9]|2[0-9])\//;
+// Detectaba: /2019/  /2024/
+// NO detectaba: /web2019/  /blog2020/  /noticias2019/
+
+// Ahora (Hito 10B):
+const YEAR_IN_PATH = /\/\w*20(?:1[5-9]|2\d)\w*\//i;
+// Detecta: /2019/  /2024/  /web2019/  /blog2020/  /noticias2019/
+// NO bloquea: /servicios/  /soluciones/  /about/
+```
+
+#### Query tech: exclusiones ampliadas a 5 (`query-builder.ts`)
+```
+// Antes: slice(0, 4) → -site:computrabajo.com -site:indeed.com -site:glassdoor.com -site:comparasoftware.com
+// Ahora: slice(0, 5) → añade -site:facebook.com
+
+// buildNoiseExclusionTerms() también incluye ahora:
+-site:facebook.com
+-site:datacreditoempresas.com.co
+-site:paginasamarillas.com.co
+```
+
+### Fixtures validados (7/7 ✅)
+
+| # | URL | Esperado | Obtenido | Estado |
+|---|---|---|---|---|
+| 1 | `facebook.com/Solutekinformatica/videos/...` | SKIP / social_page | SKIP / social_page | ✅ |
+| 2 | `datacreditoempresas.com.co/directorio/...` | SKIP / directory | SKIP / directory | ✅ |
+| 3 | `bctecnologia.com/web2019/cuales-son...` | SKIP / blog_article | SKIP / blog_article | ✅ |
+| 4 | `bctecnologia.com/` | KEEP / official_company_site | KEEP / official_company_site | ✅ |
+| 5 | `bctecnologia.com/servicios` | KEEP / official_company_site | KEEP / official_company_site | ✅ |
+| 6 | `gtdcolombia.com/soluciones/servicios-ti` | KEEP / official_company_site | KEEP / official_company_site | ✅ |
+| 7 | `upklatam.com` | KEEP / official_company_site | KEEP / official_company_site | ✅ |
+
+### Archivos modificados en Hito 10B
+
+| Archivo | Cambios |
+|---|---|
+| `noise-filter.ts` | `SOCIAL_PLATFORM_DOMAINS` (nuevo set), `GENERIC_DIRECTORY_DOMAINS` (+4 dominios), `DIRECTORY_PATH_SEGMENTS` (nuevo), `YEAR_IN_PATH` (regex actualizado), `social_page` en `WebSearchResultType`, checks en `classifySearchResult` e `isProspectableCompanyResult` |
+| `query-builder.ts` | `buildNoiseExclusionTerms()` (+3 exclusiones), `buildGeneralDiscoveryQuery` tech usa `slice(0, 5)` |
+
+### Validaciones técnicas
+
+| Comando | Resultado |
+|---|---|
+| `npm run typecheck` | ✅ 0 errores |
+| `npm run build` | ✅ Compiled successfully (4.6s) |
+
+---
+
+## Próximo paso — Hito 11 (Tavily V3)
+
+**✓ Condiciones cumplidas para nuevo lote real:**
+- Noise filter corregido con 7/7 fixtures pasando
+- Facebook, DataCrédito y blogs con año embebido ya bloqueados
+- Query tech ampliada a 5 exclusiones (incluye `-site:facebook.com`)
+- Typecheck y build limpios
+
+**Configuración para Hito 11:**
+- `targetCount`: 5 (validar calidad antes de escalar a 10)
 - Provider: `tavily`
 - Badge: `controlled_real_test`
+- `query_version`: `prospectable_v3`
 - Sin escribir en HubSpot hasta validación manual

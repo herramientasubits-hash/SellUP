@@ -1,9 +1,12 @@
 /**
- * Prospecting Toolkit — Query Builder (Hito 7C)
+ * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 10B)
  *
  * Construye queries optimizadas para discovery de empresas reales.
  * Evita "B2B software" salvo en sectores tech/TIC.
  * Sin llamadas externas. Lógica completamente determinística.
+ *
+ * Hito 10B: añadidas exclusiones para Facebook, DataCrédito directorio y
+ * PáginasAmarillas Colombia. Query tech usa slice(0, 5) en lugar de slice(0, 4).
  */
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -158,11 +161,16 @@ function getSectorTerms(industry: string): SectorTerms {
 // ─── Dominios de exclusión para operadores -site: ────────────────────────────
 
 export function buildNoiseExclusionTerms(): string[] {
+  // Orden: los más impactantes primero (los primeros N se usan en queries cortas).
+  // Hito 10B: facebook.com, datacreditoempresas.com.co y paginasamarillas.com.co añadidos.
   return [
     '-site:computrabajo.com',
     '-site:indeed.com',
     '-site:glassdoor.com',
+    '-site:facebook.com',                    // Hito 10B: redes sociales
     '-site:comparasoftware.com',
+    '-site:datacreditoempresas.com.co',       // Hito 10B: directorio DataCrédito
+    '-site:paginasamarillas.com.co',          // Hito 10B: directorio PáginasAmarillas CO
     '-site:capterra.com',
     '-site:g2.com',
     '-site:crunchbase.com',
@@ -205,13 +213,14 @@ function buildGeneralDiscoveryQuery(industry: string, country: string): string {
   const sectorTerms = getSectorTerms(industry);
   const isTech = isTechSector(industry);
 
-  // Exclusiones: subset compacto para no extender demasiado la query
-  const exclusions = buildNoiseExclusionTerms().slice(0, 4).join(' ');
-
   if (isTech) {
+    // Tech: 5 exclusiones (incluye facebook.com y datacreditoempresas.com.co de Hito 10B)
+    const exclusions = buildNoiseExclusionTerms().slice(0, 5).join(' ');
     return `empresas ${industry} ${country} servicios soluciones contacto ${exclusions}`.trim();
   }
 
+  // No-tech: 4 exclusiones compactas
+  const exclusions = buildNoiseExclusionTerms().slice(0, 4).join(' ');
   const primaryTerm = sectorTerms.primary[0];
   return `${primaryTerm} ${country} empresa corporativo ${exclusions}`.trim();
 }
