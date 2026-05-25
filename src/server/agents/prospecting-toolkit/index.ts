@@ -40,19 +40,25 @@ export type {
 } from './types';
 export { getCatalogContext } from './catalog-context-retriever';
 
-// Web Search Tool — Hito 3A (query builder + noise filter: Hito 7C)
+// Web Search Tool — Hito 3A (query builder + noise filter: Hito 7C, multi-query: Hito 12B)
 export type {
   WebSearchProviderKey,
   WebSearchIntent,
   WebSearchInput,
   WebSearchResult,
   WebSearchOutput,
+  MultiQuerySearchInput,
+  MultiQueryQueryResult,
+  MultiQuerySearchResultEntry,
+  MultiQueryWebSearchOutput,
 } from './types';
 export {
   runWebSearch,
+  runMultiQueryWebSearch,
   buildCompanyDiscoveryQuery,
   buildSectorSpecificSearchTerms,
   buildNoiseExclusionTerms,
+  buildCleanMultiQueryDiscoveryQueries,
 } from './web-search-tool';
 export type { CompanyDiscoveryQueryOptions } from './web-search-tool';
 

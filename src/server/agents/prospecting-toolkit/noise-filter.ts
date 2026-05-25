@@ -1,5 +1,5 @@
 /**
- * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C, actualizado Hito 10B)
+ * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C, actualizado Hito 13A)
  *
  * Clasificación determinística de resultados de búsqueda web.
  * Sin IA ni llamadas externas.
@@ -13,6 +13,17 @@
  *   - Directorios empresariales (DataCrédito, PáginasAmarillas CO, etc.) añadidos
  *   - YEAR_IN_PATH actualizado: detecta años embebidos en segmento (/web2019/, /blog2024/)
  *   - Path /directorio/ bloqueado en cualquier dominio
+ *
+ * Hito 12D — Ruido de queries en inglés corregido:
+ *   - techbehemoths.com, clutch.co, goodfirms.co añadidos a SOFTWARE_DIRECTORY_DOMAINS
+ *   - fedesoft.org/fedesoft.com añadidos a ASSOCIATION_CHAMBER_DOMAINS (gremio software CO)
+ *   - Paths de contenido extranjero sobre Colombia: /it-companies-in-*, /companies/*,
+ *     /sites-to-hire, /global-locations/, /hire- bloqueados en DIRECTORY_PATH_SEGMENTS
+ *
+ * Hito 13A — Ruido de queries en español corregido:
+ *   - einforma.co añadido a GENERIC_DIRECTORY_DOMAINS (faltaba variante .co de einforma.com)
+ *     Cubre subdominios como directorio-empresas.einforma.co via domainMatchesSet endsWith
+ *   - /nuestro-blog/ añadido a BLOG_PATH_PATTERNS (detecta blogs con prefijo "nuestro-")
  */
 
 import type { WebSearchResult } from './types';
@@ -72,6 +83,7 @@ const JOB_BOARD_DOMAINS = new Set([
 const SOFTWARE_DIRECTORY_DOMAINS = new Set([
   'comparasoftware.com',
   'capterra.com',
+  'capterra.co',        // Hito 12B: variante Colombia de Capterra
   'g2.com',
   'getapp.com',
   'softwareadvice.com',
@@ -80,6 +92,9 @@ const SOFTWARE_DIRECTORY_DOMAINS = new Set([
   'crozdesk.com',
   'alternativeto.net',
   'producthunt.com',
+  'techbehemoths.com',  // Hito 12D: directorio "Top IT Companies" por país
+  'clutch.co',          // Hito 12D: directorio de agencias de software
+  'goodfirms.co',       // Hito 12D: directorio de empresas de software
 ]);
 
 const STARTUP_DATABASE_DOMAINS = new Set([
@@ -104,6 +119,7 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'paginasamarillas.com.co',   // Hito 10B: PáginasAmarillas Colombia
   'infocif.es',
   'einforma.com',
+  'einforma.co',               // Hito 13A: variante .co de einforma (directorio-empresas.einforma.co)
   'datacreditoempresas.com.co', // Hito 10B: directorio empresarial DataCrédito
   'empresite.eleconomistaamerica.co', // Hito 10B: directorio El Economista CO
   'guiaempresas.universia.net.co',    // Hito 10B: guía empresas Universia CO
@@ -130,15 +146,29 @@ const SOCIAL_PLATFORM_DOMAINS = new Set([
 ]);
 
 /**
- * Segmentos de ruta que indican listado de directorio empresarial.
- * Se aplican sobre cualquier dominio para capturar directorios embebidos
- * (ej. /directorio/ en un portal que también tiene otras secciones).
+ * Segmentos de ruta que indican listado de directorio empresarial o artículo
+ * de lista de empresas (no sitio oficial de empresa).
+ * Se aplican sobre cualquier dominio.
+ *
+ * Hito 12B: añadidos patrones de artículos "top-N empresas" y directorios
+ * embebidos detectados en validación real de Tavily.
  */
 const DIRECTORY_PATH_SEGMENTS = [
   '/directorio/',
   '/directorio-empresas/',
   '/empresas-directorio/',
   '/listado-empresas/',
+  '/empresas-de-',        // Hito 12B: /empresas-de-software-en-colombia
+  '/top-empresas',        // Hito 12B: /top-empresas-desarrollo-software-colombia
+  '/mejores-empresas',    // Hito 12B: artículos de ranking de empresas
+  '/lista-empresas',      // Hito 12B: /lista-empresas-tecnologia
+  '/ranking-empresas',    // Hito 12B: artículos de ranking
+  '/directory/',          // Hito 12B: /directory/ en portales tipo capterra.co
+  '/it-companies-in-',    // Hito 12D: /it-companies-in-colombia (rankings externos)
+  '/companies/',          // Hito 12D: /companies/colombia en directorios por país
+  '/sites-to-hire',       // Hito 12D: artículos "Top N sites to hire developers"
+  '/global-locations/',   // Hito 12D: páginas de presencia global de empresas extranjeras
+  '/hire-',               // Hito 12D: /hire-software-developers-in-colombia
 ];
 
 const ASSOCIATION_CHAMBER_DOMAINS = new Set([
@@ -161,6 +191,8 @@ const ASSOCIATION_CHAMBER_DOMAINS = new Set([
   'camaras.es',
   'colombiatic.net',
   'mintic.gov.co',
+  'fedesoft.org',           // Hito 12D: Federación Colombiana de Software — gremio
+  'fedesoft.com',           // Hito 12D: variante de dominio Fedesoft
 ]);
 
 const ACADEMIC_SOURCE_DOMAINS = new Set([
@@ -206,6 +238,7 @@ const NEWS_MEDIA_DOMAINS = new Set([
 // Patrones de ruta que indican artículo o blog
 const BLOG_PATH_PATTERNS = [
   '/blog/',
+  '/nuestro-blog/', // Hito 13A: /nuestro-blog/ en portales corporativos (q2bstudio)
   '/articulo/',
   '/artículo/',
   '/article/',

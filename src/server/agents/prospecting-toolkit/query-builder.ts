@@ -262,6 +262,42 @@ export function buildProspectableCompanyDiscoveryQueries(
   ];
 }
 
+/**
+ * Hito 12B: Queries de intención limpia sin operadores -site: para uso en
+ * multi-query con pocos resultados por query (maxResultsPerQuery ≤ 5).
+ * El noise filter actúa como defensa primaria contra directorios y ruido.
+ */
+export function buildCleanMultiQueryDiscoveryQueries(
+  industry: string,
+  country: string,
+): string[] {
+  const isTech = isTechSector(industry);
+
+  if (isTech) {
+    // Queries cortas (4-6 palabras) para maximizar resultados en Tavily basic mode.
+    // Queries largas con 8+ términos devuelven 0 resultados en validación real (Hito 12B).
+    return [
+      `empresa software ${country} soluciones contacto`,
+      `empresa tecnología ${country} servicios corporativo`,
+      `desarrollo software ${country} empresa soluciones`,
+      `empresa SaaS ${country} soluciones tecnología`,
+      `consultoría tecnológica ${country} empresa contacto`,
+    ];
+  }
+
+  const sectorTerms = getSectorTerms(industry);
+  const primary = sectorTerms.primary[0] ?? `empresas ${industry}`;
+  const secondary = sectorTerms.secondary[0] ?? industry;
+
+  return [
+    `${primary} ${country} servicios contacto nosotros`,
+    `empresas ${industry} ${country} corporativo soluciones contacto`,
+    `${secondary} ${country} empresa servicios`,
+    `compañías ${industry} ${country} soluciones contacto`,
+    `${primary} ${country} empresa corporativo`,
+  ];
+}
+
 function buildWebsiteDiscoveryQuery(industry: string, country: string): string {
   const sectorTerms = getSectorTerms(industry);
   const primaryTerm = sectorTerms.primary[0];

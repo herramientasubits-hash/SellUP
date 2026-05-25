@@ -344,3 +344,42 @@ export type WebsiteVerificationOutput = {
   error?: string | null;
   metadata?: Record<string, unknown>;
 };
+
+// ============================================================
+// Multi-Query Web Search — tipos (Hito 12B)
+// ============================================================
+
+export type MultiQuerySearchInput = {
+  country: string;
+  countryCode?: string | null;
+  industry: string;
+  provider?: WebSearchProviderKey;
+  queries?: string[];
+  maxResultsPerQuery?: number;
+  targetCount?: number;
+  searchDepth?: SearchDepth;
+};
+
+export type MultiQueryQueryResult = {
+  query: string;
+  rawResultsCount: number;
+  keptCount: number;
+  filteredOutCount: number;
+  skipped: boolean;
+  skipReason?: string | null;
+};
+
+export type MultiQuerySearchResultEntry = WebSearchResult & {
+  originQuery: string;
+};
+
+export type MultiQueryWebSearchOutput = {
+  queryResults: MultiQueryQueryResult[];
+  rawResultsCount: number;
+  dedupedResultsCount: number;
+  filteredOutCount: number;
+  keptCount: number;
+  results: MultiQuerySearchResultEntry[];
+  estimatedCreditCount: number;
+  metadata?: Record<string, unknown>;
+};
