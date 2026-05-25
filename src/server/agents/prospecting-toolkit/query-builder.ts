@@ -274,14 +274,15 @@ export function buildCleanMultiQueryDiscoveryQueries(
   const isTech = isTechSector(industry);
 
   if (isTech) {
-    // Queries cortas (4-6 palabras) para maximizar resultados en Tavily basic mode.
-    // Queries largas con 8+ términos devuelven 0 resultados en validación real (Hito 12B).
+    // Queries validadas en Hito 13D con Tavily basic mode (Colombia/Tecnología).
+    // Q3 y Q5 reemplazan "consultoría TI" y "SaaS" que devolvían 0 resultados (Hito 13C).
+    // Validación: keptCount=14, prospectables=13/14 en revalidación en memoria.
     return [
-      `empresa software ${country} soluciones contacto`,
-      `empresa tecnología ${country} servicios corporativo`,
-      `desarrollo software ${country} empresa soluciones`,
-      `empresa SaaS ${country} soluciones tecnología`,
-      `consultoría tecnológica ${country} empresa contacto`,
+      `empresa desarrollo software ${country} servicios contacto`,
+      `empresa tecnología ${country} soluciones empresariales contacto`,
+      `empresa servicios tecnológicos ${country} clientes soluciones`,
+      `empresa software ${country} nosotros servicios`,
+      `empresa TI ${country} outsourcing software clientes`,
     ];
   }
 
