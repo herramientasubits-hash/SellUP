@@ -147,6 +147,7 @@ function computeConfidenceScore(input: CandidateScoringInput): ConfidenceResult 
       blockers.push('Datos insuficientes para deduplicación.');
     } else if (dc.status === 'possible_duplicate') {
       warnings.push('Posible duplicado detectado. Requiere revisión.');
+      blockers.push('Posible duplicado: no puede aprobarse como nueva empresa sin revisión humana.');
     }
   }
 
@@ -302,6 +303,25 @@ function classifyLabelAndAction(
     };
   }
 
+  // ── Posible duplicado — evaluado antes que cualquier path a high_quality_new ──
+  if (dc?.status === 'possible_duplicate') {
+    localBlockers.push('Posible duplicado: requiere validación antes de aprobar.');
+    return {
+      qualityLabel: 'needs_review',
+      recommendedAction: 'review_manually',
+      blockers: localBlockers,
+    };
+  }
+
+  // ── HubSpot unchecked — no aprobar como nuevo sin verificación (regla crítica) ──
+  if (dc?.status === 'unchecked') {
+    return {
+      qualityLabel: 'needs_review',
+      recommendedAction: 'review_manually',
+      blockers: localBlockers,
+    };
+  }
+
   // ── Datos insuficientes ────────────────────────────────────
   const hasName = hasUsefulName(input.name);
   const hasWebOrDomain = !!(input.website?.trim() || input.domain?.trim());
@@ -317,7 +337,6 @@ function classifyLabelAndAction(
 
   // ── Descarte por website mismatch fuerte ───────────────────
   if (wv && !wv.skipped && wv.status === 'mismatch') {
-    // Si la confianza del verifier también es muy baja → discard
     if (wv.confidence < 30 || (confidenceScore < 45 && fitScore < 45)) {
       return {
         qualityLabel: 'discard',
@@ -338,24 +357,6 @@ function classifyLabelAndAction(
     return {
       qualityLabel: 'discard',
       recommendedAction: 'discard',
-      blockers: localBlockers,
-    };
-  }
-
-  // ── Posible duplicado ──────────────────────────────────────
-  if (dc?.status === 'possible_duplicate') {
-    return {
-      qualityLabel: 'needs_review',
-      recommendedAction: 'review_manually',
-      blockers: localBlockers,
-    };
-  }
-
-  // ── HubSpot unchecked: no aprobar como nuevo (regla crítica) ──
-  if (dc?.status === 'unchecked') {
-    return {
-      qualityLabel: 'needs_review',
-      recommendedAction: 'review_manually',
       blockers: localBlockers,
     };
   }
