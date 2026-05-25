@@ -170,7 +170,7 @@ function buildCandidateMetadata(
 export async function writeProspectingCandidates(
   input: CandidateWriterInput
 ): Promise<CandidateWriterOutput> {
-  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun } = input;
+  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata } = input;
   const isDryRun = dryRun ?? false;
 
   // Guard: sin candidatos
@@ -246,17 +246,30 @@ export async function writeProspectingCandidates(
     },
     web_search_provider: pipelineMeta?.provider ?? "unknown",
     search_depth: pipelineMeta?.searchDepth ?? "standard",
+    search_mode: pipelineMeta?.search_mode ?? "single_query",
     catalog_sources:
       pipelineOutput.catalogContext?.recommendedSources?.map((s) => s.key) ?? [],
     warnings: pipelineOutput.warnings ?? [],
     generated_at: pipelineMeta?.executedAt ?? now.toISOString(),
     dry_run: false,
+    ...(pipelineMeta?.search_mode === "multi_query"
+      ? {
+          query_version: pipelineMeta.query_version ?? null,
+          queries_executed: pipelineMeta.queries_executed ?? null,
+          raw_results_count: pipelineMeta.raw_results_count ?? null,
+          deduped_results_count: pipelineMeta.deduped_results_count ?? null,
+          filtered_out_count: pipelineMeta.filtered_out_count ?? null,
+          kept_count: pipelineMeta.kept_count ?? null,
+          max_results_per_query: pipelineMeta.max_results_per_query ?? null,
+        }
+      : {}),
     ...(isMockRun
       ? {
           generation_mode: "mock",
           warning: "Datos de prueba. No convertir a empresas reales.",
         }
       : {}),
+    ...(extraBatchMetadata ?? {}),
   };
 
   // Crear prospect_batch
@@ -452,6 +465,7 @@ export async function runAndWriteProspectingPipeline(
     ownerId?: string | null;
     batchName?: string | null;
     dryRun?: boolean;
+    extraBatchMetadata?: Record<string, unknown> | null;
   }
 ): Promise<ProspectingPipelineWriteOutput> {
   const pipelineOutput: ProspectingPipelineOutput = await runProspectingPipeline(input);
@@ -463,6 +477,7 @@ export async function runAndWriteProspectingPipeline(
     batchName: input.batchName ?? null,
     source: "agent_1",
     dryRun: input.dryRun ?? false,
+    extraBatchMetadata: input.extraBatchMetadata ?? null,
   });
 
   return { pipeline: pipelineOutput, writer };

@@ -1,5 +1,5 @@
 /**
- * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C, actualizado Hito 13A)
+ * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C, actualizado Hito 13B)
  *
  * Clasificación determinística de resultados de búsqueda web.
  * Sin IA ni llamadas externas.
@@ -24,6 +24,21 @@
  *   - einforma.co añadido a GENERIC_DIRECTORY_DOMAINS (faltaba variante .co de einforma.com)
  *     Cubre subdominios como directorio-empresas.einforma.co via domainMatchesSet endsWith
  *   - /nuestro-blog/ añadido a BLOG_PATH_PATTERNS (detecta blogs con prefijo "nuestro-")
+ *
+ * Hito 13B — Hardening pre-escritura de candidatos:
+ *   - connectamericas.com, lasempresas.com.co añadidos a GENERIC_DIRECTORY_DOMAINS
+ *   - freelancer.com/es, workana.com, upwork.com añadidos a JOB_BOARD_DOMAINS
+ *   - sortlist.com añadido a SOFTWARE_DIRECTORY_DOMAINS
+ *   - BUSINESS_DATABASE_DOMAINS nuevo: emis.com, emis.com.co
+ *   - GLOBAL_ENTERPRISE_DOMAINS nuevo (MVP): ey.com + grandes consultoras globales
+ *   - 'claves-sector', '/cuales-son/' añadidos a BLOG_PATH_PATTERNS
+ *   - CONTENT_PAGE_TITLE_SIGNALS: detecta títulos de artículo que no son nombres de empresa
+ *   - WebSearchResultType extendido: 'marketplace', 'business_database'
+ *
+ * Hito 13D — Bloqueo de páginas de careers y SoftServe:
+ *   - softserveinc.com añadido a GLOBAL_ENTERPRISE_DOMAINS (cubre career.softserveinc.com vía subdominio)
+ *   - hasCareerSubdomain: bloquea subdominios career.* / careers.* de cualquier dominio
+ *   - CAREER_PATH_SEGMENTS: bloquea /careers/, /career/, /vacancies/, /jobs/, /job/ en cualquier dominio
  */
 
 import type { WebSearchResult } from './types';
@@ -34,12 +49,15 @@ export type WebSearchResultType =
   | 'official_company_site'
   | 'company_profile'
   | 'directory'
+  | 'marketplace'
   | 'job_board'
   | 'blog_article'
+  | 'content_page'
   | 'social_post'
   | 'social_page'
   | 'software_directory'
   | 'startup_database'
+  | 'business_database'
   | 'association_or_chamber'
   | 'academic_source'
   | 'pdf_document'
@@ -78,6 +96,10 @@ const JOB_BOARD_DOMAINS = new Set([
   'occ.com',
   'trabajos.com',
   'linkedin.com/jobs',
+  'freelancer.com',   // Hito 13B: marketplace de freelancers — no empresa prospectable
+  'freelancer.es',    // Hito 13B: variante española de Freelancer
+  'workana.com',      // Hito 13B: plataforma freelance LATAM
+  'upwork.com',       // Hito 13B: marketplace global de freelancers
 ]);
 
 const SOFTWARE_DIRECTORY_DOMAINS = new Set([
@@ -95,6 +117,8 @@ const SOFTWARE_DIRECTORY_DOMAINS = new Set([
   'techbehemoths.com',  // Hito 12D: directorio "Top IT Companies" por país
   'clutch.co',          // Hito 12D: directorio de agencias de software
   'goodfirms.co',       // Hito 12D: directorio de empresas de software
+  'sortlist.com',       // Hito 13B: marketplace de búsqueda de agencias
+  'designrush.com',    // Hito 13D: directorio de agencias digitales — no empresa prospectable
 ]);
 
 const STARTUP_DATABASE_DOMAINS = new Set([
@@ -123,6 +147,41 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'datacreditoempresas.com.co', // Hito 10B: directorio empresarial DataCrédito
   'empresite.eleconomistaamerica.co', // Hito 10B: directorio El Economista CO
   'guiaempresas.universia.net.co',    // Hito 10B: guía empresas Universia CO
+  'connectamericas.com',              // Hito 13B: marketplace/directorio de empresas BID
+  'lasempresas.com.co',               // Hito 13B: directorio empresarial Colombia
+]);
+
+/**
+ * Bases de datos financieras y empresariales comerciales.
+ * Indexan perfiles de empresa pero no son empresas prospectas.
+ * Hito 13B: detecta EMIS y similares que escapaban el filtro anterior.
+ */
+const BUSINESS_DATABASE_DOMAINS = new Set([
+  'emis.com',     // Hito 13B: base de datos financiera/empresarial global
+  'emis.com.co',  // Hito 13B: variante .co de EMIS para Colombia
+  'orbis.bvdinfo.com',
+  'bvdinfo.com',
+]);
+
+/**
+ * Multinacionales globales que no son empresas colombianas objetivo para prospección local.
+ * Regla MVP Hito 13B: se aplica conservadoramente — solo firmas con presencia global masiva
+ * donde el URL encontrado es una landing genérica, no una empresa local prospectable.
+ * No bloquear dominios de subsidiarias locales si se identifican en el futuro.
+ */
+const GLOBAL_ENTERPRISE_DOMAINS = new Set([
+  'ey.com',         // Hito 13B: Big Four global — no prospecto local Colombia
+  'accenture.com',
+  'ibm.com',
+  'oracle.com',
+  'microsoft.com',
+  'sap.com',
+  'pwc.com',
+  'deloitte.com',
+  'kpmg.com',
+  'bcg.com',
+  'mckinsey.com',
+  'softserveinc.com', // Hito 13D: empresa global de IT — cubre career.softserveinc.com vía subdominio
 ]);
 
 /**
@@ -252,6 +311,35 @@ const BLOG_PATH_PATTERNS = [
   '/insights/',
   '/opinion/',
   '/opinión/',
+  'claves-sector',  // Hito 13B: slug de artículo "claves del sector" (teleone.com.co case)
+  '/cuales-son/',   // Hito 13B: artículos tipo "¿Cuáles son las mejores empresas de...?"
+];
+
+/**
+ * Señales en el título que indican contenido editorial, no nombre de empresa.
+ * Se aplican sobre result.title para detectar páginas de contenido que
+ * escapan el filtro de path (p.ej. /tecnologia/empresa-it-colombia-claves-sector).
+ * Hito 13B: complementa BLOG_PATH_PATTERNS para títulos de artículo.
+ */
+const CONTENT_PAGE_TITLE_SIGNALS = [
+  'claves del sector',
+  'claves-del-sector',
+  'empresa de it en',
+  'empresa it en colombia',
+  'empresas de tecnología en',
+  'mejores empresas de',
+  'top empresas',
+  'guía de empresas',
+  'cómo elegir',
+  'software y servicios de',
+  'consultor/a comercial',
+  '| ey ',
+  '| accenture',
+  '| ibm ',
+  '| oracle ',
+  '| deloitte',
+  '| pwc ',
+  '| kpmg ',
 ];
 
 // Patrón de año en ruta (indica artículo con fecha).
@@ -297,6 +385,21 @@ function domainMatchesSet(domain: string, set: Set<string>): boolean {
 function hasBlogSubdomain(domain: string): boolean {
   return domain.startsWith('blog.') || domain.startsWith('blogs.');
 }
+
+function hasCareerSubdomain(domain: string): boolean {
+  return domain.startsWith('career.') || domain.startsWith('careers.');
+}
+
+// Segmentos de ruta que indican página de empleo/vacantes de una empresa.
+// Hito 13D: bloquea URLs de sección de carreras que no son sitios oficiales prospectables.
+const CAREER_PATH_SEGMENTS = [
+  '/careers/',
+  '/career/',
+  '/vacancies/',
+  '/vacantes/',
+  '/jobs/',
+  '/job/',
+];
 
 function extractPath(url: string): string {
   try {
@@ -444,6 +547,24 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
+  // 7e. Bases de datos financieras/empresariales (Hito 13B)
+  if (domainMatchesSet(domain, BUSINESS_DATABASE_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Base de datos empresarial/financiera (${domain}) — no empresa prospectable`,
+      resultType: 'business_database',
+    };
+  }
+
+  // 7f. Multinacionales globales — MVP discovery local Colombia (Hito 13B)
+  if (domainMatchesSet(domain, GLOBAL_ENTERPRISE_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Multinacional global (${domain}) — no es empresa prospectable local`,
+      resultType: 'non_prospectable_source',
+    };
+  }
+
   // 7d. Directorios por path (Hito 10B): /directorio/ en cualquier dominio
   if (DIRECTORY_PATH_SEGMENTS.some((seg) => path.includes(seg))) {
     return {
@@ -476,6 +597,26 @@ export function isProspectableCompanyResult(result: {
       isProspectable: false,
       reason: 'Artículo o blog — no es sitio oficial de empresa',
       resultType: 'blog_article',
+    };
+  }
+
+  // 8c. Páginas de careers/empleos (Hito 13D)
+  if (hasCareerSubdomain(domain) || CAREER_PATH_SEGMENTS.some((seg) => path.includes(seg))) {
+    return {
+      isProspectable: false,
+      reason: 'Página de careers/empleos — no es sitio oficial prospectable',
+      resultType: 'job_board',
+    };
+  }
+
+  // 8b. Título de artículo — página de contenido editorial (Hito 13B)
+  const titleLower = (result.title ?? '').toLowerCase();
+  const isContentPageTitle = CONTENT_PAGE_TITLE_SIGNALS.some((s) => titleLower.includes(s));
+  if (isContentPageTitle) {
+    return {
+      isProspectable: false,
+      reason: 'Título indica página de contenido editorial, no nombre de empresa prospectable',
+      resultType: 'content_page',
     };
   }
 
@@ -627,6 +768,24 @@ export function classifySearchResult(result: {
     };
   }
 
+  // 7c. Bases de datos financieras/empresariales (Hito 13B)
+  if (domainMatchesSet(domain, BUSINESS_DATABASE_DOMAINS)) {
+    return {
+      resultType: 'business_database',
+      shouldKeep: false,
+      reason: `Base de datos empresarial/financiera: ${domain}`,
+    };
+  }
+
+  // 7d. Multinacionales globales — MVP discovery local Colombia (Hito 13B)
+  if (domainMatchesSet(domain, GLOBAL_ENTERPRISE_DOMAINS)) {
+    return {
+      resultType: 'non_prospectable_source',
+      shouldKeep: false,
+      reason: `Multinacional global (${domain}) — no es empresa prospectable local`,
+    };
+  }
+
   // 7b. Directorios por patrón de path (Hito 10B).
   // Captura listados de empresas embebidos en portales que no son directorios puros.
   if (DIRECTORY_PATH_SEGMENTS.some((seg) => path.includes(seg))) {
@@ -727,6 +886,34 @@ export function classifySearchResult(result: {
         : hasBlogPath
           ? 'Patrón de blog/artículo en la URL'
           : 'Año en segmento de URL (contenido con fecha)',
+    };
+  }
+
+  // 13b. Título de artículo — página de contenido sin señal de blog en URL (Hito 13B)
+  // Detecta casos donde el dominio es prospectable pero el título revela contenido editorial.
+  const isContentPageTitle = CONTENT_PAGE_TITLE_SIGNALS.some(
+    (s) => titleText.includes(s),
+  );
+  if (isContentPageTitle) {
+    return {
+      resultType: 'content_page',
+      shouldKeep: false,
+      reason: 'Título indica página de contenido editorial, no nombre de empresa prospectable',
+    };
+  }
+
+  // 13c. Páginas de careers/empleos (Hito 13D)
+  // Subdominio career.*/careers.* o path /careers/, /career/, /vacancies/, /jobs/, /job/
+  // No son sitios oficiales prospectos — son la sección de empleo de la empresa.
+  const isCareerSubdomain = hasCareerSubdomain(domain);
+  const hasCareerPath = CAREER_PATH_SEGMENTS.some((seg) => path.includes(seg));
+  if (isCareerSubdomain || hasCareerPath) {
+    return {
+      resultType: 'job_board',
+      shouldKeep: false,
+      reason: isCareerSubdomain
+        ? `Subdominio de careers (${domain}) — página de empleos, no sitio oficial prospectable`
+        : `Path de careers/empleos — sección de vacantes, no sitio oficial prospectable`,
     };
   }
 

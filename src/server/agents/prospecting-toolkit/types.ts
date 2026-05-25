@@ -223,6 +223,8 @@ export type ProspectingPipelineInput = {
   searchDepth?: SearchDepth;
   targetCount?: number;
   webSearchProvider?: WebSearchProviderKey;
+  mode?: 'single_query' | 'multi_query';
+  maxResultsPerQuery?: number;
 };
 
 export type ProspectingPipelineCandidate = {
@@ -282,6 +284,7 @@ export type CandidateWriterInput = {
   batchName?: string | null;
   source?: CandidateWriterSource;
   dryRun?: boolean;
+  extraBatchMetadata?: Record<string, unknown> | null;
 };
 
 export type CandidateWriterSkipped = {

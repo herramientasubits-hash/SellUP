@@ -17,7 +17,7 @@ import type {
   CandidateQualityLabel,
 } from './types';
 import { getCatalogContext } from './catalog-context-retriever';
-import { runWebSearch, buildCompanyDiscoveryQuery } from './web-search-tool';
+import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery } from './web-search-tool';
 import { verifyWebsite } from './website-verifier';
 import { checkCompanyDuplicate } from './duplicate-checker';
 import { scoreCandidate } from './candidate-scorer';
@@ -98,16 +98,54 @@ export async function runProspectingPipeline(
   });
 
   // ── Paso 3: Web search ────────────────────────────────────────────────────────
-  const webSearch = await runWebSearch({
-    query: searchQuery,
-    country: input.country,
-    countryCode: input.countryCode,
-    industry: input.industry,
-    maxResults: targetCount,
-    provider,
-    searchDepth,
-    intent: 'company_discovery',
-  });
+  let multiQueryMeta: Record<string, unknown> | null = null;
+
+  const webSearch = input.mode === 'multi_query'
+    ? await (async () => {
+        const mq = await runMultiQueryWebSearch({
+          country: input.country,
+          countryCode: input.countryCode,
+          industry: input.industry,
+          provider,
+          searchDepth,
+          targetCount,
+          maxResultsPerQuery: input.maxResultsPerQuery,
+        });
+        multiQueryMeta = {
+          search_mode: 'multi_query',
+          query_version: 'multi_query_basic_es_v1',
+          queries_executed: mq.queryResults.map((q) => q.query),
+          raw_results_count: mq.rawResultsCount,
+          deduped_results_count: mq.dedupedResultsCount,
+          filtered_out_count: mq.filteredOutCount,
+          kept_count: mq.keptCount,
+          max_results_per_query: input.maxResultsPerQuery ?? 5,
+        };
+        return {
+          provider,
+          query: searchQuery,
+          results: mq.results,
+          resultsCount: mq.keptCount,
+          skipped: false,
+          skipReason: null,
+          estimatedCostUsd: null as null,
+          metadata: {
+            raw_results_count: mq.rawResultsCount,
+            deduped_results_count: mq.dedupedResultsCount,
+            filtered_out_count: mq.filteredOutCount,
+          },
+        };
+      })()
+    : await runWebSearch({
+        query: searchQuery,
+        country: input.country,
+        countryCode: input.countryCode,
+        industry: input.industry,
+        maxResults: targetCount,
+        provider,
+        searchDepth,
+        intent: 'company_discovery',
+      });
 
   if (webSearch.skipped) {
     warnings.push(`Web search fue omitida: ${webSearch.skipReason ?? 'razón desconocida'}`);
@@ -190,6 +228,8 @@ export async function runProspectingPipeline(
       executedAt: new Date().toISOString(),
       provider,
       searchDepth,
+      search_mode: input.mode ?? 'single_query',
+      ...(multiQueryMeta ?? {}),
     },
   };
 }

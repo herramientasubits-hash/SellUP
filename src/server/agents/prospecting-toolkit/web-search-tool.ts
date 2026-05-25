@@ -119,6 +119,15 @@ function pathPriorityScore(url: string): number {
   }
 }
 
+// Señales de título de artículo que penalizan el score prospectable (Hito 13B).
+// Segunda línea de defensa tras el noise filter: penaliza resultados con títulos
+// que parecen artículos de lista o contenido editorial, no nombres de empresa.
+const ARTICLE_TITLE_SCORE_PENALTIES = [
+  'claves del sector', 'top empresas', 'mejores empresas', 'cómo elegir',
+  'software y servicios de', 'guía de empresas', 'directorio de empresas',
+  'empresa de it en', 'empresas de tecnología en',
+];
+
 function prospectableScore(result: MultiQuerySearchResultEntry): number {
   const domain = extractDomainForDedup(result.url) ?? '';
   let score = 0;
@@ -136,6 +145,10 @@ function prospectableScore(result: MultiQuerySearchResultEntry): number {
   const text = `${result.title} ${result.snippet ?? ''}`.toLowerCase();
   const colombiaSignals = ['colombia', 'bogotá', 'bogota', 'medellín', 'medellin', 'cali', 'barranquilla'];
   if (colombiaSignals.some((s) => text.includes(s))) score += 15;
+
+  // Penalizar títulos que parecen artículos o listados, no nombres de empresa (Hito 13B)
+  const titleLower = (result.title ?? '').toLowerCase();
+  if (ARTICLE_TITLE_SCORE_PENALTIES.some((s) => titleLower.includes(s))) score -= 30;
 
   return score;
 }
