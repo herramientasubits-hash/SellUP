@@ -152,6 +152,16 @@ function buildCandidateMetadata(
           confidence: duplicateCheck.confidence,
           sources_checked: duplicateCheck.checkedSources,
           summary: duplicateCheck.summary,
+          matches: duplicateCheck.matches.map((m) => ({
+            source: m.source,
+            status: m.status,
+            confidence: m.confidence,
+            matched_name: m.matchedName ?? null,
+            matched_domain: m.matchedDomain ?? null,
+            matched_website: m.matchedWebsite ?? null,
+            matched_id: m.matchedId ?? null,
+            reason: m.reason,
+          })),
         }
       : null,
     scoring: {
