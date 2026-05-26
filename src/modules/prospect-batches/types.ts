@@ -318,6 +318,39 @@ export const TAX_IDENTIFIER_TYPE_LABELS: Record<TaxIdentifierType, string> = {
   other: 'Otro',
 };
 
+// ── Duplicate check metadata ──────────────────────────────────
+
+export interface DuplicateMatch {
+  source: string;
+  status: string;
+  confidence: number | null;
+  matched_name: string | null;
+  matched_domain: string | null;
+  matched_website: string | null;
+  matched_id: string | null;
+  reason: string | null;
+}
+
+export interface DuplicateCheckMetadata {
+  summary?: string;
+  sources_checked?: string[];
+  matches?: DuplicateMatch[];
+}
+
+export function parseDuplicateCheck(
+  metadata: Record<string, unknown>,
+): DuplicateCheckMetadata | null {
+  const dc = metadata?.duplicate_check;
+  if (!dc || typeof dc !== 'object' || Array.isArray(dc)) return null;
+  return dc as DuplicateCheckMetadata;
+}
+
+export const APPROVE_BLOCK_MESSAGES: Partial<Record<DuplicateStatus, string>> = {
+  exact_duplicate: 'No se puede aprobar porque existe un duplicado exacto.',
+  unchecked: 'No se puede aprobar porque la duplicidad no fue verificada.',
+  insufficient_data: 'No hay datos suficientes para validar duplicidad.',
+};
+
 export const LATAM_COUNTRIES: { code: string; name: string }[] = [
   { code: 'CO', name: 'Colombia' },
   { code: 'MX', name: 'México' },

@@ -4,12 +4,21 @@ import * as React from 'react';
 import { Building2, Globe } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   CANDIDATE_STATUS_LABELS,
   DUPLICATE_STATUS_LABELS,
   CANDIDATE_SOURCE_LABELS,
+  parseDuplicateCheck,
   type ProspectCandidateWithReviewer,
   type CandidateStatus,
   type DuplicateStatus,
+  type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
 import { CandidateRowActions } from './candidate-row-actions';
 
@@ -32,6 +41,13 @@ const DUPLICATE_STYLES: Record<DuplicateStatus, string> = {
   insufficient_data: 'bg-muted/60 text-muted-foreground/60',
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  sellup: 'SellUp',
+  hubspot: 'HubSpot',
+};
+
+const KNOWN_SOURCES = ['sellup', 'hubspot'];
+
 function getFlagEmoji(code: string) {
   const offset = 0x1f1e6 - 'A'.charCodeAt(0);
   return [...code.toUpperCase()].map((c) => String.fromCodePoint(c.charCodeAt(0) + offset)).join('');
@@ -49,6 +65,144 @@ function ScoreBadge({ score, label }: { score: number | null; label: string }) {
     <span className={`tabular-nums text-xs font-medium ${color}`} title={label}>
       {score.toFixed(0)}
     </span>
+  );
+}
+
+function MatchDetail({ match }: { match: DuplicateMatch }) {
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-3 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-foreground">
+          {SOURCE_LABELS[match.source] ?? match.source}
+        </span>
+        {match.confidence !== null && (
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            Conf: {match.confidence}%
+          </span>
+        )}
+      </div>
+      {match.matched_name && (
+        <p className="text-xs text-foreground">{match.matched_name}</p>
+      )}
+      {match.matched_domain && (
+        <p className="text-xs text-muted-foreground">{match.matched_domain}</p>
+      )}
+      {match.matched_website && (
+        <a
+          href={
+            match.matched_website.startsWith('http')
+              ? match.matched_website
+              : `https://${match.matched_website}`
+          }
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-su-brand hover:underline block"
+        >
+          {match.matched_website}
+        </a>
+      )}
+      {match.reason && (
+        <p className="text-[10px] text-muted-foreground/70 italic">{match.reason}</p>
+      )}
+    </div>
+  );
+}
+
+function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithReviewer }) {
+  const [detailOpen, setDetailOpen] = React.useState(false);
+
+  const dc = parseDuplicateCheck(candidate.metadata);
+  const sources = Array.isArray(candidate.sources_checked)
+    ? (candidate.sources_checked as string[])
+    : [];
+  const matches = dc?.matches ?? [];
+
+  return (
+    <div className="flex flex-col gap-1 min-w-[130px]">
+      <Badge
+        className={`${DUPLICATE_STYLES[candidate.duplicate_status]} border-0 text-[10px] font-semibold w-fit`}
+      >
+        {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
+      </Badge>
+
+      {/* Sources checked */}
+      {sources.length > 0 && (
+        <div className="flex gap-2">
+          {KNOWN_SOURCES.map((src) => {
+            const checked = sources.includes(src);
+            return (
+              <span
+                key={src}
+                className={`text-[9px] font-medium ${
+                  checked
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-muted-foreground/40'
+                }`}
+              >
+                {SOURCE_LABELS[src]} {checked ? '✓' : '—'}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Summary */}
+      {dc?.summary && (
+        <p
+          className="text-[10px] text-muted-foreground max-w-[160px] truncate leading-tight"
+          title={dc.summary}
+        >
+          {dc.summary}
+        </p>
+      )}
+
+      {/* Match count — opens dialog */}
+      {matches.length > 0 && (
+        <button
+          onClick={() => setDetailOpen(true)}
+          className="text-[10px] text-amber-600 dark:text-amber-400 hover:underline text-left font-medium"
+        >
+          {matches.length === 1 ? '1 coincidencia' : `${matches.length} coincidencias`}
+        </button>
+      )}
+
+      {/* Fallback for candidates with no detail */}
+      {!dc && sources.length === 0 && (
+        <p className="text-[9px] text-muted-foreground/40 leading-tight">
+          Sin detalle disponible
+        </p>
+      )}
+
+      {/* Match detail dialog */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Coincidencias de duplicidad</DialogTitle>
+            <DialogDescription>
+              {candidate.name} · {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {dc?.summary && (
+              <p className="text-sm text-muted-foreground">{dc.summary}</p>
+            )}
+
+            {matches.length > 0 ? (
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {matches.map((match, i) => (
+                  <MatchDetail key={i} match={match} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Sin detalle de duplicidad disponible.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 
@@ -154,11 +308,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               </td>
               {/* Duplicidad */}
               <td className="px-4 py-3">
-                <Badge
-                  className={`${DUPLICATE_STYLES[c.duplicate_status]} border-0 text-[10px] font-semibold`}
-                >
-                  {DUPLICATE_STATUS_LABELS[c.duplicate_status]}
-                </Badge>
+                <DuplicateCheckCell candidate={c} />
               </td>
               {/* Confianza */}
               <td className="px-4 py-3">
