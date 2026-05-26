@@ -1703,6 +1703,143 @@ Condiciones cumplidas:
 
 ---
 
+## Hito 16F — Estrategia de providers del Agente 1
+
+**Fecha:** 2026-05-26  
+**Estado:** Decisión oficial definida — sin cambios de código  
+**Tipo:** Análisis estratégico y documentación
+
+---
+
+### Resumen ejecutivo de benchmark
+
+| Hito | Proveedor | Resultado clave |
+|------|-----------|----------------|
+| 16A | Auditoría UI | 3 entradas: Mock, Tavily, Apollo+HubSpot |
+| 16B | Apollo fix | q_keywords industria ahora llega a Apollo |
+| 16C | Benchmark comparativo | Tavily: 10 candidatos pero mayoría artículos/directorios. Apollo: 9 reales pero 1 tech real |
+| 16D.1 | Apollo sector scoring | sectorFitScore + sectorFitTag + sectorFitSignals + post-filter |
+| 16D.2 | Benchmark Apollo post-filter | 0 fit, 10 low_fit. apollo_industry_raw null en 10/10. Sin señal tecnológica |
+
+**Conclusión del benchmark:** Ningún proveedor estaba listo como discovery principal sin ajustes adicionales. Tavily necesita hardening de queries; Apollo no filtra sector con precisión en el plan/API actual.
+
+---
+
+### Decisión oficial de providers
+
+| Proveedor | Rol oficial | Estado | Justificación |
+|-----------|-------------|--------|--------------|
+| **Tavily** | **Discovery principal** | Activo (beta) | Devuelve sitios corporativos reales. 13/14 prospectables con queries en español + noise filter. Necesita hardening continuo de queries. |
+| **Apollo** | Enriquecimiento complementario sobre empresas ya descubiertas | Congelado para discovery | Devuelve empresas reales pero no filtra sector en plan actual. apollo_industry_raw null en 10/10 ejecuciones. Candidato para enrichment, no discovery. |
+| **Lusha** | Enriquecimiento de contactos/personas (futuro) | Fuera de cascada | No tiene rol en discovery inicial. Valor potencial: emails, teléfonos, LinkedIn de contactos sobre empresas ya prospectas. |
+| **Mock / Lote de prueba** | QA, demo, desarrollo local | Solo dev/QA | No exponer como acción principal en producción. Confunde la operación real del equipo comercial. |
+
+---
+
+### Cascada actual (no automática)
+
+```
+1. Discovery inicial → Tavily (multi-query, básico, español)
+2. Revisión humana → candidatos en needs_review
+3. Enriquecimiento posterior → Apollo sobre empresas aprobadas (futuro)
+4. Enriquecimiento de contactos → Lusha / Apollo / Sales Navigator (futuro)
+```
+
+**No hay fallback automático en la cascada actual.**
+
+#### Por qué no se activa fallback automático todavía
+
+| Razón | Explicación |
+|-------|-------------|
+| Costo descontrolado | Un fallback automático duplicaría el gasto de créditos por lote |
+| Calidad desigual | Mezclar Tavily + Apollo sin criterio produce candidatos de calidad variable sin trazabilidad clara |
+| Trazabilidad | Con fuentes mezcladas, se pierde el mapa de qué proveedor descubrió qué empresa |
+| Ruido duplicado | Apollo puede devolver las mismas empresas con menos datos que Tavily, generando trabajo de dedup extra |
+| Apollo sector fit insuficiente | Con apollo_industry_raw null en producción, el filtro de sector no funciona |
+| Tavily en hardening | Tavily todavía ajusta queries; activar fallback antes de estabilizarlo introduce más variabilidad |
+
+#### Cuándo activar fallback (criterios futuros)
+
+- Apollo demuestra `apollo_industry_raw` no nulo en ≥70% de ejecuciones para el sector objetivo.
+- Tavily alcanza keptCount ≥ 7/10 de forma consistente en producción (no solo en revalidación).
+- Se define umbral de costo aceptable por lote con fallback.
+- Se implementa feature flag configurable para activar/desactivar fallback por tenant o por lote.
+
+---
+
+### Cascada futura (objetivo)
+
+```
+1. Discovery → Tavily (query optimizada por sector/país)
+2. Enriquecimiento → Apollo sobre dominios ya descubiertos (no como discovery)
+3. Enriquecimiento de contactos → Lusha sobre empresas aprobadas
+4. Fallback de discovery → Apollo (solo si Tavily yield < threshold Y Apollo tiene sector fit validado)
+```
+
+---
+
+### Recomendación UI
+
+| Elemento actual | Recomendación | Motivo |
+|-----------------|---------------|--------|
+| Botón "Generar con Tavily" | Renombrar a **"Buscar empresas en web"** o **"Buscar con Tavily (beta)"** | Claridad de intención. El usuario no necesita saber el proveedor técnico. |
+| Botón "Generar con IA" | Renombrar a **"Enriquecer con Apollo"** o mover a panel de enriquecimiento | Actualmente confunde: usa Apollo como discovery cuando su rol correcto es enrichment. |
+| Botón "Lote de prueba" | Ocultar en producción — solo visible para admin o entorno dev/QA | Confunde la operación real. Si está visible, el equipo puede crear lotes de datos mock sin darse cuenta. |
+| Unificación de botones | **No unificar todavía** | Fusionar antes de tener cascada validada crea un flujo opaco donde el usuario no sabe qué proveedor se usó. |
+
+---
+
+### Riesgos identificados
+
+| Riesgo | Probabilidad | Impacto | Mitigación |
+|--------|-------------|---------|-----------|
+| Tavily yield cae en sectores distintos a Tecnología | Alta | Medio | Validar queries antes de cada nuevo sector |
+| Apollo permanece sin sector fit y se usa para discovery | Media | Alto | Congelar Apollo como discovery hasta validar industry filter |
+| Lusha consume créditos sin calidad de contacto validada | Baja | Medio | No activar Lusha hasta tener plan de enrichment definido |
+| Mock visible en producción genera lotes de datos falsos | Media | Alto | Ocultar Mock a nivel de permisos de rol |
+| Cascada se activa automáticamente por error de configuración | Baja | Alto | No hay cascada automática por ahora; documentar explícitamente |
+
+---
+
+### Criterios para reabrir la decisión de providers
+
+| Situación | Acción |
+|-----------|--------|
+| Apollo obtiene `organization_industry_tag_ids` válidos en >70% de ejecuciones | Reevaluar Apollo como discovery para sectores con alta densidad de empresas en su base |
+| Apollo upgrade de plan con mejor filtro sectorial disponible | Ejecutar nuevo benchmark con filtro sectorial real |
+| Tavily yield cae por debajo de 5/10 en producción sostenida | Activar Apollo como fallback de discovery con límites de costo |
+| Nuevo proveedor con mejor cobertura sectorial LATAM disponible | Ejecutar benchmark comparativo antes de integrar |
+| Lusha demuestra calidad de email/teléfono verificado >80% | Activar Lusha para enrichment de contactos en empresas aprobadas |
+
+---
+
+### Backlog estratégico derivado
+
+#### Hito 16G — Mejorar queries Tavily para sitios corporativos
+- Validar queries para sectores distintos a Tecnología (Fintech, Salud, Retail).
+- Evitar artículos/listas/directorios con nuevos path patterns.
+- Hardening de "corporate website likelihood" scoring.
+- Añadir `.org` corporativo como dominio válido para consultoras.
+- Probar queries con términos de industria específicos por sector.
+
+#### Hito 16H — Reorganizar botones UI y visibilidad de Mock
+- Ocultar "Lote de prueba" en producción (solo admin/dev/QA).
+- Renombrar "Generar con Tavily" y "Generar con IA" con nomenclatura orientada a intención.
+- Evaluar si "Generar con IA" (Apollo) debe moverse a panel de enriquecimiento.
+
+#### Hito 16I — Evaluar Apollo como enrichment
+- Ejecutar Apollo sobre dominios/nombres ya descubiertos por Tavily.
+- Medir mejora de: tamaño empresa, industria, empleados, LinkedIn URL, tecnologías, contactos.
+- Definir campos de Apollo que agregan valor real sobre candidatos existentes.
+
+#### Hito 16J — Definir cascada configurable
+- Feature flags para activar/desactivar providers por tenant.
+- Configuración de order de providers y thresholds de yield.
+- Max cost per batch con fallback.
+- Fallback rules documentadas y testeables.
+
+---
+
 ## Hito 14B — Validación UI Tavily multi-query
 
 ### Resumen
@@ -1795,3 +1932,310 @@ La conexión UI → Tavily multi-query → Supabase funciona correctamente de ex
 ### Siguiente paso recomendado
 
 Pasar a refinamiento UX/operativo del módulo de revisión de candidatos.
+
+---
+
+## Hito 16F — Estrategia de providers: Tavily + LLM evaluador
+
+**Fecha:** 2026-05-26  
+**Tipo:** Decisión arquitectónica documental — sin ejecución de código  
+**Estado:** ✓ Definida y aprobada
+
+---
+
+### 1. Decisión estratégica oficial
+
+| Proveedor / Modo | Rol asignado | Estado actual |
+|------------------|--------------|---------------|
+| **Tavily + LLM evaluador** | Discovery principal del Agente 1 | Tavily operativo; LLM evaluador por construir |
+| **Apollo** | Enriquecimiento futuro / fallback futuro | No usar como discovery principal por ahora |
+| **LLM solo** | No recomendado como fuente principal | Descartado para operación comercial |
+| **Mock / lote de prueba** | Solo QA / demo / dev | Debe ocultarse de flujo comercial |
+| **Lusha** | Fuera del Agente 1 discovery | Posible enriquecimiento de contactos en futuro |
+
+**Fundamento:**
+
+Tavily ya recupera evidencia web real. El problema identificado en benchmarks recientes es que los resultados crudos incluyen artículos, rankings y directorios no corporativos. La solución no es cambiar de proveedor de búsqueda, sino agregar una capa evaluadora que use un LLM para clasificar los resultados crudos antes de persistirlos.
+
+Apollo demostró en benchmarks que `apollo_industry`, `technologies` y `short_description` llegaron nulos o vacíos con el plan/API actual. No filtra bien por sector. Queda reservado para enriquecimiento firmográfico cuando exista un plan con `industry_tag_ids` reales.
+
+LLM solo como fuente generativa de empresas introduce riesgo de alucinación, datos desactualizados y baja trazabilidad. No es aceptable en flujo operativo comercial.
+
+---
+
+### 2. Arquitectura objetivo
+
+```
+Tavily web search (multi-query, búsquedas orientadas a sitios corporativos)
+  → resultados crudos (30–50 URLs / snippets por ejecución)
+  → LLM evaluador
+      ↳ ¿Es empresa real?
+      ↳ ¿País/mercado correcto?
+      ↳ ¿Sector correcto para UBITS?
+      ↳ ¿Prospectable?
+      ↳ Nombre limpio
+      ↳ Website principal
+      ↳ Evidencia textual
+      ↳ decision: keep | discard | review
+  → candidatos clasificados "keep" (target: ~10 por lote)
+  → sector fit scoring
+  → duplicate checker SellUp
+  → duplicate checker HubSpot
+  → candidate writer → Supabase
+  → UI de revisión humana
+```
+
+**Principio clave:** el LLM evalúa evidencia recuperada por Tavily. No inventa empresas. No genera datos sin soporte.
+
+---
+
+### 3. Rol del LLM evaluador
+
+El LLM recibe por cada resultado crudo de Tavily:
+
+- URL recuperada
+- Título de la página
+- Snippet / descripción
+- País objetivo
+- Sector objetivo
+
+Y devuelve un objeto estructurado por candidato:
+
+```json
+{
+  "decision": "keep | discard | review",
+  "clean_company_name": "string",
+  "sector_fit_score": 0.0,
+  "country_fit_score": 0.0,
+  "prospectability_score": 0.0,
+  "confidence": 0.0,
+  "evidence": ["string"],
+  "reason": "string",
+  "risk_flags": ["string"]
+}
+```
+
+**Escala de scores:** 0.0 a 1.0  
+**Umbral sugerido para `keep`:** `sector_fit_score >= 0.6` AND `confidence >= 0.5`  
+**Umbral para `review`:** `sector_fit_score >= 0.4` OR baja confianza  
+**Umbral para `discard`:** resultado claramente no corporativo, fuera de sector, directorio o artículo
+
+---
+
+### 4. Guardrails del LLM evaluador
+
+El LLM **debe**:
+
+- Usar **solo** la evidencia entregada en el prompt (no recuperar nada externo)
+- Devolver `"review"` ante cualquier duda en lugar de inventar
+- No afirmar tamaño de empresa, empleados ni revenue sin evidencia explícita
+- No aprobar automáticamente (la decisión final sigue siendo humana en la UI)
+- Registrar en output qué fragmento de evidencia respaldó cada decisión
+- Respetar el límite de candidatos evaluados por lote (`max_raw_results_per_batch`)
+- No generar websites inventados — solo devolver el URL ya recuperado por Tavily
+
+El sistema **debe**:
+
+- Registrar tokens input + output por evaluación
+- Registrar costo estimado por candidato y por lote
+- Registrar proveedor LLM, modelo y versión usados
+- Fallar de forma segura si `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` no está disponible (no crashear, devolver error estructurado)
+- No ejecutar si `dryRun: true`
+
+---
+
+### 5. Rol de Tavily en la arquitectura objetivo
+
+Tavily sigue siendo la fuente de recuperación web. Se deben mejorar las queries para orientar resultados hacia sitios corporativos y reducir ruido antes de llegar al LLM:
+
+| Mejora necesaria | Descripción |
+|------------------|-------------|
+| Queries con `site:` hints | Priorizar dominios `.co`, `.com.co`, corporativos |
+| Excluir directorios explícitos | Evitar clutteraf.co, empresite, infobel, etc. en queries |
+| Aumentar raw results | Traer 30–50 resultados para que el LLM reduzca a 10 |
+| `searchDepth: advanced`  | Evaluar si mejora calidad vs costo (hoy es `basic`) |
+| Diversidad de queries | Mantener multi-query para cobertura de nicho |
+
+**Objetivo de ratio:** Tavily trae 30–50 resultados crudos → LLM evalúa → ~10 candidatos `keep`.
+
+---
+
+### 6. Rol de Apollo
+
+Apollo **no** es discovery principal por ahora.
+
+**Razón documentada:** En benchmarks recientes con el plan API actual:
+- `apollo_industry` devolvió `null` en la mayoría de resultados
+- `technologies` y `short_description` llegaron vacíos
+- Devolvió empresas reales pero fuera de sector objetivo
+- No existe `industry_tag_ids` funcional en el plan actual
+
+**Uso futuro permitido:**
+
+| Caso de uso | Condición |
+|-------------|-----------|
+| Enriquecer empresa ya aprobada | `company_name` + `website` conocidos → Apollo devuelve firmografía |
+| Completar datos faltantes | Tamaño, LinkedIn URL, ubicación, industria SIC |
+| Fallback de discovery | Solo si se consigue plan con filtros sectoriales reales |
+| Cascada automática | No activar hasta resolver filtrado sectorial |
+
+---
+
+### 7. Rol de Lusha
+
+Lusha no entra al Agente 1 discovery en esta fase.
+
+**Uso futuro:** enriquecimiento de contactos/personas después de aprobar empresa.
+
+| Etapa | Acción |
+|-------|--------|
+| Empresa identificada y aprobada | → buscar decisores en Lusha |
+| Datos a enriquecer | Email, teléfono, cargo, LinkedIn persona |
+| Prerequisito | Empresa en Supabase con `status: approved` |
+
+---
+
+### 8. Rol de Mock / lote de prueba
+
+El modo Mock debe salir del flujo comercial visible.
+
+**Opciones de implementación (decidir en hito siguiente):**
+
+- Feature flag `NEXT_PUBLIC_SHOW_MOCK_PROVIDER=false` en producción
+- Mostrar solo si `userRole === 'admin'` o `userRole === 'dev'`
+- Mover a sección `/qa` o `/dev-tools` separada
+- Agregar banner "Solo para QA/pruebas" si aparece
+
+**Regla:** ningún usuario comercial debe ejecutar un lote Mock accidentalmente en producción.
+
+---
+
+### 9. Métricas obligatorias por ejecución
+
+Para cada ejecución Tavily + LLM, el sistema debe registrar:
+
+| Campo | Descripción |
+|-------|-------------|
+| `batch_id` | UUID del lote en Supabase |
+| `user_id` | Quién ejecutó |
+| `llm_provider` | openai / anthropic / etc. |
+| `llm_model` | gpt-4o-mini / claude-haiku-4-5 / etc. |
+| `tokens_input` | Tokens enviados al LLM |
+| `tokens_output` | Tokens recibidos del LLM |
+| `llm_cost_usd` | Costo estimado en USD |
+| `raw_results_evaluated` | Cuántos resultados Tavily recibió el LLM |
+| `candidates_kept` | Decisiones `keep` |
+| `candidates_discarded` | Decisiones `discard` |
+| `candidates_review` | Decisiones `review` |
+| `duplicate_sellup_count` | Duplicados detectados en SellUp |
+| `duplicate_hubspot_count` | Duplicados detectados en HubSpot |
+| `cost_per_useful_candidate_usd` | `llm_cost_usd / candidates_kept` |
+| `pipeline_version` | Versión del pipeline (semver o hash) |
+
+**Almacenamiento sugerido:** columna `metadata` en `prospect_batches` (ya existe, hoy subutilizada).
+
+---
+
+### 10. Siguiente hito propuesto: Hito 16G
+
+#### Hito 16G — Prototipo controlado Tavily + LLM evaluador
+
+**Objetivo:** validar calidad y costo del flujo Tavily + LLM antes de integrarlo en la UI.
+
+**Reglas del hito:**
+
+- Ejecutar por **script controlado**, no desde UI
+- Tavily trae máximo 50 resultados crudos
+- LLM evalúa **máximo 30 resultados** (control de costo)
+- LLM devuelve top candidatos clasificados con `keep / discard / review`
+- **No aprobar** ningún candidato automáticamente
+- **No convertir** ningún candidato a account
+- **No escribir** en HubSpot
+- Medir calidad: ¿cuántos `keep` son realmente empresas del sector?
+- Medir costo: tokens, USD por candidato útil
+- Documentar hallazgos en este archivo
+
+**Criterio de éxito del hito:**
+
+- ≥ 7 de 10 candidatos `keep` son empresas reales y del sector
+- Costo < USD 0.05 por candidato útil
+- Ningún resultado de directorio/ranking sobrevive al LLM
+- Trazabilidad completa de evidencia por candidato
+
+---
+
+### 11. Diseño técnico propuesto para Hito 16G
+
+**Módulo esperado:** `src/lib/agents/agent1/llm-evaluator.ts`
+
+**Input del evaluador:**
+
+```typescript
+interface LLMEvaluatorInput {
+  rawResults: TavilyResult[];   // URL, title, snippet por resultado
+  country: string;               // "Colombia"
+  industry: string;              // "Tecnología B2B"
+  targetCount: number;           // 10
+  maxRawToEvaluate: number;      // 30
+  llmProvider: "openai" | "anthropic";
+  llmModel: string;              // "gpt-4o-mini" | "claude-haiku-4-5-20251001"
+  dryRun: boolean;
+}
+```
+
+**Output del evaluador:**
+
+```typescript
+interface LLMEvaluatorOutput {
+  candidates: EvaluatedCandidate[];
+  metrics: {
+    tokensInput: number;
+    tokensOutput: number;
+    costUsd: number;
+    rawEvaluated: number;
+    kept: number;
+    discarded: number;
+    review: number;
+    costPerUsefulCandidate: number;
+  };
+  model: string;
+  provider: string;
+  evaluatedAt: string;
+}
+```
+
+**Fail-safe:** si no hay LLM key disponible → lanzar `LLMEvaluatorNotConfiguredError` estructurado, no crashear pipeline.
+
+**Proveedor configurable:** leer `LLM_EVALUATOR_PROVIDER` y `LLM_EVALUATOR_MODEL` desde `.env.local`. Default: `anthropic` / `claude-haiku-4-5-20251001` por costo.
+
+**Control de costo:**
+
+- `maxRawToEvaluate` hardcodeado en 30 para el prototipo
+- Prompt comprimido (snippets truncados a 300 chars)
+- Un solo batch call al LLM (no un call por resultado)
+- Logging de costo antes de ejecutar cualquier write a Supabase
+
+---
+
+### Resumen de estado Hito 16F
+
+| Check | Resultado |
+|-------|-----------|
+| Provider strategy definida | ✓ |
+| Tavily como discovery principal | ✓ Confirmado |
+| LLM evaluador como capa de clasificación | ✓ Diseñado |
+| Apollo como fallback/enriquecimiento | ✓ Documentado |
+| LLM solo descartado | ✓ |
+| Mock movido fuera de flujo comercial | ✓ Pendiente implementar |
+| Lusha fuera del scope actual | ✓ |
+| Métricas de costo definidas | ✓ |
+| Hito 16G propuesto | ✓ |
+| Código modificado | ✗ Solo documentación |
+| Tavily ejecutado | ✗ |
+| Apollo ejecutado | ✗ |
+| LLM invocado | ✗ |
+| Supabase writes | ✗ |
+| HubSpot writes | ✗ |
+| Lotes creados | ✗ |
+| Secretos impresos | ✗ |
+| Commit realizado | ✗ Pendiente aprobación |
