@@ -186,6 +186,36 @@ function computeConfidence(org: ApolloOrganization, hasDomain: boolean): number 
   return Math.min(score, 100);
 }
 
+// Maps SellUp industry labels (Spanish) to Apollo q_keywords (English).
+// Apollo's mixed_companies/search uses q_keywords for full-text filtering on
+// industry tags and company descriptions. IDs from organization_industry_tag_ids
+// are not used here because Apollo's internal ID catalog is not available locally.
+// Limitation: keyword matching is approximate; Apollo may still return companies
+// outside the sector if their profile matches unrelated terms.
+const INDUSTRY_KEYWORD_MAP: Record<string, string> = {
+  'Tecnología': 'technology software IT services SaaS',
+  'Servicios financieros / Fintech': 'financial services fintech banking insurance',
+  'Retail / E-commerce': 'retail e-commerce commerce shopping',
+  'Manufactura': 'manufacturing industrial production',
+  'Salud / Healthcare': 'healthcare health medical pharma hospital',
+  'Educación / EdTech': 'education edtech learning school university',
+  'Logística / Transporte': 'logistics transport shipping freight supply chain',
+  'Energía / Utilities': 'energy utilities oil gas electricity renewable',
+  'Construcción / Real Estate': 'construction real estate property infrastructure',
+  'Medios / Publicidad': 'media advertising marketing publishing',
+  'Agroindustria': 'agriculture agribusiness farming food production',
+  'Minería': 'mining extraction minerals',
+  'Telecomunicaciones': 'telecommunications telecom internet broadband',
+  'Consultoría / Servicios profesionales': 'consulting professional services advisory',
+  'Alimentos y bebidas': 'food beverage consumer goods',
+  'Automotriz': 'automotive vehicles car dealership',
+  'Gobierno / Sector público': 'government public sector municipal',
+};
+
+export function mapIndustryToApolloKeywords(industry: string): string | undefined {
+  return INDUSTRY_KEYWORD_MAP[industry];
+}
+
 // ============================================================
 // Main agent orchestrator
 // ============================================================
@@ -267,8 +297,10 @@ export async function runProspectGenerationAgent(
       provider_key: 'apollo',
     });
 
+    const industryKeywords = mapIndustryToApolloKeywords(industry);
     const apolloResult = await searchApolloOrganizations({
       organization_locations: [country],
+      ...(industryKeywords ? { q_keywords: industryKeywords } : {}),
       per_page: safeCount,
       page: 1,
     });

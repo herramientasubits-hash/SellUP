@@ -64,6 +64,7 @@ export interface ApolloPerson {
 export interface SearchOrganizationsParams {
   q_organization_name?: string;
   q_organization_domains?: string[];
+  q_keywords?: string;
   organization_industry_tag_ids?: string[];
   organization_num_employees_ranges?: string[];
   organization_locations?: string[];
