@@ -38,12 +38,16 @@ export interface ApolloOrganization {
   website_url: string | null;
   linkedin_url: string | null;
   industry: string | null;
+  industry_tag_ids: string[];
   employee_count: number | null;
+  estimated_num_employees: number | null;
   city: string | null;
   country: string | null;
   phone: string | null;
   annual_revenue: number | null;
   technologies: string[];
+  short_description: string | null;
+  keywords: string[];
 }
 
 export interface ApolloPerson {

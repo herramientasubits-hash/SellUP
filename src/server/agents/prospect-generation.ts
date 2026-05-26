@@ -60,6 +60,9 @@ interface NormalizedCandidate {
   dataCompletenessScore: number;
   estimatedCostUsd: number;
   apolloId: string;
+  sectorFitScore: number;
+  sectorFitSignals: string[];
+  sectorFitTag: 'fit' | 'low_fit' | 'unknown';
 }
 
 // ============================================================
@@ -189,31 +192,185 @@ function computeConfidence(org: ApolloOrganization, hasDomain: boolean): number 
 // Maps SellUp industry labels (Spanish) to Apollo q_keywords (English).
 // Apollo's mixed_companies/search uses q_keywords for full-text filtering on
 // industry tags and company descriptions. IDs from organization_industry_tag_ids
-// are not used here because Apollo's internal ID catalog is not available locally.
+// are not used here because Apollo's internal ID catalog is not available via API.
 // Limitation: keyword matching is approximate; Apollo may still return companies
 // outside the sector if their profile matches unrelated terms.
 const INDUSTRY_KEYWORD_MAP: Record<string, string> = {
-  'Tecnología': 'technology software IT services SaaS',
-  'Servicios financieros / Fintech': 'financial services fintech banking insurance',
-  'Retail / E-commerce': 'retail e-commerce commerce shopping',
-  'Manufactura': 'manufacturing industrial production',
-  'Salud / Healthcare': 'healthcare health medical pharma hospital',
-  'Educación / EdTech': 'education edtech learning school university',
-  'Logística / Transporte': 'logistics transport shipping freight supply chain',
-  'Energía / Utilities': 'energy utilities oil gas electricity renewable',
-  'Construcción / Real Estate': 'construction real estate property infrastructure',
-  'Medios / Publicidad': 'media advertising marketing publishing',
-  'Agroindustria': 'agriculture agribusiness farming food production',
-  'Minería': 'mining extraction minerals',
-  'Telecomunicaciones': 'telecommunications telecom internet broadband',
-  'Consultoría / Servicios profesionales': 'consulting professional services advisory',
-  'Alimentos y bebidas': 'food beverage consumer goods',
-  'Automotriz': 'automotive vehicles car dealership',
-  'Gobierno / Sector público': 'government public sector municipal',
+  'Tecnología': 'technology software IT services SaaS cloud platform digital',
+  'Servicios financieros / Fintech': 'financial services fintech banking insurance payments',
+  'Retail / E-commerce': 'retail e-commerce commerce shopping marketplace',
+  'Manufactura': 'manufacturing industrial production factory',
+  'Salud / Healthcare': 'healthcare health medical pharma hospital clinic',
+  'Educación / EdTech': 'education edtech learning school university training',
+  'Logística / Transporte': 'logistics transport shipping freight supply chain courier',
+  'Energía / Utilities': 'energy utilities oil gas electricity renewable solar',
+  'Construcción / Real Estate': 'construction real estate property infrastructure building',
+  'Medios / Publicidad': 'media advertising marketing publishing agency content',
+  'Agroindustria': 'agriculture agribusiness farming food production crop',
+  'Minería': 'mining extraction minerals resources geological',
+  'Telecomunicaciones': 'telecommunications telecom internet broadband mobile network',
+  'Consultoría / Servicios profesionales': 'consulting professional services advisory management',
+  'Alimentos y bebidas': 'food beverage consumer goods restaurant catering',
+  'Automotriz': 'automotive vehicles car dealership fleet transportation',
+  'Gobierno / Sector público': 'government public sector municipal administration',
 };
 
 export function mapIndustryToApolloKeywords(industry: string): string | undefined {
   return INDUSTRY_KEYWORD_MAP[industry];
+}
+
+// ============================================================
+// Sector post-filter
+//
+// Apollo's organization_industry_tag_ids requires internal catalog IDs not
+// exposed by any Apollo API v1 endpoint. The industry field comes null on
+// basic-plan search results. This post-filter uses multi-signal scoring
+// (industry text, technologies, name, domain) to rank and tag candidates
+// by sector fit before they are persisted.
+// ============================================================
+
+const SECTOR_FIT_THRESHOLD = 25; // score 0-100; below = tagged low_fit
+
+interface SectorSignals {
+  industryPatterns: string[];
+  technologySignals: string[];
+  nameKeywords: string[];
+  domainKeywords: string[];
+}
+
+const SECTOR_SIGNALS_MAP: Record<string, SectorSignals> = {
+  'Tecnología': {
+    industryPatterns: [
+      'information technology', 'computer software', 'software', 'internet',
+      'saas', 'technology', 'it services', 'computer hardware', 'semiconductors',
+      'data', 'artificial intelligence', 'cybersecurity', 'cloud computing',
+      'telecommunications', 'tech', 'digital', 'platform', 'analytics',
+    ],
+    technologySignals: [
+      'aws', 'azure', 'google cloud', 'react', 'angular', 'vue', 'node',
+      'python', 'java', 'docker', 'kubernetes', 'salesforce', 'hubspot',
+      'postgresql', 'mongodb', 'redis', 'tensorflow', 'pytorch', 'typescript',
+      'javascript', 'rails', 'django', 'laravel', 'wordpress', 'shopify',
+      'stripe', 'twilio', 'sendgrid', 'github', 'gitlab', 'jira', 'confluence',
+    ],
+    nameKeywords: [
+      'tech', 'software', 'systems', 'digital', 'datos', 'data', 'cloud',
+      'solutions', 'dev', 'code', 'app', 'net', 'web', 'cyber', 'platform',
+      'computación', 'informática', 'tecnología', 'plataforma', 'soluciones',
+      'innovation', 'innova', 'ai', 'analytics', 'intelligence', 'automation',
+    ],
+    domainKeywords: [
+      '.io', '.tech', '.dev', '.ai', 'tech', 'software', 'digital', 'cloud',
+      'data', 'platform', 'solutions', 'sistemas',
+    ],
+  },
+  'Servicios financieros / Fintech': {
+    industryPatterns: ['financial', 'fintech', 'banking', 'insurance', 'payments', 'credit', 'investment'],
+    technologySignals: ['plaid', 'stripe', 'braintree', 'blockchain', 'swift'],
+    nameKeywords: ['bank', 'finance', 'capital', 'credit', 'invest', 'pagos', 'fintech', 'financiero', 'seguros'],
+    domainKeywords: ['bank', 'finance', 'capital', 'credit', 'pay', 'fintech'],
+  },
+  'Salud / Healthcare': {
+    industryPatterns: ['healthcare', 'health', 'medical', 'pharma', 'hospital', 'clinical', 'biotech'],
+    technologySignals: ['epic', 'cerner', 'hl7', 'fhir', 'meditech'],
+    nameKeywords: ['health', 'salud', 'medical', 'clinic', 'pharma', 'bio', 'hospital', 'care', 'med'],
+    domainKeywords: ['health', 'salud', 'med', 'clinic', 'pharma', 'bio'],
+  },
+  'Educación / EdTech': {
+    industryPatterns: ['education', 'edtech', 'e-learning', 'learning', 'training', 'academic'],
+    technologySignals: ['lms', 'moodle', 'canvas', 'blackboard', 'coursera', 'udemy'],
+    nameKeywords: ['edu', 'school', 'academy', 'learn', 'aprendizaje', 'educación', 'universidad', 'instituto'],
+    domainKeywords: ['edu', 'learn', 'academy', 'school'],
+  },
+  'Logística / Transporte': {
+    industryPatterns: ['logistics', 'transport', 'shipping', 'freight', 'supply chain', 'courier', 'distribution'],
+    technologySignals: ['sap', 'oracle', 'manhattan', 'flexport'],
+    nameKeywords: ['logistics', 'transport', 'cargo', 'freight', 'courier', 'logística', 'transporte', 'envío', 'delivery'],
+    domainKeywords: ['logistics', 'transport', 'cargo', 'freight', 'envio', 'delivery'],
+  },
+};
+
+function scoreOrganizationSectorFit(org: ApolloOrganization, industry: string): { score: number; signals: string[] } {
+  const signals_def = SECTOR_SIGNALS_MAP[industry];
+  if (!signals_def) return { score: 50, signals: ['unknown_industry_pass_through'] };
+
+  let score = 0;
+  const matchedSignals: string[] = [];
+
+  // Industry field match (strongest): up to 40 points
+  if (org.industry) {
+    const ind = org.industry.toLowerCase();
+    for (const pattern of signals_def.industryPatterns) {
+      if (ind.includes(pattern)) {
+        score += 40;
+        matchedSignals.push(`industry:${pattern}`);
+        break;
+      }
+    }
+  }
+
+  // Technologies array (strong signal): up to 30 points
+  if (org.technologies && org.technologies.length > 0) {
+    const techLower = org.technologies.map((t) => t.toLowerCase());
+    const matched = signals_def.technologySignals.filter((ts) => techLower.some((t) => t.includes(ts)));
+    const techScore = Math.min(30, matched.length * 10);
+    if (techScore > 0) {
+      score += techScore;
+      matchedSignals.push(`technologies:${matched.slice(0, 3).join(',')}`);
+    }
+  }
+
+  // short_description text (medium signal): up to 20 points
+  if (org.short_description) {
+    const desc = org.short_description.toLowerCase();
+    for (const pattern of signals_def.industryPatterns) {
+      if (desc.includes(pattern)) {
+        score += 20;
+        matchedSignals.push(`description:${pattern}`);
+        break;
+      }
+    }
+  }
+
+  // Company name keywords (weak signal): up to 15 points
+  if (org.name) {
+    const nameLower = org.name.toLowerCase();
+    for (const kw of signals_def.nameKeywords) {
+      if (nameLower.includes(kw)) {
+        score += 15;
+        matchedSignals.push(`name:${kw}`);
+        break;
+      }
+    }
+  }
+
+  // Domain keywords (weak signal): up to 10 points
+  if (org.website_url) {
+    const domainLower = org.website_url.toLowerCase();
+    for (const kw of signals_def.domainKeywords) {
+      if (domainLower.includes(kw)) {
+        score += 10;
+        matchedSignals.push(`domain:${kw}`);
+        break;
+      }
+    }
+  }
+
+  return { score: Math.min(score, 100), signals: matchedSignals };
+}
+
+export function filterBySectorFit(
+  orgs: ApolloOrganization[],
+  industry: string
+): Array<ApolloOrganization & { sectorFitScore: number; sectorFitSignals: string[]; sectorFitTag: 'fit' | 'low_fit' | 'unknown' }> {
+  return orgs.map((org) => {
+    if (!SECTOR_SIGNALS_MAP[industry]) {
+      return { ...org, sectorFitScore: 50, sectorFitSignals: [], sectorFitTag: 'unknown' as const };
+    }
+    const { score, signals } = scoreOrganizationSectorFit(org, industry);
+    const tag = score >= SECTOR_FIT_THRESHOLD ? 'fit' : 'low_fit';
+    return { ...org, sectorFitScore: score, sectorFitSignals: signals, sectorFitTag: tag };
+  });
 }
 
 // ============================================================
@@ -360,8 +517,10 @@ export async function runProspectGenerationAgent(
       return { success: false, batchId: batch.id, agentRunId: agentRun.id, candidatesCreated: 0, estimatedCostUsd: totalEstimatedCost, error: apolloResult.error?.message ?? 'Apollo no devolvió resultados' };
     }
 
-    // Take only what we need
-    const targetCompanies = apolloCompanies.slice(0, safeCount);
+    // Take only what we need, then score sector fit before dedup
+    const rawCompanies = apolloCompanies.slice(0, safeCount);
+    const scoredCompanies = filterBySectorFit(rawCompanies, industry);
+    const targetCompanies = scoredCompanies;
 
     // ── Step: hubspot_duplicate_check ─────────────────────────
     const hubspotStepStart = Date.now();
@@ -433,7 +592,7 @@ export async function runProspectGenerationAgent(
         countryCode,
         city: org.city ?? null,
         industry,
-        companySize: mapEmployeeCount(org.employee_count),
+        companySize: mapEmployeeCount(org.employee_count ?? org.estimated_num_employees),
         sourcePrimary: 'apollo',
         duplicateStatus,
         matchedHubspotCompanyId: matchedHsId,
@@ -441,6 +600,9 @@ export async function runProspectGenerationAgent(
         dataCompletenessScore: computeDataCompleteness(org),
         estimatedCostUsd: 0,
         apolloId: org.id,
+        sectorFitScore: org.sectorFitScore,
+        sectorFitSignals: org.sectorFitSignals,
+        sectorFitTag: org.sectorFitTag,
       };
     });
 
@@ -479,7 +641,13 @@ export async function runProspectGenerationAgent(
       data_completeness_score: c.dataCompletenessScore,
       estimated_cost_usd: c.estimatedCostUsd,
       status: 'needs_review',
-      metadata: { apollo_id: c.apolloId, generated_by: 'agent_1' },
+      metadata: {
+        apollo_id: c.apolloId,
+        generated_by: 'agent_1',
+        sector_fit_score: c.sectorFitScore,
+        sector_fit_tag: c.sectorFitTag,
+        sector_fit_signals: c.sectorFitSignals,
+      },
     }));
 
     const { data: insertedCandidates, error: insertError } = await admin
