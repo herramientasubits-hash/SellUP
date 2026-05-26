@@ -1700,3 +1700,98 @@ Condiciones cumplidas:
 **El siguiente paso es:**
 1. **Commit del bloque pendiente** (docs + 5 src files del acumulado 13A-13B-13C-13D)
 2. **Nuevo lote real target 10** con las 5 queries de Hito 13D y `maxResultsPerQuery: 5`
+
+---
+
+## Hito 14B — Validación UI Tavily multi-query
+
+### Resumen
+
+Tavily multi-query está disponible desde la UI de SellUp y opera completamente separado del flujo Apollo. El usuario puede generar un lote Tavily desde `/prospect-batches` usando el botón "Generar con Tavily". Los candidatos resultantes quedan en estado `needs_review` listos para revisión manual.
+
+### Lote de validación
+
+| Campo | Valor |
+|-------|-------|
+| batchId | `128df933-09aa-4819-913c-69317e74f74d` |
+| name | `Tavily · Colombia · Tecnología · 26 de may de 2026` |
+| país | Colombia |
+| industria | Tecnología |
+| target_count | 10 |
+| candidatesCreated | 10 |
+| status | `ready_for_review` |
+| created_at | `2026-05-26T01:47:53.275332+00:00` |
+
+### Flujo validado
+
+```
+UI (/prospect-batches — botón "Generar con Tavily")
+→ generateTavilyProspectBatch()
+→ runAndWriteProspectingPipeline()
+→ Tavily multi-query
+→ noise filter
+→ name inference
+→ candidate writer
+→ Supabase (prospect_batches + prospect_candidates)
+→ revisión de candidatos
+```
+
+### Parámetros forzados
+
+| Parámetro | Valor |
+|-----------|-------|
+| webSearchProvider | `tavily` |
+| mode | `multi_query` |
+| maxResultsPerQuery | `5` |
+| searchDepth | `basic` |
+| dryRun | `false` |
+
+### Candidatos persistidos
+
+| # | Nombre | Website |
+|---|--------|---------|
+| 1 | Esystems | esystems.com.co |
+| 2 | Software | software.com.co |
+| 3 | LARS | lars.net.co |
+| 4 | Solutek Colombia | solutekcolombia.com |
+| 5 | GTD Colombia | gtdcolombia.com |
+| 6 | Heinsohn | heinsohn.co |
+| 7 | Gintic | gintic.com.co |
+| 8 | Selcomp Ingeniería SAS | dyc.com.co |
+| 9 | KRYPTO | krypto.com.co |
+| 10 | Bitcode Enterprise | bitcode-enterprise.com |
+
+### Validaciones cumplidas
+
+| Validación | Resultado |
+|------------|-----------|
+| Candidatos persistidos | 10/10 |
+| Estado needs_review | 10/10 |
+| Aprobados | 0 |
+| Descartados | 0 |
+| Convertidos | 0 |
+| Posibles duplicados | 0 |
+| Mock detectado | No |
+| Apollo ejecutado | No |
+| Lusha ejecutado | No |
+| IA generativa invocada | No |
+| HubSpot write realizado | No |
+| Accounts creadas | No |
+| source_title presente | 10/10 |
+| inferred_name_source presente | 10/10 |
+
+### Hallazgos menores / backlog
+
+1. **Candidato con nombre genérico:** "Software" / `software.com.co` pasó los filtros con nombre inferido desde dominio. Nombre aceptable técnicamente pero no ideal comercialmente. El filtro de nombres ya existe; este caso bordeó el umbral mínimo.
+
+2. **`prospect_batches.metadata` vacío:** La columna `metadata` del lote quedó como objeto vacío `{}`. Debería persistir los parámetros de configuración del pipeline para trazabilidad: `country`, `industry`, `provider`, `mode`, `maxResultsPerQuery`, `searchDepth`, `dryRun`, `query_version`, `pipeline_summary`, `generated_from_ui`.
+
+### Decisión
+
+**Hito 14B se considera validado y cerrado.**
+
+La conexión UI → Tavily multi-query → Supabase funciona correctamente de extremo a extremo. Los candidatos son reales, la separación con Apollo está intacta en código, y no se ejecutó ningún servicio externo durante la validación.
+
+### Siguiente paso recomendado
+
+Pasar a refinamiento UX/operativo del módulo de revisión de candidatos.
