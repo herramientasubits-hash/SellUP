@@ -227,6 +227,8 @@ export type ProspectingPipelineInput = {
   maxResultsPerQuery?: number;
 };
 
+export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
+
 export type ProspectingPipelineCandidate = {
   name: string;
   website: string | null;
@@ -237,6 +239,7 @@ export type ProspectingPipelineCandidate = {
   sourceUrl: string | null;
   sourceTitle: string | null;
   sourceSnippet: string | null;
+  inferredNameSource?: NameInferenceSource | null;
   websiteVerification: WebsiteVerificationOutput | null;
   duplicateCheck: DuplicateCheckResult | null;
   scoring: CandidateScoringOutput;

@@ -132,6 +132,8 @@ function buildCandidateMetadata(
   return {
     generated_by: "agent_1_candidate_writer",
     source_url: candidate.sourceUrl,
+    source_title: candidate.sourceTitle ?? null,
+    inferred_name_source: candidate.inferredNameSource ?? null,
     source_snippet: candidate.sourceSnippet?.slice(0, 300) ?? null,
     website_verification: websiteVerification
       ? {

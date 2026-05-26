@@ -15,6 +15,7 @@ import type {
   ProspectingPipelineCandidate,
   ProspectingPipelineSummary,
   CandidateQualityLabel,
+  NameInferenceSource,
 } from './types';
 import { getCatalogContext } from './catalog-context-retriever';
 import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery } from './web-search-tool';
@@ -37,12 +38,146 @@ function clampTargetCount(requested: number | undefined): number {
   return Math.min(Math.max(1, n), MAX_TARGET_COUNT);
 }
 
+// ─── Normalización determinística de nombre limpio (Hito 13F) ─────────────────
+
+// Palabras genéricas de SEO que NO constituyen un nombre de empresa
+const GENERIC_KEYWORDS = new Set([
+  'servicios', 'servicio', 'service', 'services',
+  'soluciones', 'solucion', 'solution', 'solutions',
+  'empresa', 'empresarial', 'empresariales', 'company', 'companies',
+  'tecnologia', 'tecnologica', 'tecnologico', 'tecnologicos', 'tecnologicas',
+  'technology', 'tech',
+  'outsourcing', 'externalizacion',
+  'soporte', 'support',
+  'informatico', 'informatica', 'informaticos', 'informaticas',
+  'consultoria', 'consulting', 'consultancy',
+  'desarrollo', 'development',
+  'software',
+  'colombia', 'bogota', 'medellin', 'cali', 'barranquilla',
+  'corporaciones', 'corporacion', 'corporation',
+  'ingenieria', 'engineering',
+  'sistemas', 'systems', 'system',
+  'redes', 'networks', 'network',
+  'infraestructura', 'infrastructure',
+  'digital', 'digitales',
+  'informacion', 'information',
+  'gestion', 'management',
+  'negocios', 'business',
+  'empresas', 'para',
+]);
+
+// Sufijos legales colombianos / latinoamericanos
+const LEGAL_SUFFIX_RE = /\b(S\.A\.S\.?|SAS|S\.A\.?|Ltda\.?|E\.U\.?|Corp\.?|Inc\.?|LLC|S\.R\.L\.?)\b/i;
+
+// TLDs ordenados de más específico a más genérico (evita match parcial)
+const KNOWN_TLDS = [
+  '.com.co', '.net.co', '.org.co', '.edu.co', '.gov.co', '.mil.co',
+  '.com', '.co', '.net', '.org', '.io', '.biz', '.info',
+];
+
+function normalizeForKeywords(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toTitleCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
 /**
- * Extrae el nombre de empresa desde el título de un resultado web.
- * Preserva el título original — la normalización sucede en las tools individuales.
+ * Determina si una parte del título es una frase genérica de SEO.
+ * Retorna false (= no genérica) si contiene un sufijo legal.
  */
-function extractCandidateName(title: string): string {
-  return title.trim() || 'Unknown';
+function isGenericPhrase(part: string): boolean {
+  if (LEGAL_SUFFIX_RE.test(part)) return false;
+  const words = normalizeForKeywords(part).split(/\s+/).filter(w => w.length > 2);
+  if (words.length === 0) return true;
+  const genericCount = words.filter(w => GENERIC_KEYWORDS.has(w)).length;
+  return genericCount / words.length > 0.5;
+}
+
+/**
+ * Intenta extraer nombre limpio desde el título usando separadores fuertes.
+ * Detecta también el patrón SIGLA, descriptor (ej. "TSI, Servicios de…").
+ */
+function inferNameFromTitle(title: string): string | null {
+  // Patrón: SIGLA en mayúsculas antes de coma ("TSI, Servicios de…")
+  const leadingAcronym = /^([A-Z]{2,6}),\s+/.exec(title);
+  if (leadingAcronym) return leadingAcronym[1];
+
+  // Separadores fuertes: |  —  –  :  ::  y guion con espacios
+  const parts = title
+    .split(/\s*[|—–]\s*|\s+-\s+|\s*::\s*|\s*:\s+/)
+    .map(p => p.trim())
+    .filter(p => p.length > 1);
+
+  for (const part of parts) {
+    if (!isGenericPhrase(part)) return part;
+  }
+  return null;
+}
+
+/**
+ * Infiere nombre limpio desde el dominio de la URL.
+ * Elimina TLD, detecta sufijo "colombia", acrónimos cortos y guiones.
+ */
+function inferNameFromDomain(url: string): string | null {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    let host = parsed.hostname.replace(/^www\./, '');
+
+    for (const tld of KNOWN_TLDS) {
+      if (host.endsWith(tld)) { host = host.slice(0, -tld.length); break; }
+    }
+    if (!host || host.length < 2) return null;
+
+    // Guiones → palabras separadas
+    if (host.includes('-')) {
+      return host.split('-').map(toTitleCase).join(' ');
+    }
+
+    // Sufijo de país conocido ("solutekcolombia" → "Solutek Colombia")
+    const countrySuffix = /^(.+?)(colombia|peru|mexico|argentina|chile|ecuador|venezuela)$/i.exec(host);
+    if (countrySuffix) {
+      const prefix = countrySuffix[1];
+      const country = toTitleCase(countrySuffix[2]);
+      const prefixName = prefix.length <= 4 ? prefix.toUpperCase() : toTitleCase(prefix);
+      return `${prefixName} ${country}`;
+    }
+
+    // Dominio corto ≤ 4 chars → acrónimo en mayúsculas ("dyc" → "DYC")
+    if (host.length <= 4) return host.toUpperCase();
+
+    // Default: Title Case
+    return toTitleCase(host);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Infiere el nombre limpio de empresa desde título y URL de un resultado Tavily.
+ * Prioridad: (1) prefijo no genérico del título, (2) dominio, (3) fallback al título.
+ * Sin IA generativa. Sin llamadas externas.
+ */
+function inferCompanyNameFromSearchResult(
+  title: string,
+  url: string
+): { name: string; source: NameInferenceSource } {
+  const trimmed = title.trim();
+
+  const fromTitle = inferNameFromTitle(trimmed);
+  if (fromTitle) return { name: fromTitle, source: 'title_prefix' };
+
+  const fromDomain = inferNameFromDomain(url);
+  if (fromDomain) return { name: fromDomain, source: 'domain' };
+
+  return { name: trimmed || 'Unknown', source: 'title_fallback' };
 }
 
 // ─── Pipeline principal ───────────────────────────────────────────────────────
@@ -156,7 +291,9 @@ export async function runProspectingPipeline(
 
   const candidates: ProspectingPipelineCandidate[] = await Promise.all(
     resultsToProcess.map(async (result): Promise<ProspectingPipelineCandidate> => {
-      const name = extractCandidateName(result.title);
+      const inferred = inferCompanyNameFromSearchResult(result.title, result.url);
+      const name = inferred.name;
+      const inferredNameSource = inferred.source;
       const website = result.url;
       const domain = normalizeDomain(result.url);
 
@@ -205,6 +342,7 @@ export async function runProspectingPipeline(
         sourceUrl: result.url,
         sourceTitle: result.title,
         sourceSnippet: result.snippet ?? null,
+        inferredNameSource,
         websiteVerification,
         duplicateCheck,
         scoring,
