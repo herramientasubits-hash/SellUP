@@ -110,3 +110,29 @@ export {
   writeProspectingCandidates,
   runAndWriteProspectingPipeline,
 } from './candidate-writer';
+
+// LLM Evaluator — Hito 16H
+export type {
+  LLMEvaluatorDecision,
+  LLMEvaluatorRawInput,
+  LLMEvaluatorInput,
+  LLMEvaluatorResult,
+  LLMEvaluatorUsage,
+  LLMEvaluatorOutput,
+  LLMEvaluationMetadata,
+  LLMEvaluatorThresholds,
+} from './llm-evaluator-types';
+export {
+  DEFAULT_LLM_EVALUATOR_THRESHOLDS,
+  KNOWN_MODEL_PRICING,
+} from './llm-evaluator-types';
+export {
+  LLMEvaluatorNotConfiguredError,
+  LLMEvaluatorParseError,
+  evaluateTavilyResultsWithLLM,
+  buildLLMEvaluationMetadata,
+  estimateLLMCost,
+  deduplicateEvaluatedResults,
+  applyThresholds,
+  selectTopEvaluatedCandidates,
+} from './llm-evaluator';

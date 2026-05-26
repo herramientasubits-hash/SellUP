@@ -23,6 +23,11 @@ import { verifyWebsite } from './website-verifier';
 import { checkCompanyDuplicate } from './duplicate-checker';
 import { scoreCandidate } from './candidate-scorer';
 import { normalizeDomain } from './normalization';
+import {
+  evaluateTavilyResultsWithLLM,
+  buildLLMEvaluationMetadata,
+} from './llm-evaluator';
+import type { LLMEvaluatorRawInput, LLMEvaluatorOutput } from './llm-evaluator-types';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -330,6 +335,152 @@ export async function runProspectingPipeline(
   }
 
   // ── Paso 4: Enriquecer cada resultado ─────────────────────────────────────────
+
+  const useLLMEvaluator =
+    input.useLLMEvaluator === true || input.mode === 'tavily_llm_evaluator';
+
+  let llmEvaluation: LLMEvaluatorOutput | null = null;
+  let llmEvaluatorWarnings: string[] = [];
+
+  if (useLLMEvaluator) {
+    // ── LLM evaluator branch ─────────────────────────────────────────────────
+    // Pasa todos los resultados raw al evaluador (hasta maxRaw=30).
+    // Los candidatos se construyen solo con los topCandidates del evaluador.
+    const rawInputs: LLMEvaluatorRawInput[] = webSearch.results.map((r, idx) => ({
+      idx,
+      title: r.title,
+      url: r.url,
+      domain: normalizeDomain(r.url),
+      snippet: r.snippet ?? null,
+      query: ('originQuery' in r && typeof r.originQuery === 'string')
+        ? r.originQuery
+        : searchQuery,
+    }));
+
+    llmEvaluation = await evaluateTavilyResultsWithLLM({
+      country: input.country,
+      countryCode: input.countryCode,
+      industry: input.industry,
+      rawResults: rawInputs,
+      targetCount,
+    });
+
+    llmEvaluatorWarnings = llmEvaluation.warnings;
+    warnings.push(...llmEvaluatorWarnings);
+
+    const candidatesFromEvaluator: ProspectingPipelineCandidate[] = await Promise.all(
+      llmEvaluation.topCandidates.map(async (evaluated: LLMEvaluatorOutput['topCandidates'][number]): Promise<ProspectingPipelineCandidate> => {
+        // Use LLM-inferred clean name; fall back to title-based inference
+        const rawResult = webSearch.results[evaluated.idx];
+        const titleFallback = rawResult
+          ? inferCompanyNameFromSearchResult(rawResult.title, rawResult.url)
+          : null;
+
+        const name =
+          evaluated.clean_company_name?.trim() ||
+          titleFallback?.name ||
+          'Unknown';
+
+        const inferredNameSource: NameInferenceSource =
+          evaluated.clean_company_name ? 'title_prefix' : (titleFallback?.source ?? 'title_fallback');
+
+        const website = evaluated.website ?? rawResult?.url ?? null;
+        const domain = evaluated.domain
+          ? (normalizeDomain(evaluated.domain) ?? normalizeDomain(website ?? ''))
+          : normalizeDomain(website ?? '');
+
+        const websiteVerification = await verifyWebsite({
+          candidateName: name,
+          websiteOrDomain: website ?? undefined,
+          country: input.country,
+          countryCode: input.countryCode,
+        });
+
+        const duplicateCheck = await checkCompanyDuplicate({
+          name,
+          website: website ?? undefined,
+          domain: domain ?? undefined,
+          country: input.country,
+          countryCode: input.countryCode,
+        });
+
+        const scoring = scoreCandidate({
+          name,
+          country: input.country,
+          countryCode: input.countryCode,
+          industry: input.industry,
+          website,
+          domain,
+          websiteVerification,
+          duplicateCheck,
+          catalogContext,
+          sourcePrimary: rawResult?.source ?? provider,
+          sourcePriority:
+            catalogContext.recommendedSources.length > 0
+              ? catalogContext.recommendedSources[0].priority
+              : null,
+        });
+
+        const llmEvalMeta = buildLLMEvaluationMetadata(evaluated, {
+          provider: llmEvaluation!.usage.provider,
+          model: llmEvaluation!.usage.model,
+        });
+
+        return {
+          name,
+          website,
+          domain,
+          country: input.country,
+          countryCode: input.countryCode,
+          industry: input.industry,
+          sourceUrl: website,
+          sourceTitle: rawResult?.title ?? null,
+          sourceSnippet: rawResult?.snippet ?? null,
+          inferredNameSource,
+          websiteVerification,
+          duplicateCheck,
+          scoring,
+          llmEvaluation: llmEvalMeta,
+        };
+      })
+    );
+
+    const summary = buildSummary(targetCount, webSearch.resultsCount, candidatesFromEvaluator);
+
+    return {
+      input,
+      catalogContext,
+      searchQuery,
+      webSearch,
+      candidates: candidatesFromEvaluator,
+      summary,
+      warnings,
+      metadata: {
+        pipelineVersion: '0.4.0',
+        executedAt: new Date().toISOString(),
+        provider,
+        searchDepth,
+        search_mode: 'tavily_llm_evaluator',
+        ...(multiQueryMeta ?? {}),
+        llm_evaluator: {
+          model: llmEvaluation.usage.model,
+          provider: llmEvaluation.usage.provider,
+          evaluated_count: llmEvaluation.usage.evaluatedCount,
+          kept_count: llmEvaluation.keptResults.length,
+          review_count: llmEvaluation.reviewResults.length,
+          discarded_count: llmEvaluation.discardedResults.length,
+          deduplicated_count: llmEvaluation.deduplicatedCount,
+          top_candidates_count: llmEvaluation.topCandidates.length,
+          input_tokens: llmEvaluation.usage.inputTokens,
+          output_tokens: llmEvaluation.usage.outputTokens,
+          estimated_cost_usd: llmEvaluation.usage.estimatedCostUsd,
+          cost_per_kept_candidate: llmEvaluation.usage.costPerKeptCandidate,
+        },
+      },
+    };
+  }
+
+  // ── Standard branch (single_query / multi_query) ──────────────────────────
   const resultsToProcess = webSearch.results.slice(0, targetCount);
 
   const candidates: ProspectingPipelineCandidate[] = await Promise.all(

@@ -123,6 +123,7 @@ function isValidUuid(val: string | null | undefined): boolean {
  * Construye el metadata del candidato.
  * No incluye HTML completo ni tokens/secretos.
  * snippet truncado a 300 chars.
+ * Incluye llm_evaluation si el candidato fue generado por el evaluador LLM (Hito 16H).
  */
 function buildCandidateMetadata(
   candidate: ProspectingPipelineCandidate
@@ -135,6 +136,9 @@ function buildCandidateMetadata(
     source_title: candidate.sourceTitle ?? null,
     inferred_name_source: candidate.inferredNameSource ?? null,
     source_snippet: candidate.sourceSnippet?.slice(0, 300) ?? null,
+    ...(candidate.llmEvaluation
+      ? { llm_evaluation: candidate.llmEvaluation }
+      : {}),
     website_verification: websiteVerification
       ? {
           status: websiteVerification.status,

@@ -223,8 +223,10 @@ export type ProspectingPipelineInput = {
   searchDepth?: SearchDepth;
   targetCount?: number;
   webSearchProvider?: WebSearchProviderKey;
-  mode?: 'single_query' | 'multi_query';
+  mode?: 'single_query' | 'multi_query' | 'tavily_llm_evaluator';
   maxResultsPerQuery?: number;
+  /** When true, runs the LLM evaluator on Tavily raw results before candidate scoring. */
+  useLLMEvaluator?: boolean;
 };
 
 export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
@@ -243,6 +245,8 @@ export type ProspectingPipelineCandidate = {
   websiteVerification: WebsiteVerificationOutput | null;
   duplicateCheck: DuplicateCheckResult | null;
   scoring: CandidateScoringOutput;
+  /** Present when the candidate was created via the LLM evaluator pipeline (Hito 16H). */
+  llmEvaluation?: import('./llm-evaluator-types').LLMEvaluationMetadata | null;
 };
 
 export type ProspectingPipelineSummary = {
