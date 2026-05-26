@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Loader2, Globe, Target, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Loader2, Globe, Target, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -23,8 +23,6 @@ import { toast } from 'sonner';
 import { generateTavilyProspectBatch } from '@/modules/prospect-batches/actions';
 import { LATAM_COUNTRIES, INDUSTRIES } from '@/modules/prospect-batches/types';
 import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
-
-const MVP_MAX_CANDIDATES = 25;
 
 const EMPTY = {
   countryCode: '',
@@ -65,10 +63,10 @@ export function GenerateTavilyBatchDrawer() {
     const country = LATAM_COUNTRIES.find((c) => c.code === form.countryCode);
 
     setGenerating(true);
-    setProgressMsg('Iniciando búsqueda web…');
+    setProgressMsg('Iniciando búsqueda…');
 
     try {
-      setProgressMsg('Ejecutando consultas Tavily multi-query…');
+      setProgressMsg('Buscando empresas en la web y evaluando resultados…');
 
       const result = await generateTavilyProspectBatch({
         country: country?.name ?? form.countryCode,
@@ -78,8 +76,8 @@ export function GenerateTavilyBatchDrawer() {
       });
 
       toast.success(
-        `Lote generado con ${result.candidatesCreated} empresa${result.candidatesCreated !== 1 ? 's' : ''} candidata${result.candidatesCreated !== 1 ? 's' : ''}`,
-        { description: 'Listo para revisión humana.' }
+        `${result.candidatesCreated} empresa${result.candidatesCreated !== 1 ? 's' : ''} lista${result.candidatesCreated !== 1 ? 's' : ''} para revisión`,
+        { description: 'Revisa los candidatos antes de aprobarlos.' }
       );
 
       setOpen(false);
@@ -101,11 +99,10 @@ export function GenerateTavilyBatchDrawer() {
       <Button
         onClick={() => setOpen(true)}
         size="sm"
-        variant="outline"
-        className="gap-1.5"
+        className="gap-1.5 bg-su-brand text-white hover:bg-su-brand/90"
       >
-        <Search className="h-3.5 w-3.5" />
-        Generar con Tavily
+        <Sparkles className="h-3.5 w-3.5" />
+        Buscar empresas con IA
       </Button>
 
       <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -114,14 +111,14 @@ export function GenerateTavilyBatchDrawer() {
           <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
-                <Search className="h-4 w-4 text-su-brand" />
+                <Sparkles className="h-4 w-4 text-su-brand" />
               </div>
               <div className="space-y-0.5">
                 <SheetTitle className="text-base font-semibold">
-                  Generar candidatas con Tavily
+                  Buscar empresas con IA
                 </SheetTitle>
                 <SheetDescription className="text-xs text-muted-foreground/70">
-                  Búsqueda web multi-consulta. Los candidatos quedarán en revisión antes de avanzar.
+                  SellUp buscará empresas en la web, evaluará cada resultado con IA y dejará los mejores candidatos listos para revisión.
                 </SheetDescription>
               </div>
             </div>
@@ -178,7 +175,7 @@ export function GenerateTavilyBatchDrawer() {
             {/* Cantidad */}
             <Section icon={Target} label="Parámetros">
               <Row>
-                <Field label="Cantidad objetivo">
+                <Field label="Candidatos objetivo">
                   <Select
                     value={form.targetCount}
                     onValueChange={(v) => set('targetCount', v ?? '10')}
@@ -204,8 +201,10 @@ export function GenerateTavilyBatchDrawer() {
               <div className="flex gap-2.5">
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                 <p className="text-xs text-muted-foreground">
-                  Usará Tavily multi-query con 5 búsquedas en modo basic. Los candidatos quedarán
-                  en revisión antes de avanzar. Ninguna empresa se crea automáticamente.
+                  Los candidatos no se aprueban automáticamente. Ninguna empresa se crea en SellUp sin revisión humana.
+                  <span className="mt-1 block text-muted-foreground/70">
+                    Se registrará el consumo estimado de IA para trazabilidad.
+                  </span>
                 </p>
               </div>
             </div>
@@ -213,24 +212,31 @@ export function GenerateTavilyBatchDrawer() {
             {/* Fuentes */}
             <div className="space-y-2">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                Fuentes que usará el agente
+                Cómo funciona
               </p>
               <div className="flex flex-col gap-1.5">
                 {[
                   {
-                    label: 'Tavily',
-                    desc: 'Discovery web multi-query (5 búsquedas, modo basic)',
+                    icon: Globe,
+                    label: 'Búsqueda web',
+                    desc: 'Encuentra empresas relevantes según país e industria',
                   },
                   {
-                    label: 'SellUp DB',
-                    desc: 'Deduplicación interna (solo lectura)',
+                    icon: Brain,
+                    label: 'Evaluación IA',
+                    desc: 'Analiza y filtra los resultados más relevantes',
+                  },
+                  {
+                    icon: CheckCircle2,
+                    label: 'Deduplicación',
+                    desc: 'Detecta si ya existen en SellUp o HubSpot',
                   },
                 ].map((src) => (
                   <div
                     key={src.label}
                     className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-card px-3 py-2"
                   >
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                    <src.icon className="h-3.5 w-3.5 shrink-0 text-su-brand" />
                     <span className="text-xs font-medium text-foreground">{src.label}</span>
                     <span className="text-xs text-muted-foreground">·</span>
                     <span className="text-xs text-muted-foreground">{src.desc}</span>
@@ -268,9 +274,9 @@ export function GenerateTavilyBatchDrawer() {
                 {generating ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Search className="h-3.5 w-3.5" />
+                  <Sparkles className="h-3.5 w-3.5" />
                 )}
-                {generating ? 'Buscando…' : 'Generar con Tavily'}
+                {generating ? 'Buscando…' : 'Buscar empresas'}
               </Button>
             </div>
           </SheetFooter>

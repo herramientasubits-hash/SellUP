@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Layers, MoreHorizontal, ArrowRight, CheckCircle2, XCircle, GitMerge, Loader2 } from 'lucide-react';
+import { Layers, MoreHorizontal, ArrowRight, CheckCircle2, XCircle, GitMerge, Loader2, FlaskConical } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -110,12 +110,24 @@ function BatchRowActions({ batch, onStatusChange, loading }: BatchRowActionsProp
   );
 }
 
+const TECHNICAL_KEYWORDS = /hito|benchmark|test|prueba|mock/i;
+
+function isTechnicalBatch(name: string) {
+  return TECHNICAL_KEYWORDS.test(name);
+}
+
 interface BatchesListClientProps {
   batches: ProspectBatchWithMeta[];
 }
 
 export function BatchesListClient({ batches }: BatchesListClientProps) {
   const [loadingId, setLoadingId] = React.useState<string | null>(null);
+  const [showTechnical, setShowTechnical] = React.useState(false);
+
+  const technicalCount = batches.filter((b) => isTechnicalBatch(b.name)).length;
+  const visibleBatches = showTechnical
+    ? batches
+    : batches.filter((b) => !isTechnicalBatch(b.name));
 
   async function handleStatusChange(id: string, status: BatchStatus) {
     setLoadingId(id);
@@ -133,6 +145,20 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
 
   return (
     <div className="overflow-x-auto">
+      {technicalCount > 0 && (
+        <div className="flex items-center justify-end border-b border-border/30 px-4 py-2">
+          <button
+            type="button"
+            onClick={() => setShowTechnical((v) => !v)}
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            <FlaskConical className="h-3 w-3" />
+            {showTechnical
+              ? 'Ocultar lotes técnicos'
+              : `Mostrar lotes técnicos (${technicalCount})`}
+          </button>
+        </div>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/40">
@@ -149,7 +175,23 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
           </tr>
         </thead>
         <tbody>
-          {batches.map((batch) => (
+          {visibleBatches.length === 0 ? (
+            <tr>
+              <td colSpan={11} className="py-12 text-center text-xs text-muted-foreground">
+                No hay lotes productivos todavía.{' '}
+                {technicalCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowTechnical(true)}
+                    className="underline hover:text-foreground"
+                  >
+                    Ver lotes técnicos ({technicalCount})
+                  </button>
+                )}
+              </td>
+            </tr>
+          ) : null}
+          {visibleBatches.map((batch) => (
             <tr
               key={batch.id}
               className="group border-b border-border/30 transition-colors last:border-0 hover:bg-muted/30"

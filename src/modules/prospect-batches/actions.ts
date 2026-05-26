@@ -772,7 +772,7 @@ export async function generateTavilyProspectBatch(
   }
 
   const now = new Date();
-  const batchName = `Tavily · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  const batchName = `IA web · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
   const result = await runAndWriteProspectingPipeline({
     country: input.country,
@@ -780,8 +780,9 @@ export async function generateTavilyProspectBatch(
     industry: input.industry,
     targetCount: input.targetCount,
     webSearchProvider: 'tavily',
-    mode: 'multi_query',
-    maxResultsPerQuery: 5,
+    mode: 'tavily_llm_evaluator',
+    useLLMEvaluator: true,
+    maxResultsPerQuery: 8,
     searchDepth: 'basic',
     triggeredByUserId: internalUserId,
     ownerId: internalUserId,
