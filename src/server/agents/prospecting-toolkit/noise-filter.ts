@@ -39,6 +39,13 @@
  *   - softserveinc.com añadido a GLOBAL_ENTERPRISE_DOMAINS (cubre career.softserveinc.com vía subdominio)
  *   - hasCareerSubdomain: bloquea subdominios career.* / careers.* de cualquier dominio
  *   - CAREER_PATH_SEGMENTS: bloquea /careers/, /career/, /vacancies/, /jobs/, /job/ en cualquier dominio
+ *
+ * Hito 13H — Hardening final filtros:
+ *   - Dominios .gov.co y .gob.co bloqueados genéricamente como non_prospectable_source
+ *   - DIRECTORY_PATH_SEGMENTS ampliado: /top-, /top_, /ranking, /rankings,
+ *     /mejores-, /mejores_, /listado, /lista-, /listas-
+ *   - RANKING_TITLE_RE: regex que detecta "Top N" y "Ranking YYYY" en títulos
+ *     para bloquear homepages cuyo título revela contenido de lista/ranking
  */
 
 import type { WebSearchResult } from './types';
@@ -228,6 +235,15 @@ const DIRECTORY_PATH_SEGMENTS = [
   '/sites-to-hire',       // Hito 12D: artículos "Top N sites to hire developers"
   '/global-locations/',   // Hito 12D: páginas de presencia global de empresas extranjeras
   '/hire-',               // Hito 12D: /hire-software-developers-in-colombia
+  '/top-',                // Hito 13H: /top-10-empresas, /top-apps, etc.
+  '/top_',                // Hito 13H: variante con guion bajo
+  '/ranking',             // Hito 13H: /ranking, /rankings, /ranking-software
+  '/rankings',            // Hito 13H: /rankings/ explícito
+  '/mejores-',            // Hito 13H: /mejores-software, /mejores-apps (más genérico que /mejores-empresas)
+  '/mejores_',            // Hito 13H: variante con guion bajo
+  '/listado',             // Hito 13H: /listado, /listado-empresas (más genérico que /listado-empresas/)
+  '/lista-',              // Hito 13H: /lista-software, /lista-empresas (más genérico)
+  '/listas-',             // Hito 13H: /listas-de-empresas, /listas-software
 ];
 
 const ASSOCIATION_CHAMBER_DOMAINS = new Set([
@@ -341,6 +357,14 @@ const CONTENT_PAGE_TITLE_SIGNALS = [
   '| pwc ',
   '| kpmg ',
 ];
+
+/**
+ * Detecta títulos de listado/ranking aunque la URL sea la homepage.
+ * Hito 13H: complementa DIRECTORY_PATH_SEGMENTS cuando Tavily devuelve la
+ * homepage pero el título revela que el contenido es una lista o ranking.
+ * Ejemplos: "Top 10 empresas..." / "Ranking 2025" / "Mejores 5 apps"
+ */
+const RANKING_TITLE_RE = /\btop\s+\d+\b|\branking\s+20\d{2}\b|\branking\s+de\b|\bmejores?\s+\d+\b/i;
 
 // Patrón de año en ruta (indica artículo con fecha).
 // Hito 10B: actualizado para capturar años embebidos en segmentos de path:
@@ -489,6 +513,15 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
+  // 3b. Dominios gubernamentales colombianos (Hito 13H)
+  if (domain.endsWith('.gov.co') || domain.endsWith('.gob.co')) {
+    return {
+      isProspectable: false,
+      reason: `Dominio gubernamental colombiano (${domain}) — no es empresa prospectable`,
+      resultType: 'non_prospectable_source',
+    };
+  }
+
   // 4. Fuentes académicas
   if (
     domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
@@ -609,13 +642,14 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 8b. Título de artículo — página de contenido editorial (Hito 13B)
+  // 8b. Título de artículo — página de contenido editorial (Hito 13B/13H)
   const titleLower = (result.title ?? '').toLowerCase();
   const isContentPageTitle = CONTENT_PAGE_TITLE_SIGNALS.some((s) => titleLower.includes(s));
-  if (isContentPageTitle) {
+  const isRankingTitle = RANKING_TITLE_RE.test(titleLower);
+  if (isContentPageTitle || isRankingTitle) {
     return {
       isProspectable: false,
-      reason: 'Título indica página de contenido editorial, no nombre de empresa prospectable',
+      reason: 'Título indica página de contenido editorial o listado/ranking, no empresa prospectable',
       resultType: 'content_page',
     };
   }
@@ -814,6 +848,16 @@ export function classifySearchResult(result: {
     };
   }
 
+  // 9b. Dominios gubernamentales colombianos (Hito 13H)
+  // .gov.co y .gob.co son dominios de entidades del Estado, no empresas prospectables.
+  if (domain.endsWith('.gov.co') || domain.endsWith('.gob.co')) {
+    return {
+      resultType: 'non_prospectable_source',
+      shouldKeep: false,
+      reason: `Dominio gubernamental colombiano (${domain}) — no es empresa prospectable`,
+    };
+  }
+
   // 10. Fuentes académicas
   if (
     domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
@@ -889,16 +933,19 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 13b. Título de artículo — página de contenido sin señal de blog en URL (Hito 13B)
+  // 13b. Título de artículo — página de contenido sin señal de blog en URL (Hito 13B/13H)
   // Detecta casos donde el dominio es prospectable pero el título revela contenido editorial.
+  // Hito 13H: RANKING_TITLE_RE captura "Top 10 empresas...", "Ranking 2025", etc., que
+  // Tavily puede devolver con la homepage como URL (el path sería "/" y no se bloquearía por path).
   const isContentPageTitle = CONTENT_PAGE_TITLE_SIGNALS.some(
     (s) => titleText.includes(s),
   );
-  if (isContentPageTitle) {
+  const isRankingTitle = RANKING_TITLE_RE.test(titleText);
+  if (isContentPageTitle || isRankingTitle) {
     return {
       resultType: 'content_page',
       shouldKeep: false,
-      reason: 'Título indica página de contenido editorial, no nombre de empresa prospectable',
+      reason: 'Título indica página de contenido editorial o listado/ranking, no empresa prospectable',
     };
   }
 

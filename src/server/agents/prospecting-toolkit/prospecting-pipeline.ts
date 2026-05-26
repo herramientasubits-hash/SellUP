@@ -64,6 +64,26 @@ const GENERIC_KEYWORDS = new Set([
   'gestion', 'management',
   'negocios', 'business',
   'empresas', 'para',
+  // Hito 13H: frases genéricas adicionales detectadas en validación real
+  'medida',       // "Software a la medida", "Desarrollo a la medida"
+  'ranking',      // "Ranking 2025" — nombre de lista, no empresa
+  'listado',      // "Listado de empresas"
+  'lista',        // "Lista de software"
+  'top',          // "Top empresas", "Top 10"
+]);
+
+/**
+ * Marcas/vendors globales cuya presencia en un segmento de título indica
+ * que el segmento describe una integración o partnership, no el nombre de la empresa.
+ * Si el dominio no pertenece a la marca, el segmento se omite.
+ * Hito 13H: evita que "Microsoft Dynamics Partner LATAM" sea el nombre inferido
+ * cuando el dominio es de otra empresa (ej. kcpdynamics.com).
+ */
+const GLOBAL_VENDOR_NAMES = new Set([
+  'microsoft', 'sap', 'ibm', 'oracle', 'salesforce',
+  'google', 'aws', 'amazon', 'hubspot', 'adobe',
+  'meta', 'cisco', 'dell', 'hp', 'apple',
+  'zoom', 'slack', 'servicenow', 'workday', 'zendesk',
 ]);
 
 // Sufijos legales colombianos / latinoamericanos
@@ -98,14 +118,30 @@ function isGenericPhrase(part: string): boolean {
   const words = normalizeForKeywords(part).split(/\s+/).filter(w => w.length > 2);
   if (words.length === 0) return true;
   const genericCount = words.filter(w => GENERIC_KEYWORDS.has(w)).length;
-  return genericCount / words.length > 0.5;
+  // Hito 13H: >= 0.5 (antes > 0.5) para capturar frases 50% genéricas como "Software a la medida"
+  return genericCount / words.length >= 0.5;
+}
+
+/**
+ * Retorna true si el segmento contiene una marca global vendor y el dominio
+ * de la URL no corresponde a esa marca. Indica que el segmento describe una
+ * integración o partnership, no el nombre real de la empresa.
+ * Hito 13H: evita "Microsoft Dynamics Partner LATAM" cuando el dominio es kcpdynamics.com.
+ */
+function segmentContainsForeignBrand(segment: string, domain: string): boolean {
+  const segLower = normalizeForKeywords(segment);
+  for (const brand of GLOBAL_VENDOR_NAMES) {
+    if (segLower.includes(brand) && !domain.includes(brand)) return true;
+  }
+  return false;
 }
 
 /**
  * Intenta extraer nombre limpio desde el título usando separadores fuertes.
  * Detecta también el patrón SIGLA, descriptor (ej. "TSI, Servicios de…").
+ * Hito 13H: acepta dominio opcional para saltar segmentos con marcas globales ajenas.
  */
-function inferNameFromTitle(title: string): string | null {
+function inferNameFromTitle(title: string, domain?: string): string | null {
   // Patrón: SIGLA en mayúsculas antes de coma ("TSI, Servicios de…")
   const leadingAcronym = /^([A-Z]{2,6}),\s+/.exec(title);
   if (leadingAcronym) return leadingAcronym[1];
@@ -117,6 +153,8 @@ function inferNameFromTitle(title: string): string | null {
     .filter(p => p.length > 1);
 
   for (const part of parts) {
+    // Hito 13H: saltar segmentos con marca global ajena al dominio
+    if (domain && segmentContainsForeignBrand(part, domain)) continue;
     if (!isGenericPhrase(part)) return part;
   }
   return null;
@@ -170,8 +208,13 @@ function inferCompanyNameFromSearchResult(
   url: string
 ): { name: string; source: NameInferenceSource } {
   const trimmed = title.trim();
+  // Hito 13H: pasar dominio para que inferNameFromTitle omita segmentos con marcas globales
+  const domainForBrand = (() => {
+    try { return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, ''); }
+    catch { return ''; }
+  })();
 
-  const fromTitle = inferNameFromTitle(trimmed);
+  const fromTitle = inferNameFromTitle(trimmed, domainForBrand);
   if (fromTitle) return { name: fromTitle, source: 'title_prefix' };
 
   const fromDomain = inferNameFromDomain(url);
