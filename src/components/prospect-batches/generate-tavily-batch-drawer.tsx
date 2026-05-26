@@ -99,7 +99,7 @@ export function GenerateTavilyBatchDrawer() {
       <Button
         onClick={() => setOpen(true)}
         size="sm"
-        className="gap-1.5 bg-su-brand text-white hover:bg-su-brand/90"
+        className="gap-1.5 bg-su-brand text-white hover:bg-su-brand/90 transition-colors"
       >
         <Sparkles className="h-3.5 w-3.5" />
         Buscar empresas con IA
