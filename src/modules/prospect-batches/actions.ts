@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
+import { runAndWriteProspectingPipeline } from '@/server/agents/prospecting-toolkit/candidate-writer';
 import type {
   ProspectBatch,
   ProspectBatchWithMeta,
@@ -737,5 +738,68 @@ export async function generateAIProspectBatch(
     batchId: result.batchId,
     candidatesCreated: result.candidatesCreated,
     estimatedCostUsd: result.estimatedCostUsd,
+  };
+}
+
+// ── Agente 1 (Tavily): Búsqueda web multi-query ───────────────
+
+export interface GenerateTavilyBatchInput {
+  country: string;
+  countryCode: string;
+  industry: string;
+  targetCount: number;
+}
+
+export interface GenerateTavilyBatchResult {
+  batchId: string;
+  candidatesCreated: number;
+  status: string;
+}
+
+export async function generateTavilyProspectBatch(
+  input: GenerateTavilyBatchInput
+): Promise<GenerateTavilyBatchResult> {
+  const { internalUserId } = await requireActiveUser();
+
+  if (!input.country || !input.countryCode) {
+    throw new Error('País requerido para la búsqueda web');
+  }
+  if (!input.industry) {
+    throw new Error('Industria requerida para la búsqueda web');
+  }
+  if (input.targetCount < 1 || input.targetCount > MVP_MAX_CANDIDATES) {
+    throw new Error(`La cantidad debe estar entre 1 y ${MVP_MAX_CANDIDATES}`);
+  }
+
+  const now = new Date();
+  const batchName = `Tavily · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+
+  const result = await runAndWriteProspectingPipeline({
+    country: input.country,
+    countryCode: input.countryCode,
+    industry: input.industry,
+    targetCount: input.targetCount,
+    webSearchProvider: 'tavily',
+    mode: 'multi_query',
+    maxResultsPerQuery: 5,
+    searchDepth: 'basic',
+    triggeredByUserId: internalUserId,
+    ownerId: internalUserId,
+    batchName,
+    dryRun: false,
+  });
+
+  if (!result.writer.batchId) {
+    const firstError = result.writer.errors[0] ?? 'El pipeline no pudo generar candidatos';
+    throw new Error(firstError);
+  }
+
+  revalidatePath('/prospect-batches');
+  revalidatePath(`/prospect-batches/${result.writer.batchId}`);
+
+  return {
+    batchId: result.writer.batchId,
+    candidatesCreated: result.writer.candidatesCreated,
+    status: result.writer.status,
   };
 }

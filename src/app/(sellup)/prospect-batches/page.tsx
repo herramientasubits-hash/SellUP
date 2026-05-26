@@ -4,6 +4,7 @@ import { SurfaceCard } from '@/components/shared/surface-card';
 import { CreateBatchDrawer } from '@/components/prospect-batches/create-batch-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
 import { GenerateMockBatchDrawer } from '@/components/prospect-batches/generate-mock-batch-drawer';
+import { GenerateTavilyBatchDrawer } from '@/components/prospect-batches/generate-tavily-batch-drawer';
 import { BatchesListClient } from '@/components/prospect-batches/batches-list-client';
 import {
   getProspectBatchesSummary,
@@ -64,6 +65,7 @@ export default async function ProspectBatchesPage() {
         actions={
           <div className="flex items-center gap-2">
             <GenerateMockBatchDrawer />
+            <GenerateTavilyBatchDrawer />
             <GenerateAIBatchDrawer />
             <CreateBatchDrawer users={users} />
           </div>
