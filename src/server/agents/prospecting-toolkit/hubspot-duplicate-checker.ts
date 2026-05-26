@@ -44,13 +44,23 @@ async function getHubSpotToken(): Promise<string | null> {
 async function isHubSpotConnected(): Promise<boolean> {
   try {
     const admin = getAdminClient();
-    const { data } = await admin
+
+    const { data: integration } = await admin
+      .from('external_integrations')
+      .select('id')
+      .eq('integration_key', INTEGRATION_KEY)
+      .single();
+
+    if (!integration?.id) return false;
+
+    const { data: connection } = await admin
       .from('external_integration_connections')
       .select('connection_status, credentials_status')
-      .eq('integration_key', INTEGRATION_KEY)
+      .eq('integration_id', integration.id)
       .eq('connection_status', 'connected')
       .single();
-    return !!data;
+
+    return !!connection;
   } catch {
     return false;
   }
