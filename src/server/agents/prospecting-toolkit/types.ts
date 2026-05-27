@@ -105,6 +105,7 @@ export type CatalogContextResult = {
 export type WebSearchProviderKey =
   | "mock"
   | "tavily"
+  | "google_cse"
   | "brave"
   | "serpapi"
   | "exa"

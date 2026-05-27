@@ -77,6 +77,11 @@ export interface TavilyMetadata extends Record<string, unknown> {
   search_depth?: string;
 }
 
+export interface GoogleCSEMetadata extends Record<string, unknown> {
+  response_time_ms?: number;
+  results_count?: number;
+}
+
 export interface IntegrationAuditEntry {
   id: string;
   integration_key: string;
@@ -103,7 +108,13 @@ export interface IntegrationAuditEntry {
     | 'tavily_connection_tested'
     | 'tavily_connection_succeeded'
     | 'tavily_connection_failed'
-    | 'tavily_disconnected';
+    | 'tavily_disconnected'
+    | 'google_cse_credentials_stored'
+    | 'google_cse_credentials_updated'
+    | 'google_cse_connection_tested'
+    | 'google_cse_connection_succeeded'
+    | 'google_cse_connection_failed'
+    | 'google_cse_disconnected';
   actor_user_id: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;

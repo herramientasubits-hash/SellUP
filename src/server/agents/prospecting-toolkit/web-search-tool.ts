@@ -27,6 +27,7 @@ import type {
 } from './types';
 import { runMockWebSearch } from './web-search-providers/mock-web-search-provider';
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
+import { runGoogleCseWebSearch } from './web-search-providers/google-cse-web-search-provider';
 import { filterNoiseResults } from './noise-filter';
 import { buildCleanMultiQueryDiscoveryQueries } from './query-builder';
 
@@ -75,6 +76,8 @@ async function dispatchToProvider(
       return runMockWebSearch(input, maxResults);
     case 'tavily':
       return runTavilyWebSearch(input, maxResults);
+    case 'google_cse':
+      return runGoogleCseWebSearch(input, maxResults);
     default:
       return {
         provider,

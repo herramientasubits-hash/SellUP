@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plug, MessageSquare, HardDrive, Bot, Globe, ExternalLink } from 'lucide-react';
+import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ExternalLink } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getAllIntegrations } from '@/modules/integrations/actions';
@@ -32,6 +32,7 @@ const INTEGRATION_META: Record<
   },
   samu_ia: { icon: Bot, href: '/settings/integrations/samu', cta: 'Administrar conexión' },
   tavily: { icon: Globe, href: '/settings/integrations/tavily', cta: 'Administrar conexión' },
+  google_cse: { icon: Search, href: '/settings/integrations/google-cse', cta: 'Administrar conexión' },
 };
 
 function ConnectionStatusBadge({
