@@ -11,6 +11,7 @@ import {
   Layers,
   FlaskConical,
   Globe,
+  RefreshCw,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -143,6 +144,40 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         </div>
       )}
+
+      {/* Alerta novelty: empresas omitidas por repetición reciente */}
+      {(() => {
+        const ns = batch.metadata?.novelty_summary as
+          | { skipped_count?: number; skipped_items?: { name: string }[] }
+          | undefined;
+        const skippedCount = ns?.skipped_count ?? 0;
+        if (skippedCount === 0) return null;
+        const previewNames = (ns?.skipped_items ?? [])
+          .slice(0, 3)
+          .map((i) => i.name);
+        return (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-3.5">
+            <div className="flex items-start gap-2.5">
+              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <div>
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                  SellUp omitió {skippedCount} empresa{skippedCount !== 1 ? 's' : ''} repetida{skippedCount !== 1 ? 's' : ''}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {skippedCount === 1
+                    ? 'Esta empresa ya estaba pendiente de revisión en un lote reciente y fue omitida para evitar duplicados.'
+                    : `Estas empresas ya estaban pendientes de revisión en lotes recientes y fueron omitidas para evitar duplicados.`}
+                  {previewNames.length > 0 && (
+                    <span className="ml-1">
+                      Ej.: {previewNames.join(', ')}{(ns?.skipped_items?.length ?? 0) > 3 ? '…' : '.'}
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Alerta modo prueba controlada con búsqueda real */}
       {batch.metadata?.generation_mode === 'controlled_real_test' && (

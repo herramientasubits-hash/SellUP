@@ -484,6 +484,70 @@ export async function writeProspectingCandidates(
     status = "success";
   }
 
+  // ── Post-loop metadata update ─────────────────────────────────────────────
+  // Persist real write counts and novelty summary into the batch so the UI
+  // can explain why fewer candidates appeared than the pipeline returned.
+  try {
+    const noveltyReasons = new Set([
+      "seen_in_previous_batch_recently",
+      "confirmed_duplicate_previous",
+      "rejected_recently",
+    ]);
+    const noveltySkipped = skipped.filter((s) => noveltyReasons.has(s.reason));
+    const qualitySkipped = skipped.filter((s) => s.reason === "qualityLabel=discard");
+
+    const writerSummary = {
+      actual_persisted_count: createdCandidateIds.length,
+      actual_skipped_count: skipped.length,
+      novelty_skipped_count: noveltySkipped.length,
+      quality_skipped_count: qualitySkipped.length,
+      created_candidate_ids_count: createdCandidateIds.length,
+      updated_at: new Date().toISOString(),
+    };
+
+    const noveltySummary = {
+      skipped_count: noveltySkipped.length,
+      skipped_recent_count: noveltySkipped.filter(
+        (s) => s.reason === "seen_in_previous_batch_recently"
+      ).length,
+      skipped_confirmed_duplicate_count: noveltySkipped.filter(
+        (s) => s.reason === "confirmed_duplicate_previous"
+      ).length,
+      skipped_rejected_recently_count: noveltySkipped.filter(
+        (s) => s.reason === "rejected_recently"
+      ).length,
+      skipped_items: noveltySkipped.slice(0, 20).map((s) => ({
+        name: s.name,
+        domain: s.domain ?? null,
+        reason: s.reason,
+        previous_batch_ids: s.previous_batch_ids ?? [],
+        previous_candidate_ids: s.previous_candidate_ids ?? [],
+      })),
+    };
+
+    const pipelineSummaryPostWrite = {
+      requested: pipelineOutput.summary.requested,
+      persisted: createdCandidateIds.length,
+      skipped: skipped.length,
+      returned_before_writer: pipelineOutput.summary.returned,
+      needs_review_persisted: createdCandidateIds.length,
+    };
+
+    await admin
+      .from("prospect_batches")
+      .update({
+        metadata: {
+          ...batchMetadata,
+          writer_summary: writerSummary,
+          novelty_summary: noveltySummary,
+          pipeline_summary_post_write: pipelineSummaryPostWrite,
+        },
+      })
+      .eq("id", batchId);
+  } catch {
+    // Non-critical: metadata update failure does not affect the writer result
+  }
+
   return {
     dryRun: false,
     batchId,
