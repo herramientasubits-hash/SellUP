@@ -17,9 +17,19 @@ const MANUFACTURING_KEYWORDS = [
   'manufactur', 'manufacturing', 'maquiladora', 'maquila',
 ];
 
+const TECHNOLOGY_KEYWORDS = [
+  'technology', 'tecnologia', 'tecnología', 'tech', 'software',
+  'sistemas', 'informatica', 'informática', 'digital', 'it ',
+];
+
 function isManufacturingIndustry(industry: string): boolean {
   const lower = industry.toLowerCase();
   return MANUFACTURING_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function isTechnologyIndustry(industry: string): boolean {
+  const lower = industry.toLowerCase();
+  return TECHNOLOGY_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
 /**
@@ -56,6 +66,44 @@ ADD to risk_flags when any of these apply:
 - "multinational with generic branding, no local plant evidence"
 - "industry association, chamber, or sector portal"
 - "page shows sector solutions but no factory or production evidence"
+`;
+  }
+
+  if (isTechnologyIndustry(industry)) {
+    return `
+INDUSTRY-SPECIFIC RULES FOR TECHNOLOGY (${industry}):
+The target is REAL TECH COMPANIES — firms that build, own, or operate software products, platforms, or infrastructure.
+
+KEEP (sector_fit_score ≥ 7) — valid targets:
+- SaaS companies with a named product or platform
+- Cloud, DevOps, or DevSecOps platform providers
+- Cybersecurity firms offering own software, services, or managed security
+- Software development companies or software factories with proprietary IP
+- IT infrastructure, networking, or data center operators
+- Fintech, healthtech, edtech, or vertical SaaS companies
+- Managed services providers (MSP) delivering recurring technology services
+
+REVIEW (sector_fit_score 4-6) — investigate further:
+- IT consulting firms mixing services with some product offerings
+- Outsourcing or staff-augmentation shops with a partial software portfolio
+- System integrators that resell third-party platforms with little own IP
+- Companies with generic "technology solutions" branding and no named product
+
+DISCARD (sector_fit_score ≤ 3) — NOT valid for this target:
+- Digital marketing, SEO, or social media agencies (no software product)
+- Web design or UX studios with no underlying platform or SaaS
+- HR / recruitment firms specializing in tech talent (not a tech company itself)
+- Training academies, bootcamps, or certification providers
+- Industry directories, rankings, listicles, or sector portals
+- Consulting-only firms with no technology product or platform
+
+ADD to risk_flags when any of these apply:
+- "marketing or SEO agency, not a software company"
+- "web design studio, no evidence of own platform or IP"
+- "HR/recruitment agency targeting tech roles"
+- "training or certification provider, not a tech product company"
+- "generic branding — no named product, platform, or service found"
+- "directory, listicle, or sector portal"
 `;
   }
 

@@ -96,6 +96,15 @@ function toTitleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
+// Matches promotional/editorial SEO patterns that keyword-density alone misses:
+// "empresa de X", "servicios de X", "#N", ordinal claims, superlatives, geo-qualifiers.
+const PROMOTIONAL_SEO_RE =
+  /\b(?:empresas?\s+de|servicios?\s+de|soluciones?\s+de|para\s+empresas?|num(?:ero|\.?)?\s*1|l[ií]der(?:es)?|mejor(?:es)?|#\s*\d|en\s+(?:colombia|latam|bogot[aá]|medell[ií]n|cali|latinoam[eé]rica))\b/;
+
+function hasPromotionalSEOModifiers(name: string): boolean {
+  return PROMOTIONAL_SEO_RE.test(normalizeForKeywords(name));
+}
+
 function stripLegalSuffixForDisplay(name: string): string {
   return name.replace(DISPLAY_LEGAL_SUFFIX_RE, '').trim();
 }
@@ -111,6 +120,9 @@ function stripLegalSuffixForDisplay(name: string): string {
  */
 function isSEOPhrase(name: string): boolean {
   if (DISPLAY_LEGAL_SUFFIX_RE.test(name)) return false;
+
+  // Promotional editorial patterns evade keyword-density checks — short-circuit early.
+  if (hasPromotionalSEOModifiers(name)) return true;
 
   const words = normalizeForKeywords(name)
     .split(/\s+/)
