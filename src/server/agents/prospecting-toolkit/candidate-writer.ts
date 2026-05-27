@@ -15,6 +15,7 @@
 
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { runProspectingPipeline } from "./prospecting-pipeline";
+import { buildNoveltyIndex, evaluateCandidateNovelty } from "./novelty-checker";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -232,6 +233,13 @@ export async function writeProspectingCandidates(
   const createdCandidateIds: string[] = [];
   const skipped: CandidateWriterSkipped[] = [];
 
+  // Novelty index: carga candidatos históricos para los dominios del lote actual
+  // en un solo SELECT antes de crear el batch. No hace writes.
+  const candidateDomains = pipelineOutput.candidates.map(
+    (c) => c.domain ?? extractDomain(c.website)
+  );
+  const noveltyIndex = await buildNoveltyIndex(admin, candidateDomains);
+
   const now = new Date();
   const { country, countryCode, industry } = pipelineOutput.input;
 
@@ -347,6 +355,22 @@ export async function writeProspectingCandidates(
       continue;
     }
 
+    // Novelty check: evita persistir candidatos ya sugeridos recientemente
+    const noveltyResult = evaluateCandidateNovelty(
+      { name: candidate.name, domain: candidate.domain, website: candidate.website },
+      noveltyIndex,
+    );
+    if (noveltyResult.shouldSkip) {
+      skipped.push({
+        name: candidate.name,
+        reason: noveltyResult.skipReason!,
+        domain: candidate.domain ?? extractDomain(candidate.website),
+        previous_candidate_ids: noveltyResult.noveltyMetadata.previous_candidate_ids,
+        previous_batch_ids: noveltyResult.noveltyMetadata.previous_batch_ids,
+      });
+      continue;
+    }
+
     const dbDuplicateStatus = mapDuplicateStatus(
       candidate.duplicateCheck?.status ?? "unchecked"
     );
@@ -402,7 +426,10 @@ export async function writeProspectingCandidates(
       data_completeness_score: candidate.scoring.dataCompletenessScore,
       status: candidateStatus,
       review_notes: reviewNotes,
-      metadata: buildCandidateMetadata(candidate),
+      metadata: {
+        ...buildCandidateMetadata(candidate),
+        novelty_check: noveltyResult.noveltyMetadata,
+      },
     };
 
     try {

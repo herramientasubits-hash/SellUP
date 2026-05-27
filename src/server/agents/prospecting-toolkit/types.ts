@@ -297,6 +297,9 @@ export type CandidateWriterInput = {
 export type CandidateWriterSkipped = {
   name: string;
   reason: string;
+  domain?: string | null;
+  previous_candidate_ids?: string[];
+  previous_batch_ids?: string[];
 };
 
 export type CandidateWriterOutput = {
