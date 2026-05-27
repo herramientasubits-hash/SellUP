@@ -238,6 +238,8 @@ export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
 
 export type ProspectingPipelineCandidate = {
   name: string;
+  /** Raw name before normalization (Hito 16W.2). Present only when wasNormalized is true. */
+  originalName?: string | null;
   website: string | null;
   domain: string | null;
   country: string;

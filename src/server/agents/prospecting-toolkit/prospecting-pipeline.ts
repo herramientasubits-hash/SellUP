@@ -24,6 +24,10 @@ import { checkCompanyDuplicate } from './duplicate-checker';
 import { scoreCandidate } from './candidate-scorer';
 import { normalizeDomain } from './normalization';
 import {
+  normalizeProspectCompanyName,
+  SEO_GENERIC_KEYWORDS,
+} from './company-name-normalizer';
+import {
   evaluateTavilyResultsWithLLM,
   buildLLMEvaluationMetadata,
 } from './llm-evaluator';
@@ -48,38 +52,7 @@ function clampTargetCount(requested: number | undefined): number {
 }
 
 // ─── Normalización determinística de nombre limpio (Hito 13F) ─────────────────
-
-// Palabras genéricas de SEO que NO constituyen un nombre de empresa
-const GENERIC_KEYWORDS = new Set([
-  'servicios', 'servicio', 'service', 'services',
-  'soluciones', 'solucion', 'solution', 'solutions',
-  'empresa', 'empresarial', 'empresariales', 'company', 'companies',
-  'tecnologia', 'tecnologica', 'tecnologico', 'tecnologicos', 'tecnologicas',
-  'technology', 'tech',
-  'outsourcing', 'externalizacion',
-  'soporte', 'support',
-  'informatico', 'informatica', 'informaticos', 'informaticas',
-  'consultoria', 'consulting', 'consultancy',
-  'desarrollo', 'development',
-  'software',
-  'colombia', 'bogota', 'medellin', 'cali', 'barranquilla',
-  'corporaciones', 'corporacion', 'corporation',
-  'ingenieria', 'engineering',
-  'sistemas', 'systems', 'system',
-  'redes', 'networks', 'network',
-  'infraestructura', 'infrastructure',
-  'digital', 'digitales',
-  'informacion', 'information',
-  'gestion', 'management',
-  'negocios', 'business',
-  'empresas', 'para',
-  // Hito 13H: frases genéricas adicionales detectadas en validación real
-  'medida',       // "Software a la medida", "Desarrollo a la medida"
-  'ranking',      // "Ranking 2025" — nombre de lista, no empresa
-  'listado',      // "Listado de empresas"
-  'lista',        // "Lista de software"
-  'top',          // "Top empresas", "Top 10"
-]);
+// Hito 16W.2: GENERIC_KEYWORDS movido a company-name-normalizer.ts como SEO_GENERIC_KEYWORDS.
 
 /**
  * Marcas/vendors globales cuya presencia en un segmento de título indica
@@ -126,7 +99,7 @@ function isGenericPhrase(part: string): boolean {
   if (LEGAL_SUFFIX_RE.test(part)) return false;
   const words = normalizeForKeywords(part).split(/\s+/).filter(w => w.length > 2);
   if (words.length === 0) return true;
-  const genericCount = words.filter(w => GENERIC_KEYWORDS.has(w)).length;
+  const genericCount = words.filter(w => SEO_GENERIC_KEYWORDS.has(w)).length;
   // Hito 13H: >= 0.5 (antes > 0.5) para capturar frases 50% genéricas como "Software a la medida"
   return genericCount / words.length >= 0.5;
 }
@@ -435,18 +408,22 @@ export async function runProspectingPipeline(
         ? inferCompanyNameFromSearchResult(rawResult.title, rawResult.url)
         : null;
 
-      const name =
-        evaluated.clean_company_name?.trim() ||
-        titleFallback?.name ||
-        'Unknown';
-
-      const inferredNameSource: NameInferenceSource =
-        evaluated.clean_company_name ? 'title_prefix' : (titleFallback?.source ?? 'title_fallback');
-
       const website = evaluated.website ?? rawResult?.url ?? null;
       const domain = evaluated.domain
         ? (normalizeDomain(evaluated.domain) ?? normalizeDomain(website ?? ''))
         : normalizeDomain(website ?? '');
+
+      const rawName =
+        evaluated.clean_company_name?.trim() ||
+        titleFallback?.name ||
+        'Unknown';
+
+      // Hito 16W.2: strip SEO phrases and legal suffixes from proposed name
+      const normResult = normalizeProspectCompanyName(rawName, domain ?? undefined);
+      const name = normResult.name;
+
+      const inferredNameSource: NameInferenceSource =
+        evaluated.clean_company_name ? 'title_prefix' : (titleFallback?.source ?? 'title_fallback');
 
       const websiteVerification = await verifyWebsite({
         candidateName: name,
@@ -497,6 +474,7 @@ export async function runProspectingPipeline(
 
       return {
         name,
+        originalName: normResult.wasNormalized ? normResult.originalName : null,
         website,
         domain,
         country: input.country,
