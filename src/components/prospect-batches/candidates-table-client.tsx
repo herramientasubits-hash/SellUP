@@ -112,9 +112,9 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
   const [detailOpen, setDetailOpen] = React.useState(false);
 
   const dc = parseDuplicateCheck(candidate.metadata);
-  const sources = Array.isArray(candidate.sources_checked)
-    ? (candidate.sources_checked as string[])
-    : [];
+  // candidate.sources_checked holds pipeline provider objects {provider, checked_at, result}
+  // The string[] of duplicate-check sources lives in metadata.duplicate_check.sources_checked
+  const sources = dc?.sources_checked ?? [];
   const matches = dc?.matches ?? [];
 
   return (

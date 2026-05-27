@@ -283,7 +283,10 @@ export async function runProspectingPipeline(
   // ── Paso 3: Web search ────────────────────────────────────────────────────────
   let multiQueryMeta: Record<string, unknown> | null = null;
 
-  const webSearch = input.mode === 'multi_query'
+  const useMultiQuery =
+    input.mode === 'multi_query' || input.mode === 'tavily_llm_evaluator';
+
+  const webSearch = useMultiQuery
     ? await (async () => {
         const mq = await runMultiQueryWebSearch({
           country: input.country,
@@ -292,7 +295,7 @@ export async function runProspectingPipeline(
           provider,
           searchDepth,
           targetCount,
-          maxResultsPerQuery: input.maxResultsPerQuery,
+          maxResultsPerQuery: input.maxResultsPerQuery ?? 5,
         });
         multiQueryMeta = {
           search_mode: 'multi_query',
