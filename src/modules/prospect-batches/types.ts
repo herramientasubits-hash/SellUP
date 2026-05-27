@@ -404,3 +404,49 @@ export const COMPANY_SIZES: string[] = [
   '1,001-5,000 empleados',
   '5,001+ empleados',
 ];
+
+// ── Motivos de descarte estructurados ─────────────────────────
+
+export type DiscardReasonKey =
+  | 'out_of_segment'
+  | 'too_small'
+  | 'too_large'
+  | 'wrong_country'
+  | 'wrong_industry'
+  | 'already_customer'
+  | 'not_priority_now'
+  | 'bad_data'
+  | 'duplicate_confirmed'
+  | 'other';
+
+export const DISCARD_REASONS: { value: DiscardReasonKey; label: string }[] = [
+  { value: 'out_of_segment', label: 'Fuera del segmento objetivo' },
+  { value: 'too_small', label: 'Empresa muy pequeña' },
+  { value: 'too_large', label: 'Empresa demasiado grande' },
+  { value: 'wrong_country', label: 'País incorrecto' },
+  { value: 'wrong_industry', label: 'Industria incorrecta' },
+  { value: 'already_customer', label: 'Ya es cliente de Ubits' },
+  { value: 'not_priority_now', label: 'No es prioridad ahora' },
+  { value: 'bad_data', label: 'Datos incorrectos o incompletos' },
+  { value: 'duplicate_confirmed', label: 'Duplicado confirmado manualmente' },
+  { value: 'other', label: 'Otro motivo' },
+];
+
+/**
+ * Días de cooldown por razón de descarte.
+ * 0 = la empresa nunca debe reaparecer en nuevos lotes.
+ * Aplicado en application logic del candidate-writer al generar candidatos.
+ */
+export const COOLDOWN_DAYS: Record<DiscardReasonKey | 'default', number> = {
+  default: 30,
+  out_of_segment: 180,
+  wrong_country: 180,
+  wrong_industry: 180,
+  not_priority_now: 90,
+  too_small: 90,
+  too_large: 90,
+  bad_data: 30,
+  other: 30,
+  already_customer: 0,
+  duplicate_confirmed: 0,
+};

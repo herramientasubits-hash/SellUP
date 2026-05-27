@@ -5,22 +5,24 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
 import { runAndWriteProspectingPipeline } from '@/server/agents/prospecting-toolkit/candidate-writer';
-import type {
-  ProspectBatch,
-  ProspectBatchWithMeta,
-  ProspectCandidate,
-  ProspectCandidateWithReviewer,
-  ProspectCandidateAudit,
-  BatchesSummary,
-  BatchDetailSummary,
-  CreateBatchInput,
-  UpdateBatchInput,
-  CreateCandidateInput,
-  UpdateCandidateInput,
-  MarkDuplicateInput,
-  InternalUserOption,
-  CandidateAuditAction,
-  BatchStatus,
+import {
+  APPROVE_BLOCK_MESSAGES,
+  type ProspectBatch,
+  type ProspectBatchWithMeta,
+  type ProspectCandidate,
+  type ProspectCandidateWithReviewer,
+  type ProspectCandidateAudit,
+  type BatchesSummary,
+  type BatchDetailSummary,
+  type CreateBatchInput,
+  type UpdateBatchInput,
+  type CreateCandidateInput,
+  type UpdateCandidateInput,
+  type MarkDuplicateInput,
+  type InternalUserOption,
+  type CandidateAuditAction,
+  type BatchStatus,
+  type DuplicateStatus,
 } from './types';
 
 // ── Auth helpers ──────────────────────────────────────────────
@@ -477,6 +479,23 @@ export async function updateProspectCandidate(
 export async function approveCandidate(id: string): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
   const supabase = await createClient();
+
+  // ── Guardia server-side: rechaza si duplicate_status bloquea la aprobación ──
+  // Esta protección existe también en la UI (APPROVE_BLOCK_MESSAGES) pero debe
+  // estar aquí para que no sea bypasseable con llamadas directas al server action.
+  const { data: current } = await supabase
+    .from('prospect_candidates')
+    .select('duplicate_status')
+    .eq('id', id)
+    .single();
+
+  if (current?.duplicate_status) {
+    const blockMsg = APPROVE_BLOCK_MESSAGES[current.duplicate_status as DuplicateStatus];
+    if (blockMsg) {
+      throw new Error(blockMsg);
+    }
+  }
+  // ── Fin guardia ───────────────────────────────────────────────────────────
 
   const { data, error } = await supabase
     .from('prospect_candidates')
