@@ -28,6 +28,10 @@ import {
   buildLLMEvaluationMetadata,
 } from './llm-evaluator';
 import type { LLMEvaluatorRawInput, LLMEvaluatorOutput } from './llm-evaluator-types';
+import {
+  classifySearchResultForProspecting,
+  type PreLLMFilterSummary,
+} from './pre-llm-result-filter';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -357,16 +361,58 @@ export async function runProspectingPipeline(
     // ── LLM evaluator branch ─────────────────────────────────────────────────
     // Pasa todos los resultados raw al evaluador (hasta maxRaw=30).
     // Los candidatos se construyen solo con los topCandidates del evaluador.
-    const rawInputs: LLMEvaluatorRawInput[] = webSearch.results.map((r, idx) => ({
-      idx,
-      title: r.title,
-      url: r.url,
-      domain: normalizeDomain(r.url),
-      snippet: r.snippet ?? null,
-      query: ('originQuery' in r && typeof r.originQuery === 'string')
-        ? r.originQuery
-        : searchQuery,
-    }));
+
+    // ── Pre-LLM filter: descarta resultados claramente no candidatos (Hito 16W.1) ──
+    // Complementa el noise-filter: detecta señales de contenido editorial en títulos
+    // y snippets que escapan al filtro de URL/dominio.
+    // IMPORTANTE: rawInputs.idx referencia el índice original en webSearch.results
+    // para que buildCandidateFromEvaluated pueda recuperar el resultado correctamente.
+    const preLLMSampleFiltered: PreLLMFilterSummary['sample_filtered'] = [];
+    const preLLMBySourceType: PreLLMFilterSummary['by_source_type'] = {};
+    const rawInputs: LLMEvaluatorRawInput[] = [];
+
+    for (let idx = 0; idx < webSearch.results.length; idx++) {
+      const r = webSearch.results[idx];
+      const classification = classifySearchResultForProspecting({
+        title: r.title,
+        url: r.url,
+        snippet: r.snippet ?? null,
+      });
+
+      if (!classification.shouldPassToLLM) {
+        const st = classification.sourceType;
+        preLLMBySourceType[st] = (preLLMBySourceType[st] ?? 0) + 1;
+        if (preLLMSampleFiltered.length < 10) {
+          preLLMSampleFiltered.push({
+            title: r.title,
+            domain: normalizeDomain(r.url) ?? r.url,
+            source_type: st,
+            reasons: classification.reasons,
+          });
+        }
+        continue;
+      }
+
+      rawInputs.push({
+        idx,
+        title: r.title,
+        url: r.url,
+        domain: normalizeDomain(r.url),
+        snippet: r.snippet ?? null,
+        query: ('originQuery' in r && typeof r.originQuery === 'string')
+          ? r.originQuery
+          : searchQuery,
+      });
+    }
+
+    const preLLMFilterSummary: PreLLMFilterSummary = {
+      enabled: true,
+      total_input_results: webSearch.results.length,
+      passed_to_llm: rawInputs.length,
+      filtered_out: webSearch.results.length - rawInputs.length,
+      by_source_type: preLLMBySourceType,
+      sample_filtered: preLLMSampleFiltered,
+    };
 
     llmEvaluation = await evaluateTavilyResultsWithLLM({
       country: input.country,
@@ -514,6 +560,7 @@ export async function runProspectingPipeline(
           estimated_cost_usd: llmEvaluation.usage.estimatedCostUsd,
           cost_per_kept_candidate: llmEvaluation.usage.costPerKeptCandidate,
         },
+        pre_llm_filter: preLLMFilterSummary,
       },
     };
   }
