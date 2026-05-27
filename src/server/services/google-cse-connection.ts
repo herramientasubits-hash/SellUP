@@ -232,6 +232,26 @@ export async function testGoogleCSEConnection(): Promise<GoogleCSEConnectionTest
     }
 
     if (response.status === 403) {
+      type GoogleErrorBody = { error?: { message?: string; status?: string } };
+      let errorBody: GoogleErrorBody = {};
+      try { errorBody = (await response.json()) as GoogleErrorBody; } catch { /* noop */ }
+
+      const googleStatus = errorBody?.error?.status ?? '';
+      const googleMessage = errorBody?.error?.message ?? '';
+
+      if (
+        googleStatus === 'PERMISSION_DENIED' &&
+        googleMessage.includes('Custom Search JSON API')
+      ) {
+        return {
+          success: false,
+          error: 'GOOGLE_CSE_PROJECT_NO_ACCESS',
+          message:
+            'Google Custom Search JSON API no está disponible para este proyecto de Google Cloud. ' +
+            'Este proveedor está temporalmente deshabilitado en SellUp.',
+        };
+      }
+
       return {
         success: false,
         error: 'INVALID_API_KEY',

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { CheckCircle2, XCircle, Clock, WifiOff, ShieldCheck, Search, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, WifiOff, ShieldCheck, Search, AlertTriangle, Ban } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
@@ -82,6 +82,7 @@ export default async function GoogleCSEIntegrationPage() {
   if (!integration) redirect('/settings/integrations');
 
   const conn = integration.connection;
+  const isAvailable = integration.is_available;
   const hasCredential = conn?.credentials_status === 'stored';
   const cx_masked = integration.cx_masked;
   const metadata = conn?.metadata as GoogleCSEMetadata | null;
@@ -93,6 +94,23 @@ export default async function GoogleCSEIntegrationPage() {
         description="Proveedor de búsqueda web alternativo que usa Google Custom Search Engine. Complementa a Tavily con cobertura de resultados de Google para el Agente 1."
         backHref="/settings/integrations"
       />
+
+      {!isAvailable && (
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-4">
+          <Ban className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+          <div>
+            <p className="text-sm font-semibold text-destructive font-heading">
+              Proveedor no disponible — Google Custom Search JSON API
+            </p>
+            <p className="mt-1 text-xs text-destructive/80 leading-relaxed">
+              Google Custom Search JSON API no está disponible para este proyecto de Google Cloud
+              (<code className="rounded bg-destructive/10 px-1 py-0.5 text-[10px] font-mono">PERMISSION_DENIED</code>).
+              La documentación oficial de Google indica que esta API no se otorga automáticamente
+              a nuevos clientes. SellUp mantendrá este proveedor deshabilitado hasta que exista acceso válido.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Estado de conexión + resultado del último test */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -207,18 +225,20 @@ export default async function GoogleCSEIntegrationPage() {
         </div>
       </SurfaceCard>
 
-      {/* Panel de acciones */}
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Acciones"
-          description={
-            hasCredential
-              ? 'Prueba la conexión (consume 1 consulta), actualiza las credenciales o desconecta Google CSE.'
-              : 'Ingresa tu API Key y Search Engine ID para activar la integración.'
-          }
-        />
-        <GoogleCSEActionsPanel hasCredential={hasCredential} cx_masked={cx_masked} />
-      </SurfaceCard>
+      {/* Panel de acciones — oculto si el proveedor no está disponible */}
+      {isAvailable && (
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Acciones"
+            description={
+              hasCredential
+                ? 'Prueba la conexión (consume 1 consulta), actualiza las credenciales o desconecta Google CSE.'
+                : 'Ingresa tu API Key y Search Engine ID para activar la integración.'
+            }
+          />
+          <GoogleCSEActionsPanel hasCredential={hasCredential} cx_masked={cx_masked} />
+        </SurfaceCard>
+      )}
 
       {/* Alcance */}
       <SurfaceCard>
