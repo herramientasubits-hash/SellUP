@@ -371,91 +371,116 @@ export async function runProspectingPipeline(
     llmEvaluatorWarnings = llmEvaluation.warnings;
     warnings.push(...llmEvaluatorWarnings);
 
-    const candidatesFromEvaluator: ProspectingPipelineCandidate[] = await Promise.all(
-      llmEvaluation.topCandidates.map(async (evaluated: LLMEvaluatorOutput['topCandidates'][number]): Promise<ProspectingPipelineCandidate> => {
-        // Use LLM-inferred clean name; fall back to title-based inference
-        const rawResult = webSearch.results[evaluated.idx];
-        const titleFallback = rawResult
-          ? inferCompanyNameFromSearchResult(rawResult.title, rawResult.url)
-          : null;
+    // ── Helper: build one pipeline candidate from an LLM evaluated result ────
+    const buildCandidateFromEvaluated = async (
+      evaluated: LLMEvaluatorOutput['topCandidates'][number],
+      addReviewFlag = false,
+    ): Promise<ProspectingPipelineCandidate> => {
+      const rawResult = webSearch.results[evaluated.idx];
+      const titleFallback = rawResult
+        ? inferCompanyNameFromSearchResult(rawResult.title, rawResult.url)
+        : null;
 
-        const name =
-          evaluated.clean_company_name?.trim() ||
-          titleFallback?.name ||
-          'Unknown';
+      const name =
+        evaluated.clean_company_name?.trim() ||
+        titleFallback?.name ||
+        'Unknown';
 
-        const inferredNameSource: NameInferenceSource =
-          evaluated.clean_company_name ? 'title_prefix' : (titleFallback?.source ?? 'title_fallback');
+      const inferredNameSource: NameInferenceSource =
+        evaluated.clean_company_name ? 'title_prefix' : (titleFallback?.source ?? 'title_fallback');
 
-        const website = evaluated.website ?? rawResult?.url ?? null;
-        const domain = evaluated.domain
-          ? (normalizeDomain(evaluated.domain) ?? normalizeDomain(website ?? ''))
-          : normalizeDomain(website ?? '');
+      const website = evaluated.website ?? rawResult?.url ?? null;
+      const domain = evaluated.domain
+        ? (normalizeDomain(evaluated.domain) ?? normalizeDomain(website ?? ''))
+        : normalizeDomain(website ?? '');
 
-        const websiteVerification = await verifyWebsite({
-          candidateName: name,
-          websiteOrDomain: website ?? undefined,
-          country: input.country,
-          countryCode: input.countryCode,
-        });
+      const websiteVerification = await verifyWebsite({
+        candidateName: name,
+        websiteOrDomain: website ?? undefined,
+        country: input.country,
+        countryCode: input.countryCode,
+      });
 
-        const duplicateCheck = await checkCompanyDuplicate({
-          name,
-          website: website ?? undefined,
-          domain: domain ?? undefined,
-          country: input.country,
-          countryCode: input.countryCode,
-        });
+      const duplicateCheck = await checkCompanyDuplicate({
+        name,
+        website: website ?? undefined,
+        domain: domain ?? undefined,
+        country: input.country,
+        countryCode: input.countryCode,
+      });
 
-        const scoring = scoreCandidate({
-          name,
-          country: input.country,
-          countryCode: input.countryCode,
-          industry: input.industry,
-          website,
-          domain,
-          websiteVerification,
-          duplicateCheck,
-          catalogContext,
-          sourcePrimary: rawResult?.source ?? provider,
-          sourcePriority:
-            catalogContext.recommendedSources.length > 0
-              ? catalogContext.recommendedSources[0].priority
-              : null,
-        });
+      const scoring = scoreCandidate({
+        name,
+        country: input.country,
+        countryCode: input.countryCode,
+        industry: input.industry,
+        website,
+        domain,
+        websiteVerification,
+        duplicateCheck,
+        catalogContext,
+        sourcePrimary: rawResult?.source ?? provider,
+        sourcePriority:
+          catalogContext.recommendedSources.length > 0
+            ? catalogContext.recommendedSources[0].priority
+            : null,
+      });
 
-        const llmEvalMeta = buildLLMEvaluationMetadata(evaluated, {
-          provider: llmEvaluation!.usage.provider,
-          model: llmEvaluation!.usage.model,
-        });
+      // Review candidates get an explicit flag so humans can distinguish them
+      const evaluatedForMeta = addReviewFlag
+        ? {
+            ...evaluated,
+            risk_flags: evaluated.risk_flags.includes('llm_review_required')
+              ? evaluated.risk_flags
+              : [...evaluated.risk_flags, 'llm_review_required'],
+          }
+        : evaluated;
 
-        return {
-          name,
-          website,
-          domain,
-          country: input.country,
-          countryCode: input.countryCode,
-          industry: input.industry,
-          sourceUrl: website,
-          sourceTitle: rawResult?.title ?? null,
-          sourceSnippet: rawResult?.snippet ?? null,
-          inferredNameSource,
-          websiteVerification,
-          duplicateCheck,
-          scoring,
-          llmEvaluation: llmEvalMeta,
-        };
-      })
+      const llmEvalMeta = buildLLMEvaluationMetadata(evaluatedForMeta, {
+        provider: llmEvaluation!.usage.provider,
+        model: llmEvaluation!.usage.model,
+      });
+
+      return {
+        name,
+        website,
+        domain,
+        country: input.country,
+        countryCode: input.countryCode,
+        industry: input.industry,
+        sourceUrl: website,
+        sourceTitle: rawResult?.title ?? null,
+        sourceSnippet: rawResult?.snippet ?? null,
+        inferredNameSource,
+        websiteVerification,
+        duplicateCheck,
+        scoring,
+        llmEvaluation: llmEvalMeta,
+      };
+    };
+
+    // ── Build kept candidates (topCandidates from LLM) ────────────────────────
+    const keptCandidates: ProspectingPipelineCandidate[] = await Promise.all(
+      llmEvaluation.topCandidates.map((evaluated) => buildCandidateFromEvaluated(evaluated, false))
     );
 
-    const summary = buildSummary(targetCount, webSearch.resultsCount, candidatesFromEvaluator);
+    // ── Build review candidates (fill remaining slots up to targetCount) ──────
+    const reviewSlotsAvailable = Math.max(0, targetCount - keptCandidates.length);
+    const reviewToProcess = llmEvaluation.reviewResults.slice(0, reviewSlotsAvailable);
+    const reviewCandidates: ProspectingPipelineCandidate[] = await Promise.all(
+      reviewToProcess.map((evaluated) => buildCandidateFromEvaluated(evaluated, true))
+    );
+
+    const allCandidates = [...keptCandidates, ...reviewCandidates];
+
+    const summary = buildSummary(targetCount, webSearch.resultsCount, allCandidates);
 
     return {
       input,
       catalogContext,
       searchQuery,
       webSearch,
-      candidates: candidatesFromEvaluator,
+      candidates: allCandidates,
       summary,
       warnings,
       metadata: {
@@ -474,6 +499,8 @@ export async function runProspectingPipeline(
           discarded_count: llmEvaluation.discardedResults.length,
           deduplicated_count: llmEvaluation.deduplicatedCount,
           top_candidates_count: llmEvaluation.topCandidates.length,
+          persisted_keep_count: keptCandidates.length,
+          persisted_review_count: reviewCandidates.length,
           input_tokens: llmEvaluation.usage.inputTokens,
           output_tokens: llmEvaluation.usage.outputTokens,
           estimated_cost_usd: llmEvaluation.usage.estimatedCostUsd,
