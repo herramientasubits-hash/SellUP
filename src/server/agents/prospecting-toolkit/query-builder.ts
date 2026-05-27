@@ -356,9 +356,18 @@ export function buildCleanMultiQueryDiscoveryQueries(
   const isTech = isTechSector(industry);
 
   if (isTech) {
-    // Queries validadas en Hito 13D con Tavily basic mode (Colombia/Tecnología).
+    // Hito 16V.1: Colombia usa canastas por subindustria para diversificar dominios.
+    if (normalizeKey(country) === 'colombia') {
+      return [
+        'empresa fintech pagos Colombia clientes corporativos soluciones',
+        'empresa software gestión RRHH nómina Colombia pymes corporativo',
+        'empresa ciberseguridad Colombia protección datos empresas contacto',
+        'empresa analítica de datos business intelligence Colombia soluciones empresariales',
+        'empresa automatización RPA Colombia procesos empresariales nosotros',
+      ];
+    }
+    // Queries validadas en Hito 13D con Tavily basic mode (otros países/Tecnología).
     // Q3 y Q5 reemplazan "consultoría TI" y "SaaS" que devolvían 0 resultados (Hito 13C).
-    // Validación: keptCount=14, prospectables=13/14 en revalidación en memoria.
     return [
       `empresa desarrollo software ${country} servicios contacto`,
       `empresa tecnología ${country} soluciones empresariales contacto`,
@@ -407,13 +416,14 @@ export function buildExpandedMultiQueryDiscoveryQueries(
 ): string[] {
   const countryKey = normalizeKey(country);
 
+  // Hito 16V.1: Colombia/Tech usa rotación ciudad+subindustria para máxima diversidad.
   if (isTechSector(industry) && countryKey === 'colombia') {
     return [
-      'empresa software empresarial Medellín soluciones corporativas contacto',
-      'proveedor SaaS B2B Colombia clientes empresas nosotros contacto',
-      'empresa desarrollo aplicaciones móviles Colombia nosotros clientes',
-      'compañía automatización procesos Colombia ERP CRM implementación',
-      'empresa consultoría TI Colombia transformación digital corporativo',
+      'empresa desarrollo software Medellín nearshore clientes internacionales',
+      'empresa software Cali soluciones empresariales clientes nosotros',
+      'empresa cloud infraestructura Colombia servicios TI corporativo',
+      'empresa HR tech Colombia plataforma recursos humanos empresas',
+      'empresa integrador tecnológico Colombia ERP CRM implementación clientes',
     ];
   }
 
