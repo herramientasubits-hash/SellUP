@@ -100,6 +100,11 @@ export type IncrementalSearchOutput = {
   candidates: ProspectingPipelineCandidate[];
   candidatesCount: number;
   usefulCandidatesCount: number;
+  /** Actual count persisted by writeProspectingCandidates (dryRun=false only).
+   * May be less than usefulCandidatesCount due to novelty filtering in the writer. */
+  candidatesCreated?: number;
   metadata: IncrementalSearchMetadata;
   warnings: string[];
+  /** Set when dryRun=false and writeProspectingCandidates succeeds. */
+  batchId?: string | null;
 };

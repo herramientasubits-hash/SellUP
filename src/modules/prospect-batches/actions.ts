@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
-import { runAndWriteProspectingPipeline } from '@/server/agents/prospecting-toolkit/candidate-writer';
+import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import {
   APPROVE_BLOCK_MESSAGES,
   type ProspectBatch,
@@ -791,33 +791,29 @@ export async function generateTavilyProspectBatch(
   const now = new Date();
   const batchName = `IA web · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
-  const result = await runAndWriteProspectingPipeline({
+  const result = await runIncrementalProspectingSearch({
     country: input.country,
     countryCode: input.countryCode,
     industry: input.industry,
-    targetCount: TAVILY_TARGET_COUNT,
     webSearchProvider: 'tavily',
-    mode: 'tavily_llm_evaluator',
-    useLLMEvaluator: true,
-    maxResultsPerQuery: 8,
-    searchDepth: 'basic',
+    targetInternal: TAVILY_TARGET_COUNT,
+    dryRun: false,
     triggeredByUserId: internalUserId,
     ownerId: internalUserId,
     batchName,
-    dryRun: false,
   });
 
-  if (!result.writer.batchId) {
-    const firstError = result.writer.errors[0] ?? 'El pipeline no pudo generar candidatos';
-    throw new Error(firstError);
+  if (!result.batchId) {
+    const firstWarning = result.warnings[0] ?? 'La búsqueda incremental no pudo generar candidatos';
+    throw new Error(firstWarning);
   }
 
   revalidatePath('/prospect-batches');
-  revalidatePath(`/prospect-batches/${result.writer.batchId}`);
+  revalidatePath(`/prospect-batches/${result.batchId}`);
 
   return {
-    batchId: result.writer.batchId,
-    candidatesCreated: result.writer.candidatesCreated,
-    status: result.writer.status,
+    batchId: result.batchId,
+    candidatesCreated: result.candidatesCreated ?? result.usefulCandidatesCount,
+    status: result.metadata.stopped_reason,
   };
 }

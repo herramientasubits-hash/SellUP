@@ -196,6 +196,55 @@ export default async function BatchDetailPage({ params }: Props) {
         </div>
       )}
 
+      {/* Información de búsqueda incremental */}
+      {(() => {
+        const topMeta = batch.metadata as Record<string, unknown> | undefined;
+        // Grouped structure (16T.2+); fallback to top-level for batches generated before grouping.
+        const meta = (topMeta?.incremental_search as Record<string, unknown> | undefined) ?? (
+          topMeta?.rounds_executed !== undefined ? topMeta : undefined
+        );
+        const roundsExecuted = meta?.rounds_executed as number | undefined;
+        if (!roundsExecuted) return null;
+        const stoppedReason = meta?.stopped_reason as string | undefined;
+        const totalRaw = meta?.total_raw_evaluated as number | undefined;
+        const totalAcc = meta?.total_candidates_accumulated as number | undefined;
+        const usefulCount = meta?.useful_candidates_count as number | undefined;
+        const reasonLabels: Record<string, string> = {
+          min_useful_reached: 'Mínimo útiles alcanzado',
+          max_rounds_reached: 'Rondas máximas alcanzadas',
+          max_raw_exceeded: 'Límite de resultados alcanzado',
+          no_results_round_1: 'Sin resultados en ronda 1',
+          cost_limit_exceeded: 'Límite de costo alcanzado',
+          error: 'Error en búsqueda',
+        };
+        return (
+          <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/40 px-5 py-3.5">
+            <div className="flex items-start gap-2.5">
+              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">
+                  Búsqueda incremental · {roundsExecuted} ronda{roundsExecuted !== 1 ? 's' : ''}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {stoppedReason && (
+                    <span>Detuvo por: <span className="font-medium text-foreground/80">{reasonLabels[stoppedReason] ?? stoppedReason}</span></span>
+                  )}
+                  {totalRaw !== undefined && (
+                    <span>Resultados evaluados: <span className="font-medium text-foreground/80">{totalRaw}</span></span>
+                  )}
+                  {totalAcc !== undefined && (
+                    <span>Candidatos acumulados: <span className="font-medium text-foreground/80">{totalAcc}</span></span>
+                  )}
+                  {usefulCount !== undefined && (
+                    <span>Útiles: <span className="font-medium text-foreground/80">{usefulCount}</span></span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Batch meta */}
       <div className="flex flex-wrap items-center gap-2">
         <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>

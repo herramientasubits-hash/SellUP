@@ -18,8 +18,9 @@
  */
 
 import { runProspectingPipeline } from './prospecting-pipeline';
+import { writeProspectingCandidates } from './candidate-writer';
 import { buildExpandedMultiQueryDiscoveryQueries } from './query-builder';
-import type { ProspectingPipelineCandidate } from './types';
+import type { ProspectingPipelineCandidate, ProspectingPipelineOutput, ProspectingPipelineSummary } from './types';
 import type {
   IncrementalSearchInput,
   IncrementalSearchOutput,
@@ -82,6 +83,9 @@ export async function runIncrementalProspectingSearch(
 
   let totalRawEvaluated = 0;
   let stoppedReason: IncrementalSearchStoppedReason = 'max_rounds_reached';
+  let lastPipelineOutput: ProspectingPipelineOutput | null = null;
+  let writerBatchId: string | null = null;
+  let writerCandidatesCreated: number | undefined = undefined;
 
   for (let round = 1; round <= maxRounds; round++) {
     // Ronda 1 → queries standard (sin queryOverrides)
@@ -132,6 +136,8 @@ export async function runIncrementalProspectingSearch(
       newDomainsFoundThisRound: seenDomains.size - seenDomainsAtStart,
     });
 
+    lastPipelineOutput = pipelineOutput;
+
     // ── Criterio de parada: 0 resultados en ronda 1 ─────────────────────────
     if (round === 1 && rawCount === 0) {
       stoppedReason = 'no_results_round_1';
@@ -153,13 +159,6 @@ export async function runIncrementalProspectingSearch(
 
   const usefulCandidatesCount = allCandidates.filter(isUsefulCandidate).length;
 
-  // ── Writer (no activado aún — Hito 16T.2) ───────────────────────────────────
-  if (!dryRun) {
-    // TODO (Hito 16T.2): construir syntheticPipelineOutput con allCandidates
-    // y llamar writeProspectingCandidates una sola vez con un único batchId.
-    warnings.push('dryRun=false no implementado aún. Activar en Hito 16T.2.');
-  }
-
   const metadata: IncrementalSearchMetadata = {
     rounds_executed: roundsMeta.length,
     stopped_reason: stoppedReason,
@@ -174,12 +173,84 @@ export async function runIncrementalProspectingSearch(
     rounds: roundsMeta,
   };
 
+  // ── Writer (Hito 16T.2) ──────────────────────────────────────────────────────
+  if (!dryRun) {
+    if (!lastPipelineOutput) {
+      warnings.push('dryRun=false: no hay resultados del pipeline para persistir.');
+    } else {
+      const summary: ProspectingPipelineSummary = {
+        requested: targetInternal,
+        searched: totalRawEvaluated,
+        returned: allCandidates.length,
+        highQualityNew: allCandidates.filter((c) => c.scoring.qualityLabel === 'high_quality_new').length,
+        needsReview: allCandidates.filter((c) => c.scoring.qualityLabel === 'needs_review').length,
+        duplicates: allCandidates.filter((c) => c.scoring.qualityLabel === 'duplicate').length,
+        insufficientData: allCandidates.filter((c) => c.scoring.qualityLabel === 'insufficient_data').length,
+        discarded: allCandidates.filter((c) => c.scoring.qualityLabel === 'discard').length,
+        unchecked: 0,
+      };
+
+      const syntheticPipelineOutput: ProspectingPipelineOutput = {
+        input: {
+          country: input.country,
+          countryCode: input.countryCode,
+          industry: input.industry,
+          webSearchProvider: input.webSearchProvider ?? 'tavily',
+          mode: 'multi_query',
+        },
+        catalogContext: lastPipelineOutput.catalogContext,
+        searchQuery: `incremental_search:${roundsMeta.length}_rounds`,
+        webSearch: {
+          provider: input.webSearchProvider ?? 'tavily',
+          query: `incremental_search:${roundsMeta.length}_rounds`,
+          results: [],
+          resultsCount: totalRawEvaluated,
+          skipped: false,
+          estimatedCostUsd: null,
+          metadata: {},
+        },
+        candidates: allCandidates,
+        summary,
+        warnings,
+        metadata: {
+          provider: input.webSearchProvider ?? 'tavily',
+          search_mode: 'incremental_multi_query',
+          pipelineVersion: 'incremental_v1',
+          executedAt: new Date().toISOString(),
+          generation_mode: 'incremental_search',
+        },
+      };
+
+      const writerOutput = await writeProspectingCandidates({
+        pipelineOutput: syntheticPipelineOutput,
+        triggeredByUserId: input.triggeredByUserId ?? null,
+        ownerId: input.ownerId ?? null,
+        batchName: input.batchName ?? null,
+        source: 'agent_1',
+        dryRun: false,
+        extraBatchMetadata: {
+          incremental_search: metadata as Record<string, unknown>,
+          search_mode: 'incremental_multi_round',
+        },
+      });
+
+      if (writerOutput.status === 'failed') {
+        warnings.push(`Writer error: ${writerOutput.errors.join('; ')}`);
+      } else {
+        writerBatchId = writerOutput.batchId;
+        writerCandidatesCreated = writerOutput.candidatesCreated;
+      }
+    }
+  }
+
   return {
     input,
     candidates: allCandidates,
     candidatesCount: allCandidates.length,
     usefulCandidatesCount,
+    candidatesCreated: writerCandidatesCreated,
     metadata,
     warnings,
+    batchId: writerBatchId,
   };
 }
