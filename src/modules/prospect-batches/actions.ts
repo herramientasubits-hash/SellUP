@@ -747,8 +747,9 @@ export interface GenerateTavilyBatchInput {
   country: string;
   countryCode: string;
   industry: string;
-  targetCount: number;
 }
+
+const TAVILY_TARGET_COUNT = 10;
 
 export interface GenerateTavilyBatchResult {
   batchId: string;
@@ -767,9 +768,6 @@ export async function generateTavilyProspectBatch(
   if (!input.industry) {
     throw new Error('Industria requerida para la búsqueda web');
   }
-  if (input.targetCount < 1 || input.targetCount > MVP_MAX_CANDIDATES) {
-    throw new Error(`La cantidad debe estar entre 1 y ${MVP_MAX_CANDIDATES}`);
-  }
 
   const now = new Date();
   const batchName = `IA web · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
@@ -778,7 +776,7 @@ export async function generateTavilyProspectBatch(
     country: input.country,
     countryCode: input.countryCode,
     industry: input.industry,
-    targetCount: input.targetCount,
+    targetCount: TAVILY_TARGET_COUNT,
     webSearchProvider: 'tavily',
     mode: 'tavily_llm_evaluator',
     useLLMEvaluator: true,

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Sparkles, Loader2, Globe, Target, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
+import { Sparkles, Loader2, Globe, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -27,7 +27,6 @@ import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account
 const EMPTY = {
   countryCode: '',
   industry: '',
-  targetCount: '10',
 };
 
 export function GenerateTavilyBatchDrawer() {
@@ -59,7 +58,6 @@ export function GenerateTavilyBatchDrawer() {
       return;
     }
 
-    const count = parseInt(form.targetCount) || 10;
     const country = LATAM_COUNTRIES.find((c) => c.code === form.countryCode);
 
     setGenerating(true);
@@ -72,7 +70,6 @@ export function GenerateTavilyBatchDrawer() {
         country: country?.name ?? form.countryCode,
         countryCode: form.countryCode,
         industry: form.industry,
-        targetCount: count,
       });
 
       toast.success(
@@ -118,7 +115,7 @@ export function GenerateTavilyBatchDrawer() {
                   Buscar empresas con IA
                 </SheetTitle>
                 <SheetDescription className="text-xs text-muted-foreground/70">
-                  SellUp buscará empresas en la web, evaluará cada resultado con IA y dejará los mejores candidatos listos para revisión.
+                  SellUp buscará empresas en la web, evaluará los resultados con IA y dejará los mejores candidatos encontrados en revisión.
                 </SheetDescription>
               </div>
             </div>
@@ -172,38 +169,14 @@ export function GenerateTavilyBatchDrawer() {
               </Row>
             </Section>
 
-            {/* Cantidad */}
-            <Section icon={Target} label="Parámetros">
-              <Row>
-                <Field label="Candidatos objetivo">
-                  <Select
-                    value={form.targetCount}
-                    onValueChange={(v) => set('targetCount', v ?? '10')}
-                    disabled={generating}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[5, 10, 15, 20, 25].map((n) => (
-                        <SelectItem key={n} value={String(n)}>
-                          {n} empresas
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </Row>
-            </Section>
-
             {/* Info nota */}
             <div className="rounded-xl border border-border/40 bg-muted/40 px-4 py-3">
               <div className="flex gap-2.5">
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                 <p className="text-xs text-muted-foreground">
-                  Los candidatos no se aprueban automáticamente. Ninguna empresa se crea en SellUp sin revisión humana.
+                  Los candidatos no se aprueban automáticamente. La cantidad final puede variar según la disponibilidad y calidad de resultados.
                   <span className="mt-1 block text-muted-foreground/70">
-                    Se registrará el consumo estimado de IA para trazabilidad.
+                    Ninguna empresa se crea en SellUp sin revisión humana.
                   </span>
                 </p>
               </div>

@@ -70,6 +70,11 @@ const INDUSTRY_QUERY_STRATEGIES: Record<string, IndustryQueryStrategy> = {
         'empresa metalmecánica México Monterrey fabricante industrial',
         'empresa autopartes México Querétaro planta manufactura',
         'empresa plásticos empaques México fábrica producción corporativo',
+        'empresa alimentos bebidas México planta producción fábrica contacto',
+        'empresa química farmacéutica México planta manufactura industrial',
+        'empresa electrónica electrodomésticos México Tijuana Juárez manufactura',
+        'empresa textil confección México planta producción corporativo',
+        'empresa papel cartón envases México fábrica producción nosotros',
       ],
     },
     genericFallback: (country: string) => [
