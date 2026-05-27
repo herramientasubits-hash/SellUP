@@ -1,11 +1,66 @@
 /**
- * LLM Evaluator — Prompt builder (Hito 16H)
+ * LLM Evaluator — Prompt builder (Hito 16H, actualizado Hito 16L)
  *
  * Construye el prompt para evaluar resultados Tavily con LLM.
  * Sin lógica de negocio, sin llamadas externas, sin efectos secundarios.
+ *
+ * Hito 16L: buildIndustrySpecificCriteria() inyecta reglas específicas
+ * por industria (Manufactura) para distinguir fabricantes reales de
+ * proveedores/tecnología para el sector.
  */
 
 import type { LLMEvaluatorRawInput } from './llm-evaluator-types';
+
+// ─── Criterios específicos por industria ─────────────────────────────────────
+
+const MANUFACTURING_KEYWORDS = [
+  'manufactur', 'manufacturing', 'maquiladora', 'maquila',
+];
+
+function isManufacturingIndustry(industry: string): boolean {
+  const lower = industry.toLowerCase();
+  return MANUFACTURING_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/**
+ * Retorna un bloque de criterios específicos por industria para inyectar en el prompt.
+ * Retorna string vacío si no hay reglas especiales para la industria.
+ */
+function buildIndustrySpecificCriteria(industry: string): string {
+  if (isManufacturingIndustry(industry)) {
+    return `
+INDUSTRY-SPECIFIC RULES FOR MANUFACTURING (${industry}):
+The target is REAL MANUFACTURERS — companies that physically produce goods in their own facilities.
+
+KEEP (sector_fit_score ≥ 7) — valid targets:
+- Factories, plants, or industrial facilities producing physical goods
+- Metalwork, metal fabrication, or machinery manufacturers
+- Packaging, plastics, or containers manufacturers
+- Textile, apparel, or garment producers
+- Food & beverage producers, processors, or packagers
+- Auto parts, maquiladora, or industrial component manufacturers
+- Chemical, pharmaceutical, or cosmetics manufacturers
+- Construction materials, ceramics, glass, or wood manufacturers
+
+DISCARD or REVIEW (sector_fit_score ≤ 4) — NOT valid for this target:
+- Technology vendors, automation providers, or software companies serving manufacturing
+- Consulting firms or digital transformation agencies for the factory sector
+- ERP, MES, or Industry 4.0 solution providers that do not manufacture goods
+- Industry associations, chambers of commerce, or trade organizations (gremios, cámaras)
+- Sector portals, directories, reports, or news sites
+- Audiovisual, marketing, or professional services firms
+
+ADD to risk_flags when any of these apply:
+- "only serves manufacturing sector, no evidence of own production"
+- "technology/automation vendor, not a manufacturer"
+- "multinational with generic branding, no local plant evidence"
+- "industry association, chamber, or sector portal"
+- "page shows sector solutions but no factory or production evidence"
+`;
+  }
+
+  return '';
+}
 
 /**
  * Construye el prompt de evaluación para un batch de resultados Tavily.
@@ -20,6 +75,7 @@ import type { LLMEvaluatorRawInput } from './llm-evaluator-types';
  * - Máximo una empresa por resultado
  * - No aprobar automáticamente
  * - Ser escéptico ante evidencia ambigua
+ * - Hito 16L: criterios específicos por industria inyectados dinámicamente
  */
 export function buildLLMEvaluatorPrompt(
   country: string,
@@ -39,6 +95,8 @@ export function buildLLMEvaluatorPrompt(
       ].join('\n')
     )
     .join('\n\n');
+
+  const industryRules = buildIndustrySpecificCriteria(industry);
 
   return `You are a B2B Sales Intelligence expert evaluating web search results to identify real prospectable companies.
 
@@ -61,7 +119,7 @@ STRICT RULES:
 9. clean_company_name: extract from title or domain only. Do not invent. Set null if not determinable.
 10. website: use the exact URL provided. Never create new URLs.
 11. domain: use the exact domain from the result. Never create new domains.
-
+${industryRules}
 SCORING CRITERIA (integer 0-10):
 - sector_fit_score: How well the result fits the target industry (0 = no relation, 10 = perfect match)
 - country_fit_score: How well the result matches the target country (0 = no evidence, 10 = confirmed)

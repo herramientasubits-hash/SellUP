@@ -1,5 +1,5 @@
 /**
- * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 10B)
+ * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16L)
  *
  * Construye queries optimizadas para discovery de empresas reales.
  * Evita "B2B software" salvo en sectores tech/TIC.
@@ -7,6 +7,8 @@
  *
  * Hito 10B: añadidas exclusiones para Facebook, DataCrédito directorio y
  * PáginasAmarillas Colombia. Query tech usa slice(0, 5) en lugar de slice(0, 4).
+ * Hito 16L: INDUSTRY_QUERY_STRATEGIES para Manufactura. Queries específicas
+ * por país (Colombia, México) y fallback genérico. Tech sin cambios.
  */
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -32,6 +34,81 @@ const TECH_SECTOR_KEYWORDS = [
 function isTechSector(industry: string): boolean {
   const lower = ` ${industry.toLowerCase()} `;
   return TECH_SECTOR_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// ─── Detección manufactura ────────────────────────────────────────────────────
+
+const MANUFACTURING_SECTOR_KEYWORDS = [
+  'manufactur', 'manufacturing', 'maquiladora', 'maquila',
+];
+
+function isManufacturingSector(industry: string): boolean {
+  const lower = industry.toLowerCase();
+  return MANUFACTURING_SECTOR_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// ─── Estrategias de query por industria (Hito 16L) ───────────────────────────
+
+type IndustryQueryStrategy = {
+  countryOverrides: Record<string, string[]>;
+  genericFallback: (country: string) => string[];
+};
+
+const INDUSTRY_QUERY_STRATEGIES: Record<string, IndustryQueryStrategy> = {
+  manufactura: {
+    countryOverrides: {
+      colombia: [
+        'empresa fabricante Colombia planta producción contacto nosotros',
+        'empresa metalmecánica Colombia manufactura fábrica corporativo',
+        'empresa empaques plásticos Colombia fabricante producción',
+        'empresa textil confección Colombia planta manufactura',
+        'empresa alimentos Colombia fábrica producción certificaciones',
+      ],
+      mexico: [
+        'empresa fabricante México planta producción nosotros contacto',
+        'empresa maquiladora México manufactura fábrica contacto',
+        'empresa metalmecánica México Monterrey fabricante industrial',
+        'empresa autopartes México Querétaro planta manufactura',
+        'empresa plásticos empaques México fábrica producción corporativo',
+      ],
+    },
+    genericFallback: (country: string) => [
+      `empresa fabricante ${country} planta producción contacto`,
+      `empresa metalmecánica ${country} fabricante industrial`,
+      `empresa empaques plásticos ${country} fábrica manufactura`,
+      `empresa textil confección ${country} planta producción`,
+      `empresa alimentos ${country} fábrica producción`,
+    ],
+  },
+};
+
+/**
+ * Normaliza un string quitando acentos y convirtiendo a minúsculas.
+ * Permite buscar "México" → "mexico", "Colombia" → "colombia".
+ */
+function normalizeKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
+/**
+ * Resuelve queries específicas por industria y país.
+ * Devuelve null si no hay estrategia definida para esa industria.
+ */
+function resolveIndustrySpecificQueries(industry: string, country: string): string[] | null {
+  let strategyKey: string | null = null;
+
+  if (isManufacturingSector(industry)) {
+    strategyKey = 'manufactura';
+  }
+
+  if (!strategyKey) return null;
+
+  const strategy = INDUSTRY_QUERY_STRATEGIES[strategyKey];
+  const countryKey = normalizeKey(country);
+  return strategy.countryOverrides[countryKey] ?? strategy.genericFallback(country);
 }
 
 // ─── Términos de sector por industria ────────────────────────────────────────
@@ -285,6 +362,10 @@ export function buildCleanMultiQueryDiscoveryQueries(
       `empresa TI ${country} outsourcing software clientes`,
     ];
   }
+
+  // Hito 16L: estrategia específica por industria antes del fallback genérico.
+  const industrySpecific = resolveIndustrySpecificQueries(industry, country);
+  if (industrySpecific) return industrySpecific;
 
   const sectorTerms = getSectorTerms(industry);
   const primary = sectorTerms.primary[0] ?? `empresas ${industry}`;
