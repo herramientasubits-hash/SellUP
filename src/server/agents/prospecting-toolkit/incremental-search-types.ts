@@ -77,6 +77,15 @@ export type IncrementalSearchStoppedReason =
   | 'no_results_round_1'
   | 'error';
 
+// ─── Novelty pre-check ───────────────────────────────────────────────────────
+
+/** Resultado del pre-check estimado antes de la decisión de ronda 2. */
+export type NoveltyPrecheckSummary = {
+  enabled: boolean;
+  estimated_skipped_count: number;
+  estimated_persistable_count: number;
+};
+
 // ─── Metadata ────────────────────────────────────────────────────────────────
 
 export type IncrementalSearchMetadata = {
@@ -84,7 +93,16 @@ export type IncrementalSearchMetadata = {
   stopped_reason: IncrementalSearchStoppedReason;
   total_raw_evaluated: number;
   total_candidates_accumulated: number;
+  /** Candidatos útiles (non-duplicate, non-discard) antes de aplicar novelty. */
   useful_candidates_count: number;
+  /**
+   * Candidatos útiles que estimamos sobrevivirían el novelty filter del writer.
+   * Solo presente cuando dryRun=false y env Supabase disponible.
+   */
+  useful_candidates_count_before_novelty?: number;
+  estimated_persistable_after_novelty?: number;
+  estimated_novelty_skipped?: number;
+  novelty_precheck?: NoveltyPrecheckSummary;
   min_useful_candidates: number;
   target_internal: number;
   max_rounds: number;
