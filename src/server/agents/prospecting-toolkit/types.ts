@@ -228,6 +228,10 @@ export type ProspectingPipelineInput = {
   maxResultsPerQuery?: number;
   /** When true, runs the LLM evaluator on Tavily raw results before candidate scoring. */
   useLLMEvaluator?: boolean;
+  /** Optional query overrides for multi-query mode. When provided, these queries
+   * replace the standard buildCleanMultiQueryDiscoveryQueries output.
+   * Used by the incremental search orchestrator (Hito 16T.1). */
+  queryOverrides?: string[];
 };
 
 export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';

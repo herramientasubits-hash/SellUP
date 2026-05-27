@@ -296,10 +296,18 @@ export async function runProspectingPipeline(
           searchDepth,
           targetCount,
           maxResultsPerQuery: input.maxResultsPerQuery ?? 5,
+          queries: input.queryOverrides && input.queryOverrides.length > 0
+            ? input.queryOverrides
+            : undefined,
         });
         multiQueryMeta = {
           search_mode: 'multi_query',
-          query_version: 'multi_query_basic_es_v1',
+          query_version: input.queryOverrides && input.queryOverrides.length > 0
+            ? 'query_overrides'
+            : 'multi_query_basic_es_v1',
+          queries_source: input.queryOverrides && input.queryOverrides.length > 0
+            ? 'overrides'
+            : 'standard',
           queries_executed: mq.queryResults.map((q) => q.query),
           raw_results_count: mq.rawResultsCount,
           deduped_results_count: mq.dedupedResultsCount,

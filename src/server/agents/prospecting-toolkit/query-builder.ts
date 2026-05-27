@@ -391,6 +391,54 @@ function buildWebsiteDiscoveryQuery(industry: string, country: string): string {
   return `${primaryTerm} ${country} sitio web contacto empresa`;
 }
 
+// ─── Expanded queries para búsqueda incremental (Hito 16T.1) ─────────────────
+
+/**
+ * Queries alternativas para ronda 2 de búsqueda incremental.
+ * Complementan a buildCleanMultiQueryDiscoveryQueries con ángulos distintos.
+ * Sin exclusiones -site: para maximizar cobertura en ronda de expansión.
+ *
+ * Hito 16T.1: primera versión para Colombia/Tecnología con fallback genérico.
+ */
+export function buildExpandedMultiQueryDiscoveryQueries(
+  industry: string,
+  country: string,
+  _options?: Record<string, unknown>,
+): string[] {
+  const countryKey = normalizeKey(country);
+
+  if (isTechSector(industry) && countryKey === 'colombia') {
+    return [
+      'empresa software empresarial Medellín soluciones corporativas contacto',
+      'proveedor SaaS B2B Colombia clientes empresas nosotros contacto',
+      'empresa desarrollo aplicaciones móviles Colombia nosotros clientes',
+      'compañía automatización procesos Colombia ERP CRM implementación',
+      'empresa consultoría TI Colombia transformación digital corporativo',
+    ];
+  }
+
+  if (isTechSector(industry)) {
+    return [
+      `empresa software empresarial ${country} soluciones corporativas contacto`,
+      `proveedor SaaS B2B ${country} clientes empresas nosotros`,
+      `empresa automatización procesos ${country} ERP implementación`,
+      `compañía consultoría TI ${country} transformación digital`,
+      `empresa desarrollo aplicaciones ${country} clientes corporativos`,
+    ];
+  }
+
+  // Fallback genérico para sectores no-tech
+  const sectorTerms = getSectorTerms(industry);
+  const primary = sectorTerms.primary[0] ?? `empresas ${industry}`;
+  return [
+    `${primary} ${country} empresas proveedores nosotros contacto`,
+    `empresas ${industry} ${country} servicios especializados contacto`,
+    `compañías ${industry} ${country} líderes del sector nosotros`,
+    `${industry} empresas ${country} corporativo soluciones`,
+    `proveedores ${industry} ${country} empresas contacto corporativo`,
+  ];
+}
+
 /**
  * Genera múltiples queries candidatas para un contexto de búsqueda.
  * Permite ejecutar búsquedas paralelas y combinar resultados.
