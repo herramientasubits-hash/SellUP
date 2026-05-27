@@ -20,6 +20,7 @@
 export type PreLLMSourceType =
   | 'company_candidate'
   | 'content_article'
+  | 'content_platform'       // Hito 16W.4 — Scribd, SlideShare, Medium, Notion, etc.
   | 'directory'
   | 'media'
   | 'job_board'
@@ -161,6 +162,25 @@ const MARKETPLACE_DOMAINS = new Set([
   'guiatic.com', 'paginasamarillas.com.co', 'einforma.com', 'einforma.co',
 ]);
 
+// Plataformas de contenido y documentos — Hito 16W.4
+// Estos dominios alojan documentos, presentaciones o artículos de terceros,
+// no son sedes corporativas de empresas candidatas.
+// domainMatchesSet() cubre subdomains (es.scribd.com → scribd.com).
+const CONTENT_PLATFORM_DOMAINS = new Set([
+  'scribd.com',
+  'slideshare.net',
+  'issuu.com',
+  'medium.com',
+  'substack.com',
+  'notion.site',
+  'docs.google.com',
+  'drive.google.com',
+  'academia.edu',
+  'researchgate.net',
+  'prezi.com',
+  'calameo.com',
+]);
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function extractPath(url: string): string {
@@ -225,6 +245,11 @@ export function classifySearchResultForProspecting(result: {
     if (domainMatchesSet(domain, MARKETPLACE_DOMAINS)) {
       reasons.push(`Dominio de marketplace/directorio: ${domain}`);
       return { shouldPassToLLM: false, sourceType: 'marketplace', confidence: 0.95, reasons };
+    }
+    // Hito 16W.4 — plataformas de contenido/documentos (Scribd, SlideShare, etc.)
+    if (domainMatchesSet(domain, CONTENT_PLATFORM_DOMAINS)) {
+      reasons.push(`Plataforma de contenido/documentos: ${domain}`);
+      return { shouldPassToLLM: false, sourceType: 'content_platform', confidence: 0.99, reasons };
     }
   }
 

@@ -59,7 +59,39 @@ export const SEO_GENERIC_KEYWORDS = new Set([
   'proveedores', 'proveedor',
   'agencias', 'agencia',
   'houses',          // "software houses"
+  // Adicionales Hito 16W.4 — service descriptor words
+  'automatizacion', 'automatizaciones',  // "Automatización de Procesos"
+  'procesos', 'proceso',                 // "Automatización de Procesos"
+  'web',                                 // "Desarrollo web en …"
 ]);
+
+// ─── Generic service phrases (Hito 16W.4) ────────────────────────────────────
+// Frases descriptivas de servicio que nunca son nombres de empresa reales.
+// Comparación tras normalizeForKeywords (sin acentos, minúsculas, solo [a-z\s]).
+// Se evalúan como substring, por lo que "desarrollo web en Cali" también es capturada.
+const GENERIC_SERVICE_PHRASES: readonly string[] = [
+  'automatizacion de procesos',
+  'desarrollo web',
+  'diseno web',                        // diseño web
+  'desarrollo de software',
+  'desarrollo de aplicaciones',
+  'consultoria en tecnologia',
+  'consultoria tecnologica',
+  'servicios de tecnologia',
+  'servicios de ti',
+  'servicios de it',
+  'soluciones tecnologicas',
+  'soluciones digitales',
+  'transformacion digital',
+  'gestion de procesos',
+  'outsourcing de ti',
+  'outsourcing it',
+  'soporte tecnico',
+  'software a la medida',
+  'aplicaciones a la medida',
+  'integracion de sistemas',
+  'automatizacion empresarial',
+];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,6 +137,16 @@ function hasPromotionalSEOModifiers(name: string): boolean {
   return PROMOTIONAL_SEO_RE.test(normalizeForKeywords(name));
 }
 
+/**
+ * Retorna true si el nombre contiene una frase descriptiva de servicio genérico
+ * que nunca corresponde a un nombre de empresa real.
+ * Ejemplo: "Automatización de Procesos", "Desarrollo web en Cali".
+ */
+function containsGenericServicePhrase(name: string): boolean {
+  const normalized = normalizeForKeywords(name);
+  return GENERIC_SERVICE_PHRASES.some((phrase) => normalized.includes(phrase));
+}
+
 function stripLegalSuffixForDisplay(name: string): string {
   return name.replace(DISPLAY_LEGAL_SUFFIX_RE, '').trim();
 }
@@ -120,6 +162,10 @@ function stripLegalSuffixForDisplay(name: string): string {
  */
 function isSEOPhrase(name: string): boolean {
   if (DISPLAY_LEGAL_SUFFIX_RE.test(name)) return false;
+
+  // Generic service phrases — exact phrase-level detection (Hito 16W.4).
+  // Catches "Automatización de Procesos", "Desarrollo web en Cali", etc.
+  if (containsGenericServicePhrase(name)) return true;
 
   // Promotional editorial patterns evade keyword-density checks — short-circuit early.
   if (hasPromotionalSEOModifiers(name)) return true;
@@ -198,15 +244,26 @@ export function normalizeProspectCompanyName(
 
   // Step 1: strip legal suffix for display
   const withoutSuffix = stripLegalSuffixForDisplay(rawName);
+  const hadLegalSuffix = withoutSuffix !== rawName;
 
-  // Step 2: if not SEO after stripping, we're done
-  if (!isSEOPhrase(withoutSuffix)) {
-    const wasNormalized = withoutSuffix !== rawName;
+  // Step 2a: names with a legal suffix are registered entities — never SEO phrases.
+  // Short-circuit here to preserve the entity name and avoid false-positive SEO detection
+  // on single-word names like "TI Colombia" (sole significant word = "colombia").
+  if (hadLegalSuffix) {
     return {
       name: withoutSuffix,
       originalName,
-      wasNormalized,
-      normalizationReason: wasNormalized ? 'legal_suffix_stripped' : undefined,
+      wasNormalized: true,
+      normalizationReason: 'legal_suffix_stripped',
+    };
+  }
+
+  // Step 2b: if not SEO, we're done
+  if (!isSEOPhrase(withoutSuffix)) {
+    return {
+      name: withoutSuffix,
+      originalName,
+      wasNormalized: false,
     };
   }
 
