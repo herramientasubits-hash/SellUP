@@ -56,6 +56,29 @@ export type SearchDepth = "basic" | "standard" | "deep";
 
 export type SourcePriority = "P0" | "P1" | "P2";
 
+/**
+ * Estado operativo formal de una fuente del catálogo (Hito 16AA.3).
+ *
+ * Determina programáticamente si una fuente puede usarse para discovery automático,
+ * requiere acción previa, o solo es útil para validación/señal.
+ *
+ * - operational_verified: acceso público/API/bulk validado, lista para alimentar Inventory Engine.
+ * - connection_required: alto potencial, requiere credencial/acuerdo/token/endpoint o validación ToS.
+ * - pending_validation: prometedora, sin extracción mínima probada.
+ * - manual_signal_only: útil como señal/gremio/evento; no usar automáticamente.
+ * - validation_only: para validar o enriquecer empresas ya conocidas, no discovery masivo.
+ * - discarded_paid_or_tos: no usable por costo, ToS o riesgo legal.
+ * - discarded_low_value: no recomendada por bajo volumen, baja calidad o ruido.
+ */
+export type CatalogSourceOperationalStatus =
+  | 'operational_verified'
+  | 'connection_required'
+  | 'pending_validation'
+  | 'manual_signal_only'
+  | 'validation_only'
+  | 'discarded_paid_or_tos'
+  | 'discarded_low_value';
+
 export type CatalogSource = {
   key: string;
   name: string;
@@ -72,6 +95,7 @@ export type CatalogSource = {
     | "other";
   url?: string | null;
   automationLevel: "high" | "medium" | "low" | "manual";
+  operationalStatus: CatalogSourceOperationalStatus;
   recommendedUse: string;
   limitations?: string[];
   riskNotes?: string[];
