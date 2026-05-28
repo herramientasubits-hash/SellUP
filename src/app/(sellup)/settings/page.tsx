@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive, BarChart2 } from "lucide-react";
+import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive, BarChart2, Database } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
@@ -71,6 +71,15 @@ const CONFIG_SECTIONS = [
     href: "/settings/usage",
     adminOnly: true,
   },
+  {
+    title: "Catálogo de fuentes",
+    description: "Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp.",
+    status: "Funcional",
+    icon: Database,
+    href: "/settings/source-catalog",
+    adminOnly: true,
+    badge: "52 fuentes",
+  },
 ];
 
 export default async function SettingsPage() {
@@ -109,6 +118,11 @@ export default async function SettingsPage() {
                     {pendingCount > 0 && (
                       <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-500">
                         {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {'badge' in section && section.badge && (
+                      <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-[10px] font-medium text-su-brand">
+                        {section.badge}
                       </span>
                     )}
                     <span
