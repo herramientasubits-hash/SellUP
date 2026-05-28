@@ -147,6 +147,19 @@ const POSITIVE_TEXT_SIGNALS = [
   'automatizacion',
 ];
 
+// Redes sociales y profesionales — Hito 16Z.2
+// Estos dominios son plataformas de personas/contenido, no sedes de empresa candidata.
+// domainMatchesSet() cubre subdominios: co.linkedin.com, mx.linkedin.com, etc.
+const SOCIAL_DOMAINS = new Set([
+  'linkedin.com',
+  'facebook.com',
+  'instagram.com',
+  'x.com',
+  'twitter.com',
+  'youtube.com',
+  'tiktok.com',
+]);
+
 // Subset de dominios de medios conocidos (complementa noise-filter).
 // domainMatchesSet() cubre subdominios: yahoo.com bloquea finance.yahoo.com,
 // es-us.noticias.yahoo.com, etc.
@@ -266,6 +279,11 @@ export function classifySearchResultForProspecting(result: {
     if (domain.endsWith('.edu.co') || domain.endsWith('.edu')) {
       reasons.push(`Dominio educativo: ${domain}`);
       return { shouldPassToLLM: false, sourceType: 'education', confidence: 0.99, reasons };
+    }
+    // Hito 16Z.2 — redes sociales y profesionales no son empresas candidatas
+    if (domainMatchesSet(domain, SOCIAL_DOMAINS)) {
+      reasons.push(`social_or_professional_network_not_candidate: ${domain}`);
+      return { shouldPassToLLM: false, sourceType: 'social', confidence: 0.99, reasons };
     }
     if (domainMatchesSet(domain, MEDIA_DOMAINS)) {
       reasons.push(`Dominio de medio/noticia: ${domain}`);

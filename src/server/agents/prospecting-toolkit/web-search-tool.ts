@@ -39,6 +39,7 @@ export {
   buildCleanMultiQueryDiscoveryQueries,
   buildSourceGuidedDiscoveryQueries,
   getSourceGuidedQueryMeta,
+  classifyQuery,
 } from './query-builder';
 export type { CompanyDiscoveryQueryOptions, SourceGuidedQueryMeta } from './query-builder';
 

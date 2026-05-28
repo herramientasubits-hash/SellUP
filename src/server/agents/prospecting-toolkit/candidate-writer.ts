@@ -137,6 +137,7 @@ function buildCandidateMetadata(
     source_title: candidate.sourceTitle ?? null,
     inferred_name_source: candidate.inferredNameSource ?? null,
     source_snippet: candidate.sourceSnippet?.slice(0, 300) ?? null,
+    ...(candidate.searchTrace ? { search_trace: candidate.searchTrace } : {}),
     ...(candidate.llmEvaluation
       ? { llm_evaluation: candidate.llmEvaluation }
       : {}),
@@ -286,6 +287,9 @@ export async function writeProspectingCandidates(
           kept_count: pipelineMeta.kept_count ?? null,
           max_results_per_query: pipelineMeta.max_results_per_query ?? null,
         }
+      : {}),
+    ...(pipelineMeta?.query_trace_summary
+      ? { query_trace_summary: pipelineMeta.query_trace_summary }
       : {}),
     ...(isMockRun
       ? {

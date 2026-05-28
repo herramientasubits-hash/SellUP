@@ -254,6 +254,8 @@ export type ProspectingPipelineCandidate = {
   scoring: CandidateScoringOutput;
   /** Present when the candidate was created via the LLM evaluator pipeline (Hito 16H). */
   llmEvaluation?: import('./llm-evaluator-types').LLMEvaluationMetadata | null;
+  /** Query trazabilidad: identifica qué query generó este candidato (Hito 16Z.2). */
+  searchTrace?: SearchTrace | null;
 };
 
 export type ProspectingPipelineSummary = {
@@ -363,6 +365,25 @@ export type WebsiteVerificationOutput = {
   skipReason?: string | null;
   error?: string | null;
   metadata?: Record<string, unknown>;
+};
+
+// ============================================================
+// Search Trace — tipos (Hito 16Z.2)
+// ============================================================
+
+export type SearchQueryType =
+  | 'standard'
+  | 'expanded'
+  | 'source_guided'
+  | 'override'
+  | 'unknown';
+
+export type SearchTrace = {
+  query_text: string;
+  query_type: SearchQueryType;
+  query_source_key: string | null;
+  round_number?: number;
+  provider_rank?: number;
 };
 
 // ============================================================

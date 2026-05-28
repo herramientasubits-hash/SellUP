@@ -16,9 +16,10 @@ import type {
   ProspectingPipelineSummary,
   CandidateQualityLabel,
   NameInferenceSource,
+  SearchTrace,
 } from './types';
 import { getCatalogContext } from './catalog-context-retriever';
-import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery, getSourceGuidedQueryMeta } from './web-search-tool';
+import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery, getSourceGuidedQueryMeta, classifyQuery } from './web-search-tool';
 import { verifyWebsite } from './website-verifier';
 import { checkCompanyDuplicate } from './duplicate-checker';
 import { scoreCandidate } from './candidate-scorer';
@@ -294,6 +295,13 @@ export async function runProspectingPipeline(
           source_guided_queries_enabled: sgMeta.enabled,
           source_guided_sources_used: sgMeta.sources_used,
           queries_executed: mq.queryResults.map((q) => q.query),
+          query_trace_summary: {
+            enabled: true,
+            queries_executed: mq.queryResults.map((q) => {
+              const { queryType, querySourceKey } = classifyQuery(q.query, input.country, input.industry);
+              return { query_text: q.query, query_type: queryType, query_source_key: querySourceKey };
+            }),
+          },
           raw_results_count: mq.rawResultsCount,
           deduped_results_count: mq.dedupedResultsCount,
           filtered_out_count: mq.filteredOutCount,
@@ -480,6 +488,17 @@ export async function runProspectingPipeline(
         model: llmEvaluation!.usage.model,
       });
 
+      // Trazabilidad query→candidato (Hito 16Z.2)
+      const matchingRawInput = rawInputs.find((ri) => ri.idx === evaluated.idx);
+      const originQueryText = matchingRawInput?.query ?? searchQuery;
+      const { queryType, querySourceKey } = classifyQuery(originQueryText, input.country, input.industry);
+      const searchTrace: SearchTrace = {
+        query_text: originQueryText,
+        query_type: queryType,
+        query_source_key: querySourceKey,
+        provider_rank: rawResult?.rank,
+      };
+
       return {
         name,
         originalName: normResult.wasNormalized ? normResult.originalName : null,
@@ -496,6 +515,7 @@ export async function runProspectingPipeline(
         duplicateCheck,
         scoring,
         llmEvaluation: llmEvalMeta,
+        searchTrace,
       };
     };
 
@@ -562,6 +582,18 @@ export async function runProspectingPipeline(
       const website = result.url;
       const domain = normalizeDomain(result.url);
 
+      // Trazabilidad query→candidato (Hito 16Z.2)
+      const originQueryText = ('originQuery' in result && typeof result.originQuery === 'string')
+        ? result.originQuery
+        : searchQuery;
+      const { queryType, querySourceKey } = classifyQuery(originQueryText, input.country, input.industry);
+      const searchTrace: SearchTrace = {
+        query_text: originQueryText,
+        query_type: queryType,
+        query_source_key: querySourceKey,
+        provider_rank: result.rank,
+      };
+
       // Paso 4a: Verificar website
       const websiteVerification = await verifyWebsite({
         candidateName: name,
@@ -611,6 +643,7 @@ export async function runProspectingPipeline(
         websiteVerification,
         duplicateCheck,
         scoring,
+        searchTrace,
       };
     })
   );

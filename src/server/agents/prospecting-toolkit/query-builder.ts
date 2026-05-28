@@ -1,5 +1,7 @@
+import type { SearchQueryType } from './types';
+
 /**
- * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16Z.1)
+ * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16Z.2)
  *
  * Construye queries optimizadas para discovery de empresas reales.
  * Evita "B2B software" salvo en sectores tech/TIC.
@@ -530,6 +532,29 @@ export function buildSourceGuidedDiscoveryQueries(
     return pool.slice(0, maxQueries);
   }
   return [];
+}
+
+/**
+ * Hito 16Z.2: Clasifica una query para trazabilidad query→candidato.
+ * Determina si la query es source_guided (y qué fuente) o standard.
+ * Sin llamadas externas — lógica determinística.
+ */
+export function classifyQuery(
+  queryText: string,
+  country: string,
+  industry: string,
+): { queryType: SearchQueryType; querySourceKey: string | null } {
+  if (isTechSector(industry) && normalizeKey(country) === 'colombia') {
+    const r1Idx = (SOURCE_GUIDED_QUERIES_CO_TECH_R1 as readonly string[]).indexOf(queryText);
+    if (r1Idx >= 0) {
+      return { queryType: 'source_guided', querySourceKey: SOURCE_GUIDED_KEYS_CO_TECH_R1[r1Idx] };
+    }
+    const r2Idx = (SOURCE_GUIDED_QUERIES_CO_TECH_R2 as readonly string[]).indexOf(queryText);
+    if (r2Idx >= 0) {
+      return { queryType: 'source_guided', querySourceKey: SOURCE_GUIDED_KEYS_CO_TECH_R2[r2Idx] };
+    }
+  }
+  return { queryType: 'standard', querySourceKey: null };
 }
 
 /**
