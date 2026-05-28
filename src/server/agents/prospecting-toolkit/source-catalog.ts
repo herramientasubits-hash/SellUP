@@ -169,6 +169,28 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse: 'Discovery en sector financiero supervisado: bancos, aseguradoras, fiduciarias, fondos.',
   },
 
+  // ── Colombia — Innovación / Emprendimiento ──────────────────────────────────
+  {
+    key: 'co_innpulsa',
+    name: 'iNNpulsa Colombia (MinComercio)',
+    countryCodes: ['CO'],
+    sectors: ['tecnologia', 'innovacion', 'startups', 'emprendimiento', 'technology', 'innovation', 'startup_ecosystem'],
+    priority: 'P2',
+    type: 'other',
+    url: 'https://www.innpulsacolombia.com/',
+    automationLevel: 'low',
+    recommendedUse: 'Empresas beneficiarias de programas iNNpulsa (MinComercio). Señal de startup/empresa innovadora apoyada por el Estado colombiano. Pendiente validación de acceso a lista estructurada de beneficiarios.',
+    limitations: [
+      'Solo empresas con programas iNNpulsa — cobertura acotada',
+      'Lista de beneficiarios pública pero sin API — extracción manual o web',
+      'Pendiente validación de disponibilidad de directorio estructurado',
+    ],
+    riskNotes: [
+      'Fuente pública del Estado colombiano — sin costo ni ToS restrictivo',
+      'Validar acceso a directorio estructurado antes de integrar en producción',
+    ],
+  },
+
   // ── Colombia — Tecnología (Hito 16Y.1) ─────────────────────────────────────
   {
     key: 'co_fedesoft',
@@ -267,7 +289,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Señal de actividad laboral, no directorio formal de empresas', 'Cobertura limitada a empresas que publican en la plataforma'],
   },
 
-  // ── México ──────────────────────────────────────────────────────────────────
+  // ── México ─────────────────────────────────────────────────────────────────
   {
     key: 'mx_denue',
     name: 'DENUE / INEGI API',
@@ -280,6 +302,22 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse: 'Discovery principal en México. API oficial con 5M+ establecimientos por municipio, clasificador SCIAN y tamaño.',
     limitations: ['Rate limits por token de acceso', 'RFC no incluido en respuesta de API'],
     riskNotes: ['Paginar correctamente', 'Actualización cada 1-2 años'],
+  },
+  {
+    key: 'mx_datos_gob',
+    name: 'datos.gob.mx (Portal Datos Abiertos México)',
+    countryCodes: ['MX'],
+    sectors: [],
+    priority: 'P1',
+    type: 'public_dataset',
+    url: 'https://datos.gob.mx/',
+    automationLevel: 'high',
+    recommendedUse: 'Agregador de datasets públicos mexicanos. Acceso a DENUE histórico por entidad/actividad (CSV por estado, versiones 2016–2019+), SIEM (establecimientos visitados por cámaras empresariales), y otros datasets sectoriales. CKAN API disponible.',
+    limitations: [
+      'No es fuente primaria — agrega datasets con fechas variables de actualización',
+      'DENUE más reciente disponible vía app INEGI directa (mx_denue); datos.gob.mx tiene versiones históricas',
+      'Calidad y cobertura variable por dataset — verificar fecha y fuente antes de integrar',
+    ],
   },
   {
     key: 'mx_siem',
@@ -316,6 +354,65 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     automationLevel: 'manual',
     recommendedUse: 'Discovery en industria automotriz mexicana. OEMs y Tier-1.',
     limitations: ['Solo miembros asociados', 'Sin API — consulta directa'],
+  },
+
+  // ── México — Compras Públicas y Asociaciones Sectoriales ───────────────────
+  {
+    key: 'mx_compranet',
+    name: 'CompraNet (Compras Gubernamentales México)',
+    countryCodes: ['MX'],
+    sectors: [],
+    priority: 'P1',
+    type: 'procurement',
+    url: 'https://compranet.hacienda.gob.mx/',
+    automationLevel: 'low',
+    recommendedUse: 'Discovery de proveedores del Estado mexicano. Señal B2G de empresa activa con historial contractual. Portal migrado a CompraNet 5.0; validar endpoint de descarga antes de integrar.',
+    limitations: [
+      'Portal migrado — endpoint CSV original caído; verificar acceso a datos abiertos en datos.gob.mx/compranet',
+      'Solo empresas con contratos con el gobierno federal mexicano',
+    ],
+    riskNotes: [
+      'Endpoint de datos estructurados pendiente de reconfirmación post-migración',
+      'Fuente pública — sin costo ni ToS restrictivo conocido',
+    ],
+  },
+  {
+    key: 'mx_amiti',
+    name: 'AMITI (Asociación Mexicana de la Industria de Tecnologías de la Información)',
+    countryCodes: ['MX'],
+    sectors: ['tecnologia', 'software', 'tic', 'servicios_ti', 'technology', 'it_services', 'software_development'],
+    priority: 'P2',
+    type: 'industry_association',
+    url: 'https://www.amiti.org.mx/',
+    automationLevel: 'manual',
+    recommendedUse: 'Señal sectorial TI mexicana. ~200 empresas afiliadas. Útil para identificar actores del ecosistema TI; no para discovery masivo.',
+    limitations: [
+      'Solo ~200 afiliados — no fuente masiva',
+      'Sin API — consulta manual del directorio web',
+      'RFC no disponible en directorio público',
+    ],
+    riskNotes: [
+      'ToS medio: confirmar antes de automatizar scraping del directorio',
+    ],
+  },
+  {
+    key: 'mx_fintech_mx',
+    name: 'Fintech México (Asociación FinTech de México)',
+    countryCodes: ['MX'],
+    sectors: ['tecnologia', 'fintech', 'financiero', 'pagos', 'technology', 'payments', 'financial_technology'],
+    priority: 'P2',
+    type: 'industry_association',
+    url: 'https://www.fintechmx.com/',
+    automationLevel: 'manual',
+    recommendedUse: 'Señal sectorial fintech mexicana. Directorio de empresas miembro. Volumen pequeño; útil para señal de actor activo en ecosistema fintech MX.',
+    limitations: [
+      'Volumen reducido — directorio de miembros, no fuente masiva',
+      'Sin API pública — consulta manual del directorio',
+      'Pendiente validación de URL activa y cobertura del directorio',
+    ],
+    riskNotes: [
+      'Verificar URL y disponibilidad del directorio antes de integrar',
+    ],
   },
 
   // ── Chile ───────────────────────────────────────────────────────────────────
@@ -416,6 +513,27 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Solo afiliados CCS', 'Sin API pública'],
   },
 
+  // ── Chile — Innovación / Startups ───────────────────────────────────────────
+  {
+    key: 'cl_startup_chile',
+    name: 'Startup Chile (CORFO)',
+    countryCodes: ['CL'],
+    sectors: ['tecnologia', 'startups', 'innovacion', 'technology', 'startup_ecosystem', 'innovation'],
+    priority: 'P2',
+    type: 'other',
+    url: 'https://www.startupchile.org/',
+    automationLevel: 'low',
+    recommendedUse: 'Lista de startups beneficiarias del programa Startup Chile de CORFO. Señal de empresa tech/innovadora activa en Chile. Pendiente validación de URL de directorio público estructurado.',
+    limitations: [
+      'Solo startups beneficiarias del programa — universo acotado',
+      'Directorio web público; estructura y formato de acceso pendiente de validación',
+    ],
+    riskNotes: [
+      'Fuente pública de CORFO (Estado chileno) — sin costo ni ToS restrictivo',
+      'Validar URL de directorio o endpoint de descarga antes de integrar en producción',
+    ],
+  },
+
   // ── República Dominicana ────────────────────────────────────────────────────
   {
     key: 'do_camaratic',
@@ -442,7 +560,47 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Solo afiliados CCSD', 'Sin API — consulta manual'],
   },
 
+  {
+    key: 'do_dgcp',
+    name: 'DGCP (Dirección General de Contrataciones Públicas RD)',
+    countryCodes: ['DO'],
+    sectors: [],
+    priority: 'P1',
+    type: 'procurement',
+    url: 'https://datosabiertos.dgcp.gob.do/datos-abiertos/tablas',
+    automationLevel: 'medium',
+    recommendedUse: 'Proveedores del Estado dominicano con RNC. Datos desde 2005. Señal de empresa activa con historial contractual B2G en República Dominicana. Portal de datos abiertos OCDS.',
+    limitations: [
+      'Solo empresas proveedoras del Estado dominicano — no representa el universo empresarial completo de RD',
+      'Portal SPA (React) — extracción requiere inspeccionar API subyacente o usar datos.gob.do',
+      'Volumen moderado — decenas de miles de proveedores registrados, no millones',
+    ],
+    riskNotes: [
+      'Miembro Open Contracting Partnership (OCDS) — datos bajo estándares abiertos, riesgo legal bajo',
+    ],
+  },
+
   // ── Perú ────────────────────────────────────────────────────────────────────
+  {
+    key: 'pe_sunat_bulk',
+    name: 'SUNAT Padrón RUC Bulk (Descarga masiva)',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P0',
+    type: 'official_registry',
+    url: 'http://www2.sunat.gob.pe/padron_reducido_ruc.zip',
+    automationLevel: 'high',
+    recommendedUse: 'Descarga masiva del Padrón Reducido RUC. 11–14M registros: RUC, razón social, estado contribuyente, condición domicilio, UBIGEO. Sin auth. Complementar con pe_sunat para enriquecimiento CIIU individual.',
+    limitations: [
+      'Padrón reducido no incluye actividad CIIU — usar consulta SOL individual para obtener sector',
+      'Incluye personas naturales con RUC; filtrar por tipo de contribuyente para empresas jurídicas',
+      'ZIP ~387 MB; actualización variable — verificar fecha del archivo antes de procesar',
+    ],
+    riskNotes: [
+      'Filtrar estado: ACTIVO antes de prospectar',
+      'Amparado por Resolución de Superintendencia N° 304-2024/SUNAT — uso público permitido',
+    ],
+  },
   {
     key: 'pe_sunat',
     name: 'SUNAT Padrón RUC',
@@ -479,6 +637,27 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     automationLevel: 'medium',
     recommendedUse: 'Discovery en sector manufactura peruano. Padrones y estadísticas de empresas manufactureras.',
     limitations: ['Solo sector manufactura'],
+  },
+
+  // ── Perú — Cámara de Comercio ───────────────────────────────────────────────
+  {
+    key: 'pe_camara_lima',
+    name: 'Cámara de Comercio de Lima',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P2',
+    type: 'industry_association',
+    url: 'https://www.camaralima.org.pe/',
+    automationLevel: 'manual',
+    recommendedUse: 'Directorio de empresas asociadas a la Cámara de Comercio de Lima. Señal de empresa peruana activa y formalmente registrada. Pendiente validación de acceso al directorio público.',
+    limitations: [
+      'Solo empresas afiliadas a la CCL — no representa el universo empresarial peruano',
+      'Directorio web; sin API — consulta manual',
+      'Pendiente validación de estructura y acceso al directorio',
+    ],
+    riskNotes: [
+      'Verificar disponibilidad y estructura del directorio antes de integrar en producción',
+    ],
   },
 
   // ── Ecuador ─────────────────────────────────────────────────────────────────
@@ -560,6 +739,27 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   },
 
   // ── Brasil ──────────────────────────────────────────────────────────────────
+  {
+    key: 'br_receita_dados_abertos',
+    name: 'Receita Federal CNPJ Dados Abertos (Bulk)',
+    countryCodes: ['BR'],
+    sectors: [],
+    priority: 'P0',
+    type: 'official_registry',
+    url: 'https://dadosabertos.rfb.gov.br/CNPJ/',
+    automationLevel: 'high',
+    recommendedUse: 'Dataset masivo más completo de LATAM. ~60M CNPJs (~22M activos). Archivos ZIP: CNPJ, razão social, CNAE, município, situação cadastral, capital social, porte, quadro societário. Filtrar CNAE 62xx para tecnología.',
+    limitations: [
+      'Descarga ~4.7 GB comprimido / ~17 GB descomprimido — procesamiento batch offline obligatorio',
+      'Acceso desde fuera de Brasil puede dar timeout; usar mirror: dados.gov.br o arquivos.receitafederal.gov.br',
+      'No incluye datos de contacto (teléfono/email) en la mayoría de registros',
+      'Licencia CC BY-ND 3.0 — no permite derivados; verificar uso comercial con legal antes de producción',
+    ],
+    riskNotes: [
+      'Filtrar por situação cadastral: Ativa',
+      'Verificar disponibilidad de mirror antes de procesar en producción',
+    ],
+  },
   {
     key: 'br_receita_cnpj',
     name: 'Receita Federal CNPJ',
