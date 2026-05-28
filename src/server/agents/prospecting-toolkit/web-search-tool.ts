@@ -37,8 +37,10 @@ export {
   buildSectorSpecificSearchTerms,
   buildNoiseExclusionTerms,
   buildCleanMultiQueryDiscoveryQueries,
+  buildSourceGuidedDiscoveryQueries,
+  getSourceGuidedQueryMeta,
 } from './query-builder';
-export type { CompanyDiscoveryQueryOptions } from './query-builder';
+export type { CompanyDiscoveryQueryOptions, SourceGuidedQueryMeta } from './query-builder';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 

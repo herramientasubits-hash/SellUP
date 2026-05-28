@@ -1,5 +1,5 @@
 /**
- * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16L)
+ * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16Y.2)
  *
  * Construye queries optimizadas para discovery de empresas reales.
  * Evita "B2B software" salvo en sectores tech/TIC.
@@ -9,6 +9,10 @@
  * PáginasAmarillas Colombia. Query tech usa slice(0, 5) en lugar de slice(0, 4).
  * Hito 16L: INDUSTRY_QUERY_STRATEGIES para Manufactura. Queries específicas
  * por país (Colombia, México) y fallback genérico. Tech sin cambios.
+ * Hito 16Y.2: source-guided queries para Colombia/Tecnología. Ronda 1 mezcla
+ * 3 subcluster + 2 site:-guided (fedesoft, colombiafintech). Ronda 2 mezcla
+ * 3 ciudad+subindustria + 2 site:-guided (andicom, rutanmedellin).
+ * Opción B interna — URLs derivadas del catálogo, pendiente integración directa.
  */
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -20,6 +24,31 @@ export type CompanyDiscoveryQueryOptions = {
   intent?: 'general' | 'linkedin' | 'website';
   catalogSourceUrls?: Array<string | null | undefined>;
 };
+
+export type SourceGuidedQueryMeta = {
+  enabled: boolean;
+  sources_used: string[];
+};
+
+// ─── Source-guided queries Colombia / Tecnología (Hito 16Y.2) ────────────────
+// Opción B: mapa interno. URLs derivadas del catálogo (source-catalog.ts).
+// Pendiente integración directa desde catalog-context-retriever en rondas futuras.
+
+/** Ronda 1 — mix con buildCleanMultiQueryDiscoveryQueries */
+const SOURCE_GUIDED_QUERIES_CO_TECH_R1 = [
+  'site:fedesoft.org empresas software Colombia miembros',
+  'site:colombiafintech.co fintech Colombia empresas miembros pagos',
+] as const;
+
+const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_fedesoft', 'co_colombia_fintech'] as const;
+
+/** Ronda 2 — mix con buildExpandedMultiQueryDiscoveryQueries */
+const SOURCE_GUIDED_QUERIES_CO_TECH_R2 = [
+  'site:andicom.co expositores empresas tecnología Colombia software',
+  'site:rutanmedellin.org startups tecnología Medellín software empresas',
+] as const;
+
+const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_andicom', 'co_ruta_n'] as const;
 
 // ─── Sectores tech (permiten términos de software en la query) ─────────────────
 
@@ -356,14 +385,13 @@ export function buildCleanMultiQueryDiscoveryQueries(
   const isTech = isTechSector(industry);
 
   if (isTech) {
-    // Hito 16V.1: Colombia usa canastas por subindustria para diversificar dominios.
+    // Hito 16V.1 + 16Y.2: Colombia usa 3 subcluster + 2 source-guided (Ronda 1).
     if (normalizeKey(country) === 'colombia') {
       return [
         'empresa fintech pagos Colombia clientes corporativos soluciones',
         'empresa software gestión RRHH nómina Colombia pymes corporativo',
         'empresa ciberseguridad Colombia protección datos empresas contacto',
-        'empresa analítica de datos business intelligence Colombia soluciones empresariales',
-        'empresa automatización RPA Colombia procesos empresariales nosotros',
+        ...SOURCE_GUIDED_QUERIES_CO_TECH_R1,
       ];
     }
     // Queries validadas en Hito 13D con Tavily basic mode (otros países/Tecnología).
@@ -416,14 +444,13 @@ export function buildExpandedMultiQueryDiscoveryQueries(
 ): string[] {
   const countryKey = normalizeKey(country);
 
-  // Hito 16V.1: Colombia/Tech usa rotación ciudad+subindustria para máxima diversidad.
+  // Hito 16V.1 + 16Y.2: Colombia/Tech usa 3 ciudad+subindustria + 2 source-guided (Ronda 2).
   if (isTechSector(industry) && countryKey === 'colombia') {
     return [
       'empresa desarrollo software Medellín nearshore clientes internacionales',
       'empresa software Cali soluciones empresariales clientes nosotros',
       'empresa cloud infraestructura Colombia servicios TI corporativo',
-      'empresa HR tech Colombia plataforma recursos humanos empresas',
-      'empresa integrador tecnológico Colombia ERP CRM implementación clientes',
+      ...SOURCE_GUIDED_QUERIES_CO_TECH_R2,
     ];
   }
 
@@ -447,6 +474,51 @@ export function buildExpandedMultiQueryDiscoveryQueries(
     `${industry} empresas ${country} corporativo soluciones`,
     `proveedores ${industry} ${country} empresas contacto corporativo`,
   ];
+}
+
+// ─── API pública: source-guided queries ──────────────────────────────────────
+
+/**
+ * Retorna metadata sobre queries guiadas por fuentes para un país/industria.
+ * Usado por el pipeline para enriquecer metadata sin llamadas externas.
+ */
+export function getSourceGuidedQueryMeta(
+  country: string,
+  industry: string,
+  round: 1 | 2 = 1,
+): SourceGuidedQueryMeta {
+  if (isTechSector(industry) && normalizeKey(country) === 'colombia') {
+    return {
+      enabled: true,
+      sources_used: round === 1
+        ? [...SOURCE_GUIDED_KEYS_CO_TECH_R1]
+        : [...SOURCE_GUIDED_KEYS_CO_TECH_R2],
+    };
+  }
+  return { enabled: false, sources_used: [] };
+}
+
+/**
+ * Genera queries guiadas por fuentes de catálogo para un país/industria.
+ * MVP soporta Colombia/Tecnología; fallback: array vacío.
+ * No reemplaza las queries estándar — se integra mediante mix en el query-builder.
+ */
+export function buildSourceGuidedDiscoveryQueries(
+  country: string,
+  industry: string,
+  _sources?: string[],
+  options?: { round?: 1 | 2; maxQueries?: number },
+): string[] {
+  const round = options?.round ?? 1;
+  const maxQueries = options?.maxQueries ?? 2;
+
+  if (isTechSector(industry) && normalizeKey(country) === 'colombia') {
+    const pool = round === 1
+      ? [...SOURCE_GUIDED_QUERIES_CO_TECH_R1]
+      : [...SOURCE_GUIDED_QUERIES_CO_TECH_R2];
+    return pool.slice(0, maxQueries);
+  }
+  return [];
 }
 
 /**

@@ -18,7 +18,7 @@ import type {
   NameInferenceSource,
 } from './types';
 import { getCatalogContext } from './catalog-context-retriever';
-import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery } from './web-search-tool';
+import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery, getSourceGuidedQueryMeta } from './web-search-tool';
 import { verifyWebsite } from './website-verifier';
 import { checkCompanyDuplicate } from './duplicate-checker';
 import { scoreCandidate } from './candidate-scorer';
@@ -277,14 +277,22 @@ export async function runProspectingPipeline(
             ? input.queryOverrides
             : undefined,
         });
+        const hasOverrides = !!(input.queryOverrides && input.queryOverrides.length > 0);
+        const sgMeta = hasOverrides
+          ? { enabled: false, sources_used: [] as string[] }
+          : getSourceGuidedQueryMeta(input.country, input.industry, 1);
         multiQueryMeta = {
           search_mode: 'multi_query',
-          query_version: input.queryOverrides && input.queryOverrides.length > 0
+          query_version: hasOverrides
             ? 'query_overrides'
             : 'multi_query_basic_es_v1',
-          queries_source: input.queryOverrides && input.queryOverrides.length > 0
+          queries_source: hasOverrides
             ? 'overrides'
-            : 'standard',
+            : sgMeta.enabled
+              ? 'source_guided_mix'
+              : 'standard',
+          source_guided_queries_enabled: sgMeta.enabled,
+          source_guided_sources_used: sgMeta.sources_used,
           queries_executed: mq.queryResults.map((q) => q.query),
           raw_results_count: mq.rawResultsCount,
           deduped_results_count: mq.dedupedResultsCount,
