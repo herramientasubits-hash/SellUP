@@ -212,7 +212,7 @@ export async function writeProspectingCandidates(
     for (const candidate of pipelineOutput.candidates) {
       const status = mapQualityLabelToStatus(candidate.scoring.qualityLabel);
       if (status === null) {
-        skipped.push({ name: candidate.name, reason: "qualityLabel=discard" });
+        skipped.push({ name: candidate.name, reason: "qualityLabel=discard", searchTrace: candidate.searchTrace ?? undefined });
       }
     }
 
@@ -329,6 +329,7 @@ export async function writeProspectingCandidates(
       skipped: pipelineOutput.candidates.map((c) => ({
         name: c.name,
         reason: "batch_creation_failed",
+        searchTrace: c.searchTrace ?? undefined,
       })),
       status: "failed",
       errors: [`Error al crear lote: ${batchError?.message ?? "unknown"}`],
@@ -355,7 +356,7 @@ export async function writeProspectingCandidates(
     const candidateStatus = mapQualityLabelToStatus(candidate.scoring.qualityLabel);
 
     if (candidateStatus === null) {
-      skipped.push({ name: candidate.name, reason: "qualityLabel=discard" });
+      skipped.push({ name: candidate.name, reason: "qualityLabel=discard", searchTrace: candidate.searchTrace ?? undefined });
       continue;
     }
 
@@ -371,6 +372,7 @@ export async function writeProspectingCandidates(
         domain: candidate.domain ?? extractDomain(candidate.website),
         previous_candidate_ids: noveltyResult.noveltyMetadata.previous_candidate_ids,
         previous_batch_ids: noveltyResult.noveltyMetadata.previous_batch_ids,
+        searchTrace: candidate.searchTrace ?? undefined,
       });
       continue;
     }
@@ -446,7 +448,7 @@ export async function writeProspectingCandidates(
       if (insertErr || !created) {
         const msg = insertErr?.message ?? "unknown";
         errors.push(`Error al crear candidato "${candidate.name}": ${msg}`);
-        skipped.push({ name: candidate.name, reason: msg });
+        skipped.push({ name: candidate.name, reason: msg, searchTrace: candidate.searchTrace ?? undefined });
         continue;
       }
 
@@ -468,7 +470,7 @@ export async function writeProspectingCandidates(
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "unexpected error";
       errors.push(`Error inesperado al crear candidato "${candidate.name}": ${msg}`);
-      skipped.push({ name: candidate.name, reason: msg });
+      skipped.push({ name: candidate.name, reason: msg, searchTrace: candidate.searchTrace ?? undefined });
     }
   }
 
@@ -526,6 +528,7 @@ export async function writeProspectingCandidates(
         reason: s.reason,
         previous_batch_ids: s.previous_batch_ids ?? [],
         previous_candidate_ids: s.previous_candidate_ids ?? [],
+        search_trace: s.searchTrace ?? null,
       })),
     };
 

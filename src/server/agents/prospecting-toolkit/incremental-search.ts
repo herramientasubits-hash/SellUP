@@ -166,6 +166,13 @@ export async function runIncrementalProspectingSearch(
   let writerBatchId: string | null = null;
   let writerCandidatesCreated: number | undefined = undefined;
 
+  const allQueryTraceSummaryEntries: Array<{
+    query_text: string;
+    query_type: string;
+    query_source_key: string | null;
+    round_number: number;
+  }> = [];
+
   // Admin client para novelty pre-check (solo cuando dryRun=false)
   const adminSupabase: SupabaseClient | null = dryRun ? null : tryGetAdminClient();
   if (!dryRun && !adminSupabase) {
@@ -194,6 +201,16 @@ export async function runIncrementalProspectingSearch(
     const rawCount = pipelineOutput.webSearch.resultsCount;
     totalRawEvaluated += rawCount;
 
+    // Acumula query_trace_summary de esta ronda anotado con round_number (Hito 16Z.3)
+    const roundPipelineMeta = pipelineOutput.metadata ?? {};
+    const roundQts = roundPipelineMeta['query_trace_summary'];
+    if (roundQts && typeof roundQts === 'object' && 'queries_executed' in roundQts) {
+      const qts = roundQts as { queries_executed: Array<{ query_text: string; query_type: string; query_source_key: string | null }> };
+      for (const q of qts.queries_executed) {
+        allQueryTraceSummaryEntries.push({ ...q, round_number: round });
+      }
+    }
+
     // ── Filtro cross-round por seenDomains ───────────────────────────────────
     const seenDomainsAtStart = seenDomains.size;
     const newCandidates: ProspectingPipelineCandidate[] = [];
@@ -206,7 +223,12 @@ export async function runIncrementalProspectingSearch(
       newCandidates.push(c);
     }
 
-    allCandidates.push(...newCandidates);
+    // Anota round_number en searchTrace de cada candidato nuevo (Hito 16Z.3)
+    const candidatesWithRound: ProspectingPipelineCandidate[] = newCandidates.map((c) => {
+      if (!c.searchTrace) return c;
+      return { ...c, searchTrace: { ...c.searchTrace, round_number: round } };
+    });
+    allCandidates.push(...candidatesWithRound);
 
     const usefulSoFar = allCandidates.filter(isUsefulCandidate).length;
 
@@ -266,6 +288,10 @@ export async function runIncrementalProspectingSearch(
       break;
     }
   }
+
+  const consolidatedQueryTraceSummary = allQueryTraceSummaryEntries.length > 0
+    ? { enabled: true, queries_executed: allQueryTraceSummaryEntries }
+    : undefined;
 
   const usefulCandidatesCount = allCandidates.filter(isUsefulCandidate).length;
 
@@ -338,6 +364,7 @@ export async function runIncrementalProspectingSearch(
           pipelineVersion: 'incremental_v1',
           executedAt: new Date().toISOString(),
           generation_mode: 'incremental_search',
+          ...(consolidatedQueryTraceSummary ? { query_trace_summary: consolidatedQueryTraceSummary } : {}),
         },
       };
 

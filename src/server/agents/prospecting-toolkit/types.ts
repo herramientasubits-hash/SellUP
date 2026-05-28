@@ -309,6 +309,7 @@ export type CandidateWriterSkipped = {
   domain?: string | null;
   previous_candidate_ids?: string[];
   previous_batch_ids?: string[];
+  searchTrace?: SearchTrace | null;
 };
 
 export type CandidateWriterOutput = {
