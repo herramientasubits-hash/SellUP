@@ -94,6 +94,17 @@ const GENERIC_SERVICE_PHRASES: readonly string[] = [
   'aplicaciones a la medida',
   'integracion de sistemas',
   'automatizacion empresarial',
+  // Hito 16Y.3 — frases HR/nómina genéricas que nunca son nombres de empresa reales
+  'software de recursos humanos',
+  'software rrhh',
+  'software de nomina',               // software de nómina
+  'software para pymes',
+  'plataforma de recursos humanos',
+  'plataforma rrhh',
+  'sistema de recursos humanos',
+  'gestion de recursos humanos',
+  'software de gestion de personal',
+  'plataforma de nomina',             // plataforma de nómina
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -111,8 +122,13 @@ const DISPLAY_LEGAL_SUFFIX_RE =
   /[\s,]+(?:S\.A\.S\.?|SAS|S\.A\.?|Ltda\.?|E\.U\.?|Corp\.?|Inc\.?|LLC|S\.R\.L\.?|LTDA|S\.L\.)[\s.,]*$/i;
 
 const KNOWN_TLDS = [
+  // Colombia / LatAm — más específicos primero para evitar match parcial
   '.com.co', '.net.co', '.org.co', '.edu.co', '.gov.co', '.mil.co',
+  '.com.br', '.co.uk', '.com.mx', '.com.ar', '.com.pe', '.com.cl',
+  // Genéricos
   '.com', '.co', '.net', '.org', '.io', '.biz', '.info',
+  // ccTLDs europeos y regionales frecuentes en candidatos internacionales
+  '.eu', '.de', '.fr', '.es', '.it', '.nl', '.be', '.pt', '.se', '.ch',
 ];
 
 // ─── Private helpers ──────────────────────────────────────────────────────────

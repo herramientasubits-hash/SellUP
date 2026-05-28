@@ -21,6 +21,7 @@ export type PreLLMSourceType =
   | 'company_candidate'
   | 'content_article'
   | 'content_platform'       // Hito 16W.4 — Scribd, SlideShare, Medium, Notion, etc.
+  | 'catalog_source'         // Hito 16Y.3 — fuentes del catálogo (fedesoft, andicom, etc.)
   | 'directory'
   | 'media'
   | 'job_board'
@@ -174,6 +175,22 @@ const MARKETPLACE_DOMAINS = new Set([
   'guiatic.com', 'paginasamarillas.com.co', 'einforma.com', 'einforma.co',
 ]);
 
+// Dominios de fuentes catalogadas Colombia/Tecnología — Hito 16Y.3
+// Estas fuentes GUÍAN la búsqueda pero no son empresas candidatas.
+// Bloqueadas como candidatos; siguen siendo usables como señales en query-builder.
+// domainMatchesSet() cubre subdominios y variantes www.
+const CATALOG_SOURCE_DOMAINS = new Set([
+  'fedesoft.org',            // Federación Colombiana de Software y TI
+  'colombiafintech.co',      // Asociación Fintech de Colombia
+  'colombiadigital.net',     // Colombia Digital (TIC)
+  'andicom.co',              // Congreso TIC Colombia / CINTEL
+  'rutanmedellin.org',       // Ruta N — Ecosistema Innovación Medellín
+  'getonbrd.com',            // GetOnBoard — bolsa empleo tech (señal indirecta)
+  // microsoft.com y partners.amazonaws.com omitidos: son plataformas globales
+  // con miles de páginas corporativas legítimas — bloqueo domain-level causaría
+  // falsos positivos masivos (p.ej. microsoft.com/es-co/industry/technology).
+]);
+
 // Plataformas de contenido y documentos — Hito 16W.4
 // Estos dominios alojan documentos, presentaciones o artículos de terceros,
 // no son sedes corporativas de empresas candidatas.
@@ -262,6 +279,12 @@ export function classifySearchResultForProspecting(result: {
     if (domainMatchesSet(domain, CONTENT_PLATFORM_DOMAINS)) {
       reasons.push(`Plataforma de contenido/documentos: ${domain}`);
       return { shouldPassToLLM: false, sourceType: 'content_platform', confidence: 0.99, reasons };
+    }
+    // Hito 16Y.3 — fuentes del catálogo Colombia/Tecnología (fedesoft, andicom, etc.)
+    // Las fuentes guían la búsqueda pero no son empresas candidatas.
+    if (domainMatchesSet(domain, CATALOG_SOURCE_DOMAINS)) {
+      reasons.push(`catalog_source_domain_not_candidate: ${domain}`);
+      return { shouldPassToLLM: false, sourceType: 'catalog_source', confidence: 0.99, reasons };
     }
   }
 

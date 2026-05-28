@@ -1,5 +1,5 @@
 /**
- * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16Y.2)
+ * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16Y.3)
  *
  * Construye queries optimizadas para discovery de empresas reales.
  * Evita "B2B software" salvo en sectores tech/TIC.
@@ -10,9 +10,10 @@
  * Hito 16L: INDUSTRY_QUERY_STRATEGIES para Manufactura. Queries específicas
  * por país (Colombia, México) y fallback genérico. Tech sin cambios.
  * Hito 16Y.2: source-guided queries para Colombia/Tecnología. Ronda 1 mezcla
- * 3 subcluster + 2 site:-guided (fedesoft, colombiafintech). Ronda 2 mezcla
- * 3 ciudad+subindustria + 2 site:-guided (andicom, rutanmedellin).
- * Opción B interna — URLs derivadas del catálogo, pendiente integración directa.
+ * 3 subcluster + 2 source-guided. Ronda 2 mezcla 3 ciudad+subindustria + 2 source-guided.
+ * Hito 16Y.3: queries source-guided cambiadas de site: a señal-sin-site para evitar
+ * que la fuente misma aparezca como candidato. pre-llm-result-filter bloquea los
+ * dominios fuente como guardrail adicional.
  */
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -34,18 +35,23 @@ export type SourceGuidedQueryMeta = {
 // Opción B: mapa interno. URLs derivadas del catálogo (source-catalog.ts).
 // Pendiente integración directa desde catalog-context-retriever en rondas futuras.
 
+// Hito 16Y.3: queries sin site: para evitar que la fuente misma aparezca como candidato.
+// Las fuentes (Fedesoft, Colombia Fintech, ANDICOM, Ruta N) actúan como señales de contexto
+// — indican dónde buscar, no qué empresa devolver. El pre-llm-result-filter bloquea
+// cualquier dominio de fuente que escape como guardrail adicional.
+
 /** Ronda 1 — mix con buildCleanMultiQueryDiscoveryQueries */
 const SOURCE_GUIDED_QUERIES_CO_TECH_R1 = [
-  'site:fedesoft.org empresas software Colombia miembros',
-  'site:colombiafintech.co fintech Colombia empresas miembros pagos',
+  'empresas miembros Fedesoft software Colombia sitio oficial corporativo',
+  'fintech asociadas Colombia Fintech pagos Colombia empresa sitio oficial',
 ] as const;
 
 const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_fedesoft', 'co_colombia_fintech'] as const;
 
 /** Ronda 2 — mix con buildExpandedMultiQueryDiscoveryQueries */
 const SOURCE_GUIDED_QUERIES_CO_TECH_R2 = [
-  'site:andicom.co expositores empresas tecnología Colombia software',
-  'site:rutanmedellin.org startups tecnología Medellín software empresas',
+  'empresas expositoras ANDICOM tecnología Colombia software sitio oficial',
+  'startups Ruta N Medellín software tecnología empresa sitio oficial',
 ] as const;
 
 const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_andicom', 'co_ruta_n'] as const;
