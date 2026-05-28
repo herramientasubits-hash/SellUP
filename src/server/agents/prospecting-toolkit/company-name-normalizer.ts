@@ -65,7 +65,7 @@ export const SEO_GENERIC_KEYWORDS = new Set([
   'web',                                 // "Desarrollo web en …"
 ]);
 
-// ─── Generic service phrases (Hito 16W.4) ────────────────────────────────────
+// ─── Generic service phrases (Hito 16W.4 / 16W.5) ───────────────────────────
 // Frases descriptivas de servicio que nunca son nombres de empresa reales.
 // Comparación tras normalizeForKeywords (sin acentos, minúsculas, solo [a-z\s]).
 // Se evalúan como substring, por lo que "desarrollo web en Cali" también es capturada.
@@ -73,6 +73,9 @@ const GENERIC_SERVICE_PHRASES: readonly string[] = [
   'automatizacion de procesos',
   'desarrollo web',
   'diseno web',                        // diseño web
+  'paginas web',                       // páginas web — Hito 16W.5
+  'diseno de paginas',                 // diseño de páginas — Hito 16W.5
+  'diseno de sitios',                  // diseño de sitios — Hito 16W.5
   'desarrollo de software',
   'desarrollo de aplicaciones',
   'consultoria en tecnologia',
@@ -135,6 +138,39 @@ const PROMOTIONAL_SEO_RE =
 
 function hasPromotionalSEOModifiers(name: string): boolean {
   return PROMOTIONAL_SEO_RE.test(normalizeForKeywords(name));
+}
+
+/**
+ * Detecta títulos con keyword stuffing del patrón "Marca • servicios" o "Marca | descripción"
+ * y extrae la parte de marca antes del separador.
+ *
+ * Ejemplos:
+ *   "Softcell • diseño de paginas web, desarrollo web..." → "Softcell"
+ *   "Monbu | Páginas Web en Cali"                        → "Monbu"
+ *   "Rokobot - Automatización de Procesos"               → "Rokobot"
+ *   "Desarrollo web en Cali, Valle del Cauca"            → null (sin separador de marca)
+ *
+ * Retorna null si no hay separador válido o si el prefijo no es una marca viable.
+ */
+function extractBrandBeforeSeparator(name: string): string | null {
+  // Separadores duros (• o |) → siempre indican "Marca • lista de servicios SEO"
+  const hardSepIdx = name.search(/[•|]/);
+  if (hardSepIdx !== -1) {
+    const prefix = name.slice(0, hardSepIdx).trim();
+    if (prefix.length >= 2) return prefix;
+  }
+
+  // Separador suave ( - ) → solo si el sufijo contiene una frase de servicio genérico
+  const dashIdx = name.indexOf(' - ');
+  if (dashIdx !== -1) {
+    const suffix = name.slice(dashIdx + 3);
+    if (containsGenericServicePhrase(suffix)) {
+      const prefix = name.slice(0, dashIdx).trim();
+      if (prefix.length >= 2) return prefix;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -258,7 +294,20 @@ export function normalizeProspectCompanyName(
     };
   }
 
-  // Step 2b: if not SEO, we're done
+  // Step 2b: keyword-stuffing separator pattern — Hito 16W.5.
+  // Catches "Softcell • diseño de paginas web, desarrollo web..." → "Softcell"
+  // before falling through to generic SEO detection.
+  const brandPrefix = extractBrandBeforeSeparator(withoutSuffix);
+  if (brandPrefix && !isSEOPhrase(brandPrefix)) {
+    return {
+      name: brandPrefix,
+      originalName,
+      wasNormalized: true,
+      normalizationReason: 'keyword_stuffing_separator_extracted',
+    };
+  }
+
+  // Step 2c: if not SEO, we're done
   if (!isSEOPhrase(withoutSuffix)) {
     return {
       name: withoutSuffix,

@@ -146,11 +146,23 @@ const POSITIVE_TEXT_SIGNALS = [
   'automatizacion',
 ];
 
-// Subset de dominios de medios conocidos (complementa noise-filter)
+// Subset de dominios de medios conocidos (complementa noise-filter).
+// domainMatchesSet() cubre subdominios: yahoo.com bloquea finance.yahoo.com,
+// es-us.noticias.yahoo.com, etc.
 const MEDIA_DOMAINS = new Set([
+  // Aggregadores / portales globales de noticias
+  'yahoo.com',          // cubre noticias.yahoo.com, es-us.noticias.yahoo.com, finance.yahoo.com
+  'bloomberg.com',
+  'reuters.com',
+  'forbes.com',         // cubre forbes.com.co
+  'businesswire.com',
+  'prnewswire.com',
+  'infobae.com',
+  // Medios Colombia
   'dinero.com', 'semana.com', 'eltiempo.com', 'portafolio.co',
-  'larepublica.co', 'elespectador.com', 'forbes.com.co', 'enter.co',
-  'impactotic.co', 'colombiadigital.net', 'pulzo.com', 'kienyke.com',
+  'larepublica.co', 'elespectador.com', 'valoraanalitik.com',
+  'enter.co', 'impactotic.co', 'colombiadigital.net',
+  'pulzo.com', 'kienyke.com',
 ]);
 
 // Subset de dominios de marketplace/directorio conocidos

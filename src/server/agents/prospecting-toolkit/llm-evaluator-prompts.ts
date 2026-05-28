@@ -90,6 +90,7 @@ REVIEW (sector_fit_score 4-6) — investigate further:
 - Companies with generic "technology solutions" branding and no named product
 
 DISCARD (sector_fit_score ≤ 3) — NOT valid for this target:
+- News articles, media publications, or press releases about tech companies (Yahoo News, Bloomberg, Reuters, Portafolio, Semana, etc.)
 - Digital marketing, SEO, or social media agencies (no software product)
 - Web design or UX studios with no underlying platform or SaaS
 - Generic web development services with no named product or B2B client evidence
@@ -163,7 +164,7 @@ STRICT RULES:
 1. Use ONLY the evidence provided in title, URL, domain, and snippet. Do not use external knowledge.
 2. Do NOT invent company names, websites, or URLs.
 3. Do NOT create new URLs or domains. Use the exact URL from the result.
-4. If the result appears to be an article, listicle, directory, blog post, news piece, aggregator, ranking, or a document/presentation hosted on a content-sharing platform (Scribd, SlideShare, Issuu, Medium, Substack, Google Docs/Drive, Prezi, etc.) → decision = "discard"
+4. If the result appears to be an article, listicle, directory, blog post, news piece, media publication, press release, syndicated article, aggregator, ranking, or a document/presentation hosted on a content-sharing platform (Scribd, SlideShare, Issuu, Medium, Substack, Google Docs/Drive, Prezi, etc.) → decision = "discard"
 5. If evidence is ambiguous, insufficient, or you cannot confirm sector/country → decision = "review"
 6. If the result is clearly a real company in the target sector AND country → decision = "keep"
 7. Return exactly ONE evaluation per result. Each idx must appear exactly once.
