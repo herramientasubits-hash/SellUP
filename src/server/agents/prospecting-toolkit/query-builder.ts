@@ -1,5 +1,5 @@
 /**
- * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16Y.3)
+ * Prospecting Toolkit — Query Builder (Hito 7C, actualizado Hito 16Z.1)
  *
  * Construye queries optimizadas para discovery de empresas reales.
  * Evita "B2B software" salvo en sectores tech/TIC.
@@ -14,6 +14,9 @@
  * Hito 16Y.3: queries source-guided cambiadas de site: a señal-sin-site para evitar
  * que la fuente misma aparezca como candidato. pre-llm-result-filter bloquea los
  * dominios fuente como guardrail adicional.
+ * Hito 16Z.1: R2 usa ANDICOM + SECOP II como señales source-guided para ampliar
+ * universo con proveedores tecnológicos B2G. Ruta N (Medellín-céntrico) reemplazada
+ * por SECOP II (cobertura nacional). secop.gov.co ya bloqueado por check .gov.co.
  */
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -49,12 +52,14 @@ const SOURCE_GUIDED_QUERIES_CO_TECH_R1 = [
 const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_fedesoft', 'co_colombia_fintech'] as const;
 
 /** Ronda 2 — mix con buildExpandedMultiQueryDiscoveryQueries */
+// Hito 16Z.1: SECOP II reemplaza Ruta N (Medellín-céntrico → cobertura nacional B2G).
+// Query sin site: — SECOP II actúa como señal contextual de proveedores tech del Estado.
 const SOURCE_GUIDED_QUERIES_CO_TECH_R2 = [
   'empresas expositoras ANDICOM tecnología Colombia software sitio oficial',
-  'startups Ruta N Medellín software tecnología empresa sitio oficial',
+  'proveedores tecnología Colombia SECOP II software servicios TI sitio oficial',
 ] as const;
 
-const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_andicom', 'co_ruta_n'] as const;
+const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_andicom', 'co_secop2'] as const;
 
 // ─── Sectores tech (permiten términos de software en la query) ─────────────────
 
