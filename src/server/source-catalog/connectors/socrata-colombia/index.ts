@@ -14,3 +14,11 @@ export type {
   SocrataColombiaSampleReport,
   SocrataSampleDatasetResult,
 } from './types';
+
+// Dry Run — Hito 16AB.6 (sin writes, sin candidatos, sin lotes)
+export { runSocrataCandidateDryRun } from './run-socrata-candidate-dry-run';
+export type {
+  SocrataCandidateDryRunInput,
+  SocrataCandidateDryRunItem,
+  SocrataCandidateDryRunReport,
+} from './run-socrata-candidate-dry-run';
