@@ -15,18 +15,22 @@ import {
 } from '@/components/ui/table';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import type { SourceCatalogViewModel, SourceViewModel } from '@/modules/source-catalog/queries';
+import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
   TYPE_LABELS,
   PRIORITY_LABELS,
   COUNTRY_LABELS,
+  CONNECTION_TEST_STATUS_SHORT_LABELS,
   operationalStatusBadgeClass,
   operationalStatusDotClass,
+  connectionTestStatusBadgeClass,
 } from '@/modules/source-catalog/labels';
 
 type Props = {
   viewModel: SourceCatalogViewModel;
+  latestTests: Record<string, SourceConnectionLatestViewModel>;
 };
 
 function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] }) {
@@ -65,9 +69,47 @@ function CopyKeyCell({ sourceKey }: { sourceKey: string }) {
   );
 }
 
+function formatShortDate(iso: string): string {
+  return new Intl.DateTimeFormat('es-CO', {
+    dateStyle: 'short',
+    timeZone: 'America/Bogota',
+  }).format(new Date(iso));
+}
+
+function HealthCell({ latest }: { latest: SourceConnectionLatestViewModel | undefined }) {
+  if (!latest) {
+    return (
+      <div className="space-y-0.5">
+        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+          Sin pruebas
+        </span>
+        <p className="text-[10px] text-muted-foreground/50">—</p>
+      </div>
+    );
+  }
+
+  const label = CONNECTION_TEST_STATUS_SHORT_LABELS[latest.status];
+  const badgeClass = connectionTestStatusBadgeClass(latest.status);
+  const date = formatShortDate(latest.checkedAt);
+  const ms = latest.responseTimeMs != null ? `${latest.responseTimeMs} ms` : null;
+
+  return (
+    <div className="space-y-0.5">
+      <span
+        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${badgeClass}`}
+      >
+        {label}
+      </span>
+      <p className="text-[10px] text-muted-foreground">
+        {date}{ms ? ` · ${ms}` : ''}
+      </p>
+    </div>
+  );
+}
+
 const ALL = '__all__';
 
-export function SourceCatalogClient({ viewModel }: Props) {
+export function SourceCatalogClient({ viewModel, latestTests }: Props) {
   const { sources, filters } = viewModel;
 
   const [search, setSearch] = useState('');
@@ -211,6 +253,7 @@ export function SourceCatalogClient({ viewModel }: Props) {
                 <TableHead className="pl-5">Fuente</TableHead>
                 <TableHead>País</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Última prueba</TableHead>
                 <TableHead>Prioridad</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Automatización</TableHead>
@@ -238,6 +281,10 @@ export function SourceCatalogClient({ viewModel }: Props) {
 
                   <TableCell>
                     <StatusBadge status={source.operationalStatus} />
+                  </TableCell>
+
+                  <TableCell>
+                    <HealthCell latest={latestTests[source.key]} />
                   </TableCell>
 
                   <TableCell>

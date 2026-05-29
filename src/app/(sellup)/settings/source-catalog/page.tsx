@@ -1,13 +1,17 @@
 import { PageHeader } from '@/components/shared/page-header';
 import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
+import { getLatestConnectionTestsBySource } from '@/modules/source-catalog/history-queries';
 import { SourceCatalogClient } from './source-catalog-client';
 
 export const metadata = {
   title: 'Catálogo de fuentes — Configuración',
 };
 
-export default function SourceCatalogPage() {
-  const viewModel = getSourceCatalogViewModel();
+export default async function SourceCatalogPage() {
+  const [viewModel, latestTests] = await Promise.all([
+    Promise.resolve(getSourceCatalogViewModel()),
+    getLatestConnectionTestsBySource(),
+  ]);
   const { metrics } = viewModel;
 
   const metricCards = [
@@ -42,7 +46,7 @@ export default function SourceCatalogPage() {
         ))}
       </div>
 
-      <SourceCatalogClient viewModel={viewModel} />
+      <SourceCatalogClient viewModel={viewModel} latestTests={latestTests} />
     </div>
   );
 }

@@ -5,6 +5,79 @@ import type {
   SourceConnectionTestErrorCode,
 } from '@/server/source-catalog/connection-test/types';
 
+// ─── Latest test per source (for catalog list view) ───────────────────────────
+
+export type SourceConnectionLatestViewModel = {
+  sourceKey: string;
+  status: SourceConnectionTestStatus;
+  strategy: SourceConnectionTestStrategy;
+  httpStatus: number | null;
+  responseTimeMs: number | null;
+  errorCode: SourceConnectionTestErrorCode;
+  checkedAt: string;
+  createdAt: string;
+};
+
+const LATEST_COLUMNS = [
+  'source_key',
+  'strategy',
+  'status',
+  'http_status',
+  'response_time_ms',
+  'error_code',
+  'checked_at',
+  'created_at',
+].join(', ');
+
+type LatestDbRow = {
+  source_key: string;
+  strategy: string;
+  status: string;
+  http_status: number | null;
+  response_time_ms: number | null;
+  error_code: string;
+  checked_at: string;
+  created_at: string;
+};
+
+function mapLatestRow(row: LatestDbRow): SourceConnectionLatestViewModel {
+  return {
+    sourceKey: row.source_key,
+    strategy: row.strategy as SourceConnectionTestStrategy,
+    status: row.status as SourceConnectionTestStatus,
+    httpStatus: row.http_status,
+    responseTimeMs: row.response_time_ms,
+    errorCode: row.error_code as SourceConnectionTestErrorCode,
+    checkedAt: row.checked_at,
+    createdAt: row.created_at,
+  };
+}
+
+export async function getLatestConnectionTestsBySource(): Promise<
+  Record<string, SourceConnectionLatestViewModel>
+> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from('source_connection_tests')
+      .select(LATEST_COLUMNS)
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (error || !data || data.length === 0) return {};
+
+    const result: Record<string, SourceConnectionLatestViewModel> = {};
+    for (const row of data as unknown as LatestDbRow[]) {
+      if (!result[row.source_key]) {
+        result[row.source_key] = mapLatestRow(row);
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 export type SourceConnectionTestHistoryItem = {
   id: string;
   sourceKey: string;

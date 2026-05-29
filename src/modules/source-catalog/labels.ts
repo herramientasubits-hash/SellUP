@@ -65,6 +65,15 @@ export const CONNECTION_TEST_STATUS_LABELS: Record<SourceConnectionTestStatus, s
   not_supported: 'No soportada',
 };
 
+export const CONNECTION_TEST_STATUS_SHORT_LABELS: Record<SourceConnectionTestStatus, string> = {
+  success: 'Exitosa',
+  failed: 'Fallida',
+  blocked: 'Bloqueada',
+  requires_credentials: 'Requiere credenciales',
+  input_required: 'Requiere dato',
+  not_supported: 'No soportada',
+};
+
 export const CONNECTION_TEST_STRATEGY_LABELS: Record<SourceConnectionTestStrategy, string> = {
   http_get: 'HTTP GET',
   http_head: 'HTTP HEAD',
