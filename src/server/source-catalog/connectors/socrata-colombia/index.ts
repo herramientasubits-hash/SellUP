@@ -22,3 +22,10 @@ export type {
   SocrataCandidateDryRunItem,
   SocrataCandidateDryRunReport,
 } from './run-socrata-candidate-dry-run';
+
+// Candidate Writer Preview — Hito 16AB.9 (dryRun=false requiere autorización explícita)
+export { writeStructuredSourceCandidatesPreview } from './structured-source-candidate-writer';
+export type {
+  StructuredSourceCandidateWriterInput,
+  StructuredSourceCandidateWriterReport,
+} from './structured-source-candidate-writer';
