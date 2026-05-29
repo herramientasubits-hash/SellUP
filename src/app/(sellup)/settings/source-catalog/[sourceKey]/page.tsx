@@ -14,6 +14,7 @@ import {
   operationalStatusDotClass,
 } from '@/modules/source-catalog/labels';
 import { CopyKeyButton } from './copy-key-button';
+import { TestConnectionPanel } from './test-connection-panel';
 
 type Props = {
   params: Promise<{ sourceKey: string }>;
@@ -174,13 +175,19 @@ export default async function SourceDetailPage({ params }: Props) {
         )}
       </div>
 
+      {/* Prueba de conexión */}
+      <TestConnectionPanel
+        sourceKey={source.key}
+        sourceName={source.name}
+      />
+
       {/* Bloque próximamente */}
       <SurfaceCard className="flex items-start gap-3 border-su-brand/20 bg-su-brand-soft/40">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
         <div className="space-y-1">
           <p className="text-sm font-medium text-foreground">Próximamente</p>
           <p className="text-sm text-muted-foreground">
-            Las pruebas de conexión y extracción mínima estarán disponibles en una fase posterior.
+            Las pruebas de extracción mínima estarán disponibles en una fase posterior.
           </p>
         </div>
       </SurfaceCard>
