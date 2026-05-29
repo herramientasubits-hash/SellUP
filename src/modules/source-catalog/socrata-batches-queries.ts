@@ -140,6 +140,19 @@ type CandidateDbRow = {
   created_at: string;
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function resolveDataset(meta: Record<string, unknown>, batchName: string): string | null {
+  const raw =
+    (meta.dataset as string | undefined) ??
+    (meta.dataset_id as string | undefined) ??
+    (Array.isArray(meta.datasets) ? (meta.datasets[0] as string | undefined) : undefined) ??
+    null;
+  if (raw) return raw;
+  if (batchName.toUpperCase().includes('RUES')) return 'rues';
+  return null;
+}
+
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
 function mapBatchListItem(
@@ -154,7 +167,7 @@ function mapBatchListItem(
     countryCode: batch.country_code ?? null,
     targetCount: batch.target_count ?? null,
     candidatesCount,
-    dataset: (meta.dataset_id as string | undefined) ?? null,
+    dataset: resolveDataset(meta, batch.name),
     previewMode: !!(meta.preview_mode ?? meta.dry_run),
     smokeTest: !!(meta.smoke_test),
     rollbackLogical: !!(meta.rollback_logical),
@@ -184,9 +197,9 @@ function mapCandidate(row: CandidateDbRow): SocrataPreviewCandidateItem {
     hubspotMatchStatus: row.hubspot_match_status ?? null,
     recyclableStatus: row.recyclable_status ?? null,
     reviewFlags: flags,
-    datasetId: (sourceTrace.dataset_id as string | undefined) ?? null,
-    sourceKey: (sourceTrace.source_key as string | undefined) ?? null,
-    sourceRecordId: (sourceTrace.source_record_id as string | undefined) ?? null,
+    datasetId: (sourceTrace.datasetId as string | undefined) ?? null,
+    sourceKey: (sourceTrace.sourceKey as string | undefined) ?? null,
+    sourceRecordId: (sourceTrace.sourceRecordId as string | undefined) ?? null,
     createdAt: row.created_at,
     warnings: deriveWarnings(flags),
   };
@@ -274,7 +287,7 @@ export async function getSocrataPreviewBatchDetail(
     status: batchRow.status,
     countryCode: batchRow.country_code ?? null,
     targetCount: batchRow.target_count ?? null,
-    dataset: (meta.dataset_id as string | undefined) ?? null,
+    dataset: resolveDataset(meta, batchRow.name),
     previewMode: !!(meta.preview_mode ?? meta.dry_run),
     smokeTest: !!(meta.smoke_test),
     rollbackLogical: !!(meta.rollback_logical),

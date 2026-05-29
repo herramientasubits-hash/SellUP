@@ -170,6 +170,20 @@ export function reviewFlagBadgeClass(flag: string): string {
   }
 }
 
+// ─── Dataset label ────────────────────────────────────────────────────────────
+
+const DATASET_DISPLAY_LABELS: Record<string, string> = {
+  rues: 'RUES',
+  secop2: 'SECOP2',
+  reps: 'REPS',
+  superfinanciera: 'Superfinanciera',
+};
+
+export function formatDatasetLabel(dataset: string | null): string {
+  if (!dataset) return '—';
+  return DATASET_DISPLAY_LABELS[dataset.toLowerCase()] ?? dataset;
+}
+
 // ─── Date formatting ──────────────────────────────────────────────────────────
 
 export function formatShortDate(iso: string): string {

@@ -27,6 +27,7 @@ import {
   hubspotMatchStatusBadgeClass,
   REVIEW_FLAG_LABELS,
   reviewFlagBadgeClass,
+  formatDatasetLabel,
   formatShortDate,
 } from '@/modules/source-catalog/socrata-batches-labels';
 
@@ -112,15 +113,28 @@ function HubSpotCell({ status }: { status: string | null }) {
 
 // ─── Source cell ──────────────────────────────────────────────────────────────
 
-function SourceCell({ candidate }: { candidate: SocrataPreviewCandidateItem }) {
+function SourceCell({
+  candidate,
+  batchDataset,
+}: {
+  candidate: SocrataPreviewCandidateItem;
+  batchDataset: string | null;
+}) {
   const { datasetId, sourceKey, sourceRecordId } = candidate;
-  if (!datasetId && !sourceKey) return <span className="text-xs text-muted-foreground/40">—</span>;
+  const datasetLabel = formatDatasetLabel(datasetId ?? batchDataset);
+  const hasTrace = sourceKey || datasetId;
   return (
     <div className="space-y-0.5 font-mono text-[10px] text-muted-foreground">
-      {sourceKey && <div>{sourceKey}</div>}
-      {datasetId && <div>{datasetId}</div>}
+      <div className="font-medium text-foreground/70">Socrata / {datasetLabel}</div>
+      {hasTrace && (
+        <div className="text-muted-foreground/70">
+          {[sourceKey, datasetId].filter(Boolean).join(' · ')}
+        </div>
+      )}
       {sourceRecordId && (
-        <div className="text-muted-foreground/50 truncate max-w-[120px]">{sourceRecordId}</div>
+        <div className="truncate max-w-[120px] text-muted-foreground/50">
+          record: {sourceRecordId}
+        </div>
       )}
     </div>
   );
@@ -228,7 +242,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
               Dataset
             </p>
-            <p className="font-mono text-xs text-foreground">{batch.dataset ?? '—'}</p>
+            <p className="font-mono text-xs text-foreground">{formatDatasetLabel(batch.dataset)}</p>
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
@@ -380,7 +394,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                       <FlagChips flags={candidate.reviewFlags} />
                     </td>
                     <td className="px-4 py-3.5">
-                      <SourceCell candidate={candidate} />
+                      <SourceCell candidate={candidate} batchDataset={batch.dataset} />
                     </td>
                   </tr>
                 ))}

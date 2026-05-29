@@ -7,6 +7,7 @@ import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batch
 import {
   BATCH_STATUS_LABELS,
   batchStatusBadgeClass,
+  formatDatasetLabel,
   formatShortDate,
 } from '@/modules/source-catalog/socrata-batches-labels';
 
@@ -156,7 +157,7 @@ export default async function SocrataBatchesPage() {
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="font-mono text-xs text-muted-foreground">
-                        {batch.dataset ?? '—'}
+                        {formatDatasetLabel(batch.dataset)}
                       </span>
                     </td>
                     <td className="px-4 py-3.5 tabular-nums text-muted-foreground">
