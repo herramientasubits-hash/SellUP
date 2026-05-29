@@ -10,6 +10,7 @@ import {
   formatDatasetLabel,
   formatShortDate,
 } from '@/modules/source-catalog/socrata-batches-labels';
+import { CreateSocrataBatchButton } from './create-socrata-batch-button';
 
 export const metadata = {
   title: 'Lotes Socrata — Catálogo de fuentes',
@@ -62,9 +63,17 @@ export default async function SocrataBatchesPage() {
       <div className="flex items-center gap-2.5 rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5">
         <Lock className="h-4 w-4 shrink-0 text-muted-foreground/60" />
         <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">Solo lectura.</span>{' '}
-          Esta pantalla no permite crear, editar, aprobar, descartar ni sincronizar candidatos.
+          <span className="font-medium text-foreground/80">Solo lectura para candidatos.</span>{' '}
+          No permite editar, aprobar, descartar ni sincronizar candidatos existentes.
         </p>
+      </div>
+
+      {/* Create batch — admin only */}
+      <div className="rounded-xl border border-border/40 bg-card px-5 py-4">
+        <p className="mb-3 text-sm font-semibold text-foreground">
+          Crear lote de prueba
+        </p>
+        <CreateSocrataBatchButton />
       </div>
 
       {/* Metrics */}
