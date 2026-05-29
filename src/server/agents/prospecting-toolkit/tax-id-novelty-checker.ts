@@ -282,9 +282,26 @@ export function evaluateTaxIdNovelty(params: {
     };
   }
 
-  const candidateIds = slot.candidates.map((c) => c.id);
+  // Candidatos en estado terminal 'discarded' no son activos y no deben
+  // bloquear nuevas evaluaciones (p.ej. candidatos descartados por rollback técnico).
+  const activeCandidates = slot.candidates.filter((c) => c.status !== 'discarded');
+
+  // Regla 2.5: solo candidatos descartados y sin cuentas → elegible para nueva evaluación
+  if (activeCandidates.length === 0 && slot.accounts.length === 0) {
+    return {
+      status: 'new_candidate',
+      shouldSkip: false,
+      reason: 'Tax ID solo tiene candidatos descartados — elegible para nueva evaluación',
+      matchedCandidateIds: [],
+      matchedAccountIds: [],
+      cooldownDays: null,
+      lastSeenAt: null,
+    };
+  }
+
+  const candidateIds = activeCandidates.map((c) => c.id);
   const accountIds = slot.accounts.map((a) => a.id);
-  const lastSeenAt = latestDate(slot.candidates);
+  const lastSeenAt = latestDate(activeCandidates);
 
   // Regla 3: existe como cuenta activa
   if (slot.accounts.length > 0) {
@@ -300,7 +317,7 @@ export function evaluateTaxIdNovelty(params: {
   }
 
   // Regla 4: bloqueado por cliente activo
-  const blockedCustomer = slot.candidates.find((c) => c.reviewStatus === 'blocked_customer');
+  const blockedCustomer = activeCandidates.find((c) => c.reviewStatus === 'blocked_customer');
   if (blockedCustomer) {
     return {
       status: 'blocked_customer',
@@ -314,7 +331,7 @@ export function evaluateTaxIdNovelty(params: {
   }
 
   // Regla 5: duplicado exacto o bloqueado por duplicado
-  const blocked = slot.candidates.find(
+  const blocked = activeCandidates.find(
     (c) => c.duplicateStatus === 'exact_duplicate' || c.reviewStatus === 'blocked_duplicate',
   );
   if (blocked) {
@@ -330,7 +347,7 @@ export function evaluateTaxIdNovelty(params: {
   }
 
   // Regla 6: rechazado recientemente (dentro de cooldown)
-  const rejectedRecent = slot.candidates.find((c) => {
+  const rejectedRecent = activeCandidates.find((c) => {
     if (c.reviewStatus !== 'rejected') return false;
     const ref = c.updatedAt ?? c.createdAt;
     if (!ref) return false;
@@ -349,7 +366,7 @@ export function evaluateTaxIdNovelty(params: {
   }
 
   // Regla 7: pendiente de revisión manual dentro de cooldown
-  const pendingRecent = slot.candidates.find((c) => {
+  const pendingRecent = activeCandidates.find((c) => {
     if (c.reviewStatus !== 'needs_manual_review') return false;
     const ref = c.updatedAt ?? c.createdAt;
     if (!ref) return false;
@@ -367,8 +384,8 @@ export function evaluateTaxIdNovelty(params: {
     };
   }
 
-  // Regla 8: todos los candidatos fuera del cooldown → permitir re-sugerir
-  const hasRecentCandidate = slot.candidates.some((c) => {
+  // Regla 8: todos los candidatos activos fuera del cooldown → permitir re-sugerir
+  const hasRecentCandidate = activeCandidates.some((c) => {
     const ref = c.updatedAt ?? c.createdAt;
     if (!ref) return false;
     return daysSince(ref, now) < cooldownDays;

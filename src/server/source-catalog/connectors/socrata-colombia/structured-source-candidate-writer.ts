@@ -52,6 +52,7 @@ export type StructuredSourceCandidateWriterInput = {
   candidates: StructuredSourceCandidateDraft[];
   runHubSpotCheck?: boolean;
   limit?: number;
+  uiSmokeTest?: boolean;
 };
 
 export type StructuredSourceCandidateWriterReport = {
@@ -522,6 +523,7 @@ export async function writeStructuredSourceCandidatesPreview(
     estimated_cost_usd: 0,
     metadata: {
       preview_mode: true,
+      ui_smoke_test: input.uiSmokeTest ?? false,
       generated_by: 'structured_source_candidate_writer',
       writer_version: WRITER_VERSION,
       dataset: input.dataset,
@@ -541,6 +543,13 @@ export async function writeStructuredSourceCandidatesPreview(
     .single();
 
   if (batchError) {
+    console.error('[StructuredSourceWriter] Error al crear lote en prospect_batches:', {
+      code: batchError.code,
+      message: batchError.message,
+      details: batchError.details,
+      hint: batchError.hint,
+      batchRow: { ...batchRow, created_by: batchRow.created_by ? '[set]' : null },
+    });
     errors.push({
       name: null,
       taxId: null,

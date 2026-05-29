@@ -140,9 +140,35 @@ export async function createSocrataRuesPreviewBatchAction(): Promise<{
       candidates,
       runHubSpotCheck: false,
       limit: SOCRATA_RUES_LIMIT,
+      uiSmokeTest: true,
     });
 
     if (!report.batch.id) {
+      const batchStatus = report.batch.status;
+      console.error('[SocrataAction] Lote no creado:', {
+        batchStatus,
+        totalInput: report.batch.totalCandidatesInput,
+        totalPrepared: report.batch.totalCandidatesPrepared,
+        summary: report.summary,
+        errors: report.errors,
+        items: report.items.map((i) => ({
+          name: i.name,
+          taxId: i.taxId,
+          noveltyStatus: i.noveltyStatus,
+          shouldWrite: i.shouldWrite,
+          skippedReason: i.skippedReason,
+        })),
+      });
+
+      if (batchStatus === 'nothing_to_write') {
+        return {
+          ok: false,
+          batchId: null,
+          message:
+            'Todos los candidatos Socrata RUES ya existen en el sistema (verificador de novedad). Revisa los logs del servidor para el detalle.',
+        };
+      }
+
       return {
         ok: false,
         batchId: null,
