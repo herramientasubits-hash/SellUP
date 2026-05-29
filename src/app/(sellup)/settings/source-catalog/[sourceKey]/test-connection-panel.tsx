@@ -5,28 +5,12 @@ import { Loader2, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Info, Clock
 import { Button } from '@/components/ui/button';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { testSourceConnectionAction } from '@/modules/source-catalog/actions';
-import type { SourceConnectionTestResult, SourceConnectionTestStatus, SourceConnectionTestStrategy } from '@/server/source-catalog/connection-test/types';
-
-// ─── Label helpers ────────────────────────────────────────────────────────────
-
-const STATUS_LABELS: Record<SourceConnectionTestStatus, string> = {
-  success: 'Exitosa',
-  failed: 'Fallida',
-  blocked: 'Bloqueada',
-  requires_credentials: 'Requiere credenciales',
-  input_required: 'Requiere dato de entrada',
-  not_supported: 'No soportada',
-};
-
-const STRATEGY_LABELS: Record<SourceConnectionTestStrategy, string> = {
-  http_get: 'HTTP GET',
-  http_head: 'HTTP HEAD',
-  partial_download_head: 'Verificación HEAD de descarga masiva',
-  requires_credentials: 'Requiere credenciales',
-  manual_only: 'Solo manual',
-  validation_input_required: 'Requiere dato de validación',
-  not_supported: 'No soportada',
-};
+import {
+  CONNECTION_TEST_STATUS_LABELS,
+  CONNECTION_TEST_STRATEGY_LABELS,
+  connectionTestStatusBadgeClass,
+} from '@/modules/source-catalog/labels';
+import type { SourceConnectionTestResult, SourceConnectionTestStatus } from '@/server/source-catalog/connection-test/types';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -45,19 +29,10 @@ function StatusIcon({ status }: { status: SourceConnectionTestStatus }) {
 }
 
 function StatusBadge({ status }: { status: SourceConnectionTestStatus }) {
-  const classMap: Record<SourceConnectionTestStatus, string> = {
-    success: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',
-    failed: 'border-destructive/30 bg-destructive/10 text-destructive',
-    blocked: 'border-destructive/30 bg-destructive/10 text-destructive',
-    requires_credentials: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
-    input_required: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
-    not_supported: 'border-border/40 bg-muted/30 text-muted-foreground',
-  };
-
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${classMap[status]}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${connectionTestStatusBadgeClass(status)}`}>
       <StatusIcon status={status} />
-      {STATUS_LABELS[status]}
+      {CONNECTION_TEST_STATUS_LABELS[status]}
     </span>
   );
 }
@@ -153,7 +128,7 @@ function ResultPanel({ result }: { result: SourceConnectionTestResult }) {
 
       {/* Metadata grid */}
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <MetaRow label="Estrategia" value={STRATEGY_LABELS[result.strategy]} />
+        <MetaRow label="Estrategia" value={CONNECTION_TEST_STRATEGY_LABELS[result.strategy]} />
         {result.httpStatus !== null && (
           <MetaRow label="HTTP status" value={result.httpStatus} />
         )}

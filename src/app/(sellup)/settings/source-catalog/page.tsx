@@ -8,10 +8,8 @@ export const metadata = {
 };
 
 export default async function SourceCatalogPage() {
-  const [viewModel, latestTests] = await Promise.all([
-    Promise.resolve(getSourceCatalogViewModel()),
-    getLatestConnectionTestsBySource(),
-  ]);
+  const viewModel = getSourceCatalogViewModel();
+  const latestTests = await getLatestConnectionTestsBySource();
   const { metrics } = viewModel;
 
   const metricCards = [
