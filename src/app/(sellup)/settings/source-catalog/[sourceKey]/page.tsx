@@ -4,6 +4,7 @@ import { ExternalLink, Info } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
+import { getSourceConnectionTestHistory } from '@/modules/source-catalog/history-queries';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -15,6 +16,9 @@ import {
 } from '@/modules/source-catalog/labels';
 import { CopyKeyButton } from './copy-key-button';
 import { TestConnectionPanel } from './test-connection-panel';
+import { ConnectionTestHistory } from './connection-test-history';
+
+export const dynamic = 'force-dynamic';
 
 type Props = {
   params: Promise<{ sourceKey: string }>;
@@ -31,6 +35,8 @@ export default async function SourceDetailPage({ params }: Props) {
   const source = sources.find((s) => s.key === sourceKey);
 
   if (!source) notFound();
+
+  const history = await getSourceConnectionTestHistory(sourceKey);
 
   const statusClass = operationalStatusBadgeClass(source.operationalStatus);
   const dotClass = operationalStatusDotClass(source.operationalStatus);
@@ -180,6 +186,9 @@ export default async function SourceDetailPage({ params }: Props) {
         sourceKey={source.key}
         sourceName={source.name}
       />
+
+      {/* Historial de pruebas */}
+      <ConnectionTestHistory history={history} />
 
       {/* Bloque próximamente */}
       <SurfaceCard className="flex items-start gap-3 border-su-brand/20 bg-su-brand-soft/40">

@@ -1,4 +1,5 @@
 import type { CatalogSource, CatalogSourceOperationalStatus, SourcePriority } from '@/server/agents/prospecting-toolkit/types';
+import type { SourceConnectionTestStatus, SourceConnectionTestStrategy } from '@/server/source-catalog/connection-test/types';
 
 export const OPERATIONAL_STATUS_LABELS: Record<CatalogSourceOperationalStatus, string> = {
   operational_verified: 'Verificada',
@@ -52,6 +53,44 @@ export const COUNTRY_LABELS: Record<string, string> = {
   SV: 'El Salvador',
   UY: 'Uruguay',
 };
+
+// ─── Connection test labels ────────────────────────────────────────────────────
+
+export const CONNECTION_TEST_STATUS_LABELS: Record<SourceConnectionTestStatus, string> = {
+  success: 'Exitosa',
+  failed: 'Fallida',
+  blocked: 'Bloqueada',
+  requires_credentials: 'Requiere credenciales',
+  input_required: 'Requiere dato de entrada',
+  not_supported: 'No soportada',
+};
+
+export const CONNECTION_TEST_STRATEGY_LABELS: Record<SourceConnectionTestStrategy, string> = {
+  http_get: 'HTTP GET',
+  http_head: 'HTTP HEAD',
+  partial_download_head: 'Verificación HEAD de descarga masiva',
+  requires_credentials: 'Requiere credenciales',
+  manual_only: 'Solo manual',
+  validation_input_required: 'Requiere dato de validación',
+  not_supported: 'No soportada',
+};
+
+export function connectionTestStatusBadgeClass(status: SourceConnectionTestStatus): string {
+  switch (status) {
+    case 'success':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+    case 'failed':
+    case 'blocked':
+      return 'border-destructive/30 bg-destructive/10 text-destructive';
+    case 'requires_credentials':
+    case 'input_required':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-500';
+    case 'not_supported':
+      return 'border-border/40 bg-muted/30 text-muted-foreground';
+  }
+}
+
+// ─── Operational status helpers ───────────────────────────────────────────────
 
 /** Returns Tailwind class string for a status badge (border + bg + text) */
 export function operationalStatusBadgeClass(status: CatalogSourceOperationalStatus): string {
