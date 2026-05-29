@@ -124,6 +124,18 @@ export {
   checkHubSpotCompanyCommercialStatus,
 } from './hubspot-commercial-checker';
 
+// Tax ID Novelty Checker — Hito 16AB.8
+export type {
+  TaxIdNoveltyStatus,
+  TaxIdNoveltyDecision,
+  TaxIdNoveltyIndex,
+} from './tax-id-novelty-checker';
+export {
+  normalizeTaxId,
+  buildTaxIdNoveltyIndex,
+  evaluateTaxIdNovelty,
+} from './tax-id-novelty-checker';
+
 // LLM Evaluator — Hito 16H
 export type {
   LLMEvaluatorDecision,
