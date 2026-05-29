@@ -111,6 +111,19 @@ export {
   runAndWriteProspectingPipeline,
 } from './candidate-writer';
 
+// HubSpot Commercial Checker — Hito 16AB.5
+export type {
+  HubSpotCompanyCommercialStatus,
+  HubSpotCompanyMatchMethod,
+  HubSpotExtendedCompanyMatch,
+  HubSpotCommercialCheckResult,
+} from './hubspot-commercial-checker';
+export {
+  classifyHubSpotCommercialMatch,
+  buildHubspotTraceFromLookup,
+  checkHubSpotCompanyCommercialStatus,
+} from './hubspot-commercial-checker';
+
 // LLM Evaluator — Hito 16H
 export type {
   LLMEvaluatorDecision,
