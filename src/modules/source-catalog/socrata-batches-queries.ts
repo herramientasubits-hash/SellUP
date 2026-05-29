@@ -48,11 +48,14 @@ export type SocrataPreviewCandidateItem = {
   domain: string | null;
   status: string;
   reviewStatus: string | null;
+  duplicateStatus: string | null;
   employeeCount: number | null;
   employeeCountStatus: string | null;
   commercialFitStatus: string | null;
   hubspotMatchStatus: string | null;
   recyclableStatus: string | null;
+  estimatedCostUsd: number | null;
+  isConverted: boolean;
   reviewFlags: string[];
   datasetId: string | null;
   sourceKey: string | null;
@@ -61,17 +64,30 @@ export type SocrataPreviewCandidateItem = {
   warnings: string[];
 };
 
+export type SocrataPreviewBatchSummary = {
+  total: number;
+  needsReview: number;
+  discarded: number;
+  rejected: number;
+  converted: number;
+  totalCostUsd: number;
+};
+
 export type SocrataPreviewBatchDetailViewModel = {
   id: string;
   name: string;
   status: string;
   countryCode: string | null;
   targetCount: number | null;
+  searchDepth: string | null;
+  estimatedCostUsd: number | null;
   dataset: string | null;
   previewMode: boolean;
   smokeTest: boolean;
   rollbackLogical: boolean;
   createdAt: string;
+  updatedAt: string;
+  summary: SocrataPreviewBatchSummary;
   candidates: SocrataPreviewCandidateItem[];
 };
 
@@ -108,8 +124,11 @@ type BatchDbRow = {
   country: string | null;
   country_code: string | null;
   target_count: number | null;
+  search_depth: string | null;
+  estimated_cost_usd: number | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
+  updated_at: string;
   created_by: string | null;
   owner_id: string | null;
 };
@@ -130,11 +149,14 @@ type CandidateDbRow = {
   source_primary: string | null;
   status: string;
   review_status: string | null;
+  duplicate_status: string | null;
   employee_count: number | null;
   employee_count_status: string | null;
   commercial_fit_status: string | null;
   hubspot_match_status: string | null;
   recyclable_status: string | null;
+  estimated_cost_usd: number | null;
+  converted_account_id: string | null;
   review_flags: string[] | null;
   source_trace: Record<string, unknown> | null;
   created_at: string;
@@ -191,11 +213,14 @@ function mapCandidate(row: CandidateDbRow): SocrataPreviewCandidateItem {
     domain: row.domain ?? null,
     status: row.status,
     reviewStatus: row.review_status ?? null,
+    duplicateStatus: row.duplicate_status ?? null,
     employeeCount: row.employee_count ?? null,
     employeeCountStatus: row.employee_count_status ?? null,
     commercialFitStatus: row.commercial_fit_status ?? null,
     hubspotMatchStatus: row.hubspot_match_status ?? null,
     recyclableStatus: row.recyclable_status ?? null,
+    estimatedCostUsd: row.estimated_cost_usd ?? null,
+    isConverted: !!row.converted_account_id,
     reviewFlags: flags,
     datasetId: (sourceTrace.datasetId as string | undefined) ?? null,
     sourceKey: (sourceTrace.sourceKey as string | undefined) ?? null,
@@ -257,7 +282,7 @@ export async function getSocrataPreviewBatchDetail(
   const { data: batch, error: batchError } = await supabase
     .from('prospect_batches')
     .select(
-      'id, name, source, status, country, country_code, target_count, metadata, created_at, created_by, owner_id',
+      'id, name, source, status, country, country_code, target_count, search_depth, estimated_cost_usd, metadata, created_at, updated_at, created_by, owner_id',
     )
     .eq('id', batchId)
     .eq('source', 'socrata_colombia')
@@ -271,7 +296,7 @@ export async function getSocrataPreviewBatchDetail(
   const { data: candidateRows, error: candidatesError } = await supabase
     .from('prospect_candidates')
     .select(
-      'id, batch_id, name, normalized_name, tax_id, city, department, sector_code, sector_description, legal_status, website, domain, source_primary, status, review_status, employee_count, employee_count_status, commercial_fit_status, hubspot_match_status, recyclable_status, review_flags, source_trace, created_at',
+      'id, batch_id, name, normalized_name, tax_id, city, department, sector_code, sector_description, legal_status, website, domain, source_primary, status, review_status, duplicate_status, employee_count, employee_count_status, commercial_fit_status, hubspot_match_status, recyclable_status, estimated_cost_usd, converted_account_id, review_flags, source_trace, created_at',
     )
     .eq('batch_id', batchId)
     .order('created_at', { ascending: true });
@@ -281,17 +306,30 @@ export async function getSocrataPreviewBatchDetail(
   const meta = batchRow.metadata ?? {};
   const candidates = ((candidateRows ?? []) as CandidateDbRow[]).map(mapCandidate);
 
+  const summary: SocrataPreviewBatchSummary = {
+    total: candidates.length,
+    needsReview: candidates.filter((c) => c.status === 'needs_review').length,
+    discarded: candidates.filter((c) => c.status === 'discarded').length,
+    rejected: candidates.filter((c) => c.reviewStatus === 'rejected').length,
+    converted: candidates.filter((c) => c.isConverted).length,
+    totalCostUsd: candidates.reduce((acc, c) => acc + (c.estimatedCostUsd ?? 0), 0),
+  };
+
   return {
     id: batchRow.id,
     name: batchRow.name,
     status: batchRow.status,
     countryCode: batchRow.country_code ?? null,
     targetCount: batchRow.target_count ?? null,
+    searchDepth: batchRow.search_depth ?? null,
+    estimatedCostUsd: batchRow.estimated_cost_usd ?? null,
     dataset: resolveDataset(meta, batchRow.name),
     previewMode: !!(meta.preview_mode ?? meta.dry_run),
     smokeTest: !!(meta.smoke_test),
     rollbackLogical: !!(meta.rollback_logical),
     createdAt: batchRow.created_at,
+    updatedAt: batchRow.updated_at,
+    summary,
     candidates,
   };
 }

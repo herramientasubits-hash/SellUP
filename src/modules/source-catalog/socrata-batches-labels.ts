@@ -170,6 +170,33 @@ export function reviewFlagBadgeClass(flag: string): string {
   }
 }
 
+// ─── Duplicate status ─────────────────────────────────────────────────────────
+
+export const DUPLICATE_STATUS_LABELS: Record<string, string> = {
+  unchecked: 'Sin verificar',
+  no_match: 'Sin coincidencia',
+  possible_duplicate: 'Posible duplicado',
+  exact_duplicate: 'Duplicado exacto',
+  related_company: 'Empresa relacionada',
+  insufficient_data: 'Datos insuficientes',
+};
+
+export function duplicateStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'no_match':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+    case 'exact_duplicate':
+      return 'border-destructive/30 bg-destructive/10 text-destructive';
+    case 'possible_duplicate':
+    case 'related_company':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    case 'insufficient_data':
+      return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
+    default:
+      return 'border-border/40 bg-muted/30 text-muted-foreground';
+  }
+}
+
 // ─── Dataset label ────────────────────────────────────────────────────────────
 
 const DATASET_DISPLAY_LABELS: Record<string, string> = {

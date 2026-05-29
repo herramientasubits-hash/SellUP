@@ -21,6 +21,8 @@ import {
   candidateStatusBadgeClass,
   REVIEW_STATUS_LABELS,
   reviewStatusBadgeClass,
+  DUPLICATE_STATUS_LABELS,
+  duplicateStatusBadgeClass,
   EMPLOYEE_COUNT_STATUS_LABELS,
   employeeCountStatusBadgeClass,
   HUBSPOT_MATCH_STATUS_LABELS,
@@ -169,8 +171,9 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
       <div className="flex items-center gap-2.5 rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5">
         <Lock className="h-4 w-4 shrink-0 text-muted-foreground/60" />
         <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">Solo lectura.</span>{' '}
-          Este lote no puede ser aprobado, editado ni sincronizado desde esta pantalla.
+          <span className="font-medium text-foreground/80">Modo revisión estructurada.</span>{' '}
+          Puedes consultar los candidatos y su trazabilidad, pero no aprobarlos, convertirlos
+          ni sincronizarlos con HubSpot desde esta vista.
         </p>
       </div>
 
@@ -218,6 +221,50 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           </div>
         </div>
       )}
+
+      {/* Candidate summary cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {[
+          { label: 'Total candidatos', value: batch.summary.total, cls: 'text-foreground' },
+          {
+            label: 'Necesitan revisión',
+            value: batch.summary.needsReview,
+            cls: 'text-amber-600 dark:text-amber-400',
+          },
+          {
+            label: 'Descartados',
+            value: batch.summary.discarded,
+            cls: 'text-muted-foreground',
+          },
+          {
+            label: 'Rechazados',
+            value: batch.summary.rejected,
+            cls: 'text-destructive',
+          },
+          {
+            label: 'Convertidos',
+            value: batch.summary.converted,
+            cls: 'text-su-brand',
+          },
+          {
+            label: 'Costo estimado',
+            value:
+              batch.summary.totalCostUsd > 0
+                ? `$${batch.summary.totalCostUsd.toFixed(4)}`
+                : '—',
+            cls: 'text-muted-foreground',
+          },
+        ].map((card) => (
+          <SurfaceCard key={card.label} className="py-3.5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              {card.label}
+            </p>
+            <p className={`mt-1.5 text-xl font-semibold tabular-nums ${card.cls}`}>
+              {card.value}
+            </p>
+          </SurfaceCard>
+        ))}
+      </div>
 
       {/* Batch summary */}
       <SurfaceCard>
@@ -276,9 +323,29 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+              Profundidad
+            </p>
+            <p className="text-foreground">{batch.searchDepth ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+              Costo estimado lote
+            </p>
+            <p className="tabular-nums text-foreground">
+              {batch.estimatedCostUsd != null ? `$${batch.estimatedCostUsd.toFixed(4)}` : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
               Fecha creación
             </p>
             <p className="text-foreground">{formatShortDate(batch.createdAt)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+              Última actualización
+            </p>
+            <p className="text-foreground">{formatShortDate(batch.updatedAt)}</p>
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
@@ -331,6 +398,9 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                     Estado revisión
                   </th>
                   <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                    Duplicado
+                  </th>
+                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
                     Flags
                   </th>
                   <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
@@ -357,6 +427,11 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                         >
                           {CANDIDATE_STATUS_LABELS[candidate.status] ?? candidate.status}
                         </span>
+                        {candidate.isConverted && (
+                          <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-su-brand">
+                            Convertido
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">
@@ -385,6 +460,17 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                           className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${reviewStatusBadgeClass(candidate.reviewStatus)}`}
                         >
                           {REVIEW_STATUS_LABELS[candidate.reviewStatus] ?? candidate.reviewStatus}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {candidate.duplicateStatus ? (
+                        <span
+                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${duplicateStatusBadgeClass(candidate.duplicateStatus)}`}
+                        >
+                          {DUPLICATE_STATUS_LABELS[candidate.duplicateStatus] ?? candidate.duplicateStatus}
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground/40">—</span>
