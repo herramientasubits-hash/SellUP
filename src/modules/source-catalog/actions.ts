@@ -5,10 +5,15 @@ import { redirect } from 'next/navigation';
 import { runSourceConnectionTest } from '@/server/source-catalog/connection-test/run-source-connection-test';
 import type { SourceConnectionTestResult } from '@/server/source-catalog/connection-test/types';
 import { nowIso } from '@/server/source-catalog/connection-test/helpers';
+import { CATALOG_SOURCES } from '@/server/agents/prospecting-toolkit/source-catalog';
+import { persistSourceConnectionTest } from '@/server/source-catalog/connection-test/persist-source-connection-test';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-async function requireActiveUser(): Promise<{ internalUserId: string }> {
+async function requireActiveUser(): Promise<{
+  internalUserId: string;
+  userEmail: string | null;
+}> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -23,7 +28,7 @@ async function requireActiveUser(): Promise<{ internalUserId: string }> {
     .single();
 
   if (!internalUser) redirect('/login');
-  return { internalUserId: internalUser.id };
+  return { internalUserId: internalUser.id, userEmail: user.email ?? null };
 }
 
 // ─── Rate limit (in-memory, single instance) ──────────────────────────────────
@@ -54,7 +59,7 @@ function checkRateLimit(userId: string, sourceKey: string): boolean {
 export async function testSourceConnectionAction(
   sourceKey: string,
 ): Promise<SourceConnectionTestResult> {
-  const { internalUserId } = await requireActiveUser();
+  const { internalUserId, userEmail } = await requireActiveUser();
 
   if (!checkRateLimit(internalUserId, sourceKey)) {
     return {
@@ -75,5 +80,17 @@ export async function testSourceConnectionAction(
     };
   }
 
-  return runSourceConnectionTest(sourceKey);
+  const result = await runSourceConnectionTest(sourceKey);
+
+  const source = CATALOG_SOURCES.find((s) => s.key === sourceKey) ?? null;
+
+  // Persist asynchronously; failure must not affect the returned result
+  void persistSourceConnectionTest({
+    result,
+    source,
+    internalUserId,
+    userEmail,
+  });
+
+  return result;
 }
