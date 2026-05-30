@@ -333,7 +333,7 @@ export async function writeStructuredSourceCandidatesPreview(
             name: draft.name,
             taxId: draft.taxId,
             domain: draft.website ?? null,
-            countryCode: 'CO',
+            countryCode: input.countryCode,
           });
 
           hubspotMatchStatus = hsResult.hubspotMatchStatus;
@@ -526,6 +526,8 @@ export async function writeStructuredSourceCandidatesPreview(
       ui_smoke_test: input.uiSmokeTest ?? false,
       generated_by: 'structured_source_candidate_writer',
       writer_version: WRITER_VERSION,
+      source_key: input.sourceKey,
+      source_provider: input.sourceProvider,
       dataset: input.dataset,
       limit: effectiveLimit,
       run_hubspot_check: runHubSpotCheck,

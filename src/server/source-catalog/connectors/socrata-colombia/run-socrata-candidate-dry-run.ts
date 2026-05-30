@@ -177,7 +177,7 @@ export async function runSocrataCandidateDryRun(
               name: draft.name,
               taxId: draft.taxId,
               domain: draft.website ?? null,
-              countryCode: 'CO',
+              countryCode: draft.countryCode,
             });
 
             hubspotMatchStatus = hsResult.hubspotMatchStatus;
