@@ -1,5 +1,5 @@
 /**
- * Structured Candidate Types — Hito 16AB.4
+ * Structured Candidate Types — Hito 16AB.4 / 16AD.2
  *
  * Tipos para candidatos provenientes de fuentes masivas estructuradas
  * (Socrata Colombia, registros oficiales, etc.).
@@ -80,8 +80,47 @@ export type ReviewFlag =
   | 'pii_email_risk'
   | 'pii_phone_risk';
 
+// ── Clasificación de fuentes estructuradas ────────────────────
+
+export type StructuredSourceType =
+  | 'structured_registry'
+  | 'structured_procurement'
+  | 'structured_directory'
+  | 'commercial_provider'
+  | 'imported'
+  | 'other';
+
+export type StructuredSourceMode =
+  | 'pilot'
+  | 'validation'
+  | 'discovery'
+  | 'enrichment'
+  | 'deduplication';
+
 // ── Traces tipados ────────────────────────────────────────────
 
+/**
+ * Trace genérico para cualquier fuente estructurada.
+ * Reemplaza a SocrataSourceTrace como tipo canónico en StructuredSourceCandidateDraft.
+ * Socrata Colombia es la primera implementación: sourceProvider='socrata_colombia'.
+ */
+export type StructuredSourceTrace = {
+  sourceProvider: string;
+  sourceKey: string;
+  sourceType: StructuredSourceType;
+  sourceMode: StructuredSourceMode;
+  datasetId: string | null;
+  sourceRecordId: string | null;
+  queryParams: Record<string, unknown>;
+  fetchedAt: string;
+  connectorVersion: string;
+  normalizedAt: string;
+  countryCode: string;
+};
+
+/**
+ * @deprecated Usar StructuredSourceTrace. Conservado para referencia de la implementación Socrata Colombia.
+ */
 export type SocrataSourceTrace = {
   sourceProvider: 'socrata_colombia';
   sourceKey: string;
@@ -133,24 +172,26 @@ export type CommercialTrace = {
 /**
  * Representación conceptual de un candidato proveniente de fuente
  * estructurada. No es un insert directo a prospect_candidates.
- * Usado por el mapper Socrata → candidato para validación local.
+ * Genérico: acepta cualquier fuente, país e identificador fiscal.
+ * Socrata Colombia es la primera implementación concreta.
  */
 export type StructuredSourceCandidateDraft = {
   // Identidad
   name: string;
   taxId: string | null;
+  taxIdentifierType: string | null;
   city: string | null;
   department: string | null;
   sectorCode: string | null;
   sectorDescription: string | null;
   legalStatus: string | null;
   website: string | null;
-  countryCode: 'CO';
+  countryCode: string;
 
   // Fuente
-  sourcePrimary: 'socrata_colombia';
+  sourcePrimary: string;
 
-  // Tamaño (siempre unknown para Socrata en primera pasada)
+  // Tamaño (siempre unknown en primera pasada para fuentes estructuradas)
   employeeCount: null;
   employeeCountStatus: 'unknown_requires_manual_validation';
 
@@ -161,7 +202,7 @@ export type StructuredSourceCandidateDraft = {
   reviewFlags: ReviewFlag[];
 
   // Trazabilidad
-  sourceTrace: SocrataSourceTrace;
+  sourceTrace: StructuredSourceTrace;
   hubspotTrace: HubspotTrace;
   commercialTrace: CommercialTrace;
 };

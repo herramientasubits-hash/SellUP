@@ -33,8 +33,6 @@ import {
 } from '../../../agents/prospecting-toolkit/tax-id-novelty-checker';
 import { checkHubSpotCompanyCommercialStatus } from '../../../agents/prospecting-toolkit/hubspot-commercial-checker';
 import { normalizeCompanyName } from '../../../agents/prospecting-toolkit/normalization';
-import type { ColombiaCompanySource } from './types';
-
 // ── Constantes ────────────────────────────────────────────────
 
 const WRITER_VERSION = '0.1.0';
@@ -46,9 +44,11 @@ export type StructuredSourceCandidateWriterInput = {
   dryRun: boolean;
   requestedByUserId: string;
   ownerId?: string | null;
-  country: 'Colombia';
-  countryCode: 'CO';
-  dataset: ColombiaCompanySource;
+  country: string;
+  countryCode: string;
+  sourceKey: string;
+  sourceProvider: string;
+  dataset: string;
   candidates: StructuredSourceCandidateDraft[];
   runHubSpotCheck?: boolean;
   limit?: number;
@@ -62,7 +62,7 @@ export type StructuredSourceCandidateWriterReport = {
     wouldCreate: boolean;
     created: boolean;
     id: string | null;
-    source: 'socrata_colombia';
+    source: string;
     status: string;
     totalCandidatesInput: number;
     totalCandidatesPrepared: number;
@@ -133,8 +133,8 @@ function extractDomain(website: string | null): string | null {
   }
 }
 
-function buildBatchName(dataset: ColombiaCompanySource, dateLabel: string): string {
-  return `Socrata CO · ${dataset.toUpperCase()} · ${dateLabel}`;
+function buildBatchName(sourceProvider: string, dataset: string, dateLabel: string): string {
+  return `${sourceProvider} · ${dataset.toUpperCase()} · ${dateLabel}`;
 }
 
 function resolveReviewStatus(
@@ -164,7 +164,7 @@ function resolveDuplicateStatus(hubspotMatchStatus: HubspotMatchStatus): string 
   return 'unchecked';
 }
 
-function buildEmptyReport(executedAt: string, dryRun: boolean): StructuredSourceCandidateWriterReport {
+function buildEmptyReport(executedAt: string, dryRun: boolean, sourceProvider: string): StructuredSourceCandidateWriterReport {
   return {
     executedAt,
     dryRun,
@@ -172,7 +172,7 @@ function buildEmptyReport(executedAt: string, dryRun: boolean): StructuredSource
       wouldCreate: false,
       created: false,
       id: null,
-      source: 'socrata_colombia',
+      source: sourceProvider,
       status: 'empty',
       totalCandidatesInput: 0,
       totalCandidatesPrepared: 0,
@@ -226,7 +226,7 @@ export async function writeStructuredSourceCandidatesPreview(
   const errors: StructuredSourceCandidateWriterReport['errors'] = [];
 
   if (input.candidates.length === 0) {
-    return buildEmptyReport(executedAt, dryRun);
+    return buildEmptyReport(executedAt, dryRun, input.sourceProvider);
   }
 
   // Aplicar límite (hard max: 20)
@@ -250,7 +250,7 @@ export async function writeStructuredSourceCandidatesPreview(
   const noveltyIndex = await buildTaxIdNoveltyIndex({
     supabase,
     taxIds,
-    countryCode: 'CO',
+    countryCode: input.countryCode,
   });
 
   // ── Paso 2: Evaluar cada candidato ────────────────────────
@@ -262,7 +262,7 @@ export async function writeStructuredSourceCandidatesPreview(
       const noveltyDecision = evaluateTaxIdNovelty({
         name: draft.name,
         taxId: draft.taxId,
-        countryCode: 'CO',
+        countryCode: input.countryCode,
         index: noveltyIndex,
       });
 
@@ -450,7 +450,7 @@ export async function writeStructuredSourceCandidatesPreview(
         wouldCreate: toWrite.length > 0,
         created: false,
         id: null,
-        source: 'socrata_colombia',
+        source: input.sourceProvider,
         status: 'dry_run_not_created',
         totalCandidatesInput,
         totalCandidatesPrepared,
@@ -484,7 +484,7 @@ export async function writeStructuredSourceCandidatesPreview(
         wouldCreate: false,
         created: false,
         id: null,
-        source: 'socrata_colombia',
+        source: input.sourceProvider,
         status: 'nothing_to_write',
         totalCandidatesInput,
         totalCandidatesPrepared,
@@ -510,14 +510,14 @@ export async function writeStructuredSourceCandidatesPreview(
 
   // ── Crear lote preview ────────────────────────────────────
   const batchRow = {
-    name: buildBatchName(input.dataset, dateLabel),
+    name: buildBatchName(input.sourceProvider, input.dataset, dateLabel),
     country: input.country,
     country_code: input.countryCode,
     industry: 'Structured source',
     target_count: toWrite.length,
     search_depth: 'basic',
     status: 'ready_for_review',
-    source: 'socrata_colombia',
+    source: input.sourceProvider,
     created_by: input.requestedByUserId || null,
     owner_id: input.ownerId ?? null,
     estimated_cost_usd: 0,
@@ -562,7 +562,7 @@ export async function writeStructuredSourceCandidatesPreview(
         wouldCreate: false,
         created: false,
         id: null,
-        source: 'socrata_colombia',
+        source: input.sourceProvider,
         status: 'batch_creation_failed',
         totalCandidatesInput,
         totalCandidatesPrepared,
@@ -613,9 +613,9 @@ export async function writeStructuredSourceCandidatesPreview(
         legal_status: draft.legalStatus,
         tax_id: draft.taxId,
         tax_identifier: draft.taxId,
-        tax_identifier_type: 'NIT',
-        source_primary: 'socrata_colombia',
-        sources_checked: ['socrata_colombia'],
+        tax_identifier_type: draft.taxIdentifierType ?? null,
+        source_primary: input.sourceProvider,
+        sources_checked: [input.sourceProvider],
         employee_count: null,
         employee_count_status: 'unknown_requires_manual_validation',
         employee_count_source: null,
@@ -674,7 +674,7 @@ export async function writeStructuredSourceCandidatesPreview(
       wouldCreate: false,
       created: batchId !== null,
       id: batchId,
-      source: 'socrata_colombia',
+      source: input.sourceProvider,
       status: 'ready_for_review',
       totalCandidatesInput,
       totalCandidatesPrepared,

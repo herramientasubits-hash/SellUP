@@ -11,7 +11,7 @@ export type BatchStatus =
   | 'cancelled'
   | 'failed';
 
-export type BatchSource = 'manual' | 'agent_1' | 'imported' | 'apollo' | 'other';
+export type BatchSource = 'manual' | 'agent_1' | 'imported' | 'apollo' | 'socrata_colombia' | 'other';
 
 export type CandidateStatus =
   | 'generated'
@@ -266,6 +266,7 @@ export const BATCH_SOURCE_LABELS: Record<BatchSource, string> = {
   agent_1: 'Agente 1',
   imported: 'Importado',
   apollo: 'Apollo',
+  socrata_colombia: 'Socrata Colombia',
   other: 'Otro',
 };
 

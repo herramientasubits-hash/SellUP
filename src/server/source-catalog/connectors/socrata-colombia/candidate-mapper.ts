@@ -16,6 +16,13 @@ import {
   buildDefaultCommercialTrace,
 } from '../../../agents/prospecting-toolkit/structured-candidate-helpers';
 
+// Constantes Socrata Colombia
+const SOURCE_PROVIDER = 'socrata_colombia' as const;
+const SOURCE_TYPE = 'structured_registry' as const;
+const SOURCE_MODE = 'pilot' as const;
+const COUNTRY_CODE = 'CO' as const;
+const TAX_IDENTIFIER_TYPE = 'NIT' as const;
+
 const CONNECTOR_VERSION = '0.1.0';
 
 /**
@@ -60,16 +67,17 @@ export function mapSocrataSampleToStructuredCandidate(
     // Identidad
     name: sample.companyName ?? 'Sin nombre',
     taxId: sample.taxId,
+    taxIdentifierType: TAX_IDENTIFIER_TYPE,
     city: sample.city,
     department: sample.department,
     sectorCode: sample.sectorCode,
     sectorDescription: sample.sectorDescription,
     legalStatus: sample.legalStatus,
     website: sample.website,
-    countryCode: 'CO',
+    countryCode: COUNTRY_CODE,
 
     // Fuente
-    sourcePrimary: 'socrata_colombia',
+    sourcePrimary: SOURCE_PROVIDER,
 
     // Tamaño — siempre desconocido en esta etapa
     employeeCount: null,
@@ -83,14 +91,17 @@ export function mapSocrataSampleToStructuredCandidate(
 
     // Trazabilidad
     sourceTrace: {
-      sourceProvider: 'socrata_colombia',
+      sourceProvider: SOURCE_PROVIDER,
       sourceKey: sample.sourceKey,
+      sourceType: SOURCE_TYPE,
+      sourceMode: SOURCE_MODE,
       datasetId: sample.datasetId,
       sourceRecordId: sample.rawRecordId,
       queryParams: {},
       fetchedAt: now,
       connectorVersion: CONNECTOR_VERSION,
       normalizedAt: now,
+      countryCode: COUNTRY_CODE,
     },
     hubspotTrace,
     commercialTrace,

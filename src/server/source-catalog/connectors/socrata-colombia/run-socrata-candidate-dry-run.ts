@@ -46,7 +46,7 @@ export type SocrataCandidateDryRunInput = {
 export type SocrataCandidateDryRunItem = {
   dataset: ColombiaCompanySource;
   sourceKey: string;
-  datasetId: string;
+  datasetId: string | null;
   name: string | null;
   taxId: string | null;
   city: string | null;
@@ -63,7 +63,7 @@ export type SocrataCandidateDryRunItem = {
   sourceTrace: {
     sourceProvider: string;
     sourceKey: string;
-    datasetId: string;
+    datasetId: string | null;
     sourceRecordId: string | null;
   };
 };

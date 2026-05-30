@@ -97,7 +97,7 @@ type BuildInitialReviewFlagsParams = {
   decisionMakerName: string | null;
   sectorCode: string | null;
   legalStatus: string | null;
-  source: 'rues' | 'secop2' | 'reps' | 'superfinanciera';
+  source: string;
   email: string | null;
   phone: string | null;
 };

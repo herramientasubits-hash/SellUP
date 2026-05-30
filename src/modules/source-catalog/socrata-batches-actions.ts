@@ -136,6 +136,8 @@ export async function createSocrataRuesPreviewBatchAction(): Promise<{
       ownerId: null,
       country: 'Colombia',
       countryCode: 'CO',
+      sourceKey: 'co_rues',
+      sourceProvider: 'socrata_colombia',
       dataset: 'rues',
       candidates,
       runHubSpotCheck: false,
