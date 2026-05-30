@@ -14,7 +14,6 @@ const DENUE_HARD_MAX_LIMIT = 20;
 
 const DENUE_HEADERS = {
   'User-Agent': 'SellUp/0.1 data-source-audit',
-  Accept: 'application/json',
 };
 
 export type FetchDenueParams = {
@@ -35,7 +34,7 @@ export type FetchDenueResult =
  * Consulta el API DENUE BuscarAreaAct.
  * El token se agrega al path pero no se logueará nunca.
  *
- * URL pattern: /BuscarAreaAct/{actividad}/{area}/{registroInicio}/{numeroRegistros}/{token}
+ * URL pattern: /BuscarAreaAct/{condicion}/{nomb_act}/{estrato}/{entidad}/{reg_ini}/{num_reg}/{token}
  */
 export async function fetchDenueDatasetSample(
   params: FetchDenueParams,
@@ -56,8 +55,11 @@ export async function fetchDenueDatasetSample(
   const entidad = params.entidad ?? '09';
   const registroInicio = params.registroInicio ?? 1;
 
-  // Construir URL con token en path — no loguear la URL completa
-  const url = `${DENUE_API_BASE}/BuscarAreaAct/${encodeURIComponent(actividad)}/${encodeURIComponent(entidad)}/${registroInicio}/${limit}/${encodeURIComponent(token)}`;
+  // Formato oficial: /BuscarAreaAct/{condicion}/{nomb_act}/{estrato}/{entidad}/{reg_ini}/{num_reg}/{token}
+  // "todos" como condición devuelve todos los establecimientos del código SCIAN dado.
+  // estrato "0" = todos los tamaños.
+  // No loguear la URL completa (contiene token en path).
+  const url = `${DENUE_API_BASE}/BuscarAreaAct/todos/${encodeURIComponent(actividad)}/0/${encodeURIComponent(entidad)}/${registroInicio}/${limit}/${encodeURIComponent(token)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DENUE_TIMEOUT_MS);
@@ -74,16 +76,33 @@ export async function fetchDenueDatasetSample(
       clearTimeout(timeout);
     }
 
+    const responseText = await response.text();
+
     if (!response.ok) {
+      // HTML en error HTTP indica token inválido o ruta incorrecta en INEGI
+      if (responseText.trim().startsWith('<')) {
+        return {
+          ok: false,
+          error: `HTTP ${response.status} DENUE — respuesta HTML (token inválido o expirado)`,
+        };
+      }
       return {
         ok: false,
         error: `HTTP ${response.status} desde API DENUE INEGI`,
       };
     }
 
+    // INEGI puede devolver 200 con HTML "Página no encontrada" si el token es inválido
+    if (responseText.trim().startsWith('<')) {
+      return {
+        ok: false,
+        error: 'DENUE retornó HTML — token inválido, expirado, o ruta incorrecta',
+      };
+    }
+
     let parsed: unknown;
     try {
-      parsed = await response.json();
+      parsed = JSON.parse(responseText);
     } catch {
       return { ok: false, error: 'Respuesta DENUE no es JSON válido' };
     }
