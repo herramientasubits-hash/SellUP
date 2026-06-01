@@ -7,6 +7,10 @@
  *
  * No usa Lusha, IA web, ni fuentes públicas.
  * No crea ni actualiza datos en HubSpot.
+ *
+ * Hito 16AJ.5: soporte opcional para preflight de fuentes estructuradas.
+ * Activado solo cuando structuredSourcePreflight=true; apagado por defecto.
+ * El preflight es read-only, nunca escribe candidatos ni altera el batch.
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
@@ -20,6 +24,10 @@ import {
   logProviderUsage,
   logResultQualityEvent,
 } from '@/modules/usage-tracking/logging';
+import {
+  runAgentSourceDiscoveryPreflight,
+  type SourceDiscoveryPreflightResult,
+} from './prospecting-toolkit/source-discovery-preflight';
 
 // ============================================================
 // Types
@@ -32,6 +40,10 @@ export interface ProspectGenerationParams {
   targetCount: number;
   searchDepth: 'basic' | 'standard';
   internalUserId: string;
+  /** Hito 16AJ.5 — apagado por defecto. Si true, ejecuta preflight read-only de fuentes estructuradas. */
+  structuredSourcePreflight?: boolean;
+  /** Hito 16AJ.5 — fuente explícita a usar en preflight. Si null, se resuelve por countryCode. */
+  structuredSourceKey?: string | null;
 }
 
 export interface ProspectGenerationResult {
@@ -41,6 +53,8 @@ export interface ProspectGenerationResult {
   candidatesCreated: number;
   estimatedCostUsd: number;
   error?: string;
+  /** Hito 16AJ.5 — presente solo si structuredSourcePreflight=true fue activado. Read-only, no escribe candidatos. */
+  structuredSourcePreflight?: SourceDiscoveryPreflightResult;
 }
 
 interface NormalizedCandidate {
@@ -380,7 +394,11 @@ export function filterBySectorFit(
 export async function runProspectGenerationAgent(
   params: ProspectGenerationParams
 ): Promise<ProspectGenerationResult> {
-  const { country, countryCode, industry, targetCount, searchDepth, internalUserId } = params;
+  const {
+    country, countryCode, industry, targetCount, searchDepth, internalUserId,
+    structuredSourcePreflight: preflightEnabled = false,
+    structuredSourceKey = null,
+  } = params;
   const safeCount = Math.min(targetCount, 25);
   const startedAt = Date.now();
 
@@ -396,6 +414,50 @@ export async function runProspectGenerationAgent(
 
   if (!agentRun) {
     return { success: false, batchId: null, agentRunId: null, candidatesCreated: 0, estimatedCostUsd: 0, error: 'No se pudo crear agent_run' };
+  }
+
+  // ── Hito 16AJ.5: preflight de fuentes estructuradas (read-only, apagado por defecto) ──
+  // Solo se ejecuta si preflightEnabled=true. Nunca escribe candidatos ni altera el batch.
+  // Un fallo del preflight nunca interrumpe el flujo Apollo principal.
+  let preflightResult: SourceDiscoveryPreflightResult | undefined;
+  if (preflightEnabled) {
+    try {
+      preflightResult = await runAgentSourceDiscoveryPreflight({
+        countryCode,
+        country,
+        industry,
+        targetCount: safeCount,
+        searchDepth,
+        enabled: true,
+        sourceKey: structuredSourceKey ?? null,
+      });
+      console.info('[agent-1] structured-source-preflight completed', {
+        agentRunId: agentRun.id,
+        status: preflightResult.status,
+        selectedSourceKey: preflightResult.selectedSourceKey,
+        candidatesCount: preflightResult.candidatesCount,
+        acceptedCount: preflightResult.acceptedCount,
+        warnings: preflightResult.warnings,
+        errors: preflightResult.errors,
+      });
+    } catch (preflightErr: unknown) {
+      const msg = preflightErr instanceof Error ? preflightErr.message : 'Error inesperado en preflight';
+      console.warn('[agent-1] structured-source-preflight failed (non-blocking)', { agentRunId: agentRun.id, error: msg });
+      preflightResult = {
+        enabled: true,
+        selectedSourceKey: structuredSourceKey ?? null,
+        status: 'error',
+        recordsRead: 0,
+        candidatesCount: 0,
+        acceptedCount: 0,
+        lowPriorityCount: 0,
+        filteredOutCount: 0,
+        qualitySummary: { withTaxId: 0, withSector: 0, sectorUnknown: 0, withRegion: 0, withWebsite: 0 },
+        warnings: [],
+        errors: [msg],
+        samples: [],
+      };
+    }
   }
 
   const admin = getAdminClient();
@@ -724,7 +786,11 @@ export async function runProspectGenerationAgent(
       results_unique: insertedCandidates.filter((c) => c.duplicate_status === 'no_match' || c.duplicate_status === 'unchecked').length,
       estimated_cost_usd: totalEstimatedCost,
       finished_at: new Date().toISOString(),
-      metadata: { batch_id: batch.id, duration_ms: Date.now() - startedAt },
+      metadata: {
+        batch_id: batch.id,
+        duration_ms: Date.now() - startedAt,
+        ...(preflightResult ? { structured_source_preflight: preflightResult } : {}),
+      },
     });
 
     return {
@@ -733,6 +799,7 @@ export async function runProspectGenerationAgent(
       agentRunId: agentRun.id,
       candidatesCreated: insertedCandidates.length,
       estimatedCostUsd: totalEstimatedCost,
+      ...(preflightResult ? { structuredSourcePreflight: preflightResult } : {}),
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error inesperado en el agente';
