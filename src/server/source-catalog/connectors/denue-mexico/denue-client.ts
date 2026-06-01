@@ -2,7 +2,8 @@
  * DENUE Mexico Connector — Read-only HTTP Client
  *
  * Consulta la API oficial DENUE v1 de INEGI mediante el método BuscarEntidad.
- * Token leído desde INEGI_DENUE_TOKEN — nunca hardcodeado, nunca logueado.
+ * Token leído desde INEGI_DENUE_TOKEN (fallback env) o desde SourceConnectionResolver.
+ * Nunca hardcodeado, nunca logueado.
  * Timeout máximo: 10s. Hard limit: 20 registros.
  * Sin writes. Sin logging de URLs completas con token.
  *
@@ -15,6 +16,7 @@ const DENUE_API_BASE = 'https://www.inegi.org.mx/app/api/denue/v1/consulta';
 const DENUE_TIMEOUT_MS = 10_000;
 const DENUE_DEFAULT_LIMIT = 5;
 const DENUE_HARD_MAX_LIMIT = 20;
+const DENUE_TEST_LIMIT = 1;
 
 const DENUE_HEADERS = {
   'User-Agent': 'SellUp/0.1 data-source-audit',
@@ -30,15 +32,28 @@ export type FetchDenueParams = {
   /** Número de registro inicial (1-based) */
   registroInicio?: number;
   limit?: number;
+  /** Token explícito — si se omite, usa env INEGI_DENUE_TOKEN */
+  token?: string;
 };
 
 export type FetchDenueResult =
   | { ok: true; records: unknown[] }
   | { ok: false; error: string };
 
+export type DenueConnectionTestResult = {
+  ok: boolean;
+  httpStatus?: number;
+  responseTimeMs?: number;
+  error?: string;
+};
+
 /**
  * Consulta el API DENUE mediante BuscarEntidad.
  * El token se agrega al path pero no se logueará nunca.
+ *
+ * Acepta token explícito en params.token; si no se provee usa INEGI_DENUE_TOKEN.
+ * Esto permite que el SourceConnectionResolver inyecte el token resuelto desde Vault
+ * sin romper el dry-run local que usa la variable de entorno directamente.
  *
  * URL pattern: /BuscarEntidad/{condicion}/{entidad}/{reg_ini}/{num_reg}/{token}
  *
@@ -51,11 +66,11 @@ export type FetchDenueResult =
 export async function fetchDenueDatasetSample(
   params: FetchDenueParams,
 ): Promise<FetchDenueResult> {
-  const token = process.env.INEGI_DENUE_TOKEN;
+  const token = params.token?.trim() || process.env.INEGI_DENUE_TOKEN;
   if (!token || token.trim() === '') {
     return {
       ok: false,
-      error: 'Missing INEGI_DENUE_TOKEN environment variable',
+      error: 'Missing DENUE token — set INEGI_DENUE_TOKEN or pass token explicitly',
     };
   }
 
@@ -142,4 +157,97 @@ function sanitizeDenueError(error: unknown): string {
     return `Error de red DENUE: ${error.message.slice(0, 120)}`;
   }
   return 'Error desconocido al consultar API DENUE INEGI';
+}
+
+/**
+ * Prueba la conexión a la API DENUE con el token proporcionado.
+ *
+ * Usa limit=1 para minimizar costo. Solo lectura — no escribe nada.
+ * No imprime el token. Devuelve resultado sanitizado.
+ *
+ * Usar para validar que un token recién guardado en Vault es funcional.
+ */
+export async function testDenueConnection(
+  token: string,
+): Promise<DenueConnectionTestResult> {
+  if (!token || token.trim() === '') {
+    return { ok: false, error: 'Token vacío — no se puede probar conexión DENUE' };
+  }
+
+  const url = `${DENUE_API_BASE}/BuscarEntidad/todos/09/1/${DENUE_TEST_LIMIT}/${encodeURIComponent(token.trim())}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DENUE_TIMEOUT_MS);
+  const startMs = Date.now();
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: DENUE_HEADERS,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const responseTimeMs = Date.now() - startMs;
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      if (responseText.trim().startsWith('<')) {
+        return {
+          ok: false,
+          httpStatus: response.status,
+          responseTimeMs,
+          error: `HTTP ${response.status} — respuesta HTML (token inválido o expirado)`,
+        };
+      }
+      return {
+        ok: false,
+        httpStatus: response.status,
+        responseTimeMs,
+        error: `HTTP ${response.status} desde API DENUE INEGI`,
+      };
+    }
+
+    if (responseText.trim().startsWith('<')) {
+      return {
+        ok: false,
+        httpStatus: response.status,
+        responseTimeMs,
+        error: 'DENUE retornó HTML — token inválido, expirado, o ruta incorrecta',
+      };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      return {
+        ok: false,
+        httpStatus: response.status,
+        responseTimeMs,
+        error: 'Respuesta DENUE no es JSON válido',
+      };
+    }
+
+    if (!Array.isArray(parsed)) {
+      return {
+        ok: false,
+        httpStatus: response.status,
+        responseTimeMs,
+        error: 'Respuesta DENUE inesperada: no es un array JSON',
+      };
+    }
+
+    return { ok: true, httpStatus: response.status, responseTimeMs };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      responseTimeMs: Date.now() - startMs,
+      error: sanitizeDenueError(error),
+    };
+  }
 }
