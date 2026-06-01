@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { testDenueConnection } from '@/server/source-catalog/connectors/denue-mexico/denue-client';
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
+import { runDenueCandidateDryRun } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
+import type { DenueCandidateDryRunReport } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
 
 // ─── Admin Supabase (service role — server-only) ───────────────────────────────
 
@@ -421,3 +423,190 @@ export async function testSourceCredentialConnectionAction(
 // Also: integration_key for source catalog connections uses source_key values
 // ('denue_mexico', etc.) which differ from integration keys ('hubspot', 'slack').
 // Consider a separate source_catalog_audit table in a future hito.
+
+// ─── Safe dry-run report (no token, no PII) ───────────────────────────────────
+
+export type SafeDryRunSummary = {
+  recordsRead: number;
+  normalizedCount: number;
+  acceptedDraftsCount: number;
+  filteredOutCount: number;
+  lowPriorityCount: number;
+  noTaxIdCount: number;
+  errorsCount: number;
+};
+
+export type SafeDryRunSampleItem = {
+  name: string | null;
+  city: string | null;
+  department: string | null;
+  activity: string | null;
+  qualityDecision: string;
+  qualityReason: string;
+};
+
+export type SafeDryRunFilteredSample = {
+  name: string | null;
+  city: string | null;
+  filterReason: string;
+};
+
+export type SafeDryRunReport = {
+  executedAt: string;
+  sourceKey: string;
+  sourceProvider: string;
+  countryCode: string;
+  connectionSource: 'vault/resolver' | 'env_fallback';
+  queryParams: {
+    codigoActividad: string;
+    entidades: string[];
+    condiciones: string[];
+  };
+  summary: SafeDryRunSummary;
+  warnings: string[];
+  sampleItems: SafeDryRunSampleItem[];
+  filteredSamples: SafeDryRunFilteredSample[];
+};
+
+export type RunSourceDryRunResult = {
+  ok: boolean;
+  sourceKey: string;
+  report?: SafeDryRunReport;
+  error?: string;
+};
+
+// Rate limit for dry-run (in-memory, single server instance)
+const dryRunRateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const DRY_RUN_RATE_LIMIT_WINDOW_MS = 300_000; // 5 min window
+const DRY_RUN_RATE_LIMIT_MAX = 2;
+
+function checkDryRunRateLimit(userId: string, sourceKey: string): boolean {
+  const key = `${userId}:${sourceKey}:dryrun`;
+  const now = Date.now();
+  const entry = dryRunRateLimitMap.get(key);
+  if (!entry || now - entry.windowStart > DRY_RUN_RATE_LIMIT_WINDOW_MS) {
+    dryRunRateLimitMap.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= DRY_RUN_RATE_LIMIT_MAX) return false;
+  entry.count += 1;
+  return true;
+}
+
+function buildSafeReport(
+  report: DenueCandidateDryRunReport,
+  connectionSource: 'vault/resolver' | 'env_fallback',
+): SafeDryRunReport {
+  return {
+    executedAt: report.executedAt,
+    sourceKey: report.sourceKey,
+    sourceProvider: report.sourceProvider,
+    countryCode: report.countryCode,
+    connectionSource,
+    queryParams: report.queryParams,
+    summary: {
+      recordsRead: report.summary.recordsRead,
+      normalizedCount: report.summary.normalizedCount,
+      acceptedDraftsCount: report.summary.acceptedDraftsCount,
+      filteredOutCount: report.summary.filteredOutCount,
+      lowPriorityCount: report.summary.lowPriorityCount,
+      noTaxIdCount: report.summary.noTaxIdCount,
+      errorsCount: report.summary.errorsCount,
+    },
+    warnings: report.warnings,
+    // Max 5 sample items, only safe fields
+    sampleItems: report.items.slice(0, 5).map((item) => ({
+      name: item.name,
+      city: item.city,
+      department: item.department,
+      activity: item.activity,
+      qualityDecision: item.qualityDecision,
+      qualityReason: item.qualityReason,
+    })),
+    filteredSamples: report.filteredSamples.slice(0, 5).map((s) => ({
+      name: s.name,
+      city: s.city,
+      filterReason: s.filterReason,
+    })),
+  };
+}
+
+// ─── runSourceDryRunAction ─────────────────────────────────────────────────────
+//
+// Executes a controlled dry-run for a source using the credential stored in Vault.
+// Currently only supports denue_mexico. No writes to Supabase. No token in output.
+
+export async function runSourceDryRunAction(
+  sourceKey: string,
+): Promise<RunSourceDryRunResult> {
+  // Accept both catalog key (mx_denue) and DB source_key (denue_mexico)
+  const DENUE_KEYS = new Set(['denue_mexico', 'mx_denue']);
+  if (!DENUE_KEYS.has(sourceKey)) {
+    return {
+      ok: false,
+      sourceKey,
+      error: `Dry-run no soportado para fuente '${sourceKey}'. Solo denue_mexico está disponible.`,
+    };
+  }
+  // Normalize to DB key for resolver
+  const dbSourceKey = 'denue_mexico';
+
+  // 1. Validate admin
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) {
+    return { ok: false, sourceKey, error: authError ?? 'No autorizado' };
+  }
+
+  // 2. Rate limit (use dbSourceKey for consistent key)
+  if (!checkDryRunRateLimit(actorId, dbSourceKey)) {
+    return {
+      ok: false,
+      sourceKey,
+      error: 'Demasiadas ejecuciones de dry-run. Espera 5 minutos antes de volver a intentar.',
+    };
+  }
+
+  // 3. Resolve credential from Vault (always uses DB key)
+  let resolvedToken: string;
+  let connectionSource: 'vault/resolver' | 'env_fallback';
+
+  try {
+    const resolved = await resolveSourceCredential(dbSourceKey);
+    if (!resolved) {
+      return {
+        ok: false,
+        sourceKey,
+        error: 'La fuente no requiere credencial — configuración inesperada.',
+      };
+    }
+    resolvedToken = resolved.token;
+    connectionSource = resolved.vaultSecretName ? 'vault/resolver' : 'env_fallback';
+  } catch (resolverErr: unknown) {
+    return {
+      ok: false,
+      sourceKey,
+      error: `No se pudo resolver la credencial: ${sanitizeConnectionError(resolverErr)}`,
+    };
+  }
+
+  // 4. Execute dry-run — no writes, no HubSpot, no Supabase writes
+  try {
+    const report = await runDenueCandidateDryRun({ resolvedToken });
+    const safeReport = buildSafeReport(report, connectionSource);
+
+    await logSourceAuditEvent(dbSourceKey, 'connection_tested', actorId, {
+      dry_run: true,
+      records_read: report.summary.recordsRead,
+      accepted: report.summary.acceptedDraftsCount,
+    });
+
+    return { ok: true, sourceKey, report: safeReport };
+  } catch (dryRunErr: unknown) {
+    return {
+      ok: false,
+      sourceKey,
+      error: `Error ejecutando dry-run: ${sanitizeConnectionError(dryRunErr)}`,
+    };
+  }
+}

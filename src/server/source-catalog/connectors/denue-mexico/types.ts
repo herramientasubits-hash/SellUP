@@ -83,4 +83,10 @@ export type DenueCandidateDryRunInput = {
   /** Términos de búsqueda para el parámetro condicion de BuscarEntidad.
    *  Cada término genera una consulta separada. Por defecto: ['tecnologia','consultoria','software'] */
   condiciones?: string[];
+  /**
+   * Token explícito resuelto desde Vault por SourceConnectionResolver.
+   * Si se omite, fetchDenueDatasetSample intenta process.env.INEGI_DENUE_TOKEN (solo dev).
+   * En producción, siempre debe pasarse desde el resolver — nunca hardcoded.
+   */
+  resolvedToken?: string;
 };

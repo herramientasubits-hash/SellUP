@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ExternalLink, Info } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import {
@@ -22,6 +22,7 @@ import { CopyKeyButton } from './copy-key-button';
 import { TestConnectionPanel } from './test-connection-panel';
 import { ConnectionTestHistory } from './connection-test-history';
 import { SourceCredentialPanel } from './source-credential-panel';
+import { SourceDryRunPanel } from './source-dry-run-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -197,6 +198,24 @@ export default async function SourceDetailPage({ params }: Props) {
           record={connectionRecord}
           isAdmin={isAdmin}
         />
+      ) : source.type === 'public_dataset' || source.operationalStatus === 'operational_verified' && !source.url?.includes('api') ? (
+        <SurfaceCard>
+          <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-2">
+            Credencial de API
+          </h2>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Requiere credencial:</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                No requiere credencial
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Esta fuente es de acceso público. La prueba de conexión valida que la API responde correctamente.
+              No crea candidatos ni sincroniza datos.
+            </p>
+          </div>
+        </SurfaceCard>
       ) : (
         <SurfaceCard>
           <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-2">
@@ -208,6 +227,15 @@ export default async function SourceDetailPage({ params }: Props) {
         </SurfaceCard>
       )}
 
+      {/* Dry-run de fuente (solo mx_denue) */}
+      {source.key === 'mx_denue' && (
+        <SourceDryRunPanel
+          sourceKey={connectionRecord?.source_key ?? 'denue_mexico'}
+          hasStoredCredential={connectionRecord?.credentials_status === 'stored'}
+          isAdmin={isAdmin}
+        />
+      )}
+
       {/* Prueba de conexión */}
       <TestConnectionPanel
         sourceKey={source.key}
@@ -216,17 +244,6 @@ export default async function SourceDetailPage({ params }: Props) {
 
       {/* Historial de pruebas */}
       <ConnectionTestHistory history={history} />
-
-      {/* Bloque próximamente */}
-      <SurfaceCard className="flex items-start gap-3 border-su-brand/20 bg-su-brand-soft/40">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-foreground">Próximamente</p>
-          <p className="text-sm text-muted-foreground">
-            Las pruebas de extracción mínima estarán disponibles en una fase posterior.
-          </p>
-        </div>
-      </SurfaceCard>
     </div>
   );
 }

@@ -238,8 +238,9 @@ export async function runDenueCandidateDryRun(
   // Unificar la entidad primaria con el array entidades (sin duplicar)
   const allEntidades = Array.from(new Set([entidadPrimaria, ...entidades]));
 
+  const resolvedToken = input?.resolvedToken?.trim();
   const hasToken = Boolean(
-    process.env.INEGI_DENUE_TOKEN && process.env.INEGI_DENUE_TOKEN.trim() !== '',
+    resolvedToken || (process.env.INEGI_DENUE_TOKEN && process.env.INEGI_DENUE_TOKEN.trim() !== ''),
   );
 
   const allRawRecords: Array<{ raw: Record<string, unknown>; condicion: string; entidad: string }> = [];
@@ -253,6 +254,7 @@ export async function runDenueCandidateDryRun(
         entidad,
         condicion,
         limit: PER_QUERY_LIMIT,
+        ...(resolvedToken ? { token: resolvedToken } : {}),
       });
       if (!fetchResult.ok) {
         errors.push({ source: 'denue', message: fetchResult.error, queryCondicion: condicion, queryEntidad: entidad });
