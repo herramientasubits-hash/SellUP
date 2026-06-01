@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
+import { type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -714,12 +715,18 @@ export interface GenerateAIBatchInput {
   industry: string;
   targetCount: number;
   searchDepth: 'basic' | 'standard';
+  /** Hito 16AJ.6 — apagado por defecto. Si true, ejecuta preflight read-only de fuentes estructuradas. */
+  structuredSourcePreflight?: boolean;
+  /** Hito 16AJ.6 — fuente explícita. Si omitido, se resuelve por countryCode. */
+  structuredSourceKey?: string | null;
 }
 
 export interface GenerateAIBatchResult {
   batchId: string;
   candidatesCreated: number;
   estimatedCostUsd: number;
+  /** Hito 16AJ.6 — presente solo si structuredSourcePreflight=true. Read-only, no escribe candidatos. */
+  structuredSourcePreflight?: SourceDiscoveryPreflightResult;
 }
 
 export async function generateAIProspectBatch(
@@ -744,6 +751,8 @@ export async function generateAIProspectBatch(
     targetCount: input.targetCount,
     searchDepth: input.searchDepth,
     internalUserId,
+    structuredSourcePreflight: input.structuredSourcePreflight ?? false,
+    structuredSourceKey: input.structuredSourceKey ?? null,
   });
 
   if (!result.success || !result.batchId) {
@@ -757,6 +766,7 @@ export async function generateAIProspectBatch(
     batchId: result.batchId,
     candidatesCreated: result.candidatesCreated,
     estimatedCostUsd: result.estimatedCostUsd,
+    structuredSourcePreflight: result.structuredSourcePreflight,
   };
 }
 
