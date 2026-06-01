@@ -386,6 +386,83 @@ export async function fetchChileCompraProviders(
   };
 }
 
+// ── Connection test ───────────────────────────────────────────
+
+export type ChileCompraConnectionTestResult = {
+  ok: boolean;
+  httpStatus?: number;
+  responseTimeMs?: number;
+  error?: string;
+};
+
+/**
+ * Prueba mínima de conexión usando ticket.
+ * Llamada read-only de 1 resultado — sin writes, sin loguear el ticket.
+ */
+export async function testChileCompraConnection(
+  ticket: string,
+): Promise<ChileCompraConnectionTestResult> {
+  if (!ticket || ticket.trim() === '') {
+    return { ok: false, error: 'Ticket vacío — no se puede probar conexión ChileCompra' };
+  }
+
+  const url = `${API_PROVEEDOR_BASE}?nombre=a&ticket=${encodeURIComponent(ticket.trim())}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const startMs = Date.now();
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: HEADERS,
+    });
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const responseTimeMs = Date.now() - startMs;
+    return {
+      ok: false,
+      responseTimeMs,
+      error: sanitizeError(err),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const responseTimeMs = Date.now() - startMs;
+  const text = await response.text();
+
+  if (text.trim().startsWith('<')) {
+    return {
+      ok: false,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: `HTTP ${response.status} — respuesta HTML (ticket inválido o expirado)`,
+    };
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return {
+      ok: false,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: 'Ticket ChileCompra inválido o expirado',
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: `HTTP ${response.status} desde API Mercado Público`,
+    };
+  }
+
+  return { ok: true, httpStatus: response.status, responseTimeMs };
+}
+
 export { buildTicketInstructions };
 export const CHILECOMPRA_OCDS_ENDPOINT = OCDS_BASE;
 export const CHILECOMPRA_API_ENDPOINT = API_PROVEEDOR_BASE;

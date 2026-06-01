@@ -131,7 +131,6 @@ function FilteredSamplesTable({
 function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport }) {
   const [showSamples, setShowSamples] = useState(false);
   const s = report.summary;
-  const ticketNeeded = report.credentialSource === 'ticket_needed';
 
   return (
     <div className="space-y-4">
@@ -149,9 +148,13 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
         <span>
-          Credencial:{' '}
+          Origen credencial:{' '}
           <strong className="text-foreground">
-            {ticketNeeded ? 'Ticket requerido (ver instrucciones)' : 'No requerida — OCDS público'}
+            {report.credentialSource === 'vault'
+              ? 'Vault (ticket configurado)'
+              : report.credentialSource === 'env_development'
+                ? 'Variable de entorno (desarrollo)'
+                : 'Sin ticket — OCDS público'}
           </strong>
         </span>
       </div>

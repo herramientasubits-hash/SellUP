@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { testDenueConnection } from '@/server/source-catalog/connectors/denue-mexico/denue-client';
+import { testChileCompraConnection } from '@/server/source-catalog/connectors/chilecompra-chile/chilecompra-client';
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import { runDenueCandidateDryRun } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
 import type { DenueCandidateDryRunReport } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
@@ -325,7 +326,8 @@ export async function testSourceCredentialConnectionAction(
   }
 
   // 7. Source-specific connection test
-  if (sourceKey !== 'denue_mexico') {
+  const SUPPORTED_TEST_SOURCES = new Set(['denue_mexico', 'chilecompra_chile']);
+  if (!SUPPORTED_TEST_SOURCES.has(sourceKey)) {
     return {
       ok: false,
       sourceKey,
@@ -335,25 +337,32 @@ export async function testSourceCredentialConnectionAction(
 
   await logSourceAuditEvent(sourceKey, 'connection_tested', actorId);
 
-  const testResult = await testDenueConnection(token);
+  let rawTestResult: { ok: boolean; httpStatus?: number | null; responseTimeMs?: number | null; error?: string };
 
-  const httpStatus = testResult.httpStatus ?? null;
-  const responseTimeMs = testResult.responseTimeMs ?? null;
+  if (sourceKey === 'chilecompra_chile') {
+    rawTestResult = await testChileCompraConnection(token);
+  } else {
+    rawTestResult = await testDenueConnection(token);
+  }
+
+  const httpStatus = rawTestResult.httpStatus ?? null;
+  const responseTimeMs = rawTestResult.responseTimeMs ?? null;
 
   let testStatus: 'success' | 'failed' | 'auth_error';
   let connectionStatus: string;
   let sanitizedError: string | null = null;
 
-  if (testResult.ok) {
+  if (rawTestResult.ok) {
     testStatus = 'success';
     connectionStatus = 'connected';
   } else {
-    const rawError = testResult.error ?? 'Error desconocido';
+    const rawError = rawTestResult.error ?? 'Error desconocido';
     const lowerErr = rawError.toLowerCase();
     testStatus =
       lowerErr.includes('token inválido') ||
       lowerErr.includes('html') ||
-      lowerErr.includes('expirado')
+      lowerErr.includes('expirado') ||
+      lowerErr.includes('ticket')
         ? 'auth_error'
         : 'failed';
     connectionStatus = 'error';
@@ -547,7 +556,7 @@ export type SafeChileCompraDryRunReport = {
   sourceKey: 'cl_chilecompra';
   sourceProvider: 'chilecompra_chile';
   countryCode: 'CL';
-  credentialSource: 'not_required' | 'ticket_needed';
+  credentialSource: 'vault' | 'env_development' | 'ticket_needed';
   endpointStatus: string;
   endpointUsed: string;
   summary: {
@@ -633,9 +642,9 @@ function mapSupplierToSafeSample(
 
 // ─── runChileCompraDryRunAction ────────────────────────────────────────────────
 //
-// Ejecuta un dry-run controlado del conector ChileCompra. Sin credencial en pilot.
-// Sin writes a Supabase. Sin prospect_batches. Sin prospect_candidates.
-// Sin HubSpot.
+// Ejecuta un dry-run controlado del conector ChileCompra.
+// Intenta resolver ticket desde Vault; si no hay, ejecuta sin ticket (OCDS público).
+// Sin writes a Supabase. Sin prospect_batches. Sin prospect_candidates. Sin HubSpot.
 
 export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRunResult> {
   // 1. Validate admin
@@ -654,12 +663,26 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
     };
   }
 
-  // 3. Execute dry-run — no writes, no credential needed for OCDS pilot
-  try {
-    const report = await runChileCompraDryRun();
+  // 3. Resolve ticket from Vault (optional — falls back to open OCDS if missing)
+  let resolvedTicket: string | undefined;
+  let credentialSource: SafeChileCompraDryRunReport['credentialSource'] = 'ticket_needed';
 
-    const credentialSource: 'not_required' | 'ticket_needed' =
-      report.qualitySummary.credentialRequired ? 'ticket_needed' : 'not_required';
+  try {
+    const resolved = await resolveSourceCredential('chilecompra_chile');
+    if (resolved) {
+      resolvedTicket = resolved.token;
+      // Distinguish Vault vs env fallback by checking if vaultSecretName matches the known Vault name
+      const isVault = resolved.vaultSecretName === 'sellup_source_chilecompra_ticket';
+      credentialSource = isVault ? 'vault' : 'env_development';
+    }
+  } catch {
+    // Credential not configured — proceed without ticket (OCDS public endpoint)
+    credentialSource = 'ticket_needed';
+  }
+
+  // 4. Execute dry-run — no writes
+  try {
+    const report = await runChileCompraDryRun({ ticket: resolvedTicket });
 
     const safeReport: SafeChileCompraDryRunReport = {
       executedAt: report.executedAt,
@@ -697,6 +720,7 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
 
     await logSourceAuditEvent('chilecompra_chile', 'connection_tested', actorId, {
       dry_run: true,
+      credential_source: credentialSource,
       records_read: report.summary.recordsRead,
       accepted: report.summary.acceptedDraftsCount,
       icp_match: report.summary.icpMatchCount,

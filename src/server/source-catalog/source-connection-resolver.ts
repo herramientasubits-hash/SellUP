@@ -23,11 +23,13 @@ const supabaseServiceKey =
 // Nombres de secretos en Vault por source_key
 export const VAULT_SOURCE_SECRET_NAMES: Record<string, string> = {
   denue_mexico: 'sellup_source_denue_mexico_token',
+  chilecompra_chile: 'sellup_source_chilecompra_ticket',
 } as const;
 
 // Fallback env solo en desarrollo — NUNCA en producción
 const DEV_ENV_FALLBACK: Record<string, string> = {
   denue_mexico: 'INEGI_DENUE_TOKEN',
+  chilecompra_chile: 'CHILECOMPRA_API_TICKET',
 };
 
 export type AuthType = 'api_key' | 'bearer_token' | 'oauth2';
