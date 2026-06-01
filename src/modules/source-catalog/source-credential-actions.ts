@@ -557,8 +557,24 @@ export type SafeChileCompraDryRunReport = {
   sourceProvider: 'chilecompra_chile';
   countryCode: 'CL';
   credentialSource: 'vault' | 'env_development' | 'ticket_needed';
+  dryRunMode: 'health_check' | 'supplier_signal';
   endpointStatus: string;
   endpointUsed: string;
+  /** Health check: número de organismos compradores encontrados. */
+  healthCheck?: {
+    buyersFound: number;
+    apiAlive: boolean;
+  };
+  /** Supplier signal: resultados de lookup por RUT. */
+  supplierLookups?: Array<{
+    rut: string;
+    rutFormatted: string;
+    found: boolean;
+    supplierCode?: string;
+    supplierName?: string;
+    ordersCount?: number;
+    error?: string;
+  }>;
   summary: {
     recordsRead: number;
     normalizedCount: number;
@@ -643,8 +659,8 @@ function mapSupplierToSafeSample(
 // ─── runChileCompraDryRunAction ────────────────────────────────────────────────
 //
 // Ejecuta un dry-run controlado del conector ChileCompra.
-// Intenta resolver ticket desde Vault; si no hay, ejecuta sin ticket (OCDS público).
-// Sin writes a Supabase. Sin prospect_batches. Sin prospect_candidates. Sin HubSpot.
+// Modo health_check: usa BuscarComprador para confirmar API viva.
+// Sin writes. Sin prospect_batches. Sin prospect_candidates. Sin HubSpot.
 
 export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRunResult> {
   // 1. Validate admin
@@ -663,7 +679,7 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
     };
   }
 
-  // 3. Resolve ticket from Vault (optional — falls back to open OCDS if missing)
+  // 3. Resolve ticket from Vault — requerido para endpoints oficiales
   let resolvedTicket: string | undefined;
   let credentialSource: SafeChileCompraDryRunReport['credentialSource'] = 'ticket_needed';
 
@@ -671,12 +687,10 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
     const resolved = await resolveSourceCredential('chilecompra_chile');
     if (resolved) {
       resolvedTicket = resolved.token;
-      // Distinguish Vault vs env fallback by checking if vaultSecretName matches the known Vault name
       const isVault = resolved.vaultSecretName === 'sellup_source_chilecompra_ticket';
       credentialSource = isVault ? 'vault' : 'env_development';
     }
   } catch {
-    // Credential not configured — proceed without ticket (OCDS public endpoint)
     credentialSource = 'ticket_needed';
   }
 
@@ -690,8 +704,19 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
       sourceProvider: 'chilecompra_chile',
       countryCode: 'CL',
       credentialSource,
+      dryRunMode: report.dryRunMode,
       endpointStatus: report.endpointStatus,
       endpointUsed: report.queryParams.endpointUsed,
+      healthCheck: report.healthCheck,
+      supplierLookups: report.supplierLookups?.map((l) => ({
+        rut: l.rut,
+        rutFormatted: l.rutFormatted,
+        found: l.found,
+        supplierCode: l.supplierCode,
+        supplierName: l.supplierName,
+        ordersCount: l.ordersCount,
+        error: l.error,
+      })),
       summary: {
         recordsRead: report.summary.recordsRead,
         normalizedCount: report.summary.normalizedCount,
@@ -720,11 +745,11 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
 
     await logSourceAuditEvent('chilecompra_chile', 'connection_tested', actorId, {
       dry_run: true,
+      dry_run_mode: report.dryRunMode,
       credential_source: credentialSource,
-      records_read: report.summary.recordsRead,
-      accepted: report.summary.acceptedDraftsCount,
-      icp_match: report.summary.icpMatchCount,
       endpoint_status: report.endpointStatus,
+      buyers_found: report.healthCheck?.buyersFound,
+      supplier_lookups: report.supplierLookups?.length,
     });
 
     return { ok: true, sourceKey: 'cl_chilecompra', report: safeReport };

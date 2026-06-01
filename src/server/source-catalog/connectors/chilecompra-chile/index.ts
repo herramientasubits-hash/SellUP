@@ -6,12 +6,26 @@
  */
 
 export {
-  fetchChileCompraProviders,
+  testChileCompraConnection,
+  listChileCompraBuyers,
+  searchChileCompraSupplierByRut,
+  fetchChileCompraPurchaseOrdersBySupplier,
+  fetchChileCompraTendersBySupplier,
   buildTicketInstructions,
-  CHILECOMPRA_OCDS_ENDPOINT,
-  CHILECOMPRA_API_ENDPOINT,
+  formatChileRut,
+  CHILECOMPRA_BUSCAR_COMPRADOR,
+  CHILECOMPRA_BUSCAR_PROVEEDOR,
+  CHILECOMPRA_LICITACIONES,
+  CHILECOMPRA_ORDENES,
 } from './chilecompra-client';
-export type { FetchChileCompraParams, FetchChileCompraResult } from './chilecompra-client';
+
+export type {
+  ChileCompraConnectionTestResult,
+  ListChileCompraBuyersResult,
+  SearchChileCompraSupplierResult,
+  FetchChileCompraPurchaseOrdersResult,
+  FetchChileCompraTendersResult,
+} from './chilecompra-client';
 
 export { normalizeChileCompraRecord, ICP_KEYWORDS } from './normalizers';
 
@@ -24,7 +38,9 @@ export type {
   NormalizedChileCompraSupplier,
   ChileCompraReviewFlag,
   ChileCompraQualityDecision,
+  ChileCompraDryRunMode,
   RunChileCompraDryRunInput,
   RunChileCompraDryRunReport,
   ChileCompraEndpointStatus,
+  SupplierLookupResult,
 } from './types';

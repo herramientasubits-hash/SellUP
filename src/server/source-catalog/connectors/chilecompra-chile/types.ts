@@ -96,16 +96,42 @@ export type ChileCompraReviewFlag =
 /** Decisión de calidad para registros ChileCompra. */
 export type ChileCompraQualityDecision = 'accepted' | 'low_priority' | 'filtered';
 
+/** Modo de ejecución del dry-run. */
+export type ChileCompraDryRunMode = 'health_check' | 'supplier_signal';
+
 /** Parámetros de input para el dry-run. */
 export type RunChileCompraDryRunInput = {
   limit?: number;
-  /** Ticket API Mercado Público si está disponible (opcional en pilot). */
+  /** Ticket API Mercado Público si está disponible. */
   ticket?: string;
+  /**
+   * Modo de ejecución:
+   *   - health_check (default): lista compradores para confirmar que la API está viva.
+   *   - supplier_signal: busca RUTs específicos y obtiene señal B2G.
+   */
+  mode?: ChileCompraDryRunMode;
+  /**
+   * RUTs de prueba para modo supplier_signal.
+   * Si no se proveen, el modo health_check es el único disponible.
+   */
+  sampleRuts?: string[];
+};
+
+/** Resultado de búsqueda de un proveedor por RUT en el dry-run. */
+export type SupplierLookupResult = {
+  rut: string;
+  rutFormatted: string;
+  found: boolean;
+  supplierCode?: string;
+  supplierName?: string;
+  ordersCount?: number;
+  error?: string;
 };
 
 /** Estado del endpoint durante el dry-run. */
 export type ChileCompraEndpointStatus =
   | 'ok'
+  | 'connected'
   | 'requires_ticket'
   | 'unavailable'
   | 'error';
@@ -115,6 +141,7 @@ export type RunChileCompraDryRunReport = {
   sourceKey: 'cl_chilecompra';
   sourceProvider: 'chilecompra_chile';
   countryCode: 'CL';
+  dryRunMode: ChileCompraDryRunMode;
   queryParams: {
     limit: number;
     endpointUsed: string;
@@ -122,6 +149,13 @@ export type RunChileCompraDryRunReport = {
   };
   executedAt: string;
   endpointStatus: ChileCompraEndpointStatus;
+  /** Resultado del health check (modo health_check). */
+  healthCheck?: {
+    buyersFound: number;
+    apiAlive: boolean;
+  };
+  /** Resultados de búsqueda por RUT (modo supplier_signal). */
+  supplierLookups?: SupplierLookupResult[];
   summary: {
     recordsRead: number;
     normalizedCount: number;

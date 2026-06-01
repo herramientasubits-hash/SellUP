@@ -1,162 +1,55 @@
 /**
  * ChileCompra Connector — Client
  *
- * Consulta la API pública de Mercado Público Chile (ChileCompra).
- * Solo lectura. Sin writes. Timeout 15s. Hard limit 100 registros.
+ * Consulta la API oficial de Mercado Público Chile.
+ * Solo lectura. Sin writes. Timeout 15s.
  *
- * Estrategia de acceso:
- *   Opción A (preferida): OCDS endpoint abierto — sin ticket.
- *   Opción B: API Mercado Público estándar — requiere ticket gratuito.
+ * Estrategia: BuscarComprador para health check (no requiere RUT).
+ * BuscarProveedor + órdenes/licitaciones para señal B2G por RUT.
  *
- * El ticket se obtiene en: https://www.mercadopublico.cl/Portal/Modules/Sites/InfoTicketPublico/
- * Si no hay ticket disponible el dry-run reporta el estado y las instrucciones.
- *
- * No se hardcodea ningún ticket ni credencial.
+ * Nunca se loguea el ticket. Nunca se retorna el ticket. Errores sanitizados.
  */
 
-import type { ChileCompraRawRecord } from './types';
+// ── Endpoints oficiales ───────────────────────────────────────────────────────
 
-// ── Endpoints ─────────────────────────────────────────────────
+export const CHILECOMPRA_BUSCAR_COMPRADOR =
+  'https://api.mercadopublico.cl/servicios/v1/Publico/Empresas/BuscarComprador';
 
-/**
- * OCDS endpoint abierto de ChileCompra.
- * Devuelve paquetes de contratos/licitaciones con datos de proveedores.
- * Documentado en https://desarrolladores.mercadopublico.cl
- */
-const OCDS_BASE = 'https://apis.mercadopublico.cl/OCDS/data/listaorigenes/';
+export const CHILECOMPRA_BUSCAR_PROVEEDOR =
+  'https://api.mercadopublico.cl/servicios/v1/Publico/Empresas/BuscarProveedor';
 
-/**
- * API estándar de proveedores — requiere ticket.
- * Endpoint de búsqueda de empresa/proveedor por nombre o RUT.
- */
-const API_PROVEEDOR_BASE =
-  'https://api.mercadopublico.cl/servicios/v1/publico/empresas/busquedaproveedor.json';
+export const CHILECOMPRA_LICITACIONES =
+  'https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json';
+
+export const CHILECOMPRA_ORDENES =
+  'https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json';
 
 const TIMEOUT_MS = 15_000;
-const HARD_MAX_LIMIT = 100;
-const DEFAULT_LIMIT = 50;
 
 const HEADERS = {
   'User-Agent': 'SellUp/0.1 data-source-audit',
   Accept: 'application/json',
 };
 
-// ── Result type ────────────────────────────────────────────────
+// ── RUT formatter ──────────────────────────────────────────────────────────────
 
-export type FetchChileCompraResult =
-  | { ok: true; records: ChileCompraRawRecord[]; total: number; endpointUsed: string; ticketRequired: false }
-  | { ok: false; error: string; ticketRequired: boolean; endpointUsed: string; instructions?: string };
-
-export type FetchChileCompraParams = {
-  limit?: number;
-  /** Ticket opcional — si se provee, se usa la API estándar de proveedores. */
-  ticket?: string;
-};
-
-// ── OCDS parser ───────────────────────────────────────────────
-
-type OcdsResponse = {
-  releases?: Array<{
-    parties?: Array<{
-      identifier?: { id?: unknown; legalName?: unknown };
-      name?: unknown;
-      roles?: string[];
-      address?: { locality?: unknown; region?: unknown; countryName?: unknown };
-    }>;
-    tender?: {
-      items?: Array<{
-        classification?: { id?: unknown; description?: unknown; scheme?: unknown };
-      }>;
-    };
-    awards?: Array<{
-      suppliers?: Array<{ identifier?: { id?: unknown; legalName?: unknown }; name?: unknown }>;
-    }>;
-    buyer?: { name?: unknown };
-  }>;
-  // paginado
-  uri?: string;
-  publishedDate?: string;
-};
-
-function extractSuppliersFromOcds(data: OcdsResponse): ChileCompraRawRecord[] {
-  const records: ChileCompraRawRecord[] = [];
-  const seen = new Set<string>();
-
-  for (const release of data.releases ?? []) {
-    const buyerName =
-      typeof release.buyer?.name === 'string' ? release.buyer.name : null;
-
-    // Obtener categoría desde tender.items
-    const firstItem = release.tender?.items?.[0];
-    const classifId =
-      firstItem?.classification?.id != null
-        ? String(firstItem.classification.id)
-        : null;
-    const classifDesc =
-      typeof firstItem?.classification?.description === 'string'
-        ? firstItem.classification.description
-        : null;
-
-    // Awards: proveedores ganadores
-    for (const award of release.awards ?? []) {
-      for (const supplier of award.suppliers ?? []) {
-        const rut =
-          supplier.identifier?.id != null ? String(supplier.identifier.id) : null;
-        const nombre =
-          typeof supplier.identifier?.legalName === 'string'
-            ? supplier.identifier.legalName
-            : typeof supplier.name === 'string'
-              ? supplier.name
-              : null;
-
-        if (!rut || seen.has(rut)) continue;
-        seen.add(rut);
-
-        records.push({
-          RutProveedor: rut,
-          NombreProveedor: nombre,
-          RazonSocial: nombre,
-          CodigoUnspsc: classifId,
-          NombreUnspsc: classifDesc,
-          OrganismoComprador: buyerName,
-        });
-      }
-    }
-
-    // Parties con rol 'supplier'
-    for (const party of release.parties ?? []) {
-      if (!Array.isArray(party.roles) || !party.roles.includes('supplier')) continue;
-      const rut =
-        party.identifier?.id != null ? String(party.identifier.id) : null;
-      const nombre =
-        typeof party.identifier?.legalName === 'string'
-          ? party.identifier.legalName
-          : typeof party.name === 'string'
-            ? party.name
-            : null;
-
-      if (!rut || seen.has(rut)) continue;
-      seen.add(rut);
-
-      records.push({
-        RutProveedor: rut,
-        NombreProveedor: nombre,
-        RazonSocial: nombre,
-        CodigoUnspsc: classifId,
-        NombreUnspsc: classifDesc,
-        Region:
-          party.address?.region != null ? String(party.address.region) : null,
-        Ciudad:
-          party.address?.locality != null ? String(party.address.locality) : null,
-        OrganismoComprador: buyerName,
-      });
-    }
+/**
+ * Formatea un RUT chileno al formato requerido por la API: XX.XXX.XXX-Y.
+ * Acepta: 76345678, 76345678-9, 76.345.678-9.
+ */
+export function formatChileRut(rut: string): string {
+  const clean = rut.trim().toUpperCase().replace(/\./g, '').replace(/\s/g, '');
+  const dashIdx = clean.lastIndexOf('-');
+  if (dashIdx !== -1) {
+    const body = clean.slice(0, dashIdx);
+    const dv = clean.slice(dashIdx + 1);
+    const formatted = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return `${formatted}-${dv}`;
   }
-
-  return records;
+  return clean.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-// ── Fetch helpers ─────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController();
@@ -182,222 +75,42 @@ function sanitizeError(error: unknown): string {
   return 'Error desconocido al consultar ChileCompra';
 }
 
-// ── Opción A — OCDS sin ticket ─────────────────────────────────
-
-async function fetchOcdsProviders(limit: number): Promise<FetchChileCompraResult> {
-  const url = OCDS_BASE;
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(url);
-  } catch (err: unknown) {
-    return {
-      ok: false,
-      error: sanitizeError(err),
-      ticketRequired: false,
-      endpointUsed: url,
-    };
-  }
-
-  const text = await response.text();
-
-  if (text.trim().startsWith('<')) {
-    return {
-      ok: false,
-      error: 'OCDS ChileCompra retornó HTML — endpoint no disponible o cambiado',
-      ticketRequired: false,
-      endpointUsed: url,
-    };
-  }
-
-  if (response.status === 401 || response.status === 403) {
-    return {
-      ok: false,
-      error: `OCDS ChileCompra requiere autenticación (HTTP ${response.status})`,
-      ticketRequired: true,
-      endpointUsed: url,
-      instructions: buildTicketInstructions(),
-    };
-  }
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      error: `HTTP ${response.status} desde OCDS ChileCompra`,
-      ticketRequired: false,
-      endpointUsed: url,
-    };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return { ok: false, error: 'Respuesta OCDS no es JSON válido', ticketRequired: false, endpointUsed: url };
-  }
-
-  const data = parsed as OcdsResponse;
-  const records = extractSuppliersFromOcds(data).slice(0, limit);
-
-  return {
-    ok: true,
-    records,
-    total: records.length,
-    endpointUsed: url,
-    ticketRequired: false,
-  };
+function isHtmlResponse(text: string): boolean {
+  return text.trim().startsWith('<');
 }
 
-// ── Opción B — API estándar con ticket ─────────────────────────
-
-async function fetchApiConTicket(
-  ticket: string,
-  limit: number,
-): Promise<FetchChileCompraResult> {
-  const url = `${API_PROVEEDOR_BASE}?nombre=capacitacion&ticket=${ticket}`;
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(url);
-  } catch (err: unknown) {
-    return {
-      ok: false,
-      error: sanitizeError(err),
-      ticketRequired: true,
-      endpointUsed: API_PROVEEDOR_BASE,
-    };
-  }
-
-  const text = await response.text();
-
-  if (text.trim().startsWith('<')) {
-    return {
-      ok: false,
-      error: 'API ChileCompra retornó HTML — ticket inválido o endpoint cambiado',
-      ticketRequired: true,
-      endpointUsed: API_PROVEEDOR_BASE,
-      instructions: buildTicketInstructions(),
-    };
-  }
-
-  if (response.status === 401 || response.status === 403) {
-    return {
-      ok: false,
-      error: 'Ticket ChileCompra inválido o expirado',
-      ticketRequired: true,
-      endpointUsed: API_PROVEEDOR_BASE,
-      instructions: buildTicketInstructions(),
-    };
-  }
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      error: `HTTP ${response.status} desde API Mercado Público`,
-      ticketRequired: true,
-      endpointUsed: API_PROVEEDOR_BASE,
-    };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return { ok: false, error: 'Respuesta API no es JSON válido', ticketRequired: true, endpointUsed: API_PROVEEDOR_BASE };
-  }
-
-  const records = extractProveedoresFromApiResponse(parsed, limit);
-
-  return {
-    ok: true,
-    records,
-    total: records.length,
-    endpointUsed: API_PROVEEDOR_BASE,
-    ticketRequired: false,
-  };
+function buildTicketError(httpStatus: number): string {
+  if (httpStatus === 401 || httpStatus === 403)
+    return 'Ticket ChileCompra inválido o expirado';
+  return `HTTP ${httpStatus} desde API Mercado Público`;
 }
 
-function extractProveedoresFromApiResponse(
-  data: unknown,
-  limit: number,
-): ChileCompraRawRecord[] {
-  if (!data || typeof data !== 'object') return [];
-  const obj = data as Record<string, unknown>;
+// ── Instrucciones de ticket ────────────────────────────────────────────────────
 
-  // Estructura: { Cantidad, Empresas: [...] }
-  const empresas =
-    Array.isArray(obj['Empresas']) ? (obj['Empresas'] as unknown[]) :
-    Array.isArray(obj['empresas']) ? (obj['empresas'] as unknown[]) :
-    Array.isArray(obj['items']) ? (obj['items'] as unknown[]) :
-    [];
-
-  return empresas.slice(0, limit).map((e) => {
-    const item = e as Record<string, unknown>;
-    return {
-      RutProveedor: item['Rut'] ?? item['rut'] ?? item['RutProveedor'],
-      NombreProveedor: item['Nombre'] ?? item['nombre'] ?? item['RazonSocial'],
-      RazonSocial: item['RazonSocial'] ?? item['razonSocial'] ?? item['Nombre'],
-      CodigoUnspsc: item['CodigoRubro'] ?? item['codigoRubro'],
-      NombreUnspsc: item['NombreRubro'] ?? item['nombreRubro'],
-      Region: item['Region'] ?? item['region'],
-      Ciudad: item['Ciudad'] ?? item['ciudad'],
-    };
-  });
-}
-
-// ── Instrucciones de ticket ────────────────────────────────────
-
-function buildTicketInstructions(): string {
+export function buildTicketInstructions(): string {
   return (
     'Para activar la API de ChileCompra: ' +
     '(1) Visitar https://www.mercadopublico.cl/Portal/Modules/Sites/InfoTicketPublico/ ' +
     '(2) Solicitar ticket gratuito por email. ' +
-    '(3) Configurar CHILECOMPRA_API_TICKET en Vault/env del proyecto. ' +
+    '(3) Configurar el secreto en Vault del proyecto bajo sellup_source_chilecompra_ticket. ' +
     '(4) El conector lo usará automáticamente en la próxima ejecución.'
   );
 }
 
-// ── Punto de entrada público ───────────────────────────────────
-
-/**
- * Consulta ChileCompra para obtener proveedores.
- * Intenta OCDS sin ticket primero; si falla y hay ticket disponible, usa API estándar.
- * Sin ingesta masiva — límite hard de 100 registros.
- */
-export async function fetchChileCompraProviders(
-  params: FetchChileCompraParams = {},
-): Promise<FetchChileCompraResult> {
-  const limit = Math.min(params.limit ?? DEFAULT_LIMIT, HARD_MAX_LIMIT);
-
-  // Opción B si hay ticket explícito
-  if (params.ticket) {
-    return fetchApiConTicket(params.ticket, limit);
-  }
-
-  // Opción A — OCDS sin ticket
-  const ocdsResult = await fetchOcdsProviders(limit);
-  if (ocdsResult.ok) return ocdsResult;
-
-  // OCDS falló — reportar con instrucciones de ticket
-  return {
-    ok: false,
-    error: `Endpoint OCDS no disponible: ${ocdsResult.error}. ${buildTicketInstructions()}`,
-    ticketRequired: true,
-    endpointUsed: ocdsResult.endpointUsed,
-    instructions: buildTicketInstructions(),
-  };
-}
-
-// ── Connection test ───────────────────────────────────────────
+// ── Connection test ─────────────────────────────────────────────────────────────
 
 export type ChileCompraConnectionTestResult = {
   ok: boolean;
   httpStatus?: number;
   responseTimeMs?: number;
+  buyersFound?: number;
   error?: string;
 };
 
 /**
- * Prueba mínima de conexión usando ticket.
- * Llamada read-only de 1 resultado — sin writes, sin loguear el ticket.
+ * Prueba la conexión usando BuscarComprador (no requiere RUT).
+ * Si devuelve JSON 200 con organismos, la conexión está OK.
+ * No loguea el ticket. No retorna el ticket.
  */
 export async function testChileCompraConnection(
   ticket: string,
@@ -406,34 +119,24 @@ export async function testChileCompraConnection(
     return { ok: false, error: 'Ticket vacío — no se puede probar conexión ChileCompra' };
   }
 
-  const url = `${API_PROVEEDOR_BASE}?nombre=a&ticket=${encodeURIComponent(ticket.trim())}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const url = `${CHILECOMPRA_BUSCAR_COMPRADOR}?ticket=${encodeURIComponent(ticket.trim())}`;
   const startMs = Date.now();
-
   let response: Response;
+
   try {
-    response = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      headers: HEADERS,
-    });
+    response = await fetchWithTimeout(url);
   } catch (err: unknown) {
-    clearTimeout(timer);
-    const responseTimeMs = Date.now() - startMs;
     return {
       ok: false,
-      responseTimeMs,
+      responseTimeMs: Date.now() - startMs,
       error: sanitizeError(err),
     };
-  } finally {
-    clearTimeout(timer);
   }
 
   const responseTimeMs = Date.now() - startMs;
   const text = await response.text();
 
-  if (text.trim().startsWith('<')) {
+  if (isHtmlResponse(text)) {
     return {
       ok: false,
       httpStatus: response.status,
@@ -442,12 +145,74 @@ export async function testChileCompraConnection(
     };
   }
 
-  if (response.status === 401 || response.status === 403) {
+  if (!response.ok) {
     return {
       ok: false,
       httpStatus: response.status,
       responseTimeMs,
-      error: 'Ticket ChileCompra inválido o expirado',
+      error: buildTicketError(response.status),
+    };
+  }
+
+  let buyersFound: number | undefined;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const qty = parsed['Cantidad'];
+    if (typeof qty === 'number') buyersFound = qty;
+    else if (typeof qty === 'string') buyersFound = parseInt(qty, 10) || undefined;
+  } catch {
+    // JSON parse failed — still report OK if HTTP 200
+  }
+
+  return { ok: true, httpStatus: response.status, responseTimeMs, buyersFound };
+}
+
+// ── listChileCompraBuyers ──────────────────────────────────────────────────────
+
+export type ListChileCompraBuyersResult = {
+  ok: boolean;
+  buyersCount?: number;
+  buyersSample?: string[];
+  httpStatus?: number;
+  responseTimeMs?: number;
+  error?: string;
+};
+
+/**
+ * Lista organismos compradores del Estado chileno.
+ * Endpoint: BuscarComprador — no requiere RUT.
+ * Usado como health-check primario del conector.
+ */
+export async function listChileCompraBuyers(params: {
+  ticket: string;
+}): Promise<ListChileCompraBuyersResult> {
+  if (!params.ticket?.trim()) {
+    return { ok: false, error: 'Ticket requerido para BuscarComprador' };
+  }
+
+  const url = `${CHILECOMPRA_BUSCAR_COMPRADOR}?ticket=${encodeURIComponent(params.ticket.trim())}`;
+  const startMs = Date.now();
+  let response: Response;
+
+  try {
+    response = await fetchWithTimeout(url);
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      responseTimeMs: Date.now() - startMs,
+      error: sanitizeError(err),
+    };
+  }
+
+  const responseTimeMs = Date.now() - startMs;
+  const text = await response.text();
+
+  if (isHtmlResponse(text)) {
+    return {
+      ok: false,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: `HTTP ${response.status} — respuesta HTML (ticket inválido o expirado)`,
     };
   }
 
@@ -456,13 +221,319 @@ export async function testChileCompraConnection(
       ok: false,
       httpStatus: response.status,
       responseTimeMs,
-      error: `HTTP ${response.status} desde API Mercado Público`,
+      error: buildTicketError(response.status),
     };
   }
 
-  return { ok: true, httpStatus: response.status, responseTimeMs };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, httpStatus: response.status, responseTimeMs, error: 'Respuesta no es JSON válido' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const qty = obj['Cantidad'];
+  let buyersCount: number | undefined;
+  if (typeof qty === 'number') buyersCount = qty;
+  else if (typeof qty === 'string') buyersCount = parseInt(qty, 10) || undefined;
+
+  const lista = Array.isArray(obj['listadoOrganismos']) ? obj['listadoOrganismos'] as unknown[] : [];
+  const buyersSample = lista
+    .slice(0, 5)
+    .map((b) => {
+      const item = b as Record<string, unknown>;
+      return String(item['NombreOrganismo'] ?? item['Nombre'] ?? '—');
+    })
+    .filter((n) => n !== '—');
+
+  return { ok: true, httpStatus: response.status, responseTimeMs, buyersCount, buyersSample };
 }
 
-export { buildTicketInstructions };
-export const CHILECOMPRA_OCDS_ENDPOINT = OCDS_BASE;
-export const CHILECOMPRA_API_ENDPOINT = API_PROVEEDOR_BASE;
+// ── searchChileCompraSupplierByRut ─────────────────────────────────────────────
+
+export type SearchChileCompraSupplierResult = {
+  ok: boolean;
+  supplierCode?: string;
+  supplierName?: string;
+  rut: string;
+  rutFormatted: string;
+  httpStatus?: number;
+  responseTimeMs?: number;
+  found: boolean;
+  error?: string;
+};
+
+/**
+ * Busca un proveedor por RUT.
+ * Formatea el RUT al formato con puntos y guión si viene sin formato.
+ * Endpoint: BuscarProveedor?rutempresaproveedor=XX.XXX.XXX-Y&ticket=...
+ */
+export async function searchChileCompraSupplierByRut(params: {
+  rut: string;
+  ticket: string;
+}): Promise<SearchChileCompraSupplierResult> {
+  const { rut, ticket } = params;
+  const rutFormatted = formatChileRut(rut);
+
+  if (!ticket?.trim()) {
+    return { ok: false, rut, rutFormatted, found: false, error: 'Ticket requerido para BuscarProveedor' };
+  }
+
+  const url =
+    `${CHILECOMPRA_BUSCAR_PROVEEDOR}?rutempresaproveedor=${encodeURIComponent(rutFormatted)}` +
+    `&ticket=${encodeURIComponent(ticket.trim())}`;
+
+  const startMs = Date.now();
+  let response: Response;
+
+  try {
+    response = await fetchWithTimeout(url);
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      rut,
+      rutFormatted,
+      found: false,
+      responseTimeMs: Date.now() - startMs,
+      error: sanitizeError(err),
+    };
+  }
+
+  const responseTimeMs = Date.now() - startMs;
+  const text = await response.text();
+
+  if (isHtmlResponse(text)) {
+    return {
+      ok: false,
+      rut,
+      rutFormatted,
+      found: false,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: `HTTP ${response.status} — respuesta HTML (ticket inválido o expirado)`,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      rut,
+      rutFormatted,
+      found: false,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: buildTicketError(response.status),
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, rut, rutFormatted, found: false, httpStatus: response.status, responseTimeMs, error: 'Respuesta no es JSON válido' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const lista = Array.isArray(obj['listaEmpresas']) ? obj['listaEmpresas'] as unknown[] : [];
+  const first = lista[0] as Record<string, unknown> | undefined;
+
+  if (!first) {
+    return { ok: true, rut, rutFormatted, found: false, httpStatus: response.status, responseTimeMs };
+  }
+
+  const supplierCode =
+    first['CodigoEmpresa'] != null ? String(first['CodigoEmpresa']) : undefined;
+  const supplierName =
+    (first['NombreEmpresa'] != null ? String(first['NombreEmpresa']) : null) ??
+    (first['RazonSocial'] != null ? String(first['RazonSocial']) : undefined);
+
+  return {
+    ok: true,
+    rut,
+    rutFormatted,
+    found: true,
+    supplierCode,
+    supplierName,
+    httpStatus: response.status,
+    responseTimeMs,
+  };
+}
+
+// ── fetchChileCompraPurchaseOrdersBySupplier ───────────────────────────────────
+
+export type FetchChileCompraPurchaseOrdersResult = {
+  ok: boolean;
+  ordersCount?: number;
+  supplierCode: string;
+  httpStatus?: number;
+  responseTimeMs?: number;
+  error?: string;
+};
+
+/**
+ * Consulta órdenes de compra emitidas a un proveedor por CodigoProveedor.
+ * Endpoint: ordenesdecompra.json?CodigoProveedor=...&ticket=...
+ * fecha: DDMMYYYY opcional. estado: opcional.
+ */
+export async function fetchChileCompraPurchaseOrdersBySupplier(params: {
+  supplierCode: string;
+  ticket: string;
+  fecha?: string;
+  estado?: string;
+}): Promise<FetchChileCompraPurchaseOrdersResult> {
+  const { supplierCode, ticket, fecha, estado } = params;
+
+  if (!ticket?.trim()) {
+    return { ok: false, supplierCode, error: 'Ticket requerido para consultar órdenes de compra' };
+  }
+
+  let url = `${CHILECOMPRA_ORDENES}?CodigoProveedor=${encodeURIComponent(supplierCode)}&ticket=${encodeURIComponent(ticket.trim())}`;
+  if (fecha) url += `&fecha=${encodeURIComponent(fecha)}`;
+  if (estado) url += `&estado=${encodeURIComponent(estado)}`;
+
+  const startMs = Date.now();
+  let response: Response;
+
+  try {
+    response = await fetchWithTimeout(url);
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      supplierCode,
+      responseTimeMs: Date.now() - startMs,
+      error: sanitizeError(err),
+    };
+  }
+
+  const responseTimeMs = Date.now() - startMs;
+  const text = await response.text();
+
+  if (isHtmlResponse(text)) {
+    return {
+      ok: false,
+      supplierCode,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: `HTTP ${response.status} — respuesta HTML (ticket inválido o expirado)`,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      supplierCode,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: buildTicketError(response.status),
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, supplierCode, httpStatus: response.status, responseTimeMs, error: 'Respuesta no es JSON válido' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const qty = obj['Cantidad'];
+  let ordersCount: number | undefined;
+  if (typeof qty === 'number') ordersCount = qty;
+  else if (typeof qty === 'string') ordersCount = parseInt(qty, 10) || 0;
+  else {
+    const lista = Array.isArray(obj['listadoOrdenesCompra']) ? obj['listadoOrdenesCompra'] : [];
+    ordersCount = lista.length;
+  }
+
+  return { ok: true, supplierCode, httpStatus: response.status, responseTimeMs, ordersCount };
+}
+
+// ── fetchChileCompraTendersBySupplier ──────────────────────────────────────────
+
+export type FetchChileCompraTendersResult = {
+  ok: boolean;
+  tendersCount?: number;
+  supplierCode: string;
+  httpStatus?: number;
+  responseTimeMs?: number;
+  error?: string;
+};
+
+/**
+ * Consulta licitaciones asociadas a un proveedor por CodigoProveedor.
+ * Endpoint: licitaciones.json?CodigoProveedor=...&ticket=...
+ * fecha: DDMMYYYY opcional. estado: opcional.
+ */
+export async function fetchChileCompraTendersBySupplier(params: {
+  supplierCode: string;
+  ticket: string;
+  fecha?: string;
+  estado?: string;
+}): Promise<FetchChileCompraTendersResult> {
+  const { supplierCode, ticket, fecha, estado } = params;
+
+  if (!ticket?.trim()) {
+    return { ok: false, supplierCode, error: 'Ticket requerido para consultar licitaciones' };
+  }
+
+  let url = `${CHILECOMPRA_LICITACIONES}?CodigoProveedor=${encodeURIComponent(supplierCode)}&ticket=${encodeURIComponent(ticket.trim())}`;
+  if (fecha) url += `&fecha=${encodeURIComponent(fecha)}`;
+  if (estado) url += `&estado=${encodeURIComponent(estado)}`;
+
+  const startMs = Date.now();
+  let response: Response;
+
+  try {
+    response = await fetchWithTimeout(url);
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      supplierCode,
+      responseTimeMs: Date.now() - startMs,
+      error: sanitizeError(err),
+    };
+  }
+
+  const responseTimeMs = Date.now() - startMs;
+  const text = await response.text();
+
+  if (isHtmlResponse(text)) {
+    return {
+      ok: false,
+      supplierCode,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: `HTTP ${response.status} — respuesta HTML (ticket inválido o expirado)`,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      supplierCode,
+      httpStatus: response.status,
+      responseTimeMs,
+      error: buildTicketError(response.status),
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, supplierCode, httpStatus: response.status, responseTimeMs, error: 'Respuesta no es JSON válido' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const qty = obj['Cantidad'];
+  let tendersCount: number | undefined;
+  if (typeof qty === 'number') tendersCount = qty;
+  else if (typeof qty === 'string') tendersCount = parseInt(qty, 10) || 0;
+  else {
+    const lista = Array.isArray(obj['Listado']) ? obj['Listado'] : [];
+    tendersCount = lista.length;
+  }
+
+  return { ok: true, supplierCode, httpStatus: response.status, responseTimeMs, tendersCount };
+}
