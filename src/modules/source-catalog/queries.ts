@@ -60,7 +60,7 @@ export async function getSourceConnectionRecord(
       .select(
         'source_key, source_name_snapshot, country_code, auth_type, requires_credentials, credentials_status, connection_status, vault_secret_id, vault_secret_name, last_tested_at, last_test_status, last_test_http_status, last_test_response_time_ms, last_connection_error, connected_at',
       )
-      .eq('metadata->catalog_key', sourceKey)
+      .eq('metadata->>catalog_key', sourceKey)
       .single();
 
     if (!errorByMetadata && dataByMetadata) {

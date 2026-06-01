@@ -191,12 +191,21 @@ export default async function SourceDetailPage({ params }: Props) {
       </div>
 
       {/* Credencial de API */}
-      {connectionRecord && (
+      {connectionRecord ? (
         <SourceCredentialPanel
           sourceKey={source.key}
           record={connectionRecord}
           isAdmin={isAdmin}
         />
+      ) : (
+        <SurfaceCard>
+          <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-2">
+            Credencial de API
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Esta fuente aún no tiene configuración de credencial registrada en el sistema.
+          </p>
+        </SurfaceCard>
       )}
 
       {/* Prueba de conexión */}
