@@ -74,8 +74,13 @@ export type DenueMexicoSampleReport = {
 
 export type DenueCandidateDryRunInput = {
   limitPerDataset?: number;
-  /** Código SCIAN para filtrar — por defecto tecnología/TI */
+  /** Código SCIAN para trazabilidad en reporte — BuscarEntidad no filtra por SCIAN */
   codigoActividad?: string;
-  /** Clave INEGI de entidad federativa — por defecto 09 (CDMX) */
+  /** Clave INEGI de entidad federativa primaria — por defecto 09 (CDMX) */
   entidad?: string;
+  /** Entidades adicionales a consultar para ampliar muestra (e.g. ['19','14']) */
+  entidades?: string[];
+  /** Términos de búsqueda para el parámetro condicion de BuscarEntidad.
+   *  Cada término genera una consulta separada. Por defecto: ['tecnologia','consultoria','software'] */
+  condiciones?: string[];
 };

@@ -21,8 +21,12 @@ const DENUE_HEADERS = {
 };
 
 export type FetchDenueParams = {
-  /** Clave de entidad federativa INEGI — '09' para CDMX */
+  /** Clave de entidad federativa INEGI — '09' para CDMX, '19' NL, '14' Jalisco */
   entidad?: string;
+  /** Término de búsqueda para el campo condicion de BuscarEntidad.
+   *  'todos' devuelve todos. Palabras como 'tecnologia', 'software', 'consultoria'
+   *  filtran por nombre/actividad en el lado del API DENUE. */
+  condicion?: string;
   /** Número de registro inicial (1-based) */
   registroInicio?: number;
   limit?: number;
@@ -60,12 +64,14 @@ export async function fetchDenueDatasetSample(
     DENUE_HARD_MAX_LIMIT,
   );
   const entidad = params.entidad ?? '09';
+  const condicion = params.condicion ?? 'todos';
   const registroInicio = params.registroInicio ?? 1;
 
   // Formato verificado en API DENUE v1:
   // /BuscarEntidad/{condicion}/{entidad}/{reg_ini}/{num_reg}/{token}
+  // condicion puede ser 'todos' o un término de búsqueda (e.g. 'tecnologia').
   // No loguear la URL completa (contiene token en path).
-  const url = `${DENUE_API_BASE}/BuscarEntidad/todos/${encodeURIComponent(entidad)}/${registroInicio}/${limit}/${encodeURIComponent(token)}`;
+  const url = `${DENUE_API_BASE}/BuscarEntidad/${encodeURIComponent(condicion)}/${encodeURIComponent(entidad)}/${registroInicio}/${limit}/${encodeURIComponent(token)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DENUE_TIMEOUT_MS);
