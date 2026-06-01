@@ -1,10 +1,14 @@
 /**
  * DENUE Mexico Connector — Read-only HTTP Client
  *
- * Consulta la API oficial DENUE v1 de INEGI.
+ * Consulta la API oficial DENUE v1 de INEGI mediante el método BuscarEntidad.
  * Token leído desde INEGI_DENUE_TOKEN — nunca hardcodeado, nunca logueado.
  * Timeout máximo: 10s. Hard limit: 20 registros.
  * Sin writes. Sin logging de URLs completas con token.
+ *
+ * Nota de método: La API DENUE v1 expone BuscarEntidad para obtener
+ * establecimientos por entidad federativa. El filtrado por código SCIAN
+ * no está disponible en el path de BuscarEntidad; se realiza a nivel cliente.
  */
 
 const DENUE_API_BASE = 'https://www.inegi.org.mx/app/api/denue/v1/consulta';
@@ -17,8 +21,6 @@ const DENUE_HEADERS = {
 };
 
 export type FetchDenueParams = {
-  /** Código SCIAN de actividad — puede ser prefijo parcial como '5415' o 'todos' */
-  codigoActividad?: string;
   /** Clave de entidad federativa INEGI — '09' para CDMX */
   entidad?: string;
   /** Número de registro inicial (1-based) */
@@ -31,10 +33,16 @@ export type FetchDenueResult =
   | { ok: false; error: string };
 
 /**
- * Consulta el API DENUE BuscarAreaAct.
+ * Consulta el API DENUE mediante BuscarEntidad.
  * El token se agrega al path pero no se logueará nunca.
  *
- * URL pattern: /BuscarAreaAct/{condicion}/{nomb_act}/{estrato}/{entidad}/{reg_ini}/{num_reg}/{token}
+ * URL pattern: /BuscarEntidad/{condicion}/{entidad}/{reg_ini}/{num_reg}/{token}
+ *
+ * Campos que devuelve la API (nombres reales, versión 2024+):
+ *   CLEE, Id, Nombre, Razon_social, Clase_actividad, Estrato,
+ *   Tipo_vialidad, Calle, Num_Exterior, Num_Interior, Colonia, CP,
+ *   Ubicacion, Telefono, Correo_e, Sitio_internet, Tipo,
+ *   Longitud, Latitud, tipo_corredor_industrial, nom_corredor_industrial, numero_local
  */
 export async function fetchDenueDatasetSample(
   params: FetchDenueParams,
@@ -51,15 +59,13 @@ export async function fetchDenueDatasetSample(
     params.limit ?? DENUE_DEFAULT_LIMIT,
     DENUE_HARD_MAX_LIMIT,
   );
-  const actividad = params.codigoActividad ?? '5415';
   const entidad = params.entidad ?? '09';
   const registroInicio = params.registroInicio ?? 1;
 
-  // Formato oficial: /BuscarAreaAct/{condicion}/{nomb_act}/{estrato}/{entidad}/{reg_ini}/{num_reg}/{token}
-  // "todos" como condición devuelve todos los establecimientos del código SCIAN dado.
-  // estrato "0" = todos los tamaños.
+  // Formato verificado en API DENUE v1:
+  // /BuscarEntidad/{condicion}/{entidad}/{reg_ini}/{num_reg}/{token}
   // No loguear la URL completa (contiene token en path).
-  const url = `${DENUE_API_BASE}/BuscarAreaAct/todos/${encodeURIComponent(actividad)}/0/${encodeURIComponent(entidad)}/${registroInicio}/${limit}/${encodeURIComponent(token)}`;
+  const url = `${DENUE_API_BASE}/BuscarEntidad/todos/${encodeURIComponent(entidad)}/${registroInicio}/${limit}/${encodeURIComponent(token)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DENUE_TIMEOUT_MS);

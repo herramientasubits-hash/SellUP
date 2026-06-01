@@ -153,9 +153,9 @@ export async function runDenueCandidateDryRun(
   const errors: DenueCandidateDryRunReport['errors'] = [];
   const warnings: string[] = [];
 
-  // 1. Consultar DENUE
+  // 1. Consultar DENUE — BuscarEntidad no filtra por SCIAN a nivel API.
+  // codigoActividad se conserva en queryParams del reporte para trazabilidad.
   const fetchResult = await fetchDenueDatasetSample({
-    codigoActividad,
     entidad,
     limit: limitPerDataset,
   });

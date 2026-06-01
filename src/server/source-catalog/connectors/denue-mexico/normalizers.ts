@@ -19,63 +19,86 @@ function str(value: unknown): string | null {
 }
 
 /**
- * Intenta construir una dirección legible desde campos DENUE.
+ * Intenta construir una dirección legible desde campos DENUE (API v1 2024+).
+ * Campos reales: Tipo_vialidad, Calle, Num_Exterior, Colonia.
  * No falla si los campos están ausentes.
  */
 function buildAddress(record: RawRecord): string | null {
   const parts = [
-    str(record.tipo_vial),
-    str(record.nom_vial),
-    str(record.num_ext),
+    str(record.Tipo_vialidad),
+    str(record.Calle),
+    str(record.Num_Exterior),
+    str(record.Colonia),
   ].filter((p): p is string => p !== null);
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
 /**
- * Normaliza un registro raw de la API DENUE/INEGI.
+ * Extrae ciudad y estado desde el campo Ubicacion de DENUE.
+ * Formato observado: "LOCALIDAD                   , Municipio, ESTADO"
+ * Devuelve [city, department] o [null, null] si no se puede parsear.
+ */
+function parseUbicacion(record: RawRecord): { city: string | null; department: string | null } {
+  const raw = str(record.Ubicacion);
+  if (!raw) return { city: null, department: null };
+  const parts = raw.split(',').map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length >= 3) {
+    return { city: parts[1] ?? null, department: parts[2] ?? null };
+  }
+  if (parts.length === 2) {
+    return { city: parts[0] ?? null, department: parts[1] ?? null };
+  }
+  return { city: parts[0] ?? null, department: null };
+}
+
+/**
+ * Normaliza un registro raw de la API DENUE/INEGI (BuscarEntidad, v1 2024+).
  *
- * Campos DENUE esperados (defensivos — pueden variar):
- *   id / clee: identificador único del establecimiento
- *   nom_estab: nombre del establecimiento (nombre comercial)
- *   raz_social: razón social (puede estar vacío en personas físicas)
- *   codigo_act: código de actividad SCIAN
- *   nombre_act: descripción de actividad SCIAN
- *   per_ocu: rango de personal ocupado (texto, p.ej. "51 a 100 personas")
- *   nom_mun: nombre del municipio/delegación
- *   nom_ent: nombre de la entidad federativa (estado)
- *   tipo_vial / nom_vial / num_ext: componentes de dirección
- *   correoelec: correo electrónico
- *   www: sitio web
- *   telefono: teléfono
+ * Campos reales que devuelve la API:
+ *   CLEE         — clave única del establecimiento
+ *   Id           — identificador interno
+ *   Nombre       — nombre comercial del establecimiento
+ *   Razon_social — razón social (vacío en personas físicas)
+ *   Clase_actividad — descripción de actividad económica (sin código SCIAN numérico)
+ *   Estrato      — rango de personal ocupado ("0 a 5 personas", "51 a 100 personas", …)
+ *   Tipo_vialidad, Calle, Num_Exterior, Num_Interior, Colonia, CP — dirección
+ *   Ubicacion    — "Localidad, Municipio, Estado"
+ *   Telefono     — teléfono
+ *   Correo_e     — correo electrónico
+ *   Sitio_internet — sitio web
+ *   Longitud, Latitud — coordenadas geográficas
+ *
+ * Nota: taxId (RFC) y sectorCode (SCIAN numérico) no están disponibles en este endpoint.
  */
 export function normalizeDenueRecord(record: RawRecord): NormalizedMexicoCompanySample {
-  const rawId = str(record.id) ?? str(record.clee);
-  const nomEstab = str(record.nom_estab);
-  const razSocial = str(record.raz_social);
-  const perOcuRaw = str(record.per_ocu);
+  const rawId = str(record.CLEE) ?? str(record.Id);
+  const nombre = str(record.Nombre);
+  const razonSocial = str(record.Razon_social);
+  const estraroRaw = str(record.Estrato);
+  const { city, department } = parseUbicacion(record);
 
   return {
     source: 'denue',
     sourceKey: SOURCE_KEY,
     datasetId: DATASET_ID,
-    companyName: nomEstab ?? razSocial,
-    legalName: razSocial,
-    taxId: null, // DENUE no entrega RFC
-    legalStatus: null, // DENUE no entrega estado legal
-    sectorCode: str(record.codigo_act),
-    sectorDescription: str(record.nombre_act),
-    city: str(record.nom_mun),
-    department: str(record.nom_ent),
+    companyName: nombre ?? razonSocial,
+    legalName: razonSocial,
+    taxId: null,          // DENUE no entrega RFC
+    legalStatus: null,    // DENUE no entrega estado legal
+    sectorCode: null,     // BuscarEntidad no devuelve código SCIAN numérico
+    sectorDescription: str(record.Clase_actividad),
+    city,
+    department,
     address: buildAddress(record),
-    email: str(record.correoelec),
-    phone: str(record.telefono),
-    website: normalizeWebsite(str(record.www)),
+    email: str(record.Correo_e),
+    phone: str(record.Telefono),
+    website: normalizeWebsite(str(record.Sitio_internet)),
     rawRecordId: rawId,
-    perOcuRaw,
+    perOcuRaw: estraroRaw,
     sourceMetadata: {
-      nom_loc: str(record.nom_loc),
-      cod_postal: str(record.cod_postal),
-      per_ocu: perOcuRaw,
+      colonia: str(record.Colonia),
+      cp: str(record.CP),
+      estrato: estraroRaw,
     },
   };
 }
@@ -93,18 +116,17 @@ function normalizeWebsite(raw: string | null): string | null {
 }
 
 /**
- * Deriva ReviewFlag de tamaño a partir del campo per_ocu de DENUE.
+ * Deriva ReviewFlag de tamaño a partir del campo Estrato de DENUE (API v1 2024+).
  *
- * Rangos DENUE per_ocu:
- *   "0 personas" / "Sin personal"  → bajo umbral
- *   "1 a 5 personas"               → bajo umbral
- *   "6 a 10 personas"              → bajo umbral
- *   "11 a 30 personas"             → bajo umbral
- *   "31 a 50 personas"             → bajo umbral
- *   "51 a 100 personas"            → sobre umbral (estimado)
- *   "101 a 250 personas"           → sobre umbral (estimado)
- *   "251 y más personas"           → sobre umbral (estimado)
- *   null / desconocido             → desconocido
+ * Valores reales del campo Estrato:
+ *   "0 a 5 personas"    → bajo umbral
+ *   "6 a 10 personas"   → bajo umbral
+ *   "11 a 30 personas"  → bajo umbral
+ *   "31 a 50 personas"  → bajo umbral
+ *   "51 a 100 personas" → sobre umbral (estimado)
+ *   "101 a 250 personas"→ sobre umbral (estimado)
+ *   "251 y más personas"→ sobre umbral (estimado)
+ *   null / desconocido  → desconocido
  *
  * Retorna un ReviewFlag de tamaño compatible con structured-candidate-types.
  */
@@ -113,26 +135,20 @@ export function deriveSizeFlagFromPerOcu(
 ): 'size_unknown' | 'size_estimated' | 'size_estimated_below_threshold' {
   if (!perOcuRaw) return 'size_unknown';
 
-  const normalized = perOcuRaw.toLowerCase().trim();
+  const n = perOcuRaw.toLowerCase().trim();
 
-  // Rangos claramente sobre el umbral de 50+
-  if (
-    normalized.includes('51') ||
-    normalized.includes('101') ||
-    normalized.includes('251') ||
-    normalized.includes('251 y más')
-  ) {
+  // Rangos sobre umbral de 50+
+  if (n.includes('51 a 100') || n.includes('101 a 250') || n.includes('251')) {
     return 'size_estimated';
   }
 
-  // Rangos claramente bajo el umbral
+  // Rangos bajo umbral
   if (
-    normalized.includes('0 persona') ||
-    normalized.includes('sin personal') ||
-    normalized.includes('1 a 5') ||
-    normalized.includes('6 a 10') ||
-    normalized.includes('11 a 30') ||
-    normalized.includes('31 a 50')
+    n.includes('0 a 5') ||
+    n.includes('6 a 10') ||
+    n.includes('11 a 30') ||
+    n.includes('31 a 50') ||
+    n.includes('sin personal')
   ) {
     return 'size_estimated_below_threshold';
   }
