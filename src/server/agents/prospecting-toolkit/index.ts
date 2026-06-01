@@ -136,6 +136,14 @@ export {
   evaluateTaxIdNovelty,
 } from './tax-id-novelty-checker';
 
+// Source Discovery Preflight — Hito 16AJ.4
+export type {
+  SourceDiscoveryPreflightInput,
+  SourceDiscoveryPreflightResult,
+  SourceDiscoveryPreflightSample,
+} from './source-discovery-preflight';
+export { runAgentSourceDiscoveryPreflight } from './source-discovery-preflight';
+
 // LLM Evaluator — Hito 16H
 export type {
   LLMEvaluatorDecision,
