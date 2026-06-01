@@ -7,6 +7,8 @@ import { resolveSourceCredential } from '@/server/source-catalog/source-connecti
 import { runDenueCandidateDryRun } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
 import type { DenueCandidateDryRunReport } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
 import { runClResDryRun } from '@/server/source-catalog/connectors/datos-gob-chile/run-cl-res-dry-run';
+import { runChileCompraDryRun } from '@/server/source-catalog/connectors/chilecompra-chile/run-chilecompra-dry-run';
+import type { NormalizedChileCompraSupplier } from '@/server/source-catalog/connectors/chilecompra-chile/types';
 
 // ─── Admin Supabase (service role — server-only) ───────────────────────────────
 
@@ -533,6 +535,179 @@ export async function runClResDryRunAction(): Promise<RunClResDryRunResult> {
     return {
       ok: false,
       sourceKey: 'cl_res',
+      error: `Error ejecutando dry-run: ${sanitizeConnectionError(dryRunErr)}`,
+    };
+  }
+}
+
+// ─── SafeChileCompraDryRunReport ──────────────────────────────────────────────
+
+export type SafeChileCompraDryRunReport = {
+  executedAt: string;
+  sourceKey: 'cl_chilecompra';
+  sourceProvider: 'chilecompra_chile';
+  countryCode: 'CL';
+  credentialSource: 'not_required' | 'ticket_needed';
+  endpointStatus: string;
+  endpointUsed: string;
+  summary: {
+    recordsRead: number;
+    normalizedCount: number;
+    acceptedDraftsCount: number;
+    lowPriorityCount: number;
+    filteredOutCount: number;
+    missingRutCount: number;
+    missingCategoryCount: number;
+    icpMatchCount: number;
+    errorsCount: number;
+  };
+  qualitySummary: {
+    filterStrategy: string;
+    includedKeywords: string[];
+    procurementSignal: true;
+    credentialRequired: boolean;
+    credentialInstructions: string | null;
+  };
+  warnings: string[];
+  acceptedSamples: Array<{
+    name: string | null;
+    city: string | null;
+    region: string | null;
+    procurementCategoryName: string | null;
+    unspscCode: string | null;
+    icpMatch: boolean;
+    icpMatchKeyword: string | null;
+    qualityReason: string;
+  }>;
+  lowPrioritySamples: Array<{
+    name: string | null;
+    unspscCode: string | null;
+    procurementCategoryName: string | null;
+    qualityReason: string;
+  }>;
+  filteredSamples: Array<{
+    name: string | null;
+    filterReason: string;
+  }>;
+};
+
+export type RunChileCompraDryRunResult = {
+  ok: boolean;
+  sourceKey: string;
+  report?: SafeChileCompraDryRunReport;
+  error?: string;
+};
+
+// Rate limit for ChileCompra dry-run (in-memory, single server instance)
+const clChilecompraDryRunRateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const CL_CHILECOMPRA_DRY_RUN_RATE_LIMIT_WINDOW_MS = 300_000;
+const CL_CHILECOMPRA_DRY_RUN_RATE_LIMIT_MAX = 2;
+
+function checkClChilecompraDryRunRateLimit(userId: string): boolean {
+  const key = `${userId}:cl_chilecompra:dryrun`;
+  const now = Date.now();
+  const entry = clChilecompraDryRunRateLimitMap.get(key);
+  if (!entry || now - entry.windowStart > CL_CHILECOMPRA_DRY_RUN_RATE_LIMIT_WINDOW_MS) {
+    clChilecompraDryRunRateLimitMap.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= CL_CHILECOMPRA_DRY_RUN_RATE_LIMIT_MAX) return false;
+  entry.count += 1;
+  return true;
+}
+
+function mapSupplierToSafeSample(
+  s: NormalizedChileCompraSupplier,
+): SafeChileCompraDryRunReport['acceptedSamples'][number] {
+  return {
+    name: s.legalName,
+    city: s.city,
+    region: s.region,
+    procurementCategoryName: s.procurementCategoryName,
+    unspscCode: s.unspscCode,
+    icpMatch: s.icpMatch,
+    icpMatchKeyword: s.icpMatchKeyword,
+    qualityReason: s.qualityReason,
+  };
+}
+
+// ─── runChileCompraDryRunAction ────────────────────────────────────────────────
+//
+// Ejecuta un dry-run controlado del conector ChileCompra. Sin credencial en pilot.
+// Sin writes a Supabase. Sin prospect_batches. Sin prospect_candidates.
+// Sin HubSpot.
+
+export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRunResult> {
+  // 1. Validate admin
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) {
+    return { ok: false, sourceKey: 'cl_chilecompra', error: authError ?? 'No autorizado' };
+  }
+
+  // 2. Rate limit
+  if (!checkClChilecompraDryRunRateLimit(actorId)) {
+    return {
+      ok: false,
+      sourceKey: 'cl_chilecompra',
+      error: 'Demasiadas ejecuciones de dry-run. Espera 5 minutos antes de volver a intentar.',
+    };
+  }
+
+  // 3. Execute dry-run — no writes, no credential needed for OCDS pilot
+  try {
+    const report = await runChileCompraDryRun();
+
+    const credentialSource: 'not_required' | 'ticket_needed' =
+      report.qualitySummary.credentialRequired ? 'ticket_needed' : 'not_required';
+
+    const safeReport: SafeChileCompraDryRunReport = {
+      executedAt: report.executedAt,
+      sourceKey: 'cl_chilecompra',
+      sourceProvider: 'chilecompra_chile',
+      countryCode: 'CL',
+      credentialSource,
+      endpointStatus: report.endpointStatus,
+      endpointUsed: report.queryParams.endpointUsed,
+      summary: {
+        recordsRead: report.summary.recordsRead,
+        normalizedCount: report.summary.normalizedCount,
+        acceptedDraftsCount: report.summary.acceptedDraftsCount,
+        lowPriorityCount: report.summary.lowPriorityCount,
+        filteredOutCount: report.summary.filteredOutCount,
+        missingRutCount: report.summary.missingRutCount,
+        missingCategoryCount: report.summary.missingCategoryCount,
+        icpMatchCount: report.summary.icpMatchCount,
+        errorsCount: report.summary.errorsCount,
+      },
+      qualitySummary: report.qualitySummary,
+      warnings: report.warnings,
+      acceptedSamples: report.acceptedSamples.slice(0, 5).map(mapSupplierToSafeSample),
+      lowPrioritySamples: report.lowPrioritySamples.slice(0, 5).map((s) => ({
+        name: s.legalName,
+        unspscCode: s.unspscCode,
+        procurementCategoryName: s.procurementCategoryName,
+        qualityReason: s.qualityReason,
+      })),
+      filteredSamples: report.filteredSamples.slice(0, 5).map((s) => ({
+        name: s.legalName,
+        filterReason: s.filterReason,
+      })),
+    };
+
+    await logSourceAuditEvent('chilecompra_chile', 'connection_tested', actorId, {
+      dry_run: true,
+      records_read: report.summary.recordsRead,
+      accepted: report.summary.acceptedDraftsCount,
+      icp_match: report.summary.icpMatchCount,
+      endpoint_status: report.endpointStatus,
+    });
+
+    return { ok: true, sourceKey: 'cl_chilecompra', report: safeReport };
+  } catch (dryRunErr: unknown) {
+    return {
+      ok: false,
+      sourceKey: 'cl_chilecompra',
       error: `Error ejecutando dry-run: ${sanitizeConnectionError(dryRunErr)}`,
     };
   }

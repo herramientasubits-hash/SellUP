@@ -25,6 +25,7 @@ import { SourceCredentialPanel } from './source-credential-panel';
 import { SourceDryRunPanel } from './source-dry-run-panel';
 import { DenuePreviewBatchPanel } from './denue-preview-batch-panel';
 import { ChileResDryRunPanel } from './chile-res-dry-run-panel';
+import { ChileCompraDryRunPanel } from './chilecompra-dry-run-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -241,6 +242,11 @@ export default async function SourceDetailPage({ params }: Props) {
       {/* Dry-run RES Chile (solo cl_res) */}
       {source.key === 'cl_res' && (
         <ChileResDryRunPanel isAdmin={isAdmin} />
+      )}
+
+      {/* Dry-run ChileCompra (solo cl_chilecompra) */}
+      {source.key === 'cl_chilecompra' && (
+        <ChileCompraDryRunPanel isAdmin={isAdmin} />
       )}
 
       {/* Lote preview DENUE (solo mx_denue) */}
