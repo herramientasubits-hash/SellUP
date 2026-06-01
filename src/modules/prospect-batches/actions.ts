@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
-import { type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
+import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -719,6 +719,8 @@ export interface GenerateAIBatchInput {
   structuredSourcePreflight?: boolean;
   /** Hito 16AJ.6 — fuente explícita. Si omitido, se resuelve por countryCode. */
   structuredSourceKey?: string | null;
+  /** Hito 16AJ.9 — Crear también lote estructurado */
+  createStructuredSourceBatch?: boolean;
 }
 
 export interface GenerateAIBatchResult {
@@ -727,6 +729,34 @@ export interface GenerateAIBatchResult {
   estimatedCostUsd: number;
   /** Hito 16AJ.6 — presente solo si structuredSourcePreflight=true. Read-only, no escribe candidatos. */
   structuredSourcePreflight?: SourceDiscoveryPreflightResult;
+  /** Hito 16AJ.9 — Lote estructurado creado opcionalmente */
+  structuredSourceBatch?: {
+    ok: boolean;
+    batchId?: string | null;
+    sourceKey?: string;
+    candidatesWritten?: number;
+    candidatesSkipped?: number;
+    warnings?: string[];
+    errors?: string[];
+  };
+}
+
+export async function runProspectPreflight(params: {
+  country: string;
+  countryCode: string;
+  industry: string;
+  targetCount: number;
+  searchDepth: 'basic' | 'standard';
+}): Promise<SourceDiscoveryPreflightResult> {
+  await requireActiveUser();
+  return await runAgentSourceDiscoveryPreflight({
+    countryCode: params.countryCode,
+    country: params.country,
+    industry: params.industry,
+    targetCount: Math.min(params.targetCount, 5),
+    searchDepth: params.searchDepth,
+    enabled: true,
+  });
 }
 
 export async function generateAIProspectBatch(
@@ -753,6 +783,7 @@ export async function generateAIProspectBatch(
     internalUserId,
     structuredSourcePreflight: input.structuredSourcePreflight ?? false,
     structuredSourceKey: input.structuredSourceKey ?? null,
+    createStructuredSourceBatch: input.createStructuredSourceBatch ?? false,
   });
 
   if (!result.success || !result.batchId) {
@@ -761,12 +792,16 @@ export async function generateAIProspectBatch(
 
   revalidatePath('/prospect-batches');
   revalidatePath(`/prospect-batches/${result.batchId}`);
+  if (result.structuredSourceBatch?.batchId) {
+    revalidatePath(`/prospect-batches/${result.structuredSourceBatch.batchId}`);
+  }
 
   return {
     batchId: result.batchId,
     candidatesCreated: result.candidatesCreated,
     estimatedCostUsd: result.estimatedCostUsd,
     structuredSourcePreflight: result.structuredSourcePreflight,
+    structuredSourceBatch: result.structuredSourceBatch,
   };
 }
 

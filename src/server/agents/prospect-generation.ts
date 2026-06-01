@@ -28,6 +28,8 @@ import {
   runAgentSourceDiscoveryPreflight,
   type SourceDiscoveryPreflightResult,
 } from './prospecting-toolkit/source-discovery-preflight';
+import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
+import { writeStructuredSourceCandidatesPreview } from './prospecting-toolkit/structured-source-candidate-writer';
 
 // ============================================================
 // Types
@@ -44,6 +46,8 @@ export interface ProspectGenerationParams {
   structuredSourcePreflight?: boolean;
   /** Hito 16AJ.5 — fuente explícita a usar en preflight. Si null, se resuelve por countryCode. */
   structuredSourceKey?: string | null;
+  /** Hito 16AJ.9 — Si true, crea un lote estructurado separado */
+  createStructuredSourceBatch?: boolean;
 }
 
 export interface ProspectGenerationResult {
@@ -55,6 +59,16 @@ export interface ProspectGenerationResult {
   error?: string;
   /** Hito 16AJ.5 — presente solo si structuredSourcePreflight=true fue activado. Read-only, no escribe candidatos. */
   structuredSourcePreflight?: SourceDiscoveryPreflightResult;
+  /** Hito 16AJ.9 — Lote estructurado creado opcionalmente */
+  structuredSourceBatch?: {
+    ok: boolean;
+    batchId?: string | null;
+    sourceKey?: string;
+    candidatesWritten?: number;
+    candidatesSkipped?: number;
+    warnings?: string[];
+    errors?: string[];
+  };
 }
 
 interface NormalizedCandidate {
@@ -398,6 +412,7 @@ export async function runProspectGenerationAgent(
     country, countryCode, industry, targetCount, searchDepth, internalUserId,
     structuredSourcePreflight: preflightEnabled = false,
     structuredSourceKey = null,
+    createStructuredSourceBatch = false,
   } = params;
   const safeCount = Math.min(targetCount, 25);
   const startedAt = Date.now();
@@ -780,6 +795,93 @@ export async function runProspectGenerationAgent(
       duration_ms: Date.now() - startedAt,
     });
 
+    let structuredSourceBatchResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
+
+    if (createStructuredSourceBatch && countryCode === 'CO') {
+      try {
+        const structuredLimit = Math.min(safeCount, 5);
+        const discoveryOutput = await runSourceDiscovery({
+          sourceKey: 'co_rues',
+          countryCode: 'CO',
+          criteria: {
+            country,
+            industry: industry ?? null,
+          },
+          limit: structuredLimit,
+          mode: 'dry_run',
+        });
+
+        if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+          structuredSourceBatchResult = {
+            ok: false,
+            batchId: null,
+            sourceKey: 'co_rues',
+            candidatesWritten: 0,
+            candidatesSkipped: 0,
+            warnings: discoveryOutput.warnings,
+            errors: discoveryOutput.errors,
+          };
+        } else {
+          const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
+            dryRun: false,
+            createdBy: internalUserId,
+            ownerId: internalUserId,
+            country,
+            countryCode: 'CO',
+            sourceKey: 'co_rues',
+            sourceProvider: 'socrata_colombia',
+            dataset: 'co_rues',
+            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+            industry,
+            targetCount: structuredLimit,
+            searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
+            agentRunId: agentRun.id,
+            initiatedBy: 'agent_1',
+            candidates: discoveryOutput.candidates,
+            previewMode: true,
+            runHubSpotCheck: true,
+            limit: structuredLimit,
+          });
+
+          const writerErrors = writerResult.errors.map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+          const allWarnings = [...discoveryOutput.warnings];
+          if (writerResult.batch.status === 'batch_creation_failed') {
+            structuredSourceBatchResult = {
+              ok: false,
+              batchId: null,
+              sourceKey: 'co_rues',
+              candidatesWritten: 0,
+              candidatesSkipped: discoveryOutput.candidates.length,
+              warnings: allWarnings,
+              errors: [...discoveryOutput.errors, ...writerErrors, 'Error al crear el lote estructurado en la base de datos'],
+            };
+          } else {
+            structuredSourceBatchResult = {
+              ok: writerResult.batch.created,
+              batchId: writerResult.batch.id,
+              sourceKey: 'co_rues',
+              candidatesWritten: writerResult.batch.totalCandidatesWritten,
+              candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
+              warnings: allWarnings,
+              errors: [...discoveryOutput.errors, ...writerErrors],
+            };
+          }
+        }
+      } catch (structuredErr: unknown) {
+        const msg = structuredErr instanceof Error ? structuredErr.message : 'Error inesperado en lote estructurado';
+        console.error('[agent-1] Error generating structured source batch:', structuredErr);
+        structuredSourceBatchResult = {
+          ok: false,
+          batchId: null,
+          sourceKey: 'co_rues',
+          candidatesWritten: 0,
+          candidatesSkipped: 0,
+          warnings: [],
+          errors: [msg],
+        };
+      }
+    }
+
     await updateAgentRun(agentRun.id, {
       status: 'completed',
       results_generated: insertedCandidates.length,
@@ -790,6 +892,7 @@ export async function runProspectGenerationAgent(
         batch_id: batch.id,
         duration_ms: Date.now() - startedAt,
         ...(preflightResult ? { structured_source_preflight: preflightResult } : {}),
+        ...(structuredSourceBatchResult ? { structured_source_batch: structuredSourceBatchResult } : {}),
       },
     });
 
@@ -800,6 +903,7 @@ export async function runProspectGenerationAgent(
       candidatesCreated: insertedCandidates.length,
       estimatedCostUsd: totalEstimatedCost,
       ...(preflightResult ? { structuredSourcePreflight: preflightResult } : {}),
+      structuredSourceBatch: structuredSourceBatchResult,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error inesperado en el agente';
