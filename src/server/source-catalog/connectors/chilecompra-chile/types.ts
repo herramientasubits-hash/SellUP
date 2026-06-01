@@ -97,7 +97,10 @@ export type ChileCompraReviewFlag =
 export type ChileCompraQualityDecision = 'accepted' | 'low_priority' | 'filtered';
 
 /** Modo de ejecución del dry-run. */
-export type ChileCompraDryRunMode = 'health_check' | 'supplier_signal';
+export type ChileCompraDryRunMode =
+  | 'health_check'
+  | 'supplier_signal'
+  | 'compra_agil_discovery';
 
 /** Parámetros de input para el dry-run. */
 export type RunChileCompraDryRunInput = {
@@ -106,15 +109,36 @@ export type RunChileCompraDryRunInput = {
   ticket?: string;
   /**
    * Modo de ejecución:
-   *   - health_check (default): lista compradores para confirmar que la API está viva.
-   *   - supplier_signal: busca RUTs específicos y obtiene señal B2G.
+   *   - health_check (default): valida el ticket via Compra Ágil V2.
+   *   - compra_agil_discovery: busca por keywords ICP y extrae proveedores cotizando.
+   *   - supplier_signal: busca RUTs específicos en BuscarProveedor + órdenes.
    */
   mode?: ChileCompraDryRunMode;
   /**
    * RUTs de prueba para modo supplier_signal.
-   * Si no se proveen, el modo health_check es el único disponible.
    */
   sampleRuts?: string[];
+  /**
+   * Keywords de búsqueda para modo compra_agil_discovery.
+   * Si no se proveen, se usan keywords ICP UBITS por defecto.
+   */
+  searchKeywords?: string[];
+};
+
+/** Proveedor extraído de un proceso Compra Ágil en el dry-run. */
+export type CompraAgilDiscoveryItem = {
+  codigo: string;
+  titulo: string;
+  organismo?: string;
+  region?: string;
+  estado?: string;
+  suppliersExtracted: number;
+  suppliers: Array<{
+    rut: string;
+    razonSocial: string;
+    esEmt: boolean;
+    idCotizacion?: string;
+  }>;
 };
 
 /** Resultado de búsqueda de un proveedor por RUT en el dry-run. */
@@ -151,11 +175,13 @@ export type RunChileCompraDryRunReport = {
   endpointStatus: ChileCompraEndpointStatus;
   /** Resultado del health check (modo health_check). */
   healthCheck?: {
-    buyersFound: number;
+    compraAgilFound?: number;
     apiAlive: boolean;
   };
   /** Resultados de búsqueda por RUT (modo supplier_signal). */
   supplierLookups?: SupplierLookupResult[];
+  /** Procesos Compra Ágil encontrados con sus proveedores (modo compra_agil_discovery). */
+  compraAgilItems?: CompraAgilDiscoveryItem[];
   summary: {
     recordsRead: number;
     normalizedCount: number;

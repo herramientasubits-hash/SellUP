@@ -557,12 +557,12 @@ export type SafeChileCompraDryRunReport = {
   sourceProvider: 'chilecompra_chile';
   countryCode: 'CL';
   credentialSource: 'vault' | 'env_development' | 'ticket_needed';
-  dryRunMode: 'health_check' | 'supplier_signal';
+  dryRunMode: 'health_check' | 'supplier_signal' | 'compra_agil_discovery';
   endpointStatus: string;
   endpointUsed: string;
-  /** Health check: número de organismos compradores encontrados. */
+  /** Health check: resultado de GET /v2/compra-agil mínimo. */
   healthCheck?: {
-    buyersFound: number;
+    compraAgilFound?: number;
     apiAlive: boolean;
   };
   /** Supplier signal: resultados de lookup por RUT. */
@@ -574,6 +574,15 @@ export type SafeChileCompraDryRunReport = {
     supplierName?: string;
     ordersCount?: number;
     error?: string;
+  }>;
+  /** Discovery Compra Ágil: procesos encontrados con proveedores cotizando. */
+  compraAgilItems?: Array<{
+    codigo: string;
+    titulo: string;
+    organismo?: string;
+    region?: string;
+    estado?: string;
+    suppliersExtracted: number;
   }>;
   summary: {
     recordsRead: number;
@@ -717,6 +726,14 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
         ordersCount: l.ordersCount,
         error: l.error,
       })),
+      compraAgilItems: report.compraAgilItems?.map((i) => ({
+        codigo: i.codigo,
+        titulo: i.titulo,
+        organismo: i.organismo,
+        region: i.region,
+        estado: i.estado,
+        suppliersExtracted: i.suppliersExtracted,
+      })),
       summary: {
         recordsRead: report.summary.recordsRead,
         normalizedCount: report.summary.normalizedCount,
@@ -748,7 +765,10 @@ export async function runChileCompraDryRunAction(): Promise<RunChileCompraDryRun
       dry_run_mode: report.dryRunMode,
       credential_source: credentialSource,
       endpoint_status: report.endpointStatus,
-      buyers_found: report.healthCheck?.buyersFound,
+      compra_agil_found: report.healthCheck?.compraAgilFound,
+      compra_agil_items: report.compraAgilItems?.length,
+      suppliers_extracted: report.summary.normalizedCount,
+      icp_match: report.summary.icpMatchCount,
       supplier_lookups: report.supplierLookups?.length,
     });
 
