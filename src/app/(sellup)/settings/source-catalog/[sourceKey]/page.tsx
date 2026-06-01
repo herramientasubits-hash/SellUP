@@ -23,6 +23,7 @@ import { TestConnectionPanel } from './test-connection-panel';
 import { ConnectionTestHistory } from './connection-test-history';
 import { SourceCredentialPanel } from './source-credential-panel';
 import { SourceDryRunPanel } from './source-dry-run-panel';
+import { DenuePreviewBatchPanel } from './denue-preview-batch-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -231,6 +232,14 @@ export default async function SourceDetailPage({ params }: Props) {
       {source.key === 'mx_denue' && (
         <SourceDryRunPanel
           sourceKey={connectionRecord?.source_key ?? 'denue_mexico'}
+          hasStoredCredential={connectionRecord?.credentials_status === 'stored'}
+          isAdmin={isAdmin}
+        />
+      )}
+
+      {/* Lote preview DENUE (solo mx_denue) */}
+      {source.key === 'mx_denue' && (
+        <DenuePreviewBatchPanel
           hasStoredCredential={connectionRecord?.credentials_status === 'stored'}
           isAdmin={isAdmin}
         />
