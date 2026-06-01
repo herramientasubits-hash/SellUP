@@ -60,6 +60,26 @@ const REGION_MAP: Record<string, string> = {
   'NUBLE': 'Ñuble',
 };
 
+/** Mapa por código numérico oficial de regiones Chile (1–16). */
+const REGION_CODE_MAP: Record<string, string> = {
+  '1': 'Tarapacá',
+  '2': 'Antofagasta',
+  '3': 'Atacama',
+  '4': 'Coquimbo',
+  '5': 'Valparaíso',
+  '6': "O'Higgins",
+  '7': 'Maule',
+  '8': 'Biobío',
+  '9': 'La Araucanía',
+  '10': 'Los Lagos',
+  '11': 'Aysén',
+  '12': 'Magallanes',
+  '13': 'Región Metropolitana',
+  '14': 'Los Ríos',
+  '15': 'Arica y Parinacota',
+  '16': 'Ñuble',
+};
+
 // ── Tipos societarios aceptables ──────────────────────────────
 
 const ACCEPTED_COMPANY_TYPES = new Set([
@@ -79,8 +99,11 @@ function str(value: unknown): string | null {
 
 function normalizeRegion(raw: string | null): string | null {
   if (!raw) return null;
-  const upper = raw.trim().toUpperCase();
-  return REGION_MAP[upper] ?? raw.trim();
+  const trimmed = raw.trim();
+  // Código numérico (e.g. "13") — usar mapa numérico primero
+  if (/^\d{1,2}$/.test(trimmed)) return REGION_CODE_MAP[trimmed] ?? trimmed;
+  const upper = trimmed.toUpperCase();
+  return REGION_MAP[upper] ?? trimmed;
 }
 
 function normalizeCity(raw: string | null): string | null {
@@ -110,10 +133,16 @@ function parseCapital(raw: unknown): number | null {
 function parseDate(raw: unknown): string | null {
   const s = str(raw);
   if (!s) return null;
-  // Formato esperado: "2024-01-15" o "15/01/2024" o similar
+  // YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // DD/MM/YYYY
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
     const [day, month, year] = s.split('/');
+    return `${year}-${month}-${day}`;
+  }
+  // DD-MM-YYYY (formato real de datos.gob.cl, e.g. "01-01-2025")
+  if (/^\d{2}-\d{2}-\d{4}$/.test(s)) {
+    const [day, month, year] = s.split('-');
     return `${year}-${month}-${day}`;
   }
   return s.slice(0, 10);
