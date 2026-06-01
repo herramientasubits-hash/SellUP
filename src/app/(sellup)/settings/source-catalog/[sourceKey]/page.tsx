@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ExternalLink } from 'lucide-react';
+import { Database, ExternalLink } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import {
@@ -198,7 +198,7 @@ export default async function SourceDetailPage({ params }: Props) {
           record={connectionRecord}
           isAdmin={isAdmin}
         />
-      ) : source.type === 'public_dataset' || source.operationalStatus === 'operational_verified' && !source.url?.includes('api') ? (
+      ) : source.type === 'public_dataset' || source.key === 'co_rues' || (source.operationalStatus === 'operational_verified' && !source.url?.includes('api')) ? (
         <SurfaceCard>
           <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-2">
             Credencial de API
@@ -244,6 +244,27 @@ export default async function SourceDetailPage({ params }: Props) {
 
       {/* Historial de pruebas */}
       <ConnectionTestHistory history={history} />
+
+      {/* Lotes Socrata — solo co_rues */}
+      {source.key === 'co_rues' && (
+        <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/30 px-5 py-3.5">
+          <div className="flex items-center gap-2.5">
+            <Database className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Lotes Socrata</p>
+              <p className="text-xs text-muted-foreground">
+                Revisión interna de lotes creados desde esta fuente. Solo lectura — no aprueba ni sincroniza candidatos.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/settings/source-catalog/socrata-batches"
+            className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-su-brand/40 hover:bg-su-brand-soft hover:text-su-brand transition-colors"
+          >
+            Ver lotes Socrata
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
