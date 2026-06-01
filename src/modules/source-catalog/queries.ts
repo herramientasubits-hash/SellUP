@@ -43,13 +43,31 @@ export async function getSourceConnectionRecord(
   sourceKey: string,
 ): Promise<SourceConnectionRecord | null> {
   const admin = getAdminSupabase();
-  const { data, error } = await admin
+
+  // First try: exact source_key match
+  let { data, error } = await admin
     .from('source_catalog_connections')
     .select(
       'source_key, source_name_snapshot, country_code, auth_type, requires_credentials, credentials_status, connection_status, vault_secret_id, vault_secret_name, last_tested_at, last_test_status, last_test_http_status, last_test_response_time_ms, last_connection_error, connected_at',
     )
     .eq('source_key', sourceKey)
     .single();
+
+  // Second try: match by catalog_key in metadata (for when sourceKey is a catalog key)
+  if ((error || !data) && sourceKey) {
+    const { data: dataByMetadata, error: errorByMetadata } = await admin
+      .from('source_catalog_connections')
+      .select(
+        'source_key, source_name_snapshot, country_code, auth_type, requires_credentials, credentials_status, connection_status, vault_secret_id, vault_secret_name, last_tested_at, last_test_status, last_test_http_status, last_test_response_time_ms, last_connection_error, connected_at',
+      )
+      .eq('metadata->catalog_key', sourceKey)
+      .single();
+
+    if (!errorByMetadata && dataByMetadata) {
+      data = dataByMetadata;
+      error = null;
+    }
+  }
 
   if (error || !data) return null;
 

@@ -102,12 +102,12 @@ function ConnectionStatusBadge({ status }: { status: string }) {
 // ─── Credential form ──────────────────────────────────────────────────────────
 
 interface CredentialFormProps {
-  sourceKey: string;
+  connectionSourceKey: string;
   hasCredential: boolean;
   onSuccess: () => void;
 }
 
-function CredentialForm({ sourceKey, hasCredential, onSuccess }: CredentialFormProps) {
+function CredentialForm({ connectionSourceKey, hasCredential, onSuccess }: CredentialFormProps) {
   const [token, setToken] = useState('');
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +119,7 @@ function CredentialForm({ sourceKey, hasCredential, onSuccess }: CredentialFormP
     setSuccessMsg(null);
 
     startTransition(async () => {
-      const result = await configureSourceCredentialAction(sourceKey, token.trim());
+      const result = await configureSourceCredentialAction(connectionSourceKey, token.trim());
       if (result.ok) {
         setSuccessMsg(result.message ?? 'Credencial guardada correctamente.');
         setToken('');
@@ -136,11 +136,11 @@ function CredentialForm({ sourceKey, hasCredential, onSuccess }: CredentialFormP
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <Label htmlFor={`cred-token-${sourceKey}`} className="text-xs text-muted-foreground">
+        <Label htmlFor={`cred-token-${connectionSourceKey}`} className="text-xs text-muted-foreground">
           {hasCredential ? 'Reemplazar API Key' : 'API Key'}
         </Label>
         <Input
-          id={`cred-token-${sourceKey}`}
+          id={`cred-token-${connectionSourceKey}`}
           type="password"
           placeholder="Pega la API key de la fuente"
           value={token}
@@ -178,12 +178,12 @@ function CredentialForm({ sourceKey, hasCredential, onSuccess }: CredentialFormP
 // ─── Test connection button ────────────────────────────────────────────────────
 
 interface TestConnectionButtonProps {
-  sourceKey: string;
+  connectionSourceKey: string;
   disabled: boolean;
   onSuccess: () => void;
 }
 
-function TestConnectionButton({ sourceKey, disabled, onSuccess }: TestConnectionButtonProps) {
+function TestConnectionButton({ connectionSourceKey, disabled, onSuccess }: TestConnectionButtonProps) {
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<{
     ok: boolean;
@@ -197,7 +197,7 @@ function TestConnectionButton({ sourceKey, disabled, onSuccess }: TestConnection
     setResult(null);
 
     startTransition(async () => {
-      const res = await testSourceCredentialConnectionAction(sourceKey);
+      const res = await testSourceCredentialConnectionAction(connectionSourceKey);
       setResult({
         ok: res.ok,
         message: res.ok ? (res.message ?? 'Conexión verificada.') : (res.error ?? res.message ?? 'Error al probar.'),
@@ -378,7 +378,7 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
             </div>
 
             <CredentialForm
-              sourceKey={sourceKey}
+              connectionSourceKey={record.source_key}
               hasCredential={hasCredential}
               onSuccess={refresh}
             />
@@ -394,7 +394,7 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
                 </p>
                 <div className="pt-1">
                   <TestConnectionButton
-                    sourceKey={sourceKey}
+                    connectionSourceKey={record.source_key}
                     disabled={!canTest}
                     onSuccess={refresh}
                   />
