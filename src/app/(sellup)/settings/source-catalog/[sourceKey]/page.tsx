@@ -3,8 +3,12 @@ import Link from 'next/link';
 import { ExternalLink, Info } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
-import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
+import {
+  getSourceCatalogViewModel,
+  getSourceConnectionRecord,
+} from '@/modules/source-catalog/queries';
 import { getSourceConnectionTestHistory } from '@/modules/source-catalog/history-queries';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -17,6 +21,7 @@ import {
 import { CopyKeyButton } from './copy-key-button';
 import { TestConnectionPanel } from './test-connection-panel';
 import { ConnectionTestHistory } from './connection-test-history';
+import { SourceCredentialPanel } from './source-credential-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +41,11 @@ export default async function SourceDetailPage({ params }: Props) {
 
   if (!source) notFound();
 
-  const history = await getSourceConnectionTestHistory(sourceKey);
+  const [history, connectionRecord, isAdmin] = await Promise.all([
+    getSourceConnectionTestHistory(sourceKey),
+    getSourceConnectionRecord(sourceKey),
+    isCurrentUserAdmin(),
+  ]);
 
   const statusClass = operationalStatusBadgeClass(source.operationalStatus);
   const dotClass = operationalStatusDotClass(source.operationalStatus);
@@ -180,6 +189,15 @@ export default async function SourceDetailPage({ params }: Props) {
           </SurfaceCard>
         )}
       </div>
+
+      {/* Credencial de API */}
+      {connectionRecord && (
+        <SourceCredentialPanel
+          sourceKey={source.key}
+          record={connectionRecord}
+          isAdmin={isAdmin}
+        />
+      )}
 
       {/* Prueba de conexión */}
       <TestConnectionPanel
