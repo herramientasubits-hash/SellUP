@@ -24,6 +24,7 @@ import { ConnectionTestHistory } from './connection-test-history';
 import { SourceCredentialPanel } from './source-credential-panel';
 import { SourceDryRunPanel } from './source-dry-run-panel';
 import { DenuePreviewBatchPanel } from './denue-preview-batch-panel';
+import { ChileResDryRunPanel } from './chile-res-dry-run-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -235,6 +236,11 @@ export default async function SourceDetailPage({ params }: Props) {
           hasStoredCredential={connectionRecord?.credentials_status === 'stored'}
           isAdmin={isAdmin}
         />
+      )}
+
+      {/* Dry-run RES Chile (solo cl_res) */}
+      {source.key === 'cl_res' && (
+        <ChileResDryRunPanel isAdmin={isAdmin} />
       )}
 
       {/* Lote preview DENUE (solo mx_denue) */}

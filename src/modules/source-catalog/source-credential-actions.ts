@@ -6,6 +6,7 @@ import { testDenueConnection } from '@/server/source-catalog/connectors/denue-me
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import { runDenueCandidateDryRun } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
 import type { DenueCandidateDryRunReport } from '@/server/source-catalog/connectors/denue-mexico/run-denue-candidate-dry-run';
+import { runClResDryRun } from '@/server/source-catalog/connectors/datos-gob-chile/run-cl-res-dry-run';
 
 // ─── Admin Supabase (service role — server-only) ───────────────────────────────
 
@@ -405,6 +406,136 @@ export async function testSourceCredentialConnectionAction(
         : (sanitizedError ?? 'Error al probar la conexión'),
     ...(testStatus !== 'success' && { error: sanitizedError ?? 'Error al probar la conexión' }),
   };
+}
+
+// ─── SafeClResDryRunReport ────────────────────────────────────────────────────
+
+export type SafeClResDryRunReport = {
+  executedAt: string;
+  sourceKey: 'cl_res';
+  sourceProvider: 'datos_gob_cl';
+  countryCode: 'CL';
+  credentialSource: 'not_required';
+  summary: {
+    recordsRead: number;
+    normalizedCount: number;
+    acceptedDraftsCount: number;
+    filteredOutCount: number;
+    errorsCount: number;
+    missingRutCount: number;
+    noSectorDataCount: number;
+    capitalAvailableCount: number;
+  };
+  warnings: string[];
+  acceptedSamples: Array<{
+    name: string | null;
+    city: string | null;
+    region: string | null;
+    qualityReason: string;
+  }>;
+  filteredSamples: Array<{
+    name: string | null;
+    tipoActuacion: string | null;
+    filterReason: string;
+  }>;
+};
+
+export type RunClResDryRunResult = {
+  ok: boolean;
+  sourceKey: string;
+  report?: SafeClResDryRunReport;
+  error?: string;
+};
+
+// Rate limit for Chile dry-run (in-memory, single server instance)
+const clResDryRunRateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const CL_RES_DRY_RUN_RATE_LIMIT_WINDOW_MS = 300_000;
+const CL_RES_DRY_RUN_RATE_LIMIT_MAX = 2;
+
+function checkClResDryRunRateLimit(userId: string): boolean {
+  const key = `${userId}:cl_res:dryrun`;
+  const now = Date.now();
+  const entry = clResDryRunRateLimitMap.get(key);
+  if (!entry || now - entry.windowStart > CL_RES_DRY_RUN_RATE_LIMIT_WINDOW_MS) {
+    clResDryRunRateLimitMap.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= CL_RES_DRY_RUN_RATE_LIMIT_MAX) return false;
+  entry.count += 1;
+  return true;
+}
+
+// ─── runClResDryRunAction ──────────────────────────────────────────────────────
+//
+// Ejecuta un dry-run controlado del conector RES Chile. Sin credencial.
+// Sin writes a Supabase. Sin prospect_batches. Sin prospect_candidates.
+// Sin HubSpot.
+
+export async function runClResDryRunAction(): Promise<RunClResDryRunResult> {
+  // 1. Validate admin
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) {
+    return { ok: false, sourceKey: 'cl_res', error: authError ?? 'No autorizado' };
+  }
+
+  // 2. Rate limit
+  if (!checkClResDryRunRateLimit(actorId)) {
+    return {
+      ok: false,
+      sourceKey: 'cl_res',
+      error: 'Demasiadas ejecuciones de dry-run. Espera 5 minutos antes de volver a intentar.',
+    };
+  }
+
+  // 3. Execute dry-run — no writes, no credential needed
+  try {
+    const report = await runClResDryRun();
+
+    const safeReport: SafeClResDryRunReport = {
+      executedAt: report.executedAt,
+      sourceKey: 'cl_res',
+      sourceProvider: 'datos_gob_cl',
+      countryCode: 'CL',
+      credentialSource: 'not_required',
+      summary: {
+        recordsRead: report.summary.recordsRead,
+        normalizedCount: report.summary.normalizedCount,
+        acceptedDraftsCount: report.summary.acceptedDraftsCount,
+        filteredOutCount: report.summary.filteredOutCount,
+        errorsCount: report.summary.errorsCount,
+        missingRutCount: report.summary.missingRutCount,
+        noSectorDataCount: report.summary.noSectorDataCount,
+        capitalAvailableCount: report.summary.capitalAvailableCount,
+      },
+      warnings: report.warnings,
+      acceptedSamples: report.acceptedSamples.slice(0, 5).map((s) => ({
+        name: s.legalName,
+        city: s.city,
+        region: s.region,
+        qualityReason: s.qualityReason,
+      })),
+      filteredSamples: report.filteredSamples.slice(0, 5).map((s) => ({
+        name: s.legalName,
+        tipoActuacion: s.tipoActuacion,
+        filterReason: s.filterReason,
+      })),
+    };
+
+    await logSourceAuditEvent('datos_gob_cl', 'connection_tested', actorId, {
+      dry_run: true,
+      records_read: report.summary.recordsRead,
+      accepted: report.summary.acceptedDraftsCount,
+    });
+
+    return { ok: true, sourceKey: 'cl_res', report: safeReport };
+  } catch (dryRunErr: unknown) {
+    return {
+      ok: false,
+      sourceKey: 'cl_res',
+      error: `Error ejecutando dry-run: ${sanitizeConnectionError(dryRunErr)}`,
+    };
+  }
 }
 
 // ─── DEBT: Audit event types for source catalog ────────────────────────────────
