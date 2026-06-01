@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
+import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
 import {
   getProspectBatchById,
   getCandidatesByBatch,
@@ -125,8 +126,41 @@ export default async function BatchDetailPage({ params }: Props) {
       <PageHeader
         title={batch.name}
         description={batch.description ?? undefined}
-        actions={<CreateCandidateDrawer batchId={batch.id} />}
+        actions={
+          <div className="flex items-center gap-2">
+            {batch.metadata?.batch_type === 'structured' &&
+              batch.metadata?.initiated_by === 'agent_1' &&
+              batch.metadata?.source_key === 'co_rues' &&
+              ['ready_for_review', 'preview', 'draft', 'in_review'].includes(batch.status) &&
+              batch.converted_count === 0 && (
+                <RollbackBatchDialog batchId={batch.id} batchName={batch.name} />
+              )}
+            <CreateCandidateDrawer batchId={batch.id} />
+          </div>
+        }
       />
+
+      {/* Alerta de rollback lógico aplicado */}
+      {batch.status === 'cancelled' && batch.metadata?.rollback_logical === true && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-3.5 animate-in fade-in-0 duration-200">
+          <div className="flex items-start gap-2.5">
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div>
+              <p className="text-sm font-medium text-destructive dark:text-red-400">
+                Rollback lógico aplicado
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Los datos permanecen para auditoría, pero el lote ya no está operativo.
+                {typeof batch.metadata?.rollback_reason === 'string' && (
+                  <span className="block mt-1 text-[10px] text-muted-foreground/80 font-mono">
+                    Motivo: {batch.metadata.rollback_reason}
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Alerta modo mock */}
       {batch.metadata?.generation_mode === 'mock' && (

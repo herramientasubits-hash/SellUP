@@ -862,3 +862,234 @@ export async function generateTavilyProspectBatch(
     status: result.metadata.stopped_reason,
   };
 }
+
+export async function rollbackStructuredAgentBatchAction(
+  batchId: string,
+  reason?: string
+): Promise<{
+  ok: boolean;
+  batchId: string;
+  candidatesUpdated: number;
+  batchStatus: string;
+  rollbackLogical: boolean;
+  error?: string;
+}> {
+  const { internalUserId } = await requireAdmin();
+  const supabase = await createClient();
+
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(batchId)) {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: '',
+      rollbackLogical: false,
+      error: 'El ID del lote no es un UUID válido.',
+    };
+  }
+
+  // 1. Leer lote
+  const { data: batch, error: batchErr } = await supabase
+    .from('prospect_batches')
+    .select('*')
+    .eq('id', batchId)
+    .single();
+
+  if (batchErr || !batch) {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: '',
+      rollbackLogical: false,
+      error: 'El lote de prospección no existe.',
+    };
+  }
+
+  // 2. Validar que es lote estructurado de Agente 1 (socrata_colombia / co_rues)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const meta = (batch.metadata as Record<string, any>) || {};
+  const isAgent1 = meta.initiated_by === 'agent_1';
+  const isStructured = meta.batch_type === 'structured';
+  const isCoRues = meta.source_key === 'co_rues';
+  const isSocrata = batch.source === 'socrata_colombia';
+
+  if (!isAgent1 || !isStructured || !isCoRues || !isSocrata) {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: batch.status,
+      rollbackLogical: false,
+      error: 'Esta acción solo está permitida para lotes estructurados de co_rues creados por el Agente 1.',
+    };
+  }
+
+  // 3. Validar que no está ya cancelado
+  if (batch.status === 'cancelled') {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: batch.status,
+      rollbackLogical: false,
+      error: 'El lote ya se encuentra cancelado.',
+    };
+  }
+
+  // 4. Validar que el estado actual permita rollback
+  const allowedStatuses = ['ready_for_review', 'preview', 'draft', 'in_review'];
+  if (!allowedStatuses.includes(batch.status)) {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: batch.status,
+      rollbackLogical: false,
+      error: `No se puede aplicar rollback a un lote en estado '${batch.status}'.`,
+    };
+  }
+
+  // 5. Validar candidatos convertidos o vinculados a cuentas
+  const { data: candidates, error: candErr } = await supabase
+    .from('prospect_candidates')
+    .select('id, name, converted_account_id, account_id, metadata')
+    .eq('batch_id', batchId);
+
+  if (candErr) {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: batch.status,
+      rollbackLogical: false,
+      error: 'Error al consultar las empresas candidatas del lote.',
+    };
+  }
+
+  const hasConverted = candidates?.some((c) => c.converted_account_id !== null);
+  if (hasConverted) {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: batch.status,
+      rollbackLogical: false,
+      error: 'No se puede aplicar rollback porque existen candidatos convertidos.',
+    };
+  }
+
+  const hasAccountLinked = candidates?.some((c) => c.account_id !== null);
+  if (hasAccountLinked) {
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated: 0,
+      batchStatus: batch.status,
+      rollbackLogical: false,
+      error: 'No se puede aplicar rollback porque existen candidatos asociados a una cuenta.',
+    };
+  }
+
+  const rollbackReason = reason || '16AJ.10 structured co_rues agent_1 QA rollback';
+  const nowStr = new Date().toISOString();
+
+  // 6. Actualizar candidatos de forma secuencial segura
+  let candidatesUpdated = 0;
+  if (candidates && candidates.length > 0) {
+    const updatePromises = candidates.map((c) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const currentMeta = (c.metadata as Record<string, any>) || {};
+      const updatedMeta = {
+        ...currentMeta,
+        rollback_logical: true,
+        rollback_logical_at: nowStr,
+        rollback_reason: rollbackReason,
+        rollback_scope: 'agent_1_structured_batch',
+        rollback_by: internalUserId,
+      };
+
+      return supabase
+        .from('prospect_candidates')
+        .update({
+          status: 'discarded',
+          review_status: 'rejected',
+          updated_at: nowStr,
+          metadata: updatedMeta,
+        })
+        .eq('id', c.id);
+    });
+
+    const updateResults = await Promise.all(updatePromises);
+    const errors = updateResults.filter((r) => r.error);
+    if (errors.length > 0) {
+      console.error('Error al actualizar candidatos durante rollback:', errors);
+      return {
+        ok: false,
+        batchId,
+        candidatesUpdated: 0,
+        batchStatus: batch.status,
+        rollbackLogical: false,
+        error: 'Error al actualizar uno o más candidatos durante el rollback lógico.',
+      };
+    }
+    candidatesUpdated = candidates.length;
+  }
+
+  // 7. Actualizar el lote
+  const updatedBatchMeta = {
+    ...meta,
+    rollback_logical: true,
+    rollback_logical_at: nowStr,
+    rollback_reason: rollbackReason,
+    rollback_scope: 'agent_1_structured_batch',
+    rollback_by: internalUserId,
+  };
+
+  const { error: batchUpdateErr } = await supabase
+    .from('prospect_batches')
+    .update({
+      status: 'cancelled',
+      updated_at: nowStr,
+      metadata: updatedBatchMeta,
+    })
+    .eq('id', batchId);
+
+  if (batchUpdateErr) {
+    console.error('Error al actualizar lote durante rollback:', batchUpdateErr);
+    return {
+      ok: false,
+      batchId,
+      candidatesUpdated,
+      batchStatus: batch.status,
+      rollbackLogical: false,
+      error: 'Error al cancelar el lote de prospección.',
+    };
+  }
+
+  // 8. Log de auditoría
+  await logProspectCandidateAudit({
+    batchId,
+    actorUserId: internalUserId,
+    actionType: 'batch_status_changed',
+    details: {
+      from_status: batch.status,
+      to_status: 'cancelled',
+      rollback: true,
+      reason: rollbackReason,
+      candidates_count: candidatesUpdated,
+    },
+  });
+
+  revalidatePath('/prospect-batches');
+  revalidatePath(`/prospect-batches/${batchId}`);
+
+  return {
+    ok: true,
+    batchId,
+    candidatesUpdated,
+    batchStatus: 'cancelled',
+    rollbackLogical: true,
+  };
+}
