@@ -206,11 +206,40 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                     {PIPELINE_STATUS_LABELS[account.pipeline_status]}
                   </span>
                 </DetailRow>
-                {account.hubspot_company_id && (
-                  <DetailRow icon={Globe} label="HubSpot ID">
-                    <span className="font-mono text-xs">{account.hubspot_company_id}</span>
+                {account.hubspot_company_id ? (
+                  <DetailRow icon={Globe} label="HubSpot">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        Sincronizado
+                      </span>
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {account.hubspot_company_id}
+                      </p>
+                    </div>
                   </DetailRow>
-                )}
+                ) : (() => {
+                  const syncStatus = safeMetadata.hubspot_sync_status as string | undefined;
+                  if (!syncStatus) return null;
+
+                  const statusMap: Record<string, { label: string; className: string }> = {
+                    blocked_duplicate: { label: 'No creado: duplicado en HubSpot', className: 'text-amber-600 dark:text-amber-400' },
+                    failed_create: { label: 'Error al crear en HubSpot', className: 'text-destructive' },
+                    failed_lookup: { label: 'Error en verificación HubSpot', className: 'text-destructive' },
+                    skipped_flag_off: { label: 'Sincronización HubSpot desactivada', className: 'text-muted-foreground/60' },
+                    skipped_no_connection: { label: 'HubSpot sin conexión activa', className: 'text-muted-foreground/60' },
+                    skipped_missing_write_scope: { label: 'HubSpot sin permiso de escritura', className: 'text-muted-foreground/60' },
+                    skipped_rollback: { label: 'Cuenta no operativa · sin sync', className: 'text-muted-foreground/60' },
+                  };
+
+                  const info = statusMap[syncStatus];
+                  if (!info) return null;
+
+                  return (
+                    <DetailRow icon={Globe} label="HubSpot">
+                      <span className={`text-xs ${info.className}`}>{info.label}</span>
+                    </DetailRow>
+                  );
+                })()}
               </dl>
 
               {account.notes && (

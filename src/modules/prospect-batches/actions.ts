@@ -1,11 +1,15 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
 import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
+import { testHubSpotConnection } from '@/server/services/hubspot-connection';
+import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
+import { createHubSpotCompany } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
@@ -26,6 +30,25 @@ import {
   type BatchStatus,
   type DuplicateStatus,
 } from './types';
+
+// ── HubSpot sync types ─────────────────────────────────────────
+
+export type HubSpotSyncStatus =
+  | 'skipped_flag_off'
+  | 'skipped_no_connection'
+  | 'skipped_missing_write_scope'
+  | 'skipped_rollback'
+  | 'blocked_duplicate'
+  | 'failed_lookup'
+  | 'failed_create'
+  | 'synced';
+
+export interface HubSpotSyncResult {
+  attempted: boolean;
+  status: HubSpotSyncStatus;
+  hubspotCompanyId?: string;
+  message?: string;
+}
 
 // ── Auth helpers ──────────────────────────────────────────────
 
@@ -804,7 +827,198 @@ export async function markCandidateDuplicate(
   return data as ProspectCandidate;
 }
 
-export async function convertCandidateToAccount(id: string): Promise<{ accountId: string }> {
+// ── HubSpot sync helper ───────────────────────────────────────
+
+function getHubSpotAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Supabase service credentials not configured');
+  return createAdminClient(url, key);
+}
+
+async function updateAccountHubSpotMeta(
+  accountId: string,
+  metaPatch: Record<string, unknown>,
+  existingMeta: Record<string, unknown>
+): Promise<void> {
+  const admin = getHubSpotAdminClient();
+  await admin
+    .from('accounts')
+    .update({
+      metadata: { ...existingMeta, ...metaPatch },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', accountId);
+}
+
+async function attemptHubSpotSync(params: {
+  accountId: string;
+  accountName: string;
+  accountMeta: Record<string, unknown>;
+  accountCountry: string | null;
+  accountCountryCode: string | null;
+  accountTaxIdentifier: string | null;
+  accountWebsite: string | null;
+  accountDomain: string | null;
+  accountCity: string | null;
+  accountRegion: string | null;
+  candidateDuplicateStatus: string | null;
+}): Promise<HubSpotSyncResult> {
+  const {
+    accountId,
+    accountName,
+    accountMeta,
+    accountCountry,
+    accountCountryCode,
+    accountTaxIdentifier,
+    accountWebsite,
+    accountDomain,
+    accountCity,
+    accountRegion,
+    candidateDuplicateStatus,
+  } = params;
+
+  const nowStr = new Date().toISOString();
+
+  // 1. Feature flag
+  const flagEnabled = process.env.HUBSPOT_COMPANY_AUTO_CREATE_ENABLED === 'true';
+  if (!flagEnabled) {
+    await updateAccountHubSpotMeta(accountId, { hubspot_sync_status: 'skipped_flag_off', hubspot_sync_method: 'auto', hubspot_sync_attempted_at: nowStr }, accountMeta);
+    return { attempted: false, status: 'skipped_flag_off' };
+  }
+
+  // 2. Rollback guard
+  if (accountMeta.rollback_logical === true) {
+    await updateAccountHubSpotMeta(accountId, { hubspot_sync_status: 'skipped_rollback', hubspot_sync_method: 'auto', hubspot_sync_attempted_at: nowStr }, accountMeta);
+    return { attempted: false, status: 'skipped_rollback' };
+  }
+
+  // 3. Validate HubSpot connection + write scope
+  let connectionResult;
+  try {
+    connectionResult = await testHubSpotConnection();
+  } catch {
+    await updateAccountHubSpotMeta(accountId, { hubspot_sync_status: 'skipped_no_connection', hubspot_sync_method: 'auto', hubspot_sync_attempted_at: nowStr }, accountMeta);
+    return { attempted: false, status: 'skipped_no_connection' };
+  }
+
+  if (!connectionResult.success) {
+    await updateAccountHubSpotMeta(accountId, { hubspot_sync_status: 'skipped_no_connection', hubspot_sync_method: 'auto', hubspot_sync_attempted_at: nowStr }, accountMeta);
+    return { attempted: false, status: 'skipped_no_connection' };
+  }
+
+  if (!connectionResult.hubspotScopes?.canWriteCompanies) {
+    await updateAccountHubSpotMeta(accountId, { hubspot_sync_status: 'skipped_missing_write_scope', hubspot_sync_method: 'auto', hubspot_sync_attempted_at: nowStr }, accountMeta);
+    return { attempted: false, status: 'skipped_missing_write_scope' };
+  }
+
+  // 4. Candidate duplicate guard — only proceed if no_match
+  if (candidateDuplicateStatus !== 'no_match') {
+    await updateAccountHubSpotMeta(accountId, {
+      hubspot_sync_status: 'blocked_duplicate',
+      hubspot_sync_blocked_reason: `candidate_duplicate_status:${candidateDuplicateStatus ?? 'null'}`,
+      hubspot_sync_method: 'auto',
+      hubspot_sync_attempted_at: nowStr,
+    }, accountMeta);
+    return { attempted: true, status: 'blocked_duplicate', message: `candidate.duplicate_status=${candidateDuplicateStatus}` };
+  }
+
+  // 5. Colombia requires tax_identifier
+  if (accountCountryCode === 'CO' && !accountTaxIdentifier) {
+    await updateAccountHubSpotMeta(accountId, {
+      hubspot_sync_status: 'blocked_duplicate',
+      hubspot_sync_blocked_reason: 'co_missing_tax_identifier',
+      hubspot_sync_method: 'auto',
+      hubspot_sync_attempted_at: nowStr,
+    }, accountMeta);
+    return { attempted: false, status: 'blocked_duplicate', message: 'Colombia requires tax_identifier' };
+  }
+
+  // 6. Final HubSpot duplicate check (read-only)
+  const domain = accountDomain ?? (accountWebsite ? (() => {
+    try {
+      const url = accountWebsite.startsWith('http') ? accountWebsite : `https://${accountWebsite}`;
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch { return null; }
+  })() : null);
+
+  let finalCheck;
+  try {
+    finalCheck = await checkHubSpotCompanyCommercialStatus({
+      name: accountName,
+      domain: domain ?? null,
+      taxId: accountTaxIdentifier ?? null,
+      countryCode: accountCountryCode ?? null,
+    });
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message.slice(0, 200) : 'Error desconocido';
+    await updateAccountHubSpotMeta(accountId, {
+      hubspot_sync_status: 'failed_lookup',
+      hubspot_sync_error: errMsg,
+      hubspot_sync_method: 'auto',
+      hubspot_sync_attempted_at: nowStr,
+    }, accountMeta);
+    return { attempted: true, status: 'failed_lookup' };
+  }
+
+  if (finalCheck.hubspotMatchStatus !== 'no_match') {
+    await updateAccountHubSpotMeta(accountId, {
+      hubspot_sync_status: 'blocked_duplicate',
+      hubspot_sync_blocked_reason: finalCheck.hubspotMatchStatus,
+      hubspot_match_status_at_sync: finalCheck.hubspotMatchStatus,
+      hubspot_sync_method: 'auto',
+      hubspot_sync_attempted_at: nowStr,
+    }, accountMeta);
+    return { attempted: true, status: 'blocked_duplicate', message: `HubSpot match: ${finalCheck.hubspotMatchStatus}` };
+  }
+
+  // 7. Create company in HubSpot
+  const createResult = await createHubSpotCompany({
+    name: accountName,
+    country: accountCountry ?? null,
+    countryCode: accountCountryCode ?? null,
+    taxIdentifier: accountTaxIdentifier ?? null,
+    website: accountWebsite ?? null,
+    domain: domain ?? null,
+    city: accountCity ?? null,
+    region: accountRegion ?? null,
+  });
+
+  if (createResult.ok && createResult.hubspotCompanyId) {
+    const admin = getHubSpotAdminClient();
+    await admin
+      .from('accounts')
+      .update({
+        hubspot_company_id: createResult.hubspotCompanyId,
+        metadata: {
+          ...accountMeta,
+          hubspot_sync_status: 'synced',
+          hubspot_sync_method: 'auto',
+          hubspot_sync_attempted_at: nowStr,
+          hubspot_synced_at: nowStr,
+          hubspot_company_id: createResult.hubspotCompanyId,
+          hubspot_match_status_at_sync: 'no_match',
+          hubspot_sync_source: 'candidate_conversion',
+        },
+        updated_at: nowStr,
+      })
+      .eq('id', accountId);
+
+    return { attempted: true, status: 'synced', hubspotCompanyId: createResult.hubspotCompanyId };
+  }
+
+  await updateAccountHubSpotMeta(accountId, {
+    hubspot_sync_status: 'failed_create',
+    hubspot_sync_method: 'auto',
+    hubspot_sync_attempted_at: nowStr,
+    hubspot_sync_error: createResult.error?.slice(0, 200) ?? 'unknown',
+  }, accountMeta);
+  return { attempted: true, status: 'failed_create', message: 'Error al crear en HubSpot' };
+}
+
+// ── Conversión candidate → account ───────────────────────────
+
+export async function convertCandidateToAccount(id: string): Promise<{ accountId: string; hubspotSync: HubSpotSyncResult }> {
   const { internalUserId } = await requireActiveUser();
   const supabase = await createClient();
 
@@ -895,7 +1109,32 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
 
   revalidatePath(`/prospect-batches/${candidate.batch_id}`);
   revalidatePath('/accounts');
-  return { accountId: account.id };
+
+  // HubSpot auto-sync — never throws; failure does not fail the conversion
+  let hubspotSync: HubSpotSyncResult;
+  try {
+    hubspotSync = await attemptHubSpotSync({
+      accountId: account.id,
+      accountName: account.name,
+      accountMeta,
+      accountCountry: account.country ?? null,
+      accountCountryCode: account.country_code ?? null,
+      accountTaxIdentifier: account.tax_identifier ?? null,
+      accountWebsite: account.website ?? null,
+      accountDomain: account.domain ?? null,
+      accountCity: account.city ?? null,
+      accountRegion: account.region ?? null,
+      candidateDuplicateStatus: (candidateRaw.duplicate_status as string | null) ?? null,
+    });
+  } catch {
+    hubspotSync = { attempted: false, status: 'failed_create', message: 'Error inesperado en sync' };
+  }
+
+  if (hubspotSync.status === 'synced') {
+    revalidatePath(`/accounts/${account.id}`);
+  }
+
+  return { accountId: account.id, hubspotSync };
 }
 
 // ── Usuarios para selectores ──────────────────────────────────

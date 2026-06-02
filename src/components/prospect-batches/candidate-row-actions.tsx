@@ -269,10 +269,25 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
   async function handleConvert() {
     setLoading(true);
     try {
-      await convertCandidateToAccount(candidate.id);
+      const result = await convertCandidateToAccount(candidate.id);
+      const sync = result.hubspotSync;
+
+      let message: string;
+      if (sync.status === 'synced') {
+        message = 'Empresa creada en SellUp y HubSpot.';
+      } else if (sync.status === 'skipped_flag_off') {
+        message = 'Empresa creada en SellUp. Sincronización HubSpot desactivada.';
+      } else if (sync.status === 'blocked_duplicate') {
+        message = 'Empresa creada en SellUp. No se creó en HubSpot porque se detectó una coincidencia.';
+      } else if (sync.attempted) {
+        message = 'Empresa creada en SellUp. No se pudo sincronizar con HubSpot.';
+      } else {
+        message = 'Empresa prospecto creada.';
+      }
+
       toast.success(
         <span>
-          Empresa prospecto creada.{' '}
+          {message}{' '}
           <button
             className="underline font-medium"
             onClick={() => router.push(`/accounts`)}
