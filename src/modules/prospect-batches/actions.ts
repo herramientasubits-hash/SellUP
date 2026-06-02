@@ -1273,6 +1273,14 @@ export interface GenerateAIBatchResult {
     /** Hito 16AK.7C — true si se usó auto-paginación */
     autoMode?: boolean;
   };
+  /** Hito 16AK.10 — Estrategia de fuentes aplicada en esta generación */
+  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only';
+  /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
+  commercialBatch?: {
+    skipped: boolean;
+    reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results';
+    batchId?: string | null;
+  };
 }
 
 export async function runProspectPreflight(params: {
@@ -1338,6 +1346,8 @@ export async function generateAIProspectBatch(
     estimatedCostUsd: result.estimatedCostUsd,
     structuredSourcePreflight: result.structuredSourcePreflight,
     structuredSourceBatch: result.structuredSourceBatch,
+    sourceStrategy: result.sourceStrategy,
+    commercialBatch: result.commercialBatch,
   };
 }
 

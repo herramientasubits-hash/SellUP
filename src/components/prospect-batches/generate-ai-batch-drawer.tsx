@@ -127,6 +127,7 @@ export function GenerateAIBatchDrawer() {
     React.useState<SourceDiscoveryPreflightResult | null>(null);
   const [generatedBatchId, setGeneratedBatchId] = React.useState<string | null>(null);
   const [structuredBatchResult, setStructuredBatchResult] = React.useState<any | null>(null);
+  const [sourceStrategy, setSourceStrategy] = React.useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
@@ -145,6 +146,7 @@ export function GenerateAIBatchDrawer() {
     setPreflightResult(null);
     setGeneratedBatchId(null);
     setStructuredBatchResult(null);
+    setSourceStrategy(null);
     setAdvancedOpen(false);
   }
 
@@ -215,6 +217,7 @@ export function GenerateAIBatchDrawer() {
         setStructuredBatchResult(result.structuredSourceBatch ?? null);
         setPreflightResult(result.structuredSourcePreflight ?? null);
         setGeneratedBatchId(result.batchId);
+        setSourceStrategy(result.sourceStrategy ?? null);
         setProgressMsg('');
       } else {
         setOpen(false);
@@ -272,6 +275,7 @@ export function GenerateAIBatchDrawer() {
                 structuredBatch={structuredBatchResult}
                 apolloBatchId={generatedBatchId}
                 structuredSourcePage={form.advStructuredSourcePage}
+                sourceStrategy={sourceStrategy}
               />
             ) : (
               /* ── Formulario principal ── */
@@ -536,17 +540,71 @@ export function GenerateAIBatchDrawer() {
           <SheetFooter className="shrink-0 border-t border-border/50 px-7 py-4">
             {showPreflightResult ? (
               <div className="flex w-full flex-col gap-3">
-                {structuredBatchResult?.ok && structuredBatchResult.batchId && (
+                {/* Mensaje contextual según estrategia de fuentes */}
+                {sourceStrategy === 'official_source_satisfied' ? (
+                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                    SellUp encontró suficientes empresas en la fuente oficial. La fuente comercial no fue necesaria.
+                  </p>
+                ) : sourceStrategy === 'official_plus_commercial' ? (
+                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                    SellUp completó la búsqueda con fuente comercial porque la fuente oficial no alcanzó la cantidad solicitada.
+                  </p>
+                ) : sourceStrategy === 'commercial_fallback' ? (
+                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                    No se encontraron empresas nuevas en la fuente oficial. SellUp buscó en fuente comercial como alternativa.
+                  </p>
+                ) : structuredBatchResult?.ok && structuredBatchResult.batchId ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
                     SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado mientras consolidamos la bandeja unificada.
                   </p>
-                )}
+                ) : null}
+
                 <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <Button type="button" variant="outline" size="sm" onClick={handleClose}>
                     Cerrar
                   </Button>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    {structuredBatchResult?.ok && structuredBatchResult.batchId ? (
+                    {sourceStrategy === 'official_source_satisfied' ? (
+                      /* Solo fuente oficial — sin botón Apollo */
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const sId = structuredBatchResult?.batchId;
+                          handleClose();
+                          if (sId) router.push(`/prospect-batches/${sId}`);
+                        }}
+                        className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                      >
+                        Revisar empresas candidatas
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : sourceStrategy === 'official_plus_commercial' && structuredBatchResult?.ok && structuredBatchResult.batchId ? (
+                      /* RUES como principal, Apollo como complemento */
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleGoToBatch}
+                          className="gap-1.5 text-muted-foreground"
+                        >
+                          Ver complemento comercial
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const sId = structuredBatchResult.batchId;
+                            handleClose();
+                            if (sId) router.push(`/prospect-batches/${sId}`);
+                          }}
+                          className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                        >
+                          Revisar empresas candidatas
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    ) : structuredBatchResult?.ok && structuredBatchResult.batchId ? (
+                      /* Legacy: dos botones (modo manual / QA) */
                       <>
                         <Button
                           size="sm"
@@ -571,6 +629,7 @@ export function GenerateAIBatchDrawer() {
                         </Button>
                       </>
                     ) : (
+                      /* Solo Apollo (fallback o non-CO) */
                       <Button
                         size="sm"
                         onClick={handleGoToBatch}
@@ -667,6 +726,7 @@ interface GenerationResultPanelProps {
   structuredBatch: StructuredBatchResult | null | undefined;
   apolloBatchId: string | null;
   structuredSourcePage?: number;
+  sourceStrategy?: string | null;
 }
 
 function GenerationResultPanel({
@@ -674,6 +734,7 @@ function GenerationResultPanel({
   structuredBatch,
   apolloBatchId,
   structuredSourcePage = 1,
+  sourceStrategy,
 }: GenerationResultPanelProps) {
   const statusIcon = result ? PREFLIGHT_STATUS_ICONS[result.status] ?? PREFLIGHT_STATUS_ICONS.skipped : null;
   const statusLabel = result ? PREFLIGHT_STATUS_LABELS[result.status] ?? result.status : '';
@@ -693,29 +754,35 @@ function GenerationResultPanel({
         </p>
       </div>
 
-      {/* Lote Apollo */}
-      <div className="rounded-xl border border-border/40 bg-card p-4 space-y-3">
-        <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-          <div className="h-2 w-2 rounded-full bg-su-brand" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-            Empresas generadas (Apollo)
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Estado:</span>
-          <span className="font-medium text-emerald-500 flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" /> Creado
-          </span>
-        </div>
-        {apolloBatchId && (
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Batch ID:</span>
-            <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
-              {apolloBatchId.slice(0, 8)}…
-            </code>
+      {/* Lote Apollo — oculto si fuente oficial satisfizo completamente */}
+      {sourceStrategy !== 'official_source_satisfied' && (
+        <div className="rounded-xl border border-border/40 bg-card p-4 space-y-3">
+          <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+            <div className="h-2 w-2 rounded-full bg-su-brand" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+              {sourceStrategy === 'official_plus_commercial'
+                ? 'Complemento comercial (Apollo)'
+                : sourceStrategy === 'commercial_fallback'
+                ? 'Fuente alternativa (Apollo)'
+                : 'Empresas generadas (Apollo)'}
+            </span>
           </div>
-        )}
-      </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Estado:</span>
+            <span className="font-medium text-emerald-500 flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" /> Creado
+            </span>
+          </div>
+          {apolloBatchId && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Batch ID:</span>
+              <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
+                {apolloBatchId.slice(0, 8)}…
+              </code>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Lote fuente oficial (si se intentó) */}
       {structuredBatch && (() => {

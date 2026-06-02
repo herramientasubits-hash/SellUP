@@ -79,6 +79,14 @@ export interface ProspectGenerationResult {
     /** Hito 16AK.7C — true si se usó auto-paginación */
     autoMode?: boolean;
   };
+  /** Hito 16AK.10 — Estrategia de fuentes aplicada en esta generación */
+  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only';
+  /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
+  commercialBatch?: {
+    skipped: boolean;
+    reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results';
+    batchId?: string | null;
+  };
 }
 
 interface NormalizedCandidate {
@@ -412,6 +420,159 @@ export function filterBySectorFit(
 }
 
 // ============================================================
+// Structured source constants (module-level for reuse)
+// ============================================================
+
+const STRUCTURED_LIMIT = 5;
+const STRUCTURED_PAGE_MAX = 5;
+
+// ============================================================
+// Hito 16AK.10 — RUES auto-pagination phase helper
+// Extracts the auto-pagination logic so it can run before Apollo.
+// ============================================================
+
+type StructuredBatchPhaseResult = NonNullable<ProspectGenerationResult['structuredSourceBatch']>;
+
+async function runRuesAutoPagePhase(params: {
+  admin: ReturnType<typeof getAdminClient>;
+  internalUserId: string;
+  agentRunId: string;
+  country: string;
+  countryCode: string;
+  industry: string;
+  searchDepth: 'basic' | 'standard';
+  now: Date;
+  structuredLimit: number;
+  structuredPageMax: number;
+  batchNameSuffix: string;
+}): Promise<StructuredBatchPhaseResult> {
+  const {
+    admin, internalUserId, agentRunId, country, industry, searchDepth,
+    now, structuredLimit, structuredPageMax, batchNameSuffix,
+  } = params;
+
+  const pagesScanned: number[] = [];
+  let result: StructuredBatchPhaseResult | undefined;
+
+  for (let autoPage = 1; autoPage <= structuredPageMax; autoPage++) {
+    pagesScanned.push(autoPage);
+    const autoOffset = (autoPage - 1) * structuredLimit;
+
+    const discoveryOutput = await runSourceDiscovery({
+      sourceKey: 'co_rues',
+      countryCode: 'CO',
+      criteria: { country, industry: industry ?? null },
+      limit: structuredLimit,
+      offset: autoOffset,
+      mode: 'dry_run',
+    });
+
+    if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+      result = {
+        ok: false,
+        batchId: null,
+        sourceKey: 'co_rues',
+        candidatesWritten: 0,
+        candidatesSkipped: 0,
+        warnings: discoveryOutput.warnings,
+        errors: discoveryOutput.errors,
+        pagesScanned,
+        autoMode: true,
+      };
+      break;
+    }
+
+    const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
+      dryRun: false,
+      createdBy: internalUserId,
+      ownerId: internalUserId,
+      country,
+      countryCode: 'CO',
+      sourceKey: 'co_rues',
+      sourceProvider: 'socrata_colombia',
+      dataset: 'co_rues',
+      batchName: `Agente 1 · ${country} · ${industry} · RUES · ${batchNameSuffix}`,
+      industry,
+      targetCount: structuredLimit,
+      searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
+      agentRunId,
+      initiatedBy: 'agent_1',
+      candidates: discoveryOutput.candidates,
+      previewMode: true,
+      runHubSpotCheck: true,
+      limit: structuredLimit,
+      metadata: {
+        structured_source_page: autoPage,
+        structured_source_offset: autoOffset,
+        structured_source_limit: structuredLimit,
+        source_pagination_mode: 'auto_page_offset',
+      },
+    });
+
+    const writerErrors = writerResult.errors
+      .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
+      .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+    const allWarnings = [
+      ...discoveryOutput.warnings,
+      ...writerResult.errors
+        .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
+        .map((e) => e.message),
+    ];
+
+    if (writerResult.batch.status === 'batch_creation_failed') {
+      result = {
+        ok: false,
+        batchId: null,
+        sourceKey: 'co_rues',
+        candidatesWritten: 0,
+        candidatesSkipped: discoveryOutput.candidates.length,
+        warnings: allWarnings,
+        errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+        pagesScanned,
+        autoMode: true,
+      };
+      break;
+    }
+
+    if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+      continue;
+    }
+
+    result = {
+      ok: writerResult.batch.created,
+      batchId: writerResult.batch.id,
+      sourceKey: 'co_rues',
+      candidatesWritten: writerResult.batch.totalCandidatesWritten,
+      candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
+      warnings: allWarnings,
+      errors: [...discoveryOutput.errors, ...writerErrors],
+      pageUsed: autoPage,
+      pagesScanned,
+      autoMode: true,
+    };
+    break;
+  }
+
+  if (!result) {
+    result = {
+      ok: false,
+      batchId: null,
+      sourceKey: 'co_rues',
+      candidatesWritten: 0,
+      candidatesSkipped: 0,
+      warnings: ['all_candidates_already_in_db', 'all_pages_scanned'],
+      errors: [],
+      pagesScanned,
+      autoMode: true,
+    };
+  }
+
+  void now; // used externally for batchNameSuffix
+
+  return result;
+}
+
+// ============================================================
 // Main agent orchestrator
 // ============================================================
 
@@ -427,8 +588,6 @@ export async function runProspectGenerationAgent(
     structuredSourcePageAuto = false,
   } = params;
 
-  const STRUCTURED_LIMIT = 5;
-  const STRUCTURED_PAGE_MAX = 5;
   const structuredSourcePage = Math.max(1, Math.min(
     STRUCTURED_PAGE_MAX,
     Number.isInteger(rawStructuredSourcePage) && rawStructuredSourcePage != null
@@ -500,6 +659,84 @@ export async function runProspectGenerationAgent(
   const admin = getAdminClient();
   const now = new Date();
   const batchName = `Agente 1 · ${country} · ${industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+
+  // ── Hito 16AK.10: Colombia official-first path ─────────────────────────────
+  // Modo vendedor CO: RUES ejecuta primero. Si encuentra suficientes empresas
+  // nuevas, Apollo NO se ejecuta (ni se crea su lote, ni se registra su costo).
+  // Si RUES no alcanza el objetivo, Apollo corre como complemento o fallback.
+  const coOfficialFirstMode =
+    countryCode === 'CO' && createStructuredSourceBatch && structuredSourcePageAuto;
+  let ruesPhaseRanEarly = false;
+  let ruesEarlyResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
+  let sourceStrategy: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' =
+    'commercial_only';
+
+  if (coOfficialFirstMode) {
+    try {
+      ruesEarlyResult = await runRuesAutoPagePhase({
+        admin,
+        internalUserId,
+        agentRunId: agentRun.id,
+        country,
+        countryCode,
+        industry,
+        searchDepth,
+        now,
+        structuredLimit: STRUCTURED_LIMIT,
+        structuredPageMax: STRUCTURED_PAGE_MAX,
+        batchNameSuffix: now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }),
+      });
+      ruesPhaseRanEarly = true;
+
+      const officialCandidates = ruesEarlyResult?.candidatesWritten ?? 0;
+
+      if (officialCandidates >= safeCount) {
+        // Fuente oficial satisface el objetivo — Apollo no se ejecuta ni se factura.
+        sourceStrategy = 'official_source_satisfied';
+        await updateAgentRun(agentRun.id, {
+          status: 'completed',
+          results_generated: officialCandidates,
+          results_unique: officialCandidates,
+          estimated_cost_usd: 0,
+          finished_at: new Date().toISOString(),
+          metadata: {
+            source_strategy: sourceStrategy,
+            structured_source_batch: ruesEarlyResult,
+            duration_ms: Date.now() - startedAt,
+          },
+        });
+        return {
+          success: true,
+          batchId: ruesEarlyResult?.batchId ?? null,
+          agentRunId: agentRun.id,
+          candidatesCreated: officialCandidates,
+          estimatedCostUsd: 0,
+          structuredSourceBatch: ruesEarlyResult,
+          sourceStrategy,
+          commercialBatch: { skipped: true, reason: 'official_source_satisfied' },
+        };
+      }
+
+      // RUES corrió pero no alcanzó el objetivo — Apollo corre como complemento o fallback.
+      sourceStrategy = ruesEarlyResult?.ok ? 'official_plus_commercial' : 'commercial_fallback';
+    } catch (ruesEarlyErr: unknown) {
+      const msg = ruesEarlyErr instanceof Error ? ruesEarlyErr.message : 'Error inesperado en pre-fase RUES';
+      console.warn('[agent-1] RUES early phase failed (non-blocking), falling back to Apollo:', msg);
+      sourceStrategy = 'commercial_fallback';
+      ruesEarlyResult = {
+        ok: false,
+        batchId: null,
+        sourceKey: 'co_rues',
+        candidatesWritten: 0,
+        candidatesSkipped: 0,
+        warnings: [],
+        errors: [msg],
+        autoMode: true,
+      };
+      ruesPhaseRanEarly = true;
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Step 2: Create prospect_batch
   const { data: batch, error: batchError } = await admin
@@ -819,101 +1056,97 @@ export async function runProspectGenerationAgent(
 
     let structuredSourceBatchResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
 
-    if (createStructuredSourceBatch && countryCode === 'CO') {
+    if (ruesPhaseRanEarly) {
+      // Hito 16AK.10: RUES ya ejecutó antes de Apollo — reutilizar ese resultado.
+      structuredSourceBatchResult = ruesEarlyResult;
+    } else if (createStructuredSourceBatch && countryCode === 'CO') {
+      // Modo manual (QA/avanzado con página específica): auto-paginación no aplica aquí
+      // porque structuredSourcePageAuto=false cuando el usuario abrió opciones avanzadas.
       try {
         const structuredLimit = STRUCTURED_LIMIT;
 
-        if (structuredSourcePageAuto) {
-          // ── Auto-paginación (modo vendedor): intenta páginas 1–STRUCTURED_PAGE_MAX ──
-          const pagesScanned: number[] = [];
+        // ── Modo manual: usa la página seleccionada por el usuario ──
+        const discoveryOutput = await runSourceDiscovery({
+          sourceKey: 'co_rues',
+          countryCode: 'CO',
+          criteria: {
+            country,
+            industry: industry ?? null,
+          },
+          limit: structuredLimit,
+          offset: structuredOffset,
+          mode: 'dry_run',
+        });
 
-          for (let autoPage = 1; autoPage <= STRUCTURED_PAGE_MAX; autoPage++) {
-            pagesScanned.push(autoPage);
-            const autoOffset = (autoPage - 1) * structuredLimit;
+        if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+          structuredSourceBatchResult = {
+            ok: false,
+            batchId: null,
+            sourceKey: 'co_rues',
+            candidatesWritten: 0,
+            candidatesSkipped: 0,
+            warnings: discoveryOutput.warnings,
+            errors: discoveryOutput.errors,
+          };
+        } else {
+          const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
+            dryRun: false,
+            createdBy: internalUserId,
+            ownerId: internalUserId,
+            country,
+            countryCode: 'CO',
+            sourceKey: 'co_rues',
+            sourceProvider: 'socrata_colombia',
+            dataset: 'co_rues',
+            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+            industry,
+            targetCount: structuredLimit,
+            searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
+            agentRunId: agentRun.id,
+            initiatedBy: 'agent_1',
+            candidates: discoveryOutput.candidates,
+            previewMode: true,
+            runHubSpotCheck: true,
+            limit: structuredLimit,
+            metadata: {
+              structured_source_page: structuredSourcePage,
+              structured_source_offset: structuredOffset,
+              structured_source_limit: structuredLimit,
+              source_pagination_mode: 'page_offset',
+            },
+          });
 
-            const discoveryOutput = await runSourceDiscovery({
+          const writerErrors = writerResult.errors
+            .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
+            .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+          const allWarnings = [
+            ...discoveryOutput.warnings,
+            ...writerResult.errors
+              .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
+              .map((e) => e.message),
+          ];
+
+          if (writerResult.batch.status === 'batch_creation_failed') {
+            structuredSourceBatchResult = {
+              ok: false,
+              batchId: null,
               sourceKey: 'co_rues',
-              countryCode: 'CO',
-              criteria: { country, industry: industry ?? null },
-              limit: structuredLimit,
-              offset: autoOffset,
-              mode: 'dry_run',
-            });
-
-            // Error de discovery (e.g. socrata_timeout): detener loop
-            if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
-              structuredSourceBatchResult = {
-                ok: false,
-                batchId: null,
-                sourceKey: 'co_rues',
-                candidatesWritten: 0,
-                candidatesSkipped: 0,
-                warnings: discoveryOutput.warnings,
-                errors: discoveryOutput.errors,
-                pagesScanned,
-                autoMode: true,
-              };
-              break;
-            }
-
-            const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
-              dryRun: false,
-              createdBy: internalUserId,
-              ownerId: internalUserId,
-              country,
-              countryCode: 'CO',
+              candidatesWritten: 0,
+              candidatesSkipped: discoveryOutput.candidates.length,
+              warnings: allWarnings,
+              errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+            };
+          } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+            structuredSourceBatchResult = {
+              ok: false,
+              batchId: null,
               sourceKey: 'co_rues',
-              sourceProvider: 'socrata_colombia',
-              dataset: 'co_rues',
-              batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
-              industry,
-              targetCount: structuredLimit,
-              searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
-              agentRunId: agentRun.id,
-              initiatedBy: 'agent_1',
-              candidates: discoveryOutput.candidates,
-              previewMode: true,
-              runHubSpotCheck: true,
-              limit: structuredLimit,
-              metadata: {
-                structured_source_page: autoPage,
-                structured_source_offset: autoOffset,
-                structured_source_limit: structuredLimit,
-                source_pagination_mode: 'auto_page_offset',
-              },
-            });
-
-            const writerErrors = writerResult.errors
-              .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
-              .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
-            const allWarnings = [
-              ...discoveryOutput.warnings,
-              ...writerResult.errors
-                .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
-                .map((e) => e.message),
-            ];
-
-            if (writerResult.batch.status === 'batch_creation_failed') {
-              structuredSourceBatchResult = {
-                ok: false,
-                batchId: null,
-                sourceKey: 'co_rues',
-                candidatesWritten: 0,
-                candidatesSkipped: discoveryOutput.candidates.length,
-                warnings: allWarnings,
-                errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
-                pagesScanned,
-                autoMode: true,
-              };
-              break;
-            }
-
-            if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
-              // Página sin candidatos nuevos — continuar con la siguiente
-              continue;
-            }
-
-            // Éxito: candidatos nuevos encontrados en autoPage
+              candidatesWritten: 0,
+              candidatesSkipped: writerResult.batch.totalCandidatesPrepared,
+              warnings: [...allWarnings, writerResult.batch.status === 'empty' ? 'structured_source_returned_no_candidates' : 'all_candidates_already_in_db'],
+              errors: [...discoveryOutput.errors, ...writerErrors],
+            };
+          } else {
             structuredSourceBatchResult = {
               ok: writerResult.batch.created,
               batchId: writerResult.batch.id,
@@ -922,120 +1155,7 @@ export async function runProspectGenerationAgent(
               candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
               warnings: allWarnings,
               errors: [...discoveryOutput.errors, ...writerErrors],
-              pageUsed: autoPage,
-              pagesScanned,
-              autoMode: true,
             };
-            break;
-          }
-
-          // Todas las páginas agotadas sin candidatos nuevos
-          if (!structuredSourceBatchResult) {
-            structuredSourceBatchResult = {
-              ok: false,
-              batchId: null,
-              sourceKey: 'co_rues',
-              candidatesWritten: 0,
-              candidatesSkipped: 0,
-              warnings: ['all_candidates_already_in_db', 'all_pages_scanned'],
-              errors: [],
-              pagesScanned,
-              autoMode: true,
-            };
-          }
-        } else {
-          // ── Modo manual: usa la página seleccionada por el usuario ──
-          const discoveryOutput = await runSourceDiscovery({
-            sourceKey: 'co_rues',
-            countryCode: 'CO',
-            criteria: {
-              country,
-              industry: industry ?? null,
-            },
-            limit: structuredLimit,
-            offset: structuredOffset,
-            mode: 'dry_run',
-          });
-
-          if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
-            structuredSourceBatchResult = {
-              ok: false,
-              batchId: null,
-              sourceKey: 'co_rues',
-              candidatesWritten: 0,
-              candidatesSkipped: 0,
-              warnings: discoveryOutput.warnings,
-              errors: discoveryOutput.errors,
-            };
-          } else {
-            const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
-              dryRun: false,
-              createdBy: internalUserId,
-              ownerId: internalUserId,
-              country,
-              countryCode: 'CO',
-              sourceKey: 'co_rues',
-              sourceProvider: 'socrata_colombia',
-              dataset: 'co_rues',
-              batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
-              industry,
-              targetCount: structuredLimit,
-              searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
-              agentRunId: agentRun.id,
-              initiatedBy: 'agent_1',
-              candidates: discoveryOutput.candidates,
-              previewMode: true,
-              runHubSpotCheck: true,
-              limit: structuredLimit,
-              metadata: {
-                structured_source_page: structuredSourcePage,
-                structured_source_offset: structuredOffset,
-                structured_source_limit: structuredLimit,
-                source_pagination_mode: 'page_offset',
-              },
-            });
-
-            const writerErrors = writerResult.errors
-              .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
-              .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
-            const allWarnings = [
-              ...discoveryOutput.warnings,
-              ...writerResult.errors
-                .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
-                .map((e) => e.message),
-            ];
-
-            if (writerResult.batch.status === 'batch_creation_failed') {
-              structuredSourceBatchResult = {
-                ok: false,
-                batchId: null,
-                sourceKey: 'co_rues',
-                candidatesWritten: 0,
-                candidatesSkipped: discoveryOutput.candidates.length,
-                warnings: allWarnings,
-                errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
-              };
-            } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
-              structuredSourceBatchResult = {
-                ok: false,
-                batchId: null,
-                sourceKey: 'co_rues',
-                candidatesWritten: 0,
-                candidatesSkipped: writerResult.batch.totalCandidatesPrepared,
-                warnings: [...allWarnings, writerResult.batch.status === 'empty' ? 'structured_source_returned_no_candidates' : 'all_candidates_already_in_db'],
-                errors: [...discoveryOutput.errors, ...writerErrors],
-              };
-            } else {
-              structuredSourceBatchResult = {
-                ok: writerResult.batch.created,
-                batchId: writerResult.batch.id,
-                sourceKey: 'co_rues',
-                candidatesWritten: writerResult.batch.totalCandidatesWritten,
-                candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
-                warnings: allWarnings,
-                errors: [...discoveryOutput.errors, ...writerErrors],
-              };
-            }
           }
         }
       } catch (structuredErr: unknown) {
@@ -1064,6 +1184,7 @@ export async function runProspectGenerationAgent(
         duration_ms: Date.now() - startedAt,
         ...(preflightResult ? { structured_source_preflight: preflightResult } : {}),
         ...(structuredSourceBatchResult ? { structured_source_batch: structuredSourceBatchResult } : {}),
+        ...(sourceStrategy !== 'commercial_only' ? { source_strategy: sourceStrategy } : {}),
       },
     });
 
@@ -1075,6 +1196,16 @@ export async function runProspectGenerationAgent(
       estimatedCostUsd: totalEstimatedCost,
       ...(preflightResult ? { structuredSourcePreflight: preflightResult } : {}),
       structuredSourceBatch: structuredSourceBatchResult,
+      ...(sourceStrategy !== 'commercial_only' ? { sourceStrategy } : {}),
+      ...(sourceStrategy !== 'commercial_only' ? {
+        commercialBatch: {
+          skipped: false,
+          reason: (sourceStrategy === 'commercial_fallback'
+            ? 'official_source_failed'
+            : 'insufficient_official_results') as 'official_source_failed' | 'insufficient_official_results',
+          batchId: batch.id,
+        },
+      } : {}),
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error inesperado en el agente';
