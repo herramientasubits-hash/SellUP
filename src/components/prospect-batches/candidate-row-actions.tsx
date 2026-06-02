@@ -11,6 +11,7 @@ import {
   Loader2,
   ShieldAlert,
   Link2,
+  ClipboardCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -49,11 +50,13 @@ import {
   discardCandidate,
   markCandidateDuplicate,
   convertCandidateToAccount,
+  markCandidateReadyForApprovalAction,
 } from '@/modules/prospect-batches/actions';
 import {
   DUPLICATE_STATUS_LABELS,
   APPROVE_BLOCK_MESSAGES,
   DISCARD_REASONS,
+  isStructuredCandidate,
   parseDuplicateCheck,
   type ProspectCandidate,
   type DuplicateStatus,
@@ -87,12 +90,23 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
   >('possible_duplicate');
   const [markDuplicateNote, setMarkDuplicateNote] = React.useState('');
 
+  const isStructured = isStructuredCandidate(candidate);
+  const reviewStatus = candidate.review_status ?? null;
+
   const statusAllowsApprove = ['generated', 'normalized', 'needs_review'].includes(
     candidate.status,
   );
   const approveBlockMessage = APPROVE_BLOCK_MESSAGES[candidate.duplicate_status];
   const isDuplicateBlocked = !!approveBlockMessage;
   const isPossibleDuplicate = candidate.duplicate_status === 'possible_duplicate';
+
+  // Para candidatos estructurados: solo aprobar si review_status = ready_for_approval
+  const approveBlockedNotReady =
+    isStructured && statusAllowsApprove && reviewStatus !== 'ready_for_approval';
+  const canMarkReady =
+    isStructured &&
+    candidate.status === 'needs_review' &&
+    reviewStatus === 'needs_manual_review';
 
   const canDiscard = !['discarded', 'converted_to_account'].includes(candidate.status);
   const canMarkDuplicate = !['converted_to_account', 'duplicate'].includes(candidate.status);
@@ -177,6 +191,18 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
     }
   }
 
+  async function handleMarkReady() {
+    setLoading(true);
+    try {
+      await markCandidateReadyForApprovalAction(candidate.id);
+      toast.success(`"${candidate.name}" marcado como listo para aprobación`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al marcar como listo');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleConvert() {
     setLoading(true);
     try {
@@ -213,12 +239,19 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {/* Marcar revisado — solo candidatos estructurados en needs_manual_review */}
+            {canMarkReady && (
+              <DropdownMenuItem onClick={handleMarkReady}>
+                <ClipboardCheck className="mr-2 h-3.5 w-3.5 text-su-brand" />
+                Marcar revisado
+              </DropdownMenuItem>
+            )}
+
             {/* Approve — visible when candidate status allows it */}
             {statusAllowsApprove && (
               isDuplicateBlocked ? (
                 <Tooltip>
                   <TooltipTrigger>
-                    {/* wrapper div needed — disabled elements don't fire mouse events */}
                     <div>
                       <DropdownMenuItem
                         disabled
@@ -231,6 +264,23 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
                   </TooltipTrigger>
                   <TooltipContent side="left" className="max-w-[220px] text-center">
                     {approveBlockMessage}
+                  </TooltipContent>
+                </Tooltip>
+              ) : approveBlockedNotReady ? (
+                <Tooltip>
+                  <TooltipTrigger>
+                    <div>
+                      <DropdownMenuItem
+                        disabled
+                        className="text-muted-foreground cursor-not-allowed"
+                      >
+                        <CheckCircle2 className="mr-2 h-3.5 w-3.5" />
+                        Aprobar
+                      </DropdownMenuItem>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-[240px] text-center">
+                    Este candidato viene de una fuente oficial. Primero debe marcarse como listo para aprobación.
                   </TooltipContent>
                 </Tooltip>
               ) : (

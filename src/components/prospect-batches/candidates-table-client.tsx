@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Globe } from 'lucide-react';
+import { Building2, Globe, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -14,11 +14,18 @@ import {
   CANDIDATE_STATUS_LABELS,
   DUPLICATE_STATUS_LABELS,
   CANDIDATE_SOURCE_LABELS,
+  REVIEW_STATUS_LABELS,
+  REVIEW_STATUS_STYLES,
+  CRITICAL_REVIEW_FLAG_LABELS,
+  STRUCTURED_SOURCE_LABELS,
+  TAX_IDENTIFIER_TYPE_LABELS,
+  isStructuredCandidate,
   parseDuplicateCheck,
   type ProspectCandidateWithReviewer,
   type CandidateStatus,
   type DuplicateStatus,
   type DuplicateMatch,
+  type ReviewStatus,
 } from '@/modules/prospect-batches/types';
 import { CandidateRowActions } from './candidate-row-actions';
 
@@ -227,8 +234,18 @@ interface CandidatesTableClientProps {
 export function CandidatesTableClient({ candidates }: CandidatesTableClientProps) {
   if (candidates.length === 0) return <EmptyState />;
 
+  const hasStructured = candidates.some((c) => isStructuredCandidate(c));
+
   return (
     <div className="overflow-x-auto">
+      {hasStructured && (
+        <div className="px-5 py-2.5 border-b border-border/30 bg-amber-500/5">
+          <p className="text-[10px] text-amber-700 dark:text-amber-400">
+            <span className="font-semibold">Guía de revisión:</span>{' '}
+            Antes de marcar revisado, valida nombre, NIT, actividad/sector, duplicidad y señales de empresa activa.
+          </p>
+        </div>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/40">
@@ -262,12 +279,29 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
             >
               {/* Empresa */}
               <td className="px-4 py-3">
-                <p className="font-medium text-foreground leading-snug">{c.name}</p>
-                {c.legal_name && (
-                  <p className="mt-0.5 max-w-[180px] truncate text-xs text-muted-foreground">
-                    {c.legal_name}
-                  </p>
-                )}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="font-medium text-foreground leading-snug">{c.name}</p>
+                    {isStructuredCandidate(c) && (
+                      <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5">
+                        <ShieldCheck className="h-2.5 w-2.5" />
+                        {STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
+                      </Badge>
+                    )}
+                  </div>
+                  {c.legal_name && (
+                    <p className="max-w-[200px] truncate text-xs text-muted-foreground">
+                      {c.legal_name}
+                    </p>
+                  )}
+                  {c.tax_identifier && (
+                    <p className="text-[10px] font-mono text-muted-foreground/80">
+                      {c.tax_identifier_type
+                        ? `${c.tax_identifier_type} ${c.tax_identifier}`
+                        : c.tax_identifier}
+                    </p>
+                  )}
+                </div>
               </td>
               {/* País */}
               <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -320,11 +354,34 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               </td>
               {/* Estado */}
               <td className="px-4 py-3">
-                <Badge
-                  className={`${STATUS_STYLES[c.status]} border-0 text-[10px] font-semibold`}
-                >
-                  {CANDIDATE_STATUS_LABELS[c.status]}
-                </Badge>
+                <div className="space-y-1">
+                  <Badge
+                    className={`${STATUS_STYLES[c.status]} border-0 text-[10px] font-semibold`}
+                  >
+                    {CANDIDATE_STATUS_LABELS[c.status]}
+                  </Badge>
+                  {c.review_status && (
+                    <Badge
+                      className={`${REVIEW_STATUS_STYLES[c.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'} border-0 text-[9px] font-semibold block w-fit`}
+                    >
+                      {REVIEW_STATUS_LABELS[c.review_status as ReviewStatus] ?? c.review_status}
+                    </Badge>
+                  )}
+                  {Array.isArray(c.review_flags) && c.review_flags.length > 0 && (
+                    <div className="flex flex-wrap gap-0.5 max-w-[160px]">
+                      {(c.review_flags as string[])
+                        .filter((f) => CRITICAL_REVIEW_FLAG_LABELS[f])
+                        .map((flag) => (
+                          <span
+                            key={flag}
+                            className="inline-block rounded px-1 py-0.5 text-[8px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                          >
+                            {CRITICAL_REVIEW_FLAG_LABELS[flag]}
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
               </td>
               {/* Costo */}
               <td className="px-4 py-3 tabular-nums text-xs text-muted-foreground">

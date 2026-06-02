@@ -51,7 +51,35 @@ export type CandidateAuditAction =
   | 'candidate_approved'
   | 'candidate_discarded'
   | 'candidate_marked_duplicate'
-  | 'candidate_converted_to_account';
+  | 'candidate_converted_to_account'
+  | 'candidate_marked_ready_for_approval';
+
+// ── Tipos para candidatos estructurados ───────────────────────
+
+export type ReviewStatus =
+  | 'needs_manual_review'
+  | 'ready_for_approval'
+  | 'approved'
+  | 'rejected'
+  | 'blocked_duplicate'
+  | 'blocked_customer'
+  | 'synced_to_hubspot';
+
+export type ReviewFlag =
+  | 'size_unknown'
+  | 'size_confirmed'
+  | 'size_estimated'
+  | 'size_below_threshold'
+  | 'missing_website'
+  | 'missing_linkedin'
+  | 'no_tax_id'
+  | 'inactive_company'
+  | 'possible_duplicate'
+  | 'hubspot_existing_customer'
+  | 'hubspot_existing_prospect'
+  | 'sector_unknown'
+  | 'natural_person_risk'
+  | string;
 
 export type TaxIdentifierType =
   | 'NIT'
@@ -135,6 +163,12 @@ export interface ProspectCandidate {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // ── Campos de candidatos estructurados (fuentes oficiales) ───
+  review_status: ReviewStatus | null;
+  review_flags: ReviewFlag[] | null;
+  source_trace: Record<string, unknown> | null;
+  commercial_trace: Record<string, unknown> | null;
+  commercial_fit_status: string | null;
 }
 
 export interface ProspectCandidateWithReviewer extends ProspectCandidate {
@@ -423,6 +457,8 @@ export type DiscardReasonKey =
   | 'not_priority_now'
   | 'bad_data'
   | 'duplicate_confirmed'
+  | 'inactive_or_dissolved'
+  | 'not_for_profit'
   | 'other';
 
 export const DISCARD_REASONS: { value: DiscardReasonKey; label: string }[] = [
@@ -435,6 +471,8 @@ export const DISCARD_REASONS: { value: DiscardReasonKey; label: string }[] = [
   { value: 'not_priority_now', label: 'No es prioridad ahora' },
   { value: 'bad_data', label: 'Datos incorrectos o incompletos' },
   { value: 'duplicate_confirmed', label: 'Duplicado confirmado manualmente' },
+  { value: 'inactive_or_dissolved', label: 'Empresa inactiva o disuelta' },
+  { value: 'not_for_profit', label: 'Entidad sin ánimo de lucro' },
   { value: 'other', label: 'Otro motivo' },
 ];
 
@@ -455,4 +493,50 @@ export const COOLDOWN_DAYS: Record<DiscardReasonKey | 'default', number> = {
   other: 30,
   already_customer: 0,
   duplicate_confirmed: 0,
+  inactive_or_dissolved: 0,
+  not_for_profit: 180,
 };
+
+// ── Labels y helpers para candidatos estructurados ────────────
+
+export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
+  needs_manual_review: 'Revisión manual',
+  ready_for_approval: 'Listo para aprobación',
+  approved: 'Aprobado',
+  rejected: 'Rechazado',
+  blocked_duplicate: 'Bloqueado: duplicado',
+  blocked_customer: 'Bloqueado: cliente',
+  synced_to_hubspot: 'Sincronizado',
+};
+
+export const REVIEW_STATUS_STYLES: Record<ReviewStatus, string> = {
+  needs_manual_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  ready_for_approval: 'bg-su-brand-soft text-su-brand',
+  approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  rejected: 'bg-muted/60 text-muted-foreground/60',
+  blocked_duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  blocked_customer: 'bg-destructive/10 text-destructive',
+  synced_to_hubspot: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+};
+
+export const CRITICAL_REVIEW_FLAG_LABELS: Partial<Record<string, string>> = {
+  inactive_company: 'Posible inactiva',
+  no_tax_id: 'Sin NIT',
+  size_unknown: 'Tamaño desconocido',
+  sector_unknown: 'Sector desconocido',
+  missing_website: 'Sin sitio web',
+  natural_person_risk: 'Riesgo persona natural',
+};
+
+export const STRUCTURED_SOURCE_LABELS: Record<string, string> = {
+  socrata_colombia: 'RUES Colombia',
+  denue_mexico: 'DENUE México',
+  datos_gob_cl: 'Datos.gob.cl',
+  chilecompra_chile: 'ChileCompra',
+};
+
+export function isStructuredCandidate(
+  candidate: Pick<ProspectCandidate, 'review_status' | 'source_primary'>
+): boolean {
+  return candidate.review_status !== null && candidate.review_status !== undefined;
+}

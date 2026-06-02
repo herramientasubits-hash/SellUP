@@ -8,6 +8,7 @@ import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult }
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import {
   APPROVE_BLOCK_MESSAGES,
+  isStructuredCandidate,
   type ProspectBatch,
   type ProspectBatchWithMeta,
   type ProspectCandidate,
@@ -482,11 +483,9 @@ export async function approveCandidate(id: string): Promise<ProspectCandidate> {
   const supabase = await createClient();
 
   // ── Guardia server-side: rechaza si duplicate_status bloquea la aprobación ──
-  // Esta protección existe también en la UI (APPROVE_BLOCK_MESSAGES) pero debe
-  // estar aquí para que no sea bypasseable con llamadas directas al server action.
   const { data: current } = await supabase
     .from('prospect_candidates')
-    .select('duplicate_status')
+    .select('duplicate_status, review_status')
     .eq('id', id)
     .single();
 
@@ -496,15 +495,31 @@ export async function approveCandidate(id: string): Promise<ProspectCandidate> {
       throw new Error(blockMsg);
     }
   }
+
+  // Para candidatos estructurados: exigir review_status = ready_for_approval
+  const currentReviewStatus = (current as Record<string, unknown> | null)?.review_status as string | null | undefined;
+  if (currentReviewStatus !== null && currentReviewStatus !== undefined) {
+    if (currentReviewStatus !== 'ready_for_approval') {
+      throw new Error(
+        'Este candidato viene de una fuente oficial. Primero debe marcarse como listo para aprobación.'
+      );
+    }
+  }
   // ── Fin guardia ───────────────────────────────────────────────────────────
+
+  const approveUpdates: Record<string, unknown> = {
+    status: 'approved',
+    reviewed_by: internalUserId,
+    reviewed_at: new Date().toISOString(),
+  };
+  // Sincronizar review_status para candidatos estructurados
+  if (currentReviewStatus !== null && currentReviewStatus !== undefined) {
+    approveUpdates.review_status = 'approved';
+  }
 
   const { data, error } = await supabase
     .from('prospect_candidates')
-    .update({
-      status: 'approved',
-      reviewed_by: internalUserId,
-      reviewed_at: new Date().toISOString(),
-    })
+    .update(approveUpdates)
     .eq('id', id)
     .select()
     .single();
@@ -527,14 +542,26 @@ export async function discardCandidate(id: string, reason?: string): Promise<Pro
   const { internalUserId } = await requireActiveUser();
   const supabase = await createClient();
 
+  const { data: currentForDiscard } = await supabase
+    .from('prospect_candidates')
+    .select('review_status')
+    .eq('id', id)
+    .single();
+  const currentDiscardReviewStatus = (currentForDiscard as Record<string, unknown> | null)?.review_status as string | null | undefined;
+
+  const discardUpdates: Record<string, unknown> = {
+    status: 'discarded',
+    review_notes: reason ?? null,
+    reviewed_by: internalUserId,
+    reviewed_at: new Date().toISOString(),
+  };
+  if (currentDiscardReviewStatus !== null && currentDiscardReviewStatus !== undefined) {
+    discardUpdates.review_status = 'rejected';
+  }
+
   const { data, error } = await supabase
     .from('prospect_candidates')
-    .update({
-      status: 'discarded',
-      review_notes: reason ?? null,
-      reviewed_by: internalUserId,
-      reviewed_at: new Date().toISOString(),
-    })
+    .update(discardUpdates)
     .eq('id', id)
     .select()
     .single();
@@ -553,6 +580,80 @@ export async function discardCandidate(id: string, reason?: string): Promise<Pro
   return data as ProspectCandidate;
 }
 
+export async function markCandidateReadyForApprovalAction(
+  candidateId: string
+): Promise<ProspectCandidate> {
+  const { internalUserId } = await requireActiveUser();
+  const supabase = await createClient();
+
+  // Validar formato UUID básico
+  if (!candidateId || !/^[0-9a-f-]{36}$/i.test(candidateId)) {
+    throw new Error('ID de candidato inválido');
+  }
+
+  const { data: candidate } = await supabase
+    .from('prospect_candidates')
+    .select('id, batch_id, name, status, duplicate_status, review_status, review_flags, metadata')
+    .eq('id', candidateId)
+    .single();
+
+  if (!candidate) throw new Error('Candidato no encontrado');
+
+  const reviewStatus = (candidate as Record<string, unknown>).review_status as string | null | undefined;
+  const reviewFlags = (candidate as Record<string, unknown>).review_flags as string[] | null | undefined;
+
+  // Validar que es candidato estructurado
+  if (reviewStatus === null || reviewStatus === undefined) {
+    throw new Error('Esta acción solo aplica a candidatos de fuentes oficiales estructuradas');
+  }
+
+  // Validar estado de candidato
+  if (candidate.status !== 'needs_review') {
+    throw new Error(`El candidato debe estar en estado "necesita revisión" para marcarlo como listo (estado actual: ${candidate.status})`);
+  }
+
+  // Validar review_status actual
+  if (reviewStatus !== 'needs_manual_review') {
+    throw new Error(`El candidato ya fue procesado (review_status: ${reviewStatus})`);
+  }
+
+  // ── Bloqueos de negocio ───────────────────────────────────────
+  if (Array.isArray(reviewFlags) && reviewFlags.includes('inactive_company')) {
+    throw new Error('No se puede marcar como listo: la empresa puede estar inactiva o disuelta. Verifica el estado de la empresa antes de continuar.');
+  }
+  if (candidate.duplicate_status === 'exact_duplicate') {
+    throw new Error('No se puede marcar como listo: el candidato está marcado como duplicado exacto.');
+  }
+  if (Array.isArray(reviewFlags) && reviewFlags.includes('no_tax_id')) {
+    throw new Error('No se puede marcar como listo: el candidato no tiene NIT/identificación fiscal.');
+  }
+  // ── Fin bloqueos ──────────────────────────────────────────────
+
+  const { data, error } = await supabase
+    .from('prospect_candidates')
+    .update({
+      review_status: 'ready_for_approval',
+      reviewed_by: internalUserId,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', candidateId)
+    .select()
+    .single();
+
+  if (error || !data) throw new Error(`Error al marcar candidato como listo: ${error?.message}`);
+
+  await logProspectCandidateAudit({
+    batchId: data.batch_id,
+    candidateId,
+    actorUserId: internalUserId,
+    actionType: 'candidate_marked_ready_for_approval',
+    details: { candidate_name: data.name },
+  });
+
+  revalidatePath(`/prospect-batches/${data.batch_id}`);
+  return data as ProspectCandidate;
+}
+
 export async function markCandidateDuplicate(
   id: string,
   matchData: MarkDuplicateInput
@@ -560,17 +661,31 @@ export async function markCandidateDuplicate(
   const { internalUserId } = await requireActiveUser();
   const supabase = await createClient();
 
+  const { data: currentForDup } = await supabase
+    .from('prospect_candidates')
+    .select('review_status')
+    .eq('id', id)
+    .single();
+  const currentDupReviewStatus = (currentForDup as Record<string, unknown> | null)?.review_status as string | null | undefined;
+
+  const dupUpdates: Record<string, unknown> = {
+    status: 'duplicate',
+    duplicate_status: matchData.duplicate_status,
+    matched_account_id: matchData.matched_account_id ?? null,
+    matched_hubspot_company_id: matchData.matched_hubspot_company_id ?? null,
+    review_notes: matchData.review_notes ?? null,
+    reviewed_by: internalUserId,
+    reviewed_at: new Date().toISOString(),
+  };
+  if (currentDupReviewStatus !== null && currentDupReviewStatus !== undefined) {
+    dupUpdates.review_status = matchData.duplicate_status === 'exact_duplicate'
+      ? 'blocked_duplicate'
+      : 'rejected';
+  }
+
   const { data, error } = await supabase
     .from('prospect_candidates')
-    .update({
-      status: 'duplicate',
-      duplicate_status: matchData.duplicate_status,
-      matched_account_id: matchData.matched_account_id ?? null,
-      matched_hubspot_company_id: matchData.matched_hubspot_company_id ?? null,
-      review_notes: matchData.review_notes ?? null,
-      reviewed_by: internalUserId,
-      reviewed_at: new Date().toISOString(),
-    })
+    .update(dupUpdates)
     .eq('id', id)
     .select()
     .single();
@@ -611,6 +726,25 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
   const batchSource = (candidate.batch as { source?: string })?.source ?? 'manual';
   const accountSource = batchSource === 'agent_1' ? 'agent_1' : 'manual';
 
+  const candidateRaw = candidate as ProspectCandidate & Record<string, unknown>;
+  const isStructured = isStructuredCandidate({
+    review_status: (candidateRaw.review_status as ProspectCandidate['review_status']) ?? null,
+    source_primary: candidate.source_primary,
+  });
+
+  const sourceTrace = candidateRaw.source_trace as Record<string, unknown> | null ?? null;
+  const accountMeta: Record<string, unknown> = {
+    converted_from_candidate_id: id,
+    batch_id: candidate.batch_id,
+  };
+  if (isStructured) {
+    accountMeta.source_trace = sourceTrace;
+    accountMeta.source_key = sourceTrace?.sourceKey ?? null;
+    accountMeta.source_provider = sourceTrace?.sourceProvider ?? null;
+    accountMeta.review_flags_at_conversion = (candidateRaw.review_flags as string[] | null) ?? null;
+    accountMeta.commercial_fit_status = (candidateRaw.commercial_fit_status as string | null) ?? null;
+  }
+
   const { data: account, error: accountError } = await supabase
     .from('accounts')
     .insert({
@@ -630,7 +764,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       source: accountSource,
       pipeline_status: 'new',
       created_by: internalUserId,
-      metadata: { converted_from_candidate_id: id, batch_id: candidate.batch_id },
+      metadata: accountMeta,
     })
     .select()
     .single();

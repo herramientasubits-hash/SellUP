@@ -12,6 +12,7 @@ import {
   FlaskConical,
   Globe,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -161,6 +162,25 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         </div>
       )}
+
+      {/* Banner revisión humana — lotes estructurados */}
+      {batch.metadata?.batch_type === 'structured' &&
+        batch.metadata?.human_review_required === true && (
+          <div className="rounded-xl border border-su-brand/30 bg-su-brand-soft/40 px-5 py-3.5 animate-in fade-in-0 duration-200">
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Lote de fuente oficial
+                  {batch.metadata?.source_key === 'co_rues' && ' · RUES Colombia'}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Este lote contiene candidatos de fuente oficial. Los candidatos requieren revisión manual antes de aprobarse. No se crearán cuentas ni se escribirá en HubSpot automáticamente.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* Alerta modo mock */}
       {batch.metadata?.generation_mode === 'mock' && (
