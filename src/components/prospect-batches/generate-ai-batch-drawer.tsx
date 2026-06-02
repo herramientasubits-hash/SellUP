@@ -57,6 +57,8 @@ type StructuredBatchResult = {
   pageUsed?: number;
   pagesScanned?: number[];
   autoMode?: boolean;
+  status?: 'official_source_error' | 'official_source_empty' | 'official_source_no_useful_candidates' | 'official_source_success';
+  errorDetails?: string;
 };
 
 const MVP_MAX_CANDIDATES = 25;
@@ -310,6 +312,7 @@ export function GenerateAIBatchDrawer() {
                 advancedOpen={advancedOpen}
                 usefulCandidatesCount={usefulCandidatesCount}
                 omittedCandidatesCount={omittedCandidatesCount}
+                countryCode={form.countryCode}
               />
             ) : (
               /* ── Formulario principal ── */
@@ -820,6 +823,7 @@ interface GenerationResultPanelProps {
   advancedOpen?: boolean;
   usefulCandidatesCount: number;
   omittedCandidatesCount: number;
+  countryCode?: string;
 }
 
 function GenerationResultPanel({
@@ -831,6 +835,7 @@ function GenerationResultPanel({
   advancedOpen = false,
   usefulCandidatesCount,
   omittedCandidatesCount,
+  countryCode,
 }: GenerationResultPanelProps) {
   const statusIcon = result ? PREFLIGHT_STATUS_ICONS[result.status] ?? PREFLIGHT_STATUS_ICONS.skipped : null;
   const statusLabel = result ? PREFLIGHT_STATUS_LABELS[result.status] ?? result.status : '';
@@ -849,17 +854,32 @@ function GenerationResultPanel({
             {usefulCandidatesCount > 0 ? 'Generación completada' : 'Generación finalizada'}
           </h3>
         </div>
-        <p className="text-xs text-muted-foreground leading-relaxed">
+        <div className="text-xs text-muted-foreground leading-relaxed">
           {usefulCandidatesCount > 0 ? (
-            'Empresas candidatas listas para revisión.'
+            <p>Empresas candidatas listas para revisión.</p>
           ) : omittedCandidatesCount > 0 ? (
-            <span>
-              No se encontraron empresas útiles para revisión. SellUp omitió {omittedCandidatesCount} registro{omittedCandidatesCount !== 1 ? 's' : ''} por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
-            </span>
+            countryCode === 'CO' ? (
+              <div className="space-y-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                <p>No se encontraron empresas útiles para revisión.</p>
+                {structuredBatch?.status === 'official_source_error' ? (
+                  <p>La fuente oficial no pudo completarse y la fuente comercial no entregó registros con datos mínimos para Colombia (los registros comerciales no tenían NIT válido para Colombia).</p>
+                ) : structuredBatch?.status === 'official_source_empty' ? (
+                  <p>La fuente oficial no encontró registros nuevos y la fuente comercial no entregó registros con datos mínimos para Colombia (los registros comerciales no tenían NIT válido para Colombia).</p>
+                ) : structuredBatch?.status === 'official_source_no_useful_candidates' ? (
+                  <p>La fuente oficial devolvió registros pero todos fueron omitidos por liquidación, inactividad o duplicidad, y la fuente comercial no entregó registros con datos mínimos para Colombia (los registros comerciales no tenían NIT válido para Colombia).</p>
+                ) : (
+                  <p>La fuente comercial no entregó registros con datos mínimos para Colombia porque no tenían NIT válido.</p>
+                )}
+              </div>
+            ) : (
+              <span>
+                No se encontraron empresas útiles para revisión. SellUp omitió {omittedCandidatesCount} registro{omittedCandidatesCount !== 1 ? 's' : ''} por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
+              </span>
+            )
           ) : (
-            'No se encontraron empresas con los criterios actuales.'
+            <p>No se encontraron empresas con los criterios actuales.</p>
           )}
-        </p>
+        </div>
       </div>
 
       {/* Lote Apollo — oculto si fuente oficial satisfizo completamente */}
@@ -912,16 +932,16 @@ function GenerationResultPanel({
       {structuredBatch && (() => {
         const nothingToWrite = isStructuredSourceNothingToWrite(structuredBatch);
         const isSocrataTimeout = isSocrataTimeoutError(structuredBatch);
-        const borderClass = structuredBatch.ok
+        const borderClass = structuredBatch.ok || structuredBatch.status === 'official_source_success'
           ? 'border-su-brand/20'
-          : nothingToWrite || isSocrataTimeout
-            ? 'border-amber-500/20'
-            : 'border-destructive/20';
-        const dotClass = structuredBatch.ok
+          : structuredBatch.status === 'official_source_error'
+            ? 'border-destructive/20'
+            : 'border-amber-500/20';
+        const dotClass = structuredBatch.ok || structuredBatch.status === 'official_source_success'
           ? 'bg-su-brand'
-          : nothingToWrite || isSocrataTimeout
-            ? 'bg-amber-500'
-            : 'bg-destructive';
+          : structuredBatch.status === 'official_source_error'
+            ? 'bg-destructive'
+            : 'bg-amber-500';
 
         return (
           <div className={`rounded-xl border p-4 space-y-3 bg-card ${borderClass}`}>
@@ -937,7 +957,7 @@ function GenerationResultPanel({
               )}
             </div>
 
-            {structuredBatch.ok ? (
+            {structuredBatch.ok || structuredBatch.status === 'official_source_success' ? (
               <>
                 {structuredBatch.autoMode && (
                   <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
@@ -984,6 +1004,48 @@ function GenerationResultPanel({
                   </>
                 )}
               </>
+            ) : structuredBatch.status === 'official_source_error' ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                  <span className="text-xs font-medium text-destructive">
+                    La fuente oficial no pudo completarse
+                  </span>
+                </div>
+                {structuredBatch.errorDetails ? (
+                  <p className="text-[11px] text-destructive/80 pl-5 leading-relaxed">
+                    Detalle: {structuredBatch.errorDetails}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-destructive/80 pl-5 leading-relaxed">
+                    Ocurrió un error inesperado al conectar o procesar la fuente oficial.
+                  </p>
+                )}
+              </div>
+            ) : structuredBatch.status === 'official_source_empty' ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    La fuente oficial no encontró registros nuevos
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
+                  La consulta a la fuente oficial no devolvió registros nuevos para los criterios seleccionados. Todos los candidatos ya existen en SellUp.
+                </p>
+              </div>
+            ) : structuredBatch.status === 'official_source_no_useful_candidates' ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    La fuente oficial devolvió registros, pero ninguno fue útil
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
+                  Se recibieron registros de la fuente oficial, pero todos fueron omitidos por duplicidad, liquidación o inactividad.
+                </p>
+              </div>
             ) : isAutoModeAllPagesScanned(structuredBatch) ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
@@ -992,7 +1054,7 @@ function GenerationResultPanel({
                     Sin empresas nuevas en la fuente oficial
                   </span>
                 </div>
-                <p className="text-[11px] text-muted-foreground pl-5">
+                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
                   SellUp revisó las páginas disponibles y no encontró registros nuevos para esta búsqueda. Todos los candidatos ya existen en SellUp.
                 </p>
               </div>
@@ -1004,7 +1066,7 @@ function GenerationResultPanel({
                     Sin candidatos nuevos en esta página
                   </span>
                 </div>
-                <p className="text-[11px] text-muted-foreground pl-5">
+                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
                   Todos los registros encontrados ya existen en SellUp. No se escribieron duplicados.
                 </p>
                 <div className="flex items-center justify-between text-xs pl-5">
@@ -1027,7 +1089,7 @@ function GenerationResultPanel({
                     Fuente oficial no respondió a tiempo
                   </span>
                 </div>
-                <p className="text-[11px] text-muted-foreground pl-5">
+                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
                   La API pública de datos.gov.co no respondió. El lote Apollo sí fue creado. Intenta nuevamente en unos minutos.
                 </p>
               </div>

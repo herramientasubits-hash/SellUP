@@ -67,21 +67,23 @@ export interface ProspectGenerationResult {
   /** Hito 16AJ.5 — presente solo si structuredSourcePreflight=true fue activado. Read-only, no escribe candidatos. */
   structuredSourcePreflight?: SourceDiscoveryPreflightResult;
   /** Hito 16AJ.9 — Lote estructurado creado opcionalmente */
-  structuredSourceBatch?: {
-    ok: boolean;
-    batchId?: string | null;
-    sourceKey?: string;
-    candidatesWritten?: number;
-    candidatesSkipped?: number;
-    warnings?: string[];
-    errors?: string[];
-    /** Hito 16AK.7C — página efectiva usada (modo manual o auto cuando encontró candidatos) */
-    pageUsed?: number;
-    /** Hito 16AK.7C — páginas revisadas en auto-paginación */
-    pagesScanned?: number[];
-    /** Hito 16AK.7C — true si se usó auto-paginación */
-    autoMode?: boolean;
-  };
+    structuredSourceBatch?: {
+      ok: boolean;
+      batchId?: string | null;
+      sourceKey?: string;
+      candidatesWritten?: number;
+      candidatesSkipped?: number;
+      warnings?: string[];
+      errors?: string[];
+      /** Hito 16AK.7C — página efectiva usada (modo manual o auto cuando encontró candidatos) */
+      pageUsed?: number;
+      /** Hito 16AK.7C — páginas revisadas en auto-paginación */
+      pagesScanned?: number[];
+      /** Hito 16AK.7C — true si se usó auto-paginación */
+      autoMode?: boolean;
+      status?: 'official_source_error' | 'official_source_empty' | 'official_source_no_useful_candidates' | 'official_source_success';
+      errorDetails?: string;
+    };
   /** Hito 16AK.10 — Estrategia de fuentes aplicada en esta generación */
   sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates';
   /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
@@ -462,6 +464,7 @@ async function runRuesAutoPagePhase(params: {
   let accumulatedBatchId: string | null = null;
   let totalWritten = 0;
   let totalSkipped = 0;
+  let totalRecordsRead = 0;
   const allWarnings: string[] = [];
   const allErrors: string[] = [];
   let pageUsed = 1;
@@ -479,14 +482,19 @@ async function runRuesAutoPagePhase(params: {
       mode: 'dry_run',
     });
 
+    totalRecordsRead += discoveryOutput.recordsRead;
+
     if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
       allErrors.push(...discoveryOutput.errors);
       allWarnings.push(...discoveryOutput.warnings);
       if (totalWritten > 0) {
         break;
       }
+      const errDetails = allErrors.join(', ');
       result = {
         ok: false,
+        status: 'official_source_error',
+        errorDetails: errDetails,
         batchId: accumulatedBatchId,
         sourceKey: 'co_rues',
         candidatesWritten: totalWritten,
@@ -497,6 +505,13 @@ async function runRuesAutoPagePhase(params: {
         autoMode: true,
       };
       break;
+    }
+
+    if (discoveryOutput.candidates.length === 0) {
+      // Si no hay candidatos en esta página, continuamos a la siguiente en auto-paginación
+      allWarnings.push(...discoveryOutput.warnings);
+      pageUsed = autoPage;
+      continue;
     }
 
     const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
@@ -546,6 +561,8 @@ async function runRuesAutoPagePhase(params: {
       }
       result = {
         ok: false,
+        status: 'official_source_error',
+        errorDetails: 'structured_batch_db_creation_failed',
         batchId: null,
         sourceKey: 'co_rues',
         candidatesWritten: 0,
@@ -589,8 +606,37 @@ async function runRuesAutoPagePhase(params: {
   }
 
   if (!result) {
+    let usefulCount = 0;
+    if (accumulatedBatchId) {
+      const { data: candidates } = await admin
+        .from('prospect_candidates')
+        .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+        .eq('batch_id', accumulatedBatchId);
+
+      if (candidates) {
+        usefulCount = candidates.filter(isUsefulReviewCandidate).length;
+      }
+    }
+
+    if (usefulCount < targetCount) {
+      allWarnings.push('all_pages_scanned');
+    }
+
+    let status: 'official_source_error' | 'official_source_empty' | 'official_source_no_useful_candidates' | 'official_source_success';
+    if (allErrors.length > 0 && totalWritten === 0) {
+      status = 'official_source_error';
+    } else if (totalWritten > 0 && usefulCount > 0) {
+      status = 'official_source_success';
+    } else if (totalRecordsRead === 0) {
+      status = 'official_source_empty';
+    } else {
+      status = 'official_source_no_useful_candidates';
+    }
+
     result = {
-      ok: totalWritten > 0,
+      ok: status === 'official_source_success',
+      status,
+      errorDetails: status === 'official_source_error' ? allErrors.join(', ') : undefined,
       batchId: accumulatedBatchId,
       sourceKey: 'co_rues',
       candidatesWritten: totalWritten,
@@ -612,7 +658,8 @@ async function runRuesAutoPagePhase(params: {
 
 async function finalizeBatchMetadataAndStatus(
   admin: ReturnType<typeof getAdminClient>,
-  batchId: string
+  batchId: string,
+  extraMetadata?: Record<string, unknown>
 ): Promise<{ usefulCount: number; omittedCount: number }> {
   const { data: candidates } = await admin
     .from('prospect_candidates')
@@ -627,6 +674,7 @@ async function finalizeBatchMetadataAndStatus(
   const metadataUpdates: Record<string, unknown> = {
     useful_candidates_count: usefulCount,
     omitted_candidates_count: omittedCount,
+    ...(extraMetadata ?? {}),
   };
 
   if (usefulCount === 0) {
@@ -757,7 +805,7 @@ export async function runProspectGenerationAgent(
   let usefulCandidates = 0;
 
   const maxSearchLoops = countryCode === 'CO' ? 2 : 5;
-  const structuredLimit = countryCode === 'CO' ? 10 : STRUCTURED_LIMIT;
+  const structuredLimit = countryCode === 'CO' ? 5 : STRUCTURED_LIMIT;
 
   if (coOfficialFirstMode) {
     try {
@@ -798,7 +846,11 @@ export async function runProspectGenerationAgent(
         // ── Hito 16AK.11: Enrich RUES candidates with Tavily + Claude (non-blocking) ──
         let enrichmentSummary: { enriched: number; totalEstimatedCostUsd: number; warnings: string[] } | undefined;
         if (ruesEarlyResult?.batchId) {
-          await finalizeBatchMetadataAndStatus(admin, ruesEarlyResult.batchId);
+          await finalizeBatchMetadataAndStatus(admin, ruesEarlyResult.batchId, {
+            official_source_status: ruesEarlyResult.status ?? null,
+            official_source_error: ruesEarlyResult.errorDetails ?? null,
+            apollo_fallback_status: 'skipped',
+          });
           try {
             const enrichResult = await enrichBatchCandidatesWithWebAndAI(admin, ruesEarlyResult.batchId, {
               country,
@@ -1265,9 +1317,16 @@ export async function runProspectGenerationAgent(
               .map((e) => e.message),
           ];
 
+          let status: 'official_source_error' | 'official_source_empty' | 'official_source_no_useful_candidates' | 'official_source_success' = 'official_source_empty';
+          let errorDetails: string | undefined = undefined;
+
           if (writerResult.batch.status === 'batch_creation_failed') {
+            status = 'official_source_error';
+            errorDetails = 'structured_batch_db_creation_failed';
             structuredSourceBatchResult = {
               ok: false,
+              status,
+              errorDetails,
               batchId: null,
               sourceKey: 'co_rues',
               candidatesWritten: 0,
@@ -1276,8 +1335,10 @@ export async function runProspectGenerationAgent(
               errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
             };
           } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+            status = discoveryOutput.recordsRead === 0 ? 'official_source_empty' : 'official_source_no_useful_candidates';
             structuredSourceBatchResult = {
               ok: false,
+              status,
               batchId: null,
               sourceKey: 'co_rues',
               candidatesWritten: 0,
@@ -1286,8 +1347,22 @@ export async function runProspectGenerationAgent(
               errors: [...discoveryOutput.errors, ...writerErrors],
             };
           } else {
+            // Count useful candidates from DB for this batch
+            let usefulCount = 0;
+            if (writerResult.batch.id) {
+              const { data: candidates } = await admin
+                .from('prospect_candidates')
+                .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+                .eq('batch_id', writerResult.batch.id);
+
+              if (candidates) {
+                usefulCount = candidates.filter(isUsefulReviewCandidate).length;
+              }
+            }
+            status = usefulCount > 0 ? 'official_source_success' : 'official_source_no_useful_candidates';
             structuredSourceBatchResult = {
-              ok: writerResult.batch.created,
+              ok: writerResult.batch.created && usefulCount > 0,
+              status,
               batchId: writerResult.batch.id,
               sourceKey: 'co_rues',
               candidatesWritten: writerResult.batch.totalCandidatesWritten,
@@ -1302,6 +1377,8 @@ export async function runProspectGenerationAgent(
         console.error('[agent-1] Error generating structured source batch:', structuredErr);
         structuredSourceBatchResult = {
           ok: false,
+          status: 'official_source_error',
+          errorDetails: msg,
           batchId: null,
           sourceKey: 'co_rues',
           candidatesWritten: 0,
@@ -1311,11 +1388,6 @@ export async function runProspectGenerationAgent(
         };
       }
     }
-
-    if (structuredSourceBatchResult?.batchId) {
-      await finalizeBatchMetadataAndStatus(admin, structuredSourceBatchResult.batchId);
-    }
-    await finalizeBatchMetadataAndStatus(admin, batch.id);
 
     const mainBatchId = batch.id;
 
@@ -1334,6 +1406,21 @@ export async function runProspectGenerationAgent(
         mainOmittedCount = candidates.length - mainUsefulCount;
       }
     }
+
+    const apolloFallbackStatus = mainUsefulCount > 0 ? 'success' : 'no_useful_candidates';
+
+    if (structuredSourceBatchResult?.batchId) {
+      await finalizeBatchMetadataAndStatus(admin, structuredSourceBatchResult.batchId, {
+        official_source_status: structuredSourceBatchResult.status ?? null,
+        official_source_error: structuredSourceBatchResult.errorDetails ?? null,
+        apollo_fallback_status: apolloFallbackStatus,
+      });
+    }
+    await finalizeBatchMetadataAndStatus(admin, batch.id, {
+      official_source_status: structuredSourceBatchResult?.status ?? null,
+      official_source_error: structuredSourceBatchResult?.errorDetails ?? null,
+      apollo_fallback_status: apolloFallbackStatus,
+    });
 
     if (mainUsefulCount === 0) {
       await updateAgentRun(agentRun.id, {
