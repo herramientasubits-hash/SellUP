@@ -17,7 +17,6 @@ import {
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
@@ -341,9 +340,15 @@ export default async function BatchDetailPage({ params }: Props) {
 
       {/* Batch meta */}
       <div className="flex flex-wrap items-center gap-2">
-        <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>
-          {BATCH_STATUS_LABELS[batch.status]}
-        </Badge>
+        {batch.metadata?.review_ready === false && batch.status === 'ready_for_review' ? (
+          <Badge className="bg-muted text-muted-foreground border-0 text-[10px] font-semibold">
+            Sin candidatas útiles
+          </Badge>
+        ) : (
+          <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>
+            {BATCH_STATUS_LABELS[batch.status]}
+          </Badge>
+        )}
         <Badge variant="outline" className="text-[10px]">
           {isApolloCandidateBatch
             ? 'Fuente comercial'

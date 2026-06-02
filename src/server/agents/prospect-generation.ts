@@ -58,6 +58,7 @@ export interface ProspectGenerationParams {
 
 export interface ProspectGenerationResult {
   success: boolean;
+  ok?: boolean;
   batchId: string | null;
   agentRunId: string | null;
   candidatesCreated: number;
@@ -82,13 +83,16 @@ export interface ProspectGenerationResult {
     autoMode?: boolean;
   };
   /** Hito 16AK.10 — Estrategia de fuentes aplicada en esta generación */
-  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only';
+  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates';
   /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
   commercialBatch?: {
     skipped: boolean;
     reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results';
     batchId?: string | null;
   };
+  message?: string;
+  omittedCandidatesCount?: number;
+  usefulCandidatesCount?: number;
 }
 
 interface NormalizedCandidate {
@@ -603,6 +607,56 @@ async function runRuesAutoPagePhase(params: {
 }
 
 // ============================================================
+// Helper to finalize batch metadata and status
+// ============================================================
+
+async function finalizeBatchMetadataAndStatus(
+  admin: ReturnType<typeof getAdminClient>,
+  batchId: string
+): Promise<{ usefulCount: number; omittedCount: number }> {
+  const { data: candidates } = await admin
+    .from('prospect_candidates')
+    .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+    .eq('batch_id', batchId);
+
+  const totalCount = candidates?.length ?? 0;
+  const useful = (candidates ?? []).filter(isUsefulReviewCandidate);
+  const usefulCount = useful.length;
+  const omittedCount = totalCount - usefulCount;
+
+  const metadataUpdates: Record<string, unknown> = {
+    useful_candidates_count: usefulCount,
+    omitted_candidates_count: omittedCount,
+  };
+
+  if (usefulCount === 0) {
+    metadataUpdates.review_ready = false;
+    metadataUpdates.no_useful_candidates_reason = 'all_candidates_omitted';
+  } else {
+    metadataUpdates.review_ready = true;
+  }
+
+  // Get current metadata first to merge it
+  const { data: existingBatch } = await admin
+    .from('prospect_batches')
+    .select('metadata')
+    .eq('id', batchId)
+    .single();
+
+  const finalMetadata = {
+    ...(existingBatch?.metadata ?? {}),
+    ...metadataUpdates,
+  };
+
+  await admin
+    .from('prospect_batches')
+    .update({ metadata: finalMetadata })
+    .eq('id', batchId);
+
+  return { usefulCount, omittedCount };
+}
+
+// ============================================================
 // Main agent orchestrator
 // ============================================================
 
@@ -698,7 +752,7 @@ export async function runProspectGenerationAgent(
     countryCode === 'CO' && createStructuredSourceBatch && structuredSourcePageAuto;
   let ruesPhaseRanEarly = false;
   let ruesEarlyResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
-  let sourceStrategy: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' =
+  let sourceStrategy: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates' =
     'commercial_only';
   let usefulCandidates = 0;
 
@@ -744,6 +798,7 @@ export async function runProspectGenerationAgent(
         // ── Hito 16AK.11: Enrich RUES candidates with Tavily + Claude (non-blocking) ──
         let enrichmentSummary: { enriched: number; totalEstimatedCostUsd: number; warnings: string[] } | undefined;
         if (ruesEarlyResult?.batchId) {
+          await finalizeBatchMetadataAndStatus(admin, ruesEarlyResult.batchId);
           try {
             const enrichResult = await enrichBatchCandidatesWithWebAndAI(admin, ruesEarlyResult.batchId, {
               country,
@@ -1257,6 +1312,61 @@ export async function runProspectGenerationAgent(
       }
     }
 
+    if (structuredSourceBatchResult?.batchId) {
+      await finalizeBatchMetadataAndStatus(admin, structuredSourceBatchResult.batchId);
+    }
+    await finalizeBatchMetadataAndStatus(admin, batch.id);
+
+    const mainBatchId = batch.id;
+
+    let mainUsefulCount = 0;
+    let mainOmittedCount = 0;
+
+    if (mainBatchId) {
+      const { data: candidates } = await admin
+        .from('prospect_candidates')
+        .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+        .eq('batch_id', mainBatchId);
+
+      if (candidates) {
+        const useful = candidates.filter(isUsefulReviewCandidate);
+        mainUsefulCount = useful.length;
+        mainOmittedCount = candidates.length - mainUsefulCount;
+      }
+    }
+
+    if (mainUsefulCount === 0) {
+      await updateAgentRun(agentRun.id, {
+        status: 'completed',
+        results_generated: mainUsefulCount + mainOmittedCount,
+        results_unique: 0,
+        estimated_cost_usd: totalEstimatedCost,
+        finished_at: new Date().toISOString(),
+        metadata: {
+          batch_id: mainBatchId,
+          duration_ms: Date.now() - startedAt,
+          source_strategy: 'no_useful_candidates',
+          ...(preflightResult ? { structured_source_preflight: preflightResult } : {}),
+          ...(structuredSourceBatchResult ? { structured_source_batch: structuredSourceBatchResult } : {}),
+        },
+      });
+
+      return {
+        success: true,
+        ok: false,
+        batchId: mainBatchId,
+        agentRunId: agentRun.id,
+        candidatesCreated: 0,
+        estimatedCostUsd: totalEstimatedCost,
+        ...(preflightResult ? { structuredSourcePreflight: preflightResult } : {}),
+        structuredSourceBatch: structuredSourceBatchResult,
+        sourceStrategy: 'no_useful_candidates',
+        message: 'No se encontraron empresas útiles para revisión.',
+        omittedCandidatesCount: mainOmittedCount,
+        usefulCandidatesCount: 0,
+      };
+    }
+
     await updateAgentRun(agentRun.id, {
       status: 'completed',
       results_generated: insertedCandidates.length,
@@ -1274,9 +1384,10 @@ export async function runProspectGenerationAgent(
 
     return {
       success: true,
+      ok: true,
       batchId: batch.id,
       agentRunId: agentRun.id,
-      candidatesCreated: insertedCandidates.length,
+      candidatesCreated: mainUsefulCount,
       estimatedCostUsd: totalEstimatedCost,
       ...(preflightResult ? { structuredSourcePreflight: preflightResult } : {}),
       structuredSourceBatch: structuredSourceBatchResult,
@@ -1290,6 +1401,8 @@ export async function runProspectGenerationAgent(
           batchId: batch.id,
         },
       } : {}),
+      usefulCandidatesCount: mainUsefulCount,
+      omittedCandidatesCount: mainOmittedCount,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error inesperado en el agente';

@@ -13,6 +13,7 @@ import { createHubSpotCompany, type CreateHubSpotCompanySentAudit } from '@/serv
 import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
+  isUsefulReviewCandidate,
   type ProspectBatch,
   type ProspectBatchWithMeta,
   type ProspectCandidate,
@@ -149,21 +150,26 @@ export async function getProspectBatchesSummary(): Promise<BatchesSummary> {
 
   const { data: batches } = await supabase
     .from('prospect_batches')
-    .select('status')
+    .select('status, metadata')
     .is('archived_at', null);
 
   const { data: approvedCandidates } = await supabase
     .from('prospect_candidates')
-    .select('id', { count: 'exact', head: true })
+    .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
     .eq('status', 'approved');
 
   const list = batches ?? [];
+  const approvedList = (approvedCandidates ?? []).filter(isUsefulReviewCandidate);
+
   return {
     total: list.length,
-    ready_for_review: list.filter((b) => b.status === 'ready_for_review').length,
+    ready_for_review: list.filter((b) => {
+      const meta = b.metadata as Record<string, unknown> | null;
+      return b.status === 'ready_for_review' && meta?.review_ready !== false;
+    }).length,
     in_review: list.filter((b) => b.status === 'in_review').length,
     completed: list.filter((b) => b.status === 'completed').length,
-    total_approved_candidates: approvedCandidates?.length ?? 0,
+    total_approved_candidates: approvedList.length,
   };
 }
 
@@ -188,31 +194,29 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
 
   const batchIds = batches.map((b) => b.id);
 
-  const { data: candidateCounts } = await supabase
+  const { data: candidates } = await supabase
     .from('prospect_candidates')
-    .select('batch_id, status')
+    .select('batch_id, status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status')
     .in('batch_id', batchIds);
 
-  const counts = (candidateCounts ?? []).reduce<Record<string, Record<string, number>>>(
-    (acc, c) => {
-      if (!acc[c.batch_id]) acc[c.batch_id] = {};
-      acc[c.batch_id][c.status] = (acc[c.batch_id][c.status] ?? 0) + 1;
-      return acc;
-    },
-    {}
-  );
+  const list = candidates ?? [];
 
   return batches.map((b) => {
-    const bCounts = counts[b.id] ?? {};
-    const total = Object.values(bCounts).reduce((s, v) => s + v, 0);
+    const usefulCandidates = list.filter((c) => c.batch_id === b.id && isUsefulReviewCandidate(c));
+    const approved = usefulCandidates.filter((c) => c.status === 'approved').length;
+    const discarded = usefulCandidates.filter((c) => c.status === 'discarded').length;
+    const converted = usefulCandidates.filter((c) => c.status === 'converted_to_account').length;
+    const needsReview = usefulCandidates.filter((c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized').length;
+    const duplicates = usefulCandidates.filter((c) => c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate' || c.status === 'duplicate').length;
+
     return {
       ...b,
-      total_candidates: total,
-      approved_count: bCounts['approved'] ?? 0,
-      discarded_count: bCounts['discarded'] ?? 0,
-      converted_count: bCounts['converted_to_account'] ?? 0,
-      needs_review_count: bCounts['needs_review'] ?? 0,
-      duplicate_count: bCounts['duplicate'] ?? 0,
+      total_candidates: usefulCandidates.length,
+      approved_count: approved,
+      discarded_count: discarded,
+      converted_count: converted,
+      needs_review_count: needsReview,
+      duplicate_count: duplicates,
     } as ProspectBatchWithMeta;
   });
 }
@@ -235,26 +239,27 @@ export async function getProspectBatchById(id: string): Promise<ProspectBatchWit
 
   if (error || !batch) return null;
 
-  const { data: candidateCounts } = await supabase
+  const { data: candidates } = await supabase
     .from('prospect_candidates')
-    .select('status')
+    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status')
     .eq('batch_id', id);
 
-  const counts = (candidateCounts ?? []).reduce<Record<string, number>>((acc, c) => {
-    acc[c.status] = (acc[c.status] ?? 0) + 1;
-    return acc;
-  }, {});
-
-  const total = Object.values(counts).reduce((s, v) => s + v, 0);
+  const list = candidates ?? [];
+  const usefulCandidates = list.filter(isUsefulReviewCandidate);
+  const approved = usefulCandidates.filter((c) => c.status === 'approved').length;
+  const discarded = usefulCandidates.filter((c) => c.status === 'discarded').length;
+  const converted = usefulCandidates.filter((c) => c.status === 'converted_to_account').length;
+  const needsReview = usefulCandidates.filter((c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized').length;
+  const duplicates = usefulCandidates.filter((c) => c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate' || c.status === 'duplicate').length;
 
   return {
     ...batch,
-    total_candidates: total,
-    approved_count: counts['approved'] ?? 0,
-    discarded_count: counts['discarded'] ?? 0,
-    converted_count: counts['converted_to_account'] ?? 0,
-    needs_review_count: counts['needs_review'] ?? 0,
-    duplicate_count: counts['duplicate'] ?? 0,
+    total_candidates: usefulCandidates.length,
+    approved_count: approved,
+    discarded_count: discarded,
+    converted_count: converted,
+    needs_review_count: needsReview,
+    duplicate_count: duplicates,
   } as ProspectBatchWithMeta;
 }
 
@@ -262,25 +267,26 @@ export async function getBatchDetailSummary(batchId: string): Promise<BatchDetai
   await requireActiveUser();
   const supabase = await createClient();
 
-  const { data } = await supabase
+  const { data: candidates } = await supabase
     .from('prospect_candidates')
-    .select('status')
+    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status')
     .eq('batch_id', batchId);
 
-  const counts = (data ?? []).reduce<Record<string, number>>((acc, c) => {
-    acc[c.status] = (acc[c.status] ?? 0) + 1;
-    return acc;
-  }, {});
-
-  const total = Object.values(counts).reduce((s, v) => s + v, 0);
+  const list = candidates ?? [];
+  const usefulCandidates = list.filter(isUsefulReviewCandidate);
+  const approved = usefulCandidates.filter((c) => c.status === 'approved').length;
+  const discarded = usefulCandidates.filter((c) => c.status === 'discarded').length;
+  const converted = usefulCandidates.filter((c) => c.status === 'converted_to_account').length;
+  const needsReview = usefulCandidates.filter((c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized').length;
+  const duplicates = usefulCandidates.filter((c) => c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate' || c.status === 'duplicate').length;
 
   return {
-    total_candidates: total,
-    needs_review: counts['needs_review'] ?? 0,
-    approved: counts['approved'] ?? 0,
-    discarded: counts['discarded'] ?? 0,
-    converted: counts['converted_to_account'] ?? 0,
-    duplicates: counts['duplicate'] ?? 0,
+    total_candidates: usefulCandidates.length,
+    needs_review: needsReview,
+    approved: approved,
+    discarded: discarded,
+    converted: converted,
+    duplicates: duplicates,
   };
 }
 
@@ -1378,7 +1384,8 @@ export interface GenerateAIBatchInput {
 }
 
 export interface GenerateAIBatchResult {
-  batchId: string;
+  ok?: boolean;
+  batchId: string | null;
   candidatesCreated: number;
   estimatedCostUsd: number;
   /** Hito 16AJ.6 — presente solo si structuredSourcePreflight=true. Read-only, no escribe candidatos. */
@@ -1400,13 +1407,16 @@ export interface GenerateAIBatchResult {
     autoMode?: boolean;
   };
   /** Hito 16AK.10 — Estrategia de fuentes aplicada en esta generación */
-  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only';
+  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates';
   /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
   commercialBatch?: {
     skipped: boolean;
     reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results';
     batchId?: string | null;
   };
+  message?: string;
+  omittedCandidatesCount?: number;
+  usefulCandidatesCount?: number;
 }
 
 export async function runProspectPreflight(params: {
@@ -1467,6 +1477,7 @@ export async function generateAIProspectBatch(
   }
 
   return {
+    ok: result.ok,
     batchId: result.batchId,
     candidatesCreated: result.candidatesCreated,
     estimatedCostUsd: result.estimatedCostUsd,
@@ -1474,6 +1485,9 @@ export async function generateAIProspectBatch(
     structuredSourceBatch: result.structuredSourceBatch,
     sourceStrategy: result.sourceStrategy,
     commercialBatch: result.commercialBatch,
+    message: result.message,
+    omittedCandidatesCount: result.omittedCandidatesCount,
+    usefulCandidatesCount: result.usefulCandidatesCount,
   };
 }
 

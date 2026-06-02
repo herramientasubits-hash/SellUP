@@ -142,6 +142,8 @@ export function GenerateAIBatchDrawer() {
   const [structuredBatchResult, setStructuredBatchResult] = React.useState<StructuredBatchResult | null>(null);
   const [sourceStrategy, setSourceStrategy] = React.useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [usefulCandidatesCount, setUsefulCandidatesCount] = React.useState<number>(0);
+  const [omittedCandidatesCount, setOmittedCandidatesCount] = React.useState<number>(0);
 
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -161,6 +163,8 @@ export function GenerateAIBatchDrawer() {
     setStructuredBatchResult(null);
     setSourceStrategy(null);
     setAdvancedOpen(false);
+    setUsefulCandidatesCount(0);
+    setOmittedCandidatesCount(0);
   }
 
   function handleGoToBatch() {
@@ -221,12 +225,24 @@ export function GenerateAIBatchDrawer() {
         structuredSourcePageAuto: effectivePageAuto,
       });
 
-      toast.success(
-        `${result.candidatesCreated} empresa${result.candidatesCreated !== 1 ? 's' : ''} candidata${result.candidatesCreated !== 1 ? 's' : ''} lista${result.candidatesCreated !== 1 ? 's' : ''} para revisión`,
-        { description: 'Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana.' }
-      );
+      const uCount = result.usefulCandidatesCount ?? result.candidatesCreated ?? 0;
+      const oCount = result.omittedCandidatesCount ?? 0;
+      setUsefulCandidatesCount(uCount);
+      setOmittedCandidatesCount(oCount);
 
-      if (result.structuredSourcePreflight || result.structuredSourceBatch) {
+      if (uCount > 0) {
+        toast.success(
+          `${uCount} empresa${uCount !== 1 ? 's' : ''} candidata${uCount !== 1 ? 's' : ''} lista${uCount !== 1 ? 's' : ''} para revisión`,
+          { description: 'Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana.' }
+        );
+      } else {
+        toast.warning(
+          'No se encontraron empresas útiles para revisión',
+          { description: 'SellUp omitió registros por liquidación, inactividad, duplicidad o datos mínimos insuficientes.' }
+        );
+      }
+
+      if (result.structuredSourcePreflight || result.structuredSourceBatch || uCount === 0) {
         setStructuredBatchResult(result.structuredSourceBatch ?? null);
         setPreflightResult(result.structuredSourcePreflight ?? null);
         setGeneratedBatchId(result.batchId);
@@ -236,7 +252,9 @@ export function GenerateAIBatchDrawer() {
         setOpen(false);
         setForm({ ...EMPTY });
         setProgressMsg('');
-        router.push(`/prospect-batches/${result.batchId}`);
+        if (result.batchId) {
+          router.push(`/prospect-batches/${result.batchId}`);
+        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al generar el lote');
@@ -247,7 +265,7 @@ export function GenerateAIBatchDrawer() {
   }
 
   const canSubmit = !!form.countryCode && !!form.industry && !generating;
-  const showPreflightResult = (!!preflightResult || !!structuredBatchResult) && !!generatedBatchId;
+  const showPreflightResult = (!!preflightResult || !!structuredBatchResult || usefulCandidatesCount === 0) && !!generatedBatchId;
 
   return (
     <>
@@ -290,6 +308,8 @@ export function GenerateAIBatchDrawer() {
                 structuredSourcePage={form.advStructuredSourcePage}
                 sourceStrategy={sourceStrategy}
                 advancedOpen={advancedOpen}
+                usefulCandidatesCount={usefulCandidatesCount}
+                omittedCandidatesCount={omittedCandidatesCount}
               />
             ) : (
               /* ── Formulario principal ── */
@@ -585,7 +605,11 @@ export function GenerateAIBatchDrawer() {
             {showPreflightResult ? (
               <div className="flex w-full flex-col gap-3">
                 {/* Mensaje contextual según estrategia de fuentes */}
-                {sourceStrategy === 'official_source_satisfied' ? (
+                {usefulCandidatesCount === 0 ? (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
+                    No se encontraron empresas útiles para revisión. SellUp omitió registros por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
+                  </p>
+                ) : sourceStrategy === 'official_source_satisfied' ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
                     SellUp encontró {structuredBatchResult?.candidatesWritten ?? 10} empresas útiles en fuente oficial. Se omitieron {structuredBatchResult?.candidatesSkipped ?? 0} registros no viables.
                   </p>
@@ -612,7 +636,38 @@ export function GenerateAIBatchDrawer() {
                     Cerrar
                   </Button>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    {sourceStrategy === 'official_source_satisfied' ? (
+                    {usefulCandidatesCount === 0 ? (
+                      <>
+                        {generatedBatchId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              handleClose();
+                              router.push(`/prospect-batches/${generatedBatchId}`);
+                            }}
+                            className="gap-1.5 text-muted-foreground"
+                          >
+                            Ver lote para auditoría
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {structuredBatchResult?.batchId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              handleClose();
+                              router.push(`/prospect-batches/${structuredBatchResult.batchId}`);
+                            }}
+                            className="gap-1.5 text-muted-foreground"
+                          >
+                            Ver lote oficial para auditoría
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </>
+                    ) : sourceStrategy === 'official_source_satisfied' ? (
                       /* Solo fuente oficial — sin botón Apollo */
                       <Button
                         size="sm"
@@ -763,6 +818,8 @@ interface GenerationResultPanelProps {
   structuredSourcePage?: number;
   sourceStrategy?: string | null;
   advancedOpen?: boolean;
+  usefulCandidatesCount: number;
+  omittedCandidatesCount: number;
 }
 
 function GenerationResultPanel({
@@ -772,6 +829,8 @@ function GenerationResultPanel({
   structuredSourcePage = 1,
   sourceStrategy,
   advancedOpen = false,
+  usefulCandidatesCount,
+  omittedCandidatesCount,
 }: GenerationResultPanelProps) {
   const statusIcon = result ? PREFLIGHT_STATUS_ICONS[result.status] ?? PREFLIGHT_STATUS_ICONS.skipped : null;
   const statusLabel = result ? PREFLIGHT_STATUS_LABELS[result.status] ?? result.status : '';
@@ -781,13 +840,25 @@ function GenerationResultPanel({
       {/* Título */}
       <div className="space-y-1">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          {usefulCandidatesCount > 0 ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          ) : (
+            <TriangleAlert className="h-4 w-4 text-amber-500" />
+          )}
           <h3 className="text-sm font-semibold text-foreground">
-            Generación completada
+            {usefulCandidatesCount > 0 ? 'Generación completada' : 'Generación finalizada'}
           </h3>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Los lotes han sido procesados y están listos para revisión humana.
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {usefulCandidatesCount > 0 ? (
+            'Empresas candidatas listas para revisión.'
+          ) : omittedCandidatesCount > 0 ? (
+            <span>
+              No se encontraron empresas útiles para revisión. SellUp omitió {omittedCandidatesCount} registro{omittedCandidatesCount !== 1 ? 's' : ''} por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
+            </span>
+          ) : (
+            'No se encontraron empresas con los criterios actuales.'
+          )}
         </p>
       </div>
 
@@ -806,9 +877,15 @@ function GenerationResultPanel({
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Estado:</span>
-            <span className="font-medium text-emerald-500 flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" /> Creado
-            </span>
+            {usefulCandidatesCount > 0 ? (
+              <span className="font-medium text-emerald-500 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Creado
+              </span>
+            ) : (
+              <span className="font-medium text-amber-500 flex items-center gap-1">
+                <TriangleAlert className="h-3 w-3" /> Sin candidatas útiles
+              </span>
+            )}
           </div>
           {apolloBatchId && (
             <div className="flex items-center justify-between text-xs">
@@ -818,6 +895,16 @@ function GenerationResultPanel({
               </code>
             </div>
           )}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Candidatos útiles:</span>
+              <span className="font-semibold text-foreground">{usefulCandidatesCount}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Omitidos:</span>
+              <span className="font-semibold text-foreground">{omittedCandidatesCount}</span>
+            </div>
+          </div>
         </div>
       )}
 

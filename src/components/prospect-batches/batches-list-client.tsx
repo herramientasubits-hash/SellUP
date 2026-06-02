@@ -234,9 +234,15 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
               </td>
               {/* Estado */}
               <td className="px-4 py-3">
-                <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>
-                  {BATCH_STATUS_LABELS[batch.status]}
-                </Badge>
+                {batch.metadata?.review_ready === false && batch.status === 'ready_for_review' ? (
+                  <Badge className="bg-muted text-muted-foreground border-0 text-[10px] font-semibold">
+                    Sin candidatas útiles
+                  </Badge>
+                ) : (
+                  <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>
+                    {BATCH_STATUS_LABELS[batch.status]}
+                  </Badge>
+                )}
               </td>
               {/* Fuente */}
               <td className="px-4 py-3">
