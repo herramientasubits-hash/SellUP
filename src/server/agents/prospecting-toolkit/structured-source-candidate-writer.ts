@@ -131,6 +131,7 @@ type PreparedCandidate = {
   commercialTrace: CommercialTrace;
   candidateStatus: string;
   duplicateStatus: string;
+  duplicateCheckMetadata: Record<string, unknown> | null;
 };
 
 // ── Helpers puros ─────────────────────────────────────────────
@@ -174,8 +175,56 @@ function resolveCandidateStatus(hubspotMatchStatus: HubspotMatchStatus): string 
 }
 
 function resolveDuplicateStatus(hubspotMatchStatus: HubspotMatchStatus): string {
-  if (hubspotMatchStatus === 'exact_match_customer') return 'possible_duplicate';
-  return 'unchecked';
+  switch (hubspotMatchStatus) {
+    case 'no_match':
+      return 'no_match';
+    case 'exact_match_customer':
+      return 'exact_duplicate';
+    case 'exact_match_prospect_active':
+    case 'possible_match_requires_review':
+      return 'possible_duplicate';
+    case 'exact_match_prospect_recyclable':
+    case 'exact_match_ex_customer':
+      return 'related_company';
+    case 'hubspot_lookup_failed':
+    case 'not_attempted':
+    default:
+      return 'unchecked';
+  }
+}
+
+function buildDcSummary(hubspotMatchStatus: HubspotMatchStatus, hubspotRan: boolean): string {
+  if (!hubspotRan) return 'Verificado contra SellUp (NIT/tax_id). Sin coincidencia en SellUp.';
+  switch (hubspotMatchStatus) {
+    case 'no_match': return 'Sin coincidencia en HubSpot ni en SellUp.';
+    case 'exact_match_customer': return 'Empresa encontrada en HubSpot como cliente activo.';
+    case 'exact_match_prospect_active': return 'Empresa encontrada en HubSpot como prospecto activo.';
+    case 'exact_match_prospect_recyclable': return 'Empresa encontrada en HubSpot como prospecto reciclable.';
+    case 'exact_match_ex_customer': return 'Empresa encontrada en HubSpot como ex-cliente.';
+    case 'possible_match_requires_review': return 'Posible coincidencia en HubSpot. Requiere revisión manual.';
+    case 'hubspot_lookup_failed': return 'Error al consultar HubSpot. Verificación SellUp completada.';
+    default: return 'Verificado contra SellUp y HubSpot.';
+  }
+}
+
+function buildMatchReason(
+  status: HubspotMatchStatus,
+  matchMethod: string | null,
+): string {
+  const methodLabel =
+    matchMethod === 'nit' ? 'NIT exacto'
+    : matchMethod === 'domain' ? 'dominio exacto'
+    : matchMethod === 'name' ? 'nombre normalizado'
+    : matchMethod === 'id' ? 'ID directo'
+    : 'búsqueda';
+  switch (status) {
+    case 'exact_match_customer': return `Cliente activo — ${methodLabel}`;
+    case 'exact_match_prospect_active': return `Prospecto activo — ${methodLabel}`;
+    case 'exact_match_prospect_recyclable': return `Prospecto reciclable — ${methodLabel}`;
+    case 'exact_match_ex_customer': return `Ex-cliente — ${methodLabel}`;
+    case 'possible_match_requires_review': return `Posible coincidencia — ${methodLabel}`;
+    default: return methodLabel;
+  }
 }
 
 function buildEmptyReport(executedAt: string, dryRun: boolean, sourceProvider: string): StructuredSourceCandidateWriterReport {
@@ -413,6 +462,7 @@ export async function writeStructuredSourceCandidatesPreview(
           commercialTrace: draft.commercialTrace,
           candidateStatus: 'needs_review',
           duplicateStatus: 'unchecked',
+          duplicateCheckMetadata: null,
         });
         continue;
       }
@@ -436,6 +486,14 @@ export async function writeStructuredSourceCandidatesPreview(
       }
 
       // ── HubSpot check (read-only, opcional) ───────────────
+      // duplicateCheckMetadata se construye aquí y se guarda en metadata.duplicate_check
+      // para que el modal UI de coincidencias pueda mostrarlo.
+      let duplicateCheckMetadata: Record<string, unknown> = {
+        summary: 'Verificado contra SellUp (NIT/tax_id). Sin coincidencia en SellUp.',
+        sources_checked: ['sellup'],
+        matches: [],
+      };
+
       if (runHubSpotCheck) {
         try {
           const hsResult = await checkHubSpotCompanyCommercialStatus({
@@ -476,6 +534,40 @@ export async function writeStructuredSourceCandidatesPreview(
               message: `HubSpot lookup warning: ${hsResult.error}`,
             });
           }
+
+          // Construir matches para el modal UI
+          const dcMatches: Array<Record<string, unknown>> = [];
+          if (hsResult.match) {
+            dcMatches.push({
+              source: 'hubspot',
+              status: hubspotMatchStatus,
+              confidence: hsResult.match.matchConfidence,
+              matched_name: hsResult.match.name,
+              matched_domain: hsResult.match.domain,
+              matched_website: null,
+              matched_id: hsResult.match.hubspotCompanyId,
+              reason: buildMatchReason(hubspotMatchStatus, hsResult.match.matchMethod),
+            });
+          }
+          for (const pm of hsResult.possibleMatches) {
+            if (pm.hubspotId !== hsResult.match?.hubspotCompanyId) {
+              dcMatches.push({
+                source: 'hubspot',
+                status: 'possible_match_requires_review',
+                confidence: pm.confidence,
+                matched_name: pm.name,
+                matched_domain: null,
+                matched_website: null,
+                matched_id: pm.hubspotId,
+                reason: 'Posible coincidencia detectada',
+              });
+            }
+          }
+          duplicateCheckMetadata = {
+            summary: buildDcSummary(hubspotMatchStatus, true),
+            sources_checked: ['sellup', 'hubspot'],
+            matches: dcMatches,
+          };
         } catch (hsErr: unknown) {
           // Error de HubSpot no rompe el lote
           hubspotMatchStatus = 'hubspot_lookup_failed';
@@ -486,6 +578,11 @@ export async function writeStructuredSourceCandidatesPreview(
             taxId: draft.taxId,
             message: `HubSpot lookup error: ${msg}`,
           });
+          duplicateCheckMetadata = {
+            summary: 'Error al consultar HubSpot. Verificación SellUp completada.',
+            sources_checked: ['sellup'],
+            matches: [],
+          };
         }
       }
 
@@ -527,6 +624,7 @@ export async function writeStructuredSourceCandidatesPreview(
         commercialTrace: updatedCommercialTrace,
         candidateStatus: resolveCandidateStatus(hubspotMatchStatus),
         duplicateStatus: resolveDuplicateStatus(hubspotMatchStatus),
+        duplicateCheckMetadata,
       });
 
     } catch (candidateErr: unknown) {
@@ -779,6 +877,7 @@ export async function writeStructuredSourceCandidatesPreview(
           preview_mode: true,
           human_review_required: true,
           notes: 'Tamaño no confirmado — validar manualmente',
+          ...(p.duplicateCheckMetadata ? { duplicate_check: p.duplicateCheckMetadata } : {}),
         },
       };
 
