@@ -223,6 +223,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
                   const statusMap: Record<string, { label: string; className: string }> = {
                     blocked_duplicate: { label: 'No creado: duplicado en HubSpot', className: 'text-amber-600 dark:text-amber-400' },
+                    blocked_inactive_or_liquidation: { label: 'No sincronizado · señal de liquidación o inactividad', className: 'text-amber-600 dark:text-amber-400' },
                     failed_create: { label: 'Error al crear en HubSpot', className: 'text-destructive' },
                     failed_lookup: { label: 'Error en verificación HubSpot', className: 'text-destructive' },
                     skipped_flag_off: { label: 'Sincronización HubSpot desactivada', className: 'text-muted-foreground/60' },

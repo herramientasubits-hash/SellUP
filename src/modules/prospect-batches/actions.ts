@@ -39,6 +39,7 @@ export type HubSpotSyncStatus =
   | 'skipped_missing_write_scope'
   | 'skipped_rollback'
   | 'blocked_duplicate'
+  | 'blocked_inactive_or_liquidation'
   | 'failed_lookup'
   | 'failed_create'
   | 'synced';
@@ -827,6 +828,35 @@ export async function markCandidateDuplicate(
   return data as ProspectCandidate;
 }
 
+// ── HubSpot liquidation / inactive guardrails ─────────────────
+
+const LIQUIDATION_NAME_SIGNALS = [
+  'EN LIQUIDACION',
+  'EN LIQUIDACIÓN',
+  ' LIQUIDACION',
+  ' LIQUIDACIÓN',
+  'LIQUIDADA',
+  'DISUELTA',
+  'EN DISOLUCION',
+  'EN DISOLUCIÓN',
+];
+
+const INACTIVE_REVIEW_FLAGS = ['inactive_company', 'possible_inactive'];
+
+function hasLiquidationOrInactiveSignal(
+  name: string,
+  reviewFlagsAtConversion?: string[] | null,
+  candidateReviewFlags?: string[] | null,
+): boolean {
+  const upper = name.toUpperCase();
+  if (LIQUIDATION_NAME_SIGNALS.some((s) => upper.includes(s))) return true;
+  const allFlags = [
+    ...(Array.isArray(reviewFlagsAtConversion) ? reviewFlagsAtConversion : []),
+    ...(Array.isArray(candidateReviewFlags) ? candidateReviewFlags : []),
+  ];
+  return INACTIVE_REVIEW_FLAGS.some((f) => allFlags.includes(f));
+}
+
 // ── HubSpot sync helper ───────────────────────────────────────
 
 function getHubSpotAdminClient() {
@@ -863,6 +893,7 @@ async function attemptHubSpotSync(params: {
   accountCity: string | null;
   accountRegion: string | null;
   candidateDuplicateStatus: string | null;
+  candidateReviewFlags?: string[] | null;
 }): Promise<HubSpotSyncResult> {
   const {
     accountId,
@@ -876,6 +907,7 @@ async function attemptHubSpotSync(params: {
     accountCity,
     accountRegion,
     candidateDuplicateStatus,
+    candidateReviewFlags,
   } = params;
 
   const nowStr = new Date().toISOString();
@@ -893,7 +925,21 @@ async function attemptHubSpotSync(params: {
     return { attempted: false, status: 'skipped_rollback' };
   }
 
-  // 3. Validate HubSpot connection + write scope
+  // 3. Liquidation / inactive guard — blocks before any API call
+  const reviewFlagsAtConversion = Array.isArray(accountMeta.review_flags_at_conversion)
+    ? (accountMeta.review_flags_at_conversion as string[])
+    : null;
+  if (hasLiquidationOrInactiveSignal(accountName, reviewFlagsAtConversion, candidateReviewFlags ?? null)) {
+    await updateAccountHubSpotMeta(accountId, {
+      hubspot_sync_status: 'blocked_inactive_or_liquidation',
+      hubspot_sync_blocked_reason: 'inactive_or_liquidation_signal',
+      hubspot_sync_method: 'auto',
+      hubspot_sync_attempted_at: nowStr,
+    }, accountMeta);
+    return { attempted: false, status: 'blocked_inactive_or_liquidation', message: 'Empresa con señal de liquidación o inactividad' };
+  }
+
+  // 4. Validate HubSpot connection + write scope
   let connectionResult;
   try {
     connectionResult = await testHubSpotConnection();
@@ -999,6 +1045,11 @@ async function attemptHubSpotSync(params: {
           hubspot_company_id: createResult.hubspotCompanyId,
           hubspot_match_status_at_sync: 'no_match',
           hubspot_sync_source: 'candidate_conversion',
+          // Audit of sent properties — for diagnosing HubSpot visibility issues
+          hubspot_sent_property_keys: createResult.sentPropertyKeys ?? null,
+          hubspot_sent_country: createResult.sentPropertiesAudit?.country ?? null,
+          hubspot_sent_nit: createResult.sentPropertiesAudit?.nit ?? null,
+          hubspot_sent_domain: createResult.sentPropertiesAudit?.domain ?? null,
         },
         updated_at: nowStr,
       })
@@ -1125,6 +1176,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       accountCity: account.city ?? null,
       accountRegion: account.region ?? null,
       candidateDuplicateStatus: (candidateRaw.duplicate_status as string | null) ?? null,
+      candidateReviewFlags: (candidateRaw.review_flags as string[] | null) ?? null,
     });
   } catch {
     hubspotSync = { attempted: false, status: 'failed_create', message: 'Error inesperado en sync' };

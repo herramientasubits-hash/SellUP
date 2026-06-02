@@ -279,6 +279,8 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
         message = 'Empresa creada en SellUp. Sincronización HubSpot desactivada.';
       } else if (sync.status === 'blocked_duplicate') {
         message = 'Empresa creada en SellUp. No se creó en HubSpot porque se detectó una coincidencia.';
+      } else if (sync.status === 'blocked_inactive_or_liquidation') {
+        message = 'Empresa creada en SellUp. No se sincronizó con HubSpot porque tiene señal de liquidación o inactividad.';
       } else if (sync.attempted) {
         message = 'Empresa creada en SellUp. No se pudo sincronizar con HubSpot.';
       } else {
