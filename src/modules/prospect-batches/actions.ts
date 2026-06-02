@@ -951,6 +951,8 @@ export interface GenerateAIBatchInput {
   structuredSourceKey?: string | null;
   /** Hito 16AJ.9 — Crear también lote estructurado */
   createStructuredSourceBatch?: boolean;
+  /** Hito 16AK.2D — Página de paginación RUES (1-5). Default: 1. */
+  structuredSourcePage?: number;
 }
 
 export interface GenerateAIBatchResult {
@@ -1014,6 +1016,7 @@ export async function generateAIProspectBatch(
     structuredSourcePreflight: input.structuredSourcePreflight ?? false,
     structuredSourceKey: input.structuredSourceKey ?? null,
     createStructuredSourceBatch: input.createStructuredSourceBatch ?? false,
+    structuredSourcePage: input.structuredSourcePage ?? 1,
   });
 
   if (!result.success || !result.batchId) {

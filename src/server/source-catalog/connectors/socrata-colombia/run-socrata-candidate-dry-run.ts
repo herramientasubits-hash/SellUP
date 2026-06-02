@@ -40,6 +40,7 @@ const DEFAULT_DATASETS: ColombiaCompanySource[] = ['rues', 'secop2', 'reps', 'su
 export type SocrataCandidateDryRunInput = {
   datasets?: ColombiaCompanySource[];
   limitPerDataset?: number;
+  offsetPerDataset?: number;
   runHubSpotCheck?: boolean;
 };
 
@@ -138,6 +139,7 @@ export async function runSocrataCandidateDryRun(
     input?.limitPerDataset ?? DRY_RUN_DEFAULT_LIMIT,
     DRY_RUN_HARD_MAX,
   );
+  const offsetPerDataset = input?.offsetPerDataset ?? 0;
   const datasets = input?.datasets ?? DEFAULT_DATASETS;
   const runHubSpotCheck = input?.runHubSpotCheck ?? false;
 
@@ -145,7 +147,7 @@ export async function runSocrataCandidateDryRun(
   const errors: SocrataCandidateDryRunReport['errors'] = [];
 
   // 1. Ejecutar muestra Socrata (sin writes)
-  const sampleReport = await runSocrataColombiaSample({ datasets, limitPerDataset });
+  const sampleReport = await runSocrataColombiaSample({ datasets, limitPerDataset, offsetPerDataset });
 
   // 2. Procesar cada dataset
   for (const dataset of datasets) {

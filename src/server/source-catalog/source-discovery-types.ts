@@ -29,6 +29,7 @@ export interface SourceDiscoveryInput {
   countryCode: string;
   criteria?: SourceDiscoveryCriteria;
   limit?: number;
+  offset?: number;
   mode?: SourceDiscoveryMode;
 }
 

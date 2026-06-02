@@ -48,6 +48,8 @@ export interface ProspectGenerationParams {
   structuredSourceKey?: string | null;
   /** Hito 16AJ.9 — Si true, crea un lote estructurado separado */
   createStructuredSourceBatch?: boolean;
+  /** Hito 16AK.2D — Página de paginación RUES (1-5). Default: 1. */
+  structuredSourcePage?: number;
 }
 
 export interface ProspectGenerationResult {
@@ -413,7 +415,18 @@ export async function runProspectGenerationAgent(
     structuredSourcePreflight: preflightEnabled = false,
     structuredSourceKey = null,
     createStructuredSourceBatch = false,
+    structuredSourcePage: rawStructuredSourcePage,
   } = params;
+
+  const STRUCTURED_LIMIT = 5;
+  const STRUCTURED_PAGE_MAX = 5;
+  const structuredSourcePage = Math.max(1, Math.min(
+    STRUCTURED_PAGE_MAX,
+    Number.isInteger(rawStructuredSourcePage) && rawStructuredSourcePage != null
+      ? rawStructuredSourcePage
+      : 1,
+  ));
+  const structuredOffset = (structuredSourcePage - 1) * STRUCTURED_LIMIT;
   const safeCount = Math.min(targetCount, 25);
   const startedAt = Date.now();
 
@@ -799,7 +812,7 @@ export async function runProspectGenerationAgent(
 
     if (createStructuredSourceBatch && countryCode === 'CO') {
       try {
-        const structuredLimit = Math.min(safeCount, 5);
+        const structuredLimit = STRUCTURED_LIMIT;
         const discoveryOutput = await runSourceDiscovery({
           sourceKey: 'co_rues',
           countryCode: 'CO',
@@ -808,6 +821,7 @@ export async function runProspectGenerationAgent(
             industry: industry ?? null,
           },
           limit: structuredLimit,
+          offset: structuredOffset,
           mode: 'dry_run',
         });
 
@@ -841,6 +855,12 @@ export async function runProspectGenerationAgent(
             previewMode: true,
             runHubSpotCheck: true,
             limit: structuredLimit,
+            metadata: {
+              structured_source_page: structuredSourcePage,
+              structured_source_offset: structuredOffset,
+              structured_source_limit: structuredLimit,
+              source_pagination_mode: 'page_offset',
+            },
           });
 
           const writerErrors = writerResult.errors

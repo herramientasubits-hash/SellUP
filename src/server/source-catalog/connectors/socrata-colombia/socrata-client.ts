@@ -21,6 +21,7 @@ const SOCRATA_HEADERS = {
 type FetchSocrataParams = {
   dataset: ColombiaCompanySource;
   limit?: number;
+  offset?: number;
   where?: string;
   select?: string;
   order?: string;
@@ -41,6 +42,7 @@ export async function fetchSocrataDatasetSample(
 
   const url = buildSocrataUrl(datasetMeta.baseUrl, {
     $limit: limit,
+    $offset: params.offset,
     $where: params.where,
     $select: params.select,
     $order: params.order,

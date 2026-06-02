@@ -51,10 +51,11 @@ function normalizeRecord(
 async function sampleDataset(
   source: ColombiaCompanySource,
   limit: number,
+  offset?: number,
 ): Promise<SocrataSampleDatasetResult> {
   const where = DATASET_WHERE_FILTERS[source] || undefined;
 
-  const result = await fetchSocrataDatasetSample({ dataset: source, limit, where });
+  const result = await fetchSocrataDatasetSample({ dataset: source, limit, offset, where });
 
   if (!result.ok) {
     return { ok: false, recordsRead: 0, normalizedCount: 0, sample: [], error: result.error };
@@ -74,17 +75,19 @@ async function sampleDataset(
 
 export async function runSocrataColombiaSample(params?: {
   limitPerDataset?: number;
+  offsetPerDataset?: number;
   datasets?: ColombiaCompanySource[];
 }): Promise<SocrataColombiaSampleReport> {
   const limitPerDataset = Math.min(
     params?.limitPerDataset ?? SAMPLE_DEFAULT_LIMIT,
     SAMPLE_HARD_MAX,
   );
+  const offsetPerDataset = params?.offsetPerDataset ?? 0;
   const datasets = params?.datasets ?? SOCRATA_COLOMBIA_DATASET_KEYS;
 
   const resultEntries = await Promise.all(
     datasets.map(async (source) => {
-      const result = await sampleDataset(source, limitPerDataset);
+      const result = await sampleDataset(source, limitPerDataset, offsetPerDataset > 0 ? offsetPerDataset : undefined);
       return [source, result] as const;
     }),
   );

@@ -238,8 +238,9 @@ const socrataSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
   void cred; // co_rues usa Socrata sin token explícito en el dry-run actual
 
   const limitPerDataset = Math.min(input.limit ?? 3, 10);
+  const offsetPerDataset = input.offset ?? 0;
 
-  const report = await runSocrataCandidateDryRun({ limitPerDataset });
+  const report = await runSocrataCandidateDryRun({ limitPerDataset, offsetPerDataset });
 
   const candidates = report.items.slice(0, input.limit ?? report.items.length).map((item) => ({
     name: item.name ?? 'Sin nombre',

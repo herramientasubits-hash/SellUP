@@ -74,6 +74,8 @@ const PREFLIGHT_STATUS_LABELS: Record<string, string> = {
   skipped: 'Omitido',
 };
 
+const STRUCTURED_PAGE_MAX = 5;
+
 const EMPTY = {
   countryCode: '',
   industry: '',
@@ -81,6 +83,7 @@ const EMPTY = {
   searchDepth: 'standard' as BatchSearchDepth,
   structuredSourcePreflight: false,
   createStructuredSourceBatch: false,
+  structuredSourcePage: 1,
 };
 
 export function GenerateAIBatchDrawer() {
@@ -212,6 +215,7 @@ export function GenerateAIBatchDrawer() {
         structuredSourcePreflight: form.structuredSourcePreflight,
         structuredSourceKey: null,
         createStructuredSourceBatch: form.createStructuredSourceBatch,
+        structuredSourcePage: form.structuredSourcePage,
       });
 
       toast.success(
@@ -279,6 +283,7 @@ export function GenerateAIBatchDrawer() {
                 result={preflightResult}
                 structuredBatch={structuredBatchResult}
                 apolloBatchId={generatedBatchId}
+                structuredSourcePage={form.structuredSourcePage}
               />
             ) : (
               /* ── Formulario principal ── */
@@ -473,26 +478,56 @@ export function GenerateAIBatchDrawer() {
                               suggestedSource === 'co_rues' &&
                               (dynamicPreflight.status === 'success' || dynamicPreflight.status === 'warning') &&
                               dynamicPreflight.candidatesCount > 0 && (
-                                <div className="flex items-start gap-3 rounded-lg border border-su-brand/20 bg-su-brand-soft/10 p-3">
-                                  <input
-                                    id="create-structured-source-batch"
-                                    type="checkbox"
-                                    checked={form.createStructuredSourceBatch}
-                                    onChange={(e) => set('createStructuredSourceBatch', e.target.checked)}
-                                    disabled={generating}
-                                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand"
-                                  />
-                                  <Label
-                                    htmlFor="create-structured-source-batch"
-                                    className="cursor-pointer space-y-0.5"
-                                  >
-                                    <span className="text-xs font-semibold text-foreground">
-                                      Crear también lote desde fuente oficial
-                                    </span>
-                                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                                      Se creará un lote separado con candidatos de RUES/co_rues. Quedarán en revisión humana. No se enviarán a HubSpot.
-                                    </p>
-                                  </Label>
+                                <div className="space-y-2">
+                                  <div className="flex items-start gap-3 rounded-lg border border-su-brand/20 bg-su-brand-soft/10 p-3">
+                                    <input
+                                      id="create-structured-source-batch"
+                                      type="checkbox"
+                                      checked={form.createStructuredSourceBatch}
+                                      onChange={(e) => set('createStructuredSourceBatch', e.target.checked)}
+                                      disabled={generating}
+                                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand"
+                                    />
+                                    <Label
+                                      htmlFor="create-structured-source-batch"
+                                      className="cursor-pointer space-y-0.5"
+                                    >
+                                      <span className="text-xs font-semibold text-foreground">
+                                        Crear también lote desde fuente oficial
+                                      </span>
+                                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                        Se creará un lote separado con candidatos de RUES/co_rues. Quedarán en revisión humana. No se enviarán a HubSpot.
+                                      </p>
+                                    </Label>
+                                  </div>
+
+                                  {/* Página RUES — visible solo si el lote estructurado está activo */}
+                                  {form.createStructuredSourceBatch && (
+                                    <div className="rounded-lg border border-border/40 bg-card px-3 py-2.5 space-y-1.5">
+                                      <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                        Página de RUES
+                                      </Label>
+                                      <Select
+                                        value={String(form.structuredSourcePage)}
+                                        onValueChange={(v) => set('structuredSourcePage', Math.max(1, Math.min(STRUCTURED_PAGE_MAX, parseInt(v ?? '1') || 1)))}
+                                        disabled={generating}
+                                      >
+                                        <SelectTrigger className="w-full h-8 text-xs">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {Array.from({ length: STRUCTURED_PAGE_MAX }, (_, i) => i + 1).map((p) => (
+                                            <SelectItem key={p} value={String(p)} className="text-xs">
+                                              Página {p}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                                        Usa otra página si los candidatos de la página anterior ya existen en SellUp.
+                                      </p>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                           </div>
@@ -645,12 +680,14 @@ interface PreflightResultPanelProps {
   result: SourceDiscoveryPreflightResult | null;
   structuredBatch: StructuredBatchResult | null | undefined;
   apolloBatchId: string | null;
+  structuredSourcePage?: number;
 }
 
 function PreflightResultPanel({
   result,
   structuredBatch,
   apolloBatchId,
+  structuredSourcePage = 1,
 }: PreflightResultPanelProps) {
   const statusIcon = result ? PREFLIGHT_STATUS_ICONS[result.status] ?? PREFLIGHT_STATUS_ICONS.skipped : null;
   const statusLabel = result ? PREFLIGHT_STATUS_LABELS[result.status] ?? result.status : '';
@@ -725,6 +762,10 @@ function PreflightResultPanel({
                     <CheckCircle2 className="h-3 w-3" /> Creado (Revisión humana)
                   </span>
                 </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Página RUES:</span>
+                  <span className="font-semibold text-foreground">{structuredSourcePage}</span>
+                </div>
                 {structuredBatch.batchId && (
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Batch ID:</span>
@@ -735,7 +776,7 @@ function PreflightResultPanel({
                 )}
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Escritos:</span>
+                    <span className="text-muted-foreground">Candidatos escritos:</span>
                     <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten}</span>
                   </div>
                   <div className="flex justify-between">
@@ -756,6 +797,10 @@ function PreflightResultPanel({
                   Todos los candidatos encontrados en RUES ya existen en SellUp. No se escribieron duplicados.
                 </p>
                 <div className="flex items-center justify-between text-xs pl-5">
+                  <span className="text-muted-foreground">Página RUES usada:</span>
+                  <span className="font-semibold text-foreground">{structuredSourcePage}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs pl-5">
                   <span className="text-muted-foreground">Candidatos escritos:</span>
                   <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten ?? 0}</span>
                 </div>
@@ -765,6 +810,9 @@ function PreflightResultPanel({
                     <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
                   </div>
                 )}
+                <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400 pl-5">
+                  Prueba con una página diferente de RUES.
+                </p>
               </div>
             ) : (
               <div className="space-y-1">
