@@ -543,7 +543,7 @@ export function GenerateAIBatchDrawer() {
                 {/* Mensaje contextual según estrategia de fuentes */}
                 {sourceStrategy === 'official_source_satisfied' ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp encontró suficientes empresas en la fuente oficial. La fuente comercial no fue necesaria.
+                    SellUp verificó la fuente oficial y enriqueció los datos comerciales disponibles. La fuente comercial no fue necesaria.
                   </p>
                 ) : sourceStrategy === 'official_plus_commercial' ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">

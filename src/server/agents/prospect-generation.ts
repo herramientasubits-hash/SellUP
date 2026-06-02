@@ -30,6 +30,7 @@ import {
 } from './prospecting-toolkit/source-discovery-preflight';
 import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
 import { writeStructuredSourceCandidatesPreview } from './prospecting-toolkit/structured-source-candidate-writer';
+import { enrichBatchCandidatesWithWebAndAI } from './prospecting-toolkit/official-candidate-enricher';
 
 // ============================================================
 // Types
@@ -693,15 +694,48 @@ export async function runProspectGenerationAgent(
       if (officialCandidates >= safeCount) {
         // Fuente oficial satisface el objetivo — Apollo no se ejecuta ni se factura.
         sourceStrategy = 'official_source_satisfied';
+
+        // ── Hito 16AK.11: Enrich RUES candidates with Tavily + Claude (non-blocking) ──
+        let enrichmentSummary: { enriched: number; totalEstimatedCostUsd: number; warnings: string[] } | undefined;
+        if (ruesEarlyResult?.batchId) {
+          try {
+            const enrichResult = await enrichBatchCandidatesWithWebAndAI(admin, ruesEarlyResult.batchId, {
+              country,
+              countryCode,
+              industry,
+              targetCount: safeCount,
+            });
+            enrichmentSummary = {
+              enriched: enrichResult.enriched,
+              totalEstimatedCostUsd: enrichResult.totalEstimatedCostUsd,
+              warnings: enrichResult.warnings,
+            };
+            console.info('[agent-1] enrichment completed', {
+              batchId: ruesEarlyResult.batchId,
+              enriched: enrichResult.enriched,
+              skipped: enrichResult.skipped,
+              tavilyFailed: enrichResult.tavilyFailed,
+              aiFailed: enrichResult.aiFailed,
+              estimatedCostUsd: enrichResult.totalEstimatedCostUsd,
+            });
+          } catch (enrichErr: unknown) {
+            const msg = enrichErr instanceof Error ? enrichErr.message : 'enrichment error';
+            console.warn('[agent-1] enrichment phase failed (non-blocking):', msg);
+            enrichmentSummary = { enriched: 0, totalEstimatedCostUsd: 0, warnings: [`enrichment_exception: ${msg}`] };
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────────────
+
         await updateAgentRun(agentRun.id, {
           status: 'completed',
           results_generated: officialCandidates,
           results_unique: officialCandidates,
-          estimated_cost_usd: 0,
+          estimated_cost_usd: enrichmentSummary?.totalEstimatedCostUsd ?? 0,
           finished_at: new Date().toISOString(),
           metadata: {
             source_strategy: sourceStrategy,
             structured_source_batch: ruesEarlyResult,
+            enrichment: enrichmentSummary,
             duration_ms: Date.now() - startedAt,
           },
         });
@@ -710,7 +744,7 @@ export async function runProspectGenerationAgent(
           batchId: ruesEarlyResult?.batchId ?? null,
           agentRunId: agentRun.id,
           candidatesCreated: officialCandidates,
-          estimatedCostUsd: 0,
+          estimatedCostUsd: enrichmentSummary?.totalEstimatedCostUsd ?? 0,
           structuredSourceBatch: ruesEarlyResult,
           sourceStrategy,
           commercialBatch: { skipped: true, reason: 'official_source_satisfied' },
