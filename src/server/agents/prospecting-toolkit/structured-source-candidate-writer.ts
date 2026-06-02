@@ -136,6 +136,50 @@ type PreparedCandidate = {
 
 // ── Helpers puros ─────────────────────────────────────────────
 
+/**
+ * Sanitiza el payload de duplicate_check para garantizar que siempre sea
+ * serializable a JSONB y no contenga undefined, funciones ni ciclos.
+ */
+function buildSafeDuplicateCheckMetadata(raw: Record<string, unknown>): Record<string, unknown> {
+  const safeMatches = Array.isArray(raw.matches)
+    ? (raw.matches as unknown[]).slice(0, 5).map((m) => {
+        if (typeof m !== 'object' || m === null) return null;
+        const match = m as Record<string, unknown>;
+        return {
+          source: typeof match.source === 'string' ? match.source : null,
+          status: typeof match.status === 'string' ? match.status : null,
+          confidence: typeof match.confidence === 'number' ? match.confidence : null,
+          matched_name: typeof match.matched_name === 'string' ? match.matched_name : null,
+          matched_domain: typeof match.matched_domain === 'string' ? match.matched_domain : null,
+          matched_id: typeof match.matched_id === 'string' ? match.matched_id : null,
+          reason: typeof match.reason === 'string' ? match.reason : null,
+        };
+      }).filter(Boolean)
+    : [];
+
+  const sourcesChecked = Array.isArray(raw.sources_checked)
+    ? (raw.sources_checked as unknown[]).filter((s): s is string => typeof s === 'string')
+    : ['sellup'];
+
+  const rawSummary = raw.summary;
+  const summary =
+    typeof rawSummary === 'string'
+      ? { status: rawSummary }
+      : typeof rawSummary === 'object' && rawSummary !== null
+        ? rawSummary
+        : { status: 'checked' };
+
+  const result: Record<string, unknown> = {
+    summary,
+    sources_checked: sourcesChecked,
+    matches: safeMatches,
+  };
+
+  if (typeof raw.warning === 'string') result.warning = raw.warning;
+
+  return result;
+}
+
 function extractDomain(website: string | null): string | null {
   if (!website) return null;
   try {
@@ -374,7 +418,8 @@ export async function writeStructuredSourceCandidatesPreview(
   const executedAt = new Date().toISOString();
   const dateLabel = executedAt.slice(0, 10);
   const dryRun = input.dryRun ?? true; // Safe default
-  const runHubSpotCheck = input.runHubspotCheck ?? false;
+  // Both casing variants accepted: callers may pass runHubSpotCheck (uppercase) or runHubspotCheck (lowercase)
+  const runHubSpotCheck = input.runHubSpotCheck ?? input.runHubspotCheck ?? false;
 
   const errors: StructuredSourceCandidateWriterReport['errors'] = [];
 
@@ -488,11 +533,11 @@ export async function writeStructuredSourceCandidatesPreview(
       // ── HubSpot check (read-only, opcional) ───────────────
       // duplicateCheckMetadata se construye aquí y se guarda en metadata.duplicate_check
       // para que el modal UI de coincidencias pueda mostrarlo.
-      let duplicateCheckMetadata: Record<string, unknown> = {
+      let duplicateCheckMetadata: Record<string, unknown> = buildSafeDuplicateCheckMetadata({
         summary: 'Verificado contra SellUp (NIT/tax_id). Sin coincidencia en SellUp.',
         sources_checked: ['sellup'],
         matches: [],
-      };
+      });
 
       if (runHubSpotCheck) {
         try {
@@ -531,7 +576,7 @@ export async function writeStructuredSourceCandidatesPreview(
             errors.push({
               name: draft.name,
               taxId: draft.taxId,
-              message: `HubSpot lookup warning: ${hsResult.error}`,
+              message: `hubspot_lookup_warning: ${hsResult.error}`,
             });
           }
 
@@ -541,48 +586,49 @@ export async function writeStructuredSourceCandidatesPreview(
             dcMatches.push({
               source: 'hubspot',
               status: hubspotMatchStatus,
-              confidence: hsResult.match.matchConfidence,
-              matched_name: hsResult.match.name,
-              matched_domain: hsResult.match.domain,
+              confidence: typeof hsResult.match.matchConfidence === 'number' ? hsResult.match.matchConfidence : null,
+              matched_name: hsResult.match.name ?? null,
+              matched_domain: hsResult.match.domain ?? null,
               matched_website: null,
-              matched_id: hsResult.match.hubspotCompanyId,
-              reason: buildMatchReason(hubspotMatchStatus, hsResult.match.matchMethod),
+              matched_id: hsResult.match.hubspotCompanyId ?? null,
+              reason: buildMatchReason(hubspotMatchStatus, hsResult.match.matchMethod ?? null),
             });
           }
-          for (const pm of hsResult.possibleMatches) {
+          for (const pm of (hsResult.possibleMatches ?? [])) {
             if (pm.hubspotId !== hsResult.match?.hubspotCompanyId) {
               dcMatches.push({
                 source: 'hubspot',
                 status: 'possible_match_requires_review',
-                confidence: pm.confidence,
-                matched_name: pm.name,
+                confidence: typeof pm.confidence === 'number' ? pm.confidence : null,
+                matched_name: pm.name ?? null,
                 matched_domain: null,
                 matched_website: null,
-                matched_id: pm.hubspotId,
+                matched_id: pm.hubspotId ?? null,
                 reason: 'Posible coincidencia detectada',
               });
             }
           }
-          duplicateCheckMetadata = {
+          duplicateCheckMetadata = buildSafeDuplicateCheckMetadata({
             summary: buildDcSummary(hubspotMatchStatus, true),
             sources_checked: ['sellup', 'hubspot'],
             matches: dcMatches,
-          };
+          });
         } catch (hsErr: unknown) {
-          // Error de HubSpot no rompe el lote
+          // HubSpot failure does not block batch creation — degrade gracefully
           hubspotMatchStatus = 'hubspot_lookup_failed';
           hubspotLookupFailed++;
           const msg = hsErr instanceof Error ? hsErr.message : 'Error HubSpot desconocido';
           errors.push({
             name: draft.name,
             taxId: draft.taxId,
-            message: `HubSpot lookup error: ${msg}`,
+            message: `hubspot_lookup_failed: ${msg}`,
           });
-          duplicateCheckMetadata = {
-            summary: 'Error al consultar HubSpot. Verificación SellUp completada.',
+          duplicateCheckMetadata = buildSafeDuplicateCheckMetadata({
+            summary: { status: 'lookup_failed' },
             sources_checked: ['sellup'],
             matches: [],
-          };
+            warning: 'hubspot_lookup_failed',
+          });
         }
       }
 

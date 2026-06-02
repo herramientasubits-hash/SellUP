@@ -843,8 +843,16 @@ export async function runProspectGenerationAgent(
             limit: structuredLimit,
           });
 
-          const writerErrors = writerResult.errors.map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
-          const allWarnings = [...discoveryOutput.warnings];
+          const writerErrors = writerResult.errors
+            .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
+            .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+          const allWarnings = [
+            ...discoveryOutput.warnings,
+            ...writerResult.errors
+              .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
+              .map((e) => e.message),
+          ];
+
           if (writerResult.batch.status === 'batch_creation_failed') {
             structuredSourceBatchResult = {
               ok: false,
@@ -853,7 +861,19 @@ export async function runProspectGenerationAgent(
               candidatesWritten: 0,
               candidatesSkipped: discoveryOutput.candidates.length,
               warnings: allWarnings,
-              errors: [...discoveryOutput.errors, ...writerErrors, 'Error al crear el lote estructurado en la base de datos'],
+              errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+            };
+          } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+            // All candidates filtered by novelty checker (already in DB) or no source data —
+            // treat as a soft result, not a hard error.
+            structuredSourceBatchResult = {
+              ok: false,
+              batchId: null,
+              sourceKey: 'co_rues',
+              candidatesWritten: 0,
+              candidatesSkipped: writerResult.batch.totalCandidatesPrepared,
+              warnings: [...allWarnings, writerResult.batch.status === 'empty' ? 'structured_source_returned_no_candidates' : 'all_candidates_already_in_db'],
+              errors: [...discoveryOutput.errors, ...writerErrors],
             };
           } else {
             structuredSourceBatchResult = {
