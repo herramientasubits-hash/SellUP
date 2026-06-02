@@ -1407,7 +1407,7 @@ export interface GenerateAIBatchResult {
     autoMode?: boolean;
   };
   /** Hito 16AK.10 — Estrategia de fuentes aplicada en esta generación */
-  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates';
+  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates' | 'official_source_only_no_useful_candidates';
   /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
   commercialBatch?: {
     skipped: boolean;
@@ -1448,8 +1448,10 @@ export async function generateAIProspectBatch(
   if (!input.industry) {
     throw new Error('Industria requerida para la generación asistida');
   }
-  if (input.targetCount < 10 || input.targetCount > MVP_MAX_CANDIDATES) {
-    throw new Error(`La cantidad debe estar entre 10 y ${MVP_MAX_CANDIDATES}`);
+  const isColombia = input.countryCode === 'CO';
+  const minTargetCount = isColombia ? 5 : 10;
+  if (input.targetCount < minTargetCount || input.targetCount > MVP_MAX_CANDIDATES) {
+    throw new Error(`La cantidad debe estar entre ${minTargetCount} y ${MVP_MAX_CANDIDATES}`);
   }
 
   const result = await runProspectGenerationAgent({

@@ -85,7 +85,7 @@ export interface ProspectGenerationResult {
       errorDetails?: string;
     };
   /** Hito 16AK.10 — Estrategia de fuentes aplicada en esta generación */
-  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates';
+  sourceStrategy?: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates' | 'official_source_only_no_useful_candidates';
   /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
   commercialBatch?: {
     skipped: boolean;
@@ -727,7 +727,8 @@ export async function runProspectGenerationAgent(
       : 1,
   ));
   const structuredOffset = (structuredSourcePage - 1) * STRUCTURED_LIMIT;
-  const safeCount = Math.max(10, Math.min(targetCount, 25));
+  const minSafeCount = countryCode === 'CO' ? 5 : 10;
+  const safeCount = Math.max(minSafeCount, Math.min(targetCount, 25));
   const startedAt = Date.now();
 
   // Step 1: Create agent_run
@@ -796,16 +797,263 @@ export async function runProspectGenerationAgent(
   // Modo vendedor CO: RUES ejecuta primero. Si encuentra suficientes empresas
   // nuevas, Apollo NO se ejecuta (ni se crea su lote, ni se registra su costo).
   // Si RUES no alcanza el objetivo, Apollo corre como complemento o fallback.
+  // Pero para Colombia en el Hito 16AK.15E, Apollo NO corre como fallback inicial.
+  const isColombia = countryCode === 'CO';
   const coOfficialFirstMode =
     countryCode === 'CO' && createStructuredSourceBatch && structuredSourcePageAuto;
+
   let ruesPhaseRanEarly = false;
   let ruesEarlyResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
-  let sourceStrategy: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates' =
+  let sourceStrategy: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' | 'no_useful_candidates' | 'official_source_only_no_useful_candidates' =
     'commercial_only';
   let usefulCandidates = 0;
 
   const maxSearchLoops = countryCode === 'CO' ? 2 : 5;
   const structuredLimit = countryCode === 'CO' ? 5 : STRUCTURED_LIMIT;
+
+  if (isColombia) {
+    let ruesResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
+    let usefulCandidatesCount = 0;
+
+    try {
+      if (structuredSourcePageAuto) {
+        // Auto-pagination mode
+        ruesResult = await runRuesAutoPagePhase({
+          admin,
+          internalUserId,
+          agentRunId: agentRun.id,
+          country,
+          countryCode,
+          industry,
+          searchDepth,
+          structuredLimit,
+          structuredPageMax: maxSearchLoops,
+          batchNameSuffix: now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }),
+          targetCount: safeCount,
+        });
+      } else {
+        // Manual page mode (specific page, no auto-pagination)
+        const discoveryOutput = await runSourceDiscovery({
+          sourceKey: 'co_rues',
+          countryCode: 'CO',
+          criteria: {
+            country,
+            industry: industry ?? null,
+          },
+          limit: structuredLimit,
+          offset: structuredOffset,
+          mode: 'dry_run',
+        });
+
+        if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+          ruesResult = {
+            ok: false,
+            status: 'official_source_error',
+            errorDetails: discoveryOutput.errors.join(', '),
+            batchId: null,
+            sourceKey: 'co_rues',
+            candidatesWritten: 0,
+            candidatesSkipped: 0,
+            warnings: discoveryOutput.warnings,
+            errors: discoveryOutput.errors,
+          };
+        } else {
+          const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
+            dryRun: false,
+            createdBy: internalUserId,
+            ownerId: internalUserId,
+            country,
+            countryCode: 'CO',
+            sourceKey: 'co_rues',
+            sourceProvider: 'socrata_colombia',
+            dataset: 'co_rues',
+            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+            industry,
+            targetCount: safeCount,
+            searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
+            agentRunId: agentRun.id,
+            initiatedBy: 'agent_1',
+            candidates: discoveryOutput.candidates,
+            previewMode: true,
+            runHubSpotCheck: true,
+            limit: structuredLimit,
+            batchId: null,
+            metadata: {
+              structured_source_page: structuredSourcePage,
+              structured_source_offset: structuredOffset,
+              structured_source_limit: structuredLimit,
+              source_pagination_mode: 'page_offset',
+            },
+          });
+
+          const writerErrors = writerResult.errors
+            .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
+            .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+          const allWarnings = [
+            ...discoveryOutput.warnings,
+            ...writerResult.errors
+              .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
+              .map((e) => e.message),
+          ];
+
+          let status: 'official_source_error' | 'official_source_empty' | 'official_source_no_useful_candidates' | 'official_source_success' = 'official_source_empty';
+          let errorDetails: string | undefined = undefined;
+
+          if (writerResult.batch.status === 'batch_creation_failed') {
+            status = 'official_source_error';
+            errorDetails = 'structured_batch_db_creation_failed';
+            ruesResult = {
+              ok: false,
+              status,
+              errorDetails,
+              batchId: null,
+              sourceKey: 'co_rues',
+              candidatesWritten: 0,
+              candidatesSkipped: discoveryOutput.candidates.length,
+              warnings: allWarnings,
+              errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+            };
+          } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+            status = discoveryOutput.recordsRead === 0 ? 'official_source_empty' : 'official_source_no_useful_candidates';
+            ruesResult = {
+              ok: false,
+              status,
+              batchId: null,
+              sourceKey: 'co_rues',
+              candidatesWritten: 0,
+              candidatesSkipped: writerResult.batch.totalCandidatesPrepared,
+              warnings: [...allWarnings, writerResult.batch.status === 'empty' ? 'structured_source_returned_no_candidates' : 'all_candidates_already_in_db'],
+              errors: [...discoveryOutput.errors, ...writerErrors],
+            };
+          } else {
+            // Count useful candidates from DB for this batch
+            let usefulCount = 0;
+            if (writerResult.batch.id) {
+              const { data: candidates } = await admin
+                .from('prospect_candidates')
+                .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+                .eq('batch_id', writerResult.batch.id);
+
+              if (candidates) {
+                usefulCount = candidates.filter(isUsefulReviewCandidate).length;
+              }
+            }
+            status = usefulCount > 0 ? 'official_source_success' : 'official_source_no_useful_candidates';
+            ruesResult = {
+              ok: writerResult.batch.created && usefulCount > 0,
+              status,
+              batchId: writerResult.batch.id,
+              sourceKey: 'co_rues',
+              candidatesWritten: writerResult.batch.totalCandidatesWritten,
+              candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
+              warnings: allWarnings,
+              errors: [...discoveryOutput.errors, ...writerErrors],
+            };
+          }
+        }
+      }
+
+      if (ruesResult?.batchId) {
+        const { data: candidates } = await admin
+          .from('prospect_candidates')
+          .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+          .eq('batch_id', ruesResult.batchId);
+
+        if (candidates) {
+          for (const c of candidates) {
+            if (isUsefulReviewCandidate(c)) {
+              usefulCandidatesCount++;
+            }
+          }
+        }
+      }
+    } catch (ruesErr: unknown) {
+      const msg = ruesErr instanceof Error ? ruesErr.message : 'Error inesperado en RUES';
+      console.warn('[agent-1] RUES phase failed for Colombia:', msg);
+      ruesResult = {
+        ok: false,
+        status: 'official_source_error',
+        errorDetails: msg,
+        batchId: null,
+        sourceKey: 'co_rues',
+        candidatesWritten: 0,
+        candidatesSkipped: 0,
+        warnings: [],
+        errors: [msg],
+      };
+    }
+
+    const finalSourceStrategy = usefulCandidatesCount > 0 ? 'official_source_satisfied' : 'official_source_only_no_useful_candidates';
+
+    let enrichmentSummary: { enriched: number; totalEstimatedCostUsd: number; warnings: string[] } | undefined;
+
+    if (ruesResult?.batchId) {
+      await finalizeBatchMetadataAndStatus(admin, ruesResult.batchId, {
+        official_source_status: ruesResult.status ?? null,
+        official_source_error: ruesResult.errorDetails ?? null,
+        apollo_fallback_status: 'skipped_no_tax_identifier_support_for_colombia',
+        source_strategy: finalSourceStrategy,
+        target_useful_candidates: safeCount,
+        max_search_loops: maxSearchLoops,
+      });
+
+      if (usefulCandidatesCount > 0) {
+        try {
+          const enrichResult = await enrichBatchCandidatesWithWebAndAI(admin, ruesResult.batchId, {
+            country,
+            countryCode,
+            industry,
+            targetCount: safeCount,
+          });
+          enrichmentSummary = {
+            enriched: enrichResult.enriched,
+            totalEstimatedCostUsd: enrichResult.totalEstimatedCostUsd,
+            warnings: enrichResult.warnings,
+          };
+          console.info('[agent-1] enrichment completed for Colombia', {
+            batchId: ruesResult.batchId,
+            enriched: enrichResult.enriched,
+            skipped: enrichResult.skipped,
+            tavilyFailed: enrichResult.tavilyFailed,
+            aiFailed: enrichResult.aiFailed,
+            estimatedCostUsd: enrichResult.totalEstimatedCostUsd,
+          });
+        } catch (enrichErr: unknown) {
+          const msg = enrichErr instanceof Error ? enrichErr.message : 'enrichment error';
+          console.warn('[agent-1] enrichment phase failed (non-blocking) for Colombia:', msg);
+          enrichmentSummary = { enriched: 0, totalEstimatedCostUsd: 0, warnings: [`enrichment_exception: ${msg}`] };
+        }
+      }
+    }
+
+    await updateAgentRun(agentRun.id, {
+      status: 'completed',
+      results_generated: ruesResult?.candidatesWritten ?? 0,
+      results_unique: ruesResult?.candidatesWritten ?? 0,
+      estimated_cost_usd: enrichmentSummary?.totalEstimatedCostUsd ?? 0,
+      finished_at: new Date().toISOString(),
+      metadata: {
+        source_strategy: finalSourceStrategy,
+        structured_source_batch: ruesResult,
+        enrichment: enrichmentSummary,
+        duration_ms: Date.now() - startedAt,
+      },
+    });
+
+    return {
+      success: true,
+      ok: usefulCandidatesCount > 0,
+      batchId: ruesResult?.batchId ?? null,
+      agentRunId: agentRun.id,
+      candidatesCreated: usefulCandidatesCount,
+      estimatedCostUsd: enrichmentSummary?.totalEstimatedCostUsd ?? 0,
+      structuredSourceBatch: ruesResult,
+      sourceStrategy: finalSourceStrategy,
+      commercialBatch: { skipped: true, reason: 'official_source_satisfied' },
+      usefulCandidatesCount: usefulCandidatesCount,
+      omittedCandidatesCount: ruesResult?.candidatesSkipped ?? 0,
+    };
+  }
 
   if (coOfficialFirstMode) {
     try {

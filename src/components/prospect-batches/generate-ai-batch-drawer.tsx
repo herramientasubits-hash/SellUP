@@ -188,7 +188,7 @@ export function GenerateAIBatchDrawer() {
       return;
     }
 
-    const count = (form.countryCode === 'CO' && !advancedOpen) ? 10 : (parseInt(form.targetCount) || 10);
+    const count = (form.countryCode === 'CO' && !advancedOpen) ? 5 : (parseInt(form.targetCount) || 10);
 
     setGenerating(true);
     setPreflightResult(null);
@@ -391,7 +391,11 @@ export function GenerateAIBatchDrawer() {
                 ) : (
                   <Section icon={Target} label="Cantidad">
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda.
+                      {form.countryCode === 'CO' ? (
+                        "SellUp buscará hasta 5 empresas útiles para revisión. Si encuentra registros duplicados, liquidados, inactivos o sin datos mínimos, los omitirá automáticamente."
+                      ) : (
+                        "SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda."
+                      )}
                     </p>
                   </Section>
                 )}
@@ -655,7 +659,7 @@ export function GenerateAIBatchDrawer() {
                             <ChevronRight className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        {structuredBatchResult?.batchId && (
+                        {structuredBatchResult?.batchId && structuredBatchResult.batchId !== generatedBatchId && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -855,35 +859,44 @@ function GenerationResultPanel({
           </h3>
         </div>
         <div className="text-xs text-muted-foreground leading-relaxed">
-          {usefulCandidatesCount > 0 ? (
-            <p>Empresas candidatas listas para revisión.</p>
-          ) : omittedCandidatesCount > 0 ? (
-            countryCode === 'CO' ? (
-              <div className="space-y-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                <p>No se encontraron empresas útiles para revisión.</p>
-                {structuredBatch?.status === 'official_source_error' ? (
-                  <p>La fuente oficial no pudo completarse y la fuente comercial no entregó registros con datos mínimos para Colombia (los registros comerciales no tenían NIT válido para Colombia).</p>
-                ) : structuredBatch?.status === 'official_source_empty' ? (
-                  <p>La fuente oficial no encontró registros nuevos y la fuente comercial no entregó registros con datos mínimos para Colombia (los registros comerciales no tenían NIT válido para Colombia).</p>
-                ) : structuredBatch?.status === 'official_source_no_useful_candidates' ? (
-                  <p>La fuente oficial devolvió registros pero todos fueron omitidos por liquidación, inactividad o duplicidad, y la fuente comercial no entregó registros con datos mínimos para Colombia (los registros comerciales no tenían NIT válido para Colombia).</p>
-                ) : (
-                  <p>La fuente comercial no entregó registros con datos mínimos para Colombia porque no tenían NIT válido.</p>
-                )}
+          {countryCode === 'CO' ? (
+            usefulCandidatesCount > 0 ? (
+              <div className="space-y-1">
+                <p>Empresas candidatas listas para revisión.</p>
+                <p className="text-[11px] text-muted-foreground/75 font-medium">
+                  SellUp encontró {usefulCandidatesCount} empresa{usefulCandidatesCount !== 1 ? 's' : ''} útil{usefulCandidatesCount !== 1 ? 'es' : ''} en fuente oficial.
+                </p>
               </div>
             ) : (
+              <div className="space-y-1">
+                <p>No se encontraron empresas útiles para revisión.</p>
+                {structuredBatch?.status === 'official_source_error' ? (
+                  <p className="text-[11px] text-destructive dark:text-red-400 font-medium">
+                    La fuente oficial no pudo completarse. Intenta nuevamente más tarde.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                    La fuente oficial no entregó registros revisables con los criterios actuales. SellUp no usó fuente comercial porque para Colombia los registros deben tener NIT válido.
+                  </p>
+                )}
+              </div>
+            )
+          ) : (
+            usefulCandidatesCount > 0 ? (
+              <p>Empresas candidatas listas para revisión.</p>
+            ) : omittedCandidatesCount > 0 ? (
               <span>
                 No se encontraron empresas útiles para revisión. SellUp omitió {omittedCandidatesCount} registro{omittedCandidatesCount !== 1 ? 's' : ''} por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
               </span>
+            ) : (
+              <p>No se encontraron empresas con los criterios actuales.</p>
             )
-          ) : (
-            <p>No se encontraron empresas con los criterios actuales.</p>
           )}
         </div>
       </div>
 
-      {/* Lote Apollo — oculto si fuente oficial satisfizo completamente */}
-      {sourceStrategy !== 'official_source_satisfied' && (
+      {/* Lote Apollo — oculto si fuente oficial satisfizo completamente o si es Colombia */}
+      {sourceStrategy !== 'official_source_satisfied' && countryCode !== 'CO' && (
         <div className="rounded-xl border border-border/40 bg-card p-4 space-y-3">
           <div className="flex items-center gap-2 border-b border-border/40 pb-2">
             <div className="h-2 w-2 rounded-full bg-su-brand" />
