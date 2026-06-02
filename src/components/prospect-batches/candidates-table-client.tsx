@@ -360,6 +360,12 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   >
                     {CANDIDATE_STATUS_LABELS[c.status]}
                   </Badge>
+                  {c.status === 'approved' &&
+                    (c.commercial_trace as Record<string, unknown> | null)?.conversionRollback === true && (
+                    <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold block w-fit">
+                      Conversión revertida
+                    </Badge>
+                  )}
                   {c.review_status && (
                     <Badge
                       className={`${REVIEW_STATUS_STYLES[c.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'} border-0 text-[9px] font-semibold block w-fit`}

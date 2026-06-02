@@ -1096,6 +1096,211 @@ export async function generateTavilyProspectBatch(
   };
 }
 
+// ── Rollback lógico de conversión candidate → account ─────────
+
+export async function rollbackCandidateAccountConversionAction(
+  candidateId: string,
+  reason: string
+): Promise<{
+  ok: boolean;
+  candidateId?: string;
+  accountId?: string;
+  accountRolledBack?: boolean;
+  candidateStatus?: string;
+  error?: string;
+}> {
+  try {
+    const { internalUserId } = await requireAdmin();
+    const supabase = await createClient();
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!candidateId || !uuidRegex.test(candidateId)) {
+      return { ok: false, error: 'ID de candidato inválido' };
+    }
+
+    const trimmedReason = reason?.trim();
+    if (!trimmedReason) {
+      return { ok: false, error: 'El motivo del rollback es obligatorio' };
+    }
+
+    // 1. Leer candidato
+    const { data: candidate } = await supabase
+      .from('prospect_candidates')
+      .select('id, batch_id, name, status, review_status, source_primary, converted_account_id, commercial_trace, metadata')
+      .eq('id', candidateId)
+      .single();
+
+    if (!candidate) {
+      return { ok: false, error: 'Candidato no encontrado' };
+    }
+
+    // 2. Validar estado del candidato
+    if (candidate.status !== 'converted_to_account') {
+      return {
+        ok: false,
+        error: `Solo se puede revertir una conversión. El candidato está en estado: ${candidate.status}`,
+      };
+    }
+
+    if (!candidate.converted_account_id) {
+      return { ok: false, error: 'El candidato no tiene account vinculada para revertir' };
+    }
+
+    // 3. Validar que es candidato estructurado
+    const candidateRaw = candidate as typeof candidate & Record<string, unknown>;
+    const candidateReviewStatus = candidateRaw.review_status as string | null | undefined;
+    const candidateSource = candidateRaw.source_primary as string | null | undefined;
+    const isStructured = candidateReviewStatus !== null && candidateReviewStatus !== undefined;
+    const isStructuredSource = candidateSource === 'socrata_colombia' || candidateSource === 'denue_mexico';
+
+    if (!isStructured && !isStructuredSource) {
+      return {
+        ok: false,
+        error: 'Esta acción solo aplica a candidatos de fuentes estructuradas oficiales (RUES, DENUE)',
+      };
+    }
+
+    const accountId = candidate.converted_account_id;
+
+    // 4. Leer account
+    const { data: account } = await supabase
+      .from('accounts')
+      .select('id, name, hubspot_company_id, metadata')
+      .eq('id', accountId)
+      .single();
+
+    if (!account) {
+      return { ok: false, error: 'La cuenta vinculada no fue encontrada' };
+    }
+
+    // 5. Bloquear si ya tiene rollback aplicado
+    const accountMeta = (account.metadata as Record<string, unknown>) ?? {};
+    if (accountMeta.rollback_logical === true) {
+      return {
+        ok: false,
+        error: 'Esta conversión ya fue revertida previamente',
+      };
+    }
+
+    // 6. Bloquear si la account está sincronizada a HubSpot
+    if (account.hubspot_company_id) {
+      return {
+        ok: false,
+        error: 'No se puede revertir una cuenta ya sincronizada con HubSpot desde este flujo.',
+      };
+    }
+    // También revisar metadata por si hay referencia HubSpot en metadata
+    if (accountMeta.hubspot_id || accountMeta.hubspot_company_id) {
+      return {
+        ok: false,
+        error: 'No se puede revertir una cuenta con referencia HubSpot en metadata.',
+      };
+    }
+
+    const nowStr = new Date().toISOString();
+
+    // 7. Actualizar account — rollback lógico en metadata
+    const updatedAccountMeta: Record<string, unknown> = {
+      ...accountMeta,
+      rollback_logical: true,
+      rollback_scope: 'candidate_to_account_conversion',
+      rollback_reason: trimmedReason,
+      rollback_by: internalUserId,
+      rollback_at: nowStr,
+      converted_candidate_id: candidateId,
+      operational_status: 'rolled_back',
+      hidden_from_active_pipeline: true,
+    };
+
+    const { error: accountUpdateError } = await supabase
+      .from('accounts')
+      .update({
+        metadata: updatedAccountMeta,
+        updated_at: nowStr,
+      })
+      .eq('id', accountId);
+
+    if (accountUpdateError) {
+      return {
+        ok: false,
+        error: `Error al marcar la cuenta como rollback: ${accountUpdateError.message}`,
+      };
+    }
+
+    // 8. Actualizar candidato — vuelve a approved, commercial_trace registra rollback
+    // Se conserva converted_account_id para trazabilidad (Opción C)
+    const existingTrace = ((candidateRaw.commercial_trace) as Record<string, unknown> | null) ?? {};
+    const updatedTrace: Record<string, unknown> = {
+      ...existingTrace,
+      conversionRollback: true,
+      conversionRollbackAt: nowStr,
+      conversionRollbackBy: internalUserId,
+      conversionRollbackReason: trimmedReason,
+      rolledBackAccountId: accountId,
+    };
+
+    const candidateUpdates: Record<string, unknown> = {
+      status: 'approved',
+      commercial_trace: updatedTrace,
+      updated_at: nowStr,
+    };
+
+    // Mantener review_status en approved si era estructurado
+    if (isStructured) {
+      candidateUpdates.review_status = 'approved';
+    }
+
+    const { error: candidateUpdateError } = await supabase
+      .from('prospect_candidates')
+      .update(candidateUpdates)
+      .eq('id', candidateId);
+
+    if (candidateUpdateError) {
+      return {
+        ok: false,
+        error: `Error al actualizar el candidato: ${candidateUpdateError.message}`,
+      };
+    }
+
+    // 9. Audit log
+    try {
+      await logProspectCandidateAudit({
+        batchId: candidate.batch_id,
+        candidateId,
+        actorUserId: internalUserId,
+        actionType: 'candidate_updated',
+        details: {
+          candidate_name: candidate.name,
+          action: 'conversion_rollback',
+          rolled_back_account_id: accountId,
+          rollback_reason: trimmedReason,
+          previous_status: 'converted_to_account',
+          new_status: 'approved',
+        },
+      });
+    } catch (auditErr) {
+      console.warn('[rollbackCandidateAccountConversionAction] Audit non-critical failure:', auditErr);
+    }
+
+    revalidatePath(`/prospect-batches/${candidate.batch_id}`);
+    revalidatePath('/accounts');
+
+    return {
+      ok: true,
+      candidateId,
+      accountId,
+      accountRolledBack: true,
+      candidateStatus: 'approved',
+    };
+  } catch (err) {
+    console.error('[rollbackCandidateAccountConversionAction] Unexpected error:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Error inesperado al aplicar rollback',
+    };
+  }
+}
+
 export async function rollbackStructuredAgentBatchAction(
   batchId: string,
   reason?: string

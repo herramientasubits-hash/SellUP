@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Link2,
   ClipboardCheck,
+  RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -53,6 +54,7 @@ import {
   convertCandidateToAccount,
   markCandidateReadyForApprovalAction,
   markCandidateDuplicateReviewedAction,
+  rollbackCandidateAccountConversionAction,
 } from '@/modules/prospect-batches/actions';
 import {
   DUPLICATE_STATUS_LABELS,
@@ -87,6 +89,9 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
   const [relatedCompanyWarnOpen, setRelatedCompanyWarnOpen] = React.useState(false);
   // Duplicate review confirmation
   const [duplicateReviewConfirmOpen, setDuplicateReviewConfirmOpen] = React.useState(false);
+  // Rollback conversión
+  const [rollbackOpen, setRollbackOpen] = React.useState(false);
+  const [rollbackReason, setRollbackReason] = React.useState('');
   // Mark duplicate dialog
   const [markDuplicateOpen, setMarkDuplicateOpen] = React.useState(false);
   const [markDuplicateType, setMarkDuplicateType] = React.useState<
@@ -120,6 +125,14 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
   const canDiscard = !['discarded', 'converted_to_account'].includes(candidate.status);
   const canMarkDuplicate = !['converted_to_account', 'duplicate'].includes(candidate.status);
   const canConvert = candidate.status === 'approved';
+
+  const conversionRolledBack =
+    (candidate.commercial_trace as Record<string, unknown> | null)?.conversionRollback === true;
+  const canRollback =
+    isStructured &&
+    candidate.status === 'converted_to_account' &&
+    candidate.converted_account_id !== null &&
+    !conversionRolledBack;
 
   const dc = parseDuplicateCheck(candidate.metadata);
 
@@ -234,6 +247,25 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
     }
   }
 
+  async function handleRollback() {
+    setLoading(true);
+    try {
+      const result = await rollbackCandidateAccountConversionAction(candidate.id, rollbackReason);
+      if (!result.ok) {
+        toast.error(result.error ?? 'Error al aplicar rollback');
+        return;
+      }
+      toast.success(`Conversión de "${candidate.name}" revertida. La cuenta queda marcada como no operativa.`);
+      setRollbackOpen(false);
+      setRollbackReason('');
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al aplicar rollback');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleConvert() {
     setLoading(true);
     try {
@@ -341,6 +373,15 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
               <DropdownMenuItem onClick={handleConvert}>
                 <ArrowRightCircle className="mr-2 h-3.5 w-3.5 text-su-brand" />
                 Crear empresa prospecto
+              </DropdownMenuItem>
+            )}
+            {canRollback && (
+              <DropdownMenuItem
+                onClick={() => { setRollbackReason(''); setRollbackOpen(true); }}
+                className="text-amber-600 dark:text-amber-400 focus:text-amber-600"
+              >
+                <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                Rollback conversión…
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
@@ -635,6 +676,63 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Sí, sin duplicados
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rollback conversión dialog */}
+      <Dialog open={rollbackOpen} onOpenChange={(open) => {
+        setRollbackOpen(open);
+        if (!open) setRollbackReason('');
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-4 w-4 text-amber-500 shrink-0" />
+              Rollback de conversión
+            </DialogTitle>
+            <DialogDescription>
+              Esto marcará la empresa prospecto como no operativa y devolverá el candidato a estado
+              aprobado. No se eliminarán datos y no se tocará HubSpot.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+            <p className="font-medium">¿Qué hace este rollback?</p>
+            <p>• La cuenta queda marcada como no operativa en metadata.</p>
+            <p>• El candidato vuelve a estado &quot;Aprobado&quot; con trazabilidad completa.</p>
+            <p>• El vínculo candidate/account se conserva para auditoría.</p>
+            <p>• No se borra ningún dato. No se toca HubSpot.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">
+              Motivo del rollback <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              value={rollbackReason}
+              onChange={(e) => setRollbackReason(e.target.value)}
+              placeholder="Ej. Conversión de QA, empresa incorrecta, error de proceso…"
+              rows={3}
+            />
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setRollbackOpen(false)}
+              disabled={loading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleRollback}
+              disabled={loading || !rollbackReason.trim()}
+              className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Aplicar rollback
             </Button>
           </DialogFooter>
         </DialogContent>
