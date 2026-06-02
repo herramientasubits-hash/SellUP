@@ -17,7 +17,6 @@ import {
   REVIEW_STATUS_LABELS,
   REVIEW_STATUS_STYLES,
   CRITICAL_REVIEW_FLAG_LABELS,
-  STRUCTURED_SOURCE_LABELS,
   TAX_IDENTIFIER_TYPE_LABELS,
   isStructuredCandidate,
   parseDuplicateCheck,
@@ -51,6 +50,28 @@ const DUPLICATE_STYLES: Record<DuplicateStatus, string> = {
 const SOURCE_LABELS: Record<string, string> = {
   sellup: 'SellUp',
   hubspot: 'HubSpot',
+};
+
+// Vendor-facing source labels — hide technical provider names from sellers
+const VENDOR_CANDIDATE_SOURCE_LABELS: Record<string, string> = {
+  socrata_colombia: 'Fuente oficial',
+  denue_mexico: 'DENUE México',
+  apollo: 'Apollo',
+  web_ai: 'Web/IA',
+  manual: 'Manual',
+  hubspot: 'HubSpot',
+  lusha: 'Lusha',
+  public_source: 'Fuente pública',
+  preloaded: 'Precargado',
+  other: 'Otro',
+};
+
+// Vendor-facing badge label for structured candidates (shown in the empresa cell)
+const VENDOR_STRUCTURED_SOURCE_LABELS: Record<string, string> = {
+  socrata_colombia: 'Fuente oficial',
+  denue_mexico: 'DENUE México',
+  datos_gob_cl: 'Datos.gob.cl',
+  chilecompra_chile: 'ChileCompra',
 };
 
 const KNOWN_SOURCES = ['sellup', 'hubspot'];
@@ -235,6 +256,25 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
   if (candidates.length === 0) return <EmptyState />;
 
   const hasStructured = candidates.some((c) => isStructuredCandidate(c));
+  const hasConfidence = candidates.some((c) => c.confidence_score !== null);
+  const hasFit = candidates.some((c) => c.fit_score !== null);
+  const hasCost = candidates.some(
+    (c) => c.estimated_cost_usd !== null && Number(c.estimated_cost_usd) > 0,
+  );
+
+  const columns = [
+    'Empresa',
+    'País',
+    'Industria',
+    'Web / Dominio',
+    'Fuente',
+    'Duplicidad',
+    ...(hasConfidence ? ['Conf.'] : []),
+    ...(hasFit ? ['Fit'] : []),
+    'Estado',
+    ...(hasCost ? ['Costo'] : []),
+    '',
+  ];
 
   return (
     <div className="overflow-x-auto">
@@ -249,19 +289,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/40">
-            {[
-              'Empresa',
-              'País',
-              'Industria',
-              'Web / Dominio',
-              'Fuente',
-              'Duplicidad',
-              'Conf.',
-              'Fit',
-              'Estado',
-              'Costo',
-              '',
-            ].map((col) => (
+            {columns.map((col) => (
               <th
                 key={col}
                 className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60"
@@ -285,7 +313,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                     {isStructuredCandidate(c) && (
                       <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5">
                         <ShieldCheck className="h-2.5 w-2.5" />
-                        {STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
+                        {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
                       </Badge>
                     )}
                   </div>
@@ -351,21 +379,25 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               {/* Fuente */}
               <td className="px-4 py-3 text-xs text-muted-foreground">
                 {c.source_primary
-                  ? CANDIDATE_SOURCE_LABELS[c.source_primary]
+                  ? (VENDOR_CANDIDATE_SOURCE_LABELS[c.source_primary] ?? CANDIDATE_SOURCE_LABELS[c.source_primary])
                   : <span className="text-muted-foreground/40">—</span>}
               </td>
               {/* Duplicidad */}
               <td className="px-4 py-3">
                 <DuplicateCheckCell candidate={c} />
               </td>
-              {/* Confianza */}
-              <td className="px-4 py-3">
-                <ScoreBadge score={c.confidence_score} label="Confianza" />
-              </td>
-              {/* Fit */}
-              <td className="px-4 py-3">
-                <ScoreBadge score={c.fit_score} label="Fit" />
-              </td>
+              {/* Confianza — hidden when no candidate in batch has a score */}
+              {hasConfidence && (
+                <td className="px-4 py-3">
+                  <ScoreBadge score={c.confidence_score} label="Confianza" />
+                </td>
+              )}
+              {/* Fit — hidden when no candidate in batch has a score */}
+              {hasFit && (
+                <td className="px-4 py-3">
+                  <ScoreBadge score={c.fit_score} label="Fit" />
+                </td>
+              )}
               {/* Estado */}
               <td className="px-4 py-3">
                 <div className="space-y-1">
@@ -413,12 +445,14 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   )}
                 </div>
               </td>
-              {/* Costo */}
-              <td className="px-4 py-3 tabular-nums text-xs text-muted-foreground">
-                {c.estimated_cost_usd
-                  ? `$${Number(c.estimated_cost_usd).toFixed(4)}`
-                  : '—'}
-              </td>
+              {/* Costo — hidden when no candidate in batch has a cost */}
+              {hasCost && (
+                <td className="px-4 py-3 tabular-nums text-xs text-muted-foreground">
+                  {c.estimated_cost_usd && Number(c.estimated_cost_usd) > 0
+                    ? `$${Number(c.estimated_cost_usd).toFixed(4)}`
+                    : '—'}
+                </td>
+              )}
               {/* Acciones */}
               <td className="px-3 py-3">
                 <CandidateRowActions candidate={c} />

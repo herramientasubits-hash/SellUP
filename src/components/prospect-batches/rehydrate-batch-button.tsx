@@ -71,10 +71,10 @@ export function RehydrateBatchButton({ batchId }: RehydrateBatchButtonProps) {
             variant="outline"
             size="sm"
             onClick={() => setOpen(true)}
-            className="gap-1.5 text-xs"
+            className="gap-1.5 text-xs text-muted-foreground"
           >
             <RefreshCcw className="h-3.5 w-3.5" />
-            Reprocesar enrichment
+            Recalcular datos
           </Button>
         }
       />

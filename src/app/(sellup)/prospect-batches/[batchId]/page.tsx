@@ -32,7 +32,11 @@ import {
   BATCH_SOURCE_LABELS,
   BATCH_SEARCH_DEPTH_LABELS,
 } from '@/modules/prospect-batches/types';
-import type { BatchStatus } from '@/modules/prospect-batches/types';
+import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
+
+const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
+  socrata_colombia: 'Fuente oficial',
+};
 
 const STATUS_STYLES: Record<BatchStatus, string> = {
   draft: 'bg-muted text-muted-foreground',
@@ -58,6 +62,19 @@ export default async function BatchDetailPage({ params }: Props) {
   ]);
 
   if (!batch) notFound();
+
+  const isStructuredRues =
+    batch.metadata?.batch_type === 'structured' &&
+    (batch.metadata?.source_key === 'co_rues' ||
+      batch.metadata?.source_provider === 'socrata_colombia' ||
+      batch.source === 'socrata_colombia');
+
+  const pageTitle =
+    isStructuredRues && (batch.country || batch.industry)
+      ? `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}${batch.industry ? ` · ${batch.industry}` : ''}`
+      : batch.name;
+
+  const pageSubtitle = isStructuredRues ? batch.name : (batch.description ?? undefined);
 
   const counts = {
     total: batch.total_candidates,
@@ -128,8 +145,8 @@ export default async function BatchDetailPage({ params }: Props) {
 
       {/* Header */}
       <PageHeader
-        title={batch.name}
-        description={batch.description ?? undefined}
+        title={pageTitle}
+        description={pageSubtitle}
         actions={
           <div className="flex items-center gap-2">
             {isAdmin &&
@@ -181,11 +198,10 @@ export default async function BatchDetailPage({ params }: Props) {
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  Lote de fuente oficial
-                  {batch.metadata?.source_key === 'co_rues' && ' · RUES Colombia'}
+                  Empresas verificadas con fuente oficial
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Este lote contiene candidatos de fuente oficial. Los candidatos requieren revisión manual antes de aprobarse. No se crearán cuentas ni se escribirá en HubSpot automáticamente.
+                  Estas empresas fueron contrastadas con el registro oficial de Colombia. Requieren revisión humana antes de aprobarse o sincronizarse con HubSpot.
                 </p>
               </div>
             </div>
@@ -315,11 +331,13 @@ export default async function BatchDetailPage({ params }: Props) {
           {BATCH_STATUS_LABELS[batch.status]}
         </Badge>
         <Badge variant="outline" className="text-[10px]">
-          {BATCH_SOURCE_LABELS[batch.source]}
+          {BATCH_SOURCE_VENDOR_LABELS[batch.source] ?? BATCH_SOURCE_LABELS[batch.source]}
         </Badge>
-        <Badge variant="outline" className="text-[10px]">
-          Profundidad: {BATCH_SEARCH_DEPTH_LABELS[batch.search_depth]}
-        </Badge>
+        {!isStructuredRues && (
+          <Badge variant="outline" className="text-[10px]">
+            Profundidad: {BATCH_SEARCH_DEPTH_LABELS[batch.search_depth]}
+          </Badge>
+        )}
         {batch.country && (
           <Badge variant="outline" className="text-[10px]">
             {batch.country}
