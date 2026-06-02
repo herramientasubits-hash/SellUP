@@ -850,6 +850,7 @@ export async function runProspectGenerationAgent(
             official_source_status: ruesEarlyResult.status ?? null,
             official_source_error: ruesEarlyResult.errorDetails ?? null,
             apollo_fallback_status: 'skipped',
+            source_strategy: sourceStrategy,
           });
           try {
             const enrichResult = await enrichBatchCandidatesWithWebAndAI(admin, ruesEarlyResult.batchId, {
@@ -912,6 +913,8 @@ export async function runProspectGenerationAgent(
       sourceStrategy = 'commercial_fallback';
       ruesEarlyResult = {
         ok: false,
+        status: 'official_source_error',
+        errorDetails: msg,
         batchId: null,
         sourceKey: 'co_rues',
         candidatesWritten: 0,
@@ -1272,6 +1275,8 @@ export async function runProspectGenerationAgent(
         if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
           structuredSourceBatchResult = {
             ok: false,
+            status: 'official_source_error',
+            errorDetails: discoveryOutput.errors.join(', '),
             batchId: null,
             sourceKey: 'co_rues',
             candidatesWritten: 0,
@@ -1408,18 +1413,21 @@ export async function runProspectGenerationAgent(
     }
 
     const apolloFallbackStatus = mainUsefulCount > 0 ? 'success' : 'no_useful_candidates';
+    const finalSourceStrategy = mainUsefulCount === 0 ? 'no_useful_candidates' : sourceStrategy;
 
     if (structuredSourceBatchResult?.batchId) {
       await finalizeBatchMetadataAndStatus(admin, structuredSourceBatchResult.batchId, {
         official_source_status: structuredSourceBatchResult.status ?? null,
         official_source_error: structuredSourceBatchResult.errorDetails ?? null,
         apollo_fallback_status: apolloFallbackStatus,
+        source_strategy: finalSourceStrategy,
       });
     }
     await finalizeBatchMetadataAndStatus(admin, batch.id, {
       official_source_status: structuredSourceBatchResult?.status ?? null,
       official_source_error: structuredSourceBatchResult?.errorDetails ?? null,
       apollo_fallback_status: apolloFallbackStatus,
+      source_strategy: finalSourceStrategy,
     });
 
     if (mainUsefulCount === 0) {
