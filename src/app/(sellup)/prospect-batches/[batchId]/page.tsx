@@ -21,10 +21,12 @@ import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
+import { RehydrateBatchButton } from '@/components/prospect-batches/rehydrate-batch-button';
 import {
   getProspectBatchById,
   getCandidatesByBatch,
 } from '@/modules/prospect-batches/actions';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   BATCH_STATUS_LABELS,
   BATCH_SOURCE_LABELS,
@@ -49,9 +51,10 @@ interface Props {
 export default async function BatchDetailPage({ params }: Props) {
   const { batchId } = await params;
 
-  const [batch, candidates] = await Promise.all([
+  const [batch, candidates, isAdmin] = await Promise.all([
     getProspectBatchById(batchId),
     getCandidatesByBatch(batchId),
+    isCurrentUserAdmin(),
   ]);
 
   if (!batch) notFound();
@@ -129,6 +132,13 @@ export default async function BatchDetailPage({ params }: Props) {
         description={batch.description ?? undefined}
         actions={
           <div className="flex items-center gap-2">
+            {isAdmin &&
+              batch.metadata?.batch_type === 'structured' &&
+              (batch.metadata?.source_key === 'co_rues' ||
+                batch.metadata?.source_provider === 'socrata_colombia' ||
+                batch.source === 'socrata_colombia') && (
+                <RehydrateBatchButton batchId={batch.id} />
+              )}
             {batch.metadata?.batch_type === 'structured' &&
               batch.metadata?.initiated_by === 'agent_1' &&
               batch.metadata?.source_key === 'co_rues' &&

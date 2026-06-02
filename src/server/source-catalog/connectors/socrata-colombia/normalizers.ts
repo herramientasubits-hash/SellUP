@@ -424,7 +424,7 @@ const CIIU_SECTOR_DESCRIPTIONS: Record<string, string> = {
  * Primero busca match exacto; luego la sección por los primeros 2 dígitos.
  * Fuente: DANE CIIU Rev.4 (dato público). No inventa datos.
  */
-function getCiiuSectorDescription(code: string | null): string | null {
+export function getCiiuSectorDescription(code: string | null): string | null {
   if (!code) return null;
   const trimmed = code.trim();
   const exact = CIIU_SECTOR_DESCRIPTIONS[trimmed];

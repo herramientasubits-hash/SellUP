@@ -1825,3 +1825,168 @@ export async function rollbackStructuredAgentBatchAction(
     rollbackLogical: true,
   };
 }
+
+// ── Rehydrate structured batch candidates ─────────────────────
+
+export type RehydrateBatchResult = {
+  ok: boolean;
+  updatedCount: number;
+  skippedCount: number;
+  warnings: string[];
+  errors: string[];
+  error?: string;
+};
+
+/**
+ * Recalcula enrichment (sector, review_flags, completitud, metadata.enrichment)
+ * para candidatos RUES/co_rues existentes en un lote estructurado.
+ *
+ * GARANTÍAS:
+ *   - Solo admin.
+ *   - Solo lotes structured/co_rues/socrata_colombia.
+ *   - NO cambia status/review_status/duplicate_status/converted_account_id.
+ *   - NO toca HubSpot ni accounts.
+ *   - NO crea deals, contactos, tasks ni notes.
+ */
+export async function rehydrateStructuredBatchCandidatesAction(
+  batchId: string,
+): Promise<RehydrateBatchResult> {
+  // Importación dinámica para evitar bundle en cliente
+  const { rehydrateStructuredCandidateEnrichment } =
+    await import('@/server/agents/prospecting-toolkit/rehydrate-structured-candidate');
+
+  const { internalUserId } = await requireAdmin();
+  const supabase = await createClient();
+
+  if (!batchId || !/^[0-9a-f-]{36}$/.test(batchId)) {
+    return { ok: false, updatedCount: 0, skippedCount: 0, warnings: [], errors: [], error: 'UUID de lote inválido' };
+  }
+
+  // Cargar lote
+  const { data: batchRaw, error: batchError } = await supabase
+    .from('prospect_batches')
+    .select('id, status, metadata, source')
+    .eq('id', batchId)
+    .single();
+
+  if (batchError || !batchRaw) {
+    return { ok: false, updatedCount: 0, skippedCount: 0, warnings: [], errors: [], error: 'Lote no encontrado' };
+  }
+
+  const batchMeta = (batchRaw.metadata ?? {}) as Record<string, unknown>;
+  const batchType = batchMeta.batch_type as string | undefined;
+  const sourceKey = batchMeta.source_key as string | undefined;
+  const sourceProvider = batchMeta.source_provider as string | undefined;
+  const batchSource = batchRaw.source as string | undefined;
+
+  const isRues =
+    batchType === 'structured' &&
+    (sourceKey === 'co_rues' || sourceProvider === 'socrata_colombia' || batchSource === 'socrata_colombia');
+
+  if (!isRues) {
+    return {
+      ok: false,
+      updatedCount: 0,
+      skippedCount: 0,
+      warnings: [],
+      errors: [],
+      error: 'Este lote no es de tipo structured RUES/co_rues. Solo se pueden reprocesar lotes de fuente oficial colombiana.',
+    };
+  }
+
+  // Cargar candidatos del lote
+  const { data: candidatesRaw, error: candidatesError } = await supabase
+    .from('prospect_candidates')
+    .select('id, name, tax_identifier, website, city, region, review_flags, metadata, sector_code, sector_description, legal_status, converted_account_id')
+    .eq('batch_id', batchId);
+
+  if (candidatesError) {
+    return { ok: false, updatedCount: 0, skippedCount: 0, warnings: [], errors: [], error: `Error al cargar candidatos: ${candidatesError.message}` };
+  }
+
+  const candidates = candidatesRaw ?? [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  for (const rawCandidate of candidates) {
+    try {
+      const candidate = rawCandidate as {
+        id: string;
+        name: string;
+        tax_identifier: string | null;
+        website: string | null;
+        city: string | null;
+        region: string | null;
+        review_flags: string[] | null;
+        metadata: Record<string, unknown>;
+        sector_code: string | null;
+        sector_description: string | null;
+        legal_status: string | null;
+        converted_account_id: string | null;
+      };
+
+      const enrichment = rehydrateStructuredCandidateEnrichment({
+        id: candidate.id,
+        name: candidate.name,
+        tax_identifier: candidate.tax_identifier,
+        website: candidate.website,
+        city: candidate.city,
+        region: candidate.region,
+        review_flags: candidate.review_flags as import('@/server/agents/prospecting-toolkit/structured-candidate-types').ReviewFlag[] | null,
+        metadata: candidate.metadata ?? {},
+        sector_code: candidate.sector_code,
+        sector_description: candidate.sector_description,
+        legal_status: candidate.legal_status,
+      });
+
+      const updatedMetadata: Record<string, unknown> = {
+        ...candidate.metadata,
+        enrichment: enrichment.metadata_enrichment_patch,
+      };
+
+      const { error: updateError } = await supabase
+        .from('prospect_candidates')
+        .update({
+          sector_description: enrichment.sector_description,
+          review_flags: enrichment.review_flags,
+          data_completeness_score: enrichment.data_completeness_score,
+          metadata: updatedMetadata,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', candidate.id);
+
+      if (updateError) {
+        errors.push(`${candidate.name}: ${updateError.message}`);
+        skippedCount++;
+      } else {
+        updatedCount++;
+        if (candidate.city === null && !candidate.sector_code) {
+          warnings.push(`${candidate.name}: sin ciudad ni sector en DB — enrichment parcial.`);
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error desconocido';
+      errors.push(`${rawCandidate.name ?? rawCandidate.id}: ${msg}`);
+      skippedCount++;
+    }
+  }
+
+  await logProspectCandidateAudit({
+    batchId,
+    actorUserId: internalUserId,
+    actionType: 'batch_updated',
+    details: {
+      action: 'rehydrate_enrichment',
+      updated_count: updatedCount,
+      skipped_count: skippedCount,
+      warnings_count: warnings.length,
+      errors_count: errors.length,
+    },
+  });
+
+  revalidatePath(`/prospect-batches/${batchId}`);
+
+  return { ok: true, updatedCount, skippedCount, warnings, errors };
+}
