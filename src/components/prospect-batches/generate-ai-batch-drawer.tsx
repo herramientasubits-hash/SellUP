@@ -535,34 +535,52 @@ export function GenerateAIBatchDrawer() {
           {/* Footer */}
           <SheetFooter className="shrink-0 border-t border-border/50 px-7 py-4">
             {showPreflightResult ? (
-              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <Button type="button" variant="outline" size="sm" onClick={handleClose}>
-                  Cerrar
-                </Button>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  {structuredBatchResult?.ok && structuredBatchResult.batchId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        const sId = structuredBatchResult.batchId;
-                        handleClose();
-                        if (sId) router.push(`/prospect-batches/${sId}`);
-                      }}
-                      className="gap-1.5 border-su-brand/30 text-su-brand hover:bg-su-brand/5"
-                    >
-                      Ver empresas de fuente oficial
-                      <ChevronRight className="h-3.5 w-3.5 text-su-brand" />
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    onClick={handleGoToBatch}
-                    className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
-                  >
-                    Ver empresas generadas
-                    <ChevronRight className="h-3.5 w-3.5" />
+              <div className="flex w-full flex-col gap-3">
+                {structuredBatchResult?.ok && structuredBatchResult.batchId && (
+                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                    SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado mientras consolidamos la bandeja unificada.
+                  </p>
+                )}
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <Button type="button" variant="outline" size="sm" onClick={handleClose}>
+                    Cerrar
                   </Button>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    {structuredBatchResult?.ok && structuredBatchResult.batchId ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleGoToBatch}
+                          className="gap-1.5 text-muted-foreground"
+                        >
+                          Ver también desde Apollo
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const sId = structuredBatchResult.batchId;
+                            handleClose();
+                            if (sId) router.push(`/prospect-batches/${sId}`);
+                          }}
+                          className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                        >
+                          Revisar empresas candidatas
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={handleGoToBatch}
+                        className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                      >
+                        Revisar empresas candidatas
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : (

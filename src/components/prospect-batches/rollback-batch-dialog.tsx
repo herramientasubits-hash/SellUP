@@ -41,7 +41,7 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
     try {
       const result = await rollbackStructuredAgentBatchAction(batchId, reason.trim() || undefined);
       if (result.ok) {
-        toast.success('Rollback aplicado', {
+        toast.success('Lote revertido', {
           description: `El lote "${batchName}" quedó cancelado y sus ${result.candidatesUpdated} candidatos descartados.`,
         });
         setOpen(false);
@@ -66,32 +66,32 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
       <DialogTrigger
         render={
           <Button
-            variant="destructive"
+            variant="outline"
             size="sm"
             onClick={() => setOpen(true)}
-            className="gap-1.5"
+            className="gap-1.5 text-muted-foreground"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            Rollback lógico
+            Deshacer lote
           </Button>
         }
       />
 
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader className="pt-2">
-          <div className="flex items-center gap-2 text-destructive mb-1">
+          <div className="flex items-center gap-2 text-muted-foreground mb-1">
             <AlertTriangle className="h-5 w-5" />
-            <DialogTitle className="text-base font-semibold">Confirmar Rollback Lógico</DialogTitle>
+            <DialogTitle className="text-base font-semibold">Deshacer este lote de candidatos</DialogTitle>
           </div>
           <DialogDescription className="text-xs text-muted-foreground">
-            Este rollback marcará el lote y sus candidatos como descartados. No eliminará datos y no afectará el lote Apollo relacionado.
+            Esta acción revierte la creación del lote en SellUp y conserva el historial para auditoría. Los candidatos quedan descartados y el lote no afecta el flujo de prospección.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-3">
           <div className="space-y-1.5">
             <Label htmlFor="rollback-reason" className="text-xs font-semibold text-muted-foreground/80">
-              Motivo del rollback (opcional)
+              Motivo (opcional)
             </Label>
             <Textarea
               id="rollback-reason"
@@ -130,7 +130,7 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
             ) : (
               <RotateCcw className="h-3.5 w-3.5" />
             )}
-            {loading ? 'Aplicando...' : 'Aplicar rollback lógico'}
+            {loading ? 'Aplicando...' : 'Confirmar, deshacer lote'}
           </Button>
         </DialogFooter>
       </DialogContent>

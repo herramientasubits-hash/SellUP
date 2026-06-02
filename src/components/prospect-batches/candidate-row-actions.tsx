@@ -398,7 +398,7 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
                 className="text-amber-600 dark:text-amber-400 focus:text-amber-600"
               >
                 <RotateCcw className="mr-2 h-3.5 w-3.5" />
-                Rollback conversión…
+                Deshacer conversión…
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
@@ -707,11 +707,10 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="h-4 w-4 text-amber-500 shrink-0" />
-              Rollback de conversión
+              Deshacer conversión
             </DialogTitle>
             <DialogDescription>
-              Esto marcará la empresa prospecto como no operativa y devolverá el candidato a estado
-              aprobado. No se eliminarán datos y no se tocará HubSpot.
+              Esta acción revierte la creación de la empresa en SellUp y conserva el historial para auditoría. La cuenta queda marcada como no operativa y el candidato regresa a estado aprobado.
             </DialogDescription>
           </DialogHeader>
 
@@ -749,7 +748,7 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
               className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Aplicar rollback
+              Deshacer conversión
             </Button>
           </DialogFooter>
         </DialogContent>

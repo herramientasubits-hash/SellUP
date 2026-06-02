@@ -69,12 +69,15 @@ export default async function BatchDetailPage({ params }: Props) {
       batch.metadata?.source_provider === 'socrata_colombia' ||
       batch.source === 'socrata_colombia');
 
+  const isApolloCandidateBatch =
+    !isStructuredRues && batch.source === 'agent_1';
+
   const pageTitle =
-    isStructuredRues && (batch.country || batch.industry)
+    (isStructuredRues || isApolloCandidateBatch) && (batch.country || batch.industry)
       ? `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}${batch.industry ? ` · ${batch.industry}` : ''}`
       : batch.name;
 
-  const pageSubtitle = isStructuredRues ? batch.name : (batch.description ?? undefined);
+  const pageSubtitle = (isStructuredRues || isApolloCandidateBatch) ? batch.name : (batch.description ?? undefined);
 
   const counts = {
     total: batch.total_candidates,
@@ -175,7 +178,7 @@ export default async function BatchDetailPage({ params }: Props) {
             <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
             <div>
               <p className="text-sm font-medium text-destructive dark:text-red-400">
-                Rollback lógico aplicado
+                Lote revertido
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Los datos permanecen para auditoría, pero el lote ya no está operativo.
@@ -331,9 +334,11 @@ export default async function BatchDetailPage({ params }: Props) {
           {BATCH_STATUS_LABELS[batch.status]}
         </Badge>
         <Badge variant="outline" className="text-[10px]">
-          {BATCH_SOURCE_VENDOR_LABELS[batch.source] ?? BATCH_SOURCE_LABELS[batch.source]}
+          {isApolloCandidateBatch
+            ? 'Fuente comercial'
+            : (BATCH_SOURCE_VENDOR_LABELS[batch.source] ?? BATCH_SOURCE_LABELS[batch.source])}
         </Badge>
-        {!isStructuredRues && (
+        {!isStructuredRues && !isApolloCandidateBatch && (
           <Badge variant="outline" className="text-[10px]">
             Profundidad: {BATCH_SEARCH_DEPTH_LABELS[batch.search_depth]}
           </Badge>
@@ -348,7 +353,7 @@ export default async function BatchDetailPage({ params }: Props) {
             {batch.industry}
           </Badge>
         )}
-        {batch.estimated_cost_usd !== null && batch.estimated_cost_usd > 0 && (
+        {!isApolloCandidateBatch && batch.estimated_cost_usd !== null && batch.estimated_cost_usd > 0 && (
           <Badge variant="outline" className="text-[10px]">
             Costo est.: ${Number(batch.estimated_cost_usd).toFixed(4)}
           </Badge>
