@@ -44,16 +44,70 @@ function val(v: string | null | undefined, fallback = 'Sin dato'): string {
   return v;
 }
 
-function numVal(v: number | null | undefined, fallback = 'Sin dato'): string {
-  if (v === null || v === undefined) return fallback;
-  return String(v);
-}
-
 function getFlagEmoji(code: string) {
   const offset = 0x1f1e6 - 'A'.charCodeAt(0);
   return [...code.toUpperCase()]
     .map((c) => String.fromCodePoint(c.charCodeAt(0) + offset))
     .join('');
+}
+
+function extractDomainFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const normalized = url.startsWith('http') ? url : `https://${url}`;
+    const { hostname } = new URL(normalized);
+    return hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+const DIRECTORY_DOMAINS = new Set([
+  'registronit.com',
+  'informacolombia.com',
+  'datacreditoempresas.com.co',
+  'einforma.co',
+  'empresite.eleconomistaamerica.co',
+  'empresite.com',
+  'paginasamarillas.com.co',
+  'linkedin.com',
+  'facebook.com',
+  'instagram.com',
+  'x.com',
+  'twitter.com',
+  'google.com',
+  'gmail.com',
+  'youtube.com',
+  'wikipedia.org',
+]);
+
+const DIRECTORY_KEYWORDS = [
+  'paginasamarillas',
+  'paginas-amarillas',
+  'kompass',
+  'opencorporates',
+  'zoominfo',
+  'clutch.co',
+  'crunchbase',
+  'emis.com',
+  'empresite',
+  'registronit',
+  'informacolombia',
+  'datacreditoempresas',
+  'einforma',
+  'datospymes',
+  'directorioempresas',
+  'buscaempresas',
+  'rues.gov',
+  'rues.org',
+];
+
+function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
+  const domain = extractDomainFromUrl(url);
+  if (!domain) return false;
+  if (DIRECTORY_DOMAINS.has(domain)) return true;
+  if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
+  return false;
 }
 
 // ── Sub-componentes ────────────────────────────────────────────
@@ -198,25 +252,62 @@ export function CandidateDetailSheet({
   const evidenceUsed = (aiEval?.evidence_used as string[] | undefined) ?? [];
   const hasAiEval = fitStatus !== null || fitScore !== null || aiSummary !== null;
 
-  // Enrichment fields — 16AK.13: read from structured web sub-object first
+  // Enrichment fields — 16AK.13B: structured web sub-object with backward compat
   const webEnrichment = enrichment?.web as Record<string, unknown> | undefined;
   const officialWebsiteObj = webEnrichment?.official_website as Record<string, unknown> | undefined;
   const linkedInObj = webEnrichment?.linkedin_company as Record<string, unknown> | undefined;
   const publicDescObj = webEnrichment?.public_description as Record<string, unknown> | undefined;
 
+  // Public evidence (directories/registries) — 16AK.13B
+  const publicEvidenceItems = (webEnrichment?.public_evidence as Array<Record<string, unknown>> | undefined) ?? [];
+
+  // Possible LinkedIn matches (weak/partial) — 16AK.13B
+  const possibleLinkedInMatches = (webEnrichment?.possible_linkedin_matches as Array<Record<string, unknown>> | undefined) ?? [];
+
   const websiteConfidence = (officialWebsiteObj?.confidence as string | undefined) ?? null;
-  const linkedinUrl =
-    (linkedInObj?.url as string | undefined) ??
+
+  // Is the stored website a confirmed official website?
+  const hasOfficialWebsite = !!candidate.website && !isDirectoryOrThirdPartyDomain(candidate.website);
+
+  const linkedinConfirmedUrl = (linkedInObj?.url as string | undefined) ?? null;
+  const linkedinConfidence = (linkedInObj?.confidence as string | undefined) ?? null;
+
+  // Backward compat: old metadata may have linkedin_url flat
+  const linkedinFallbackUrl =
     (enrichment?.linkedin_url as string | undefined) ??
     (enrichment?.linkedin as string | undefined) ??
     null;
-  const linkedinConfidence = (linkedInObj?.confidence as string | undefined) ?? null;
+
+  const linkedinUrl = linkedinConfirmedUrl ?? linkedinFallbackUrl;
+
   const publicDescription =
     (publicDescObj?.text as string | undefined) ??
     (enrichment?.description as string | undefined) ??
     (enrichment?.public_description as string | undefined) ??
     (aiEval?.description as string | undefined) ??
     null;
+
+  const publicDescriptionConfidence = (publicDescObj?.confidence as string | undefined) ?? null;
+
+  // Prepara la evidencia pública sumando la web física si es un directorio (caso legacy)
+  const displayedPublicEvidence = [...publicEvidenceItems];
+  if (candidate.website && isDirectoryOrThirdPartyDomain(candidate.website)) {
+    const websiteDomain = extractDomainFromUrl(candidate.website) ?? candidate.website;
+    const exists = displayedPublicEvidence.some(
+      (item) => extractDomainFromUrl(item.url as string) === websiteDomain
+    );
+    if (!exists) {
+      displayedPublicEvidence.unshift({
+        title: candidate.name,
+        url: candidate.website,
+        domain: websiteDomain,
+        source_type: 'commercial_directory',
+        confidence: 'medium',
+        reason: 'legacy_directory_website_fallback',
+      });
+    }
+  }
+
   const employeeCount =
     (enrichment?.employee_count as string | number | undefined) ??
     candidate.company_size ??
@@ -227,6 +318,18 @@ export function CandidateDetailSheet({
     (enrichment?.ciiu as string | undefined) ??
     (enrichment?.sector_code as string | undefined) ??
     null;
+
+  const SOURCE_TYPE_LABELS: Record<string, string> = {
+    commercial_directory: 'Directorio comercial',
+    public_registry: 'Registro público',
+    chamber_of_commerce: 'Cámara de comercio',
+    directory: 'Directorio',
+    registry: 'Registro',
+    news: 'Noticia / Prensa',
+    social: 'Red social',
+    linkedin_company: 'LinkedIn',
+    official_website: 'Sitio web oficial',
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -372,15 +475,15 @@ export function CandidateDetailSheet({
             <div className="space-y-2.5">
               <FieldGrid>
                 <Field
-                  label="Sitio web"
+                  label="Sitio web oficial"
                   value={
-                    candidate.website ? (
+                    hasOfficialWebsite && candidate.website ? (
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <a
                           href={candidate.website.startsWith('http') ? candidate.website : `https://${candidate.website}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-su-brand hover:underline"
+                          className="flex items-center gap-1 text-su-brand hover:underline font-medium"
                         >
                           <Globe className="h-3 w-3 shrink-0" />
                           {candidate.domain ?? candidate.website}
@@ -398,12 +501,18 @@ export function CandidateDetailSheet({
                         )}
                       </div>
                     ) : (
-                      <MissingText text="Sin web encontrada" />
+                      <MissingText text="Sin sitio web oficial encontrado" />
                     )
                   }
                 />
                 <Field
-                  label="LinkedIn corporativo"
+                  label={
+                    linkedinUrl
+                      ? "LinkedIn corporativo"
+                      : possibleLinkedInMatches.length > 0
+                      ? "LinkedIn posible · requiere revisión"
+                      : "LinkedIn corporativo"
+                  }
                   value={
                     linkedinUrl ? (
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -411,7 +520,7 @@ export function CandidateDetailSheet({
                           href={linkedinUrl.startsWith('http') ? linkedinUrl : `https://${linkedinUrl}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-su-brand hover:underline"
+                          className="flex items-center gap-1 text-su-brand hover:underline font-medium"
                         >
                           <Link2 className="h-3 w-3 shrink-0" />
                           Ver perfil
@@ -428,6 +537,25 @@ export function CandidateDetailSheet({
                           </span>
                         )}
                       </div>
+                    ) : possibleLinkedInMatches.length > 0 ? (
+                      <div className="space-y-1">
+                        {possibleLinkedInMatches.map((match, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5 flex-wrap">
+                            <a
+                              href={(match.url as string).startsWith('http') ? (match.url as string) : `https://${match.url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-su-brand hover:underline font-medium"
+                            >
+                              <Link2 className="h-3 w-3 shrink-0" />
+                              {match.title ? (match.title as string) : `Posible match ${idx + 1}`}
+                            </a>
+                            <span className="text-[9px] text-muted-foreground/60">
+                              ({(match.match_quality as string) === 'partial' ? 'parcial' : 'débil'})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <MissingText text="Sin LinkedIn encontrado" />
                     )
@@ -441,14 +569,66 @@ export function CandidateDetailSheet({
                   <Field label="Fuente" value={sourcePrimaryLabel} />
                 )}
               </FieldGrid>
+
+              {displayedPublicEvidence.length > 0 && (
+                <div className="space-y-1.5 mt-3 pt-2">
+                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Evidencia pública encontrada</p>
+                  <div className="space-y-1.5">
+                    {displayedPublicEvidence.map((item, idx) => {
+                      const label = SOURCE_TYPE_LABELS[item.source_type as string] ?? item.source_type;
+                      return (
+                        <div key={idx} className="flex items-center justify-between text-xs rounded-xl border border-border/40 p-2.5 bg-card">
+                          <div className="min-w-0 flex-1 pr-2">
+                            <p className="font-medium text-foreground truncate" title={item.title as string}>
+                              {item.title as string}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                              {label as string} · {item.domain as string}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {item.confidence ? (
+                              <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                                item.confidence === 'high'
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  : item.confidence === 'medium'
+                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                  : 'bg-muted text-muted-foreground/60'
+                              }`}>
+                                {item.confidence as string}
+                              </span>
+                            ) : null}
+                            <a
+                              href={item.url as string}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-su-brand hover:underline p-1"
+                            >
+                              <Link2 className="h-3.5 w-3.5" />
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {publicDescription && (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción pública</p>
+                <div className="space-y-0.5 pt-2">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción pública</p>
+                    {publicDescriptionConfidence && (publicDescriptionConfidence === 'low' || publicDescriptionConfidence === 'unknown') && (
+                      <span className="text-[9px] text-muted-foreground/50 italic bg-muted px-1.5 py-0.5 rounded font-normal">
+                        Evidencia preliminar
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{publicDescription}</p>
                 </div>
               )}
               {!publicDescription && (
-                <p className="text-xs text-muted-foreground/40 italic">No encontrado en evidencia pública</p>
+                <p className="text-xs text-muted-foreground/40 italic pt-2">No encontrado en evidencia pública</p>
               )}
             </div>
           </div>

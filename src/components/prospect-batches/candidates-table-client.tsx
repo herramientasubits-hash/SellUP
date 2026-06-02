@@ -17,7 +17,6 @@ import {
   REVIEW_STATUS_LABELS,
   REVIEW_STATUS_STYLES,
   CRITICAL_REVIEW_FLAG_LABELS,
-  VENDOR_CANDIDATE_SOURCE_LABELS,
   VENDOR_STRUCTURED_SOURCE_LABELS,
   isStructuredCandidate,
   parseDuplicateCheck,
@@ -59,6 +58,65 @@ const KNOWN_SOURCES = ['sellup', 'hubspot'];
 function getFlagEmoji(code: string) {
   const offset = 0x1f1e6 - 'A'.charCodeAt(0);
   return [...code.toUpperCase()].map((c) => String.fromCodePoint(c.charCodeAt(0) + offset)).join('');
+}
+
+function extractDomainFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const normalized = url.startsWith('http') ? url : `https://${url}`;
+    const { hostname } = new URL(normalized);
+    return hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+const DIRECTORY_DOMAINS = new Set([
+  'registronit.com',
+  'informacolombia.com',
+  'datacreditoempresas.com.co',
+  'einforma.co',
+  'empresite.eleconomistaamerica.co',
+  'empresite.com',
+  'paginasamarillas.com.co',
+  'linkedin.com',
+  'facebook.com',
+  'instagram.com',
+  'x.com',
+  'twitter.com',
+  'google.com',
+  'gmail.com',
+  'youtube.com',
+  'wikipedia.org',
+]);
+
+const DIRECTORY_KEYWORDS = [
+  'paginasamarillas',
+  'paginas-amarillas',
+  'kompass',
+  'opencorporates',
+  'zoominfo',
+  'clutch.co',
+  'crunchbase',
+  'emis.com',
+  'empresite',
+  'registronit',
+  'informacolombia',
+  'datacreditoempresas',
+  'einforma',
+  'datospymes',
+  'directorioempresas',
+  'buscaempresas',
+  'rues.gov',
+  'rues.org',
+];
+
+function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
+  const domain = extractDomainFromUrl(url);
+  if (!domain) return false;
+  if (DIRECTORY_DOMAINS.has(domain)) return true;
+  if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
+  return false;
 }
 
 function ScoreBadge({ score, label }: { score: number | null; label: string }) {
@@ -275,6 +333,12 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   ?.fit_status as string | undefined) ??
                 null;
 
+              const enrichment = c.metadata?.enrichment as Record<string, unknown> | undefined;
+              const webEnrichment = enrichment?.web as Record<string, unknown> | undefined;
+              const publicEvidence = webEnrichment?.public_evidence as unknown[] | undefined;
+              const hasPublicEvidence = !!(publicEvidence && publicEvidence.length > 0);
+              const isOfficialWebsite = !!c.website && !isDirectoryOrThirdPartyDomain(c.website);
+
               return (
                 <tr
                   key={c.id}
@@ -334,16 +398,20 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                       ) : (
                         <span className="text-[10px] text-muted-foreground/40">Sin sector</span>
                       )}
-                      {c.website ? (
+                      {isOfficialWebsite ? (
                         <a
-                          href={c.website.startsWith('http') ? c.website : `https://${c.website}`}
+                          href={c.website!.startsWith('http') ? c.website! : `https://${c.website!}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[10px] text-su-brand hover:underline"
+                          className="flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
                         >
                           <Globe className="h-2.5 w-2.5" />
                           {c.domain ?? c.website}
                         </a>
+                      ) : (c.website && isDirectoryOrThirdPartyDomain(c.website)) || hasPublicEvidence ? (
+                        <span className="text-[9px] text-muted-foreground/60 italic">
+                          Evidencia pública disponible
+                        </span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground/40">Sin web</span>
                       )}

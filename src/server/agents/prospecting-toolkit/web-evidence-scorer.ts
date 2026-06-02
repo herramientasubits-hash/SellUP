@@ -1,5 +1,5 @@
 /**
- * Web Evidence Scorer — 16AK.13
+ * Web Evidence Scorer — 16AK.13B
  *
  * Scoring y extracción de evidencia web para candidatos RUES.
  * No inventa datos. Solo clasifica, puntúa y extrae desde URLs/snippets explícitos.
@@ -8,6 +8,8 @@
  * - Solo retorna datos respaldados por URLs en la evidencia recibida.
  * - Nunca infiere website/LinkedIn si no hay URL explícita.
  * - Rechaza resultados de directorios, redes sociales personales y buscadores.
+ * - Directorios van a public_evidence, NUNCA a official_website.
+ * - LinkedIn requiere /company/ path Y name match fuerte para ser confirmado.
  */
 
 // ─── Domain blacklists ────────────────────────────────────────────────────────
@@ -15,6 +17,7 @@
 const SOCIAL_PERSONAL = new Set([
   'facebook.com', 'twitter.com', 'x.com', 'instagram.com',
   'youtube.com', 'tiktok.com', 'whatsapp.com', 'telegram.org',
+  'linkedin.com', 'gmail.com', 'google.com',
 ]);
 
 const SEARCH_ENGINES = new Set([
@@ -25,16 +28,35 @@ const EMAIL_PROVIDERS = new Set([
   'gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 'live.com',
 ]);
 
+/** Dominios de directorios comerciales. NUNCA son website oficial. */
+const COMMERCIAL_DIRECTORY_DOMAINS = new Set([
+  'registronit.com',
+  'informacolombia.com',
+  'datacreditoempresas.com.co',
+  'einforma.co',
+  'empresite.eleconomistaamerica.co',
+  'empresite.com',
+  'paginasamarillas.com.co',
+  'wikipedia.org',
+]);
+
 const DIRECTORY_SUBSTRINGS = [
   'paginasamarillas', 'paginas-amarillas', 'kompass', 'opencorporates',
   'dnb.com', 'zoominfo', 'clutch.co', 'crunchbase', 'emis.com', 'cylex',
   'listado.net', 'empresite', 'infobel', 'registrociv', 'yellowpages',
   'directoriocomercial', 'mapas.google', 'maps.google',
+  'registronit', 'informacolombia', 'datacreditoempresas', 'einforma',
+  'datospymes', 'directorioempresas', 'buscaempresas',
 ];
 
 const REGISTRY_SUBSTRINGS = [
   'rues.gov', 'rues.org', 'supersociedades', 'camaracomercio',
   'ccb.org', 'ccb.com', 'camaramedellin', 'registraduría',
+];
+
+const CHAMBER_OF_COMMERCE_SUBSTRINGS = [
+  'ccb.org.co', 'camaramedellin.com.co', 'ccc.org.co', 'ccv.org.co',
+  'camarabaq.org.co', 'ccmpc.org.co',
 ];
 
 const NEWS_SUBSTRINGS = [
@@ -52,10 +74,16 @@ const LEGAL_SUFFIXES = [
 export type SourceType =
   | 'official_website'
   | 'linkedin_company'
-  | 'directory'
+  | 'commercial_directory'
+  | 'public_registry'
+  | 'chamber_of_commerce'
   | 'news'
-  | 'registry'
+  | 'social'
   | 'unknown';
+
+/** @deprecated use SourceType */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _LegacySourceType = 'directory' | 'registry';
 
 export type EvidenceConfidence = 'high' | 'medium' | 'low' | 'rejected';
 
@@ -87,15 +115,69 @@ export interface LinkedInEvidence {
   reason: string;
 }
 
+export interface PossibleLinkedInMatch {
+  url: string;
+  title?: string;
+  confidence: EvidenceConfidence;
+  evidence_url: string;
+  reason: string;
+  match_quality: 'partial' | 'weak';
+}
+
 export interface PublicDescriptionEvidence {
   text: string;
   confidence: EvidenceConfidence;
   evidence_used: string[];
 }
 
+export interface PublicEvidenceItem {
+  title: string;
+  url: string;
+  domain: string;
+  source_type: SourceType;
+  confidence: EvidenceConfidence;
+  reason: string;
+}
+
+export interface RejectedWebsiteEntry {
+  url: string;
+  domain: string;
+  reason: string;
+}
+
+/** Resultado estructurado completo del enriquecimiento web — 16AK.13B */
+export interface WebEnrichmentResult {
+  official_website: OfficialWebsiteEvidence | null;
+  linkedin_company: LinkedInEvidence | null;
+  possible_linkedin_matches: PossibleLinkedInMatch[];
+  public_evidence: PublicEvidenceItem[];
+  rejected_as_official_website: RejectedWebsiteEntry[];
+}
+
+// ─── Search intent types — base para 16AK.13C ────────────────────────────────
+
+/**
+ * Intents de búsqueda diferenciados.
+ * En 16AK.13B solo usamos official_website y linkedin_company.
+ * Los demás están documentados para 16AK.13C sin aumentar queries/costo aún.
+ *
+ * 16AK.13C roadmap:
+ *   - contact_info: buscar emails/teléfonos desde el sitio oficial
+ *   - public_evidence: query específica para directorios/RUES
+ *   - company_description: buscar descripciones/About en fuentes de calidad
+ */
+export type SearchQueryIntent =
+  | 'official_website'
+  | 'linkedin_company'
+  | 'public_evidence'   // disponible para 16AK.13C
+  | 'contact_info'      // disponible para 16AK.13C
+  | 'company_description'; // disponible para 16AK.13C
+
 export interface QueryStrategy {
   query: string;
-  purpose: 'website' | 'linkedin_description';
+  intent: SearchQueryIntent;
+  /** @deprecated use intent */
+  purpose?: 'website' | 'linkedin_description';
 }
 
 export interface CandidateBasicInfo {
@@ -104,6 +186,25 @@ export interface CandidateBasicInfo {
   tax_identifier: string | null;
   city: string | null;
   industry: string | null;
+}
+
+// ─── Public domain helpers ─────────────────────────────────────────────────────
+
+/**
+ * Returns true if a domain is a directory, registry, social network, or
+ * third-party aggregator — i.e. it must NEVER be stored as an official website.
+ */
+export function isDirectoryOrThirdPartyEvidenceDomain(domain: string): boolean {
+  if (!domain) return false;
+  const d = domain.toLowerCase().replace(/^www\./, '');
+  if (COMMERCIAL_DIRECTORY_DOMAINS.has(d)) return true;
+  if (SOCIAL_PERSONAL.has(d)) return true;
+  if (SEARCH_ENGINES.has(d)) return true;
+  if (EMAIL_PROVIDERS.has(d)) return true;
+  if (DIRECTORY_SUBSTRINGS.some((k) => d.includes(k))) return true;
+  if (REGISTRY_SUBSTRINGS.some((k) => d.includes(k))) return true;
+  if (CHAMBER_OF_COMMERCE_SUBSTRINGS.some((k) => d.includes(k))) return true;
+  return false;
 }
 
 // ─── Name normalization ───────────────────────────────────────────────────────
@@ -117,26 +218,76 @@ export function normalizeCompanyName(name: string): string {
   return n.trim();
 }
 
-// ─── Domain helpers ───────────────────────────────────────────────────────────
+/**
+ * Normalizes a company name specifically for search queries:
+ * lowercased, no special chars, trimmed legal suffixes.
+ * Reutilizable en 16AK.13C para scoring de entity matching.
+ */
+export function normalizeCompanyNameForSearch(name: string): string {
+  return normalizeCompanyName(name)
+    .toLowerCase()
+    .replace(/[^a-záéíóúüñ\s0-9]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-export function extractDomainFromUrl(url: string): string | null {
-  if (!url) return null;
-  try {
-    const normalized = url.startsWith('http') ? url : `https://${url}`;
-    const { hostname } = new URL(normalized);
-    return hostname.replace(/^www\./, '').toLowerCase();
-  } catch {
-    return null;
+/**
+ * Builds name variants for broader matching (e.g., with/without accents,
+ * abbreviations). Designed for 16AK.13C entity matching — currently used
+ * only for LinkedIn name validation.
+ */
+export function buildCompanyNameVariants(name: string): string[] {
+  const normalized = normalizeCompanyNameForSearch(name);
+  const noAccents = normalized
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+
+  const variants = new Set<string>([normalized]);
+  if (noAccents !== normalized) variants.add(noAccents);
+
+  // First two meaningful words (useful for abbreviated names)
+  const words = normalized.split(/\s+/).filter((w) => w.length > 2);
+  if (words.length >= 2) variants.add(words.slice(0, 2).join(' '));
+
+  return Array.from(variants).filter(Boolean);
+}
+
+/**
+ * Scores entity match between a candidate name and text found in a result.
+ * Returns 0–100. Reutilizable en 16AK.13C para deduplicación y validación.
+ *
+ * @param candidateName   - Company name from RUES/official source
+ * @param textToMatch     - Title or snippet to match against
+ */
+export function scoreEntityMatch(candidateName: string, textToMatch: string): number {
+  if (!candidateName || !textToMatch) return 0;
+  const variants = buildCompanyNameVariants(candidateName);
+  const text = textToMatch.toLowerCase();
+
+  let best = 0;
+  for (const variant of variants) {
+    if (!variant) continue;
+    // Exact match
+    if (text.includes(variant)) { best = Math.max(best, 100); break; }
+
+    // Word-level match
+    const words = variant.split(/\s+/).filter((w) => w.length > 2);
+    if (words.length === 0) continue;
+    const matched = words.filter((w) => text.includes(w));
+    const ratio = matched.length / words.length;
+    const wordScore = Math.round(ratio * 90);
+    best = Math.max(best, wordScore);
   }
+  return Math.min(best, 100);
 }
 
-function domainMatchesList(domain: string, list: string[]): boolean {
-  return list.some((k) => domain.includes(k));
-}
-
-// ─── Query builder ────────────────────────────────────────────────────────────
-
-export function buildQueryStrategies(
+/**
+ * Builds search queries differentiated by intent.
+ * 16AK.13B: uses only official_website and linkedin_company (2 queries max).
+ * 16AK.13C roadmap: add public_evidence, company_description intents
+ *   without increasing cost per candidate until latency/budget allows.
+ */
+export function buildSearchQueriesByIntent(
   candidate: CandidateBasicInfo,
   industry: string,
 ): QueryStrategy[] {
@@ -156,15 +307,41 @@ export function buildQueryStrategies(
   if (normalized) linkedinParts.push(`"${normalized}"`);
   linkedinParts.push('Colombia empresa');
   if (city) linkedinParts.push(city);
-  linkedinParts.push('LinkedIn');
-  // Also get description/activity from this query
+  linkedinParts.push('site:linkedin.com/company');
   const industryShard = industry ? industry.split(/[\/,]/)[0].trim() : '';
   if (industryShard) linkedinParts.push(industryShard);
 
   return [
-    { query: websiteParts.filter(Boolean).join(' '), purpose: 'website' },
-    { query: linkedinParts.filter(Boolean).join(' '), purpose: 'linkedin_description' },
+    { query: websiteParts.filter(Boolean).join(' '), intent: 'official_website', purpose: 'website' },
+    { query: linkedinParts.filter(Boolean).join(' '), intent: 'linkedin_company', purpose: 'linkedin_description' },
+    // 16AK.13C: add { intent: 'public_evidence', query: ... } here
+    // 16AK.13C: add { intent: 'company_description', query: ... } here
   ];
+}
+
+/** @deprecated use buildSearchQueriesByIntent */
+export function buildQueryStrategies(
+  candidate: CandidateBasicInfo,
+  industry: string,
+): QueryStrategy[] {
+  return buildSearchQueriesByIntent(candidate, industry);
+}
+
+// ─── Domain helpers ───────────────────────────────────────────────────────────
+
+export function extractDomainFromUrl(url: string): string | null {
+  if (!url) return null;
+  try {
+    const normalized = url.startsWith('http') ? url : `https://${url}`;
+    const { hostname } = new URL(normalized);
+    return hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function domainMatchesList(domain: string, list: string[]): boolean {
+  return list.some((k) => domain.includes(k));
 }
 
 // ─── Source classifier ────────────────────────────────────────────────────────
@@ -176,22 +353,28 @@ function classifySourceType(url: string, title: string, snippet: string | null):
   // LinkedIn company page (strict: must have /company/ path)
   if (domain.includes('linkedin.com')) {
     if (url.includes('/company/')) return 'linkedin_company';
-    return 'unknown'; // personal profile or other LinkedIn page
+    return 'social';
   }
 
-  // Registry sources
-  if (domainMatchesList(domain, REGISTRY_SUBSTRINGS)) return 'registry';
-
-  // Blacklisted: social, search, email
-  if (SOCIAL_PERSONAL.has(domain)) return 'unknown';
+  // Social networks, search engines, email providers
+  if (SOCIAL_PERSONAL.has(domain)) return 'social';
   if (SEARCH_ENGINES.has(domain)) return 'unknown';
   if (EMAIL_PROVIDERS.has(domain)) return 'unknown';
 
-  // Directory
-  if (domainMatchesList(domain, DIRECTORY_SUBSTRINGS)) return 'directory';
-  if (domainMatchesList(combined, DIRECTORY_SUBSTRINGS)) return 'directory';
+  // Colombian commercial directories — explicit set check first
+  if (COMMERCIAL_DIRECTORY_DOMAINS.has(domain)) return 'commercial_directory';
 
-  // News
+  // Directory substrings
+  if (domainMatchesList(domain, DIRECTORY_SUBSTRINGS)) return 'commercial_directory';
+  if (domainMatchesList(combined, DIRECTORY_SUBSTRINGS)) return 'commercial_directory';
+
+  // Chamber of commerce
+  if (domainMatchesList(domain, CHAMBER_OF_COMMERCE_SUBSTRINGS)) return 'chamber_of_commerce';
+
+  // Public registry (RUES, Supersociedades)
+  if (domainMatchesList(domain, REGISTRY_SUBSTRINGS)) return 'public_registry';
+
+  // News / media
   if (domainMatchesList(domain, NEWS_SUBSTRINGS)) return 'news';
 
   return 'official_website';
@@ -201,7 +384,6 @@ function classifySourceType(url: string, title: string, snippet: string | null):
 
 function scoreResult(candidate: CandidateBasicInfo, result: RawWebResult): number {
   const name = (candidate.legal_name ?? candidate.name ?? '').trim();
-  const normalized = normalizeCompanyName(name);
   const domain = extractDomainFromUrl(result.url) ?? '';
   const combined = `${result.title} ${result.snippet ?? ''}`.toLowerCase();
 
@@ -212,19 +394,11 @@ function scoreResult(candidate: CandidateBasicInfo, result: RawWebResult): numbe
 
   let score = 0;
 
-  // Name match in title (strongest signal)
-  const titleLower = result.title.toLowerCase();
-  const nameWords = normalized
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 2);
-  const wordsInTitle = nameWords.filter((w) => titleLower.includes(w));
-  if (nameWords.length > 0) {
-    const ratio = wordsInTitle.length / nameWords.length;
-    if (ratio >= 0.7) score += 35;
-    else if (ratio >= 0.4) score += 18;
-    else if (ratio >= 0.2) score += 8;
-  }
+  // Entity match using reusable scoreEntityMatch helper
+  const titleMatchScore = scoreEntityMatch(name, result.title);
+  if (titleMatchScore >= 90) score += 35;
+  else if (titleMatchScore >= 60) score += 20;
+  else if (titleMatchScore >= 30) score += 8;
 
   // NIT / tax identifier explicit match (very strong signal)
   if (candidate.tax_identifier && combined.includes(candidate.tax_identifier)) score += 30;
@@ -236,8 +410,7 @@ function scoreResult(candidate: CandidateBasicInfo, result: RawWebResult): numbe
   if (candidate.city && combined.includes(candidate.city.toLowerCase())) score += 8;
 
   // Own domain (not a directory)
-  const isDirectory = domainMatchesList(domain, DIRECTORY_SUBSTRINGS);
-  if (!isDirectory && domain.length > 0) score += 12;
+  if (!isDirectoryOrThirdPartyEvidenceDomain(domain) && domain.length > 0) score += 12;
 
   // Industry/sector match
   if (candidate.industry) {
@@ -249,7 +422,7 @@ function scoreResult(candidate: CandidateBasicInfo, result: RawWebResult): numbe
 }
 
 function scoreToConfidence(score: number, sourceType: SourceType): EvidenceConfidence {
-  if (sourceType === 'unknown') return 'rejected';
+  if (sourceType === 'unknown' || sourceType === 'social') return 'rejected';
   if (score < 12) return 'rejected';
   if (score < 28) return 'low';
   if (score < 52) return 'medium';
@@ -262,10 +435,12 @@ export function scoreWebEvidence(
   candidate: CandidateBasicInfo,
   results: RawWebResult[],
 ): ScoredWebResult[] {
+  const name = candidate.legal_name ?? candidate.name ?? '';
+
   return results.map((r) => {
     const sourceType = classifySourceType(r.url, r.title, r.snippet);
     const rawScore = scoreResult(candidate, r);
-    // LinkedIn gets a small boost since it passed the /company/ gate
+    // LinkedIn gets a boost since it passed the /company/ gate
     const adjustedScore = sourceType === 'linkedin_company' ? Math.min(rawScore + 12, 100) : rawScore;
     const confidence = scoreToConfidence(adjustedScore, sourceType);
 
@@ -274,9 +449,7 @@ export function scoreWebEvidence(
     if (candidate.tax_identifier && text.includes(candidate.tax_identifier)) signals.push('nit_match');
     if (text.includes('colombia')) signals.push('country_match');
     if (candidate.city && text.includes(candidate.city.toLowerCase())) signals.push('city_match');
-    const normalizedName = normalizeCompanyName(candidate.legal_name ?? candidate.name ?? '');
-    const nameWords = normalizedName.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-    if (nameWords.some((w) => r.title.toLowerCase().includes(w))) signals.push('name_in_title');
+    if (scoreEntityMatch(name, r.title) >= 60) signals.push('name_in_title');
 
     return {
       ...r,
@@ -304,6 +477,9 @@ export function extractOfficialWebsite(
   const domain = extractDomainFromUrl(best.url);
   if (!domain) return null;
 
+  // Final guard: if by any chance the classifier missed a directory domain, reject it
+  if (isDirectoryOrThirdPartyEvidenceDomain(domain)) return null;
+
   return {
     url: best.url,
     domain,
@@ -313,23 +489,104 @@ export function extractOfficialWebsite(
   };
 }
 
+/**
+ * Extracts a confirmed LinkedIn company page.
+ * Requires: /company/ path + strong name entity match (score >= 40).
+ * Weak matches go to extractPossibleLinkedInMatches instead.
+ */
 export function extractLinkedInCompany(
+  candidate: CandidateBasicInfo,
   scoredResults: ScoredWebResult[],
 ): LinkedInEvidence | null {
-  const candidates = scoredResults
+  const name = candidate.legal_name ?? candidate.name ?? '';
+  const linkedInResults = scoredResults
     .filter((r) => r.source_type === 'linkedin_company')
     .filter((r) => r.confidence !== 'rejected')
     .sort((a, b) => b.raw_score - a.raw_score);
 
-  if (candidates.length === 0) return null;
+  if (linkedInResults.length === 0) return null;
 
-  const best = candidates[0];
+  const best = linkedInResults[0];
+  // Require name match >= 40 (word-level) to be "confirmed"
+  const nameMatchScore = scoreEntityMatch(name, `${best.title} ${best.snippet ?? ''}`);
+  if (nameMatchScore < 40) return null;
+
   return {
     url: best.url,
-    confidence: best.confidence,
+    confidence: nameMatchScore >= 70 ? best.confidence : 'low',
     evidence_url: best.url,
-    reason: `score=${best.raw_score} signals=[${best.matched_signals.join(',')}]`,
+    reason: `score=${best.raw_score} name_match=${nameMatchScore} signals=[${best.matched_signals.join(',')}]`,
   };
+}
+
+/**
+ * Extracts LinkedIn results that didn't pass the name match threshold for
+ * "confirmed" but may still be relevant. Shown in UI as "posible · requiere revisión".
+ */
+export function extractPossibleLinkedInMatches(
+  candidate: CandidateBasicInfo,
+  scoredResults: ScoredWebResult[],
+): PossibleLinkedInMatch[] {
+  const name = candidate.legal_name ?? candidate.name ?? '';
+  return scoredResults
+    .filter((r) => r.source_type === 'linkedin_company')
+    .filter((r) => r.confidence !== 'rejected')
+    .filter((r) => {
+      const nameMatch = scoreEntityMatch(name, `${r.title} ${r.snippet ?? ''}`);
+      return nameMatch < 40; // only the ones that didn't qualify as confirmed
+    })
+    .sort((a, b) => b.raw_score - a.raw_score)
+    .slice(0, 2)
+    .map((r) => {
+      const nameMatch = scoreEntityMatch(name, `${r.title} ${r.snippet ?? ''}`);
+      return {
+        url: r.url,
+        title: r.title,
+        confidence: r.confidence,
+        evidence_url: r.url,
+        reason: `score=${r.raw_score} name_match=${nameMatch}`,
+        match_quality: nameMatch >= 20 ? ('partial' as const) : ('weak' as const),
+      };
+    });
+}
+
+/** Collects directory/registry results as public evidence items (not official). */
+export function extractPublicEvidence(
+  scoredResults: ScoredWebResult[],
+): PublicEvidenceItem[] {
+  const publicSourceTypes: SourceType[] = [
+    'commercial_directory', 'public_registry', 'chamber_of_commerce',
+  ];
+  return scoredResults
+    .filter((r) => publicSourceTypes.includes(r.source_type))
+    .filter((r) => r.confidence !== 'rejected')
+    .sort((a, b) => b.raw_score - a.raw_score)
+    .slice(0, 5)
+    .map((r) => ({
+      title: r.title,
+      url: r.url,
+      domain: extractDomainFromUrl(r.url) ?? r.url,
+      source_type: r.source_type,
+      confidence: r.confidence,
+      reason: `score=${r.raw_score} signals=[${r.matched_signals.join(',')}]`,
+    }));
+}
+
+/** Collects URLs that were classified as official_website candidates but rejected by domain guard. */
+export function extractRejectedAsOfficialWebsite(
+  scoredResults: ScoredWebResult[],
+): RejectedWebsiteEntry[] {
+  return scoredResults
+    .filter((r) => r.source_type === 'official_website')
+    .filter((r) => {
+      const domain = extractDomainFromUrl(r.url);
+      return domain ? isDirectoryOrThirdPartyEvidenceDomain(domain) : false;
+    })
+    .map((r) => ({
+      url: r.url,
+      domain: extractDomainFromUrl(r.url) ?? r.url,
+      reason: 'classified_as_third_party_by_domain_guard',
+    }));
 }
 
 export function buildPublicDescription(
@@ -351,6 +608,23 @@ export function buildPublicDescription(
     text,
     confidence: best.confidence,
     evidence_used: relevant.map((r) => r.url),
+  };
+}
+
+/**
+ * Main entry point — returns the full structured web enrichment result.
+ * Replaces calling individual extractors separately.
+ */
+export function extractWebEnrichmentResult(
+  candidate: CandidateBasicInfo,
+  scoredResults: ScoredWebResult[],
+): WebEnrichmentResult {
+  return {
+    official_website: extractOfficialWebsite(scoredResults),
+    linkedin_company: extractLinkedInCompany(candidate, scoredResults),
+    possible_linkedin_matches: extractPossibleLinkedInMatches(candidate, scoredResults),
+    public_evidence: extractPublicEvidence(scoredResults),
+    rejected_as_official_website: extractRejectedAsOfficialWebsite(scoredResults),
   };
 }
 

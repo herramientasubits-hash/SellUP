@@ -25,14 +25,16 @@ import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-pro
 import { getAiProviderCredential } from '../../services/ai-connection';
 import { estimateLLMCost } from './llm-evaluator';
 import {
-  buildQueryStrategies,
+  buildSearchQueriesByIntent,
   scoreWebEvidence,
-  extractOfficialWebsite,
-  extractLinkedInCompany,
+  extractWebEnrichmentResult,
   buildPublicDescription,
   hasHighConfidenceEvidence,
+  isDirectoryOrThirdPartyEvidenceDomain,
+  extractDomainFromUrl,
   type ScoredWebResult,
   type CandidateBasicInfo,
+  type WebEnrichmentResult,
 } from './web-evidence-scorer';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -187,24 +189,33 @@ ${preExtracted.join('\n')}
 
 INDUSTRIA objetivo SellUp: ${industry}
 
-INSTRUCCIONES CRÍTICAS:
+INSTRUCCIONES CRÍTICAS — LEE ANTES DE RESPONDER:
 1. Usa SOLO evidencia de los resultados anteriores. No inventes URLs, NIT ni datos.
-2. website/domain: usa SOLO fuentes tipo official_website con confidence high/medium.
-3. company_linkedin_url: usa SOLO resultados tipo linkedin_company con URL explícita /company/.
+2. website/domain: SOLO fuentes tipo OFFICIAL_WEBSITE con confidence high/medium.
+   - PROHIBIDO usar fuentes tipo COMMERCIAL_DIRECTORY, PUBLIC_REGISTRY, CHAMBER_OF_COMMERCE.
+   - Dominios como registronit.com, informacolombia.com, datacreditoempresas.com.co,
+     einforma.co, paginasamarillas.com.co, kompass.com, zoominfo.com son DIRECTORIOS,
+     NO son el sitio web oficial de la empresa. Si solo hay esos, website = null.
+   - Solo acepta un dominio propio de la empresa (ej: escanherabogados.com, mypyme.co).
+3. company_linkedin_url: SOLO resultados tipo LINKEDIN_COMPANY con URL explícita /company/
+   Y el nombre en el título/snippet corresponde con alta probabilidad a ESTA empresa.
+   Si hay duda o match parcial, devuelve null (el sistema lo guardará como possible_match).
 4. description: construye SOLO desde snippets de resultados high/medium confidence.
+   No uses snippets de directorios para construir descripción oficial.
 5. fit_score: null si hay menos de 2 resultados con texto relevante a esta empresa.
 6. No inferir tamaño de empresa salvo que el snippet lo mencione explícitamente.
-7. Si evidencia no corresponde a esta empresa: fit_status "unknown".
+7. Si evidencia no corresponde a esta empresa (nombre diferente, otro país): fit_status "unknown".
 8. field_confidence: "unknown" si no hay evidencia explícita del campo.
-9. No usar directorios (tipo directory) como website oficial.
-10. No usar perfiles personales LinkedIn; solo páginas /company/.
+9. NUNCA pongas en website/domain: registronit.com, informacolombia.com, datacreditoempresas.com.co,
+   einforma.co, empresite.com, paginasamarillas.com.co, wikipedia.org, facebook.com,
+   instagram.com, x.com, twitter.com, google.com, gmail.com, youtube.com o cualquier directorio, buscador o red social.
 
 Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto adicional):
 {
-  "website": "<URL completa si confidence high/medium en official_website, sino null>",
-  "domain": "<dominio sin www si encontrado, sino null>",
-  "company_linkedin_url": "<URL /company/ LinkedIn si encontrada, sino null>",
-  "description": "<1-2 frases desde snippets high/medium, sino null>",
+  "website": "<URL completa del sitio PROPIO de la empresa, sino null>",
+  "domain": "<dominio sin www si encontrado y es sitio propio, sino null>",
+  "company_linkedin_url": "<URL /company/ LinkedIn con match fuerte, sino null>",
+  "description": "<1-2 frases desde snippets high/medium no-directorio, sino null>",
   "commercial_signals": ["<señal explícita en evidencia>"],
   "fit_score": <número 0-100 o null>,
   "fit_status": "high" | "medium" | "low" | "unknown",
@@ -351,7 +362,7 @@ async function runMultiQueryTavily(
   warnings: string[],
   candidateId: string,
 ): Promise<{ rawResults: Array<{ url: string; title: string; snippet: string | null }>; queriesRun: string[]; failed: boolean }> {
-  const strategies = buildQueryStrategies(candidate, industry);
+  const strategies = buildSearchQueriesByIntent(candidate, industry);
   const allResults: Array<{ url: string; title: string; snippet: string | null }> = [];
   const queriesRun: string[] = [];
   const seenUrls = new Set<string>();
@@ -510,9 +521,10 @@ export async function enrichBatchCandidatesWithWebAndAI(
     // ── Step 2: Score evidence ─────────────────────────────────────────────
     const scoredResults = scoreWebEvidence(candidate, rawResults);
 
-    // ── Step 3: Local extraction ───────────────────────────────────────────
-    const officialWebsiteEvidence = extractOfficialWebsite(scoredResults);
-    const linkedInEvidence = extractLinkedInCompany(scoredResults);
+    // ── Step 3: Local extraction (structured — 16AK.13B) ──────────────────
+    const webEnrichment: WebEnrichmentResult = extractWebEnrichmentResult(candidate, scoredResults);
+    const officialWebsiteEvidence = webEnrichment.official_website;
+    const linkedInEvidence = webEnrichment.linkedin_company;
     const publicDescriptionEvidence = buildPublicDescription(scoredResults);
 
     // ── Step 4: Claude evaluation ──────────────────────────────────────────
@@ -539,6 +551,23 @@ export async function enrichBatchCandidatesWithWebAndAI(
         const parsed = parseAIResponse(content);
         if (parsed) {
           aiResult = parsed;
+
+          // Guard: reject Claude's website if it slipped through as a directory
+          if (aiResult.website) {
+            const aiDomain = extractDomainFromUrl(aiResult.website);
+            if (aiDomain && isDirectoryOrThirdPartyEvidenceDomain(aiDomain)) {
+              summary.warnings.push(`ai_website_rejected_directory:${candidate.id}:${aiDomain}`);
+              aiResult = {
+                ...aiResult,
+                website: null,
+                domain: null,
+                field_confidence: aiResult.field_confidence
+                  ? { ...aiResult.field_confidence, website: 'unknown' as const }
+                  : null,
+              };
+            }
+          }
+
           const estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, aiModel);
           summary.totalEstimatedCostUsd += estimatedCostUsd;
           costTrace = {
@@ -567,6 +596,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
             queries: queriesRun,
             official_website: officialWebsiteEvidence ?? null,
             linkedin_company: linkedInEvidence ?? null,
+            possible_linkedin_matches: webEnrichment.possible_linkedin_matches,
+            public_evidence: webEnrichment.public_evidence,
+            rejected_as_official_website: webEnrichment.rejected_as_official_website,
             public_description: publicDescriptionEvidence ?? null,
             results: scoredResults.slice(0, 5),
           },
@@ -582,18 +614,31 @@ export async function enrichBatchCandidatesWithWebAndAI(
     // ── Step 5: Build update payload ───────────────────────────────────────
     const updatePayload: Record<string, unknown> = {};
 
-    // Website: prefer local extraction; fall back to Claude if local found nothing
+    // Website: prefer local extraction; fall back to Claude only if official
+    const aiWebsiteIsValid = aiResult?.website
+      ? !isDirectoryOrThirdPartyEvidenceDomain(extractDomainFromUrl(aiResult.website) ?? '')
+      : false;
     const finalWebsite =
-      officialWebsiteEvidence?.url ?? (aiResult?.website ?? null);
+      officialWebsiteEvidence?.url ?? (aiWebsiteIsValid ? (aiResult?.website ?? null) : null);
     const finalDomain =
       officialWebsiteEvidence?.domain ??
-      (aiResult?.domain ?? extractDomainSimple(aiResult?.website));
+      (aiWebsiteIsValid ? (aiResult?.domain ?? extractDomainSimple(aiResult?.website)) : null);
 
     if (!candidate.website && finalWebsite) {
       updatePayload.website = finalWebsite;
       updatePayload.domain = finalDomain;
       result.website = finalWebsite;
       result.domain = finalDomain as string | null;
+    } else if (candidate.website) {
+      // If stored website is a directory (from previous enrichment), clear it
+      const existingDomain = extractDomainFromUrl(candidate.website);
+      if (existingDomain && isDirectoryOrThirdPartyEvidenceDomain(existingDomain)) {
+        updatePayload.website = finalWebsite ?? null;
+        updatePayload.domain = finalDomain ?? null;
+        result.website = finalWebsite ?? null;
+        result.domain = finalDomain ?? null;
+        summary.warnings.push(`cleared_directory_website:${candidate.id}:${existingDomain}`);
+      }
     }
 
     if (aiResult && typeof aiResult.fit_score === 'number') {
@@ -601,9 +646,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
       result.fitScore = aiResult.fit_score;
     }
 
-    // LinkedIn: prefer local extraction; fall back to Claude
-    const finalLinkedIn =
-      linkedInEvidence?.url ?? (aiResult?.company_linkedin_url ?? null);
+    // LinkedIn: prefer local confirmed; fall back to Claude if /company/ URL
+    const aiLinkedIn = aiResult?.company_linkedin_url ?? null;
+    const finalLinkedIn = linkedInEvidence?.url ?? aiLinkedIn;
 
     // Description: prefer local extraction; fall back to Claude
     const finalDescription =
@@ -621,6 +666,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
           : finalLinkedIn
           ? { url: finalLinkedIn, confidence: 'low' as const, evidence_url: finalLinkedIn, reason: 'claude_extracted' }
           : null,
+        possible_linkedin_matches: webEnrichment.possible_linkedin_matches,
+        public_evidence: webEnrichment.public_evidence,
+        rejected_as_official_website: webEnrichment.rejected_as_official_website,
         public_description: publicDescriptionEvidence ?? (finalDescription ? { text: finalDescription, confidence: 'low' as const, evidence_used: [] } : null),
         results: scoredResults.slice(0, 5),
       },
