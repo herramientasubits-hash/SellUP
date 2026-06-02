@@ -306,17 +306,31 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               {/* País */}
               <td className="px-4 py-3 text-xs text-muted-foreground">
                 {c.country_code ? (
-                  <span className="flex items-center gap-1.5">
-                    <span>{getFlagEmoji(c.country_code)}</span>
-                    <span>{c.city ?? c.country ?? c.country_code}</span>
-                  </span>
+                  <div className="space-y-0.5">
+                    <span className="flex items-center gap-1.5">
+                      <span>{getFlagEmoji(c.country_code)}</span>
+                      <span>{c.country ?? c.country_code}</span>
+                    </span>
+                    {(c.city || c.region) && (
+                      <p className="text-[10px] text-muted-foreground/60 leading-tight pl-5">
+                        {[c.city, c.region].filter(Boolean).join(', ')}
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <span className="text-muted-foreground/40">—</span>
                 )}
               </td>
               {/* Industria */}
               <td className="px-4 py-3 text-xs text-muted-foreground">
-                {c.industry ?? <span className="text-muted-foreground/40">—</span>}
+                {(() => {
+                  const sector = c.industry
+                    ?? (c.metadata?.enrichment as Record<string, unknown> | undefined)?.sector_description as string | undefined
+                    ?? null;
+                  return sector
+                    ? <span className="leading-snug line-clamp-2 max-w-[140px]">{sector}</span>
+                    : <span className="text-muted-foreground/40">—</span>;
+                })()}
               </td>
               {/* Web */}
               <td className="px-4 py-3">
@@ -375,8 +389,13 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   )}
                   {Array.isArray(c.review_flags) && c.review_flags.length > 0 && (
                     <div className="flex flex-wrap gap-0.5 max-w-[160px]">
+                      {(c.review_flags as string[]).includes('liquidation_signal') && (
+                        <span className="inline-block rounded px-1 py-0.5 text-[8px] font-semibold bg-destructive/10 text-destructive">
+                          En liquidación
+                        </span>
+                      )}
                       {(c.review_flags as string[])
-                        .filter((f) => CRITICAL_REVIEW_FLAG_LABELS[f])
+                        .filter((f) => f !== 'liquidation_signal' && CRITICAL_REVIEW_FLAG_LABELS[f])
                         .map((flag) => (
                           <span
                             key={flag}
@@ -386,6 +405,11 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           </span>
                         ))}
                     </div>
+                  )}
+                  {typeof c.data_completeness_score === 'number' && (
+                    <p className="text-[9px] text-muted-foreground/50 leading-tight">
+                      Completitud: {c.data_completeness_score}%
+                    </p>
                   )}
                 </div>
               </td>

@@ -74,6 +74,9 @@ export type ReviewFlag =
   | 'missing_linkedin'
   | 'no_tax_id'
   | 'inactive_company'
+  | 'liquidation_signal'
+  | 'possible_inactive'
+  | 'missing_sector'
   | 'possible_duplicate'
   | 'hubspot_existing_customer'
   | 'hubspot_existing_prospect'
@@ -540,9 +543,12 @@ export const REVIEW_STATUS_STYLES: Record<ReviewStatus, string> = {
 
 export const CRITICAL_REVIEW_FLAG_LABELS: Partial<Record<string, string>> = {
   inactive_company: 'Posible inactiva',
+  liquidation_signal: 'En liquidación',
+  possible_inactive: 'Posible inactiva',
   no_tax_id: 'Sin NIT',
   size_unknown: 'Tamaño desconocido',
   sector_unknown: 'Sector desconocido',
+  missing_sector: 'Sin sector',
   missing_website: 'Sin sitio web',
   natural_person_risk: 'Riesgo persona natural',
 };

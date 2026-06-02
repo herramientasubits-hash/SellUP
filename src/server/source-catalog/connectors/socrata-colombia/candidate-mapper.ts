@@ -47,6 +47,7 @@ export function mapSocrataSampleToStructuredCandidate(
     source: sample.source,
     email: sample.email,
     phone: sample.phone,
+    companyName: sample.companyName,
   });
 
   // Siempre unknown para Socrata: no tenemos datos de empleados

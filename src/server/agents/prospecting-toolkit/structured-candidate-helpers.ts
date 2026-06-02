@@ -107,12 +107,25 @@ const INACTIVE_LEGAL_STATUS_PATTERNS = [
   'cancelled', 'inactive', 'dissolved', 'liquidated',
 ];
 
+// Señales fuertes de liquidación en el nombre (detectables sin contexto extra)
+const LIQUIDATION_NAME_SIGNALS = [
+  'EN LIQUIDACION', 'EN LIQUIDACIÓN',
+  'EN DISOLUCION', 'EN DISOLUCIÓN',
+  ' LIQUIDACION', ' LIQUIDACIÓN',
+  'LIQUIDADA', 'DISUELTA',
+];
+
+// Señales débiles de inactividad en el estado legal (posible inactiva, no confirmada)
+const POSSIBLE_INACTIVE_LEGAL_STATUS_PATTERNS = [
+  'suspendida', 'en proceso', 'en tramite', 'en trámite', 'pendiente',
+];
+
 /**
  * Genera flags de revisión iniciales a partir de campos disponibles.
  * Función pura — no llama APIs externas.
  */
 export function buildInitialReviewFlags(
-  params: BuildInitialReviewFlagsParams
+  params: BuildInitialReviewFlagsParams & { companyName?: string | null }
 ): ReviewFlag[] {
   const flags: ReviewFlag[] = [];
 
@@ -121,18 +134,39 @@ export function buildInitialReviewFlags(
   if (!params.linkedinUrl) flags.push('missing_linkedin');
   if (!params.decisionMakerName) flags.push('missing_decision_maker');
 
+  // Sector: si no hay código ni descripción, marcar missing_sector
   if (!params.sectorCode) {
     flags.push('sector_unknown');
+    flags.push('missing_sector');
   } else {
     flags.push('sector_match');
   }
 
+  // Señal de liquidación en el nombre (detección determinística)
+  if (params.companyName) {
+    const upper = params.companyName.toUpperCase();
+    if (LIQUIDATION_NAME_SIGNALS.some((s) => upper.includes(s))) {
+      flags.push('liquidation_signal');
+      flags.push('inactive_company');
+    }
+  }
+
+  // Estado legal: inactividad confirmada
   if (params.legalStatus) {
     const normalized = params.legalStatus.toLowerCase();
     const isInactive = INACTIVE_LEGAL_STATUS_PATTERNS.some((p) =>
       normalized.includes(p)
     );
-    if (isInactive) flags.push('inactive_company');
+    if (isInactive && !flags.includes('inactive_company')) {
+      flags.push('inactive_company');
+    }
+    // Posible inactiva (señal débil)
+    const isPossibleInactive = POSSIBLE_INACTIVE_LEGAL_STATUS_PATTERNS.some((p) =>
+      normalized.includes(p)
+    );
+    if (isPossibleInactive && !flags.includes('inactive_company')) {
+      flags.push('possible_inactive');
+    }
   }
 
   if (params.source === 'reps') {

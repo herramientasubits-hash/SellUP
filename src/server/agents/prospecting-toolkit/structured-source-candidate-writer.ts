@@ -196,6 +196,26 @@ function buildBatchName(sourceProvider: string, dataset: string, dateLabel: stri
   return `${sourceProvider} · ${dataset.toUpperCase()} · ${dateLabel}`;
 }
 
+/**
+ * Calcula un score de completitud determinístico (0–100) para un candidato estructurado.
+ * +20 por cada campo clave presente. Sin IA. Sin inferencia.
+ */
+function calculateDataCompleteness(draft: StructuredSourceCandidateDraft): {
+  score: number;
+  missingFields: string[];
+} {
+  const missingFields: string[] = [];
+  let score = 0;
+
+  if (draft.taxId) { score += 20; } else { missingFields.push('tax_id'); }
+  if (draft.website) { score += 20; } else { missingFields.push('website'); }
+  if (draft.sectorCode || draft.sectorDescription) { score += 20; } else { missingFields.push('sector'); }
+  if (draft.city || draft.department) { score += 20; } else { missingFields.push('city_region'); }
+  if (draft.employeeCount !== null) { score += 20; } else { missingFields.push('company_size'); }
+
+  return { score, missingFields };
+}
+
 function resolveReviewStatus(
   hubspotMatchStatus: HubspotMatchStatus,
   base: ReviewStatus,
@@ -875,6 +895,19 @@ export async function writeStructuredSourceCandidatesPreview(
         resolvedTaxIdentifierType = 'RUT';
       }
 
+      const { score: completenessScore, missingFields } = calculateDataCompleteness(draft);
+
+      const enrichmentMeta: Record<string, unknown> = {
+        city: draft.city ?? null,
+        region: draft.department ?? null,
+        sector_description: draft.sectorDescription ?? null,
+        economic_activity: draft.sectorCode ?? null,
+        legal_status: draft.legalStatus ?? null,
+        data_completeness_score: completenessScore,
+        missing_fields: missingFields,
+        enrichment_sources: [input.sourceKey],
+      };
+
       const candidateRow = {
         batch_id: batchId,
         account_id: null,
@@ -915,7 +948,7 @@ export async function writeStructuredSourceCandidatesPreview(
         duplicate_status: p.duplicateStatus,
         confidence_score: null,
         fit_score: null,
-        data_completeness_score: null,
+        data_completeness_score: completenessScore,
         estimated_cost_usd: 0,
         metadata: {
           writer_version: WRITER_VERSION,
@@ -923,6 +956,7 @@ export async function writeStructuredSourceCandidatesPreview(
           preview_mode: true,
           human_review_required: true,
           notes: 'Tamaño no confirmado — validar manualmente',
+          enrichment: enrichmentMeta,
           ...(p.duplicateCheckMetadata ? { duplicate_check: p.duplicateCheckMetadata } : {}),
         },
       };

@@ -639,6 +639,9 @@ export async function markCandidateReadyForApprovalAction(
     }
 
     // ── Bloqueos de negocio ───────────────────────────────────────
+    if (Array.isArray(reviewFlags) && reviewFlags.includes('liquidation_signal')) {
+      return { ok: false, error: 'No se puede marcar como listo: la empresa tiene señal de liquidación o disolución en su razón social.' };
+    }
     if (Array.isArray(reviewFlags) && reviewFlags.includes('inactive_company')) {
       return { ok: false, error: 'No se puede marcar como listo: la empresa puede estar inactiva o disuelta. Verifica el estado antes de continuar.' };
     }
