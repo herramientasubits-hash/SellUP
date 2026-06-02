@@ -204,8 +204,8 @@ export function GenerateAIBatchDrawer() {
       });
 
       toast.success(
-        `Lote generado con ${result.candidatesCreated} empresa${result.candidatesCreated !== 1 ? 's' : ''} candidata${result.candidatesCreated !== 1 ? 's' : ''}`,
-        { description: 'Listo para revisión humana.' }
+        `${result.candidatesCreated} empresa${result.candidatesCreated !== 1 ? 's' : ''} candidata${result.candidatesCreated !== 1 ? 's' : ''} lista${result.candidatesCreated !== 1 ? 's' : ''} para revisión`,
+        { description: 'Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana.' }
       );
 
       if (result.structuredSourcePreflight || result.structuredSourceBatch) {
@@ -238,7 +238,7 @@ export function GenerateAIBatchDrawer() {
         className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
       >
         <Sparkles className="h-3.5 w-3.5" />
-        Generar con IA
+        Generar empresas candidatas
       </Button>
 
       <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -319,9 +319,9 @@ export function GenerateAIBatchDrawer() {
                   </Row>
                 </Section>
 
-                {/* Parámetros */}
-                <Section icon={Target} label="Parámetros">
-                  <Field label="Cantidad objetivo">
+                {/* Cantidad */}
+                <Section icon={Target} label="Cantidad">
+                  <Field label="Cantidad de empresas">
                     <Select
                       value={form.targetCount}
                       onValueChange={(v) => set('targetCount', v ?? String(MVP_MAX_CANDIDATES))}
@@ -338,6 +338,9 @@ export function GenerateAIBatchDrawer() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                      SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
+                    </p>
                   </Field>
                 </Section>
 
@@ -545,7 +548,7 @@ export function GenerateAIBatchDrawer() {
                       }}
                       className="gap-1.5 border-su-brand/30 text-su-brand hover:bg-su-brand/5"
                     >
-                      Ver lote fuente oficial
+                      Ver empresas de fuente oficial
                       <ChevronRight className="h-3.5 w-3.5 text-su-brand" />
                     </Button>
                   )}
@@ -554,7 +557,7 @@ export function GenerateAIBatchDrawer() {
                     onClick={handleGoToBatch}
                     className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
                   >
-                    Ver lote Apollo
+                    Ver empresas generadas
                     <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -664,7 +667,7 @@ function GenerationResultPanel({
         <div className="flex items-center gap-2 border-b border-border/40 pb-2">
           <div className="h-2 w-2 rounded-full bg-su-brand" />
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-            Lote Apollo (Principal)
+            Empresas generadas (Apollo)
           </span>
         </div>
         <div className="flex items-center justify-between text-xs">

@@ -3,7 +3,6 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { CreateBatchDrawer } from '@/components/prospect-batches/create-batch-drawer';
 import { GenerateMockBatchDrawer } from '@/components/prospect-batches/generate-mock-batch-drawer';
-import { GenerateTavilyBatchDrawer } from '@/components/prospect-batches/generate-tavily-batch-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
 import { BatchesListClient } from '@/components/prospect-batches/batches-list-client';
 import {
@@ -65,7 +64,6 @@ export default async function ProspectBatchesPage() {
         actions={
           <div className="flex items-center gap-2">
             {process.env.NODE_ENV !== 'production' && <GenerateMockBatchDrawer />}
-            <GenerateTavilyBatchDrawer />
             <GenerateAIBatchDrawer />
             <CreateBatchDrawer users={users} />
           </div>
