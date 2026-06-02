@@ -10,6 +10,7 @@ import {
   ArrowRightCircle,
   Loader2,
   ShieldAlert,
+  ShieldCheck,
   Link2,
   ClipboardCheck,
 } from 'lucide-react';
@@ -51,6 +52,7 @@ import {
   markCandidateDuplicate,
   convertCandidateToAccount,
   markCandidateReadyForApprovalAction,
+  markCandidateDuplicateReviewedAction,
 } from '@/modules/prospect-batches/actions';
 import {
   DUPLICATE_STATUS_LABELS,
@@ -83,6 +85,8 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
   const [approveConfirmOpen, setApproveConfirmOpen] = React.useState(false);
   // Approve warning (related_company)
   const [relatedCompanyWarnOpen, setRelatedCompanyWarnOpen] = React.useState(false);
+  // Duplicate review confirmation
+  const [duplicateReviewConfirmOpen, setDuplicateReviewConfirmOpen] = React.useState(false);
   // Mark duplicate dialog
   const [markDuplicateOpen, setMarkDuplicateOpen] = React.useState(false);
   const [markDuplicateType, setMarkDuplicateType] = React.useState<
@@ -107,6 +111,11 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
     isStructured &&
     candidate.status === 'needs_review' &&
     reviewStatus === 'needs_manual_review';
+
+  const canMarkDuplicateReviewed =
+    isStructured &&
+    reviewStatus === 'ready_for_approval' &&
+    candidate.duplicate_status === 'unchecked';
 
   const canDiscard = !['discarded', 'converted_to_account'].includes(candidate.status);
   const canMarkDuplicate = !['converted_to_account', 'duplicate'].includes(candidate.status);
@@ -191,6 +200,24 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
     }
   }
 
+  async function handleMarkDuplicateReviewed() {
+    setLoading(true);
+    try {
+      const result = await markCandidateDuplicateReviewedAction(candidate.id);
+      if (!result.ok) {
+        toast.error(result.error ?? 'Error al marcar duplicidad revisada');
+        return;
+      }
+      toast.success(`Duplicidad de "${candidate.name}" marcada como revisada`);
+      setDuplicateReviewConfirmOpen(false);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al marcar duplicidad revisada');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleMarkReady() {
     setLoading(true);
     try {
@@ -249,6 +276,21 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
                 <ClipboardCheck className="mr-2 h-3.5 w-3.5 text-su-brand" />
                 Marcar revisado
               </DropdownMenuItem>
+            )}
+
+            {/* Marcar duplicidad revisada — estructurados en ready_for_approval con duplicate_status=unchecked */}
+            {canMarkDuplicateReviewed && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <DropdownMenuItem onClick={() => setDuplicateReviewConfirmOpen(true)}>
+                    <ShieldCheck className="mr-2 h-3.5 w-3.5 text-su-brand" />
+                    Marcar duplicidad revisada
+                  </DropdownMenuItem>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-[240px] text-center">
+                  Confirma que revisaste posibles duplicados antes de aprobar.
+                </TooltipContent>
+              </Tooltip>
             )}
 
             {/* Approve — visible when candidate status allows it */}
@@ -552,6 +594,47 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
             <Button onClick={doMarkDuplicate} disabled={loading} className="gap-1.5">
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate review confirmation dialog */}
+      <Dialog open={duplicateReviewConfirmOpen} onOpenChange={setDuplicateReviewConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-su-brand shrink-0" />
+              Confirmar revisión de duplicados
+            </DialogTitle>
+            <DialogDescription>
+              Antes de aprobar <strong>{candidate.name}</strong>, confirmá que verificaste
+              posibles duplicados en SellUp y HubSpot y que no existe un registro previo de
+              esta empresa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-xl border border-border/40 bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground">¿Ya verificaste?</p>
+            <p>• Buscar la empresa en SellUp (Cuentas / Candidatos)</p>
+            <p>• Buscar la empresa en HubSpot por nombre y NIT</p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDuplicateReviewConfirmOpen(false)}
+              disabled={loading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleMarkDuplicateReviewed}
+              disabled={loading}
+              className="gap-1.5"
+            >
+              {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Sí, sin duplicados
             </Button>
           </DialogFooter>
         </DialogContent>

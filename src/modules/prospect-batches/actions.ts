@@ -666,6 +666,90 @@ export async function markCandidateReadyForApprovalAction(
   }
 }
 
+export async function markCandidateDuplicateReviewedAction(
+  candidateId: string
+): Promise<{ ok: boolean; error?: string; candidateId?: string; duplicateStatus?: string }> {
+  try {
+    const { internalUserId } = await requireActiveUser();
+    const supabase = await createClient();
+
+    if (!candidateId || !/^[0-9a-f-]{36}$/i.test(candidateId)) {
+      return { ok: false, error: 'ID de candidato inválido' };
+    }
+
+    const { data: candidate } = await supabase
+      .from('prospect_candidates')
+      .select('id, batch_id, name, duplicate_status, review_status, commercial_trace')
+      .eq('id', candidateId)
+      .single();
+
+    if (!candidate) return { ok: false, error: 'Candidato no encontrado' };
+
+    const reviewStatus = (candidate as Record<string, unknown>).review_status as string | null | undefined;
+
+    if (reviewStatus === null || reviewStatus === undefined) {
+      return { ok: false, error: 'Esta acción solo aplica a candidatos de fuentes oficiales estructuradas' };
+    }
+
+    if (reviewStatus !== 'ready_for_approval') {
+      return { ok: false, error: 'El candidato debe estar listo para aprobación antes de marcar duplicidad revisada' };
+    }
+
+    if (candidate.duplicate_status !== 'unchecked') {
+      return { ok: false, error: `La duplicidad ya fue verificada (estado actual: ${candidate.duplicate_status})` };
+    }
+
+    const existingTrace = ((candidate as Record<string, unknown>).commercial_trace as Record<string, unknown> | null) ?? {};
+    const updatedTrace = {
+      ...existingTrace,
+      duplicateReviewedBy: internalUserId,
+      duplicateReviewedAt: new Date().toISOString(),
+      duplicateReviewMethod: 'manual',
+    };
+
+    const { data, error } = await supabase
+      .from('prospect_candidates')
+      .update({
+        duplicate_status: 'no_match',
+        updated_at: new Date().toISOString(),
+        commercial_trace: updatedTrace,
+      })
+      .eq('id', candidateId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return { ok: false, error: `Error al marcar duplicidad revisada: ${error?.message ?? 'sin datos'}` };
+    }
+
+    try {
+      await logProspectCandidateAudit({
+        batchId: data.batch_id,
+        candidateId,
+        actorUserId: internalUserId,
+        actionType: 'candidate_updated',
+        details: {
+          candidate_name: data.name,
+          action: 'duplicate_reviewed_manual',
+          previous_duplicate_status: 'unchecked',
+          new_duplicate_status: 'no_match',
+        },
+      });
+    } catch (auditErr) {
+      console.warn('[markCandidateDuplicateReviewedAction] Audit non-critical failure:', auditErr);
+    }
+
+    revalidatePath(`/prospect-batches/${data.batch_id}`);
+    return { ok: true, candidateId: data.id, duplicateStatus: 'no_match' };
+  } catch (err) {
+    console.error('[markCandidateDuplicateReviewedAction] Unexpected error:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Error inesperado al marcar duplicidad revisada',
+    };
+  }
+}
+
 export async function markCandidateDuplicate(
   id: string,
   matchData: MarkDuplicateInput
