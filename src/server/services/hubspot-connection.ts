@@ -31,11 +31,35 @@ export interface HubSpotTokenInfo {
   scopes: string[];
 }
 
+export interface HubSpotScopeReadiness {
+  availableScopes: string[];
+  canReadCompanies: boolean;
+  canWriteCompanies: boolean;
+  missingReadScopes: string[];
+  missingWriteScopes: string[];
+}
+
 export interface HubSpotConnectionTestResult {
   success: boolean;
   error?: string;
   message?: string;
   tokenInfo?: HubSpotTokenInfo;
+  hubspotScopes?: HubSpotScopeReadiness;
+}
+
+const REQUIRED_READ_SCOPES = ['crm.objects.companies.read'];
+const REQUIRED_WRITE_SCOPES = ['crm.objects.companies.write'];
+
+export function computeHubSpotScopeReadiness(scopes: string[]): HubSpotScopeReadiness {
+  const missingReadScopes = REQUIRED_READ_SCOPES.filter((s) => !scopes.includes(s));
+  const missingWriteScopes = REQUIRED_WRITE_SCOPES.filter((s) => !scopes.includes(s));
+  return {
+    availableScopes: scopes,
+    canReadCompanies: missingReadScopes.length === 0,
+    canWriteCompanies: missingWriteScopes.length === 0,
+    missingReadScopes,
+    missingWriteScopes,
+  };
 }
 
 // ============================================================
@@ -214,10 +238,12 @@ export async function testHubSpotConnection(): Promise<HubSpotConnectionTestResu
     };
 
     const scopeCount = tokenInfo.scopes.length;
+    const hubspotScopes = computeHubSpotScopeReadiness(tokenInfo.scopes);
     return {
       success: true,
       message: `Conexión exitosa. Hub ID: ${tokenInfo.hubId}. Scopes: ${scopeCount}.`,
       tokenInfo,
+      hubspotScopes,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error de red desconocido';

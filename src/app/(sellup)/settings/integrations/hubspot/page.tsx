@@ -6,6 +6,7 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getHubSpotIntegration } from '@/modules/integrations/actions';
 import { HubSpotActionsPanel } from './hubspot-actions-client';
 import type { HubSpotMetadata } from '@/modules/integrations/types';
+import { computeHubSpotScopeReadiness } from '@/server/services/hubspot-connection';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -75,6 +76,62 @@ function ConnectionStatusBlock({
       <Icon className="h-4 w-4 shrink-0" />
       {config.label}
     </div>
+  );
+}
+
+function ScopeRow({ label, active }: { label: string; active: boolean }) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-b-0">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {active ? (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          Activo
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-medium text-amber-500">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+          Falta permiso
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ScopeReadinessCard({ scopes }: { scopes: string[] | undefined }) {
+  if (!scopes) return null;
+
+  const readiness = computeHubSpotScopeReadiness(scopes);
+
+  return (
+    <SurfaceCard>
+      <SurfaceCardHeader
+        title="Permisos HubSpot"
+        description="Scopes de acceso requeridos para operaciones de CRM en SellUp."
+      />
+      <div>
+        <ScopeRow label="Lectura de empresas" active={readiness.canReadCompanies} />
+        <ScopeRow label="Escritura de empresas" active={readiness.canWriteCompanies} />
+        <div className="pt-3">
+          {!readiness.canWriteCompanies ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                Para crear empresas automáticamente en HubSpot, la Private App debe incluir el scope{' '}
+                <code className="font-mono font-semibold">crm.objects.companies.write</code>.
+                Actualiza el token en HubSpot y vuelve a probar la conexión.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border/40 bg-muted/30 px-3 py-2.5">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                SellUp tiene permisos para crear companies en HubSpot. La escritura seguirá
+                desactivada hasta habilitar la automatización correspondiente.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </SurfaceCard>
   );
 }
 
@@ -201,6 +258,9 @@ export default async function HubSpotIntegrationPage() {
           )}
         </SurfaceCard>
       </div>
+
+      {/* Permisos HubSpot */}
+      <ScopeReadinessCard scopes={metadata?.scopes} />
 
       {/* Panel de acciones */}
       <SurfaceCard>
