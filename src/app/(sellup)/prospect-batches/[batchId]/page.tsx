@@ -31,6 +31,7 @@ import {
   BATCH_STATUS_LABELS,
   BATCH_SOURCE_LABELS,
   BATCH_SEARCH_DEPTH_LABELS,
+  isUsefulReviewCandidate,
 } from '@/modules/prospect-batches/types';
 import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
 
@@ -79,13 +80,23 @@ export default async function BatchDetailPage({ params }: Props) {
 
   const pageSubtitle = (isStructuredRues || isApolloCandidateBatch) ? batch.name : (batch.description ?? undefined);
 
+  const usefulCandidates = candidates.filter(isUsefulReviewCandidate);
+  const omittedCandidates = candidates.filter((c) => !isUsefulReviewCandidate(c));
+
   const counts = {
-    total: batch.total_candidates,
-    needs_review: batch.needs_review_count,
-    approved: batch.approved_count,
-    discarded: batch.discarded_count,
-    converted: batch.converted_count,
-    duplicates: batch.duplicate_count,
+    total: usefulCandidates.length,
+    needs_review: usefulCandidates.filter(
+      (c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized'
+    ).length,
+    approved: usefulCandidates.filter((c) => c.status === 'approved').length,
+    discarded: usefulCandidates.filter((c) => c.status === 'discarded').length,
+    converted: usefulCandidates.filter((c) => c.status === 'converted_to_account').length,
+    duplicates: usefulCandidates.filter(
+      (c) =>
+        c.duplicate_status === 'possible_duplicate' ||
+        c.duplicate_status === 'exact_duplicate' ||
+        c.status === 'duplicate'
+    ).length,
   };
 
   const summaryCards = [
@@ -385,9 +396,9 @@ export default async function BatchDetailPage({ params }: Props) {
       <SurfaceCard noPadding>
         <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5">
           <p className="text-sm font-semibold text-foreground">
-            {candidates.length === 0
+            {usefulCandidates.length === 0
               ? 'Sin empresas candidatas'
-              : `${candidates.length} empresa${candidates.length !== 1 ? 's' : ''} candidata${candidates.length !== 1 ? 's' : ''}`}
+              : `${usefulCandidates.length} empresa${usefulCandidates.length !== 1 ? 's' : ''} candidata${usefulCandidates.length !== 1 ? 's' : ''}`}
           </p>
           <div className="flex items-center gap-2">
             <Layers className="h-3.5 w-3.5 text-muted-foreground/60" />
@@ -396,8 +407,86 @@ export default async function BatchDetailPage({ params }: Props) {
             </span>
           </div>
         </div>
-        <CandidatesTableClient candidates={candidates} />
+        <CandidatesTableClient candidates={usefulCandidates} />
       </SurfaceCard>
+
+      {/* Omitted candidates */}
+      {omittedCandidates.length > 0 && (
+        <details className="group rounded-xl border border-border/40 bg-card p-4">
+          <summary className="flex cursor-pointer items-center justify-between font-semibold text-xs text-muted-foreground hover:text-foreground">
+            <span className="flex items-center gap-2">
+              <span>Empresas omitidas ({omittedCandidates.length})</span>
+              <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
+                Inactivas, disueltas, duplicadas o sin NIT
+              </span>
+            </span>
+          </summary>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border/40 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  <th className="px-3 py-2">Empresa</th>
+                  <th className="px-3 py-2">Razón social / Identificador</th>
+                  <th className="px-3 py-2">Ubicación</th>
+                  <th className="px-3 py-2">Señal / Motivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {omittedCandidates.map((c) => {
+                  const flags = c.review_flags ?? [];
+                  const reasons: string[] = [];
+                  if (flags.includes('liquidation_signal')) reasons.push('En liquidación');
+                  if (flags.includes('inactive_company')) reasons.push('Inactiva');
+                  if (flags.includes('possible_inactive')) {
+                    const legalStatus = (c.legal_status || '').toLowerCase();
+                    const inactiveKeywords = ['inactiva', 'cancelada', 'liquidada', 'disuelta', 'clausurada'];
+                    if (inactiveKeywords.some((kw) => legalStatus.includes(kw))) {
+                      reasons.push(`Posible inactiva (${c.legal_status})`);
+                    }
+                  }
+                  if (c.duplicate_status === 'exact_duplicate') reasons.push('Duplicado exacto');
+                  if (c.country_code === 'CO' && !c.tax_identifier) reasons.push('Sin NIT en CO');
+
+                  const upperName = (c.name || '').toUpperCase();
+                  const upperLegalName = (c.legal_name || '').toUpperCase();
+                  const upperLegalStatus = (c.legal_status || '').toUpperCase();
+                  const blacklistedKeywords = [
+                    'EN LIQUIDACION',
+                    'EN LIQUIDACIÓN',
+                    'EN DISOLUCION',
+                    'EN DISOLUCIÓN',
+                    'LIQUIDADA',
+                    'DISUELTA',
+                    'CANCELADA',
+                    'INACTIVA',
+                  ];
+                  blacklistedKeywords.forEach((kw) => {
+                    if (upperName.includes(kw) || upperLegalName.includes(kw) || upperLegalStatus.includes(kw)) {
+                      reasons.push(`Filtro nombre/estado: ${kw}`);
+                    }
+                  });
+
+                  return (
+                    <tr key={c.id} className="border-b border-border/30 last:border-0 hover:bg-muted/20">
+                      <td className="px-3 py-2 font-medium text-foreground">{c.name}</td>
+                      <td className="px-3 py-2 font-mono">
+                        {c.legal_name || '—'}
+                        {c.tax_identifier && <span className="block text-[10px] text-muted-foreground">NIT/ID: {c.tax_identifier}</span>}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{c.city || c.region || '—'}</td>
+                      <td className="px-3 py-2">
+                        <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                          {reasons.length > 0 ? reasons.join(', ') : 'Omitida por calidad'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
     </div>
   );
 }

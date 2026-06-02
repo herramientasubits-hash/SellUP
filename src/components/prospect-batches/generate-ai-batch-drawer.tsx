@@ -46,6 +46,19 @@ import {
 import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 
+type StructuredBatchResult = {
+  ok: boolean;
+  batchId?: string | null;
+  sourceKey?: string;
+  candidatesWritten?: number;
+  candidatesSkipped?: number;
+  warnings?: string[];
+  errors?: string[];
+  pageUsed?: number;
+  pagesScanned?: number[];
+  autoMode?: boolean;
+};
+
 const MVP_MAX_CANDIDATES = 25;
 
 // Mapa país → fuente estructurada oficial. cl_chilecompra excluido hasta tener ticket.
@@ -126,7 +139,7 @@ export function GenerateAIBatchDrawer() {
   const [preflightResult, setPreflightResult] =
     React.useState<SourceDiscoveryPreflightResult | null>(null);
   const [generatedBatchId, setGeneratedBatchId] = React.useState<string | null>(null);
-  const [structuredBatchResult, setStructuredBatchResult] = React.useState<any | null>(null);
+  const [structuredBatchResult, setStructuredBatchResult] = React.useState<StructuredBatchResult | null>(null);
   const [sourceStrategy, setSourceStrategy] = React.useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
@@ -169,7 +182,7 @@ export function GenerateAIBatchDrawer() {
       return;
     }
 
-    const count = parseInt(form.targetCount) || MVP_MAX_CANDIDATES;
+    const count = (form.countryCode === 'CO' && !advancedOpen) ? 10 : (parseInt(form.targetCount) || 10);
 
     setGenerating(true);
     setPreflightResult(null);
@@ -276,6 +289,7 @@ export function GenerateAIBatchDrawer() {
                 apolloBatchId={generatedBatchId}
                 structuredSourcePage={form.advStructuredSourcePage}
                 sourceStrategy={sourceStrategy}
+                advancedOpen={advancedOpen}
               />
             ) : (
               /* ── Formulario principal ── */
@@ -327,29 +341,37 @@ export function GenerateAIBatchDrawer() {
                 </Section>
 
                 {/* Cantidad */}
-                <Section icon={Target} label="Cantidad">
-                  <Field label="Cantidad de empresas">
-                    <Select
-                      value={form.targetCount}
-                      onValueChange={(v) => set('targetCount', v ?? String(MVP_MAX_CANDIDATES))}
-                      disabled={generating}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[10, 15, 20, 25].map((n) => (
-                          <SelectItem key={n} value={String(n)}>
-                            {n} empresas
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                      La cantidad debe estar entre 10 y 25. SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
+                {advancedOpen ? (
+                  <Section icon={Target} label="Cantidad">
+                    <Field label="Cantidad de empresas">
+                      <Select
+                        value={form.targetCount}
+                        onValueChange={(v) => set('targetCount', v ?? '10')}
+                        disabled={generating}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[10, 15, 20, 25].map((n) => (
+                            <SelectItem key={n} value={String(n)}>
+                              {n} empresas
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                        La cantidad debe estar entre 10 y 25. SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
+                      </p>
+                    </Field>
+                  </Section>
+                ) : (
+                  <Section icon={Target} label="Cantidad">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda.
                     </p>
-                  </Field>
-                </Section>
+                  </Section>
+                )}
 
                 {/* Fuentes automáticas */}
                 <section className="space-y-3">
@@ -384,8 +406,7 @@ export function GenerateAIBatchDrawer() {
                   <div className="flex gap-2.5">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                     <p className="text-xs text-muted-foreground">
-                      El MVP permite entre 10 y 25 empresas candidatas por lote.
-                      Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana.
+                      Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana para validar su información comercial y legal.
                     </p>
                   </div>
                 </div>
@@ -414,6 +435,29 @@ export function GenerateAIBatchDrawer() {
                         <p className="text-[11px] text-muted-foreground leading-relaxed">
                           Estas opciones son para diagnóstico y QA. En uso normal SellUp selecciona las fuentes automáticamente.
                         </p>
+                      </div>
+
+                      {/* Cantidad override */}
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          Cantidad (Override QA)
+                        </Label>
+                        <Select
+                          value={form.targetCount}
+                          onValueChange={(v) => set('targetCount', v ?? '10')}
+                          disabled={generating}
+                        >
+                          <SelectTrigger className="w-full h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[10, 15, 20, 25].map((n) => (
+                              <SelectItem key={n} value={String(n)} className="text-xs">
+                                {n} empresas
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       {/* Profundidad de búsqueda */}
@@ -543,19 +587,23 @@ export function GenerateAIBatchDrawer() {
                 {/* Mensaje contextual según estrategia de fuentes */}
                 {sourceStrategy === 'official_source_satisfied' ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp verificó la fuente oficial y enriqueció los datos comerciales disponibles. La fuente comercial no fue necesaria.
+                    SellUp encontró {structuredBatchResult?.candidatesWritten ?? 10} empresas útiles en fuente oficial. Se omitieron {structuredBatchResult?.candidatesSkipped ?? 0} registros no viables.
                   </p>
                 ) : sourceStrategy === 'official_plus_commercial' ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp completó la búsqueda con fuente comercial porque la fuente oficial no alcanzó la cantidad solicitada.
+                    SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles en fuente oficial y completó con fuente comercial.
                   </p>
                 ) : sourceStrategy === 'commercial_fallback' ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    No se encontraron empresas nuevas en la fuente oficial. SellUp buscó en fuente comercial como alternativa.
+                    No se encontraron empresas útiles con los criterios actuales. Intenta otra industria o país.
+                  </p>
+                ) : structuredBatchResult && !structuredBatchResult.ok && isAutoModeAllPagesScanned(structuredBatchResult) ? (
+                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                    SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles. Se detuvo después de 2 intentos para controlar costos.
                   </p>
                 ) : structuredBatchResult?.ok && structuredBatchResult.batchId ? (
                   <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado mientras consolidamos la bandeja unificada.
+                    SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado.
                   </p>
                 ) : null}
 
@@ -686,19 +734,6 @@ export function GenerateAIBatchDrawer() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-type StructuredBatchResult = {
-  ok: boolean;
-  batchId?: string | null;
-  sourceKey?: string;
-  candidatesWritten?: number;
-  candidatesSkipped?: number;
-  warnings?: string[];
-  errors?: string[];
-  pageUsed?: number;
-  pagesScanned?: number[];
-  autoMode?: boolean;
-};
-
 function isStructuredSourceNothingToWrite(batch: StructuredBatchResult | null | undefined): boolean {
   if (!batch) return false;
   if (batch.ok || batch.batchId) return false;
@@ -727,6 +762,7 @@ interface GenerationResultPanelProps {
   apolloBatchId: string | null;
   structuredSourcePage?: number;
   sourceStrategy?: string | null;
+  advancedOpen?: boolean;
 }
 
 function GenerationResultPanel({
@@ -735,6 +771,7 @@ function GenerationResultPanel({
   apolloBatchId,
   structuredSourcePage = 1,
   sourceStrategy,
+  advancedOpen = false,
 }: GenerationResultPanelProps) {
   const statusIcon = result ? PREFLIGHT_STATUS_ICONS[result.status] ?? PREFLIGHT_STATUS_ICONS.skipped : null;
   const statusLabel = result ? PREFLIGHT_STATUS_LABELS[result.status] ?? result.status : '';
@@ -817,40 +854,48 @@ function GenerationResultPanel({
               <>
                 {structuredBatch.autoMode && (
                   <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Se encontraron {structuredBatch.candidatesWritten} empresa{structuredBatch.candidatesWritten !== 1 ? 's' : ''} nueva{structuredBatch.candidatesWritten !== 1 ? 's' : ''} para revisión.
+                    <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    {sourceStrategy === 'official_source_satisfied' ? (
+                      <span>SellUp encontró {structuredBatch.candidatesWritten} empresas útiles en fuente oficial. Se omitieron {structuredBatch.candidatesSkipped} registros no viables.</span>
+                    ) : (
+                      <span>Se encontraron {structuredBatch.candidatesWritten} empresas nuevas para revisión.</span>
+                    )}
                   </div>
                 )}
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Estado:</span>
-                  <span className="font-medium text-emerald-500 flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Creado · Revisión humana pendiente
-                  </span>
-                </div>
-                {!structuredBatch.autoMode && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Página usada:</span>
-                    <span className="font-semibold text-foreground">{structuredSourcePage}</span>
-                  </div>
+                {advancedOpen && (
+                  <>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Estado:</span>
+                      <span className="font-medium text-emerald-500 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" /> Creado · Revisión humana pendiente
+                      </span>
+                    </div>
+                    {!structuredBatch.autoMode && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Página usada:</span>
+                        <span className="font-semibold text-foreground">{structuredSourcePage}</span>
+                      </div>
+                    )}
+                    {structuredBatch.batchId && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Batch ID:</span>
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
+                          {structuredBatch.batchId.slice(0, 8)}…
+                        </code>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Candidatos escritos:</span>
+                        <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Omitidos:</span>
+                        <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
+                      </div>
+                    </div>
+                  </>
                 )}
-                {structuredBatch.batchId && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Batch ID:</span>
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
-                      {structuredBatch.batchId.slice(0, 8)}…
-                    </code>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Candidatos escritos:</span>
-                    <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Omitidos:</span>
-                    <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
-                  </div>
-                </div>
               </>
             ) : isAutoModeAllPagesScanned(structuredBatch) ? (
               <div className="space-y-2">

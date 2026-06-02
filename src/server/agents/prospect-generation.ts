@@ -31,6 +31,7 @@ import {
 import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
 import { writeStructuredSourceCandidatesPreview } from './prospecting-toolkit/structured-source-candidate-writer';
 import { enrichBatchCandidatesWithWebAndAI } from './prospecting-toolkit/official-candidate-enricher';
+import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 
 // ============================================================
 // Types
@@ -566,15 +567,12 @@ async function runRuesAutoPagePhase(params: {
     if (accumulatedBatchId) {
       const { data: candidates } = await admin
         .from('prospect_candidates')
-        .select('id, tax_identifier, review_flags')
+        .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
         .eq('batch_id', accumulatedBatchId);
 
       if (candidates) {
         for (const c of candidates) {
-          const flags = c.review_flags || [];
-          const hasTaxId = !!c.tax_identifier;
-          const isInactive = flags.includes('liquidation_signal') || flags.includes('inactive_company') || flags.includes('no_tax_id');
-          if (hasTaxId && !isInactive) {
+          if (isUsefulReviewCandidate(c)) {
             usefulCount++;
           }
         }
@@ -704,6 +702,9 @@ export async function runProspectGenerationAgent(
     'commercial_only';
   let usefulCandidates = 0;
 
+  const maxSearchLoops = countryCode === 'CO' ? 2 : 5;
+  const structuredLimit = countryCode === 'CO' ? 10 : STRUCTURED_LIMIT;
+
   if (coOfficialFirstMode) {
     try {
       ruesEarlyResult = await runRuesAutoPagePhase({
@@ -714,8 +715,8 @@ export async function runProspectGenerationAgent(
         countryCode,
         industry,
         searchDepth,
-        structuredLimit: STRUCTURED_LIMIT,
-        structuredPageMax: STRUCTURED_PAGE_MAX,
+        structuredLimit,
+        structuredPageMax: maxSearchLoops,
         batchNameSuffix: now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }),
         targetCount: safeCount,
       });
@@ -724,15 +725,12 @@ export async function runProspectGenerationAgent(
       if (ruesEarlyResult?.batchId) {
         const { data: candidates } = await admin
           .from('prospect_candidates')
-          .select('id, tax_identifier, review_flags')
+          .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
           .eq('batch_id', ruesEarlyResult.batchId);
 
         if (candidates) {
           for (const c of candidates) {
-            const flags = c.review_flags || [];
-            const hasTaxId = !!c.tax_identifier;
-            const isInactive = flags.includes('liquidation_signal') || flags.includes('inactive_company') || flags.includes('no_tax_id');
-            if (hasTaxId && !isInactive) {
+            if (isUsefulReviewCandidate(c)) {
               usefulCandidates++;
             }
           }
@@ -873,7 +871,7 @@ export async function runProspectGenerationAgent(
     });
 
     const apolloTargetCount = ruesPhaseRanEarly
-      ? Math.max(10, safeCount - usefulCandidates)
+      ? Math.max(1, safeCount - usefulCandidates)
       : safeCount;
 
     const industryKeywords = mapIndustryToApolloKeywords(industry);

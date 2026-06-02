@@ -172,6 +172,7 @@ export interface ProspectCandidate {
   source_trace: Record<string, unknown> | null;
   commercial_trace: Record<string, unknown> | null;
   commercial_fit_status: string | null;
+  legal_status: string | null;
 }
 
 export interface ProspectCandidateWithReviewer extends ProspectCandidate {
@@ -522,7 +523,7 @@ export const COOLDOWN_DAYS: Record<DiscardReasonKey | 'default', number> = {
 // ── Labels y helpers para candidatos estructurados ────────────
 
 export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
-  needs_manual_review: 'Revisión manual',
+  needs_manual_review: 'Requiere revisión humana',
   ready_for_approval: 'Listo para aprobación',
   approved: 'Aprobado',
   rejected: 'Rechazado',
@@ -587,3 +588,71 @@ export function isStructuredCandidate(
 ): boolean {
   return candidate.review_status !== null && candidate.review_status !== undefined;
 }
+
+export function isUsefulReviewCandidate(candidate: {
+  name?: string | null;
+  legal_name?: string | null;
+  country_code?: string | null;
+  tax_identifier?: string | null;
+  duplicate_status?: string | null;
+  status?: string | null;
+  review_flags?: string[] | null;
+  legal_status?: string | null;
+  industry?: string | null;
+  source_primary?: string | null;
+}): boolean {
+  if (!candidate.name || typeof candidate.name !== 'string' || candidate.name.trim() === '') {
+    return false;
+  }
+
+  const country = (candidate.country_code || '').toUpperCase();
+  if (country === 'CO' && (!candidate.tax_identifier || candidate.tax_identifier.trim() === '')) {
+    return false;
+  }
+
+  if (candidate.status === 'discarded') {
+    return false;
+  }
+
+  if (candidate.duplicate_status === 'exact_duplicate') {
+    return false;
+  }
+
+  const flags = candidate.review_flags || [];
+  if (flags.includes('liquidation_signal') || flags.includes('inactive_company')) {
+    return false;
+  }
+
+  if (flags.includes('possible_inactive')) {
+    const legalStatus = (candidate.legal_status || '').toLowerCase();
+    const inactiveKeywords = ['inactiva', 'cancelada', 'liquidada', 'disuelta', 'clausurada'];
+    if (inactiveKeywords.some((kw) => legalStatus.includes(kw))) {
+      return false;
+    }
+  }
+
+  const upperName = (candidate.name || '').toUpperCase();
+  const upperLegalName = (candidate.legal_name || '').toUpperCase();
+  const upperLegalStatus = (candidate.legal_status || '').toUpperCase();
+  const blacklistedKeywords = [
+    'EN LIQUIDACION',
+    'EN LIQUIDACIÓN',
+    'EN DISOLUCION',
+    'EN DISOLUCIÓN',
+    'LIQUIDADA',
+    'DISUELTA',
+    'CANCELADA',
+    'INACTIVA',
+  ];
+
+  if (
+    blacklistedKeywords.some(
+      (kw) => upperName.includes(kw) || upperLegalName.includes(kw) || upperLegalStatus.includes(kw)
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+

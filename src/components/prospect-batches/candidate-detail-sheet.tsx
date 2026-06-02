@@ -376,6 +376,13 @@ export function CandidateDetailSheet({
         </SheetHeader>
 
         <div className="px-5 py-4 space-y-5 flex-1">
+          {/* limited_public_data banner */}
+          {flags.includes('limited_public_data') && (
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-600 dark:text-blue-400">
+              Datos comerciales públicos limitados. Puedes revisarlo con la información oficial disponible.
+            </div>
+          )}
+
           {/* A. Resumen */}
           <div>
             <SectionHeader>Resumen</SectionHeader>
@@ -748,7 +755,9 @@ export function CandidateDetailSheet({
                           : 'bg-muted text-muted-foreground'
                       }`}
                     >
-                      {fitStatus.replace(/_/g, ' ')}
+                      {fitStatus === 'unknown'
+                        ? 'Evaluación no disponible por falta de evidencia pública'
+                        : fitStatus.replace(/_/g, ' ')}
                     </Badge>
                   )}
                   {fitScore !== null && (

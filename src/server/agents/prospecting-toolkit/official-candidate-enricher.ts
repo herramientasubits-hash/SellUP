@@ -24,6 +24,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
 import { getAiProviderCredential } from '../../services/ai-connection';
 import { estimateLLMCost } from './llm-evaluator';
+import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 import {
   buildSearchQueriesByIntent,
   scoreWebEvidence,
@@ -57,6 +58,9 @@ interface CandidateRow extends CandidateBasicInfo {
   duplicate_status: string | null;
   review_flags: string[] | null;
   metadata: Record<string, unknown> | null;
+  country_code?: string | null;
+  legal_status?: string | null;
+  company_size?: string | null;
 }
 
 type FieldConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown';
@@ -117,12 +121,7 @@ export interface EnrichmentSummary {
 // ─── Eligibility filter ───────────────────────────────────────────────────────
 
 function isEligibleForEnrichment(candidate: CandidateRow): boolean {
-  if (!candidate.name && !candidate.tax_identifier) return false;
-  if (candidate.status === 'converted_to_account' || candidate.status === 'discarded') return false;
-  if (candidate.duplicate_status === 'exact_duplicate') return false;
-  const flags = candidate.review_flags ?? [];
-  if (flags.includes('liquidation_signal') || flags.includes('inactive_company')) return false;
-  return true;
+  return isUsefulReviewCandidate(candidate);
 }
 
 // ─── Domain extractor ─────────────────────────────────────────────────────────
@@ -442,7 +441,7 @@ export async function enrichBatchCandidatesWithWebAndAI(
   const { data: rows, error: loadError } = await admin
     .from('prospect_candidates')
     .select(
-      'id, name, legal_name, tax_identifier, city, industry, website, domain, status, duplicate_status, review_flags, metadata',
+      'id, name, legal_name, tax_identifier, city, industry, website, domain, status, duplicate_status, review_flags, metadata, country_code, legal_status, company_size',
     )
     .eq('batch_id', batchId)
     .limit(50);
@@ -459,6 +458,11 @@ export async function enrichBatchCandidatesWithWebAndAI(
   for (const row of skippedRows) {
     summary.skipped++;
     summary.candidates.push({ id: row.id, name: row.name, status: 'skipped', skipReason: 'not_eligible' });
+    await persistEnrichmentMetadata(admin, row.id, row.metadata, {
+      skipped: true,
+      skipped_reason: 'blocked_not_useful_candidate',
+      web: { skipped: true, skip_reason: 'blocked_not_useful_candidate' },
+    });
   }
 
   if (eligible.length === 0) {
@@ -706,6 +710,20 @@ export async function enrichBatchCandidatesWithWebAndAI(
       cost_trace: costTrace,
       executed_at: new Date().toISOString(),
     };
+
+    // Add limited_public_data if candidate has no website, no LinkedIn, no size, no description, and no sector
+    const hasNoWebsite = !finalWebsite && !candidate.website;
+    const hasNoLinkedIn = !finalLinkedIn;
+    const hasNoSize = !candidate.company_size;
+    const hasNoDescription = !finalDescription;
+    const hasNoSector = !candidate.industry;
+
+    if (hasNoWebsite && hasNoLinkedIn && hasNoSize && hasNoDescription && hasNoSector) {
+      const currentFlags = candidate.review_flags ?? [];
+      if (!currentFlags.includes('limited_public_data')) {
+        updatePayload.review_flags = [...currentFlags, 'limited_public_data'];
+      }
+    }
 
     updatePayload.metadata = buildMergedMetadata(candidate.metadata, enrichmentMeta);
 

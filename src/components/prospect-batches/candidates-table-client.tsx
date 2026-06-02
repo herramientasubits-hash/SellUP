@@ -496,7 +496,9 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                                   : 'bg-muted text-muted-foreground'
                               }`}
                             >
-                              {fitStatus.replace(/_/g, ' ')}
+                              {fitStatus === 'unknown'
+                                ? 'Evaluación no disponible por falta de evidencia pública'
+                                : fitStatus.replace(/_/g, ' ')}
                             </Badge>
                           )}
                           {c.fit_score !== null && (
