@@ -560,6 +560,28 @@ export const STRUCTURED_SOURCE_LABELS: Record<string, string> = {
   chilecompra_chile: 'ChileCompra',
 };
 
+// Vendor-facing source labels — hides technical provider names from sellers
+export const VENDOR_CANDIDATE_SOURCE_LABELS: Record<string, string> = {
+  socrata_colombia: 'Fuente oficial',
+  denue_mexico: 'DENUE México',
+  apollo: 'Apollo',
+  web_ai: 'Web/IA',
+  manual: 'Manual',
+  hubspot: 'HubSpot',
+  lusha: 'Lusha',
+  public_source: 'Fuente pública',
+  preloaded: 'Precargado',
+  other: 'Otro',
+};
+
+// Vendor-facing badge label for structured candidates (Empresa cell)
+export const VENDOR_STRUCTURED_SOURCE_LABELS: Record<string, string> = {
+  socrata_colombia: 'Fuente oficial',
+  denue_mexico: 'DENUE México',
+  datos_gob_cl: 'Datos.gob.cl',
+  chilecompra_chile: 'ChileCompra',
+};
+
 export function isStructuredCandidate(
   candidate: Pick<ProspectCandidate, 'review_status' | 'source_primary'>
 ): boolean {
