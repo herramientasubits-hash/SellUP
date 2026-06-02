@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
+  ArrowRightCircle,
 } from 'lucide-react';
 import {
   Sheet,
@@ -301,6 +302,25 @@ export function CandidateDetailSheet({
               )}
             </div>
           </div>
+
+          {/* Conversión — visible when candidate was converted to account */}
+          {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
+            <>
+              <Divider />
+              <div>
+                <SectionHeader>Empresa creada</SectionHeader>
+                <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft/30 px-3 py-2.5 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <ArrowRightCircle className="h-3.5 w-3.5 text-su-brand shrink-0" />
+                    <span className="text-xs font-medium text-su-brand">Creada en SellUp</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/70 font-mono break-all">
+                    ID: {candidate.converted_account_id}
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
 
           <Divider />
 

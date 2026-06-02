@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   XCircle,
   GitMerge,
-  ArrowRightCircle,
   Loader2,
   ShieldAlert,
   ShieldCheck,
@@ -48,10 +47,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import {
-  approveCandidate,
+  approveAndConvertCandidateAction,
   discardCandidate,
   markCandidateDuplicate,
-  convertCandidateToAccount,
   markCandidateReadyForApprovalAction,
   markCandidateDuplicateReviewedAction,
   rollbackCandidateAccountConversionAction,
@@ -124,7 +122,6 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
 
   const canDiscard = !['discarded', 'converted_to_account'].includes(candidate.status);
   const canMarkDuplicate = !['converted_to_account', 'duplicate'].includes(candidate.status);
-  const canConvert = candidate.status === 'approved';
 
   const conversionRolledBack =
     (candidate.commercial_trace as Record<string, unknown> | null)?.conversionRollback === true;
@@ -153,8 +150,37 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
   async function doApprove() {
     setLoading(true);
     try {
-      await approveCandidate(candidate.id);
-      toast.success(`"${candidate.name}" aprobado`);
+      const result = await approveAndConvertCandidateAction(candidate.id);
+      const sync = result.hubspotSync;
+
+      let message: string;
+      if (sync.status === 'synced') {
+        message = 'Empresa aprobada y creada en SellUp y HubSpot.';
+      } else if (sync.status === 'skipped_flag_off') {
+        message = 'Empresa aprobada en SellUp. La sincronización con HubSpot está desactivada.';
+      } else if (sync.status === 'skipped_missing_write_scope') {
+        message = 'Empresa aprobada en SellUp. No se creó en HubSpot porque falta permiso de escritura.';
+      } else if (sync.status === 'blocked_duplicate') {
+        message = 'Empresa aprobada en SellUp. No se creó en HubSpot porque se detectó una coincidencia.';
+      } else if (sync.status === 'blocked_inactive_or_liquidation') {
+        message = 'Empresa aprobada en SellUp. No se sincronizó con HubSpot porque tiene señal de liquidación o inactividad.';
+      } else if (sync.attempted) {
+        message = 'Empresa aprobada en SellUp. No se pudo sincronizar con HubSpot.';
+      } else {
+        message = `"${candidate.name}" aprobado y creado en SellUp.`;
+      }
+
+      toast.success(
+        <span>
+          {message}{' '}
+          <button
+            className="underline font-medium"
+            onClick={() => router.push('/accounts')}
+          >
+            Ver empresas
+          </button>
+        </span>
+      );
       setApproveConfirmOpen(false);
       setRelatedCompanyWarnOpen(false);
     } catch (err) {
@@ -266,44 +292,6 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
     }
   }
 
-  async function handleConvert() {
-    setLoading(true);
-    try {
-      const result = await convertCandidateToAccount(candidate.id);
-      const sync = result.hubspotSync;
-
-      let message: string;
-      if (sync.status === 'synced') {
-        message = 'Empresa creada en SellUp y HubSpot.';
-      } else if (sync.status === 'skipped_flag_off') {
-        message = 'Empresa creada en SellUp. Sincronización HubSpot desactivada.';
-      } else if (sync.status === 'blocked_duplicate') {
-        message = 'Empresa creada en SellUp. No se creó en HubSpot porque se detectó una coincidencia.';
-      } else if (sync.status === 'blocked_inactive_or_liquidation') {
-        message = 'Empresa creada en SellUp. No se sincronizó con HubSpot porque tiene señal de liquidación o inactividad.';
-      } else if (sync.attempted) {
-        message = 'Empresa creada en SellUp. No se pudo sincronizar con HubSpot.';
-      } else {
-        message = 'Empresa prospecto creada.';
-      }
-
-      toast.success(
-        <span>
-          {message}{' '}
-          <button
-            className="underline font-medium"
-            onClick={() => router.push(`/accounts`)}
-          >
-            Ver empresas
-          </button>
-        </span>
-      );
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al convertir');
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <>
@@ -386,12 +374,6 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
               )
             )}
 
-            {canConvert && (
-              <DropdownMenuItem onClick={handleConvert}>
-                <ArrowRightCircle className="mr-2 h-3.5 w-3.5 text-su-brand" />
-                Crear empresa prospecto
-              </DropdownMenuItem>
-            )}
             {canRollback && (
               <DropdownMenuItem
                 onClick={() => { setRollbackReason(''); setRollbackOpen(true); }}

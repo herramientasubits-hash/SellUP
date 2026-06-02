@@ -50,6 +50,10 @@ export interface CreateHubSpotCompanyInput {
   domain?: string | null;
   city?: string | null;
   region?: string | null;
+  /** Legal/official name — pending custom field confirmation in HubSpot portal */
+  legalName?: string | null;
+  /** Number of employees — sent only if parseable as positive integer */
+  numberOfEmployees?: string | null;
 }
 
 export interface CreateHubSpotCompanySentAudit {
@@ -59,6 +63,8 @@ export interface CreateHubSpotCompanySentAudit {
   domain: string | null;
   city: string | null;
   state: string | null;
+  lifecyclestage: string;
+  numberofemployees: string | null;
 }
 
 export interface CreateHubSpotCompanyResult {
@@ -68,6 +74,8 @@ export interface CreateHubSpotCompanyResult {
   statusCode?: number;
   sentPropertyKeys?: string[];
   sentPropertiesAudit?: CreateHubSpotCompanySentAudit;
+  /** Properties evaluated but not sent — pending field confirmation or enum mapping */
+  skippedProperties?: string[];
 }
 
 export async function createHubSpotCompany(
@@ -86,6 +94,19 @@ export async function createHubSpotCompany(
   if (input.city) properties.city = input.city;
   if (input.region) properties.state = input.region;
 
+  // Lifecycle stage — all converted candidates are leads (standard HubSpot property)
+  properties.lifecyclestage = 'lead';
+
+  // Number of employees — standard HubSpot field; only sent if a valid positive integer
+  let sentEmployeeCount: string | null = null;
+  if (input.numberOfEmployees) {
+    const parsed = parseInt(input.numberOfEmployees, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      properties.numberofemployees = String(parsed);
+      sentEmployeeCount = String(parsed);
+    }
+  }
+
   // NIT solo para Colombia — propiedad confirmada en portal UBITS HubSpot
   // Tipo en HubSpot: number. Enviamos string; HubSpot coerce string → number en la API v3.
   let cleanNit: string | null = null;
@@ -97,9 +118,13 @@ export async function createHubSpotCompany(
     }
   }
 
-  // Propiedades omitidas (no enviar):
-  // lifecyclestage, hs_lead_status, hubspot_owner_id, industry,
-  // numberofemployees, deal fields, contact fields, propiedades custom no confirmadas
+  // Properties considered but NOT sent — pending HubSpot portal confirmation:
+  // - legalName → razonsocialdelaempresa (custom field internal name unconfirmed)
+  // - industry → HubSpot enumeration values not mapped yet
+  // - hubspot_owner_id → no SellUp→HubSpot owner mapping exists yet
+  // - ARR, licencias, churn, OPS, vigencias → never sent (not for prospects)
+  const skippedProperties: string[] = [];
+  if (input.legalName) skippedProperties.push('legalName (razonsocialdelaempresa pending)');
 
   const sentPropertyKeys = Object.keys(properties);
   const sentPropertiesAudit: CreateHubSpotCompanySentAudit = {
@@ -109,6 +134,8 @@ export async function createHubSpotCompany(
     domain: properties.domain ?? null,
     city: properties.city ?? null,
     state: properties.state ?? null,
+    lifecyclestage: 'lead',
+    numberofemployees: sentEmployeeCount,
   };
 
   try {
@@ -123,18 +150,18 @@ export async function createHubSpotCompany(
 
     if (!response.ok) {
       const statusCode = response.status;
-      return { ok: false, error: `HTTP_${statusCode}`, statusCode, sentPropertyKeys, sentPropertiesAudit };
+      return { ok: false, error: `HTTP_${statusCode}`, statusCode, sentPropertyKeys, sentPropertiesAudit, skippedProperties };
     }
 
     const data = (await response.json()) as { id?: string };
     if (!data.id) {
-      return { ok: false, error: 'NO_ID_IN_RESPONSE', sentPropertyKeys, sentPropertiesAudit };
+      return { ok: false, error: 'NO_ID_IN_RESPONSE', sentPropertyKeys, sentPropertiesAudit, skippedProperties };
     }
 
-    return { ok: true, hubspotCompanyId: data.id, sentPropertyKeys, sentPropertiesAudit };
+    return { ok: true, hubspotCompanyId: data.id, sentPropertyKeys, sentPropertiesAudit, skippedProperties };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message.slice(0, 200) : 'Network error';
-    return { ok: false, error: msg, sentPropertyKeys, sentPropertiesAudit };
+    return { ok: false, error: msg, sentPropertyKeys, sentPropertiesAudit, skippedProperties };
   }
 }
 

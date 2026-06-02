@@ -895,6 +895,8 @@ async function attemptHubSpotSync(params: {
   accountDomain: string | null;
   accountCity: string | null;
   accountRegion: string | null;
+  accountLegalName?: string | null;
+  accountCompanySize?: string | null;
   candidateDuplicateStatus: string | null;
   candidateReviewFlags?: string[] | null;
 }): Promise<HubSpotSyncResult> {
@@ -909,6 +911,8 @@ async function attemptHubSpotSync(params: {
     accountDomain,
     accountCity,
     accountRegion,
+    accountLegalName,
+    accountCompanySize,
     candidateDuplicateStatus,
     candidateReviewFlags,
   } = params;
@@ -1021,7 +1025,7 @@ async function attemptHubSpotSync(params: {
     return { attempted: true, status: 'blocked_duplicate', message: `HubSpot match: ${finalCheck.hubspotMatchStatus}` };
   }
 
-  // 7. Create company in HubSpot
+  // 7. Create company in HubSpot with enriched mapping
   const createResult = await createHubSpotCompany({
     name: accountName,
     country: accountCountry ?? null,
@@ -1031,6 +1035,8 @@ async function attemptHubSpotSync(params: {
     domain: domain ?? null,
     city: accountCity ?? null,
     region: accountRegion ?? null,
+    legalName: accountLegalName ?? null,
+    numberOfEmployees: accountCompanySize ?? null,
   });
 
   if (createResult.ok && createResult.hubspotCompanyId) {
@@ -1048,7 +1054,18 @@ async function attemptHubSpotSync(params: {
           hubspot_company_id: createResult.hubspotCompanyId,
           hubspot_match_status_at_sync: 'no_match',
           hubspot_sync_source: 'candidate_conversion',
-          // Audit of sent properties — for diagnosing HubSpot visibility issues
+          // Full audit object for diagnosing HubSpot property issues
+          hubspot_sync: {
+            status: 'synced',
+            company_id: createResult.hubspotCompanyId,
+            sent_property_keys: createResult.sentPropertyKeys ?? null,
+            sent_properties_audit: createResult.sentPropertiesAudit ?? null,
+            skipped_properties: createResult.skippedProperties ?? null,
+            blocked_reason: null,
+            owner_mapping_status: 'skipped',
+            synced_at: nowStr,
+          },
+          // Flat keys kept for backwards compatibility
           hubspot_sent_property_keys: createResult.sentPropertyKeys ?? null,
           hubspot_sent_country: createResult.sentPropertiesAudit?.country ?? null,
           hubspot_sent_nit: createResult.sentPropertiesAudit?.nit ?? null,
@@ -1178,6 +1195,8 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       accountDomain: account.domain ?? null,
       accountCity: account.city ?? null,
       accountRegion: account.region ?? null,
+      accountLegalName: (account as Record<string, unknown>).legal_name as string | null ?? null,
+      accountCompanySize: (account as Record<string, unknown>).company_size as string | null ?? null,
       candidateDuplicateStatus: (candidateRaw.duplicate_status as string | null) ?? null,
       candidateReviewFlags: (candidateRaw.review_flags as string[] | null) ?? null,
     });
@@ -1190,6 +1209,22 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
   }
 
   return { accountId: account.id, hubspotSync };
+}
+
+// ── Approve + convert unificado (16AK.14) ────────────────────
+
+/**
+ * Aprueba un candidato y lo convierte a cuenta SellUp en un solo paso.
+ * Reutiliza las validaciones y guardrails existentes de approveCandidate
+ * y convertCandidateToAccount — no duplica lógica.
+ *
+ * El vendedor solo necesita hacer un click: "Aprobar".
+ */
+export async function approveAndConvertCandidateAction(
+  id: string
+): Promise<{ accountId: string; hubspotSync: HubSpotSyncResult }> {
+  await approveCandidate(id);
+  return await convertCandidateToAccount(id);
 }
 
 // ── Usuarios para selectores ──────────────────────────────────
