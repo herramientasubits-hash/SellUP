@@ -260,7 +260,27 @@ const socrataSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
     qualityDecision: 'accepted',
   }));
 
-  const errors = report.errors.map((e) => e.message);
+  // Dedup and normalize Socrata timeout errors so the caller never sees N identical
+  // "Timeout al conectar con datos.gov.co" strings (one per dataset queried in parallel).
+  const rawErrors = report.errors.map((e) => e.message);
+  const uniqueErrors = [...new Set(rawErrors)];
+
+  const SOCRATA_TIMEOUT_MSG = 'Timeout al conectar con datos.gov.co';
+  const hasTimeouts = uniqueErrors.some((e) => e === SOCRATA_TIMEOUT_MSG);
+  const otherErrors = uniqueErrors.filter((e) => e !== SOCRATA_TIMEOUT_MSG);
+
+  const warnings: string[] = [];
+  let errors: string[] = otherErrors;
+
+  if (hasTimeouts) {
+    if (candidates.length === 0 && otherErrors.length === 0) {
+      // Every dataset timed out — return a single controlled error code.
+      errors = ['socrata_timeout'];
+    } else {
+      // Partial timeout — some datasets responded; surface as a warning only.
+      warnings.push('Algunos datasets de datos.gov.co no respondieron a tiempo. Se usaron los disponibles.');
+    }
+  }
 
   return {
     sourceKey: 'co_rues',
@@ -272,7 +292,7 @@ const socrataSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
     acceptedCount: candidates.length,
     lowPriorityCount: 0,
     filteredOutCount: 0,
-    warnings: [],
+    warnings,
     errors,
     qualitySummary: computeQualitySummary(candidates),
   };

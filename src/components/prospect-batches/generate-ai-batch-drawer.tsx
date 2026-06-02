@@ -674,6 +674,11 @@ function isStructuredSourceNothingToWrite(batch: StructuredBatchResult | null | 
   return !!(batch.warnings?.includes('all_candidates_already_in_db'));
 }
 
+function isSocrataTimeoutError(batch: StructuredBatchResult | null | undefined): boolean {
+  if (!batch || batch.ok) return false;
+  return batch.errors?.length === 1 && batch.errors[0] === 'socrata_timeout';
+}
+
 // ── Panel de resultado del preflight ─────────────────────────────────────────
 
 interface PreflightResultPanelProps {
@@ -734,14 +739,15 @@ function PreflightResultPanel({
       {/* Lote fuente oficial (si se intentó) */}
       {structuredBatch && (() => {
         const nothingToWrite = isStructuredSourceNothingToWrite(structuredBatch);
+        const isSocrataTimeout = isSocrataTimeoutError(structuredBatch);
         const borderClass = structuredBatch.ok
           ? 'border-su-brand/20'
-          : nothingToWrite
+          : nothingToWrite || isSocrataTimeout
             ? 'border-amber-500/20'
             : 'border-destructive/20';
         const dotClass = structuredBatch.ok
           ? 'bg-su-brand'
-          : nothingToWrite
+          : nothingToWrite || isSocrataTimeout
             ? 'bg-amber-500'
             : 'bg-destructive';
 
@@ -812,6 +818,18 @@ function PreflightResultPanel({
                 )}
                 <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400 pl-5">
                   Prueba con una página diferente de RUES.
+                </p>
+              </div>
+            ) : isSocrataTimeout ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    No se pudo consultar RUES
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground pl-5">
+                  La API pública de datos.gov.co no respondió a tiempo. El lote Apollo sí fue creado. Intenta nuevamente en unos minutos o prueba otra página.
                 </p>
               </div>
             ) : (
