@@ -162,12 +162,12 @@ function buildSafeDuplicateCheckMetadata(raw: Record<string, unknown>): Record<s
     : ['sellup'];
 
   const rawSummary = raw.summary;
-  const summary =
+  const summary: string =
     typeof rawSummary === 'string'
-      ? { status: rawSummary }
-      : typeof rawSummary === 'object' && rawSummary !== null
-        ? rawSummary
-        : { status: 'checked' };
+      ? rawSummary
+      : typeof rawSummary === 'object' && rawSummary !== null && typeof (rawSummary as Record<string, unknown>).status === 'string'
+        ? (rawSummary as Record<string, unknown>).status as string
+        : 'Verificado';
 
   const result: Record<string, unknown> = {
     summary,

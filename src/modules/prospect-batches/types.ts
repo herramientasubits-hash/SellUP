@@ -382,7 +382,26 @@ export function parseDuplicateCheck(
 ): DuplicateCheckMetadata | null {
   const dc = metadata?.duplicate_check;
   if (!dc || typeof dc !== 'object' || Array.isArray(dc)) return null;
-  return dc as DuplicateCheckMetadata;
+  const raw = dc as Record<string, unknown>;
+
+  // summary may be stored as a plain string or as { status: string } (legacy writer format)
+  let summary: string | undefined;
+  if (typeof raw.summary === 'string') {
+    summary = raw.summary;
+  } else if (raw.summary !== null && typeof raw.summary === 'object') {
+    const s = (raw.summary as Record<string, unknown>).status;
+    if (typeof s === 'string') summary = s;
+  }
+
+  const sources_checked = Array.isArray(raw.sources_checked)
+    ? (raw.sources_checked as unknown[]).filter((s): s is string => typeof s === 'string')
+    : undefined;
+
+  const matches = Array.isArray(raw.matches)
+    ? (raw.matches as unknown[]).filter((m): m is DuplicateMatch => typeof m === 'object' && m !== null)
+    : undefined;
+
+  return { summary, sources_checked, matches };
 }
 
 export const APPROVE_BLOCK_MESSAGES: Partial<Record<DuplicateStatus, string>> = {
