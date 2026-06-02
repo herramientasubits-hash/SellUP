@@ -190,6 +190,8 @@ export function GenerateAIBatchDrawer() {
       const effectiveSourceKey = isColombiaAuto ? 'co_rues' : null;
       const effectivePage = form.advStructuredSourcePage;
       const effectiveDepth = (advancedOpen ? form.advSearchDepth : form.searchDepth) as 'basic' | 'standard';
+      // Auto-paginate when user is in vendor mode (advanced not opened for Colombia)
+      const effectivePageAuto = isColombiaAuto && !advancedOpen;
 
       const result = await generateAIProspectBatch({
         country: country?.name ?? form.countryCode,
@@ -201,6 +203,7 @@ export function GenerateAIBatchDrawer() {
         structuredSourceKey: effectiveSourceKey,
         createStructuredSourceBatch: effectiveCreateBatch,
         structuredSourcePage: effectivePage,
+        structuredSourcePageAuto: effectivePageAuto,
       });
 
       toast.success(
@@ -495,10 +498,10 @@ export function GenerateAIBatchDrawer() {
                         </Label>
                       </div>
 
-                      {/* Página RUES */}
+                      {/* Página RUES — solo diagnóstico/QA */}
                       <div className="space-y-1.5">
                         <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                          Página de fuente oficial (RUES)
+                          Usar página específica de fuente oficial
                         </Label>
                         <Select
                           value={String(form.advStructuredSourcePage)}
@@ -519,7 +522,7 @@ export function GenerateAIBatchDrawer() {
                           </SelectContent>
                         </Select>
                         <p className="text-[10px] text-muted-foreground leading-relaxed">
-                          Usa otra página si los candidatos de la página anterior ya existen en SellUp.
+                          Solo diagnóstico / QA. En uso normal SellUp selecciona la página automáticamente.
                         </p>
                       </div>
                     </div>
@@ -614,14 +617,24 @@ type StructuredBatchResult = {
   candidatesSkipped?: number;
   warnings?: string[];
   errors?: string[];
+  pageUsed?: number;
+  pagesScanned?: number[];
+  autoMode?: boolean;
 };
 
 function isStructuredSourceNothingToWrite(batch: StructuredBatchResult | null | undefined): boolean {
   if (!batch) return false;
   if (batch.ok || batch.batchId) return false;
+  // Auto mode exhausted handled separately
+  if (batch.autoMode && batch.warnings?.includes('all_pages_scanned')) return false;
   const hasRealErrors = batch.errors && batch.errors.length > 0;
   if (hasRealErrors) return false;
   return !!(batch.warnings?.includes('all_candidates_already_in_db'));
+}
+
+function isAutoModeAllPagesScanned(batch: StructuredBatchResult | null | undefined): boolean {
+  if (!batch || batch.ok) return false;
+  return !!(batch.autoMode && batch.warnings?.includes('all_pages_scanned'));
 }
 
 function isSocrataTimeoutError(batch: StructuredBatchResult | null | undefined): boolean {
@@ -717,16 +730,24 @@ function GenerationResultPanel({
 
             {structuredBatch.ok ? (
               <>
+                {structuredBatch.autoMode && (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Se encontraron {structuredBatch.candidatesWritten} empresa{structuredBatch.candidatesWritten !== 1 ? 's' : ''} nueva{structuredBatch.candidatesWritten !== 1 ? 's' : ''} para revisión.
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">Estado:</span>
                   <span className="font-medium text-emerald-500 flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Creado · Revisión humana pendiente
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Página usada:</span>
-                  <span className="font-semibold text-foreground">{structuredSourcePage}</span>
-                </div>
+                {!structuredBatch.autoMode && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Página usada:</span>
+                    <span className="font-semibold text-foreground">{structuredSourcePage}</span>
+                  </div>
+                )}
                 {structuredBatch.batchId && (
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Batch ID:</span>
@@ -746,6 +767,18 @@ function GenerationResultPanel({
                   </div>
                 </div>
               </>
+            ) : isAutoModeAllPagesScanned(structuredBatch) ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    Sin empresas nuevas en la fuente oficial
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground pl-5">
+                  SellUp revisó las páginas disponibles y no encontró registros nuevos para esta búsqueda. Todos los candidatos ya existen en SellUp.
+                </p>
+              </div>
             ) : nothingToWrite ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">

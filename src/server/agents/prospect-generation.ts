@@ -48,8 +48,10 @@ export interface ProspectGenerationParams {
   structuredSourceKey?: string | null;
   /** Hito 16AJ.9 — Si true, crea un lote estructurado separado */
   createStructuredSourceBatch?: boolean;
-  /** Hito 16AK.2D — Página de paginación RUES (1-5). Default: 1. */
+  /** Hito 16AK.2D — Página de paginación RUES (1-5). Default: 1. Solo en modo manual. */
   structuredSourcePage?: number;
+  /** Hito 16AK.7C — Si true, auto-pagina RUES (páginas 1–5) hasta encontrar candidatos nuevos. */
+  structuredSourcePageAuto?: boolean;
 }
 
 export interface ProspectGenerationResult {
@@ -70,6 +72,12 @@ export interface ProspectGenerationResult {
     candidatesSkipped?: number;
     warnings?: string[];
     errors?: string[];
+    /** Hito 16AK.7C — página efectiva usada (modo manual o auto cuando encontró candidatos) */
+    pageUsed?: number;
+    /** Hito 16AK.7C — páginas revisadas en auto-paginación */
+    pagesScanned?: number[];
+    /** Hito 16AK.7C — true si se usó auto-paginación */
+    autoMode?: boolean;
   };
 }
 
@@ -416,6 +424,7 @@ export async function runProspectGenerationAgent(
     structuredSourceKey = null,
     createStructuredSourceBatch = false,
     structuredSourcePage: rawStructuredSourcePage,
+    structuredSourcePageAuto = false,
   } = params;
 
   const STRUCTURED_LIMIT = 5;
@@ -813,89 +822,98 @@ export async function runProspectGenerationAgent(
     if (createStructuredSourceBatch && countryCode === 'CO') {
       try {
         const structuredLimit = STRUCTURED_LIMIT;
-        const discoveryOutput = await runSourceDiscovery({
-          sourceKey: 'co_rues',
-          countryCode: 'CO',
-          criteria: {
-            country,
-            industry: industry ?? null,
-          },
-          limit: structuredLimit,
-          offset: structuredOffset,
-          mode: 'dry_run',
-        });
 
-        if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
-          structuredSourceBatchResult = {
-            ok: false,
-            batchId: null,
-            sourceKey: 'co_rues',
-            candidatesWritten: 0,
-            candidatesSkipped: 0,
-            warnings: discoveryOutput.warnings,
-            errors: discoveryOutput.errors,
-          };
-        } else {
-          const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
-            dryRun: false,
-            createdBy: internalUserId,
-            ownerId: internalUserId,
-            country,
-            countryCode: 'CO',
-            sourceKey: 'co_rues',
-            sourceProvider: 'socrata_colombia',
-            dataset: 'co_rues',
-            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
-            industry,
-            targetCount: structuredLimit,
-            searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
-            agentRunId: agentRun.id,
-            initiatedBy: 'agent_1',
-            candidates: discoveryOutput.candidates,
-            previewMode: true,
-            runHubSpotCheck: true,
-            limit: structuredLimit,
-            metadata: {
-              structured_source_page: structuredSourcePage,
-              structured_source_offset: structuredOffset,
-              structured_source_limit: structuredLimit,
-              source_pagination_mode: 'page_offset',
-            },
-          });
+        if (structuredSourcePageAuto) {
+          // ── Auto-paginación (modo vendedor): intenta páginas 1–STRUCTURED_PAGE_MAX ──
+          const pagesScanned: number[] = [];
 
-          const writerErrors = writerResult.errors
-            .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
-            .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
-          const allWarnings = [
-            ...discoveryOutput.warnings,
-            ...writerResult.errors
-              .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
-              .map((e) => e.message),
-          ];
+          for (let autoPage = 1; autoPage <= STRUCTURED_PAGE_MAX; autoPage++) {
+            pagesScanned.push(autoPage);
+            const autoOffset = (autoPage - 1) * structuredLimit;
 
-          if (writerResult.batch.status === 'batch_creation_failed') {
-            structuredSourceBatchResult = {
-              ok: false,
-              batchId: null,
+            const discoveryOutput = await runSourceDiscovery({
               sourceKey: 'co_rues',
-              candidatesWritten: 0,
-              candidatesSkipped: discoveryOutput.candidates.length,
-              warnings: allWarnings,
-              errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
-            };
-          } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
-            // All candidates filtered by novelty checker (already in DB) or no source data —
-            // treat as a soft result, not a hard error.
-            structuredSourceBatchResult = {
-              ok: false,
-              batchId: null,
+              countryCode: 'CO',
+              criteria: { country, industry: industry ?? null },
+              limit: structuredLimit,
+              offset: autoOffset,
+              mode: 'dry_run',
+            });
+
+            // Error de discovery (e.g. socrata_timeout): detener loop
+            if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+              structuredSourceBatchResult = {
+                ok: false,
+                batchId: null,
+                sourceKey: 'co_rues',
+                candidatesWritten: 0,
+                candidatesSkipped: 0,
+                warnings: discoveryOutput.warnings,
+                errors: discoveryOutput.errors,
+                pagesScanned,
+                autoMode: true,
+              };
+              break;
+            }
+
+            const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
+              dryRun: false,
+              createdBy: internalUserId,
+              ownerId: internalUserId,
+              country,
+              countryCode: 'CO',
               sourceKey: 'co_rues',
-              candidatesWritten: 0,
-              candidatesSkipped: writerResult.batch.totalCandidatesPrepared,
-              warnings: [...allWarnings, writerResult.batch.status === 'empty' ? 'structured_source_returned_no_candidates' : 'all_candidates_already_in_db'],
-              errors: [...discoveryOutput.errors, ...writerErrors],
-            };
-          } else {
+              sourceProvider: 'socrata_colombia',
+              dataset: 'co_rues',
+              batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+              industry,
+              targetCount: structuredLimit,
+              searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
+              agentRunId: agentRun.id,
+              initiatedBy: 'agent_1',
+              candidates: discoveryOutput.candidates,
+              previewMode: true,
+              runHubSpotCheck: true,
+              limit: structuredLimit,
+              metadata: {
+                structured_source_page: autoPage,
+                structured_source_offset: autoOffset,
+                structured_source_limit: structuredLimit,
+                source_pagination_mode: 'auto_page_offset',
+              },
+            });
+
+            const writerErrors = writerResult.errors
+              .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
+              .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+            const allWarnings = [
+              ...discoveryOutput.warnings,
+              ...writerResult.errors
+                .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
+                .map((e) => e.message),
+            ];
+
+            if (writerResult.batch.status === 'batch_creation_failed') {
+              structuredSourceBatchResult = {
+                ok: false,
+                batchId: null,
+                sourceKey: 'co_rues',
+                candidatesWritten: 0,
+                candidatesSkipped: discoveryOutput.candidates.length,
+                warnings: allWarnings,
+                errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+                pagesScanned,
+                autoMode: true,
+              };
+              break;
+            }
+
+            if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+              // Página sin candidatos nuevos — continuar con la siguiente
+              continue;
+            }
+
+            // Éxito: candidatos nuevos encontrados en autoPage
             structuredSourceBatchResult = {
               ok: writerResult.batch.created,
               batchId: writerResult.batch.id,
@@ -904,7 +922,120 @@ export async function runProspectGenerationAgent(
               candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
               warnings: allWarnings,
               errors: [...discoveryOutput.errors, ...writerErrors],
+              pageUsed: autoPage,
+              pagesScanned,
+              autoMode: true,
             };
+            break;
+          }
+
+          // Todas las páginas agotadas sin candidatos nuevos
+          if (!structuredSourceBatchResult) {
+            structuredSourceBatchResult = {
+              ok: false,
+              batchId: null,
+              sourceKey: 'co_rues',
+              candidatesWritten: 0,
+              candidatesSkipped: 0,
+              warnings: ['all_candidates_already_in_db', 'all_pages_scanned'],
+              errors: [],
+              pagesScanned,
+              autoMode: true,
+            };
+          }
+        } else {
+          // ── Modo manual: usa la página seleccionada por el usuario ──
+          const discoveryOutput = await runSourceDiscovery({
+            sourceKey: 'co_rues',
+            countryCode: 'CO',
+            criteria: {
+              country,
+              industry: industry ?? null,
+            },
+            limit: structuredLimit,
+            offset: structuredOffset,
+            mode: 'dry_run',
+          });
+
+          if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+            structuredSourceBatchResult = {
+              ok: false,
+              batchId: null,
+              sourceKey: 'co_rues',
+              candidatesWritten: 0,
+              candidatesSkipped: 0,
+              warnings: discoveryOutput.warnings,
+              errors: discoveryOutput.errors,
+            };
+          } else {
+            const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
+              dryRun: false,
+              createdBy: internalUserId,
+              ownerId: internalUserId,
+              country,
+              countryCode: 'CO',
+              sourceKey: 'co_rues',
+              sourceProvider: 'socrata_colombia',
+              dataset: 'co_rues',
+              batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+              industry,
+              targetCount: structuredLimit,
+              searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
+              agentRunId: agentRun.id,
+              initiatedBy: 'agent_1',
+              candidates: discoveryOutput.candidates,
+              previewMode: true,
+              runHubSpotCheck: true,
+              limit: structuredLimit,
+              metadata: {
+                structured_source_page: structuredSourcePage,
+                structured_source_offset: structuredOffset,
+                structured_source_limit: structuredLimit,
+                source_pagination_mode: 'page_offset',
+              },
+            });
+
+            const writerErrors = writerResult.errors
+              .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
+              .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+            const allWarnings = [
+              ...discoveryOutput.warnings,
+              ...writerResult.errors
+                .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
+                .map((e) => e.message),
+            ];
+
+            if (writerResult.batch.status === 'batch_creation_failed') {
+              structuredSourceBatchResult = {
+                ok: false,
+                batchId: null,
+                sourceKey: 'co_rues',
+                candidatesWritten: 0,
+                candidatesSkipped: discoveryOutput.candidates.length,
+                warnings: allWarnings,
+                errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+              };
+            } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+              structuredSourceBatchResult = {
+                ok: false,
+                batchId: null,
+                sourceKey: 'co_rues',
+                candidatesWritten: 0,
+                candidatesSkipped: writerResult.batch.totalCandidatesPrepared,
+                warnings: [...allWarnings, writerResult.batch.status === 'empty' ? 'structured_source_returned_no_candidates' : 'all_candidates_already_in_db'],
+                errors: [...discoveryOutput.errors, ...writerErrors],
+              };
+            } else {
+              structuredSourceBatchResult = {
+                ok: writerResult.batch.created,
+                batchId: writerResult.batch.id,
+                sourceKey: 'co_rues',
+                candidatesWritten: writerResult.batch.totalCandidatesWritten,
+                candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
+                warnings: allWarnings,
+                errors: [...discoveryOutput.errors, ...writerErrors],
+              };
+            }
           }
         }
       } catch (structuredErr: unknown) {

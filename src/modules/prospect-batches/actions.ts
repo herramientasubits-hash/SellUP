@@ -1245,8 +1245,10 @@ export interface GenerateAIBatchInput {
   structuredSourceKey?: string | null;
   /** Hito 16AJ.9 — Crear también lote estructurado */
   createStructuredSourceBatch?: boolean;
-  /** Hito 16AK.2D — Página de paginación RUES (1-5). Default: 1. */
+  /** Hito 16AK.2D — Página de paginación RUES (1-5). Default: 1. Solo en modo manual. */
   structuredSourcePage?: number;
+  /** Hito 16AK.7C — Si true, auto-pagina RUES (páginas 1–5) hasta encontrar candidatos nuevos. */
+  structuredSourcePageAuto?: boolean;
 }
 
 export interface GenerateAIBatchResult {
@@ -1264,6 +1266,12 @@ export interface GenerateAIBatchResult {
     candidatesSkipped?: number;
     warnings?: string[];
     errors?: string[];
+    /** Hito 16AK.7C — página efectiva usada */
+    pageUsed?: number;
+    /** Hito 16AK.7C — páginas revisadas en auto-paginación */
+    pagesScanned?: number[];
+    /** Hito 16AK.7C — true si se usó auto-paginación */
+    autoMode?: boolean;
   };
 }
 
@@ -1311,6 +1319,7 @@ export async function generateAIProspectBatch(
     structuredSourceKey: input.structuredSourceKey ?? null,
     createStructuredSourceBatch: input.createStructuredSourceBatch ?? false,
     structuredSourcePage: input.structuredSourcePage ?? 1,
+    structuredSourcePageAuto: input.structuredSourcePageAuto ?? false,
   });
 
   if (!result.success || !result.batchId) {
