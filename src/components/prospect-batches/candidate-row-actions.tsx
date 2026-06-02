@@ -194,7 +194,11 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
   async function handleMarkReady() {
     setLoading(true);
     try {
-      await markCandidateReadyForApprovalAction(candidate.id);
+      const result = await markCandidateReadyForApprovalAction(candidate.id);
+      if (!result.ok) {
+        toast.error(result.error ?? 'Error al marcar como listo');
+        return;
+      }
       toast.success(`"${candidate.name}" marcado como listo para aprobación`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al marcar como listo');

@@ -582,76 +582,88 @@ export async function discardCandidate(id: string, reason?: string): Promise<Pro
 
 export async function markCandidateReadyForApprovalAction(
   candidateId: string
-): Promise<ProspectCandidate> {
-  const { internalUserId } = await requireActiveUser();
-  const supabase = await createClient();
+): Promise<{ ok: boolean; error?: string; candidateId?: string; reviewStatus?: string }> {
+  try {
+    const { internalUserId } = await requireActiveUser();
+    const supabase = await createClient();
 
-  // Validar formato UUID básico
-  if (!candidateId || !/^[0-9a-f-]{36}$/i.test(candidateId)) {
-    throw new Error('ID de candidato inválido');
+    if (!candidateId || !/^[0-9a-f-]{36}$/i.test(candidateId)) {
+      return { ok: false, error: 'ID de candidato inválido' };
+    }
+
+    const { data: candidate } = await supabase
+      .from('prospect_candidates')
+      .select('id, batch_id, name, status, duplicate_status, review_status, review_flags, metadata')
+      .eq('id', candidateId)
+      .single();
+
+    if (!candidate) return { ok: false, error: 'Candidato no encontrado' };
+
+    const reviewStatus = (candidate as Record<string, unknown>).review_status as string | null | undefined;
+    const reviewFlags = (candidate as Record<string, unknown>).review_flags as string[] | null | undefined;
+
+    if (reviewStatus === null || reviewStatus === undefined) {
+      return { ok: false, error: 'Esta acción solo aplica a candidatos de fuentes oficiales estructuradas' };
+    }
+
+    if (candidate.status !== 'needs_review') {
+      return { ok: false, error: `El candidato debe estar en estado "necesita revisión" para marcarlo como listo (estado actual: ${candidate.status})` };
+    }
+
+    if (reviewStatus !== 'needs_manual_review') {
+      return { ok: false, error: `El candidato ya fue procesado (review_status: ${reviewStatus})` };
+    }
+
+    // ── Bloqueos de negocio ───────────────────────────────────────
+    if (Array.isArray(reviewFlags) && reviewFlags.includes('inactive_company')) {
+      return { ok: false, error: 'No se puede marcar como listo: la empresa puede estar inactiva o disuelta. Verifica el estado antes de continuar.' };
+    }
+    if (candidate.duplicate_status === 'exact_duplicate') {
+      return { ok: false, error: 'No se puede marcar como listo: el candidato está marcado como duplicado exacto.' };
+    }
+    if (Array.isArray(reviewFlags) && reviewFlags.includes('no_tax_id')) {
+      return { ok: false, error: 'No se puede marcar como listo: el candidato no tiene NIT/identificación fiscal.' };
+    }
+    // ── Fin bloqueos ──────────────────────────────────────────────
+
+    const { data, error } = await supabase
+      .from('prospect_candidates')
+      .update({
+        review_status: 'ready_for_approval',
+        reviewed_by: internalUserId,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', candidateId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return { ok: false, error: `Error al marcar candidato como listo: ${error?.message ?? 'sin datos'}` };
+    }
+
+    // Audit — acción no crítica; usa 'candidate_updated' porque 'candidate_marked_ready_for_approval'
+    // aún no está en el CHECK constraint de prospect_candidate_audit (migration 040).
+    try {
+      await logProspectCandidateAudit({
+        batchId: data.batch_id,
+        candidateId,
+        actorUserId: internalUserId,
+        actionType: 'candidate_updated',
+        details: { candidate_name: data.name, action: 'marked_ready_for_approval' },
+      });
+    } catch (auditErr) {
+      console.warn('[markCandidateReadyForApprovalAction] Audit non-critical failure:', auditErr);
+    }
+
+    revalidatePath(`/prospect-batches/${data.batch_id}`);
+    return { ok: true, candidateId: data.id, reviewStatus: 'ready_for_approval' };
+  } catch (err) {
+    console.error('[markCandidateReadyForApprovalAction] Unexpected error:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Error inesperado al marcar candidato como listo',
+    };
   }
-
-  const { data: candidate } = await supabase
-    .from('prospect_candidates')
-    .select('id, batch_id, name, status, duplicate_status, review_status, review_flags, metadata')
-    .eq('id', candidateId)
-    .single();
-
-  if (!candidate) throw new Error('Candidato no encontrado');
-
-  const reviewStatus = (candidate as Record<string, unknown>).review_status as string | null | undefined;
-  const reviewFlags = (candidate as Record<string, unknown>).review_flags as string[] | null | undefined;
-
-  // Validar que es candidato estructurado
-  if (reviewStatus === null || reviewStatus === undefined) {
-    throw new Error('Esta acción solo aplica a candidatos de fuentes oficiales estructuradas');
-  }
-
-  // Validar estado de candidato
-  if (candidate.status !== 'needs_review') {
-    throw new Error(`El candidato debe estar en estado "necesita revisión" para marcarlo como listo (estado actual: ${candidate.status})`);
-  }
-
-  // Validar review_status actual
-  if (reviewStatus !== 'needs_manual_review') {
-    throw new Error(`El candidato ya fue procesado (review_status: ${reviewStatus})`);
-  }
-
-  // ── Bloqueos de negocio ───────────────────────────────────────
-  if (Array.isArray(reviewFlags) && reviewFlags.includes('inactive_company')) {
-    throw new Error('No se puede marcar como listo: la empresa puede estar inactiva o disuelta. Verifica el estado de la empresa antes de continuar.');
-  }
-  if (candidate.duplicate_status === 'exact_duplicate') {
-    throw new Error('No se puede marcar como listo: el candidato está marcado como duplicado exacto.');
-  }
-  if (Array.isArray(reviewFlags) && reviewFlags.includes('no_tax_id')) {
-    throw new Error('No se puede marcar como listo: el candidato no tiene NIT/identificación fiscal.');
-  }
-  // ── Fin bloqueos ──────────────────────────────────────────────
-
-  const { data, error } = await supabase
-    .from('prospect_candidates')
-    .update({
-      review_status: 'ready_for_approval',
-      reviewed_by: internalUserId,
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq('id', candidateId)
-    .select()
-    .single();
-
-  if (error || !data) throw new Error(`Error al marcar candidato como listo: ${error?.message}`);
-
-  await logProspectCandidateAudit({
-    batchId: data.batch_id,
-    candidateId,
-    actorUserId: internalUserId,
-    actionType: 'candidate_marked_ready_for_approval',
-    details: { candidate_name: data.name },
-  });
-
-  revalidatePath(`/prospect-batches/${data.batch_id}`);
-  return data as ProspectCandidate;
 }
 
 export async function markCandidateDuplicate(
