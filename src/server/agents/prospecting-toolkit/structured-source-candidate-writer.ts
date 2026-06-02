@@ -67,6 +67,7 @@ export type StructuredSourceCandidateWriterInput = {
   runHubSpotCheck?: boolean;
   limit?: number;
   metadata?: Record<string, any>;
+  batchId?: string | null;
 };
 
 export type StructuredSourceCandidateWriterReport = {
@@ -781,100 +782,104 @@ export async function writeStructuredSourceCandidatesPreview(
     };
   }
 
-  // ── Crear lote preview ────────────────────────────────────
-  const resolvedBatchName = input.batchName ?? buildBatchName(input.sourceProvider, input.dataset, dateLabel);
+  let batchId = input.batchId ?? null;
 
-  const batchRow = {
-    name: resolvedBatchName,
-    country: input.country,
-    country_code: input.countryCode,
-    industry: input.industry ?? 'Structured source',
-    target_count: input.targetCount ?? toWrite.length,
-    search_depth: input.searchDepth ?? 'basic',
-    status: 'ready_for_review',
-    source: input.sourceProvider,
-    created_by: input.createdBy || input.requestedByUserId || null,
-    owner_id: input.ownerId ?? null,
-    agent_run_id: input.agentRunId ?? null,
-    estimated_cost_usd: 0,
-    metadata: {
-      initiated_by: input.initiatedBy ?? 'ui_source_catalog',
-      agent_run_id: input.agentRunId ?? null,
-      batch_type: 'structured',
-      source_channels: [input.sourceKey],
-      structured_source_keys: [input.sourceKey],
-      source_provider: input.sourceProvider,
-      source_key: input.sourceKey,
-      source_discovery_mode: input.initiatedBy === 'agent_1' ? 'agent_1_structured' : 'source_catalog_preview',
+  if (!batchId) {
+    // ── Crear lote preview ────────────────────────────────────
+    const resolvedBatchName = input.batchName ?? buildBatchName(input.sourceProvider, input.dataset, dateLabel);
+
+    const batchRow = {
+      name: resolvedBatchName,
+      country: input.country,
       country_code: input.countryCode,
       industry: input.industry ?? 'Structured source',
       target_count: input.targetCount ?? toWrite.length,
-      preview_mode: input.previewMode ?? true,
-      human_review_required: true,
-      hubspot_sync_enabled: false,
-      run_hubspot_check: runHubSpotCheck,
-      total_candidates_input: totalCandidatesInput,
-      total_candidates_written: toWrite.length,
-      total_candidates_skipped: totalSkipped,
-      writer_version: WRITER_VERSION,
-      dataset: input.dataset,
-      ui_smoke_test: input.uiSmokeTest ?? false,
-      warning: 'Modo preview — ningún candidato aprobado ni asignado automáticamente.',
-      ...(input.metadata ?? {}),
-    },
-  };
-
-  const { data: batchData, error: batchError } = await supabase
-    .from('prospect_batches')
-    .insert(batchRow)
-    .select('id')
-    .single();
-
-  if (batchError) {
-    console.error('[StructuredSourceWriter] Error al crear lote en prospect_batches:', {
-      code: batchError.code,
-      message: batchError.message,
-      details: batchError.details,
-      hint: batchError.hint,
-      batchRow: { ...batchRow, created_by: batchRow.created_by ? '[set]' : null },
-    });
-    errors.push({
-      name: null,
-      taxId: null,
-      message: `Error creando lote: ${batchError.message}`,
-    });
-    return {
-      executedAt,
-      dryRun: false,
-      batch: {
-        wouldCreate: false,
-        created: false,
-        id: null,
-        source: input.sourceProvider,
-        status: 'batch_creation_failed',
-        totalCandidatesInput,
-        totalCandidatesPrepared,
-        totalCandidatesWritten: 0,
-        totalCandidatesSkipped: totalCandidatesPrepared,
+      search_depth: input.searchDepth ?? 'basic',
+      status: 'ready_for_review',
+      source: input.sourceProvider,
+      created_by: input.createdBy || input.requestedByUserId || null,
+      owner_id: input.ownerId ?? null,
+      agent_run_id: input.agentRunId ?? null,
+      estimated_cost_usd: 0,
+      metadata: {
+        initiated_by: input.initiatedBy ?? 'ui_source_catalog',
+        agent_run_id: input.agentRunId ?? null,
+        batch_type: 'structured',
+        source_channels: [input.sourceKey],
+        structured_source_keys: [input.sourceKey],
+        source_provider: input.sourceProvider,
+        source_key: input.sourceKey,
+        source_discovery_mode: input.initiatedBy === 'agent_1' ? 'agent_1_structured' : 'source_catalog_preview',
+        country_code: input.countryCode,
+        industry: input.industry ?? 'Structured source',
+        target_count: input.targetCount ?? toWrite.length,
+        preview_mode: input.previewMode ?? true,
+        human_review_required: true,
+        hubspot_sync_enabled: false,
+        run_hubspot_check: runHubSpotCheck,
+        total_candidates_input: totalCandidatesInput,
+        total_candidates_written: toWrite.length,
+        total_candidates_skipped: totalSkipped,
+        writer_version: WRITER_VERSION,
+        dataset: input.dataset,
+        ui_smoke_test: input.uiSmokeTest ?? false,
+        warning: 'Modo preview — ningún candidato aprobado ni asignado automáticamente.',
+        ...(input.metadata ?? {}),
       },
-      summary: {
-        written: 0,
-        skipped: totalCandidatesPrepared,
-        blockedCustomer,
-        blockedDuplicate,
-        existingAccount,
-        pendingRecentSuggestion,
-        rejectedRecently,
-        sizeUnknown,
-        hubspotLookupFailed,
-        hubspotRecyclable,
-      },
-      items,
-      errors,
     };
-  }
 
-  const batchId = batchData?.id ?? null;
+    const { data: batchData, error: batchError } = await supabase
+      .from('prospect_batches')
+      .insert(batchRow)
+      .select('id')
+      .single();
+
+    if (batchError) {
+      console.error('[StructuredSourceWriter] Error al crear lote en prospect_batches:', {
+        code: batchError.code,
+        message: batchError.message,
+        details: batchError.details,
+        hint: batchError.hint,
+        batchRow: { ...batchRow, created_by: batchRow.created_by ? '[set]' : null },
+      });
+      errors.push({
+        name: null,
+        taxId: null,
+        message: `Error creando lote: ${batchError.message}`,
+      });
+      return {
+        executedAt,
+        dryRun: false,
+        batch: {
+          wouldCreate: false,
+          created: false,
+          id: null,
+          source: input.sourceProvider,
+          status: 'batch_creation_failed',
+          totalCandidatesInput,
+          totalCandidatesPrepared,
+          totalCandidatesWritten: 0,
+          totalCandidatesSkipped: totalCandidatesPrepared,
+        },
+        summary: {
+          written: 0,
+          skipped: totalCandidatesPrepared,
+          blockedCustomer,
+          blockedDuplicate,
+          existingAccount,
+          pendingRecentSuggestion,
+          rejectedRecently,
+          sizeUnknown,
+          hubspotLookupFailed,
+          hubspotRecyclable,
+        },
+        items,
+        errors,
+      };
+    }
+
+    batchId = batchData?.id ?? null;
+  }
 
   // ── Insertar candidatos ───────────────────────────────────
   let written = 0;

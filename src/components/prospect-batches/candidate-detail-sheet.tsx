@@ -37,6 +37,17 @@ import {
   type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
 
+interface HubSpotSyncAudit {
+  status: string;
+  company_id?: string | null;
+  sent_property_keys?: string[] | null;
+  sent_properties_audit?: Record<string, unknown> | null;
+  skipped_properties?: string[] | null;
+  blocked_reason?: string | null;
+  owner_mapping_status?: string | null;
+  synced_at?: string | null;
+}
+
 // ── Helpers de presentación ────────────────────────────────────
 
 function val(v: string | null | undefined, fallback = 'Sin dato'): string {
@@ -412,14 +423,100 @@ export function CandidateDetailSheet({
               <Divider />
               <div>
                 <SectionHeader>Empresa creada</SectionHeader>
-                <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft/30 px-3 py-2.5 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <ArrowRightCircle className="h-3.5 w-3.5 text-su-brand shrink-0" />
-                    <span className="text-xs font-medium text-su-brand">Creada en SellUp</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft/30 px-3 py-2.5 space-y-1.5 flex flex-col justify-between">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <ArrowRightCircle className="h-3.5 w-3.5 text-su-brand shrink-0" />
+                        <span className="text-xs font-medium text-su-brand">Creada en SellUp</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground/70 font-mono break-all">
+                        ID: {candidate.converted_account_id}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-[10px] text-muted-foreground/70 font-mono break-all">
-                    ID: {candidate.converted_account_id}
-                  </p>
+
+                  {(() => {
+                    const hsSync = candidate.metadata?.hubspot_sync as HubSpotSyncAudit | undefined;
+                    if (!hsSync) return null;
+
+                    const statusStyles: Record<string, string> = {
+                      synced: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+                      blocked_duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
+                      blocked_inactive_or_liquidation: 'bg-destructive/10 text-destructive border-destructive/20',
+                      skipped_flag_off: 'bg-muted text-muted-foreground border-transparent',
+                      skipped_rollback: 'bg-muted text-muted-foreground border-transparent',
+                      failed_lookup: 'bg-destructive/10 text-destructive border-destructive/20',
+                      failed_create: 'bg-destructive/10 text-destructive border-destructive/20',
+                    };
+
+                    const statusLabels: Record<string, string> = {
+                      synced: 'Sincronizado',
+                      blocked_duplicate: 'Bloqueado (Duplicado)',
+                      blocked_inactive_or_liquidation: 'Bloqueado (Inactivo/Liquidación)',
+                      skipped_flag_off: 'Omitido (Feature Flag Off)',
+                      skipped_rollback: 'Omitido (Rollback)',
+                      failed_lookup: 'Fallo de búsqueda',
+                      failed_create: 'Fallo de creación',
+                    };
+
+                    const style = statusStyles[hsSync.status] ?? 'bg-muted text-muted-foreground border-transparent';
+                    const label = statusLabels[hsSync.status] ?? hsSync.status;
+
+                    return (
+                      <div className="rounded-lg border border-border/40 bg-card p-3 space-y-2 flex flex-col justify-between">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                              HubSpot Sync
+                            </span>
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold transition-colors ${style}`}>
+                              {label}
+                            </span>
+                          </div>
+
+                          {hsSync.status === 'synced' && hsSync.company_id && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">ID HubSpot:</span>
+                                <span className="font-mono font-medium text-foreground">{hsSync.company_id}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Asignación Owner:</span>
+                                <span className="font-medium text-foreground text-[10px]">
+                                  {hsSync.owner_mapping_status === 'mapped' ? 'Mapeado (Éxito)' : hsSync.owner_mapping_status === 'skipped_missing_mapping' ? 'Omitido (Falta mapping)' : 'Omitido'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {hsSync.status !== 'synced' && (
+                            <div className="space-y-1 text-xs">
+                              {hsSync.blocked_reason && (
+                                <p className="text-muted-foreground italic leading-relaxed text-[11px]">
+                                  Motivo: {hsSync.blocked_reason}
+                                </p>
+                              )}
+                              {hsSync.skipped_properties && hsSync.skipped_properties.length > 0 && (
+                                <div className="pt-1 border-t border-border/20 mt-1">
+                                  <p className="text-[9px] text-muted-foreground/60 uppercase">Campos Omitidos:</p>
+                                  <p className="text-[9px] text-muted-foreground/50 font-mono">
+                                    {hsSync.skipped_properties.join(', ')}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {hsSync.synced_at && (
+                          <p className="text-[9px] text-muted-foreground/50 text-right mt-1">
+                            Sincronizado: {new Date(hsSync.synced_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </>

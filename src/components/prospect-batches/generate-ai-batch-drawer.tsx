@@ -338,7 +338,7 @@ export function GenerateAIBatchDrawer() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {[5, 10, 15, 20, 25].map((n) => (
+                        {[10, 15, 20, 25].map((n) => (
                           <SelectItem key={n} value={String(n)}>
                             {n} empresas
                           </SelectItem>
@@ -346,7 +346,7 @@ export function GenerateAIBatchDrawer() {
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                      SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
+                      La cantidad debe estar entre 10 y 25. SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
                     </p>
                   </Field>
                 </Section>
@@ -384,7 +384,7 @@ export function GenerateAIBatchDrawer() {
                   <div className="flex gap-2.5">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                     <p className="text-xs text-muted-foreground">
-                      Máximo {MVP_MAX_CANDIDATES} empresas candidatas por lote.
+                      El MVP permite entre 10 y 25 empresas candidatas por lote.
                       Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana.
                     </p>
                   </div>

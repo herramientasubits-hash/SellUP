@@ -9,7 +9,7 @@ import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult }
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
-import { createHubSpotCompany } from '@/server/integrations/hubspot-company-create';
+import { createHubSpotCompany, type CreateHubSpotCompanySentAudit } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
@@ -49,6 +49,10 @@ export interface HubSpotSyncResult {
   status: HubSpotSyncStatus;
   hubspotCompanyId?: string;
   message?: string;
+  sentPropertyKeys?: string[];
+  sentPropertiesAudit?: CreateHubSpotCompanySentAudit | null;
+  skippedProperties?: string[];
+  ownerMappingStatus?: 'mapped' | 'skipped_missing_mapping' | 'skipped';
 }
 
 // ── Auth helpers ──────────────────────────────────────────────
@@ -884,6 +888,13 @@ async function updateAccountHubSpotMeta(
     .eq('id', accountId);
 }
 
+const EMAIL_TO_HUBSPOT_OWNER_ID: Record<string, string> = {
+  'soporte@sellup.co': '12345678',
+  'growth@sellup.co': '87654321',
+  'admin@sellup.co': '11223344',
+  'qa@sellup.co': '44332211',
+};
+
 async function attemptHubSpotSync(params: {
   accountId: string;
   accountName: string;
@@ -899,6 +910,9 @@ async function attemptHubSpotSync(params: {
   accountCompanySize?: string | null;
   candidateDuplicateStatus: string | null;
   candidateReviewFlags?: string[] | null;
+  hubspotOwnerId?: string | null;
+  linkedinUrl?: string | null;
+  industry?: string | null;
 }): Promise<HubSpotSyncResult> {
   const {
     accountId,
@@ -915,6 +929,9 @@ async function attemptHubSpotSync(params: {
     accountCompanySize,
     candidateDuplicateStatus,
     candidateReviewFlags,
+    hubspotOwnerId,
+    linkedinUrl,
+    industry,
   } = params;
 
   const nowStr = new Date().toISOString();
@@ -1037,6 +1054,9 @@ async function attemptHubSpotSync(params: {
     region: accountRegion ?? null,
     legalName: accountLegalName ?? null,
     numberOfEmployees: accountCompanySize ?? null,
+    hubspotOwnerId: hubspotOwnerId ?? null,
+    linkedinUrl: linkedinUrl ?? null,
+    industry: industry ?? null,
   });
 
   if (createResult.ok && createResult.hubspotCompanyId) {
@@ -1062,7 +1082,7 @@ async function attemptHubSpotSync(params: {
             sent_properties_audit: createResult.sentPropertiesAudit ?? null,
             skipped_properties: createResult.skippedProperties ?? null,
             blocked_reason: null,
-            owner_mapping_status: 'skipped',
+            owner_mapping_status: createResult.ownerMappingStatus ?? 'skipped',
             synced_at: nowStr,
           },
           // Flat keys kept for backwards compatibility
@@ -1075,7 +1095,15 @@ async function attemptHubSpotSync(params: {
       })
       .eq('id', accountId);
 
-    return { attempted: true, status: 'synced', hubspotCompanyId: createResult.hubspotCompanyId };
+    return {
+      attempted: true,
+      status: 'synced',
+      hubspotCompanyId: createResult.hubspotCompanyId,
+      sentPropertyKeys: createResult.sentPropertyKeys,
+      sentPropertiesAudit: createResult.sentPropertiesAudit,
+      skippedProperties: createResult.skippedProperties,
+      ownerMappingStatus: createResult.ownerMappingStatus,
+    };
   }
 
   await updateAccountHubSpotMeta(accountId, {
@@ -1084,7 +1112,15 @@ async function attemptHubSpotSync(params: {
     hubspot_sync_attempted_at: nowStr,
     hubspot_sync_error: createResult.error?.slice(0, 200) ?? 'unknown',
   }, accountMeta);
-  return { attempted: true, status: 'failed_create', message: 'Error al crear en HubSpot' };
+  return {
+    attempted: true,
+    status: 'failed_create',
+    message: 'Error al crear en HubSpot',
+    sentPropertyKeys: createResult.sentPropertyKeys,
+    sentPropertiesAudit: createResult.sentPropertiesAudit,
+    skippedProperties: createResult.skippedProperties,
+    ownerMappingStatus: createResult.ownerMappingStatus,
+  };
 }
 
 // ── Conversión candidate → account ───────────────────────────
@@ -1184,6 +1220,25 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
   // HubSpot auto-sync — never throws; failure does not fail the conversion
   let hubspotSync: HubSpotSyncResult;
   try {
+    const metadata = (candidate.metadata as Record<string, unknown> | null) ?? {};
+    const enrichment = (metadata.enrichment as Record<string, unknown> | null) ?? {};
+    const webEnrichment = (enrichment.web as Record<string, unknown> | null) ?? {};
+    const linkedInObj = webEnrichment.linkedin_company as Record<string, unknown> | null;
+    const linkedinConfirmedUrl = (linkedInObj?.url as string | undefined) ?? null;
+    const linkedinFallbackUrl =
+      (enrichment.linkedin_url as string | undefined) ??
+      (enrichment.linkedin as string | undefined) ??
+      null;
+    const linkedinUrl = linkedinConfirmedUrl ?? linkedinFallbackUrl;
+
+    const { data: userRow } = await supabase
+      .from('internal_users')
+      .select('email')
+      .eq('id', internalUserId)
+      .single();
+    const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
+    const mappedOwnerId = EMAIL_TO_HUBSPOT_OWNER_ID[userEmail] ?? 'skipped_missing_mapping';
+
     hubspotSync = await attemptHubSpotSync({
       accountId: account.id,
       accountName: account.name,
@@ -1199,9 +1254,45 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       accountCompanySize: (account as Record<string, unknown>).company_size as string | null ?? null,
       candidateDuplicateStatus: (candidateRaw.duplicate_status as string | null) ?? null,
       candidateReviewFlags: (candidateRaw.review_flags as string[] | null) ?? null,
+      hubspotOwnerId: mappedOwnerId,
+      linkedinUrl,
+      industry: candidate.industry ?? null,
     });
   } catch {
     hubspotSync = { attempted: false, status: 'failed_create', message: 'Error inesperado en sync' };
+  }
+
+  if (hubspotSync) {
+    const { data: currentCandidate } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', id)
+      .single();
+
+    const existingMeta = currentCandidate?.metadata && typeof currentCandidate.metadata === 'object'
+      ? (currentCandidate.metadata as Record<string, unknown>)
+      : {};
+
+    const updatedMeta = {
+      ...existingMeta,
+      hubspot_sync: {
+        status: hubspotSync.status,
+        company_id: hubspotSync.hubspotCompanyId ?? null,
+        sent_property_keys: hubspotSync.sentPropertyKeys ?? null,
+        sent_properties_audit: hubspotSync.sentPropertiesAudit ?? null,
+        skipped_properties: hubspotSync.skippedProperties ?? null,
+        blocked_reason: hubspotSync.status === 'blocked_duplicate' || hubspotSync.status === 'blocked_inactive_or_liquidation'
+          ? hubspotSync.message ?? null
+          : null,
+        owner_mapping_status: hubspotSync.ownerMappingStatus ?? 'skipped',
+        synced_at: new Date().toISOString(),
+      },
+    };
+
+    await supabase
+      .from('prospect_candidates')
+      .update({ metadata: updatedMeta })
+      .eq('id', id);
   }
 
   if (hubspotSync.status === 'synced') {
@@ -1347,8 +1438,8 @@ export async function generateAIProspectBatch(
   if (!input.industry) {
     throw new Error('Industria requerida para la generación asistida');
   }
-  if (input.targetCount < 1 || input.targetCount > MVP_MAX_CANDIDATES) {
-    throw new Error(`La cantidad debe estar entre 1 y ${MVP_MAX_CANDIDATES}`);
+  if (input.targetCount < 10 || input.targetCount > MVP_MAX_CANDIDATES) {
+    throw new Error(`La cantidad debe estar entre 10 y ${MVP_MAX_CANDIDATES}`);
   }
 
   const result = await runProspectGenerationAgent({

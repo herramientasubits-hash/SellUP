@@ -40,8 +40,8 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
-const MAX_ENRICHMENT_CANDIDATES = 5;
-const MAX_QUERIES_PER_CANDIDATE = 2;
+const MAX_ENRICHMENT_CANDIDATES = 10;
+const MAX_QUERIES_PER_CANDIDATE = 3;
 const TAVILY_MAX_RESULTS_PER_QUERY = 5;
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -587,8 +587,19 @@ export async function enrichBatchCandidatesWithWebAndAI(
         summary.warnings.push(
           `ai_error:${candidate.id}:${aiErr instanceof Error ? aiErr.message : 'unknown'}`,
         );
-        // Persist Tavily results even when Claude failed
-        await persistEnrichmentMetadata(admin, candidate.id, candidate.metadata, {
+
+        const updatePayload: Record<string, unknown> = {};
+        const finalWebsite = officialWebsiteEvidence?.url ?? null;
+        const finalDomain = officialWebsiteEvidence?.domain ?? null;
+
+        if (!candidate.website && finalWebsite) {
+          updatePayload.website = finalWebsite;
+          updatePayload.domain = finalDomain;
+          result.website = finalWebsite;
+          result.domain = finalDomain;
+        }
+
+        const enrichmentMeta = {
           web: {
             skipped: false,
             results_count: scoredResults.length,
@@ -605,7 +616,11 @@ export async function enrichBatchCandidatesWithWebAndAI(
           ai_evaluation: { status: 'failed' },
           cost_trace: null,
           executed_at: new Date().toISOString(),
-        });
+        };
+
+        updatePayload.metadata = buildMergedMetadata(candidate.metadata, enrichmentMeta);
+
+        await admin.from('prospect_candidates').update(updatePayload).eq('id', candidate.id);
         summary.candidates.push(result);
         continue;
       }

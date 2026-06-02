@@ -66,7 +66,7 @@ const NEWS_SUBSTRINGS = [
 
 const LEGAL_SUFFIXES = [
   'S\\.A\\.S', 'S\\.A', 'LTDA', 'SAS', 'SA', 'E\\.S\\.P',
-  'S\\.C\\.A', 'S\\.C\\.S', 'E\\.U', 'EU',
+  'S\\.C\\.A', 'S\\.C\\.S', 'E\\.U', 'EU', 'EN LIQUIDACION', 'EN LIQUIDACIÓN',
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -236,18 +236,39 @@ export function normalizeCompanyNameForSearch(name: string): string {
  * abbreviations). Designed for 16AK.13C entity matching — currently used
  * only for LinkedIn name validation.
  */
-export function buildCompanyNameVariants(name: string): string[] {
+export function buildCompanyNameVariants(
+  name: string,
+  city?: string | null,
+  nit?: string | null,
+): string[] {
   const normalized = normalizeCompanyNameForSearch(name);
   const noAccents = normalized
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '');
 
-  const variants = new Set<string>([normalized]);
+  const variants = new Set<string>([normalized, name.toLowerCase()]);
   if (noAccents !== normalized) variants.add(noAccents);
 
-  // First two meaningful words (useful for abbreviated names)
+  if (city) {
+    const cleanCity = city.toLowerCase().trim();
+    variants.add(`${normalized} ${cleanCity}`);
+    if (noAccents !== normalized) variants.add(`${noAccents} ${cleanCity}`);
+  }
+
+  if (nit) {
+    const cleanNit = nit.toLowerCase().trim();
+    variants.add(`${normalized} ${cleanNit}`);
+    if (noAccents !== normalized) variants.add(`${noAccents} ${cleanNit}`);
+  }
+
+  // Brand/marca probable: first 2-3 words of the normalized name
   const words = normalized.split(/\s+/).filter((w) => w.length > 2);
-  if (words.length >= 2) variants.add(words.slice(0, 2).join(' '));
+  if (words.length >= 2) {
+    variants.add(words.slice(0, 2).join(' '));
+    if (words.length >= 3) {
+      variants.add(words.slice(0, 3).join(' '));
+    }
+  }
 
   return Array.from(variants).filter(Boolean);
 }
@@ -259,9 +280,14 @@ export function buildCompanyNameVariants(name: string): string[] {
  * @param candidateName   - Company name from RUES/official source
  * @param textToMatch     - Title or snippet to match against
  */
-export function scoreEntityMatch(candidateName: string, textToMatch: string): number {
+export function scoreEntityMatch(
+  candidateName: string,
+  textToMatch: string,
+  city?: string | null,
+  nit?: string | null,
+): number {
   if (!candidateName || !textToMatch) return 0;
-  const variants = buildCompanyNameVariants(candidateName);
+  const variants = buildCompanyNameVariants(candidateName, city, nit);
   const text = textToMatch.toLowerCase();
 
   let best = 0;
@@ -311,11 +337,15 @@ export function buildSearchQueriesByIntent(
   const industryShard = industry ? industry.split(/[\/,]/)[0].trim() : '';
   if (industryShard) linkedinParts.push(industryShard);
 
+  const publicEvidenceParts: string[] = [];
+  if (normalized) publicEvidenceParts.push(`"${normalized}"`);
+  if (nit) publicEvidenceParts.push(`NIT ${nit}`);
+  publicEvidenceParts.push('Colombia registro directorio ciiu');
+
   return [
     { query: websiteParts.filter(Boolean).join(' '), intent: 'official_website', purpose: 'website' },
     { query: linkedinParts.filter(Boolean).join(' '), intent: 'linkedin_company', purpose: 'linkedin_description' },
-    // 16AK.13C: add { intent: 'public_evidence', query: ... } here
-    // 16AK.13C: add { intent: 'company_description', query: ... } here
+    { query: publicEvidenceParts.filter(Boolean).join(' '), intent: 'public_evidence' },
   ];
 }
 
@@ -395,7 +425,7 @@ function scoreResult(candidate: CandidateBasicInfo, result: RawWebResult): numbe
   let score = 0;
 
   // Entity match using reusable scoreEntityMatch helper
-  const titleMatchScore = scoreEntityMatch(name, result.title);
+  const titleMatchScore = scoreEntityMatch(name, result.title, candidate.city, candidate.tax_identifier);
   if (titleMatchScore >= 90) score += 35;
   else if (titleMatchScore >= 60) score += 20;
   else if (titleMatchScore >= 30) score += 8;
@@ -449,7 +479,7 @@ export function scoreWebEvidence(
     if (candidate.tax_identifier && text.includes(candidate.tax_identifier)) signals.push('nit_match');
     if (text.includes('colombia')) signals.push('country_match');
     if (candidate.city && text.includes(candidate.city.toLowerCase())) signals.push('city_match');
-    if (scoreEntityMatch(name, r.title) >= 60) signals.push('name_in_title');
+    if (scoreEntityMatch(name, r.title, candidate.city, candidate.tax_identifier) >= 60) signals.push('name_in_title');
 
     return {
       ...r,
@@ -507,13 +537,13 @@ export function extractLinkedInCompany(
   if (linkedInResults.length === 0) return null;
 
   const best = linkedInResults[0];
-  // Require name match >= 40 (word-level) to be "confirmed"
-  const nameMatchScore = scoreEntityMatch(name, `${best.title} ${best.snippet ?? ''}`);
-  if (nameMatchScore < 40) return null;
+  // Require name match >= 70 (strong match) to be "confirmed"
+  const nameMatchScore = scoreEntityMatch(name, `${best.title} ${best.snippet ?? ''}`, candidate.city, candidate.tax_identifier);
+  if (nameMatchScore < 70) return null;
 
   return {
     url: best.url,
-    confidence: nameMatchScore >= 70 ? best.confidence : 'low',
+    confidence: best.confidence,
     evidence_url: best.url,
     reason: `score=${best.raw_score} name_match=${nameMatchScore} signals=[${best.matched_signals.join(',')}]`,
   };
@@ -532,20 +562,20 @@ export function extractPossibleLinkedInMatches(
     .filter((r) => r.source_type === 'linkedin_company')
     .filter((r) => r.confidence !== 'rejected')
     .filter((r) => {
-      const nameMatch = scoreEntityMatch(name, `${r.title} ${r.snippet ?? ''}`);
-      return nameMatch < 40; // only the ones that didn't qualify as confirmed
+      const nameMatch = scoreEntityMatch(name, `${r.title} ${r.snippet ?? ''}`, candidate.city, candidate.tax_identifier);
+      return nameMatch < 70 && nameMatch >= 20; // only the ones that didn't qualify as confirmed
     })
     .sort((a, b) => b.raw_score - a.raw_score)
     .slice(0, 2)
     .map((r) => {
-      const nameMatch = scoreEntityMatch(name, `${r.title} ${r.snippet ?? ''}`);
+      const nameMatch = scoreEntityMatch(name, `${r.title} ${r.snippet ?? ''}`, candidate.city, candidate.tax_identifier);
       return {
         url: r.url,
         title: r.title,
         confidence: r.confidence,
         evidence_url: r.url,
         reason: `score=${r.raw_score} name_match=${nameMatch}`,
-        match_quality: nameMatch >= 20 ? ('partial' as const) : ('weak' as const),
+        match_quality: nameMatch >= 40 ? ('partial' as const) : ('weak' as const),
       };
     });
 }

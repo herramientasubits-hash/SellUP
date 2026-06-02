@@ -54,6 +54,9 @@ export interface CreateHubSpotCompanyInput {
   legalName?: string | null;
   /** Number of employees — sent only if parseable as positive integer */
   numberOfEmployees?: string | null;
+  hubspotOwnerId?: string | null;
+  linkedinUrl?: string | null;
+  industry?: string | null;
 }
 
 export interface CreateHubSpotCompanySentAudit {
@@ -65,6 +68,7 @@ export interface CreateHubSpotCompanySentAudit {
   state: string | null;
   lifecyclestage: string;
   numberofemployees: string | null;
+  hubspot_owner_id: string | null;
 }
 
 export interface CreateHubSpotCompanyResult {
@@ -76,6 +80,7 @@ export interface CreateHubSpotCompanyResult {
   sentPropertiesAudit?: CreateHubSpotCompanySentAudit;
   /** Properties evaluated but not sent — pending field confirmation or enum mapping */
   skippedProperties?: string[];
+  ownerMappingStatus?: 'mapped' | 'skipped_missing_mapping' | 'skipped';
 }
 
 export async function createHubSpotCompany(
@@ -118,13 +123,24 @@ export async function createHubSpotCompany(
     }
   }
 
+  let ownerMappingStatus: 'mapped' | 'skipped_missing_mapping' | 'skipped' = 'skipped';
+  if (input.hubspotOwnerId) {
+    if (input.hubspotOwnerId === 'skipped_missing_mapping') {
+      ownerMappingStatus = 'skipped_missing_mapping';
+    } else {
+      properties.hubspot_owner_id = input.hubspotOwnerId;
+      ownerMappingStatus = 'mapped';
+    }
+  }
+
   // Properties considered but NOT sent — pending HubSpot portal confirmation:
   // - legalName → razonsocialdelaempresa (custom field internal name unconfirmed)
   // - industry → HubSpot enumeration values not mapped yet
-  // - hubspot_owner_id → no SellUp→HubSpot owner mapping exists yet
   // - ARR, licencias, churn, OPS, vigencias → never sent (not for prospects)
   const skippedProperties: string[] = [];
   if (input.legalName) skippedProperties.push('legalName (razonsocialdelaempresa pending)');
+  if (input.linkedinUrl) skippedProperties.push('linkedinUrl (unconfirmed)');
+  if (input.industry) skippedProperties.push('industry (unconfirmed)');
 
   const sentPropertyKeys = Object.keys(properties);
   const sentPropertiesAudit: CreateHubSpotCompanySentAudit = {
@@ -136,6 +152,7 @@ export async function createHubSpotCompany(
     state: properties.state ?? null,
     lifecyclestage: 'lead',
     numberofemployees: sentEmployeeCount,
+    hubspot_owner_id: properties.hubspot_owner_id ?? null,
   };
 
   try {
@@ -150,18 +167,18 @@ export async function createHubSpotCompany(
 
     if (!response.ok) {
       const statusCode = response.status;
-      return { ok: false, error: `HTTP_${statusCode}`, statusCode, sentPropertyKeys, sentPropertiesAudit, skippedProperties };
+      return { ok: false, error: `HTTP_${statusCode}`, statusCode, sentPropertyKeys, sentPropertiesAudit, skippedProperties, ownerMappingStatus };
     }
 
     const data = (await response.json()) as { id?: string };
     if (!data.id) {
-      return { ok: false, error: 'NO_ID_IN_RESPONSE', sentPropertyKeys, sentPropertiesAudit, skippedProperties };
+      return { ok: false, error: 'NO_ID_IN_RESPONSE', sentPropertyKeys, sentPropertiesAudit, skippedProperties, ownerMappingStatus };
     }
 
-    return { ok: true, hubspotCompanyId: data.id, sentPropertyKeys, sentPropertiesAudit, skippedProperties };
+    return { ok: true, hubspotCompanyId: data.id, sentPropertyKeys, sentPropertiesAudit, skippedProperties, ownerMappingStatus };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message.slice(0, 200) : 'Network error';
-    return { ok: false, error: msg, sentPropertyKeys, sentPropertiesAudit, skippedProperties };
+    return { ok: false, error: msg, sentPropertyKeys, sentPropertiesAudit, skippedProperties, ownerMappingStatus };
   }
 }
 

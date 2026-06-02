@@ -442,18 +442,24 @@ async function runRuesAutoPagePhase(params: {
   countryCode: string;
   industry: string;
   searchDepth: 'basic' | 'standard';
-  now: Date;
   structuredLimit: number;
   structuredPageMax: number;
   batchNameSuffix: string;
+  targetCount: number;
 }): Promise<StructuredBatchPhaseResult> {
   const {
     admin, internalUserId, agentRunId, country, industry, searchDepth,
-    now, structuredLimit, structuredPageMax, batchNameSuffix,
+    structuredLimit, structuredPageMax, batchNameSuffix, targetCount,
   } = params;
 
   const pagesScanned: number[] = [];
   let result: StructuredBatchPhaseResult | undefined;
+  let accumulatedBatchId: string | null = null;
+  let totalWritten = 0;
+  let totalSkipped = 0;
+  const allWarnings: string[] = [];
+  const allErrors: string[] = [];
+  let pageUsed = 1;
 
   for (let autoPage = 1; autoPage <= structuredPageMax; autoPage++) {
     pagesScanned.push(autoPage);
@@ -469,14 +475,19 @@ async function runRuesAutoPagePhase(params: {
     });
 
     if (discoveryOutput.errors && discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+      allErrors.push(...discoveryOutput.errors);
+      allWarnings.push(...discoveryOutput.warnings);
+      if (totalWritten > 0) {
+        break;
+      }
       result = {
         ok: false,
-        batchId: null,
+        batchId: accumulatedBatchId,
         sourceKey: 'co_rues',
-        candidatesWritten: 0,
-        candidatesSkipped: 0,
-        warnings: discoveryOutput.warnings,
-        errors: discoveryOutput.errors,
+        candidatesWritten: totalWritten,
+        candidatesSkipped: totalSkipped,
+        warnings: allWarnings,
+        errors: allErrors,
         pagesScanned,
         autoMode: true,
       };
@@ -494,7 +505,7 @@ async function runRuesAutoPagePhase(params: {
       dataset: 'co_rues',
       batchName: `Agente 1 · ${country} · ${industry} · RUES · ${batchNameSuffix}`,
       industry,
-      targetCount: structuredLimit,
+      targetCount,
       searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
       agentRunId,
       initiatedBy: 'agent_1',
@@ -502,6 +513,7 @@ async function runRuesAutoPagePhase(params: {
       previewMode: true,
       runHubSpotCheck: true,
       limit: structuredLimit,
+      batchId: accumulatedBatchId,
       metadata: {
         structured_source_page: autoPage,
         structured_source_offset: autoOffset,
@@ -513,14 +525,20 @@ async function runRuesAutoPagePhase(params: {
     const writerErrors = writerResult.errors
       .filter((e) => !e.message.startsWith('hubspot_lookup_warning:'))
       .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
-    const allWarnings = [
+    const pageWarnings = [
       ...discoveryOutput.warnings,
       ...writerResult.errors
         .filter((e) => e.message.startsWith('hubspot_lookup_warning:') || e.message.startsWith('hubspot_lookup_failed:'))
         .map((e) => e.message),
     ];
 
+    allWarnings.push(...pageWarnings);
+    allErrors.push(...writerErrors);
+
     if (writerResult.batch.status === 'batch_creation_failed') {
+      if (totalWritten > 0) {
+        break;
+      }
       result = {
         ok: false,
         batchId: null,
@@ -528,47 +546,60 @@ async function runRuesAutoPagePhase(params: {
         candidatesWritten: 0,
         candidatesSkipped: discoveryOutput.candidates.length,
         warnings: allWarnings,
-        errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+        errors: [...allErrors, 'structured_batch_db_creation_failed'],
         pagesScanned,
         autoMode: true,
       };
       break;
     }
 
-    if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
-      continue;
+    if (writerResult.batch.id) {
+      accumulatedBatchId = writerResult.batch.id;
     }
 
-    result = {
-      ok: writerResult.batch.created,
-      batchId: writerResult.batch.id,
-      sourceKey: 'co_rues',
-      candidatesWritten: writerResult.batch.totalCandidatesWritten,
-      candidatesSkipped: writerResult.batch.totalCandidatesSkipped,
-      warnings: allWarnings,
-      errors: [...discoveryOutput.errors, ...writerErrors],
-      pageUsed: autoPage,
-      pagesScanned,
-      autoMode: true,
-    };
-    break;
+    totalWritten += writerResult.batch.totalCandidatesWritten;
+    totalSkipped += writerResult.batch.totalCandidatesSkipped;
+    pageUsed = autoPage;
+
+    // Verificar candidatos útiles acumulados en la base de datos para este lote
+    let usefulCount = 0;
+    if (accumulatedBatchId) {
+      const { data: candidates } = await admin
+        .from('prospect_candidates')
+        .select('id, tax_identifier, review_flags')
+        .eq('batch_id', accumulatedBatchId);
+
+      if (candidates) {
+        for (const c of candidates) {
+          const flags = c.review_flags || [];
+          const hasTaxId = !!c.tax_identifier;
+          const isInactive = flags.includes('liquidation_signal') || flags.includes('inactive_company') || flags.includes('no_tax_id');
+          if (hasTaxId && !isInactive) {
+            usefulCount++;
+          }
+        }
+      }
+    }
+
+    if (usefulCount >= targetCount) {
+      break;
+    }
   }
 
   if (!result) {
     result = {
-      ok: false,
-      batchId: null,
+      ok: totalWritten > 0,
+      batchId: accumulatedBatchId,
       sourceKey: 'co_rues',
-      candidatesWritten: 0,
-      candidatesSkipped: 0,
-      warnings: ['all_candidates_already_in_db', 'all_pages_scanned'],
-      errors: [],
+      candidatesWritten: totalWritten,
+      candidatesSkipped: totalSkipped,
+      warnings: Array.from(new Set(allWarnings)),
+      errors: Array.from(new Set(allErrors)),
+      pageUsed,
       pagesScanned,
       autoMode: true,
     };
   }
-
-  void now; // used externally for batchNameSuffix
 
   return result;
 }
@@ -596,7 +627,7 @@ export async function runProspectGenerationAgent(
       : 1,
   ));
   const structuredOffset = (structuredSourcePage - 1) * STRUCTURED_LIMIT;
-  const safeCount = Math.min(targetCount, 25);
+  const safeCount = Math.max(10, Math.min(targetCount, 25));
   const startedAt = Date.now();
 
   // Step 1: Create agent_run
@@ -671,6 +702,7 @@ export async function runProspectGenerationAgent(
   let ruesEarlyResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
   let sourceStrategy: 'official_source_satisfied' | 'official_plus_commercial' | 'commercial_fallback' | 'commercial_only' =
     'commercial_only';
+  let usefulCandidates = 0;
 
   if (coOfficialFirstMode) {
     try {
@@ -682,16 +714,32 @@ export async function runProspectGenerationAgent(
         countryCode,
         industry,
         searchDepth,
-        now,
         structuredLimit: STRUCTURED_LIMIT,
         structuredPageMax: STRUCTURED_PAGE_MAX,
         batchNameSuffix: now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }),
+        targetCount: safeCount,
       });
       ruesPhaseRanEarly = true;
 
-      const officialCandidates = ruesEarlyResult?.candidatesWritten ?? 0;
+      if (ruesEarlyResult?.batchId) {
+        const { data: candidates } = await admin
+          .from('prospect_candidates')
+          .select('id, tax_identifier, review_flags')
+          .eq('batch_id', ruesEarlyResult.batchId);
 
-      if (officialCandidates >= safeCount) {
+        if (candidates) {
+          for (const c of candidates) {
+            const flags = c.review_flags || [];
+            const hasTaxId = !!c.tax_identifier;
+            const isInactive = flags.includes('liquidation_signal') || flags.includes('inactive_company') || flags.includes('no_tax_id');
+            if (hasTaxId && !isInactive) {
+              usefulCandidates++;
+            }
+          }
+        }
+      }
+
+      if (usefulCandidates >= safeCount) {
         // Fuente oficial satisface el objetivo — Apollo no se ejecuta ni se factura.
         sourceStrategy = 'official_source_satisfied';
 
@@ -728,8 +776,8 @@ export async function runProspectGenerationAgent(
 
         await updateAgentRun(agentRun.id, {
           status: 'completed',
-          results_generated: officialCandidates,
-          results_unique: officialCandidates,
+          results_generated: ruesEarlyResult?.candidatesWritten ?? 0,
+          results_unique: ruesEarlyResult?.candidatesWritten ?? 0,
           estimated_cost_usd: enrichmentSummary?.totalEstimatedCostUsd ?? 0,
           finished_at: new Date().toISOString(),
           metadata: {
@@ -743,7 +791,7 @@ export async function runProspectGenerationAgent(
           success: true,
           batchId: ruesEarlyResult?.batchId ?? null,
           agentRunId: agentRun.id,
-          candidatesCreated: officialCandidates,
+          candidatesCreated: ruesEarlyResult?.candidatesWritten ?? 0,
           estimatedCostUsd: enrichmentSummary?.totalEstimatedCostUsd ?? 0,
           structuredSourceBatch: ruesEarlyResult,
           sourceStrategy,
@@ -824,11 +872,15 @@ export async function runProspectGenerationAgent(
       provider_key: 'apollo',
     });
 
+    const apolloTargetCount = ruesPhaseRanEarly
+      ? Math.max(10, safeCount - usefulCandidates)
+      : safeCount;
+
     const industryKeywords = mapIndustryToApolloKeywords(industry);
     const apolloResult = await searchApolloOrganizations({
       organization_locations: [country],
       ...(industryKeywords ? { q_keywords: industryKeywords } : {}),
-      per_page: safeCount,
+      per_page: apolloTargetCount,
       page: 1,
     });
 
@@ -852,7 +904,7 @@ export async function runProspectGenerationAgent(
       triggered_by: internalUserId,
       metadata: {
         country,
-        per_page: safeCount,
+        per_page: apolloTargetCount,
         total_available: apolloResult.total ?? 0,
         pricing_source: apolloCost.pricingSource,
         pricing_basis: apolloCost.pricingBasis,
@@ -888,7 +940,7 @@ export async function runProspectGenerationAgent(
     }
 
     // Take only what we need, then score sector fit before dedup
-    const rawCompanies = apolloCompanies.slice(0, safeCount);
+    const rawCompanies = apolloCompanies.slice(0, apolloTargetCount);
     const scoredCompanies = filterBySectorFit(rawCompanies, industry);
     const targetCompanies = scoredCompanies;
 
