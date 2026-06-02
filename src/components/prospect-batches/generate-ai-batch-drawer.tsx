@@ -619,19 +619,31 @@ export function GenerateAIBatchDrawer() {
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+type StructuredBatchResult = {
+  ok: boolean;
+  batchId?: string | null;
+  sourceKey?: string;
+  candidatesWritten?: number;
+  candidatesSkipped?: number;
+  warnings?: string[];
+  errors?: string[];
+};
+
+function isStructuredSourceNothingToWrite(batch: StructuredBatchResult | null | undefined): boolean {
+  if (!batch) return false;
+  if (batch.ok || batch.batchId) return false;
+  const hasRealErrors = batch.errors && batch.errors.length > 0;
+  if (hasRealErrors) return false;
+  return !!(batch.warnings?.includes('all_candidates_already_in_db'));
+}
+
 // ── Panel de resultado del preflight ─────────────────────────────────────────
 
 interface PreflightResultPanelProps {
   result: SourceDiscoveryPreflightResult | null;
-  structuredBatch: {
-    ok: boolean;
-    batchId?: string | null;
-    sourceKey?: string;
-    candidatesWritten?: number;
-    candidatesSkipped?: number;
-    warnings?: string[];
-    errors?: string[];
-  } | null | undefined;
+  structuredBatch: StructuredBatchResult | null | undefined;
   apolloBatchId: string | null;
 }
 
@@ -682,68 +694,104 @@ function PreflightResultPanel({
         )}
       </div>
 
-      {/* Lote fuente oficial (si se generó) */}
-      {structuredBatch && (
-        <div className={`rounded-xl border p-4 space-y-3 bg-card ${structuredBatch.ok ? 'border-su-brand/20' : 'border-destructive/20'}`}>
-          <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-            <div className={`h-2 w-2 rounded-full ${structuredBatch.ok ? 'bg-su-brand' : 'bg-destructive'}`} />
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-              Lote Fuente Oficial (RUES/co_rues)
-            </span>
-          </div>
+      {/* Lote fuente oficial (si se intentó) */}
+      {structuredBatch && (() => {
+        const nothingToWrite = isStructuredSourceNothingToWrite(structuredBatch);
+        const borderClass = structuredBatch.ok
+          ? 'border-su-brand/20'
+          : nothingToWrite
+            ? 'border-amber-500/20'
+            : 'border-destructive/20';
+        const dotClass = structuredBatch.ok
+          ? 'bg-su-brand'
+          : nothingToWrite
+            ? 'bg-amber-500'
+            : 'bg-destructive';
 
-          {structuredBatch.ok ? (
-            <>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Estado:</span>
-                <span className="font-medium text-emerald-500 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Creado (Revisión humana)
-                </span>
-              </div>
-              {structuredBatch.batchId && (
+        return (
+          <div className={`rounded-xl border p-4 space-y-3 bg-card ${borderClass}`}>
+            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+              <div className={`h-2 w-2 rounded-full ${dotClass}`} />
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+                Lote Fuente Oficial (RUES/co_rues)
+              </span>
+            </div>
+
+            {structuredBatch.ok ? (
+              <>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Batch ID:</span>
-                  <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
-                    {structuredBatch.batchId.slice(0, 8)}...
-                  </code>
+                  <span className="text-muted-foreground">Estado:</span>
+                  <span className="font-medium text-emerald-500 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" /> Creado (Revisión humana)
+                  </span>
                 </div>
-              )}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Escritos:</span>
-                  <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten}</span>
+                {structuredBatch.batchId && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Batch ID:</span>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
+                      {structuredBatch.batchId.slice(0, 8)}...
+                    </code>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Escritos:</span>
+                    <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Omitidos:</span>
+                    <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Omitidos:</span>
-                  <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
+              </>
+            ) : nothingToWrite ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    No se creó lote fuente oficial
+                  </span>
                 </div>
-              </div>
-            </>
-          ) : (
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-destructive">Error en la creación del lote estructurado</span>
-              {structuredBatch.errors && structuredBatch.errors.map((err, i) => (
-                <p key={i} className="text-[11px] text-destructive/80 pl-2">
-                  · {err}
+                <p className="text-[11px] text-muted-foreground pl-5">
+                  Todos los candidatos encontrados en RUES ya existen en SellUp. No se escribieron duplicados.
                 </p>
-              ))}
-            </div>
-          )}
-
-          {/* Warnings del lote estructurado */}
-          {structuredBatch.warnings && structuredBatch.warnings.length > 0 && (
-            <div className="rounded-lg bg-amber-500/5 p-2 border border-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400 space-y-1">
-              <div className="flex items-center gap-1 font-semibold">
-                <TriangleAlert className="h-3 w-3" />
-                <span>Advertencias</span>
+                <div className="flex items-center justify-between text-xs pl-5">
+                  <span className="text-muted-foreground">Candidatos escritos:</span>
+                  <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten ?? 0}</span>
+                </div>
+                {(structuredBatch.candidatesSkipped ?? 0) > 0 && (
+                  <div className="flex items-center justify-between text-xs pl-5">
+                    <span className="text-muted-foreground">Omitidos (ya existían):</span>
+                    <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
+                  </div>
+                )}
               </div>
-              {structuredBatch.warnings.map((w, i) => (
-                <p key={i} className="pl-4">· {w}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+            ) : (
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-destructive">Error en la creación del lote estructurado</span>
+                {structuredBatch.errors && structuredBatch.errors.map((err, i) => (
+                  <p key={i} className="text-[11px] text-destructive/80 pl-2">
+                    · {err}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* Warnings del lote estructurado (solo si no es nothingToWrite, ya explicado arriba) */}
+            {!nothingToWrite && structuredBatch.warnings && structuredBatch.warnings.length > 0 && (
+              <div className="rounded-lg bg-amber-500/5 p-2 border border-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400 space-y-1">
+                <div className="flex items-center gap-1 font-semibold">
+                  <TriangleAlert className="h-3 w-3" />
+                  <span>Advertencias</span>
+                </div>
+                {structuredBatch.warnings.map((w, i) => (
+                  <p key={i} className="pl-4">· {w}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Resultado del preflight (solo informativo si no se seleccionó el lote estructurado) */}
       {!structuredBatch && result && (
