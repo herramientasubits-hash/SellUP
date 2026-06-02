@@ -197,22 +197,35 @@ export function CandidateDetailSheet({
   const evidenceUsed = (aiEval?.evidence_used as string[] | undefined) ?? [];
   const hasAiEval = fitStatus !== null || fitScore !== null || aiSummary !== null;
 
-  // Enrichment fields
-  const linkedinUrl = (enrichment?.linkedin_url as string | undefined)
-    ?? (enrichment?.linkedin as string | undefined)
-    ?? null;
-  const publicDescription = (enrichment?.description as string | undefined)
-    ?? (enrichment?.public_description as string | undefined)
-    ?? null;
-  const employeeCount = (enrichment?.employee_count as string | number | undefined)
-    ?? candidate.company_size
-    ?? null;
-  const sectorDescription = (enrichment?.sector_description as string | undefined)
-    ?? candidate.industry
-    ?? null;
-  const ciiu = (enrichment?.ciiu as string | undefined)
-    ?? (enrichment?.sector_code as string | undefined)
-    ?? null;
+  // Enrichment fields — 16AK.13: read from structured web sub-object first
+  const webEnrichment = enrichment?.web as Record<string, unknown> | undefined;
+  const officialWebsiteObj = webEnrichment?.official_website as Record<string, unknown> | undefined;
+  const linkedInObj = webEnrichment?.linkedin_company as Record<string, unknown> | undefined;
+  const publicDescObj = webEnrichment?.public_description as Record<string, unknown> | undefined;
+
+  const websiteConfidence = (officialWebsiteObj?.confidence as string | undefined) ?? null;
+  const linkedinUrl =
+    (linkedInObj?.url as string | undefined) ??
+    (enrichment?.linkedin_url as string | undefined) ??
+    (enrichment?.linkedin as string | undefined) ??
+    null;
+  const linkedinConfidence = (linkedInObj?.confidence as string | undefined) ?? null;
+  const publicDescription =
+    (publicDescObj?.text as string | undefined) ??
+    (enrichment?.description as string | undefined) ??
+    (enrichment?.public_description as string | undefined) ??
+    (aiEval?.description as string | undefined) ??
+    null;
+  const employeeCount =
+    (enrichment?.employee_count as string | number | undefined) ??
+    candidate.company_size ??
+    null;
+  const sectorDescription =
+    (enrichment?.sector_description as string | undefined) ?? candidate.industry ?? null;
+  const ciiu =
+    (enrichment?.ciiu as string | undefined) ??
+    (enrichment?.sector_code as string | undefined) ??
+    null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -342,15 +355,28 @@ export function CandidateDetailSheet({
                   label="Sitio web"
                   value={
                     candidate.website ? (
-                      <a
-                        href={candidate.website.startsWith('http') ? candidate.website : `https://${candidate.website}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-su-brand hover:underline"
-                      >
-                        <Globe className="h-3 w-3 shrink-0" />
-                        {candidate.domain ?? candidate.website}
-                      </a>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <a
+                          href={candidate.website.startsWith('http') ? candidate.website : `https://${candidate.website}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-su-brand hover:underline"
+                        >
+                          <Globe className="h-3 w-3 shrink-0" />
+                          {candidate.domain ?? candidate.website}
+                        </a>
+                        {websiteConfidence && (
+                          <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
+                            websiteConfidence === 'high'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : websiteConfidence === 'medium'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-muted text-muted-foreground/60'
+                          }`}>
+                            {websiteConfidence}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <MissingText text="Sin web encontrada" />
                     )
@@ -360,15 +386,28 @@ export function CandidateDetailSheet({
                   label="LinkedIn corporativo"
                   value={
                     linkedinUrl ? (
-                      <a
-                        href={linkedinUrl.startsWith('http') ? linkedinUrl : `https://${linkedinUrl}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-su-brand hover:underline"
-                      >
-                        <Link2 className="h-3 w-3 shrink-0" />
-                        Ver perfil
-                      </a>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <a
+                          href={linkedinUrl.startsWith('http') ? linkedinUrl : `https://${linkedinUrl}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-su-brand hover:underline"
+                        >
+                          <Link2 className="h-3 w-3 shrink-0" />
+                          Ver perfil
+                        </a>
+                        {linkedinConfidence && (
+                          <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
+                            linkedinConfidence === 'high'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : linkedinConfidence === 'medium'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-muted text-muted-foreground/60'
+                          }`}>
+                            {linkedinConfidence}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <MissingText text="Sin LinkedIn encontrado" />
                     )

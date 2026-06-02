@@ -1,43 +1,54 @@
 /**
- * Official Candidate Enricher — Hito 16AK.11
+ * Official Candidate Enricher — 16AK.13
  *
  * Enriquece candidatos oficiales (RUES) con evidencia web controlada (Tavily)
  * y evaluación de IA (Claude/Anthropic) como capa posterior.
  *
- * Contrato:
- * - Solo actúa sobre candidatos elegibles (sin liquidación, sin exact_duplicate).
- * - Tavily busca evidencia pública: website, descripción, señales comerciales.
- * - Claude evalúa SOLO la evidencia encontrada. No inventa datos.
+ * Cambios 16AK.13:
+ * - Multi-query Tavily (máx 2 queries por candidato, early-stop si evidencia suficiente).
+ * - Scoring de evidencia antes de enviar a Claude.
+ * - Extracción local de website/LinkedIn/descripción.
+ * - Claude recibe evidencia pre-clasificada; devuelve field_confidence por campo.
+ * - Metadata estructurada: web.official_website, web.linkedin_company, web.public_description.
+ *
+ * Contratos:
+ * - RUES / datos oficiales NO se sobrescriben.
+ * - Claude NO inventa datos. Solo evalúa evidencia explícita.
  * - Si Tavily falla → warning, no falla el flujo.
  * - Si Claude falla → fit_status = 'unknown', no falla el flujo.
  * - No modifica: status, review_status, duplicate_status, source_primary, batch_id,
  *   account_id, converted_account_id, hubspot_company_id.
- * - Máximo maxEnrichmentCandidates por ejecución para controlar costos.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
 import { getAiProviderCredential } from '../../services/ai-connection';
 import { estimateLLMCost } from './llm-evaluator';
+import {
+  buildQueryStrategies,
+  scoreWebEvidence,
+  extractOfficialWebsite,
+  extractLinkedInCompany,
+  buildPublicDescription,
+  hasHighConfidenceEvidence,
+  type ScoredWebResult,
+  type CandidateBasicInfo,
+} from './web-evidence-scorer';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 const MAX_ENRICHMENT_CANDIDATES = 5;
-const TAVILY_MAX_RESULTS = 5;
+const MAX_QUERIES_PER_CANDIDATE = 2;
+const TAVILY_MAX_RESULTS_PER_QUERY = 5;
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const REQUEST_TIMEOUT_MS = 20_000;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface CandidateRow {
+interface CandidateRow extends CandidateBasicInfo {
   id: string;
-  name: string | null;
-  legal_name: string | null;
-  tax_identifier: string | null;
-  city: string | null;
-  industry: string | null;
   website: string | null;
   domain: string | null;
   status: string | null;
@@ -45,6 +56,8 @@ interface CandidateRow {
   review_flags: string[] | null;
   metadata: Record<string, unknown> | null;
 }
+
+type FieldConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown';
 
 export interface AIEvaluationResult {
   website: string | null;
@@ -59,6 +72,13 @@ export interface AIEvaluationResult {
   missing_fields: string[];
   summary: string;
   evidence_used: string[];
+  field_confidence: {
+    website: FieldConfidenceLevel;
+    linkedin: FieldConfidenceLevel;
+    description: FieldConfidenceLevel;
+    company_size: FieldConfidenceLevel;
+    sector: FieldConfidenceLevel;
+  } | null;
 }
 
 interface EnrichedCandidate {
@@ -95,34 +115,17 @@ export interface EnrichmentSummary {
 // ─── Eligibility filter ───────────────────────────────────────────────────────
 
 function isEligibleForEnrichment(candidate: CandidateRow): boolean {
-  // Skip if no identifying data
   if (!candidate.name && !candidate.tax_identifier) return false;
-  // Skip converted or discarded
   if (candidate.status === 'converted_to_account' || candidate.status === 'discarded') return false;
-  // Skip exact duplicates (already in HubSpot/SellUp)
   if (candidate.duplicate_status === 'exact_duplicate') return false;
-  // Skip liquidation / inactive signals
   const flags = candidate.review_flags ?? [];
   if (flags.includes('liquidation_signal') || flags.includes('inactive_company')) return false;
   return true;
 }
 
-// ─── Query builder ────────────────────────────────────────────────────────────
-
-function buildTavilyQuery(candidate: CandidateRow, industry: string): string {
-  const parts: string[] = [];
-  const name = candidate.legal_name ?? candidate.name ?? '';
-  if (name) parts.push(`"${name}"`);
-  if (candidate.tax_identifier) parts.push(`NIT ${candidate.tax_identifier}`);
-  parts.push('empresa Colombia');
-  if (industry) parts.push(industry.split('/')[0].trim());
-  parts.push('sitio web');
-  return parts.join(' ');
-}
-
 // ─── Domain extractor ─────────────────────────────────────────────────────────
 
-function extractDomain(url: string | null | undefined): string | null {
+function extractDomainSimple(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
     const normalized = url.startsWith('http') ? url : `https://${url}`;
@@ -133,61 +136,90 @@ function extractDomain(url: string | null | undefined): string | null {
   }
 }
 
-// ─── Claude evaluation ────────────────────────────────────────────────────────
+// ─── Claude evaluation prompt ─────────────────────────────────────────────────
 
 function buildEvaluationPrompt(
   candidate: CandidateRow,
-  tavilySnippets: Array<{ url: string; title: string; snippet: string | null }>,
+  scoredResults: ScoredWebResult[],
+  queriesRun: string[],
   industry: string,
+  preExtractedWebsite: string | null,
+  preExtractedLinkedIn: string | null,
 ): string {
   const name = candidate.legal_name ?? candidate.name ?? 'Empresa desconocida';
-  const evidenceBlock = tavilySnippets
+
+  const evidenceBlock = scoredResults
     .map((r, i) =>
       [
-        `[${i + 1}] URL: ${r.url}`,
+        `[${i + 1}] Tipo: ${r.source_type.toUpperCase()} | Confidence: ${r.confidence} | Score: ${r.raw_score}`,
+        `    URL: ${r.url}`,
         `    Título: ${r.title}`,
-        r.snippet ? `    Texto: ${r.snippet.slice(0, 300)}` : '',
+        r.snippet ? `    Texto: ${r.snippet.slice(0, 280)}` : '',
       ]
         .filter(Boolean)
         .join('\n'),
     )
     .join('\n\n');
 
-  return `Eres un evaluador de evidencia comercial para SellUp, una plataforma B2B.
+  const preExtracted: string[] = [];
+  if (preExtractedWebsite) preExtracted.push(`- Website detectado localmente: ${preExtractedWebsite}`);
+  else preExtracted.push('- Website: no detectado localmente');
+  if (preExtractedLinkedIn) preExtracted.push(`- LinkedIn detectado localmente: ${preExtractedLinkedIn}`);
+  else preExtracted.push('- LinkedIn: no detectado localmente');
 
-EMPRESA (fuente oficial RUES Colombia):
+  return `Eres un evaluador de evidencia comercial para SellUp, plataforma B2B Colombia.
+
+EMPRESA (fuente oficial RUES):
 - Nombre: ${name}
 ${candidate.tax_identifier ? `- NIT: ${candidate.tax_identifier}` : ''}
 ${candidate.city ? `- Ciudad: ${candidate.city}` : ''}
 - Sector registrado: ${candidate.industry ?? industry}
 - País: Colombia
 
-EVIDENCIA WEB ENCONTRADA (resultados Tavily):
+BÚSQUEDAS REALIZADAS (${queriesRun.length}):
+${queriesRun.map((q, i) => `  ${i + 1}. ${q}`).join('\n')}
+
+EVIDENCIA WEB PRE-CLASIFICADA (${scoredResults.length} resultados):
 ${evidenceBlock || '(sin resultados)'}
 
-INDUSTRIA objetivo para prospección SellUp: ${industry}
+EXTRACCIÓN PREVIA (sistema local):
+${preExtracted.join('\n')}
 
-INSTRUCCIONES:
-1. Extrae datos SOLO si están explícitos en la evidencia anterior.
-2. website/domain/company_linkedin_url deben estar respaldados por una URL en evidence_used.
-3. fit_score debe ser null si hay menos de 2 resultados con texto relevante.
-4. NO inventes NIT, website, LinkedIn, empleados ni datos no encontrados.
-5. Si la evidencia no corresponde a esta empresa, retorna fit_status "unknown".
+INDUSTRIA objetivo SellUp: ${industry}
 
-Responde ÚNICAMENTE con este JSON válido (sin markdown, sin texto adicional):
+INSTRUCCIONES CRÍTICAS:
+1. Usa SOLO evidencia de los resultados anteriores. No inventes URLs, NIT ni datos.
+2. website/domain: usa SOLO fuentes tipo official_website con confidence high/medium.
+3. company_linkedin_url: usa SOLO resultados tipo linkedin_company con URL explícita /company/.
+4. description: construye SOLO desde snippets de resultados high/medium confidence.
+5. fit_score: null si hay menos de 2 resultados con texto relevante a esta empresa.
+6. No inferir tamaño de empresa salvo que el snippet lo mencione explícitamente.
+7. Si evidencia no corresponde a esta empresa: fit_status "unknown".
+8. field_confidence: "unknown" si no hay evidencia explícita del campo.
+9. No usar directorios (tipo directory) como website oficial.
+10. No usar perfiles personales LinkedIn; solo páginas /company/.
+
+Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto adicional):
 {
-  "website": "<URL completa si encontrada, sino null>",
+  "website": "<URL completa si confidence high/medium en official_website, sino null>",
   "domain": "<dominio sin www si encontrado, sino null>",
-  "company_linkedin_url": "<URL LinkedIn corporativo si encontrado, sino null>",
-  "description": "<descripción pública 1-2 frases basada en evidencia, sino null>",
-  "commercial_signals": ["<señal comercial encontrada>"],
+  "company_linkedin_url": "<URL /company/ LinkedIn si encontrada, sino null>",
+  "description": "<1-2 frases desde snippets high/medium, sino null>",
+  "commercial_signals": ["<señal explícita en evidencia>"],
   "fit_score": <número 0-100 o null>,
   "fit_status": "high" | "medium" | "low" | "unknown",
   "fit_reasons": ["<razón basada en evidencia>"],
   "risks": ["<riesgo detectado>"],
-  "missing_fields": ["website", "linkedin"],
+  "missing_fields": ["<campo sin evidencia>"],
   "summary": "<1 oración resumen>",
-  "evidence_used": ["<url1>", "<url2>"]
+  "evidence_used": ["<url1>", "<url2>"],
+  "field_confidence": {
+    "website": "high" | "medium" | "low" | "unknown",
+    "linkedin": "high" | "medium" | "low" | "unknown",
+    "description": "high" | "medium" | "low" | "unknown",
+    "company_size": "high" | "medium" | "low" | "unknown",
+    "sector": "high" | "medium" | "low" | "unknown"
+  }
 }`;
 }
 
@@ -199,7 +231,6 @@ function parseAIResponse(raw: string): AIEvaluationResult | null {
       .replace(/\s*```$/, '')
       .trim();
 
-    // Try to extract JSON object if surrounded by text
     let toParse = stripped;
     const match = /\{[\s\S]*\}/.exec(stripped);
     if (match) toParse = match[0];
@@ -207,9 +238,9 @@ function parseAIResponse(raw: string): AIEvaluationResult | null {
     const parsed = JSON.parse(toParse) as Record<string, unknown>;
 
     const fitStatusRaw = String(parsed.fit_status ?? 'unknown');
-    const fitStatus: AIEvaluationResult['fit_status'] = ['high', 'medium', 'low', 'unknown'].includes(
-      fitStatusRaw,
-    )
+    const fitStatus: AIEvaluationResult['fit_status'] = (
+      ['high', 'medium', 'low', 'unknown'] as const
+    ).includes(fitStatusRaw as AIEvaluationResult['fit_status'])
       ? (fitStatusRaw as AIEvaluationResult['fit_status'])
       : 'unknown';
 
@@ -219,11 +250,27 @@ function parseAIResponse(raw: string): AIEvaluationResult | null {
         ? Math.min(100, Math.max(0, Math.round(fitScoreRaw)))
         : null;
 
+    const validConfidence = (v: unknown): FieldConfidenceLevel =>
+      typeof v === 'string' && ['high', 'medium', 'low', 'unknown'].includes(v)
+        ? (v as FieldConfidenceLevel)
+        : 'unknown';
+
+    const fcRaw = parsed.field_confidence as Record<string, unknown> | null | undefined;
+    const fieldConfidence: AIEvaluationResult['field_confidence'] = fcRaw
+      ? {
+          website: validConfidence(fcRaw.website),
+          linkedin: validConfidence(fcRaw.linkedin),
+          description: validConfidence(fcRaw.description),
+          company_size: validConfidence(fcRaw.company_size),
+          sector: validConfidence(fcRaw.sector),
+        }
+      : null;
+
     return {
       website: typeof parsed.website === 'string' && parsed.website.length > 0 ? parsed.website : null,
       domain: typeof parsed.domain === 'string' && parsed.domain.length > 0 ? parsed.domain : null,
       company_linkedin_url:
-        typeof parsed.company_linkedin_url === 'string' && parsed.company_linkedin_url.length > 0
+        typeof parsed.company_linkedin_url === 'string' && parsed.company_linkedin_url.includes('/company/')
           ? parsed.company_linkedin_url
           : null,
       description:
@@ -240,6 +287,7 @@ function parseAIResponse(raw: string): AIEvaluationResult | null {
       missing_fields: Array.isArray(parsed.missing_fields) ? parsed.missing_fields.map(String) : [],
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
       evidence_used: Array.isArray(parsed.evidence_used) ? parsed.evidence_used.map(String) : [],
+      field_confidence: fieldConfidence,
     };
   } catch {
     return null;
@@ -295,6 +343,62 @@ async function callClaudeForEvidence(
   }
 }
 
+// ─── Multi-query Tavily runner ────────────────────────────────────────────────
+
+async function runMultiQueryTavily(
+  candidate: CandidateBasicInfo,
+  industry: string,
+  warnings: string[],
+  candidateId: string,
+): Promise<{ rawResults: Array<{ url: string; title: string; snippet: string | null }>; queriesRun: string[]; failed: boolean }> {
+  const strategies = buildQueryStrategies(candidate, industry);
+  const allResults: Array<{ url: string; title: string; snippet: string | null }> = [];
+  const queriesRun: string[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const strategy of strategies.slice(0, MAX_QUERIES_PER_CANDIDATE)) {
+    let queryFailed = false;
+
+    try {
+      const output = await runTavilyWebSearch(
+        { query: strategy.query, searchDepth: 'basic' },
+        TAVILY_MAX_RESULTS_PER_QUERY,
+      );
+
+      if (output.skipped) {
+        warnings.push(`tavily_skipped:${candidateId}:${output.skipReason ?? 'unknown'}`);
+        queryFailed = true;
+      } else {
+        queriesRun.push(strategy.query);
+        for (const r of output.results) {
+          if (!seenUrls.has(r.url)) {
+            seenUrls.add(r.url);
+            allResults.push({ url: r.url, title: r.title, snippet: r.snippet ?? null });
+          }
+        }
+      }
+    } catch (err: unknown) {
+      warnings.push(
+        `tavily_error:${candidateId}:${err instanceof Error ? err.message : 'unknown'}`,
+      );
+      queryFailed = true;
+    }
+
+    // If first query failed entirely, abort
+    if (queryFailed && queriesRun.length === 0) {
+      return { rawResults: [], queriesRun: [], failed: true };
+    }
+
+    // Early stop: enough high-quality evidence after first query
+    if (queriesRun.length > 0 && allResults.length > 0) {
+      const preview = scoreWebEvidence(candidate, allResults);
+      if (hasHighConfidenceEvidence(preview)) break;
+    }
+  }
+
+  return { rawResults: allResults, queriesRun, failed: false };
+}
+
 // ─── Main enricher ────────────────────────────────────────────────────────────
 
 /**
@@ -302,11 +406,11 @@ async function callClaudeForEvidence(
  *
  * Flujo por candidato:
  *   1. Filtrar elegibles (sin liquidación, sin exact_duplicate).
- *   2. Tavily: buscar evidencia pública.
- *   3. Si Tavily encontró ≥1 resultado: Claude evalúa evidencia.
- *   4. Persistir: website, domain, fit_score, metadata.enrichment.
- *
- * Nunca falla el flujo principal. Errores → warning en summary.
+ *   2. Multi-query Tavily (máx 2 queries, early stop si evidencia suficiente).
+ *   3. Scoring de evidencia local.
+ *   4. Extracción local: website, LinkedIn, descripción.
+ *   5. Claude evalúa evidencia pre-clasificada; devuelve field_confidence.
+ *   6. Persistir: website, domain, fit_score, metadata.enrichment estructurada.
  */
 export async function enrichBatchCandidatesWithWebAndAI(
   admin: SupabaseClient,
@@ -324,33 +428,26 @@ export async function enrichBatchCandidatesWithWebAndAI(
     warnings: [],
   };
 
-  // ── Load candidates for batch ─────────────────────────────────────────────
   const { data: rows, error: loadError } = await admin
     .from('prospect_candidates')
     .select(
       'id, name, legal_name, tax_identifier, city, industry, website, domain, status, duplicate_status, review_flags, metadata',
     )
     .eq('batch_id', batchId)
-    .limit(50); // load more, filter below
+    .limit(50);
 
   if (loadError || !rows) {
     summary.warnings.push(`enrichment_load_failed: ${loadError?.message ?? 'no rows'}`);
     return summary;
   }
 
-  // ── Filter eligible + limit ───────────────────────────────────────────────
   const maxCandidates = Math.min(criteria.targetCount, MAX_ENRICHMENT_CANDIDATES);
   const eligible = (rows as CandidateRow[]).filter(isEligibleForEnrichment).slice(0, maxCandidates);
 
-  const skippedCount = rows.length - eligible.length;
-  for (let i = 0; i < skippedCount; i++) {
+  const skippedRows = (rows as CandidateRow[]).filter((r) => !isEligibleForEnrichment(r));
+  for (const row of skippedRows) {
     summary.skipped++;
-    summary.candidates.push({
-      id: (rows as CandidateRow[])[eligible.length + i]?.id ?? 'unknown',
-      name: (rows as CandidateRow[])[eligible.length + i]?.name ?? null,
-      status: 'skipped',
-      skipReason: 'not_eligible',
-    });
+    summary.candidates.push({ id: row.id, name: row.name, status: 'skipped', skipReason: 'not_eligible' });
   }
 
   if (eligible.length === 0) {
@@ -358,9 +455,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
     return summary;
   }
 
-  // ── Resolve AI credentials once ───────────────────────────────────────────
+  // Resolve AI credentials once
   let anthropicApiKey: string | null = null;
-  let aiModel = FALLBACK_MODEL;
+  const aiModel = FALLBACK_MODEL;
 
   try {
     const credResult = await getAiProviderCredential('anthropic');
@@ -373,77 +470,65 @@ export async function enrichBatchCandidatesWithWebAndAI(
     summary.warnings.push('anthropic_credential_error: ai_evaluation_will_be_skipped');
   }
 
-  // ── Enrich each eligible candidate sequentially ────────────────────────────
   for (const candidate of eligible) {
-    const result: EnrichedCandidate = {
-      id: candidate.id,
-      name: candidate.name,
-      status: 'skipped',
-    };
+    const result: EnrichedCandidate = { id: candidate.id, name: candidate.name, status: 'skipped' };
 
-    // ── Step 1: Tavily search ───────────────────────────────────────────────
-    const query = buildTavilyQuery(candidate, criteria.industry);
-    let tavilySnippets: Array<{ url: string; title: string; snippet: string | null }> = [];
-    let tavilyFailed = false;
-
-    try {
-      const tavilyOutput = await runTavilyWebSearch(
-        { query, searchDepth: 'basic' },
-        TAVILY_MAX_RESULTS,
-      );
-
-      if (tavilyOutput.skipped) {
-        tavilyFailed = true;
-        summary.warnings.push(`tavily_skipped:${candidate.id}:${tavilyOutput.skipReason ?? 'unknown'}`);
-      } else {
-        tavilySnippets = tavilyOutput.results.map((r) => ({
-          url: r.url,
-          title: r.title,
-          snippet: r.snippet ?? null,
-        }));
-      }
-    } catch (tavilyErr: unknown) {
-      tavilyFailed = true;
-      summary.warnings.push(
-        `tavily_error:${candidate.id}:${tavilyErr instanceof Error ? tavilyErr.message : 'unknown'}`,
-      );
-    }
+    // ── Step 1: Multi-query Tavily ─────────────────────────────────────────
+    const { rawResults, queriesRun, failed: tavilyFailed } = await runMultiQueryTavily(
+      candidate,
+      criteria.industry,
+      summary.warnings,
+      candidate.id,
+    );
 
     if (tavilyFailed) {
       result.status = 'tavily_failed';
       summary.tavilyFailed++;
-      summary.candidates.push(result);
-
-      // Persist skipped_reason in metadata without other changes
       await persistEnrichmentMetadata(admin, candidate.id, candidate.metadata, {
         web: { skipped: true, skip_reason: 'tavily_failed' },
         ai_evaluation: null,
         cost_trace: null,
         executed_at: new Date().toISOString(),
       });
+      summary.candidates.push(result);
       continue;
     }
 
-    if (tavilySnippets.length === 0) {
+    if (rawResults.length === 0) {
       result.status = 'no_evidence';
       summary.noEvidence++;
-      summary.candidates.push(result);
-
       await persistEnrichmentMetadata(admin, candidate.id, candidate.metadata, {
-        web: { skipped: false, results_count: 0, skip_reason: 'no_results' },
+        web: { skipped: false, results_count: 0, skip_reason: 'no_results', queries: queriesRun },
         ai_evaluation: null,
         cost_trace: null,
         executed_at: new Date().toISOString(),
       });
+      summary.candidates.push(result);
       continue;
     }
 
-    // ── Step 2: Claude evaluation ───────────────────────────────────────────
+    // ── Step 2: Score evidence ─────────────────────────────────────────────
+    const scoredResults = scoreWebEvidence(candidate, rawResults);
+
+    // ── Step 3: Local extraction ───────────────────────────────────────────
+    const officialWebsiteEvidence = extractOfficialWebsite(scoredResults);
+    const linkedInEvidence = extractLinkedInCompany(scoredResults);
+    const publicDescriptionEvidence = buildPublicDescription(scoredResults);
+
+    // ── Step 4: Claude evaluation ──────────────────────────────────────────
     let aiResult: AIEvaluationResult | null = null;
     let costTrace: CostTrace | null = null;
 
     if (anthropicApiKey) {
-      const prompt = buildEvaluationPrompt(candidate, tavilySnippets, criteria.industry);
+      const prompt = buildEvaluationPrompt(
+        candidate,
+        scoredResults,
+        queriesRun,
+        criteria.industry,
+        officialWebsiteEvidence?.url ?? null,
+        linkedInEvidence?.url ?? null,
+      );
+
       try {
         const { content, inputTokens, outputTokens } = await callClaudeForEvidence(
           prompt,
@@ -473,10 +558,18 @@ export async function enrichBatchCandidatesWithWebAndAI(
         summary.warnings.push(
           `ai_error:${candidate.id}:${aiErr instanceof Error ? aiErr.message : 'unknown'}`,
         );
-
-        // Persist Tavily results even if Claude failed
+        // Persist Tavily results even when Claude failed
         await persistEnrichmentMetadata(admin, candidate.id, candidate.metadata, {
-          web: { skipped: false, results_count: tavilySnippets.length, results: tavilySnippets },
+          web: {
+            skipped: false,
+            results_count: scoredResults.length,
+            queries_run: queriesRun.length,
+            queries: queriesRun,
+            official_website: officialWebsiteEvidence ?? null,
+            linkedin_company: linkedInEvidence ?? null,
+            public_description: publicDescriptionEvidence ?? null,
+            results: scoredResults.slice(0, 5),
+          },
           ai_evaluation: { status: 'failed' },
           cost_trace: null,
           executed_at: new Date().toISOString(),
@@ -486,33 +579,50 @@ export async function enrichBatchCandidatesWithWebAndAI(
       }
     }
 
-    // ── Step 3: Persist enrichment ──────────────────────────────────────────
+    // ── Step 5: Build update payload ───────────────────────────────────────
     const updatePayload: Record<string, unknown> = {};
 
-    // Only set website/domain if Claude found it with evidence backing
-    if (aiResult?.website && aiResult.evidence_used.length > 0) {
-      // Don't overwrite if already has a website from the official source
-      if (!candidate.website) {
-        updatePayload.website = aiResult.website;
-        updatePayload.domain = aiResult.domain ?? extractDomain(aiResult.website);
-        result.website = aiResult.website;
-        result.domain = updatePayload.domain as string | null;
-      }
+    // Website: prefer local extraction; fall back to Claude if local found nothing
+    const finalWebsite =
+      officialWebsiteEvidence?.url ?? (aiResult?.website ?? null);
+    const finalDomain =
+      officialWebsiteEvidence?.domain ??
+      (aiResult?.domain ?? extractDomainSimple(aiResult?.website));
+
+    if (!candidate.website && finalWebsite) {
+      updatePayload.website = finalWebsite;
+      updatePayload.domain = finalDomain;
+      result.website = finalWebsite;
+      result.domain = finalDomain as string | null;
     }
 
-    // Set fit_score only if Claude produced a real number
     if (aiResult && typeof aiResult.fit_score === 'number') {
       updatePayload.fit_score = aiResult.fit_score;
       result.fitScore = aiResult.fit_score;
     }
 
-    // Persist metadata.enrichment
+    // LinkedIn: prefer local extraction; fall back to Claude
+    const finalLinkedIn =
+      linkedInEvidence?.url ?? (aiResult?.company_linkedin_url ?? null);
+
+    // Description: prefer local extraction; fall back to Claude
+    const finalDescription =
+      publicDescriptionEvidence?.text ?? (aiResult?.description ?? null);
+
     const enrichmentMeta = {
       web: {
         skipped: false,
-        results_count: tavilySnippets.length,
-        results: tavilySnippets.slice(0, 3), // store only top 3 to keep metadata lean
-        query,
+        results_count: scoredResults.length,
+        queries_run: queriesRun.length,
+        queries: queriesRun,
+        official_website: officialWebsiteEvidence ?? null,
+        linkedin_company: linkedInEvidence
+          ? linkedInEvidence
+          : finalLinkedIn
+          ? { url: finalLinkedIn, confidence: 'low' as const, evidence_url: finalLinkedIn, reason: 'claude_extracted' }
+          : null,
+        public_description: publicDescriptionEvidence ?? (finalDescription ? { text: finalDescription, confidence: 'low' as const, evidence_used: [] } : null),
+        results: scoredResults.slice(0, 5),
       },
       ai_evaluation: aiResult
         ? {
@@ -525,6 +635,7 @@ export async function enrichBatchCandidatesWithWebAndAI(
             evidence_used: aiResult.evidence_used,
             description: aiResult.description,
             commercial_signals: aiResult.commercial_signals,
+            field_confidence: aiResult.field_confidence,
             provider: 'anthropic',
             model: aiModel,
           }
@@ -533,12 +644,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
       executed_at: new Date().toISOString(),
     };
 
-    updatePayload.metadata = await buildMergedMetadata(admin, candidate.id, candidate.metadata, enrichmentMeta);
+    updatePayload.metadata = buildMergedMetadata(candidate.metadata, enrichmentMeta);
 
-    await admin
-      .from('prospect_candidates')
-      .update(updatePayload)
-      .eq('id', candidate.id);
+    await admin.from('prospect_candidates').update(updatePayload).eq('id', candidate.id);
 
     result.status = 'enriched';
     result.costTrace = costTrace ?? undefined;
@@ -551,12 +659,10 @@ export async function enrichBatchCandidatesWithWebAndAI(
 
 // ─── Metadata helpers ─────────────────────────────────────────────────────────
 
-async function buildMergedMetadata(
-  _admin: SupabaseClient,
-  _candidateId: string,
+function buildMergedMetadata(
   existingMeta: Record<string, unknown> | null,
   enrichmentBlock: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
+): Record<string, unknown> {
   const base = existingMeta ?? {};
   const existingEnrichment = (base.enrichment as Record<string, unknown> | undefined) ?? {};
   return {
@@ -574,9 +680,6 @@ async function persistEnrichmentMetadata(
   existingMeta: Record<string, unknown> | null,
   enrichmentBlock: Record<string, unknown>,
 ): Promise<void> {
-  const merged = await buildMergedMetadata(admin, candidateId, existingMeta, enrichmentBlock);
-  await admin
-    .from('prospect_candidates')
-    .update({ metadata: merged })
-    .eq('id', candidateId);
+  const merged = buildMergedMetadata(existingMeta, enrichmentBlock);
+  await admin.from('prospect_candidates').update({ metadata: merged }).eq('id', candidateId);
 }
