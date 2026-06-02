@@ -29,6 +29,7 @@ import {
   type AccountAuditAction,
 } from '@/modules/accounts/types';
 import { AccountDetailActions } from '@/components/accounts/account-detail-actions';
+import { RollbackBanner } from '@/components/accounts/rollback-banner';
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
@@ -81,6 +82,15 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
   if (!account) notFound();
 
+  const safeMetadata =
+    account.metadata !== null &&
+    typeof account.metadata === 'object' &&
+    !Array.isArray(account.metadata)
+      ? (account.metadata as Record<string, unknown>)
+      : {};
+
+  const isRolledBack = safeMetadata.rollback_logical === true;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -89,6 +99,14 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
         backHref="/accounts"
         actions={
           <div className="flex items-center gap-2">
+            {isRolledBack && (
+              <Badge
+                variant="outline"
+                className="text-xs border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              >
+                No operativa
+              </Badge>
+            )}
             <Badge
               variant="outline"
               className={`text-xs ${STATUS_STYLES[account.pipeline_status]}`}
@@ -103,6 +121,13 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
           </div>
         }
       />
+
+      {isRolledBack && (
+        <RollbackBanner
+          metadata={safeMetadata}
+          hubspotCompanyId={account.hubspot_company_id}
+        />
+      )}
 
       <Tabs defaultValue="resumen">
         <TabsList className="mb-4">
