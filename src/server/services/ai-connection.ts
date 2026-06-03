@@ -110,6 +110,7 @@ export async function removeAiProviderCredential(
 
 /**
  * Verifica si existe credencial almacenada en Vault para el proveedor.
+ * Usa la convención de nombres nueva: sellup_ai_{providerKey}
  */
 export async function hasAiProviderCredential(providerKey: string): Promise<boolean> {
   const admin = getAdminSupabase();
@@ -120,6 +121,39 @@ export async function hasAiProviderCredential(providerKey: string): Promise<bool
     return data === true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Verifica si existe un secreto en Vault por su nombre exacto.
+ * Útil para chequear convenciones alternativas de nombres (legacy, etc.).
+ */
+export async function hasVaultSecretByRawName(rawName: string): Promise<boolean> {
+  const admin = getAdminSupabase();
+  try {
+    const { data } = await admin.rpc('has_vault_secret', { p_name: rawName });
+    return data === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Recupera la API key descifrada desde Vault por su nombre exacto.
+ * USO EXCLUSIVO en backend seguro.
+ * NUNCA retornar al frontend. NUNCA loggear el valor.
+ */
+export async function getVaultSecretByRawName(
+  rawName: string
+): Promise<{ success: boolean; apiKey?: string; error?: string }> {
+  const admin = getAdminSupabase();
+  try {
+    const { data, error } = await admin.rpc('get_vault_secret_decrypted', { p_name: rawName });
+    if (error) throw error;
+    if (!data) return { success: false, error: 'CREDENTIAL_NOT_FOUND' };
+    return { success: true, apiKey: data as string };
+  } catch {
+    return { success: false, error: 'VAULT_READ_ERROR' };
   }
 }
 

@@ -2,13 +2,15 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { 
-  testGeminiConnection, 
+import {
+  testGeminiConnection,
   testGeminiWithKey,
   testOpenAIConnection,
   testClaudeConnection,
   hasAiProviderCredential,
   getAiProviderCredential,
+  hasVaultSecretByRawName,
+  getVaultSecretByRawName,
   storeAiProviderCredential,
   removeAiProviderCredential,
   type ConnectionTestResult
@@ -811,19 +813,45 @@ export async function testAiProviderConnectionWithVault(
     return { success: false, error: 'Proveedor no encontrado', debugLogs: logs };
   }
 
-  const hasCredential = await hasAiProviderCredential(providerKey);
+  // Para Google/Gemini: probar formato nuevo (sellup_ai_*) y formato legacy (ai_provider_*_api_key)
+  const googleVaultAliases = [
+    'sellup_ai_google',
+    'sellup_ai_gemini',
+    'ai_provider_google_api_key',
+    'ai_provider_gemini_api_key',
+  ];
+
+  let hasCredential = false;
+  let credentialResult: { success: boolean; apiKey?: string; error?: string } = { success: false, error: 'CREDENTIAL_NOT_FOUND' };
+
+  if (providerKey === 'google' || providerKey === 'gemini') {
+    for (const rawName of googleVaultAliases) {
+      const found = await hasVaultSecretByRawName(rawName);
+      if (found) {
+        hasCredential = true;
+        credentialResult = await getVaultSecretByRawName(rawName);
+        log('[testVault] Credencial encontrada en: ' + rawName);
+        break;
+      }
+    }
+  } else {
+    hasCredential = await hasAiProviderCredential(providerKey);
+    if (hasCredential) {
+      credentialResult = await getAiProviderCredential(providerKey);
+    }
+  }
+
   log('[testVault] hasCredential: ' + hasCredential);
 
   if (!hasCredential) {
     return {
       success: false,
       error: 'NO_CREDENTIAL',
-      message: 'No hay credencial almacenada para este proveedor.',
+      message: 'No hay credencial almacenada para este proveedor. Agrega la API key en Configuración > Proveedores de IA.',
       debugLogs: logs
     };
   }
 
-  const credentialResult = await getAiProviderCredential(providerKey);
   log('[testVault] credentialResult.success: ' + credentialResult.success + ' hasKey: ' + !!credentialResult.apiKey);
 
   if (!credentialResult.success || !credentialResult.apiKey) {

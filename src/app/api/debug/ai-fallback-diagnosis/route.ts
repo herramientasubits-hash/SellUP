@@ -80,6 +80,7 @@ export async function GET() {
     .eq('is_selectable', true);
 
   // ── 4. Vault checks for all relevant aliases ──────────────────────────────
+  // Incluye formato nuevo (sellup_ai_*) y formato viejo (ai_provider_*_api_key)
   const aliasesToCheck = [
     'google',
     'gemini',
@@ -88,6 +89,24 @@ export async function GET() {
   ];
   const vaultChecks = await Promise.all(
     aliasesToCheck.map((a) => checkVaultAlias(admin, a))
+  );
+
+  // Chequeo adicional de nombres legacy (migración 012)
+  const legacyNames = [
+    'ai_provider_google_api_key',
+    'ai_provider_gemini_api_key',
+    'ai_provider_anthropic_api_key',
+    'ai_provider_openai_api_key',
+  ];
+  const legacyVaultChecks = await Promise.all(
+    legacyNames.map(async (name) => {
+      try {
+        const { data } = await admin.rpc('has_vault_secret', { p_name: name });
+        return { vault_key: name, found: data === true };
+      } catch {
+        return { vault_key: name, found: false };
+      }
+    })
   );
 
   // ── 4b. Detailed Gemini check via hasGeminiCredential ────────────────────
@@ -149,6 +168,7 @@ export async function GET() {
       name: m.name,
     })),
     vault_credential_checks: vaultChecks,
+    vault_legacy_checks: legacyVaultChecks,
     gemini_detailed_check: {
       available: geminiDetailedCheck.available,
       resolved_provider_key: geminiDetailedCheck.resolved_provider_key,
@@ -157,6 +177,8 @@ export async function GET() {
     google_credential_available:
       vaultChecks.find((v) => v.alias === 'google')?.found ||
       vaultChecks.find((v) => v.alias === 'gemini')?.found ||
+      legacyVaultChecks.find((v) => v.vault_key === 'ai_provider_google_api_key')?.found ||
+      legacyVaultChecks.find((v) => v.vault_key === 'ai_provider_gemini_api_key')?.found ||
       false,
     normalization_samples: normalizationSamples,
     execution_candidates_final: executionCandidates.map((c) => ({
