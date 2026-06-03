@@ -146,6 +146,7 @@ export function GenerateAIBatchDrawer() {
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [usefulCandidatesCount, setUsefulCandidatesCount] = React.useState<number>(0);
   const [omittedCandidatesCount, setOmittedCandidatesCount] = React.useState<number>(0);
+  const [generationAttempted, setGenerationAttempted] = React.useState(false);
 
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -167,6 +168,7 @@ export function GenerateAIBatchDrawer() {
     setAdvancedOpen(false);
     setUsefulCandidatesCount(0);
     setOmittedCandidatesCount(0);
+    setGenerationAttempted(false);
   }
 
   function handleGoToBatch() {
@@ -249,6 +251,7 @@ export function GenerateAIBatchDrawer() {
         setPreflightResult(result.structuredSourcePreflight ?? null);
         setGeneratedBatchId(result.batchId);
         setSourceStrategy(result.sourceStrategy ?? null);
+        setGenerationAttempted(true);
         setProgressMsg('');
       } else {
         setOpen(false);
@@ -267,7 +270,7 @@ export function GenerateAIBatchDrawer() {
   }
 
   const canSubmit = !!form.countryCode && !!form.industry && !generating;
-  const showPreflightResult = (!!preflightResult || !!structuredBatchResult || usefulCandidatesCount === 0) && !!generatedBatchId;
+  const showPreflightResult = generationAttempted && (!!preflightResult || !!structuredBatchResult || usefulCandidatesCount === 0);
 
   return (
     <>

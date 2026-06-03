@@ -1468,12 +1468,14 @@ export async function generateAIProspectBatch(
     structuredSourcePageAuto: input.structuredSourcePageAuto ?? false,
   });
 
-  if (!result.success || !result.batchId) {
+  if (!result.success) {
     throw new Error(result.error ?? 'El agente no pudo generar candidatos');
   }
 
   revalidatePath('/prospect-batches');
-  revalidatePath(`/prospect-batches/${result.batchId}`);
+  if (result.batchId) {
+    revalidatePath(`/prospect-batches/${result.batchId}`);
+  }
   if (result.structuredSourceBatch?.batchId) {
     revalidatePath(`/prospect-batches/${result.structuredSourceBatch.batchId}`);
   }
