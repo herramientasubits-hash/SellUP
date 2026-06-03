@@ -239,7 +239,9 @@ export function CandidateDetailSheet({
   const isStructured = isStructuredCandidate(candidate);
   const dc = parseDuplicateCheck(candidate.metadata);
   const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
-  const aiEval = candidate.metadata?.ai_evaluation as Record<string, unknown> | undefined;
+  // 16AK.16C: read from enrichment.ai_evaluation (structured path), fallback to legacy top-level
+  const aiEval = (enrichment?.ai_evaluation as Record<string, unknown> | undefined)
+    ?? (candidate.metadata?.ai_evaluation as Record<string, unknown> | undefined);
   const sourcePrimaryLabel = candidate.source_primary
     ? (VENDOR_CANDIDATE_SOURCE_LABELS[candidate.source_primary] ?? candidate.source_primary)
     : null;
@@ -263,6 +265,10 @@ export function CandidateDetailSheet({
   const evidenceUsed = (aiEval?.evidence_used as string[] | undefined) ?? [];
   const hasAiEval = fitStatus !== null || fitScore !== null || aiSummary !== null;
 
+  // AI eval skip reason (16AK.16C)
+  const aiEvalStatus = (aiEval?.status as string | undefined) ?? null;
+  const aiEvalSkipReason = (aiEval?.reason as string | undefined) ?? null;
+
   // Enrichment fields — 16AK.13B: structured web sub-object with backward compat
   const webEnrichment = enrichment?.web as Record<string, unknown> | undefined;
   const officialWebsiteObj = webEnrichment?.official_website as Record<string, unknown> | undefined;
@@ -279,6 +285,11 @@ export function CandidateDetailSheet({
 
   // Is the stored website a confirmed official website?
   const hasOfficialWebsite = !!candidate.website && !isDirectoryOrThirdPartyDomain(candidate.website);
+
+  // NIT conflict data (16AK.16C)
+  const taxIdConflicts = (webEnrichment?.tax_id_conflicts as string[] | undefined) ?? [];
+  const taxIdMatches = (webEnrichment?.tax_id_matches as string[] | undefined) ?? [];
+  const hasNitConflict = taxIdConflicts.length > 0 && taxIdMatches.length === 0;
 
   const linkedinConfirmedUrl = (linkedInObj?.url as string | undefined) ?? null;
   const linkedinConfidence = (linkedInObj?.confidence as string | undefined) ?? null;
@@ -380,6 +391,14 @@ export function CandidateDetailSheet({
           {flags.includes('limited_public_data') && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-600 dark:text-blue-400">
               Datos comerciales públicos limitados. Puedes revisarlo con la información oficial disponible.
+            </div>
+          )}
+
+          {/* NIT conflict warning (16AK.16C) */}
+          {hasNitConflict && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>NIT inconsistente detectado en evidencia web. Verificar datos antes de aprobar.</span>
             </div>
           )}
 
@@ -823,6 +842,15 @@ export function CandidateDetailSheet({
                   </div>
                 )}
               </div>
+            ) : aiEvalStatus === 'skipped' && aiEvalSkipReason ? (
+              <p className="text-xs text-muted-foreground/60 italic">
+                {({
+                  insufficient_evidence: 'Evaluación no disponible por falta de evidencia pública confiable.',
+                  tax_identifier_conflict: 'Evaluación pausada: se detectó un NIT distinto en la evidencia web.',
+                  weak_entity_match: 'Evaluación no disponible: solo se encontraron empresas similares, sin coincidencia exacta.',
+                  no_anthropic_key: 'Evaluación IA no configurada en esta instancia.',
+                } as Record<string, string>)[aiEvalSkipReason] ?? 'Evaluación no disponible.'}
+              </p>
             ) : (
               <p className="text-xs text-muted-foreground/40 italic">Sin evaluación IA todavía</p>
             )}

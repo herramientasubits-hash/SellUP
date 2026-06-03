@@ -31,6 +31,8 @@ import {
   extractWebEnrichmentResult,
   buildPublicDescription,
   hasHighConfidenceEvidence,
+  hasMinimumEvidenceForClaude,
+  hasTaxIdentifierConflict,
   isDirectoryOrThirdPartyEvidenceDomain,
   extractDomainFromUrl,
   type ScoredWebResult,
@@ -531,11 +533,44 @@ export async function enrichBatchCandidatesWithWebAndAI(
     const linkedInEvidence = webEnrichment.linkedin_company;
     const publicDescriptionEvidence = buildPublicDescription(scoredResults);
 
+    // ── Step 3.5: NIT conflict analysis (16AK.16C) ────────────────────────
+    const nitConflicts: string[] = [];
+    const nitMatches: string[] = [];
+    if (candidate.tax_identifier) {
+      for (const r of scoredResults) {
+        const evidenceText = `${r.url} ${r.title} ${r.snippet ?? ''}`;
+        const check = hasTaxIdentifierConflict(candidate.tax_identifier, evidenceText);
+        const domain = extractDomainFromUrl(r.url) ?? r.url;
+        if (check === 'conflict') nitConflicts.push(domain);
+        else if (check === 'match') nitMatches.push(domain);
+      }
+    }
+
     // ── Step 4: Claude evaluation ──────────────────────────────────────────
+    // 16AK.16C: Gate — only call Claude if hasMinimumEvidenceForClaude passes
+    const shouldCallClaude =
+      anthropicApiKey !== null &&
+      hasMinimumEvidenceForClaude(webEnrichment, scoredResults, candidate);
+
+    let claudeSkipReason: 'insufficient_evidence' | 'tax_identifier_conflict' | 'weak_entity_match' | null = null;
+    if (anthropicApiKey && !shouldCallClaude) {
+      if (nitConflicts.length > 0 && nitMatches.length === 0) {
+        claudeSkipReason = 'tax_identifier_conflict';
+      } else if (
+        !webEnrichment.official_website &&
+        !webEnrichment.linkedin_company &&
+        webEnrichment.public_evidence.length === 0
+      ) {
+        claudeSkipReason = 'insufficient_evidence';
+      } else {
+        claudeSkipReason = 'weak_entity_match';
+      }
+    }
+
     let aiResult: AIEvaluationResult | null = null;
     let costTrace: CostTrace | null = null;
 
-    if (anthropicApiKey) {
+    if (shouldCallClaude) {
       const prompt = buildEvaluationPrompt(
         candidate,
         scoredResults,
@@ -548,7 +583,7 @@ export async function enrichBatchCandidatesWithWebAndAI(
       try {
         const { content, inputTokens, outputTokens } = await callClaudeForEvidence(
           prompt,
-          anthropicApiKey,
+          anthropicApiKey!, // non-null: shouldCallClaude guarantees anthropicApiKey !== null
           aiModel,
         );
 
@@ -616,6 +651,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
             rejected_as_official_website: webEnrichment.rejected_as_official_website,
             public_description: publicDescriptionEvidence ?? null,
             results: scoredResults.slice(0, 5),
+            tax_id_conflicts: nitConflicts,
+            tax_id_matches: nitMatches,
+            claude_skip_reason: null,
           },
           ai_evaluation: { status: 'failed' },
           cost_trace: null,
@@ -690,6 +728,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
         rejected_as_official_website: webEnrichment.rejected_as_official_website,
         public_description: publicDescriptionEvidence ?? (finalDescription ? { text: finalDescription, confidence: 'low' as const, evidence_used: [] } : null),
         results: scoredResults.slice(0, 5),
+        tax_id_conflicts: nitConflicts,
+        tax_id_matches: nitMatches,
+        claude_skip_reason: claudeSkipReason ?? null,
       },
       ai_evaluation: aiResult
         ? {
@@ -706,6 +747,10 @@ export async function enrichBatchCandidatesWithWebAndAI(
             provider: 'anthropic',
             model: aiModel,
           }
+        : claudeSkipReason !== null
+        ? { status: 'skipped', reason: claudeSkipReason }
+        : anthropicApiKey !== null
+        ? { status: 'failed', reason: 'parse_failed' }
         : { status: 'skipped', reason: 'no_anthropic_key' },
       cost_trace: costTrace,
       executed_at: new Date().toISOString(),
