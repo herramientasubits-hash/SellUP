@@ -426,6 +426,17 @@ export function CandidateDetailSheet({
   const hasLinkedinSignal = importMeta?.validation?.quality_check?.has_linkedin === true;
   const effectiveLinkedinUrl = linkedinUrl ?? (isExternalImport ? importLinkedinUrl : null);
 
+  // Validation-derived state for external_import candidates
+  const validationMetaSheet = importMeta?.validation;
+  const sellupDupStatus = validationMetaSheet?.sellup_duplicate_check?.status;
+  const hsDupStatus = validationMetaSheet?.hubspot_duplicate_check?.status;
+  const isAutoValidated = isExternalImport && !!validationMetaSheet;
+  const hasDuplicateSignalInValidation =
+    sellupDupStatus === 'duplicate' ||
+    sellupDupStatus === 'possible_duplicate' ||
+    hsDupStatus === 'match' ||
+    hsDupStatus === 'possible_match';
+
   // Chile official data from source_trace
   const chileSourceParams = isChileOfficialCandidate
     ? (candidate.source_trace?.queryParams as Record<string, unknown> | undefined)
@@ -578,29 +589,48 @@ export function CandidateDetailSheet({
             <SectionHeader>Resumen</SectionHeader>
             <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <Badge
-                  className={`border-0 text-[10px] font-semibold ${
-                    {
-                      generated: 'bg-muted text-muted-foreground',
-                      normalized: 'bg-muted text-muted-foreground',
-                      needs_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                      approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                      discarded: 'bg-muted/60 text-muted-foreground/60',
-                      duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-                      converted_to_account: 'bg-su-brand-soft text-su-brand',
-                    }[candidate.status]
-                  }`}
-                >
-                  {CANDIDATE_STATUS_LABELS[candidate.status]}
-                </Badge>
-                {candidate.review_status && (
-                  <Badge
-                    className={`border-0 text-[10px] font-semibold ${
-                      REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
-                  </Badge>
+                {isAutoValidated ? (
+                  <>
+                    <Badge
+                      className={`border-0 text-[10px] font-semibold ${
+                        hasDuplicateSignalInValidation
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {hasDuplicateSignalInValidation ? 'Posible duplicado' : 'Validado para revisión'}
+                    </Badge>
+                    <Badge className="border-0 text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                      Requiere revisión manual
+                    </Badge>
+                  </>
+                ) : (
+                  <>
+                    <Badge
+                      className={`border-0 text-[10px] font-semibold ${
+                        {
+                          generated: 'bg-muted text-muted-foreground',
+                          normalized: 'bg-muted text-muted-foreground',
+                          needs_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                          approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                          discarded: 'bg-muted/60 text-muted-foreground/60',
+                          duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                          converted_to_account: 'bg-su-brand-soft text-su-brand',
+                        }[candidate.status]
+                      }`}
+                    >
+                      {CANDIDATE_STATUS_LABELS[candidate.status]}
+                    </Badge>
+                    {candidate.review_status && (
+                      <Badge
+                        className={`border-0 text-[10px] font-semibold ${
+                          REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
+                      </Badge>
+                    )}
+                  </>
                 )}
                 {typeof candidate.data_completeness_score === 'number' && (
                   <span className="text-[10px] text-muted-foreground/60">
@@ -1147,53 +1177,127 @@ export function CandidateDetailSheet({
           <div>
             <SectionHeader>Duplicidad</SectionHeader>
             <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge
-                  className={`border-0 text-[10px] font-semibold ${
-                    {
-                      unchecked: 'bg-muted text-muted-foreground/60',
-                      no_match: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                      possible_duplicate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                      exact_duplicate: 'bg-destructive/10 text-destructive',
-                      related_company: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-                      insufficient_data: 'bg-muted/60 text-muted-foreground/60',
-                    }[candidate.duplicate_status]
-                  }`}
-                >
-                  {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
-                </Badge>
-                {dcSources.length > 0 && (
-                  <div className="flex gap-2">
-                    {['sellup', 'hubspot'].map((src) => {
-                      const checked = dcSources.includes(src);
-                      return (
-                        <span
-                          key={src}
-                          className={`text-[10px] font-medium ${
-                            checked
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-muted-foreground/40'
-                          }`}
-                        >
-                          {SOURCE_LABELS[src]} {checked ? '✓' : '—'}
-                        </span>
-                      );
-                    })}
+              {isAutoValidated ? (
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* SellUp — estado principal */}
+                    <Badge
+                      className={`border-0 text-[10px] font-semibold ${
+                        sellupDupStatus === 'duplicate'
+                          ? 'bg-destructive/10 text-destructive'
+                          : sellupDupStatus === 'possible_duplicate'
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          : sellupDupStatus === 'error'
+                          ? 'bg-muted text-muted-foreground'
+                          : sellupDupStatus === 'no_match'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-muted text-muted-foreground/60'
+                      }`}
+                    >
+                      {sellupDupStatus === 'duplicate'
+                        ? 'Duplicado SellUp'
+                        : sellupDupStatus === 'possible_duplicate'
+                        ? 'Posible duplicado SellUp'
+                        : sellupDupStatus === 'error'
+                        ? 'Error validando SellUp'
+                        : sellupDupStatus === 'no_match'
+                        ? 'Sin coincidencia en SellUp'
+                        : 'Sin validar en SellUp'}
+                    </Badge>
+                    {/* HubSpot — estado secundario */}
+                    {hsDupStatus && (
+                      <Badge
+                        className={`border-0 text-[10px] font-medium ${
+                          hsDupStatus === 'match'
+                            ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
+                            : hsDupStatus === 'possible_match'
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            : hsDupStatus === 'error'
+                            ? 'bg-destructive/10 text-destructive'
+                            : hsDupStatus === 'not_configured'
+                            ? 'bg-muted text-muted-foreground/50'
+                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {hsDupStatus === 'match'
+                          ? 'Coincidencia HubSpot'
+                          : hsDupStatus === 'possible_match'
+                          ? 'Posible HubSpot'
+                          : hsDupStatus === 'error'
+                          ? 'Error HubSpot'
+                          : hsDupStatus === 'not_configured'
+                          ? 'HubSpot no config.'
+                          : 'Sin coincidencia HubSpot'}
+                      </Badge>
+                    )}
                   </div>
-                )}
-              </div>
-              {dc?.summary && (
-                <p className="text-xs text-muted-foreground">{dc.summary}</p>
-              )}
-              {dcMatches.length > 0 && (
-                <div className="space-y-1.5">
-                  {dcMatches.map((match, i) => (
-                    <DuplicateMatchCard key={i} match={match} />
-                  ))}
-                </div>
-              )}
-              {!dc && dcSources.length === 0 && (
-                <p className="text-xs text-muted-foreground/40 italic">Sin detalle de duplicidad disponible</p>
+                  <p className="text-xs text-muted-foreground">
+                    {sellupDupStatus === 'duplicate'
+                      ? 'Este candidato coincide con un registro existente en SellUp.'
+                      : sellupDupStatus === 'possible_duplicate'
+                      ? 'SellUp encontró una posible coincidencia. Revisa antes de aprobar.'
+                      : hsDupStatus === 'match'
+                      ? 'Sin coincidencia en SellUp. Este candidato coincide con una empresa existente en HubSpot. Revisa antes de aprobar o sincronizar.'
+                      : hsDupStatus === 'possible_match'
+                      ? 'Sin coincidencia en SellUp. HubSpot encontró una posible coincidencia. Revisa antes de aprobar.'
+                      : hsDupStatus === 'not_configured'
+                      ? 'Sin coincidencia en SellUp. La validación contra HubSpot queda pendiente hasta configurar la integración.'
+                      : hsDupStatus === 'no_match'
+                      ? 'Sin coincidencia en SellUp ni HubSpot.'
+                      : 'Sin coincidencia en SellUp.'}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge
+                      className={`border-0 text-[10px] font-semibold ${
+                        {
+                          unchecked: 'bg-muted text-muted-foreground/60',
+                          no_match: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                          possible_duplicate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                          exact_duplicate: 'bg-destructive/10 text-destructive',
+                          related_company: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                          insufficient_data: 'bg-muted/60 text-muted-foreground/60',
+                        }[candidate.duplicate_status]
+                      }`}
+                    >
+                      {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
+                    </Badge>
+                    {dcSources.length > 0 && (
+                      <div className="flex gap-2">
+                        {['sellup', 'hubspot'].map((src) => {
+                          const checked = dcSources.includes(src);
+                          return (
+                            <span
+                              key={src}
+                              className={`text-[10px] font-medium ${
+                                checked
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-muted-foreground/40'
+                              }`}
+                            >
+                              {SOURCE_LABELS[src]} {checked ? '✓' : '—'}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {dc?.summary && (
+                    <p className="text-xs text-muted-foreground">{dc.summary}</p>
+                  )}
+                  {dcMatches.length > 0 && (
+                    <div className="space-y-1.5">
+                      {dcMatches.map((match, i) => (
+                        <DuplicateMatchCard key={i} match={match} />
+                      ))}
+                    </div>
+                  )}
+                  {!dc && dcSources.length === 0 && (
+                    <p className="text-xs text-muted-foreground/40 italic">Sin detalle de duplicidad disponible</p>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1262,10 +1366,10 @@ export function CandidateDetailSheet({
                         const status = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check?.status;
                         if (!status) return 'Sin verificar';
                         const labelMap: Record<string, string> = {
-                          no_match: 'Sin coincidencia',
+                          no_match: 'Sin coincidencia HubSpot',
                           possible_match: 'Posible coincidencia',
                           match: 'Coincidencia confirmada',
-                          not_configured: 'No configurado',
+                          not_configured: 'HubSpot no configurado',
                           error: 'Error de verificación',
                         };
                         return labelMap[status] ?? status;
