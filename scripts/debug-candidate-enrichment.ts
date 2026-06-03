@@ -50,6 +50,7 @@ import {
   hasHighConfidenceEvidence,
   isOfficialWebsiteCandidate,
   getOfficialWebsiteRejectionReason,
+  isDirectoryOrThirdPartyEvidenceDomain,
   hasMinimumEvidenceForClaude,
   extractDomainFromUrl,
   buildCompanyNameVariants,
@@ -487,6 +488,13 @@ async function main() {
       const matchedDistinctive = distinctiveTokens.filter((t) => evidenceLower.includes(t));
 
       console.log(`\n  ${BOLD}[${i + 1}] ${scored.title.slice(0, 60)}${RESET}`);
+      // 16AK.17D: domain ownership and legal portal fields
+      const { distinctive: dtTokens } = getDistinctiveCompanyTokens(candidate.legal_name ?? candidate.name ?? '');
+      const domainLowerDebug = domain.toLowerCase();
+      const domainHasBrandToken = dtTokens.length > 0 && dtTokens.some((t) => domainLowerDebug.includes(t));
+      const domainOwnershipScore = isDirectoryOrThirdPartyEvidenceDomain(domain) ? 0 : domainHasBrandToken ? 100 : 40;
+      const isThirdPartyLegal = isDirectoryOrThirdPartyEvidenceDomain(domain);
+
       info('  URL', scored.url);
       info('  Domain', domain);
       info('  Query intent', `${raw.intent}`);
@@ -494,6 +502,9 @@ async function main() {
       info('  confidence', scored.confidence);
       info('  raw_score', scored.raw_score);
       info('  entity_match_score', nameMatch);
+      info('  domain_ownership_score', domainOwnershipScore);
+      info('  is_third_party_legal_or_directory', String(isThirdPartyLegal));
+      info('  official_website_verdict_reason', getOfficialWebsiteRejectionReason(domain) ?? 'ok (no rejection)');
       info('  matched_signals', scored.matched_signals.join(', ') || '(ninguno)');
 
       // ── NIT diagnostic ────────────────────────────────────────────
@@ -508,29 +519,56 @@ async function main() {
 
       // ── Distinctive token diagnostic ──────────────────────────────
       if (isLinkedIn) {
+        // 16AK.17D: split slug / title / snippet-only match
+        const urlSlugMatch = (() => {
+          const m = scored.url.toLowerCase().match(/\/company\/([^/?#]+)/);
+          return m ? m[1] : '';
+        })();
+        const linkedinSlugMatch = distinctiveTokens.some((t) => urlSlugMatch.includes(t));
+        const linkedinTitleMatch = !linkedinSlugMatch && distinctiveTokens.some((t) => scored.title.toLowerCase().includes(t));
+        const linkedinSnippetOnlyMatch =
+          !linkedinSlugMatch &&
+          !linkedinTitleMatch &&
+          distinctiveTokens.some((t) => (scored.snippet ?? '').toLowerCase().includes(t));
+
+        const linkedinVerdictReason = linkedinSlugMatch
+          ? 'confirmed_slug_match'
+          : linkedinTitleMatch
+          ? 'confirmed_title_match'
+          : linkedinSnippetOnlyMatch
+          ? 'rejected_mentioned_only_in_snippet'
+          : matchedDistinctive.length > 0
+          ? 'confirmed_elsewhere_in_evidence'
+          : 'rejected_other_company';
+
         info('  distinctive_tokens', distinctiveTokens.length > 0 ? distinctiveTokens.join(', ') : '(ninguno)');
         info('  generic_tokens_ignored', genericTokens.length > 0 ? genericTokens.join(', ') : '(ninguno)');
-        info('  matched_distinctive_tokens', matchedDistinctive.length > 0 ? matchedDistinctive.join(', ') : '(ninguno)');
+        info('  url_slug', urlSlugMatch || '(none)');
+        info('  linkedin_slug_match', String(linkedinSlugMatch));
+        info('  linkedin_title_match', String(linkedinTitleMatch));
+        info('  linkedin_snippet_only_match', String(linkedinSnippetOnlyMatch));
+        info('  linkedin_verdict_reason', linkedinVerdictReason);
+
+        const isConfirmed = linkedinSlugMatch || linkedinTitleMatch;
+        if (nameMatch >= 70 && isConfirmed) {
+          ok(`  linkedin_verdict: CONFIRMADO (name_match=${nameMatch} ≥ 70, verdict=${linkedinVerdictReason})`);
+        } else if (nameMatch >= 70 && linkedinSnippetOnlyMatch) {
+          err(`  linkedin_verdict: RECHAZADO — token distintivo solo en snippet, no en slug/title (verdict=${linkedinVerdictReason})`);
+        } else if (nameMatch >= 70 && distinctiveTokens.length > 0 && matchedDistinctive.length === 0) {
+          err(`  linkedin_verdict: RECHAZADO — name_match=${nameMatch} ≥ 70 pero ningún token distintivo [${distinctiveTokens.join(', ')}] en evidencia`);
+        } else if (nameMatch >= 70 && distinctiveTokens.length === 0) {
+          warn(`  linkedin_verdict: POSIBLE — name_match=${nameMatch} ≥ 70 pero nombre sin tokens distintivos (solo genéricos)`);
+        } else if (nameMatch >= 20) {
+          warn(`  linkedin_verdict: POSIBLE (name_match=${nameMatch}, umbral confirmado=70)`);
+        } else {
+          err(`  linkedin_verdict: RECHAZADO (name_match=${nameMatch} < 20)`);
+        }
       }
 
       if (isBlockedAsOfficial) {
         err(`  Rechazado como website oficial: ${rejectionReason}`);
       } else if (isOfficialCandidate && scored.source_type === 'official_website') {
         ok(`  Candidato a website oficial`);
-      }
-
-      if (isLinkedIn) {
-        if (nameMatch >= 70 && matchedDistinctive.length > 0) {
-          ok(`  linkedin_verdict_reason: CONFIRMADO (name_match=${nameMatch} ≥ 70, token distintivo "${matchedDistinctive[0]}" presente)`);
-        } else if (nameMatch >= 70 && distinctiveTokens.length > 0 && matchedDistinctive.length === 0) {
-          err(`  linkedin_verdict_reason: RECHAZADO — name_match=${nameMatch} ≥ 70 pero ningún token distintivo [${distinctiveTokens.join(', ')}] en evidencia`);
-        } else if (nameMatch >= 70 && distinctiveTokens.length === 0) {
-          warn(`  linkedin_verdict_reason: POSIBLE — name_match=${nameMatch} ≥ 70 pero nombre sin tokens distintivos (solo genéricos)`);
-        } else if (nameMatch >= 20) {
-          warn(`  linkedin_verdict_reason: POSIBLE (name_match=${nameMatch}, umbral confirmado=70)`);
-        } else {
-          err(`  linkedin_verdict_reason: RECHAZADO (name_match=${nameMatch} < 20)`);
-        }
       }
 
       // ── Geographic coherence (16AK.17B) ─────────────────────────────────────

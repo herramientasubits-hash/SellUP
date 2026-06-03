@@ -82,6 +82,28 @@ const REGISTRY_SUBSTRINGS = [
   'ccb.org', 'ccb.com', 'camaramedellin', 'registraduría',
   // Chilean registry / tax authority — 16AK.17B
   'sii.cl', 'registrocomercial.cl', 'empresaenundia.cl',
+  // Government procurement portals (Chile/LatAm) — 16AK.17D
+  // These list companies as state suppliers; they are registries, not company websites.
+  'todolicitaciones.', 'mercadopublico.', 'portaldelicitaciones.',
+  'compraspublicas.', 'contratacionesabiertas.',
+];
+
+/**
+ * Legal document portals, jurisprudence platforms, and judicial databases.
+ * These provide legal filings and case data — may be public_evidence,
+ * but NEVER an official company website. — 16AK.17D
+ */
+const LEGAL_DOCUMENT_PORTAL_SUBSTRINGS = [
+  'vlex.',
+  'datalux.',
+  'laley.',
+  'elderecho.',
+  'lexisnexis.',
+  'westlaw.',
+  'legaltoday.',
+  'tirant.',
+  'derechocomercial.',
+  'microjuris.',
 ];
 
 const CHAMBER_OF_COMMERCE_SUBSTRINGS = [
@@ -500,6 +522,8 @@ export function isDirectoryOrThirdPartyEvidenceDomain(domain: string): boolean {
   if (REGISTRY_SUBSTRINGS.some((k) => d.includes(k))) return true;
   if (CHAMBER_OF_COMMERCE_SUBSTRINGS.some((k) => d.includes(k))) return true;
   if (ACADEMIC_REPOSITORY_SUBSTRINGS.some((k) => d.includes(k) || domain.toLowerCase().includes(k))) return true;
+  // 16AK.17D: Legal document portals — never official website
+  if (LEGAL_DOCUMENT_PORTAL_SUBSTRINGS.some((k) => d.includes(k))) return true;
   // Reject any subdomain of a university (.edu, .edu.co, .edu.mx, etc.)
   if (/\.edu(\.[a-z]{2})?$/.test(d)) return true;
   // Colombian government institutional domains (.gov.co) — always governmental, never a commercial company website
@@ -527,6 +551,8 @@ export function getOfficialWebsiteRejectionReason(domain: string): string | null
   if (REGISTRY_SUBSTRINGS.some((k) => d.includes(k))) return 'public_registry_substring';
   if (CHAMBER_OF_COMMERCE_SUBSTRINGS.some((k) => d.includes(k))) return 'chamber_of_commerce';
   if (NEWS_SUBSTRINGS.some((k) => d.includes(k))) return 'news_media_domain';
+  // 16AK.17D: Legal document portals
+  if (LEGAL_DOCUMENT_PORTAL_SUBSTRINGS.some((k) => d.includes(k))) return 'third_party_legal_or_directory_source';
   if (SOCIAL_PERSONAL.has(d)) return 'social_network';
   if (SEARCH_ENGINES.has(d)) return 'search_engine';
   if (EMAIL_PROVIDERS.has(d)) return 'email_provider';
@@ -907,6 +933,9 @@ function classifySourceType(url: string, title: string, snippet: string | null):
   if (domainMatchesList(domain, ACADEMIC_REPOSITORY_SUBSTRINGS)) return 'public_registry';
   if (/\.edu(\.[a-z]{2})?$/.test(domain)) return 'public_registry';
 
+  // 16AK.17D: Legal document portals → public_registry, never official_website
+  if (domainMatchesList(domain, LEGAL_DOCUMENT_PORTAL_SUBSTRINGS)) return 'public_registry';
+
   // News / media
   if (domainMatchesList(domain, NEWS_SUBSTRINGS)) return 'news';
 
@@ -943,8 +972,22 @@ function scoreResult(candidate: CandidateBasicInfo, result: RawWebResult): numbe
   // City
   if (candidate.city && combined.includes(candidate.city.toLowerCase())) score += 8;
 
-  // Own domain (not a directory)
-  if (!isDirectoryOrThirdPartyEvidenceDomain(domain) && domain.length > 0) score += 12;
+  // Own domain (not a directory) — base bonus
+  if (!isDirectoryOrThirdPartyEvidenceDomain(domain) && domain.length > 0) {
+    score += 12;
+    // 16AK.17D: Brand/distinctive token present in domain → strong ownership signal
+    const { distinctive: brandTokens } = getDistinctiveCompanyTokens(name);
+    if (brandTokens.length > 0 && brandTokens.some((t) => domain.toLowerCase().includes(t))) {
+      score += 20;
+    }
+    // 16AK.17D: Root domain (no subdomain beyond www) preferred over subdomains.
+    // buk.cl gets +10 over supportcenter.buk.cl.
+    const parts = domain.split('.');
+    const isRoot =
+      parts.length === 2 ||
+      (parts.length === 3 && ['com', 'org', 'net', 'gob', 'gov', 'edu'].includes(parts[1]));
+    if (isRoot) score += 10;
+  }
 
   // Industry/sector match
   if (candidate.industry) {
@@ -1078,24 +1121,58 @@ export function extractLinkedInCompany(
 
   if (linkedInResults.length === 0) return null;
 
-  const best = linkedInResults[0];
-  const nameMatchScore = scoreEntityMatch(name, `${best.title} ${best.snippet ?? ''}`, candidate.city, candidate.tax_identifier);
-  if (nameMatchScore < 70) return null;
-
-  // 16AK.16B: require at least one distinctive token to be present in the evidence
+  // 16AK.17D: iterate candidates in score order; return first that passes all checks.
+  // Do NOT stop on first rejection — a high-scoring wrong company (e.g. one that merely
+  // mentions our brand in its snippet) must not block the correct lower-scoring result.
   const { distinctive } = getDistinctiveCompanyTokens(name);
-  if (distinctive.length > 0) {
-    const evidenceText = `${best.url} ${best.title} ${best.snippet ?? ''}`.toLowerCase();
-    const hasDistinctiveMatch = distinctive.some((token) => evidenceText.includes(token));
-    if (!hasDistinctiveMatch) return null;
+
+  for (const candidate_li of linkedInResults) {
+    const nameMatchScore = scoreEntityMatch(
+      name,
+      `${candidate_li.title} ${candidate_li.snippet ?? ''}`,
+      candidate.city,
+      candidate.tax_identifier,
+    );
+
+    let verdictReason = 'confirmed_no_distinctive_tokens';
+    let slugMatchFound = false;
+    let titleMatchFound = false;
+
+    if (distinctive.length > 0) {
+      const slugSegment = (() => {
+        const m = candidate_li.url.toLowerCase().match(/\/company\/([^/?#]+)/);
+        return m ? m[1] : '';
+      })();
+      slugMatchFound = distinctive.some((t) => slugSegment.includes(t));
+      titleMatchFound = !slugMatchFound && distinctive.some((t) => candidate_li.title.toLowerCase().includes(t));
+      const snippetOnlyMatch =
+        !slugMatchFound &&
+        !titleMatchFound &&
+        distinctive.some((t) => (candidate_li.snippet ?? '').toLowerCase().includes(t));
+
+      if (slugMatchFound) {
+        verdictReason = 'confirmed_slug_match';
+      } else if (titleMatchFound) {
+        verdictReason = 'confirmed_title_match';
+      } else {
+        // Snippet-only or no match at all → skip this candidate, try the next.
+        continue;
+      }
+    }
+
+    // Slug directly encodes company identity → lower threshold.
+    const effectiveThreshold = slugMatchFound ? 30 : 70;
+    if (nameMatchScore < effectiveThreshold) continue;
+
+    return {
+      url: candidate_li.url,
+      confidence: candidate_li.confidence,
+      evidence_url: candidate_li.url,
+      reason: `score=${candidate_li.raw_score} name_match=${nameMatchScore} verdict=${verdictReason} signals=[${candidate_li.matched_signals.join(',')}]`,
+    };
   }
 
-  return {
-    url: best.url,
-    confidence: best.confidence,
-    evidence_url: best.url,
-    reason: `score=${best.raw_score} name_match=${nameMatchScore} signals=[${best.matched_signals.join(',')}]`,
-  };
+  return null;
 }
 
 /**
