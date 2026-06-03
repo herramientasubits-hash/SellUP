@@ -1249,16 +1249,17 @@ export function CandidateDetailSheet({
               const activeErrorDetails = enrichErrorDetails || enrichmentData || null;
 
               if (hasEnrichError) {
-                const isModelError = activeErrorCode === 'provider_model_not_found';
+                const isModelError = activeErrorCode === 'provider_model_not_found' || activeErrorCode === 'all_ai_providers_failed' || activeErrorCode === 'no_ai_providers_configured';
                 const friendlyMessage = isModelError
-                  ? 'El modelo de IA configurado no está disponible o tiene un ID inválido. Revisa Configuración > Proveedores de IA.'
+                  ? 'No fue posible ejecutar el enriquecimiento con los proveedores de IA configurados. Revisa Configuración > Proveedores de IA.'
                   : (activeErrorMessage || 'Fallo en enriquecimiento');
 
                 const showDetails = !!activeErrorDetails && (
                   activeErrorDetails.provider ||
                   activeErrorDetails.display_name ||
                   activeErrorDetails.provider_model_id ||
-                  activeErrorDetails.raw_error_safe
+                  activeErrorDetails.raw_error_safe ||
+                  (activeErrorDetails.attempts && activeErrorDetails.attempts.length > 0)
                 );
 
                 return (
@@ -1276,7 +1277,7 @@ export function CandidateDetailSheet({
                         <div className="mt-2 rounded-lg border border-border/40 bg-card p-2.5 space-y-1.5 font-mono text-[10px] text-muted-foreground">
                           {activeErrorDetails.provider && (
                             <div>
-                              <span className="font-semibold text-foreground/80">Proveedor:</span>{' '}
+                              <span className="font-semibold text-foreground/80">Proveedor principal:</span>{' '}
                               {activeErrorDetails.provider}
                             </div>
                           )}
@@ -1300,6 +1301,26 @@ export function CandidateDetailSheet({
                               </pre>
                             </div>
                           )}
+                          {activeErrorDetails.attempts && activeErrorDetails.attempts.length > 0 && (
+                            <div className="pt-1.5 border-t border-border/20 mt-1.5 space-y-1 font-sans">
+                              <span className="font-semibold text-foreground/80 block mb-1">Historial de intentos:</span>
+                              {activeErrorDetails.attempts.map((att: { provider: string; model: string; status: string; error_message?: string }, idx: number) => (
+                                <div key={idx} className="flex flex-col pl-1 border-l-2 border-muted/50 py-0.5">
+                                  <div className="flex items-center gap-1.5 text-[9px]">
+                                    <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
+                                      {att.status === 'completed' ? '✓' : '✗'}
+                                    </span>
+                                    <span className="font-semibold text-foreground/70">
+                                      {att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider} ({att.model})
+                                    </span>
+                                  </div>
+                                  {att.error_message && (
+                                    <span className="text-[8px] text-muted-foreground/80">{att.error_message}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </CollapsibleSection>
                     )}
@@ -1320,9 +1341,22 @@ export function CandidateDetailSheet({
                 const profile = enrichmentData.company_profile || {};
                 const fit = enrichmentData.sellup_fit || {};
                 const usage = enrichmentData.usage || {};
+                const providerDisplay = enrichmentData.provider === 'anthropic' ? 'Claude' : enrichmentData.provider === 'google' ? 'Google Gemini' : enrichmentData.provider === 'openai' ? 'OpenAI' : enrichmentData.provider;
+                const modelDisplay = enrichmentData.display_name || enrichmentData.model;
                 
                 return (
                   <div className="space-y-4">
+                    {enrichmentData.fallback_used && (
+                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10 p-3 flex items-start gap-2 text-xs text-emerald-800 dark:text-emerald-300 leading-normal">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <p className="font-semibold">Enriquecimiento completado con {providerDisplay} / {modelDisplay}.</p>
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                            El proveedor principal no estaba disponible y se activó el respaldo de contingencia de forma exitosa.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     {/* Summary callout */}
                     {enrichmentData.summary && (
                       <div className="rounded-xl border border-border/40 bg-card p-3 text-xs italic text-foreground/80 leading-relaxed">
@@ -1482,11 +1516,28 @@ export function CandidateDetailSheet({
                     )}
 
                     {/* AI Info details banner */}
-                    <div className="flex items-center justify-between text-[9px] text-muted-foreground/60 pt-2 border-t border-border/20">
-                      <span>Proveedor: {enrichmentData.provider} ({enrichmentData.model})</span>
-                      <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
-                      {usage && usage.estimated_cost !== undefined && (
-                        <span>Costo: ${Number(usage.estimated_cost).toFixed(5)} USD</span>
+                    <div className="flex flex-col gap-1.5 text-[9px] text-muted-foreground/60 pt-2 border-t border-border/20">
+                      <div className="flex items-center justify-between">
+                        <span>Proveedor: {providerDisplay} ({enrichmentData.model})</span>
+                        <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
+                        {usage && usage.estimated_cost !== undefined && (
+                          <span>Costo: ${Number(usage.estimated_cost).toFixed(5)} USD</span>
+                        )}
+                      </div>
+                      {enrichmentData.attempts && enrichmentData.attempts.length > 0 && (
+                        <div className="mt-1 rounded-lg border border-border/40 bg-card p-2 space-y-1">
+                          <span className="font-semibold text-foreground/80 block">Historial de fallback:</span>
+                          {enrichmentData.attempts.map((att: { provider: string; model: string; status: string; error_message?: string }, idx: number) => (
+                            <div key={idx} className="flex items-start gap-1 font-sans">
+                              <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
+                                {att.status === 'completed' ? '✓' : '✗'}
+                              </span>
+                              <span className="text-[8px] text-muted-foreground">
+                                {att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider} ({att.model}): {att.status === 'completed' ? 'Exitoso' : `Fallido (${att.error_message || 'Desconocido'})`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
 

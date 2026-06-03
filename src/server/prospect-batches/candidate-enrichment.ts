@@ -1,5 +1,5 @@
-import { SupabaseClient } from '@supabase/supabase-js';
-import { getAiProviderCredential } from '../services/ai-connection';
+import { SupabaseClient, createClient } from '@supabase/supabase-js';
+import { getAiProviderCredential, hasAiProviderCredential } from '../services/ai-connection';
 import { getAIActiveConfig } from '@/modules/ai-config/actions';
 import type { AIActiveConfig } from '@/modules/ai-config/types';
 import { evaluateCandidateEnrichmentNeed } from './candidate-enrichment-eligibility';
@@ -355,15 +355,185 @@ ESTRUCTURA DE RESPUESTA JSON REQUERIDA:
 }`;
 }
 
+export interface AIExecutionCandidate {
+  provider_key: string;
+  provider_display_name: string;
+  model_key: string;
+  model_display_name: string;
+  credential_available: boolean;
+  priority: number;
+}
+
+function getAdminSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+function isRecoverableError(status: number, message: string, rawError: string): boolean {
+  const errMsg = (message || '').toLowerCase();
+  const rawErr = (rawError || '').toLowerCase();
+  
+  if (status === 404) return true;
+  if (errMsg.includes('not_found') || rawErr.includes('not_found')) return true;
+  if (errMsg.includes('not found') || rawErr.includes('not found')) return true;
+  if (errMsg.includes('invalid_model') || rawErr.includes('invalid_model')) return true;
+  if (errMsg.includes('invalid model') || rawErr.includes('invalid model')) return true;
+  if (errMsg.includes('model_not_available') || rawErr.includes('model_not_available')) return true;
+  if (errMsg.includes('model not available') || rawErr.includes('model not available')) return true;
+  if (errMsg.includes('model_not_found') || rawErr.includes('model_not_found')) return true;
+  if (errMsg.includes('model not found') || rawErr.includes('model not found')) return true;
+  if (errMsg.includes('model_error') || rawErr.includes('model_error')) return true;
+  
+  if (status === 400 && (errMsg.includes('model') || rawErr.includes('model'))) return true;
+  
+  return false;
+}
+
+export async function buildAIExecutionCandidates(
+  supabase: SupabaseClient,
+  activeConfig: AIActiveConfig | null
+): Promise<AIExecutionCandidate[]> {
+  const candidates: AIExecutionCandidate[] = [];
+  
+  let activeProviderKey = '';
+  let activeModelKey = '';
+  if (activeConfig) {
+    activeProviderKey = resolveCanonicalProvider(activeConfig);
+    activeModelKey = resolveProviderModelId(activeConfig, activeProviderKey);
+  }
+
+  const admin = getAdminSupabase();
+  const { data: dbModels, error } = await admin
+    .from('ai_models')
+    .select(`
+      key,
+      name,
+      ai_providers!provider_id (
+        key,
+        name,
+        credentials_status
+      )
+    `)
+    .eq('is_selectable', true);
+
+  if (error) {
+    console.error('[buildAIExecutionCandidates] Error fetching DB models:', error);
+  }
+
+  const providersToCheck = ['anthropic', 'google', 'openai'];
+  const credentialsMap: Record<string, boolean> = {};
+  for (const p of providersToCheck) {
+    credentialsMap[p] = await hasAiProviderCredential(p);
+  }
+
+  const getProviderDisplayName = (pKey: string) => {
+    if (pKey === 'anthropic') return 'Claude';
+    if (pKey === 'google') return 'Google Gemini';
+    if (pKey === 'openai') return 'OpenAI';
+    return pKey;
+  };
+
+  if (activeProviderKey && activeModelKey) {
+    const isCredAvailable = credentialsMap[activeProviderKey] || false;
+    if (isCredAvailable) {
+      candidates.push({
+        provider_key: activeProviderKey,
+        provider_display_name: activeConfig?.provider_name || getProviderDisplayName(activeProviderKey),
+        model_key: activeModelKey,
+        model_display_name: activeConfig?.model_name || activeModelKey,
+        credential_available: isCredAvailable,
+        priority: 1
+      });
+    }
+  }
+
+  if (dbModels && dbModels.length > 0) {
+    for (const m of dbModels) {
+      const rawProvider = m.ai_providers as unknown;
+      const providerData = (Array.isArray(rawProvider) ? rawProvider[0] : rawProvider) as { key: string; name: string } | null;
+      const pKey = (providerData?.key || '').toLowerCase();
+      if (!pKey) continue;
+      
+      const isCredAvailable = credentialsMap[pKey] || false;
+      if (!isCredAvailable) continue;
+
+      const mKey = m.key;
+      const mName = m.name;
+
+      if (pKey === activeProviderKey && mKey === activeModelKey) {
+        continue;
+      }
+
+      let priority = 5;
+      if (pKey === activeProviderKey) {
+        priority = 2;
+      } else if (pKey === 'google') {
+        priority = 3;
+      } else if (pKey === 'openai') {
+        priority = 4;
+      }
+
+      candidates.push({
+        provider_key: pKey,
+        provider_display_name: providerData?.name || getProviderDisplayName(pKey),
+        model_key: mKey,
+        model_display_name: mName,
+        credential_available: isCredAvailable,
+        priority
+      });
+    }
+  }
+
+  candidates.sort((a, b) => a.priority - b.priority);
+
+  const seen = new Set<string>();
+  const uniqueCandidates: AIExecutionCandidate[] = [];
+
+  for (const c of candidates) {
+    const uniqueKey = `${c.provider_key}:${c.model_key}`;
+    if (!seen.has(uniqueKey)) {
+      seen.add(uniqueKey);
+      uniqueCandidates.push(c);
+    }
+  }
+
+  uniqueCandidates.sort((a, b) => {
+    if (a.priority !== b.priority) {
+      return a.priority - b.priority;
+    }
+    const modelOrder = [
+      'gemini-2.0-flash',
+      'gemini-1.5-flash-8b',
+      'gemini-1.5-pro',
+      'gemini-2.0-pro',
+      'gemini-3.0-flash',
+      'gemini-3.1-flash',
+      'gpt-4o-mini',
+      'gpt-4o',
+      'claude-3-5-haiku-20241022',
+      'claude-3-5-sonnet-20241022',
+      'claude-sonnet-4-20250514'
+    ];
+    const idxA = modelOrder.indexOf(a.model_key);
+    const idxB = modelOrder.indexOf(b.model_key);
+    if (idxA !== -1 && idxB !== -1) {
+      return idxA - idxB;
+    }
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.model_key.localeCompare(b.model_key);
+  });
+
+  return uniqueCandidates;
+}
+
 export async function enrichProspectCandidate({
   candidateId,
   userId,
   supabase,
 }: EnrichProspectCandidateInput): Promise<EnrichProspectCandidateResult> {
-  const startedAt = Date.now();
-
   try {
-    // 1. Cargar candidato
     const { data: candidate, error: loadErr } = await supabase
       .from('prospect_candidates')
       .select('*')
@@ -374,7 +544,6 @@ export async function enrichProspectCandidate({
       return { success: false, error: `Candidato no encontrado: ${loadErr?.message ?? 'sin datos'}` };
     }
 
-    // 2. Evaluar elegibilidad
     const eligibility = evaluateCandidateEnrichmentNeed(candidate);
 
     if (eligibility.blocking_reason) {
@@ -395,34 +564,22 @@ export async function enrichProspectCandidate({
       };
     }
 
-    // 3. Obtener configuración activa de IA
     const activeConfig = await getAIActiveConfig();
-    if (!activeConfig || !activeConfig.active_provider_id || !activeConfig.active_model_id) {
-      return {
-        success: false,
-        error: 'No hay proveedor de IA configurado para enriquecimiento.',
-      };
-    }
+    const executionCandidates = await buildAIExecutionCandidates(supabase, activeConfig);
 
-    const canonicalProvider = resolveCanonicalProvider(activeConfig);
-    const resolvedModelId = resolveProviderModelId(activeConfig, canonicalProvider);
-
-    if (!resolvedModelId) {
-      const errMsg = 'El modelo configurado no tiene un ID técnico válido para Anthropic.';
+    if (executionCandidates.length === 0) {
+      const errMsg = 'No fue posible ejecutar el enriquecimiento con los proveedores de IA configurados. Revisa Configuración > Proveedores de IA.';
       const failedMetadata = {
         status: 'failed',
         failed_at: new Date().toISOString(),
-        provider: canonicalProvider,
-        display_name: activeConfig.model_name ?? '',
-        provider_model_id: '',
-        error_code: 'provider_model_not_found',
+        error_code: 'no_ai_providers_configured',
         error_message: errMsg,
-        raw_error_safe: { message: errMsg },
         eligibility: {
           completeness_score: eligibility.completeness_score,
           reasons: eligibility.reasons,
           missing_fields: eligibility.missing_fields,
-        }
+        },
+        attempts: []
       };
 
       await supabase
@@ -438,24 +595,12 @@ export async function enrichProspectCandidate({
       return {
         success: false,
         error: errMsg,
-        errorCode: 'provider_model_not_found',
+        errorCode: 'no_ai_providers_configured',
         errorDetails: failedMetadata
       };
     }
 
-    // 4. Obtener API key desde Vault
-    const creds = await getAiProviderCredential(canonicalProvider);
-    if (!creds.success || !creds.apiKey) {
-      return {
-        success: false,
-        error: 'No hay proveedor de IA configurado para enriquecimiento.',
-      };
-    }
-
-    // 5. Iniciar agent run de observabilidad si se desea registrar
     let agentRunId: string | undefined;
-    let stepId: string | undefined;
-
     try {
       const run = await createAgentRun({
         agent_key: 'candidate_enrichment',
@@ -465,110 +610,210 @@ export async function enrichProspectCandidate({
       });
       if (run) {
         agentRunId = run.id;
-        const step = await createAgentRunStep({
-          agent_run_id: run.id,
-          step_key: 'enrichment_llm_call',
-          step_name: 'Llamada al LLM para enriquecimiento',
-          provider_key: canonicalProvider,
-        });
-        if (step) {
-          stepId = step.id;
-        }
       }
     } catch (logErr) {
-      console.warn('[enrichProspectCandidate] Error writing to agent execution tables (non-blocking):', logErr);
+      console.warn('[enrichProspectCandidate] Error creating agent run:', logErr);
     }
 
-    // 6. Construir prompt y llamar al LLM
     const prompt = buildEnrichmentPrompt(candidate, eligibility);
+    const attempts: Array<{
+      provider: string;
+      model: string;
+      status: 'failed' | 'completed';
+      error_code?: string;
+      error_message?: string;
+    }> = [];
 
-    let text: string;
-    let inputTokens = 0;
-    let outputTokens = 0;
+    let successfulResult: {
+      text: string;
+      inputTokens: number;
+      outputTokens: number;
+      candidate: AIExecutionCandidate;
+    } | null = null;
 
-    try {
-      const response = await callAiProviderAPI(
-        canonicalProvider,
-        resolvedModelId,
-        creds.apiKey,
-        prompt
-      );
-      text = response.text;
-      inputTokens = response.inputTokens;
-      outputTokens = response.outputTokens;
-    } catch (apiErr) {
-      const isLlmError = apiErr instanceof AILlmCallError;
-      const status = isLlmError ? apiErr.status : 500;
-      const rawError = isLlmError ? apiErr.rawError : String(apiErr);
-      const errMsg = apiErr instanceof Error ? apiErr.message : String(apiErr);
-      
-      let errorCode = 'api_error';
-      let errorMsg = errMsg;
-      
-      if (status === 404 || rawError.includes('not_found_error') || rawError.includes('model_not_found') || rawError.includes('model: ') || rawError.includes('models/')) {
-        errorCode = 'provider_model_not_found';
-        errorMsg = `Modelo no encontrado en ${canonicalProvider === 'anthropic' ? 'Anthropic' : canonicalProvider === 'google' ? 'Google Gemini' : 'OpenAI'}`;
-      }
+    const maxAttempts = Math.min(3, executionCandidates.length);
 
-      let rawErrorSafe: Record<string, unknown> = { message: errMsg };
+    for (let i = 0; i < maxAttempts; i++) {
+      const execCand = executionCandidates[i];
+      let stepId: string | undefined;
+
       try {
-        if (isLlmError) {
-          rawErrorSafe = JSON.parse(rawError);
+        if (agentRunId) {
+          const step = await createAgentRunStep({
+            agent_run_id: agentRunId,
+            step_key: `enrichment_attempt_${i}`,
+            step_name: `Intento ${i + 1}: ${execCand.provider_display_name} (${execCand.model_display_name})`,
+            provider_key: execCand.provider_key,
+          });
+          if (step) {
+            stepId = step.id;
+          }
         }
-      } catch {}
-
-      const failedMetadata = {
-        status: 'failed',
-        failed_at: new Date().toISOString(),
-        provider: canonicalProvider,
-        display_name: activeConfig.model_name ?? '',
-        provider_model_id: resolvedModelId,
-        error_code: errorCode,
-        error_message: errorMsg,
-        raw_error_safe: rawErrorSafe,
-        eligibility: {
-          completeness_score: eligibility.completeness_score,
-          reasons: eligibility.reasons,
-          missing_fields: eligibility.missing_fields,
-        }
-      };
-
-      if (agentRunId && stepId) {
-        await finishAgentRunStep(stepId, {
-          status: 'error',
-          error_message: errMsg,
-        });
-        await updateAgentRun(agentRunId, {
-          status: 'failed',
-          error_message: errMsg,
-          finished_at: new Date().toISOString(),
-        });
+      } catch (logErr) {
+        console.warn('[enrichProspectCandidate] Error creating step:', logErr);
       }
 
-      await supabase
-        .from('prospect_candidates')
-        .update({
-          metadata: {
-            ...(candidate.metadata || {}),
-            enrichment: failedMetadata
-          }
-        })
-        .eq('id', candidateId);
+      const creds = await getAiProviderCredential(execCand.provider_key);
+      if (!creds.success || !creds.apiKey) {
+        const errMsg = `Credenciales no encontradas para el proveedor ${execCand.provider_display_name}`;
+        attempts.push({
+          provider: execCand.provider_key,
+          model: execCand.model_key,
+          status: 'failed',
+          error_code: 'credentials_missing',
+          error_message: errMsg
+        });
 
-      return {
-        success: false,
-        error: isLlmError 
-          ? `Error al llamar al proveedor de IA: ${canonicalProvider.toUpperCase()} error ${status}: ${rawError}`
-          : `Error al llamar al proveedor de IA: ${errMsg}`,
-        errorCode,
-        errorDetails: failedMetadata
-      };
+        if (agentRunId && stepId) {
+          try {
+            await finishAgentRunStep(stepId, {
+              status: 'error',
+              error_message: errMsg,
+            });
+          } catch {}
+        }
+        continue;
+      }
+
+      try {
+        const callStart = Date.now();
+        const response = await callAiProviderAPI(
+          execCand.provider_key,
+          execCand.model_key,
+          creds.apiKey,
+          prompt
+        );
+        const duration = Date.now() - callStart;
+
+        const cleanedText = response.text
+          .trim()
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/, '')
+          .trim();
+        
+        const jsonStart = cleanedText.indexOf('{');
+        const jsonEnd = cleanedText.lastIndexOf('}');
+        if (jsonStart === -1 || jsonEnd === -1) {
+          throw new Error('No se encontró un objeto JSON en la respuesta del LLM');
+        }
+        
+        JSON.parse(cleanedText.slice(jsonStart, jsonEnd + 1));
+
+        successfulResult = {
+          text: response.text,
+          inputTokens: response.inputTokens,
+          outputTokens: response.outputTokens,
+          candidate: execCand
+        };
+
+        attempts.push({
+          provider: execCand.provider_key,
+          model: execCand.model_key,
+          status: 'completed'
+        });
+
+        let estimatedCostUsd = 0;
+        try {
+          const { data: pricing } = await supabase
+            .from('provider_pricing_config')
+            .select('provider_key, operation_key, unit, unit_cost_usd')
+            .eq('provider_key', execCand.provider_key)
+            .eq('is_active', true);
+
+          if (pricing && pricing.length > 0) {
+            const inputRule = pricing.find((p: { operation_key: string }) => p.operation_key === 'input_token');
+            const outputRule = pricing.find((p: { operation_key: string }) => p.operation_key === 'output_token');
+
+            if (inputRule) {
+              const costPerToken = inputRule.unit === 'per_1k_tokens' ? inputRule.unit_cost_usd / 1000 : inputRule.unit_cost_usd;
+              estimatedCostUsd += response.inputTokens * costPerToken;
+            }
+            if (outputRule) {
+              const costPerToken = outputRule.unit === 'per_1k_tokens' ? outputRule.unit_cost_usd / 1000 : outputRule.unit_cost_usd;
+              estimatedCostUsd += response.outputTokens * costPerToken;
+            }
+          } else {
+            estimatedCostUsd = estimateLLMCost(response.inputTokens, response.outputTokens, execCand.model_key);
+          }
+        } catch (priceErr) {
+          console.warn('[enrichProspectCandidate] Error calculating pricing:', priceErr);
+          estimatedCostUsd = estimateLLMCost(response.inputTokens, response.outputTokens, execCand.model_key);
+        }
+
+        if (agentRunId && stepId) {
+          try {
+            await logProviderUsage({
+              agent_run_id: agentRunId,
+              agent_run_step_id: stepId,
+              provider_key: execCand.provider_key,
+              operation_key: 'enrich_candidate',
+              model: execCand.model_key,
+              input_tokens: response.inputTokens,
+              output_tokens: response.outputTokens,
+              estimated_cost_usd: estimatedCostUsd,
+              status: 'success',
+              duration_ms: duration,
+              triggered_by: userId,
+              metadata: { candidateId },
+            });
+
+            await finishAgentRunStep(stepId, {
+              status: 'success',
+              estimated_cost_usd: estimatedCostUsd,
+              duration_ms: duration,
+            });
+
+            await updateAgentRun(agentRunId, {
+              status: 'completed',
+              estimated_cost_usd: estimatedCostUsd,
+              finished_at: new Date().toISOString(),
+            });
+          } catch (logErr) {
+            console.warn('[enrichProspectCandidate] Logging success err:', logErr);
+          }
+        }
+
+        break;
+      } catch (apiErr) {
+        const isLlmError = apiErr instanceof AILlmCallError;
+        const status = isLlmError ? apiErr.status : 500;
+        const rawError = isLlmError ? apiErr.rawError : String(apiErr);
+        const errMsg = apiErr instanceof Error ? apiErr.message : String(apiErr);
+
+        let errorCode = 'api_error';
+        if (status === 404 || rawError.includes('not_found_error') || rawError.includes('model_not_found') || rawError.includes('model: ') || rawError.includes('models/')) {
+          errorCode = 'provider_model_not_found';
+        } else if (errMsg.includes('JSON')) {
+          errorCode = 'parse_error';
+        }
+
+        attempts.push({
+          provider: execCand.provider_key,
+          model: execCand.model_key,
+          status: 'failed',
+          error_code: errorCode,
+          error_message: errMsg
+        });
+
+        if (agentRunId && stepId) {
+          try {
+            await finishAgentRunStep(stepId, {
+              status: 'error',
+              error_message: errMsg,
+            });
+          } catch {}
+        }
+
+        if (!isRecoverableError(status, errMsg, rawError)) {
+          console.warn(`[enrichProspectCandidate] Error fatal no recuperable (${errorCode}): ${errMsg}. Deteniendo fallbacks.`);
+          break;
+        }
+      }
     }
 
-    // 7. Parsear la respuesta del LLM
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let parsedJson: any;
-    try {
+    if (successfulResult) {
+      const { text, inputTokens, outputTokens, candidate: execCand } = successfulResult;
+      
       const cleanedText = text
         .trim()
         .replace(/^```(?:json)?\s*/i, '')
@@ -577,39 +822,98 @@ export async function enrichProspectCandidate({
       
       const jsonStart = cleanedText.indexOf('{');
       const jsonEnd = cleanedText.lastIndexOf('}');
-      if (jsonStart === -1 || jsonEnd === -1) {
-        throw new Error('No se encontró un objeto JSON en la respuesta');
-      }
-      
-      parsedJson = JSON.parse(cleanedText.slice(jsonStart, jsonEnd + 1));
-    } catch (parseErr) {
-      const errMsg = `Fallo al parsear respuesta JSON de la IA: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`;
-      const failedMetadata = {
-        status: 'failed',
-        failed_at: new Date().toISOString(),
-        provider: canonicalProvider,
-        display_name: activeConfig.model_name ?? '',
-        provider_model_id: resolvedModelId,
-        error_code: 'parse_error',
-        error_message: errMsg,
-        raw_error_safe: { message: parseErr instanceof Error ? parseErr.message : String(parseErr), raw_response: text.slice(0, 1000) },
+      const parsedJson = JSON.parse(cleanedText.slice(jsonStart, jsonEnd + 1));
+
+      let estimatedCostUsd = 0;
+      try {
+        estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, execCand.model_key);
+      } catch {}
+
+      const inputSources = ['candidate_import'];
+      if (candidate.metadata?.validation) inputSources.push('validation_metadata');
+      if (candidate.matched_hubspot_company_id) inputSources.push('hubspot_match');
+      if (candidate.website) inputSources.push('website');
+
+      const enrichmentBlock = {
+        status: 'completed',
+        enriched_at: new Date().toISOString(),
+        enriched_by: userId,
+        provider: execCand.provider_key,
+        model: execCand.model_key,
+        display_name: execCand.model_display_name,
+        fallback_used: execCand.priority > 1,
+        primary_provider_failed: attempts.length > 1,
+        input_sources: inputSources,
         eligibility: {
           completeness_score: eligibility.completeness_score,
           reasons: eligibility.reasons,
           missing_fields: eligibility.missing_fields,
-        }
+        },
+        summary: parsedJson.summary || '',
+        company_profile: parsedJson.company_profile || {},
+        sellup_fit: parsedJson.sellup_fit || {},
+        commercial_angles: parsedJson.commercial_angles || [],
+        risks_or_uncertainties: parsedJson.risks_or_uncertainties || [],
+        missing_data: parsedJson.missing_data || [],
+        confidence: parsedJson.confidence || 'medium',
+        requires_human_review: parsedJson.requires_human_review !== false,
+        usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          estimated_cost: estimatedCostUsd,
+        },
+        attempts: attempts
       };
 
-      if (agentRunId && stepId) {
-        await finishAgentRunStep(stepId, {
-          status: 'error',
-          error_message: errMsg,
-        });
-        await updateAgentRun(agentRunId, {
-          status: 'failed',
-          error_message: errMsg,
-          finished_at: new Date().toISOString(),
-        });
+      const existingMeta = candidate.metadata || {};
+      const updatedMeta = {
+        ...existingMeta,
+        enrichment: enrichmentBlock,
+      };
+
+      const { error: saveErr } = await supabase
+        .from('prospect_candidates')
+        .update({
+          metadata: updatedMeta,
+          fit_score: parsedJson.sellup_fit?.fit_score || null,
+          commercial_fit_status: parsedJson.sellup_fit?.fit_level || null,
+        })
+        .eq('id', candidateId);
+
+      if (saveErr) {
+        throw new Error(`No se pudo persistir el enriquecimiento en el candidato: ${saveErr.message}`);
+      }
+
+      return {
+        success: true,
+        data: enrichmentBlock,
+      };
+    } else {
+      const finalMsg = 'No fue posible ejecutar el enriquecimiento con los proveedores de IA configurados. Revisa Configuración > Proveedores de IA.';
+      const lastAttempt = attempts[attempts.length - 1];
+      const finalErrorCode = lastAttempt?.error_code || 'all_ai_providers_failed';
+
+      const failedMetadata = {
+        status: 'failed',
+        failed_at: new Date().toISOString(),
+        error_code: 'all_ai_providers_failed',
+        error_message: finalMsg,
+        eligibility: {
+          completeness_score: eligibility.completeness_score,
+          reasons: eligibility.reasons,
+          missing_fields: eligibility.missing_fields,
+        },
+        attempts: attempts
+      };
+
+      if (agentRunId) {
+        try {
+          await updateAgentRun(agentRunId, {
+            status: 'failed',
+            error_message: finalMsg,
+            finished_at: new Date().toISOString(),
+          });
+        } catch {}
       }
 
       await supabase
@@ -624,136 +928,11 @@ export async function enrichProspectCandidate({
 
       return {
         success: false,
-        error: errMsg,
-        errorCode: 'parse_error',
+        error: finalMsg,
+        errorCode: finalErrorCode,
         errorDetails: failedMetadata
       };
     }
-
-    // 8. Calcular costos estimados
-    let estimatedCostUsd = 0;
-    try {
-      const { data: pricing } = await supabase
-        .from('provider_pricing_config')
-        .select('provider_key, operation_key, unit, unit_cost_usd')
-        .eq('provider_key', canonicalProvider)
-        .eq('is_active', true);
-
-      if (pricing && pricing.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const inputRule = pricing.find((p: any) => p.operation_key === 'input_token');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const outputRule = pricing.find((p: any) => p.operation_key === 'output_token');
-
-        if (inputRule) {
-          const costPerToken = inputRule.unit === 'per_1k_tokens' ? inputRule.unit_cost_usd / 1000 : inputRule.unit_cost_usd;
-          estimatedCostUsd += inputTokens * costPerToken;
-        }
-        if (outputRule) {
-          const costPerToken = outputRule.unit === 'per_1k_tokens' ? outputRule.unit_cost_usd / 1000 : outputRule.unit_cost_usd;
-          estimatedCostUsd += outputTokens * costPerToken;
-        }
-      } else {
-        // Fallback calculations using local helper
-        estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, resolvedModelId);
-      }
-    } catch (priceErr) {
-      console.warn('[enrichProspectCandidate] Error calculating dynamic pricing, using fallbacks:', priceErr);
-      estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, resolvedModelId);
-    }
-
-    // 9. Registrar logs de ejecución en Supabase
-    if (agentRunId && stepId) {
-      try {
-        const duration = Date.now() - startedAt;
-        await logProviderUsage({
-          agent_run_id: agentRunId,
-          agent_run_step_id: stepId,
-          provider_key: canonicalProvider,
-          operation_key: 'enrich_candidate',
-          model: resolvedModelId,
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-          estimated_cost_usd: estimatedCostUsd,
-          status: 'success',
-          duration_ms: duration,
-          triggered_by: userId,
-          metadata: { candidateId },
-        });
-
-        await finishAgentRunStep(stepId, {
-          status: 'success',
-          estimated_cost_usd: estimatedCostUsd,
-          duration_ms: duration,
-        });
-
-        await updateAgentRun(agentRunId, {
-          status: 'completed',
-          estimated_cost_usd: estimatedCostUsd,
-          finished_at: new Date().toISOString(),
-        });
-      } catch (logErr) {
-        console.warn('[enrichProspectCandidate] Non-blocking logging failure:', logErr);
-      }
-    }
-
-    // 10. Guardar en metadata.enrichment
-    const inputSources = ['candidate_import'];
-    if (candidate.metadata?.validation) inputSources.push('validation_metadata');
-    if (candidate.matched_hubspot_company_id) inputSources.push('hubspot_match');
-    if (candidate.website) inputSources.push('website');
-
-    const enrichmentBlock = {
-      status: 'completed',
-      enriched_at: new Date().toISOString(),
-      enriched_by: userId,
-      provider: canonicalProvider,
-      model: resolvedModelId,
-      display_name: activeConfig.model_name ?? '',
-      input_sources: inputSources,
-      eligibility: {
-        completeness_score: eligibility.completeness_score,
-        reasons: eligibility.reasons,
-        missing_fields: eligibility.missing_fields,
-      },
-      summary: parsedJson.summary || '',
-      company_profile: parsedJson.company_profile || {},
-      sellup_fit: parsedJson.sellup_fit || {},
-      commercial_angles: parsedJson.commercial_angles || [],
-      risks_or_uncertainties: parsedJson.risks_or_uncertainties || [],
-      missing_data: parsedJson.missing_data || [],
-      confidence: parsedJson.confidence || 'medium',
-      requires_human_review: parsedJson.requires_human_review !== false,
-      usage: {
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        estimated_cost: estimatedCostUsd,
-      },
-    };
-
-    const existingMeta = candidate.metadata || {};
-    const updatedMeta = {
-      ...existingMeta,
-      enrichment: enrichmentBlock,
-    };
-
-    const { error: saveErr } = await supabase
-      .from('prospect_candidates')
-      .update({
-        metadata: updatedMeta,
-        fit_score: parsedJson.sellup_fit?.fit_score || null,
-        commercial_fit_status: parsedJson.sellup_fit?.fit_level || null,
-      })
-      .eq('id', candidateId);
-
-    if (saveErr) {
-      throw new Error(`No se pudo persistir el enriquecimiento en el candidato: ${saveErr.message}`);
-    }
-
-    return {
-      success: true,
-      data: enrichmentBlock,
-    };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error('[enrichProspectCandidate] Unexpected error:', err);
