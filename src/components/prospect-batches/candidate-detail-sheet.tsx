@@ -111,6 +111,8 @@ const DIRECTORY_KEYWORDS = [
   'buscaempresas',
   'rues.gov',
   'rues.org',
+  'colombiacompra',
+  'secop',
 ];
 
 function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
@@ -118,6 +120,8 @@ function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean 
   if (!domain) return false;
   if (DIRECTORY_DOMAINS.has(domain)) return true;
   if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
+  // Colombian government institutional domains (.gov.co) — never a commercial company website
+  if (/\.gov\.co$/.test(domain) || domain === 'gov.co') return true;
   return false;
 }
 
@@ -340,6 +344,20 @@ export function CandidateDetailSheet({
     (enrichment?.ciiu as string | undefined) ??
     (enrichment?.sector_code as string | undefined) ??
     null;
+
+  const FIT_STATUS_LABELS: Record<string, string> = {
+    high: 'Encaje alto',
+    medium: 'Encaje medio',
+    low: 'Encaje bajo',
+    unknown: 'Evaluación no disponible',
+    high_fit: 'Encaje alto',
+    good_fit: 'Buen encaje',
+    medium_fit: 'Encaje medio',
+    low_fit: 'Encaje bajo',
+    needs_manual_review: 'Requiere revisión humana',
+    insufficient_evidence: 'Evaluación no disponible por falta de evidencia pública confiable',
+    tax_identifier_conflict: 'Evaluación pausada por NIT inconsistente',
+  };
 
   const SOURCE_TYPE_LABELS: Record<string, string> = {
     commercial_directory: 'Directorio comercial',
@@ -632,8 +650,8 @@ export function CandidateDetailSheet({
                   label={
                     linkedinUrl
                       ? "LinkedIn corporativo"
-                      : possibleLinkedInMatches.length > 0
-                      ? "LinkedIn posible · requiere revisión"
+                      : (!hasNitConflict && possibleLinkedInMatches.length > 0)
+                      ? "Posibles coincidencias de LinkedIn"
                       : "LinkedIn corporativo"
                   }
                   value={
@@ -660,20 +678,21 @@ export function CandidateDetailSheet({
                           </span>
                         )}
                       </div>
-                    ) : possibleLinkedInMatches.length > 0 ? (
-                      <div className="space-y-1">
-                        {possibleLinkedInMatches.map((match, idx) => (
+                    ) : (!hasNitConflict && possibleLinkedInMatches.length > 0) ? (
+                      <div className="space-y-1.5">
+                        <p className="text-[9px] text-muted-foreground/50 italic">No confirmado — requiere revisión</p>
+                        {possibleLinkedInMatches.slice(0, 2).map((match, idx) => (
                           <div key={idx} className="flex items-center gap-1.5 flex-wrap">
                             <a
                               href={(match.url as string).startsWith('http') ? (match.url as string) : `https://${match.url}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-su-brand hover:underline font-medium"
+                              className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
                             >
                               <Link2 className="h-3 w-3 shrink-0" />
-                              {match.title ? (match.title as string) : `Posible match ${idx + 1}`}
+                              {match.title ? (match.title as string) : `Posible perfil ${idx + 1}`}
                             </a>
-                            <span className="text-[9px] text-muted-foreground/60">
+                            <span className="text-[9px] text-muted-foreground/50">
                               ({(match.match_quality as string) === 'partial' ? 'parcial' : 'débil'})
                             </span>
                           </div>
@@ -737,7 +756,7 @@ export function CandidateDetailSheet({
                 </div>
               )}
 
-              {publicDescription && (
+              {!hasNitConflict && publicDescription && (
                 <div className="space-y-0.5 pt-2">
                   <div className="flex items-center gap-1.5">
                     <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción pública</p>
@@ -750,8 +769,12 @@ export function CandidateDetailSheet({
                   <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{publicDescription}</p>
                 </div>
               )}
-              {!publicDescription && (
-                <p className="text-xs text-muted-foreground/40 italic pt-2">No encontrado en evidencia pública</p>
+              {(hasNitConflict || !publicDescription) && (
+                <p className="text-xs text-muted-foreground/40 italic pt-2">
+                  {hasNitConflict
+                    ? 'Sin descripción pública confiable.'
+                    : 'No encontrado en evidencia pública'}
+                </p>
               )}
             </div>
           </div>
@@ -767,16 +790,14 @@ export function CandidateDetailSheet({
                   {fitStatus && (
                     <Badge
                       className={`border-0 text-[10px] font-semibold ${
-                        fitStatus === 'high_fit' || fitStatus === 'good_fit'
+                        fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
                           ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : fitStatus === 'medium_fit'
+                          : fitStatus === 'medium' || fitStatus === 'medium_fit'
                           ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                           : 'bg-muted text-muted-foreground'
                       }`}
                     >
-                      {fitStatus === 'unknown'
-                        ? 'Evaluación no disponible por falta de evidencia pública'
-                        : fitStatus.replace(/_/g, ' ')}
+                      {FIT_STATUS_LABELS[fitStatus] ?? fitStatus.replace(/_/g, ' ')}
                     </Badge>
                   )}
                   {fitScore !== null && (

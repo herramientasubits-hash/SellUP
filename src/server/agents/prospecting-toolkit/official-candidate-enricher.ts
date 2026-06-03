@@ -546,6 +546,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
       }
     }
 
+    // 16AK.16D: NIT conflict blocking gate — prevents weak evidence from polluting visible fields
+    const hasNitConflictBlocking = nitConflicts.length > 0 && nitMatches.length === 0;
+
     // ── Step 4: Claude evaluation ──────────────────────────────────────────
     // 16AK.16C: Gate — only call Claude if hasMinimumEvidenceForClaude passes
     const shouldCallClaude =
@@ -628,8 +631,9 @@ export async function enrichBatchCandidatesWithWebAndAI(
         );
 
         const updatePayload: Record<string, unknown> = {};
-        const finalWebsite = officialWebsiteEvidence?.url ?? null;
-        const finalDomain = officialWebsiteEvidence?.domain ?? null;
+        // 16AK.16D: Block website if NIT conflict with no NIT match
+        const finalWebsite = hasNitConflictBlocking ? null : (officialWebsiteEvidence?.url ?? null);
+        const finalDomain = hasNitConflictBlocking ? null : (officialWebsiteEvidence?.domain ?? null);
 
         if (!candidate.website && finalWebsite) {
           updatePayload.website = finalWebsite;
@@ -672,14 +676,19 @@ export async function enrichBatchCandidatesWithWebAndAI(
     const updatePayload: Record<string, unknown> = {};
 
     // Website: prefer local extraction; fall back to Claude only if official
+    // 16AK.16D: Apply NIT conflict blocking gate before persisting visible fields
     const aiWebsiteIsValid = aiResult?.website
       ? !isDirectoryOrThirdPartyEvidenceDomain(extractDomainFromUrl(aiResult.website) ?? '')
       : false;
-    const finalWebsite =
+    const rawFinalWebsite =
       officialWebsiteEvidence?.url ?? (aiWebsiteIsValid ? (aiResult?.website ?? null) : null);
-    const finalDomain =
+    const rawFinalDomain =
       officialWebsiteEvidence?.domain ??
       (aiWebsiteIsValid ? (aiResult?.domain ?? extractDomainSimple(aiResult?.website)) : null);
+
+    // Gate: if NIT conflict without any NIT match, block all locally-derived website
+    const finalWebsite = hasNitConflictBlocking ? null : rawFinalWebsite;
+    const finalDomain = hasNitConflictBlocking ? null : rawFinalDomain;
 
     if (!candidate.website && finalWebsite) {
       updatePayload.website = finalWebsite;
@@ -704,12 +713,40 @@ export async function enrichBatchCandidatesWithWebAndAI(
     }
 
     // LinkedIn: prefer local confirmed; fall back to Claude if /company/ URL
+    // 16AK.16D: Block if NIT conflict blocking gate active
     const aiLinkedIn = aiResult?.company_linkedin_url ?? null;
-    const finalLinkedIn = linkedInEvidence?.url ?? aiLinkedIn;
+    const finalLinkedIn = hasNitConflictBlocking ? null : (linkedInEvidence?.url ?? aiLinkedIn);
 
     // Description: prefer local extraction; fall back to Claude
-    const finalDescription =
-      publicDescriptionEvidence?.text ?? (aiResult?.description ?? null);
+    // 16AK.16D: Block if NIT conflict blocking gate active
+    const finalDescription = hasNitConflictBlocking
+      ? null
+      : (publicDescriptionEvidence?.text ?? (aiResult?.description ?? null));
+
+    // 16AK.16D: Compute status fields for metadata
+    const officialWebsiteStatus = hasNitConflictBlocking
+      ? 'blocked_by_tax_conflict'
+      : finalWebsite
+      ? 'confirmed'
+      : rawFinalWebsite
+      ? 'rejected'
+      : 'not_found';
+
+    const publicDescriptionStatus = hasNitConflictBlocking
+      ? 'skipped_tax_conflict'
+      : !finalDescription
+      ? 'not_found'
+      : 'confirmed';
+
+    const linkedinStatus = hasNitConflictBlocking
+      ? 'blocked_by_tax_conflict'
+      : linkedInEvidence
+      ? 'confirmed'
+      : finalLinkedIn
+      ? 'possible'
+      : webEnrichment.possible_linkedin_matches.length > 0
+      ? 'possible'
+      : 'not_found';
 
     const enrichmentMeta = {
       web: {
@@ -717,16 +754,20 @@ export async function enrichBatchCandidatesWithWebAndAI(
         results_count: scoredResults.length,
         queries_run: queriesRun.length,
         queries: queriesRun,
-        official_website: officialWebsiteEvidence ?? null,
-        linkedin_company: linkedInEvidence
+        official_website: hasNitConflictBlocking ? null : (officialWebsiteEvidence ?? null),
+        official_website_status: officialWebsiteStatus,
+        visible_website_allowed: !hasNitConflictBlocking && !!finalWebsite,
+        linkedin_company: hasNitConflictBlocking ? null : (linkedInEvidence
           ? linkedInEvidence
           : finalLinkedIn
           ? { url: finalLinkedIn, confidence: 'low' as const, evidence_url: finalLinkedIn, reason: 'claude_extracted' }
-          : null,
-        possible_linkedin_matches: webEnrichment.possible_linkedin_matches,
+          : null),
+        linkedin_status: linkedinStatus,
+        possible_linkedin_matches: hasNitConflictBlocking ? [] : webEnrichment.possible_linkedin_matches,
         public_evidence: webEnrichment.public_evidence,
         rejected_as_official_website: webEnrichment.rejected_as_official_website,
-        public_description: publicDescriptionEvidence ?? (finalDescription ? { text: finalDescription, confidence: 'low' as const, evidence_used: [] } : null),
+        public_description: hasNitConflictBlocking ? null : (publicDescriptionEvidence ?? (finalDescription ? { text: finalDescription, confidence: 'low' as const, evidence_used: [] } : null)),
+        public_description_status: publicDescriptionStatus,
         results: scoredResults.slice(0, 5),
         tax_id_conflicts: nitConflicts,
         tax_id_matches: nitMatches,

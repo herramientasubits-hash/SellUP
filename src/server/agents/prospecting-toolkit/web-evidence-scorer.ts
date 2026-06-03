@@ -337,6 +337,10 @@ export function isDirectoryOrThirdPartyEvidenceDomain(domain: string): boolean {
   if (ACADEMIC_REPOSITORY_SUBSTRINGS.some((k) => d.includes(k) || domain.toLowerCase().includes(k))) return true;
   // Reject any subdomain of a university (.edu, .edu.co, .edu.mx, etc.)
   if (/\.edu(\.[a-z]{2})?$/.test(d)) return true;
+  // Colombian government institutional domains (.gov.co) — always governmental, never a commercial company website
+  if (/\.gov\.co$/.test(d) || d === 'gov.co') return true;
+  // Government procurement portals (Colombia Compra Eficiente, SECOP, etc.)
+  if (d.includes('colombiacompra') || d.includes('secop')) return true;
   return false;
 }
 
@@ -739,6 +743,7 @@ export function extractOfficialWebsite(
   const candidates = scoredResults
     .filter((r) => r.source_type === 'official_website')
     .filter((r) => r.confidence === 'high' || r.confidence === 'medium')
+    .filter((r) => !r.matched_signals.includes('tax_id_conflict'))
     .sort((a, b) => b.raw_score - a.raw_score);
 
   if (candidates.length === 0) return null;
@@ -875,6 +880,7 @@ export function buildPublicDescription(
   const relevant = scoredResults
     .filter((r) => r.confidence === 'high' || r.confidence === 'medium')
     .filter((r) => r.snippet && r.snippet.length > 40)
+    .filter((r) => !r.matched_signals.includes('tax_id_conflict'))
     .sort((a, b) => b.raw_score - a.raw_score)
     .slice(0, 3);
 

@@ -109,13 +109,31 @@ const DIRECTORY_KEYWORDS = [
   'buscaempresas',
   'rues.gov',
   'rues.org',
+  'colombiacompra',
+  'secop',
 ];
+
+const FIT_STATUS_LABELS: Record<string, string> = {
+  high: 'Encaje alto',
+  medium: 'Encaje medio',
+  low: 'Encaje bajo',
+  unknown: 'Evaluación no disponible',
+  high_fit: 'Encaje alto',
+  good_fit: 'Buen encaje',
+  medium_fit: 'Encaje medio',
+  low_fit: 'Encaje bajo',
+  needs_manual_review: 'Requiere revisión humana',
+  insufficient_evidence: 'Evaluación no disponible por falta de evidencia pública confiable',
+  tax_identifier_conflict: 'Evaluación pausada por NIT inconsistente',
+};
 
 function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
   const domain = extractDomainFromUrl(url);
   if (!domain) return false;
   if (DIRECTORY_DOMAINS.has(domain)) return true;
   if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
+  // Colombian government institutional domains (.gov.co) — never a commercial company website
+  if (/\.gov\.co$/.test(domain) || domain === 'gov.co') return true;
   return false;
 }
 
@@ -489,16 +507,14 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           {fitStatus && (
                             <Badge
                               className={`border-0 text-[9px] font-semibold w-fit ${
-                                fitStatus === 'high_fit' || fitStatus === 'good_fit'
+                                fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
                                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : fitStatus === 'medium_fit'
+                                  : fitStatus === 'medium' || fitStatus === 'medium_fit'
                                   ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                                   : 'bg-muted text-muted-foreground'
                               }`}
                             >
-                              {fitStatus === 'unknown'
-                                ? 'Evaluación no disponible por falta de evidencia pública'
-                                : fitStatus.replace(/_/g, ' ')}
+                              {FIT_STATUS_LABELS[fitStatus] ?? fitStatus.replace(/_/g, ' ')}
                             </Badge>
                           )}
                           {c.fit_score !== null && (
