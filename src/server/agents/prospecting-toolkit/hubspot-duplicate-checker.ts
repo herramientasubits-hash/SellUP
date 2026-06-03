@@ -53,11 +53,15 @@ async function isHubSpotConnected(): Promise<boolean> {
 
     if (!integration?.id) return false;
 
+    // Check credentials are stored and not explicitly disconnected.
+    // We do NOT require connection_status='connected' because a stored credential
+    // that hasn't been tested (not_tested) or had a transient error is still usable.
     const { data: connection } = await admin
       .from('external_integration_connections')
       .select('connection_status, credentials_status')
       .eq('integration_id', integration.id)
-      .eq('connection_status', 'connected')
+      .eq('credentials_status', 'stored')
+      .neq('connection_status', 'disconnected')
       .single();
 
     return !!connection;

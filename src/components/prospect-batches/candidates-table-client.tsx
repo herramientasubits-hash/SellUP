@@ -250,8 +250,13 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
     } else if (hsStatus === 'possible_match') {
       hsLabel = 'Posible HubSpot';
       hsStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    } else if (hsStatus === 'no_match' && sellupStatus !== 'duplicate') {
+      hsLabel = 'Sin coincidencia HubSpot';
+      hsStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+    } else if (hsStatus === 'error') {
+      hsLabel = 'Error HubSpot';
+      hsStyle = 'bg-destructive/10 text-destructive';
     } else if (hsStatus === 'not_configured' && sellupStatus !== 'duplicate') {
-      // Solo mostrar "no config" como secundario, nunca como único estado principal
       hsLabel = 'HubSpot no config.';
       hsStyle = 'bg-muted text-muted-foreground/50';
     }

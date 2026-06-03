@@ -2510,6 +2510,9 @@ export async function validateImportedCandidatesBatch(
     let validated_candidates = 0;
     let sellup_matches_count = 0;
     let hubspot_matches_count = 0;
+    let hubspot_possible_matches_count = 0;
+    let hubspot_checked_candidates_count = 0;
+    let hubspot_errors_count = 0;
     let possible_duplicates_count = 0;
     let no_match_count = 0;
     let warnings_count = 0;
@@ -2537,9 +2540,14 @@ export async function validateImportedCandidatesBatch(
           includeHubSpot: true,
         });
 
-        // Actualizar contador de batch HubSpot
+        // Actualizar contadores de batch HubSpot
         if (dupResult.hubspot_connected) {
           hubspotStatusForBatch = 'connected';
+          hubspot_checked_candidates_count++;
+          const hsStatus = dupResult.hubspot_duplicate_check.status;
+          if (hsStatus === 'match') hubspot_matches_count++;
+          else if (hsStatus === 'possible_match') hubspot_possible_matches_count++;
+          else if (hsStatus === 'error') hubspot_errors_count++;
         }
 
         // --- Quality Check ---
@@ -2603,12 +2611,9 @@ export async function validateImportedCandidatesBatch(
 
         // --- Contadores de batch ---
         const sellupStatus = dupResult.sellup_duplicate_check.status;
-        const hubspotStatus = dupResult.hubspot_duplicate_check.status;
 
         if (sellupStatus === 'duplicate') {
           sellup_matches_count++;
-        } else if (hubspotStatus === 'match') {
-          hubspot_matches_count++;
         }
         if (dupResult.db_duplicate_status === 'possible_duplicate') {
           possible_duplicates_count++;
@@ -2656,6 +2661,14 @@ export async function validateImportedCandidatesBatch(
 
     // 4. Actualizar metadata del lote
     const batchMeta = (batch.metadata || {}) as Record<string, unknown>;
+    if (process.env.NODE_ENV === 'development') {
+      console.info('[validateImportedCandidatesBatch] hubspot_config_detected:', hubspotStatusForBatch !== 'not_configured');
+      console.info('[validateImportedCandidatesBatch] hubspot_checked_candidates_count:', hubspot_checked_candidates_count);
+      console.info('[validateImportedCandidatesBatch] hubspot_matches_count:', hubspot_matches_count);
+      console.info('[validateImportedCandidatesBatch] hubspot_possible_matches_count:', hubspot_possible_matches_count);
+      console.info('[validateImportedCandidatesBatch] hubspot_errors_count:', hubspot_errors_count);
+    }
+
     const import_validation = {
       validated_at: new Date().toISOString(),
       validation_source: 'post_import_auto',
@@ -2663,6 +2676,9 @@ export async function validateImportedCandidatesBatch(
       validated_candidates,
       sellup_matches_count,
       hubspot_matches_count,
+      hubspot_possible_matches_count,
+      hubspot_checked_candidates_count,
+      hubspot_errors_count,
       possible_duplicates_count,
       no_match_count,
       warnings_count,
