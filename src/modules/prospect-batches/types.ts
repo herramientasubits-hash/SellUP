@@ -11,7 +11,7 @@ export type BatchStatus =
   | 'cancelled'
   | 'failed';
 
-export type BatchSource = 'manual' | 'agent_1' | 'imported' | 'apollo' | 'socrata_colombia' | 'denue_mexico' | 'datos_gob_cl' | 'other';
+export type BatchSource = 'manual' | 'agent_1' | 'imported' | 'apollo' | 'socrata_colombia' | 'denue_mexico' | 'datos_gob_cl' | 'external_import' | 'other';
 
 export type CandidateStatus =
   | 'generated'
@@ -41,6 +41,7 @@ export type CandidateSourcePrimary =
   | 'socrata_colombia'
   | 'denue_mexico'
   | 'datos_gob_cl'
+  | 'external_import'
   | 'other';
 
 export type CandidateAuditAction =
@@ -310,6 +311,7 @@ export const BATCH_SOURCE_LABELS: Record<BatchSource, string> = {
   socrata_colombia: 'Socrata Colombia',
   denue_mexico: 'DENUE México',
   datos_gob_cl: 'Datos.gob.cl Chile',
+  external_import: 'Importación externa',
   other: 'Otro',
 };
 
@@ -349,6 +351,7 @@ export const CANDIDATE_SOURCE_LABELS: Record<CandidateSourcePrimary, string> = {
   socrata_colombia: 'Socrata Colombia',
   denue_mexico: 'DENUE México',
   datos_gob_cl: 'Fuente oficial Chile',
+  external_import: 'Importación externa',
   other: 'Otro',
 };
 
@@ -576,6 +579,7 @@ export const VENDOR_CANDIDATE_SOURCE_LABELS: Record<string, string> = {
   lusha: 'Lusha',
   public_source: 'Fuente pública',
   preloaded: 'Precargado',
+  external_import: 'Importación externa',
   other: 'Otro',
 };
 

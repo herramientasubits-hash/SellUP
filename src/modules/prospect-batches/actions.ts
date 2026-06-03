@@ -2154,3 +2154,284 @@ export async function rehydrateStructuredBatchCandidatesAction(
 
   return { ok: true, updatedCount, skippedCount, warnings, errors };
 }
+
+// ── Importación externa de candidatos ────────────────────────
+
+export interface ExternalImportCandidate {
+  company_name: string;
+  country?: string;
+  country_code?: string;
+  website?: string;
+  industry?: string;
+  city?: string;
+  region?: string;
+  tax_identifier?: string;
+  tax_identifier_type?: string;
+  linkedin_url?: string;
+  company_size?: string;
+  description?: string;
+  notes?: string;
+  source_url?: string;
+  contact_name?: string;
+  contact_role?: string;
+  contact_email?: string;
+  owner_email?: string;
+}
+
+export interface ExternalImportInput {
+  import_type: 'paste' | 'csv';
+  candidates: ExternalImportCandidate[];
+  recognized_columns: string[];
+  unrecognized_columns: string[];
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  warning_rows: number;
+}
+
+export interface ExternalImportResult {
+  batchId: string;
+  candidatesCreated: number;
+}
+
+export interface ImportDuplicateCheckItem {
+  index: number;
+  company_name: string;
+  country_code?: string | null;
+  domain?: string | null;
+  tax_identifier?: string | null;
+}
+
+export interface ImportDuplicateResult {
+  index: number;
+  duplicate_status: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data';
+  reason?: string;
+}
+
+export async function checkImportDuplicates(
+  items: ImportDuplicateCheckItem[]
+): Promise<ImportDuplicateResult[]> {
+  await requireActiveUser();
+  const supabase = await createClient();
+
+  const results: ImportDuplicateResult[] = items.map((item) => ({
+    index: item.index,
+    duplicate_status: 'no_match' as const,
+  }));
+
+  if (items.length === 0) return results;
+
+  // Batch query: buscar por normalized_name + country_code en candidates y accounts
+  const { data: existingCandidates } = await supabase
+    .from('prospect_candidates')
+    .select('normalized_name, country_code, domain, tax_identifier')
+    .not('status', 'eq', 'discarded');
+
+  const { data: existingAccounts } = await supabase
+    .from('accounts')
+    .select('normalized_name, country_code, domain, tax_identifier')
+    .is('deleted_at', null);
+
+  const candidates = existingCandidates ?? [];
+  const accounts = existingAccounts ?? [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item.company_name) {
+      results[i].duplicate_status = 'insufficient_data';
+      continue;
+    }
+
+    const normalizedName = item.company_name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let found: 'possible_duplicate' | 'exact_duplicate' | null = null;
+    let reason: string | undefined;
+
+    // 1. Exacto por tax_identifier
+    if (item.tax_identifier && !found) {
+      const taxMatch = [
+        ...candidates.filter((c) => c.tax_identifier === item.tax_identifier),
+        ...accounts.filter((a) => a.tax_identifier === item.tax_identifier),
+      ];
+      if (taxMatch.length > 0) {
+        found = 'exact_duplicate';
+        reason = 'Mismo identificador fiscal';
+      }
+    }
+
+    // 2. Exacto por domain
+    if (item.domain && !found) {
+      const domainMatch = [
+        ...candidates.filter((c) => c.domain === item.domain),
+        ...accounts.filter((a) => a.domain === item.domain),
+      ];
+      if (domainMatch.length > 0) {
+        found = 'exact_duplicate';
+        reason = 'Mismo dominio web';
+      }
+    }
+
+    // 3. Posible por nombre normalizado + country_code
+    if (!found) {
+      const nameMatches = [
+        ...candidates.filter(
+          (c) =>
+            c.normalized_name === normalizedName &&
+            (!item.country_code || !c.country_code || c.country_code === item.country_code)
+        ),
+        ...accounts.filter(
+          (a) =>
+            a.normalized_name === normalizedName &&
+            (!item.country_code || !a.country_code || a.country_code === item.country_code)
+        ),
+      ];
+      if (nameMatches.length > 0) {
+        found = 'possible_duplicate';
+        reason = 'Nombre similar en el mismo país';
+      }
+    }
+
+    if (found) {
+      results[i].duplicate_status = found;
+      results[i].reason = reason;
+    }
+  }
+
+  return results;
+}
+
+export async function createExternalCandidatesBatch(
+  input: ExternalImportInput
+): Promise<ExternalImportResult> {
+  const { internalUserId } = await requireActiveUser();
+  const supabase = await createClient();
+
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString('es-CO', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  // Inferir país e industria del lote
+  const countryCodes = [...new Set(input.candidates.map((c) => c.country_code).filter(Boolean))];
+  const industries = [...new Set(input.candidates.map((c) => c.industry).filter(Boolean))];
+
+  const batchCountryCode = countryCodes.length === 1 ? (countryCodes[0] as string) : null;
+  const batchCountry = batchCountryCode
+    ? (input.candidates.find((c) => c.country_code === batchCountryCode)?.country ?? null)
+    : null;
+  const batchIndustry =
+    industries.length === 1 ? (industries[0] as string) : 'Importación externa';
+
+  const batchName = `Importación externa · ${dateLabel}`;
+
+  const { data: batch, error: batchError } = await supabase
+    .from('prospect_batches')
+    .insert({
+      name: batchName,
+      description: 'Candidatos cargados manualmente o desde archivo externo.',
+      country: batchCountry,
+      country_code: batchCountryCode,
+      industry: batchIndustry,
+      status: 'ready_for_review',
+      source: 'external_import',
+      owner_id: internalUserId,
+      created_by: internalUserId,
+      metadata: {
+        import_type: input.import_type,
+        imported_rows_count: input.total_rows,
+        valid_rows_count: input.valid_rows,
+        invalid_rows_count: input.invalid_rows,
+        warning_rows_count: input.warning_rows,
+        recognized_columns: input.recognized_columns,
+        unrecognized_columns: input.unrecognized_columns,
+        source_label: 'Importación externa',
+        created_from_external_research: true,
+        enrichment_auto_run: false,
+        hubspot_sync_on_import: false,
+      },
+    })
+    .select()
+    .single();
+
+  if (batchError || !batch) {
+    throw new Error(`Error al crear lote: ${batchError?.message}`);
+  }
+
+  await logProspectCandidateAudit({
+    batchId: batch.id,
+    actorUserId: internalUserId,
+    actionType: 'batch_created',
+    details: { name: batch.name, source: 'external_import', import_type: input.import_type },
+  });
+
+  // Insertar candidatos
+  let candidatesCreated = 0;
+
+  for (const candidate of input.candidates) {
+    const website = candidate.website?.trim() || null;
+    let domain: string | null = null;
+    if (website) {
+      try {
+        const url = website.startsWith('http') ? website : `https://${website}`;
+        domain = new URL(url).hostname.replace(/^www\./, '');
+      } catch {
+        domain = null;
+      }
+    }
+
+    const normalizedName = candidate.company_name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const notesArr: string[] = [];
+    if (candidate.description) notesArr.push(`Descripción: ${candidate.description}`);
+    if (candidate.notes) notesArr.push(candidate.notes);
+
+    const { error: candidateError } = await supabase.from('prospect_candidates').insert({
+      batch_id: batch.id,
+      name: candidate.company_name.trim(),
+      normalized_name: normalizedName,
+      website,
+      domain,
+      country: candidate.country?.trim() || null,
+      country_code: candidate.country_code?.trim().toUpperCase() || null,
+      city: candidate.city?.trim() || null,
+      region: candidate.region?.trim() || null,
+      industry: candidate.industry?.trim() || null,
+      company_size: candidate.company_size?.trim() || null,
+      tax_identifier: candidate.tax_identifier?.trim() || null,
+      tax_identifier_type: candidate.tax_identifier_type?.trim() || null,
+      source_primary: 'external_import',
+      status: 'needs_review',
+      review_notes: notesArr.length > 0 ? notesArr.join('\n') : null,
+      metadata: {
+        ...(candidate.linkedin_url ? { linkedin_url: candidate.linkedin_url.trim() } : {}),
+        ...(candidate.source_url ? { source_url: candidate.source_url.trim() } : {}),
+        ...(candidate.contact_name ? { contact_name: candidate.contact_name.trim() } : {}),
+        ...(candidate.contact_role ? { contact_role: candidate.contact_role.trim() } : {}),
+        ...(candidate.contact_email ? { contact_email: candidate.contact_email.trim() } : {}),
+        ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
+        imported_from: input.import_type,
+      },
+    });
+
+    if (!candidateError) candidatesCreated++;
+  }
+
+  revalidatePath('/prospect-batches');
+  revalidatePath(`/prospect-batches/${batch.id}`);
+
+  return { batchId: batch.id, candidatesCreated };
+}

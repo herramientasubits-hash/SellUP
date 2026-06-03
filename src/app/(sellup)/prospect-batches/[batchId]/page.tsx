@@ -13,6 +13,7 @@ import {
   Globe,
   RefreshCw,
   ShieldCheck,
+  Info,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -207,6 +208,24 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         }
       />
+
+      {/* Banner importación externa */}
+      {(batch.source as string) === 'external_import' && (
+        <div className="rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5 animate-in fade-in-0 duration-200">
+          <div className="flex items-start gap-2.5">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Candidatos importados desde fuente externa
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Estos candidatos fueron cargados manualmente o desde un archivo externo. Requieren
+                revisión humana antes de aprobarse o sincronizarse.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Alerta de rollback lógico aplicado */}
       {batch.status === 'cancelled' && batch.metadata?.rollback_logical === true && (

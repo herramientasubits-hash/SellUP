@@ -1,9 +1,11 @@
-import { Layers, CheckCircle2, GitMerge, Trophy, ThumbsUp } from 'lucide-react';
+import { Layers, CheckCircle2, GitMerge, Trophy, ThumbsUp, Upload } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { Button } from '@/components/ui/button';
 import { CreateBatchDrawer } from '@/components/prospect-batches/create-batch-drawer';
 import { GenerateMockBatchDrawer } from '@/components/prospect-batches/generate-mock-batch-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
+import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { BatchesListClient } from '@/components/prospect-batches/batches-list-client';
 import {
   getProspectBatchesSummary,
@@ -64,6 +66,12 @@ export default async function ProspectBatchesPage() {
         actions={
           <div className="flex items-center gap-2">
             {process.env.NODE_ENV !== 'production' && <GenerateMockBatchDrawer />}
+            <ImportCandidatesDrawer>
+              <Button variant="outline" size="sm" className="gap-2 text-xs">
+                <Upload className="h-3.5 w-3.5" />
+                Importar candidatos
+              </Button>
+            </ImportCandidatesDrawer>
             <GenerateAIBatchDrawer />
             <CreateBatchDrawer users={users} />
           </div>
