@@ -2179,7 +2179,7 @@ export interface ExternalImportCandidate {
 }
 
 export interface ExternalImportInput {
-  import_type: 'paste' | 'csv';
+  import_type: 'paste' | 'csv' | 'xlsx';
   candidates: ExternalImportCandidate[];
   recognized_columns: string[];
   unrecognized_columns: string[];
@@ -2187,6 +2187,11 @@ export interface ExternalImportInput {
   valid_rows: number;
   invalid_rows: number;
   warning_rows: number;
+  defaults?: {
+    country?: string;
+    country_code?: string;
+    industry?: string;
+  };
 }
 
 export interface ExternalImportResult {
@@ -2319,16 +2324,26 @@ export async function createExternalCandidatesBatch(
     year: 'numeric',
   });
 
-  // Inferir país e industria del lote
+  // Inferir país e industria del lote (considerando defaults)
   const countryCodes = [...new Set(input.candidates.map((c) => c.country_code).filter(Boolean))];
   const industries = [...new Set(input.candidates.map((c) => c.industry).filter(Boolean))];
 
-  const batchCountryCode = countryCodes.length === 1 ? (countryCodes[0] as string) : null;
+  const batchCountryCode = countryCodes.length === 1
+    ? (countryCodes[0] as string)
+    : (countryCodes.length === 0 ? (input.defaults?.country_code ?? null) : null);
   const batchCountry = batchCountryCode
-    ? (input.candidates.find((c) => c.country_code === batchCountryCode)?.country ?? null)
+    ? (input.candidates.find((c) => c.country_code === batchCountryCode)?.country ?? input.defaults?.country ?? null)
     : null;
-  const batchIndustry =
-    industries.length === 1 ? (industries[0] as string) : 'Importación externa';
+  const batchIndustry = industries.length === 1
+    ? (industries[0] as string)
+    : (industries.length === 0 ? (input.defaults?.industry ?? 'Importación externa') : 'Importación externa');
+
+  const rowsUsingDefaultCountry = input.candidates.filter(
+    (c) => !c.country_code && !c.country && !!input.defaults?.country_code
+  ).length;
+  const rowsUsingDefaultIndustry = input.candidates.filter(
+    (c) => !c.industry && !!input.defaults?.industry
+  ).length;
 
   const batchName = `Importación externa · ${dateLabel}`;
 
@@ -2356,6 +2371,12 @@ export async function createExternalCandidatesBatch(
         created_from_external_research: true,
         enrichment_auto_run: false,
         hubspot_sync_on_import: false,
+        default_country: input.defaults?.country ?? null,
+        default_country_code: input.defaults?.country_code ?? null,
+        default_industry: input.defaults?.industry ?? null,
+        defaults_applied: !!(input.defaults?.country_code || input.defaults?.industry),
+        rows_using_default_country_count: rowsUsingDefaultCountry,
+        rows_using_default_industry_count: rowsUsingDefaultIndustry,
       },
     })
     .select()

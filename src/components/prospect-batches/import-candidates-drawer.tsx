@@ -14,7 +14,6 @@ import {
   GitMerge,
   ExternalLink,
   Info,
-  Globe,
 } from 'lucide-react';
 import {
   Sheet,
@@ -27,25 +26,36 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import {
   parsePastedCandidates,
   parseCsvCandidates,
+  parseXlsxCandidates,
   buildImportPreview,
   getValidRows,
   type ImportPreview,
   type ImportRow,
   type ImportMethod,
+  type ImportDefaults,
 } from '@/modules/prospect-batches/import-candidates-parser';
 import {
   checkImportDuplicates,
   createExternalCandidatesBatch,
   type ImportDuplicateResult,
 } from '@/modules/prospect-batches/actions';
+import { LATAM_COUNTRIES, INDUSTRIES } from '@/modules/accounts/types';
 
 // ── Tipos locales ─────────────────────────────────────────────
 
 type Step = 'input' | 'preview' | 'success';
+type FileMethod = 'paste' | 'file';
 
 interface ImportCandidatesDrawerProps {
   children: React.ReactNode;
@@ -99,18 +109,32 @@ function DuplicateBadge({ status }: { status?: ImportDuplicateResult['duplicate_
   return null;
 }
 
+function DefaultBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-su-brand-soft px-2 py-0.5 text-[10px] font-medium text-su-brand">
+      {label}
+    </span>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────
 
 export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [step, setStep] = React.useState<Step>('input');
-  const [method, setMethod] = React.useState<ImportMethod>('paste');
+  const [fileMethod, setFileMethod] = React.useState<FileMethod>('paste');
+
+  // Batch defaults
+  const [selectedCountryCode, setSelectedCountryCode] = React.useState('');
+  const [selectedIndustry, setSelectedIndustry] = React.useState('');
 
   // Input state
   const [pasteText, setPasteText] = React.useState('');
-  const [csvFileName, setCsvFileName] = React.useState<string | null>(null);
-  const [csvText, setCsvText] = React.useState('');
+  const [fileName, setFileName] = React.useState<string | null>(null);
+  const [fileText, setFileText] = React.useState('');
+  const [fileXlsx, setFileXlsx] = React.useState<File | null>(null);
+  const [detectedMethod, setDetectedMethod] = React.useState<ImportMethod>('csv');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Preview state
@@ -123,10 +147,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
   function resetState() {
     setStep('input');
-    setMethod('paste');
+    setFileMethod('paste');
+    setSelectedCountryCode('');
+    setSelectedIndustry('');
     setPasteText('');
-    setCsvFileName(null);
-    setCsvText('');
+    setFileName(null);
+    setFileText('');
+    setFileXlsx(null);
+    setDetectedMethod('csv');
     setPreview(null);
     setDuplicates([]);
     setLoadingPreview(false);
@@ -143,33 +171,88 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('El archivo supera 2 MB. Usa un archivo más pequeño o pega el contenido.');
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (ext === 'xlsm') {
+      toast.error('Por seguridad, sube el archivo como .xlsx o CSV. Los archivos .xlsm no son soportados.');
+      e.target.value = '';
       return;
     }
+
+    if (ext !== 'csv' && ext !== 'xlsx') {
+      toast.error('Formato no soportado. Usa CSV o XLSX.');
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('El archivo supera 2 MB. Usa un archivo más pequeño o pega el contenido.');
+      e.target.value = '';
+      return;
+    }
+
+    if (ext === 'xlsx') {
+      setFileXlsx(file);
+      setFileText('');
+      setFileName(file.name);
+      setDetectedMethod('xlsx');
+      return;
+    }
+
+    // CSV
+    setFileXlsx(null);
+    setDetectedMethod('csv');
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setCsvText((ev.target?.result as string) ?? '');
-      setCsvFileName(file.name);
+      setFileText((ev.target?.result as string) ?? '');
+      setFileName(file.name);
     };
     reader.readAsText(file, 'UTF-8');
   }
 
+  const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === selectedCountryCode);
+
+  const defaults: ImportDefaults = {
+    country: selectedCountry?.name,
+    countryCode: selectedCountryCode || undefined,
+    industry: selectedIndustry || undefined,
+  };
+
   async function handleBuildPreview() {
-    const rawText = method === 'paste' ? pasteText : csvText;
-    if (!rawText.trim()) {
-      toast.error('Ingresa o carga datos primero.');
+    if (fileMethod === 'paste' && !pasteText.trim()) {
+      toast.error('Ingresa datos primero.');
       return;
     }
+    if (fileMethod === 'file' && !fileText && !fileXlsx) {
+      toast.error('Selecciona un archivo primero.');
+      return;
+    }
+    if (!selectedCountryCode) {
+      toast.error('Selecciona el país del lote antes de previsualizar.');
+      return;
+    }
+
     setLoadingPreview(true);
     try {
-      const parsed = method === 'paste'
-        ? parsePastedCandidates(rawText)
-        : parseCsvCandidates(rawText);
-      const built = buildImportPreview(parsed);
+      let parseResult;
+      let effectiveMethod: ImportMethod;
+
+      if (fileMethod === 'paste') {
+        parseResult = parsePastedCandidates(pasteText, defaults);
+        effectiveMethod = 'paste';
+      } else if (fileXlsx) {
+        parseResult = await parseXlsxCandidates(fileXlsx, defaults);
+        effectiveMethod = 'xlsx';
+      } else {
+        parseResult = parseCsvCandidates(fileText, defaults);
+        effectiveMethod = 'csv';
+      }
+
+      setDetectedMethod(effectiveMethod);
+      const built = buildImportPreview(parseResult);
       setPreview(built);
 
-      // Check duplicates server-side for valid rows only
       const validForCheck = getValidRows(built).map((r) => ({
         index: r.index,
         company_name: r.raw.company_name,
@@ -233,7 +316,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       }));
 
       const result = await createExternalCandidatesBatch({
-        import_type: method,
+        import_type: detectedMethod,
         candidates,
         recognized_columns: preview.recognized_columns,
         unrecognized_columns: preview.unrecognized_columns,
@@ -241,6 +324,11 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         valid_rows: preview.valid,
         invalid_rows: preview.errors,
         warning_rows: preview.warnings_only,
+        defaults: {
+          country: selectedCountry?.name,
+          country_code: selectedCountryCode || undefined,
+          industry: selectedIndustry || undefined,
+        },
       });
 
       setResultBatchId(result.batchId);
@@ -253,7 +341,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     }
   }
 
-  const hasInput = method === 'paste' ? pasteText.trim().length > 2 : csvText.length > 0;
+  const hasInput = fileMethod === 'paste'
+    ? pasteText.trim().length > 2
+    : (fileText.length > 0 || fileXlsx !== null);
 
   const duplicateMap = React.useMemo(() => {
     const map = new Map<number, ImportDuplicateResult>();
@@ -286,12 +376,64 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </SheetHeader>
 
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-                {/* Selector de método */}
-                <div className="grid grid-cols-3 gap-2">
+
+                {/* ── Configuración del lote ─────────────────── */}
+                <div className="space-y-3 rounded-xl border border-border/40 bg-muted/20 px-4 py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                    Configuración del lote
+                  </p>
+
+                  {/* País del lote */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-foreground">
+                      País del lote <span className="text-destructive">*</span>
+                    </label>
+                    <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Selecciona el país de estos candidatos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LATAM_COUNTRIES.map((c) => (
+                          <SelectItem key={c.code} value={c.code} className="text-xs">
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">
+                      Se usará para las filas que no tengan país en el archivo.
+                    </p>
+                  </div>
+
+                  {/* Industria del lote */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-foreground">
+                      Industria / criterio del lote
+                    </label>
+                    <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Selecciona o escribe una industria" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {INDUSTRIES.map((ind) => (
+                          <SelectItem key={ind} value={ind} className="text-xs">
+                            {ind}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">
+                      Se usará para las filas que no tengan sector o industria.
+                    </p>
+                  </div>
+                </div>
+
+                {/* ── Selector de método ─────────────────────── */}
+                <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => setMethod('paste')}
+                    onClick={() => setFileMethod('paste')}
                     className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
-                      method === 'paste'
+                      fileMethod === 'paste'
                         ? 'border-su-brand bg-su-brand-soft text-su-brand'
                         : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
                     }`}
@@ -300,52 +442,42 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     Pegar tabla
                   </button>
                   <button
-                    onClick={() => setMethod('csv')}
+                    onClick={() => setFileMethod('file')}
                     className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
-                      method === 'csv'
+                      fileMethod === 'file'
                         ? 'border-su-brand bg-su-brand-soft text-su-brand'
                         : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
                     }`}
                   >
                     <FileText className="h-4 w-4" />
-                    Subir CSV
-                  </button>
-                  <button
-                    disabled
-                    className="flex flex-col items-center gap-1.5 rounded-xl border border-border/20 bg-muted/10 px-3 py-3 text-xs font-medium text-muted-foreground/40 cursor-not-allowed"
-                    title="Próximamente"
-                  >
-                    <Globe className="h-4 w-4" />
-                    Google Sheet
-                    <span className="text-[9px] font-normal">Próximamente</span>
+                    Subir archivo
                   </button>
                 </div>
 
                 {/* Input: pegar tabla */}
-                {method === 'paste' && (
+                {fileMethod === 'paste' && (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-medium text-foreground">
-                        Pega el contenido copiado desde Google Sheets o Excel
-                      </p>
-                    </div>
+                    <p className="text-xs font-medium text-foreground">
+                      Pega el contenido copiado desde Google Sheets o Excel
+                    </p>
                     <Textarea
                       placeholder={`Empresa\tPaís\tSector\tSitio web\nAcme Learning Chile\tChile\tEducación\thttps://acme.cl`}
-                      className="min-h-[220px] font-mono text-xs resize-none"
+                      className="min-h-[180px] font-mono text-xs resize-none"
                       value={pasteText}
                       onChange={(e) => setPasteText(e.target.value)}
                     />
                     <p className="text-[10px] text-muted-foreground">
                       Acepta separadores tab, coma o punto y coma. La primera fila debe ser encabezados.
+                      Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba.
                     </p>
                   </div>
                 )}
 
-                {/* Input: CSV */}
-                {method === 'csv' && (
+                {/* Input: subir archivo */}
+                {fileMethod === 'file' && (
                   <div className="space-y-3">
                     <p className="text-xs font-medium text-foreground">
-                      Sube un archivo CSV (máx. 2 MB · 200 filas)
+                      Sube un archivo CSV o Excel (.xlsx)
                     </p>
                     <div
                       className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/40 bg-muted/20 px-6 py-10 text-center cursor-pointer hover:border-border hover:bg-muted/40 transition-colors"
@@ -354,27 +486,29 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                       <div className="rounded-full bg-su-brand-soft p-2.5">
                         <Upload className="h-5 w-5 text-su-brand" />
                       </div>
-                      {csvFileName ? (
+                      {fileName ? (
                         <>
-                          <p className="text-sm font-semibold text-foreground">{csvFileName}</p>
+                          <p className="text-sm font-semibold text-foreground">{fileName}</p>
                           <p className="text-xs text-muted-foreground">Clic para cambiar archivo</p>
                         </>
                       ) : (
                         <>
                           <p className="text-sm font-semibold text-foreground">Clic para seleccionar</p>
-                          <p className="text-xs text-muted-foreground">Archivos .csv · UTF-8 recomendado</p>
+                          <p className="text-xs text-muted-foreground">
+                            Archivos .csv o .xlsx · máx. 2 MB · 500 filas
+                          </p>
                         </>
                       )}
                     </div>
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".csv,text/csv"
+                      accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       className="hidden"
                       onChange={handleFileChange}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      Acepta separadores tab, coma o punto y coma. Primera fila: encabezados.
+                      La primera fila debe contener los encabezados. Los archivos .xlsm no son soportados.
                     </p>
                   </div>
                 )}
@@ -391,12 +525,11 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </p>
                 </div>
 
-                {/* XLSX próximamente */}
+                {/* Nota inferior */}
                 <div className="flex items-start gap-2.5 rounded-xl border border-border/30 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
-                    Archivos Excel (.xlsx) y link de Google Sheet estarán disponibles próximamente.
-                    Por ahora, descarga el archivo como CSV desde Sheets o Excel.
+                    Puedes copiar desde Google Sheets/Excel o subir un archivo CSV/XLSX.
                   </span>
                 </div>
               </div>
@@ -443,6 +576,26 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </SheetHeader>
 
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+
+                {/* Defaults del lote */}
+                {(selectedCountryCode || selectedIndustry) && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand/70 mr-1">
+                      Defaults del lote:
+                    </p>
+                    {selectedCountryCode && (
+                      <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                        🌍 {selectedCountry?.name ?? selectedCountryCode}
+                      </Badge>
+                    )}
+                    {selectedIndustry && (
+                      <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                        🏭 {selectedIndustry}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+
                 {/* Resumen estadístico */}
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {[
@@ -540,20 +693,30 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                             <td className="px-3 py-2 tabular-nums text-muted-foreground">
                               {row.index + 1}
                             </td>
-                            <td className="px-3 py-2 max-w-[180px]">
+                            <td className="px-3 py-2 max-w-[160px]">
                               <p className="font-medium text-foreground truncate">
                                 {row.raw.company_name || <span className="text-muted-foreground/60 italic">Sin nombre</span>}
                               </p>
                               {row.raw.industry && (
-                                <p className="text-[10px] text-muted-foreground truncate">{row.raw.industry}</p>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <p className="text-[10px] text-muted-foreground truncate">{row.raw.industry}</p>
+                                  {row.industry_from_default && (
+                                    <DefaultBadge label="lote" />
+                                  )}
+                                </div>
                               )}
                             </td>
                             <td className="px-3 py-2">
-                              <p className="text-foreground">
-                                {row.resolved_country_code ?? row.raw.country_code ?? row.raw.country ?? (
-                                  <span className="text-muted-foreground/60 italic">—</span>
+                              <div className="flex flex-col gap-0.5">
+                                <p className="text-foreground">
+                                  {row.resolved_country_code ?? row.raw.country_code ?? row.raw.country ?? (
+                                    <span className="text-muted-foreground/60 italic">—</span>
+                                  )}
+                                </p>
+                                {row.country_from_default && (
+                                  <DefaultBadge label="desde lote" />
                                 )}
-                              </p>
+                              </div>
                             </td>
                             <td className="px-3 py-2">
                               <div className="flex flex-col gap-1">

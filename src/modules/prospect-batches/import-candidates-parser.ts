@@ -1,6 +1,12 @@
 // ── Tipos ─────────────────────────────────────────────────────
 
-export type ImportMethod = 'paste' | 'csv';
+export type ImportMethod = 'paste' | 'csv' | 'xlsx';
+
+export interface ImportDefaults {
+  country?: string;
+  countryCode?: string;
+  industry?: string;
+}
 
 export interface ParsedImportRow {
   company_name: string;
@@ -32,6 +38,8 @@ export interface ImportRow {
   errors: string[];
   warnings: string[];
   resolved_country_code: string | null;
+  country_from_default: boolean;
+  industry_from_default: boolean;
 }
 
 export interface ImportPreview {
@@ -289,9 +297,9 @@ export function normalizeImportColumns(headers: string[]): {
   return { fieldMap, recognized, unrecognized };
 }
 
-// ── Validación de fila ─────────────────────────────────────────
+// ── Validación de fila con defaults ───────────────────────────
 
-function validateRow(raw: ParsedImportRow, index: number): ImportRow {
+function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefaults): ImportRow {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -299,16 +307,27 @@ function validateRow(raw: ParsedImportRow, index: number): ImportRow {
     errors.push('Falta nombre de empresa');
   }
 
-  const hasCountry = !!(raw.country?.trim() || raw.country_code?.trim());
+  const hasCountryInRow = !!(raw.country?.trim() || raw.country_code?.trim());
+  const country_from_default = !hasCountryInRow && !!(defaults?.countryCode || defaults?.country);
+  const industry_from_default = !raw.industry?.trim() && !!defaults?.industry;
+
+  // Effective values after applying defaults
+  const effectiveCountry = raw.country?.trim() || (country_from_default ? defaults?.country : undefined);
+  const effectiveCountryCode = raw.country_code?.trim().toUpperCase() ||
+    (raw.country ? resolveCountryCode(raw.country) : null) ||
+    (country_from_default ? defaults?.countryCode : undefined) ||
+    null;
+  const effectiveIndustry = raw.industry?.trim() || (industry_from_default ? defaults?.industry : undefined);
+
+  const hasCountry = hasCountryInRow || country_from_default;
   if (!hasCountry) {
     errors.push('Falta país');
   }
 
-  const resolved_country_code = raw.country_code?.trim().toUpperCase() ||
-    (raw.country ? resolveCountryCode(raw.country) : null);
+  const resolved_country_code = effectiveCountryCode ?? null;
 
-  if (hasCountry && !resolved_country_code && raw.country) {
-    warnings.push(`País "${raw.country}" no reconocido — verificar manualmente`);
+  if (hasCountry && !resolved_country_code && effectiveCountry) {
+    warnings.push(`País "${effectiveCountry}" no reconocido — verificar manualmente`);
   }
 
   if (!raw.website?.trim()) {
@@ -321,7 +340,7 @@ function validateRow(raw: ParsedImportRow, index: number): ImportRow {
     warnings.push('Sin identificador fiscal — requiere revisión');
   }
 
-  if (!raw.industry?.trim()) {
+  if (!effectiveIndustry) {
     warnings.push('Sin sector/industria');
   }
 
@@ -331,13 +350,23 @@ function validateRow(raw: ParsedImportRow, index: number): ImportRow {
 
   const status: RowStatus = errors.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'valid';
 
+  // Build raw with defaults applied for downstream use
+  const resolvedRaw: ParsedImportRow = {
+    ...raw,
+    country: effectiveCountry || raw.country,
+    country_code: effectiveCountryCode || raw.country_code,
+    industry: effectiveIndustry || raw.industry,
+  };
+
   return {
     index,
-    raw,
+    raw: resolvedRaw,
     status,
     errors,
     warnings,
     resolved_country_code: errors.length === 0 ? resolved_country_code : null,
+    country_from_default,
+    industry_from_default,
   };
 }
 
@@ -351,9 +380,9 @@ interface ParseResult {
   truncatedAt: number;
 }
 
-const MAX_IMPORT_ROWS = 200;
+const MAX_IMPORT_ROWS = 500;
 
-function parseTextToRows(text: string): ParseResult {
+function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
   const allLines = text.split(/\r?\n/).filter((l) => l.trim());
   if (allLines.length < 2) {
     return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };
@@ -383,21 +412,83 @@ function parseTextToRows(text: string): ParseResult {
     }
 
     const raw = rawObj as unknown as ParsedImportRow;
-    rows.push(validateRow(raw, rowIndex));
+    rows.push(validateRow(raw, rowIndex, defaults));
     rowIndex++;
   }
 
   return { rows, recognized_columns: recognized, unrecognized_columns: unrecognized, truncated, truncatedAt: MAX_IMPORT_ROWS };
 }
 
-// ── API pública ────────────────────────────────────────────────
+// ── Parsing de XLSX (async, cliente) ──────────────────────────
 
-export function parsePastedCandidates(text: string): ParseResult {
-  return parseTextToRows(text);
+export async function parseXlsxCandidates(
+  file: File,
+  defaults?: ImportDefaults
+): Promise<ParseResult> {
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error('El archivo supera 2 MB. Usa un archivo más pequeño.');
+  }
+
+  const buffer = await file.arrayBuffer();
+  // Dynamic import to avoid SSR issues with the xlsx bundle
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+
+  if (matrix.length < 2) {
+    return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };
+  }
+
+  const headers = (matrix[0] as unknown[]).map((h) => String(h ?? ''));
+  const { fieldMap, recognized, unrecognized } = normalizeImportColumns(headers);
+
+  const dataRows = matrix.slice(1) as unknown[][];
+  const truncated = dataRows.length > MAX_IMPORT_ROWS;
+  const limitedRows = truncated ? dataRows.slice(0, MAX_IMPORT_ROWS) : dataRows;
+
+  const rows: ImportRow[] = [];
+  let rowIndex = 0;
+
+  for (const cells of limitedRows) {
+    const cellsArr = cells as unknown[];
+    if (cellsArr.every((c) => !String(c ?? '').trim())) continue;
+
+    const rawObj: Record<string, string> = {};
+    for (let i = 0; i < fieldMap.length; i++) {
+      const { field } = fieldMap[i];
+      if (field && cellsArr[i] !== undefined) {
+        rawObj[field] = String(cellsArr[i] ?? '').trim();
+      }
+    }
+
+    rows.push(validateRow(rawObj as unknown as ParsedImportRow, rowIndex, defaults));
+    rowIndex++;
+  }
+
+  return {
+    rows,
+    recognized_columns: recognized,
+    unrecognized_columns: unrecognized,
+    truncated,
+    truncatedAt: MAX_IMPORT_ROWS,
+  };
 }
 
-export function parseCsvCandidates(csvText: string): ParseResult {
-  return parseTextToRows(csvText);
+// ── API pública ────────────────────────────────────────────────
+
+export function parsePastedCandidates(text: string, defaults?: ImportDefaults): ParseResult {
+  return parseTextToRows(text, defaults);
+}
+
+export function parseCsvCandidates(csvText: string, defaults?: ImportDefaults): ParseResult {
+  return parseTextToRows(csvText, defaults);
 }
 
 export function buildImportPreview(parseResult: ParseResult): ImportPreview {
