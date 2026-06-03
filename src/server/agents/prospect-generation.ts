@@ -89,7 +89,7 @@ export interface ProspectGenerationResult {
   /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
   commercialBatch?: {
     skipped: boolean;
-    reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results';
+    reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results' | 'chile_preview_no_apollo';
     batchId?: string | null;
   };
   message?: string;
@@ -799,6 +799,7 @@ export async function runProspectGenerationAgent(
   // Si RUES no alcanza el objetivo, Apollo corre como complemento o fallback.
   // Pero para Colombia en el Hito 16AK.15E, Apollo NO corre como fallback inicial.
   const isColombia = countryCode === 'CO';
+  const isChile = countryCode === 'CL' && createStructuredSourceBatch;
   const coOfficialFirstMode =
     countryCode === 'CO' && createStructuredSourceBatch && structuredSourcePageAuto;
 
@@ -808,8 +809,8 @@ export async function runProspectGenerationAgent(
     'commercial_only';
   let usefulCandidates = 0;
 
-  const maxSearchLoops = countryCode === 'CO' ? 2 : 5;
-  const structuredLimit = countryCode === 'CO' ? 5 : STRUCTURED_LIMIT;
+  const maxSearchLoops = countryCode === 'CO' ? 2 : countryCode === 'CL' ? 2 : 5;
+  const structuredLimit = countryCode === 'CO' ? 5 : countryCode === 'CL' ? 5 : STRUCTURED_LIMIT;
 
   if (isColombia) {
     let ruesResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
@@ -1052,6 +1053,234 @@ export async function runProspectGenerationAgent(
       commercialBatch: { skipped: true, reason: 'official_source_satisfied' },
       usefulCandidatesCount: usefulCandidatesCount,
       omittedCandidatesCount: ruesResult?.candidatesSkipped ?? 0,
+    };
+  }
+
+  // ── Hito 16CL.1A: Chile official source preview path ──────────────────────
+  // cl_res / datos.gob.cl — no Apollo, no HubSpot, target 5, filtros mínimos.
+  if (isChile) {
+    let clResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
+    let usefulCandidatesCount = 0;
+    const CL_FETCH_LIMIT = 50; // fetch extra to survive capital/date filters
+    const CL_MIN_CAPITAL = 500_000;
+    const CL_MIN_YEAR = 2020;
+
+    try {
+      const discoveryOutput = await runSourceDiscovery({
+        sourceKey: 'cl_res',
+        countryCode: 'CL',
+        criteria: { country, industry: industry ?? null },
+        limit: CL_FETCH_LIMIT,
+        mode: 'dry_run',
+      });
+
+      if (discoveryOutput.errors.length > 0 && discoveryOutput.candidates.length === 0) {
+        clResult = {
+          ok: false,
+          status: 'official_source_error',
+          errorDetails: discoveryOutput.errors.join(', '),
+          batchId: null,
+          sourceKey: 'cl_res',
+          candidatesWritten: 0,
+          candidatesSkipped: 0,
+          warnings: discoveryOutput.warnings,
+          errors: discoveryOutput.errors,
+        };
+      } else {
+        // Apply Chile preview filters: capital >= 500k CLP and incorporation >= 2020
+        const filtered = discoveryOutput.candidates.filter((c) => {
+          const capital = (c.metadata?.capitalAmount as number | null | undefined) ?? null;
+          const dateRaw = (c.metadata?.incorporationDate as string | null | undefined) ?? null;
+          const year = dateRaw ? parseInt(dateRaw.slice(0, 4), 10) : null;
+          const capitalOk = capital === null || capital >= CL_MIN_CAPITAL;
+          const yearOk = year === null || year >= CL_MIN_YEAR;
+          return capitalOk && yearOk;
+        });
+
+        const candidatesToWrite = filtered.slice(0, structuredLimit);
+        const omittedByFilter = discoveryOutput.candidates.length - filtered.length;
+
+        const writerResult = await writeStructuredSourceCandidatesPreview(admin, {
+          dryRun: false,
+          createdBy: internalUserId,
+          ownerId: internalUserId,
+          country,
+          countryCode: 'CL',
+          sourceKey: 'cl_res',
+          sourceProvider: 'datos_gob_cl',
+          dataset: 'cl_res',
+          batchName: `Agente 1 · ${country} · ${industry} · RES Chile · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+          industry,
+          targetCount: structuredLimit,
+          searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
+          agentRunId: agentRun.id,
+          initiatedBy: 'agent_1',
+          candidates: candidatesToWrite,
+          previewMode: true,
+          runHubSpotCheck: false,
+          limit: structuredLimit,
+          batchId: null,
+          metadata: {
+            target_useful_candidates: structuredLimit,
+            max_search_loops: maxSearchLoops,
+            source_strategy: 'official_source_preview',
+            official_source_status: null,
+            sector_source: 'not_available_in_official_source',
+            apollo_fallback_status: 'disabled_for_chile_preview',
+            tavily_status: 'pending',
+            cl_preview_filters: {
+              min_capital_clp: CL_MIN_CAPITAL,
+              min_incorporation_year: CL_MIN_YEAR,
+              candidates_before_filter: discoveryOutput.candidates.length,
+              candidates_after_filter: filtered.length,
+              omitted_by_filter: omittedByFilter,
+            },
+          },
+        });
+
+        const writerErrors = writerResult.errors
+          .map((e) => `${e.name ?? 'Candidato'}: ${e.message}`);
+        const allWarnings = [...discoveryOutput.warnings];
+
+        let status: 'official_source_error' | 'official_source_empty' | 'official_source_no_useful_candidates' | 'official_source_success' = 'official_source_empty';
+
+        if (writerResult.batch.status === 'batch_creation_failed') {
+          status = 'official_source_error';
+          clResult = {
+            ok: false,
+            status,
+            errorDetails: 'structured_batch_db_creation_failed',
+            batchId: null,
+            sourceKey: 'cl_res',
+            candidatesWritten: 0,
+            candidatesSkipped: discoveryOutput.candidates.length,
+            warnings: allWarnings,
+            errors: [...discoveryOutput.errors, ...writerErrors, 'structured_batch_db_creation_failed'],
+          };
+        } else if (writerResult.batch.status === 'nothing_to_write' || writerResult.batch.status === 'empty') {
+          status = discoveryOutput.candidates.length === 0 ? 'official_source_empty' : 'official_source_no_useful_candidates';
+          clResult = {
+            ok: false,
+            status,
+            batchId: null,
+            sourceKey: 'cl_res',
+            candidatesWritten: 0,
+            candidatesSkipped: writerResult.batch.totalCandidatesPrepared,
+            warnings: [...allWarnings, 'all_candidates_already_in_db'],
+            errors: [...discoveryOutput.errors, ...writerErrors],
+          };
+        } else {
+          let usefulCount = 0;
+          if (writerResult.batch.id) {
+            const { data: candidates } = await admin
+              .from('prospect_candidates')
+              .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+              .eq('batch_id', writerResult.batch.id);
+            if (candidates) usefulCount = candidates.filter(isUsefulReviewCandidate).length;
+          }
+          status = usefulCount > 0 ? 'official_source_success' : 'official_source_no_useful_candidates';
+          clResult = {
+            ok: writerResult.batch.created && usefulCount > 0,
+            status,
+            batchId: writerResult.batch.id,
+            sourceKey: 'cl_res',
+            candidatesWritten: writerResult.batch.totalCandidatesWritten,
+            candidatesSkipped: writerResult.batch.totalCandidatesSkipped + omittedByFilter,
+            warnings: allWarnings,
+            errors: [...discoveryOutput.errors, ...writerErrors],
+          };
+          usefulCandidatesCount = usefulCount;
+        }
+      }
+    } catch (clErr: unknown) {
+      const msg = clErr instanceof Error ? clErr.message : 'Error inesperado en cl_res';
+      console.warn('[agent-1] cl_res phase failed for Chile:', msg);
+      clResult = {
+        ok: false,
+        status: 'official_source_error',
+        errorDetails: msg,
+        batchId: null,
+        sourceKey: 'cl_res',
+        candidatesWritten: 0,
+        candidatesSkipped: 0,
+        warnings: [],
+        errors: [msg],
+      };
+    }
+
+    const clSourceStrategy = usefulCandidatesCount > 0 ? 'official_source_satisfied' : 'official_source_only_no_useful_candidates';
+
+    let clEnrichmentSummary: { enriched: number; totalEstimatedCostUsd: number; warnings: string[] } | undefined;
+
+    if (clResult?.batchId && usefulCandidatesCount > 0) {
+      await finalizeBatchMetadataAndStatus(admin, clResult.batchId, {
+        official_source_status: clResult.status ?? null,
+        official_source_error: clResult.errorDetails ?? null,
+        apollo_fallback_status: 'disabled_for_chile_preview',
+        sector_source: 'not_available_in_official_source',
+        source_strategy: clSourceStrategy,
+        target_useful_candidates: structuredLimit,
+        max_search_loops: maxSearchLoops,
+      });
+
+      try {
+        const enrichResult = await enrichBatchCandidatesWithWebAndAI(admin, clResult.batchId, {
+          country,
+          countryCode,
+          industry,
+          targetCount: structuredLimit,
+        });
+        clEnrichmentSummary = {
+          enriched: enrichResult.enriched,
+          totalEstimatedCostUsd: enrichResult.totalEstimatedCostUsd,
+          warnings: enrichResult.warnings,
+        };
+
+        // Update tavily_status in batch metadata after enrichment
+        const tavilyConfigured = !enrichResult.warnings.some((w) =>
+          w.includes('tavily_skipped') || w.includes('tavily_failed') || w.includes('no_anthropic_key')
+        );
+        await admin
+          .from('prospect_batches')
+          .update({
+            metadata: {
+              tavily_status: enrichResult.tavilyFailed > 0 ? 'failed' : tavilyConfigured ? 'executed' : 'not_configured',
+            },
+          })
+          .eq('id', clResult.batchId);
+      } catch (enrichErr: unknown) {
+        const msg = enrichErr instanceof Error ? enrichErr.message : 'enrichment error';
+        console.warn('[agent-1] enrichment phase failed (non-blocking) for Chile:', msg);
+        clEnrichmentSummary = { enriched: 0, totalEstimatedCostUsd: 0, warnings: [`enrichment_exception: ${msg}`] };
+      }
+    }
+
+    await updateAgentRun(agentRun.id, {
+      status: 'completed',
+      results_generated: clResult?.candidatesWritten ?? 0,
+      results_unique: usefulCandidatesCount,
+      estimated_cost_usd: clEnrichmentSummary?.totalEstimatedCostUsd ?? 0,
+      finished_at: new Date().toISOString(),
+      metadata: {
+        source_strategy: clSourceStrategy,
+        structured_source_batch: clResult,
+        enrichment: clEnrichmentSummary,
+        duration_ms: Date.now() - startedAt,
+      },
+    });
+
+    return {
+      success: true,
+      ok: usefulCandidatesCount > 0,
+      batchId: clResult?.batchId ?? null,
+      agentRunId: agentRun.id,
+      candidatesCreated: usefulCandidatesCount,
+      estimatedCostUsd: clEnrichmentSummary?.totalEstimatedCostUsd ?? 0,
+      structuredSourceBatch: clResult,
+      sourceStrategy: clSourceStrategy,
+      commercialBatch: { skipped: true, reason: 'chile_preview_no_apollo' },
+      usefulCandidatesCount,
+      omittedCandidatesCount: clResult?.candidatesSkipped ?? 0,
     };
   }
 

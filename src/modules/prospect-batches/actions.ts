@@ -1411,7 +1411,7 @@ export interface GenerateAIBatchResult {
   /** Hito 16AK.10 — Disposición de la fuente comercial (Apollo) */
   commercialBatch?: {
     skipped: boolean;
-    reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results';
+    reason?: 'official_source_satisfied' | 'official_source_failed' | 'insufficient_official_results' | 'chile_preview_no_apollo';
     batchId?: string | null;
   };
   message?: string;

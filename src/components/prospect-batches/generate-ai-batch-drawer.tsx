@@ -121,9 +121,8 @@ function getAutoSources(countryCode: string) {
   }
   if (countryCode === 'CL') {
     return [
-      { label: 'Fuente oficial de Chile', desc: 'Registro de Empresas y Sociedades' },
-      { label: 'Apollo', desc: 'Discovery comercial' },
-      { label: 'HubSpot', desc: 'Detección de duplicados (solo lectura)' },
+      { label: 'Registro de Empresas y Sociedades', desc: 'Fuente oficial Chile · sin sector/giro disponible' },
+      { label: 'Enriquecimiento externo', desc: 'Solo si está configurado · no inventa sector' },
     ];
   }
   if (countryCode) {
@@ -157,8 +156,9 @@ export function GenerateAIBatchDrawer() {
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  // For Colombia, structured source activates automatically
+  // For Colombia and Chile, structured source activates automatically
   const isColombiaAuto = form.countryCode === 'CO';
+  const isChilePreview = form.countryCode === 'CL';
   const autoSources = getAutoSources(form.countryCode);
   const suggestedSource = form.countryCode ? STRUCTURED_SOURCE_MAP[form.countryCode] ?? null : null;
 
@@ -196,7 +196,7 @@ export function GenerateAIBatchDrawer() {
       return;
     }
 
-    const count = (form.countryCode === 'CO' && !advancedOpen) ? 5 : (parseInt(form.targetCount) || 10);
+    const count = ((form.countryCode === 'CO' || form.countryCode === 'CL') && !advancedOpen) ? 5 : (parseInt(form.targetCount) || 10);
 
     setGenerating(true);
     setPreflightResult(null);
@@ -209,14 +209,14 @@ export function GenerateAIBatchDrawer() {
 
       setProgressMsg('Consultando fuentes y descubriendo empresas…');
 
-      // For CO: auto-activate structured source. Advanced overrides take effect only if advanced is open.
-      const effectivePreflight = isColombiaAuto
+      // For CO/CL: auto-activate structured source. Advanced overrides take effect only if advanced is open.
+      const effectivePreflight = (isColombiaAuto || isChilePreview)
         ? true
         : advancedOpen && form.advStructuredSourcePreflight;
-      const effectiveCreateBatch = isColombiaAuto
+      const effectiveCreateBatch = (isColombiaAuto || isChilePreview)
         ? true
         : advancedOpen && form.advCreateStructuredSourceBatch;
-      const effectiveSourceKey = isColombiaAuto ? 'co_rues' : null;
+      const effectiveSourceKey = isColombiaAuto ? 'co_rues' : isChilePreview ? 'cl_res' : null;
       const effectivePage = form.advStructuredSourcePage;
       const effectiveDepth = (advancedOpen ? form.advSearchDepth : form.searchDepth) as 'basic' | 'standard';
       // Auto-paginate when user is in vendor mode (advanced not opened for Colombia)
@@ -402,6 +402,8 @@ export function GenerateAIBatchDrawer() {
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       {form.countryCode === 'CO' ? (
                         "SellUp buscará hasta 5 empresas útiles para revisión. Si encuentra registros duplicados, liquidados, inactivos o sin datos mínimos, los omitirá automáticamente."
+                      ) : form.countryCode === 'CL' ? (
+                        "SellUp buscará hasta 5 empresas registradas en fuente oficial chilena. El sector no viene disponible en la fuente oficial, por lo que puede requerir enriquecimiento externo o revisión humana."
                       ) : (
                         "SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda."
                       )}
@@ -524,23 +526,23 @@ export function GenerateAIBatchDrawer() {
                         <input
                           id="adv-structured-source-preflight"
                           type="checkbox"
-                          checked={isColombiaAuto || form.advStructuredSourcePreflight}
+                          checked={isColombiaAuto || isChilePreview || form.advStructuredSourcePreflight}
                           onChange={(e) => {
-                            if (!isColombiaAuto) set('advStructuredSourcePreflight', e.target.checked);
+                            if (!isColombiaAuto && !isChilePreview) set('advStructuredSourcePreflight', e.target.checked);
                           }}
-                          disabled={generating || isColombiaAuto}
+                          disabled={generating || isColombiaAuto || isChilePreview}
                           className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
                         />
                         <Label htmlFor="adv-structured-source-preflight" className="cursor-pointer space-y-0.5">
                           <span className="text-xs font-medium text-foreground">
                             Ejecutar preflight estructurado
                           </span>
-                          {isColombiaAuto && (
+                          {(isColombiaAuto || isChilePreview) && (
                             <p className="text-[10px] text-muted-foreground">
-                              Activado automáticamente para Colombia.
+                              Activado automáticamente para {isColombiaAuto ? 'Colombia' : 'Chile'}.
                             </p>
                           )}
-                          {!isColombiaAuto && suggestedSource && (
+                          {!isColombiaAuto && !isChilePreview && suggestedSource && (
                             <p className="text-[11px] text-muted-foreground">
                               Fuente: {STRUCTURED_SOURCE_LABELS[suggestedSource] ?? suggestedSource}
                             </p>
@@ -558,23 +560,23 @@ export function GenerateAIBatchDrawer() {
                         <input
                           id="adv-create-structured-source-batch"
                           type="checkbox"
-                          checked={isColombiaAuto || form.advCreateStructuredSourceBatch}
+                          checked={isColombiaAuto || isChilePreview || form.advCreateStructuredSourceBatch}
                           onChange={(e) => {
-                            if (!isColombiaAuto) set('advCreateStructuredSourceBatch', e.target.checked);
+                            if (!isColombiaAuto && !isChilePreview) set('advCreateStructuredSourceBatch', e.target.checked);
                           }}
-                          disabled={generating || isColombiaAuto}
+                          disabled={generating || isColombiaAuto || isChilePreview}
                           className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
                         />
                         <Label htmlFor="adv-create-structured-source-batch" className="cursor-pointer space-y-0.5">
                           <span className="text-xs font-medium text-foreground">
                             Crear también lote desde fuente oficial
                           </span>
-                          {isColombiaAuto && (
+                          {(isColombiaAuto || isChilePreview) && (
                             <p className="text-[10px] text-muted-foreground">
-                              Activado automáticamente para Colombia (RUES/co_rues).
+                              Activado automáticamente para {isColombiaAuto ? 'Colombia (RUES/co_rues)' : 'Chile (RES/cl_res)'}.
                             </p>
                           )}
-                          {!isColombiaAuto && (
+                          {!isColombiaAuto && !isChilePreview && (
                             <p className="text-[11px] text-muted-foreground">
                               Crea lote separado con candidatos de la fuente oficial. Requieren revisión humana.
                             </p>
@@ -895,6 +897,31 @@ function GenerationResultPanel({
                 )}
               </div>
             )
+          ) : countryCode === 'CL' ? (
+            usefulCandidatesCount > 0 ? (
+              <div className="space-y-1">
+                <p>Empresas chilenas listas para revisión.</p>
+                <p className="text-[11px] text-muted-foreground/75 font-medium">
+                  SellUp encontró {usefulCandidatesCount} empresa{usefulCandidatesCount !== 1 ? 's' : ''} con RUT válido en la fuente oficial.
+                </p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Sector no disponible en fuente oficial — puede requerir enriquecimiento externo o revisión humana.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p>La fuente oficial chilena no entregó empresas revisables.</p>
+                {structuredBatch?.status === 'official_source_error' ? (
+                  <p className="text-[11px] text-destructive dark:text-red-400 font-medium">
+                    La fuente oficial no pudo completarse. Intenta nuevamente más tarde.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                    SellUp revisó la fuente oficial disponible, pero los registros encontrados fueron omitidos por duplicidad, datos mínimos insuficientes o filtros de capital/fecha.
+                  </p>
+                )}
+              </div>
+            )
           ) : (
             usefulCandidatesCount > 0 ? (
               <p>Empresas candidatas listas para revisión.</p>
@@ -909,8 +936,8 @@ function GenerationResultPanel({
         </div>
       </div>
 
-      {/* Lote Apollo — oculto si fuente oficial satisfizo completamente o si es Colombia */}
-      {sourceStrategy !== 'official_source_satisfied' && countryCode !== 'CO' && (
+      {/* Lote Apollo — oculto si fuente oficial satisfizo completamente, Colombia o Chile */}
+      {sourceStrategy !== 'official_source_satisfied' && countryCode !== 'CO' && countryCode !== 'CL' && (
         <div className="rounded-xl border border-border/40 bg-card p-4 space-y-3">
           <div className="flex items-center gap-2 border-b border-border/40 pb-2">
             <div className="h-2 w-2 rounded-full bg-su-brand" />
