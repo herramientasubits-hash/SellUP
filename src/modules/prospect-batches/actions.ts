@@ -1449,7 +1449,8 @@ export async function generateAIProspectBatch(
     throw new Error('Industria requerida para la generación asistida');
   }
   const isColombia = input.countryCode === 'CO';
-  const minTargetCount = isColombia ? 5 : 10;
+  const isChileInput = input.countryCode === 'CL';
+  const minTargetCount = (isColombia || isChileInput) ? 5 : 10;
   if (input.targetCount < minTargetCount || input.targetCount > MVP_MAX_CANDIDATES) {
     throw new Error(`La cantidad debe estar entre ${minTargetCount} y ${MVP_MAX_CANDIDATES}`);
   }

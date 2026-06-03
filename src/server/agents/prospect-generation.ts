@@ -1224,6 +1224,7 @@ export async function runProspectGenerationAgent(
       });
 
       try {
+
         const enrichResult = await enrichBatchCandidatesWithWebAndAI(admin, clResult.batchId, {
           country,
           countryCode,
@@ -1236,14 +1237,21 @@ export async function runProspectGenerationAgent(
           warnings: enrichResult.warnings,
         };
 
-        // Update tavily_status in batch metadata after enrichment
+        // Update tavily_status in batch metadata after enrichment — merge to avoid overwriting existing fields
         const tavilyConfigured = !enrichResult.warnings.some((w) =>
           w.includes('tavily_skipped') || w.includes('tavily_failed') || w.includes('no_anthropic_key')
         );
+        const { data: batchForTavily } = await admin
+          .from('prospect_batches')
+          .select('metadata')
+          .eq('id', clResult.batchId)
+          .single();
+        const batchMetaForTavily = (batchForTavily?.metadata as Record<string, unknown>) ?? {};
         await admin
           .from('prospect_batches')
           .update({
             metadata: {
+              ...batchMetaForTavily,
               tavily_status: enrichResult.tavilyFailed > 0 ? 'failed' : tavilyConfigured ? 'executed' : 'not_configured',
             },
           })
@@ -1253,6 +1261,17 @@ export async function runProspectGenerationAgent(
         console.warn('[agent-1] enrichment phase failed (non-blocking) for Chile:', msg);
         clEnrichmentSummary = { enriched: 0, totalEstimatedCostUsd: 0, warnings: [`enrichment_exception: ${msg}`] };
       }
+    } else if (clResult?.batchId) {
+      // Batch was created but 0 useful candidates — finalize metadata so the batch page renders correctly
+      await finalizeBatchMetadataAndStatus(admin, clResult.batchId, {
+        official_source_status: clResult.status ?? null,
+        official_source_error: clResult.errorDetails ?? null,
+        apollo_fallback_status: 'disabled_for_chile_preview',
+        sector_source: 'not_available_in_official_source',
+        source_strategy: clSourceStrategy,
+        target_useful_candidates: structuredLimit,
+        max_search_loops: maxSearchLoops,
+      });
     }
 
     await updateAgentRun(agentRun.id, {
