@@ -60,10 +60,23 @@ export interface HubSpotDuplicateCheck {
   matched_company_name: string | null;
   matched_domain: string | null;
   matched_website: string | null;
+  matched_phone: string | null;
   matched_country: string | null;
   matched_city: string | null;
+  matched_state: string | null;
+  matched_address: string | null;
   matched_industry: string | null;
+  matched_macro_industry: string | null;
   matched_lifecycle_stage: string | null;
+  matched_lead_status: string | null;
+  matched_owner_id: string | null;
+  matched_number_of_employees: string | null;
+  matched_description: string | null;
+  matched_linkedin_url: string | null;
+  matched_linkedin_bio: string | null;
+  matched_tax_identifier: string | null;
+  matched_createdate: string | null;
+  matched_lastmodifieddate: string | null;
   matched_by: string | null;
   confidence: number;
   hubspot_url: string | null;
@@ -324,10 +337,23 @@ async function checkHubSpot(
     matched_company_name: null,
     matched_domain: null,
     matched_website: null,
+    matched_phone: null,
     matched_country: null,
     matched_city: null,
+    matched_state: null,
+    matched_address: null,
     matched_industry: null,
+    matched_macro_industry: null,
     matched_lifecycle_stage: null,
+    matched_lead_status: null,
+    matched_owner_id: null,
+    matched_number_of_employees: null,
+    matched_description: null,
+    matched_linkedin_url: null,
+    matched_linkedin_bio: null,
+    matched_tax_identifier: null,
+    matched_createdate: null,
+    matched_lastmodifieddate: null,
     matched_by: null,
     confidence: 0,
     hubspot_url: null,
@@ -367,13 +393,26 @@ async function checkHubSpot(
         matched_company_name: best.matchedName ?? null,
         matched_domain: best.matchedDomain ?? null,
         matched_website: best.matchedWebsite ?? null,
-        matched_country: raw?.country ?? null,
-        matched_city: raw?.city ?? null,
+        matched_phone: raw?.phone ?? null,
+        matched_country: raw?.country ?? raw?.pais ?? null,
+        matched_city: raw?.city ?? raw?.ciudad ?? null,
+        matched_state: raw?.state ?? null,
+        matched_address: raw?.address ?? null,
         matched_industry: raw?.industry ?? null,
+        matched_macro_industry: raw?.macro_industria ?? null,
         matched_lifecycle_stage: raw?.lifecyclestage ?? null,
+        matched_lead_status: raw?.hs_lead_status ?? null,
+        matched_owner_id: raw?.hubspot_owner_id ?? null,
+        matched_number_of_employees: raw?.numberofemployees ?? null,
+        matched_description: raw?.description ?? null,
+        matched_linkedin_url: raw?.linkedin_company_page ?? raw?.linkedin_url ?? null,
+        matched_linkedin_bio: raw?.linkedinbio ?? null,
+        matched_tax_identifier: raw?.nit ?? raw?.identificacion_fiscal ?? raw?.rfc ?? raw?.ruc ?? raw?.tax_id ?? best.matchedTaxIdentifier ?? null,
+        matched_createdate: raw?.createdate ?? null,
+        matched_lastmodifieddate: raw?.hs_lastmodifieddate ?? null,
         matched_by,
         confidence: best.confidence,
-        hubspot_url: null,
+        hubspot_url: raw?.hubspot_url ?? null,
       },
       connected: true,
     };
@@ -457,10 +496,23 @@ export async function detectCandidateDuplicates({
             matched_company_name: null,
             matched_domain: null,
             matched_website: null,
+            matched_phone: null,
             matched_country: null,
             matched_city: null,
+            matched_state: null,
+            matched_address: null,
             matched_industry: null,
+            matched_macro_industry: null,
             matched_lifecycle_stage: null,
+            matched_lead_status: null,
+            matched_owner_id: null,
+            matched_number_of_employees: null,
+            matched_description: null,
+            matched_linkedin_url: null,
+            matched_linkedin_bio: null,
+            matched_tax_identifier: null,
+            matched_createdate: null,
+            matched_lastmodifieddate: null,
             matched_by: null,
             confidence: 0,
             hubspot_url: null,

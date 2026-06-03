@@ -78,10 +78,23 @@ interface SheetHubSpotCheck {
   matched_company_name?: string | null;
   matched_domain?: string | null;
   matched_website?: string | null;
+  matched_phone?: string | null;
   matched_country?: string | null;
   matched_city?: string | null;
+  matched_state?: string | null;
+  matched_address?: string | null;
   matched_industry?: string | null;
+  matched_macro_industry?: string | null;
   matched_lifecycle_stage?: string | null;
+  matched_lead_status?: string | null;
+  matched_owner_id?: string | null;
+  matched_number_of_employees?: string | null;
+  matched_description?: string | null;
+  matched_linkedin_url?: string | null;
+  matched_linkedin_bio?: string | null;
+  matched_tax_identifier?: string | null;
+  matched_createdate?: string | null;
+  matched_lastmodifieddate?: string | null;
   matched_by?: string | null;
   confidence?: number;
   hubspot_url?: string | null;
@@ -1323,39 +1336,122 @@ export function CandidateDetailSheet({
                         <FieldGrid>
                           <Field label="Empresa encontrada" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_name)} />
                           <Field label="HubSpot Company ID" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_id)} mono />
-                          <Field
-                            label="Dominio / web"
-                            value={val(validationMetaSheet.hubspot_duplicate_check.matched_domain ?? validationMetaSheet.hubspot_duplicate_check.matched_website)}
-                          />
-                          <Field
-                            label="País / ciudad"
-                            value={[validationMetaSheet.hubspot_duplicate_check.matched_country, validationMetaSheet.hubspot_duplicate_check.matched_city].filter(Boolean).join(' / ') || '—'}
-                          />
-                          <Field label="Industria" value={val(validationMetaSheet.hubspot_duplicate_check.matched_industry)} />
-                          <Field
-                            label="Lifecycle stage"
-                            value={({
-                              subscriber: 'Suscriptor', lead: 'Lead', marketingqualifiedlead: 'MQL',
-                              salesqualifiedlead: 'SQL', opportunity: 'Oportunidad', customer: 'Cliente',
-                              evangelist: 'Evangelizador', other: 'Otro',
-                            } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage)}
-                          />
-                          <Field
-                            label="Coincidió por"
-                            value={({
-                              tax_identifier: 'NIT/RFC/RUT',
-                              domain: 'Dominio web',
-                              normalized_name_country: 'Nombre + país',
-                              company_name: 'Nombre de empresa',
-                            } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_by)}
-                          />
-                          <Field
-                            label="Confianza"
-                            value={(validationMetaSheet.hubspot_duplicate_check.confidence ?? 0) > 0
-                              ? `${validationMetaSheet.hubspot_duplicate_check.confidence}%`
-                              : '—'
-                            }
-                          />
+                          {(validationMetaSheet.hubspot_duplicate_check.matched_domain || validationMetaSheet.hubspot_duplicate_check.matched_website) && (
+                            <Field
+                              label="Dominio / web"
+                              value={val(validationMetaSheet.hubspot_duplicate_check.matched_domain ?? validationMetaSheet.hubspot_duplicate_check.matched_website)}
+                            />
+                          )}
+                          {(validationMetaSheet.hubspot_duplicate_check.matched_country || validationMetaSheet.hubspot_duplicate_check.matched_city) && (
+                            <Field
+                              label="País / ciudad"
+                              value={[validationMetaSheet.hubspot_duplicate_check.matched_country, validationMetaSheet.hubspot_duplicate_check.matched_city].filter(Boolean).join(' / ')}
+                            />
+                          )}
+                          {(validationMetaSheet.hubspot_duplicate_check.matched_address || validationMetaSheet.hubspot_duplicate_check.matched_state) && (
+                            <Field
+                              label="Dirección"
+                              value={[validationMetaSheet.hubspot_duplicate_check.matched_address, validationMetaSheet.hubspot_duplicate_check.matched_state].filter(Boolean).join(', ')}
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_phone && (
+                            <Field
+                              label="Teléfono"
+                              value={validationMetaSheet.hubspot_duplicate_check.matched_phone}
+                            />
+                          )}
+                          {(validationMetaSheet.hubspot_duplicate_check.matched_industry || validationMetaSheet.hubspot_duplicate_check.matched_macro_industry) && (
+                            <Field
+                              label="Industria / macro industria"
+                              value={[validationMetaSheet.hubspot_duplicate_check.matched_industry, validationMetaSheet.hubspot_duplicate_check.matched_macro_industry].filter(Boolean).join(' / ')}
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_number_of_employees && (
+                            <Field
+                              label="Número de empleados"
+                              value={validationMetaSheet.hubspot_duplicate_check.matched_number_of_employees}
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage && (
+                            <Field
+                              label="Lifecycle stage"
+                              value={({
+                                subscriber: 'Suscriptor', lead: 'Lead', marketingqualifiedlead: 'MQL',
+                                salesqualifiedlead: 'SQL', opportunity: 'Oportunidad', customer: 'Cliente',
+                                evangelist: 'Evangelizador', other: 'Otro',
+                              } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage)}
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_lead_status && (
+                            <Field
+                              label="Lead status"
+                              value={validationMetaSheet.hubspot_duplicate_check.matched_lead_status}
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_owner_id && (
+                            <Field
+                              label="Owner ID"
+                              value={validationMetaSheet.hubspot_duplicate_check.matched_owner_id}
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier && (
+                            <Field
+                              label="Identificación fiscal / tax id"
+                              value={validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier}
+                              mono
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url && (
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">LinkedIn</p>
+                              <a
+                                href={validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url.startsWith('http') ? validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url : `https://${validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-su-brand hover:underline font-medium break-all"
+                              >
+                                Ver perfil de empresa
+                              </a>
+                            </div>
+                          )}
+                          {(validationMetaSheet.hubspot_duplicate_check.matched_description || validationMetaSheet.hubspot_duplicate_check.matched_linkedin_bio) && (
+                            <div className="col-span-2 space-y-0.5">
+                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción / Bio</p>
+                              <p className="text-xs text-foreground/90 leading-relaxed italic">
+                                {validationMetaSheet.hubspot_duplicate_check.matched_description ?? validationMetaSheet.hubspot_duplicate_check.matched_linkedin_bio}
+                              </p>
+                            </div>
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.matched_by && (
+                            <Field
+                              label="Coincidió por"
+                              value={({
+                                tax_identifier: 'NIT/RFC/RUT/Tax ID',
+                                domain: 'Dominio web',
+                                normalized_name_country: 'Nombre + país',
+                                company_name: 'Nombre de empresa',
+                              } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_by)}
+                            />
+                          )}
+                          {(validationMetaSheet.hubspot_duplicate_check.confidence ?? 0) > 0 && (
+                            <Field
+                              label="Confianza"
+                              value={`${validationMetaSheet.hubspot_duplicate_check.confidence}%`}
+                            />
+                          )}
+                          {validationMetaSheet.hubspot_duplicate_check.hubspot_url && (
+                            <div className="col-span-2 pt-1.5 border-t border-border/10 mt-1 flex">
+                              <a
+                                href={validationMetaSheet.hubspot_duplicate_check.hubspot_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold text-su-brand hover:underline"
+                              >
+                                <Link2 className="h-3.5 w-3.5" />
+                                Ver empresa en HubSpot CRM
+                              </a>
+                            </div>
+                          )}
                         </FieldGrid>
                       ) : (
                         <p className="text-xs text-muted-foreground/60 italic">
@@ -1371,21 +1467,35 @@ export function CandidateDetailSheet({
                     const su = validationMetaSheet?.sellup_duplicate_check;
                     const hs = validationMetaSheet?.hubspot_duplicate_check;
                     const hasSellupDetail = !!(su?.matched_name);
+
                     const matchName = hasSellupDetail ? su?.matched_name : hs?.matched_company_name;
                     const matchDomain = hasSellupDetail
                       ? (su?.matched_domain ?? su?.matched_website)
                       : (hs?.matched_domain ?? hs?.matched_website);
                     const matchCountry = hasSellupDetail ? su?.matched_country_code : hs?.matched_country;
-                    const matchCity: string | null | undefined = hasSellupDetail ? null : hs?.matched_city;
-                    const matchTaxId = hasSellupDetail ? su?.matched_tax_identifier : null;
+                    const matchCity = hasSellupDetail ? null : hs?.matched_city;
+                    const matchAddress = hasSellupDetail ? null : (hs?.matched_address || hs?.matched_state);
+                    const matchPhone = hasSellupDetail ? null : hs?.matched_phone;
+                    const matchTaxId = hasSellupDetail ? su?.matched_tax_identifier : hs?.matched_tax_identifier;
+                    const matchIndustry = hasSellupDetail ? null : (hs?.matched_industry || hs?.matched_macro_industry);
+                    const matchSize = hasSellupDetail ? null : hs?.matched_number_of_employees;
+                    const matchLinkedin = hasSellupDetail ? null : hs?.matched_linkedin_url;
+
                     if (!matchName && !matchDomain) return null;
+
                     const rows = [
                       { label: 'Nombre', cv: candidate.name, mv: matchName },
                       { label: 'Sitio web / dominio', cv: candidate.domain ?? candidate.website, mv: matchDomain },
                       { label: 'País', cv: candidate.country ?? candidate.country_code, mv: matchCountry },
                       { label: 'Ciudad', cv: candidate.city, mv: matchCity },
+                      { label: 'Dirección', cv: null, mv: matchAddress },
+                      { label: 'Teléfono', cv: null, mv: matchPhone },
                       { label: 'Identificador fiscal', cv: candidate.tax_identifier, mv: matchTaxId },
-                    ].filter(r => r.cv || r.mv);
+                      { label: 'Industria', cv: candidate.industry, mv: matchIndustry },
+                      { label: 'Tamaño / empleados', cv: candidate.company_size, mv: matchSize },
+                      { label: 'LinkedIn', cv: effectiveLinkedinUrl, mv: matchLinkedin },
+                    ].filter(r => (r.cv !== null && r.cv !== undefined && r.cv !== '') || (r.mv !== null && r.mv !== undefined && r.mv !== ''));
+
                     if (rows.length === 0) return null;
                     return (
                       <div className="space-y-2">

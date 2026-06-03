@@ -74,16 +74,40 @@ async function isHubSpotConnected(): Promise<boolean> {
 // Tipos HubSpot
 // ============================================================
 
-interface HubSpotCompanyProperties {
+interface HubSpotCompanyProperties extends Record<string, unknown> {
   name: string | null;
   domain: string | null;
   website: string | null;
+  createdate: string | null;
+  hs_lastmodifieddate: string | null;
+  lifecyclestage: string | null;
   country: string | null;
   city: string | null;
+  state: string | null;
+  address: string | null;
+  address2: string | null;
+  zip: string | null;
   industry: string | null;
-  lifecyclestage: string | null;
+  numberofemployees: string | null;
+  annualrevenue: string | null;
+  phone: string | null;
+  description: string | null;
+  linkedin_company_page: string | null;
+  linkedinbio: string | null;
+  founded_year: string | null;
+  hubspot_owner_id: string | null;
   hs_lead_status: string | null;
+  type: string | null;
+  macro_industria: string | null;
+  pais: string | null;
+  ciudad: string | null;
+  identificacion_fiscal: string | null;
   nit: string | null;
+  rfc: string | null;
+  ruc: string | null;
+  tax_id: string | null;
+  account_executive: string | null;
+  licencias_potenciales: string | null;
 }
 
 interface HubSpotSearchResult {
@@ -108,6 +132,125 @@ const HS_PROPERTIES = [
   'hs_lead_status',
   'nit',
 ];
+
+const DESIRED_PROPERTIES = [
+  'name',
+  'domain',
+  'website',
+  'createdate',
+  'hs_lastmodifieddate',
+  'lifecyclestage',
+  'country',
+  'city',
+  'state',
+  'address',
+  'address2',
+  'zip',
+  'industry',
+  'numberofemployees',
+  'annualrevenue',
+  'phone',
+  'description',
+  'linkedin_company_page',
+  'linkedinbio',
+  'founded_year',
+  'hubspot_owner_id',
+  'hs_lead_status',
+  'type',
+  'macro_industria',
+  'pais',
+  'ciudad',
+  'identificacion_fiscal',
+  'nit',
+  'rfc',
+  'ruc',
+  'tax_id',
+  'account_executive',
+  'licencias_potenciales'
+];
+
+const MEDIUM_PROPERTIES = [
+  'name',
+  'domain',
+  'website',
+  'country',
+  'city',
+  'industry',
+  'lifecyclestage',
+  'hs_lead_status',
+  'nit'
+];
+
+const MINIMAL_PROPERTIES = [
+  'name',
+  'domain',
+  'website',
+  'country',
+  'city',
+  'industry',
+  'lifecyclestage',
+  'hs_lead_status'
+];
+
+// ============================================================
+// Helpers de soporte HubSpot
+// ============================================================
+
+async function getHubSpotPortalId(): Promise<string | null> {
+  try {
+    const admin = getAdminClient();
+    const { data: integration } = await admin
+      .from('external_integrations')
+      .select('id')
+      .eq('integration_key', INTEGRATION_KEY)
+      .single();
+
+    if (!integration?.id) return null;
+
+    const { data: connection } = await admin
+      .from('external_integration_connections')
+      .select('metadata')
+      .eq('integration_id', integration.id)
+      .single();
+
+    if (connection?.metadata && typeof connection.metadata === 'object') {
+      const meta = connection.metadata as Record<string, unknown>;
+      const hubId = meta.hub_id || meta.portalId || meta.portal_id;
+      if (hubId) return String(hubId);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function getHubSpotCompanyProperties(
+  token: string,
+  companyId: string
+): Promise<Record<string, unknown> | null> {
+  const levels = [DESIRED_PROPERTIES, MEDIUM_PROPERTIES, MINIMAL_PROPERTIES];
+  for (const props of levels) {
+    try {
+      const url = `https://api.hubapi.com/crm/v3/objects/companies/${encodeURIComponent(companyId)}?properties=${props.map(encodeURIComponent).join(',')}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.properties) {
+          return data.properties;
+        }
+      }
+    } catch (err) {
+      console.warn(`[getHubSpotCompanyProperties] Failed to fetch company properties:`, err);
+    }
+  }
+  return null;
+}
 
 // ============================================================
 // Búsquedas HubSpot — Solo lectura
@@ -319,6 +462,30 @@ export async function checkHubSpotDuplicates(
         const alreadyFound = matches.some((m) => m.matchedId === r.id);
         if (!alreadyFound) {
           matches.push(classifyHubSpotResult(r, input, domain));
+        }
+      }
+    }
+
+    // ── Enriquecer matches con consulta secundaria por companyId ──
+    const portalId = await getHubSpotPortalId();
+    for (const match of matches) {
+      if (match.matchedId && (match.status === 'existing_in_hubspot' || match.status === 'possible_duplicate')) {
+        const fullProps = await getHubSpotCompanyProperties(token, match.matchedId);
+        const hubspotUrl = portalId && match.matchedId ? `https://app.hubspot.com/contacts/${portalId}/company/${match.matchedId}` : null;
+        
+        match.raw = {
+          id: match.matchedId,
+          hubspot_url: hubspotUrl,
+          ...(fullProps || {})
+        };
+
+        if (fullProps) {
+          if (typeof fullProps.domain === 'string') match.matchedDomain = fullProps.domain;
+          if (typeof fullProps.website === 'string' && !match.matchedWebsite) {
+            match.matchedWebsite = fullProps.website;
+          }
+          const taxId = fullProps.nit || fullProps.identificacion_fiscal || fullProps.tax_id || fullProps.rfc || fullProps.ruc;
+          if (typeof taxId === 'string') match.matchedTaxIdentifier = taxId;
         }
       }
     }
