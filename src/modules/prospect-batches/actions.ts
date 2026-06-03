@@ -9,7 +9,7 @@ import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult }
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
-import { checkHubSpotCompanyDuplicate, type HubSpotCompany } from '@/server/integrations/hubspot-company-search';
+import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -2518,137 +2518,28 @@ export async function validateImportedCandidatesBatch(
 
     for (const candidate of candidates) {
       try {
-        // --- Validación SellUp ---
-        let matchedAccountId: string | null = null;
-        let matchedCandidateId: string | null = null;
-        let matchedBy: string | null = null;
-        let sellupDupStatus: 'no_match' | 'possible_duplicate' | 'duplicate' | 'error' = 'no_match';
-        let sellupConfidence = 0;
+        const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
+        const linkedinUrl = candidateMeta.linkedin_url || candidateMeta.import?.linkedin_url || null;
 
-        // NIT match
-        if (candidate.tax_identifier) {
-          const { data: accMatch } = await supabase
-            .from('accounts')
-            .select('id')
-            .eq('tax_identifier', candidate.tax_identifier)
-            .is('archived_at', null)
-            .limit(1);
-          if (accMatch && accMatch.length > 0) {
-            matchedAccountId = accMatch[0].id;
-            matchedBy = 'tax_identifier';
-            sellupDupStatus = 'duplicate';
-            sellupConfidence = 100;
-          } else {
-            const { data: candMatch } = await supabase
-              .from('prospect_candidates')
-              .select('id')
-              .eq('tax_identifier', candidate.tax_identifier)
-              .neq('id', candidate.id)
-              .neq('status', 'discarded')
-              .limit(1);
-            if (candMatch && candMatch.length > 0) {
-              matchedCandidateId = candMatch[0].id;
-              matchedBy = 'tax_identifier';
-              sellupDupStatus = 'duplicate';
-              sellupConfidence = 100;
-            }
-          }
-        }
+        // --- Detección universal de duplicados ---
+        const dupResult = await detectCandidateDuplicates({
+          supabase,
+          candidate: {
+            id: candidate.id,
+            name: candidate.name,
+            website: candidate.website,
+            domain: candidate.domain,
+            country_code: candidate.country_code,
+            tax_identifier: candidate.tax_identifier,
+            normalized_name: candidate.normalized_name,
+            linkedin_url: linkedinUrl,
+          },
+          includeHubSpot: true,
+        });
 
-        // Domain match
-        if (sellupDupStatus === 'no_match' && candidate.domain) {
-          const { data: accMatch } = await supabase
-            .from('accounts')
-            .select('id')
-            .eq('domain', candidate.domain)
-            .is('archived_at', null)
-            .limit(1);
-          if (accMatch && accMatch.length > 0) {
-            matchedAccountId = accMatch[0].id;
-            matchedBy = 'domain';
-            sellupDupStatus = 'duplicate';
-            sellupConfidence = 100;
-          } else {
-            const { data: candMatch } = await supabase
-              .from('prospect_candidates')
-              .select('id')
-              .eq('domain', candidate.domain)
-              .neq('id', candidate.id)
-              .neq('status', 'discarded')
-              .limit(1);
-            if (candMatch && candMatch.length > 0) {
-              matchedCandidateId = candMatch[0].id;
-              matchedBy = 'domain';
-              sellupDupStatus = 'duplicate';
-              sellupConfidence = 100;
-            }
-          }
-        }
-
-        // Name + Country match
-        if (sellupDupStatus === 'no_match' && candidate.normalized_name && candidate.country_code) {
-          const { data: accMatch } = await supabase
-            .from('accounts')
-            .select('id')
-            .eq('normalized_name', candidate.normalized_name)
-            .eq('country_code', candidate.country_code)
-            .is('archived_at', null)
-            .limit(1);
-          if (accMatch && accMatch.length > 0) {
-            matchedAccountId = accMatch[0].id;
-            matchedBy = 'name_and_country';
-            sellupDupStatus = 'possible_duplicate';
-            sellupConfidence = 85;
-          } else {
-            const { data: candMatch } = await supabase
-              .from('prospect_candidates')
-              .select('id')
-              .eq('normalized_name', candidate.normalized_name)
-              .eq('country_code', candidate.country_code)
-              .neq('id', candidate.id)
-              .neq('status', 'discarded')
-              .limit(1);
-            if (candMatch && candMatch.length > 0) {
-              matchedCandidateId = candMatch[0].id;
-              matchedBy = 'name_and_country';
-              sellupDupStatus = 'possible_duplicate';
-              sellupConfidence = 85;
-            }
-          }
-        }
-
-        // --- Validación HubSpot ---
-        let hubspotStatus: 'no_match' | 'possible_match' | 'match' | 'not_configured' | 'error' = 'not_configured';
-        let hubspotMatches: HubSpotCompany[] = [];
-        try {
-          const dupResult = await checkHubSpotCompanyDuplicate({
-            domain: candidate.domain || undefined,
-            companyName: candidate.name || undefined,
-          });
-          if (dupResult.checked) {
-            if (dupResult.hasDuplicate) {
-              hubspotMatches = dupResult.matches;
-              const matchedByDomain = dupResult.matches.some(
-                (m) =>
-                  m.domain &&
-                  candidate.domain &&
-                  m.domain.toLowerCase() === candidate.domain.toLowerCase()
-              );
-              hubspotStatus = matchedByDomain ? 'match' : 'possible_match';
-              hubspotStatusForBatch = 'connected';
-            } else {
-              hubspotStatus = 'no_match';
-              hubspotStatusForBatch = 'connected';
-            }
-          } else if (dupResult.error) {
-            hubspotStatus = 'error';
-            hubspotStatusForBatch = 'error';
-          } else if (dupResult.skipped) {
-            hubspotStatus = 'not_configured';
-          }
-        } catch (hsErr) {
-          console.error('[validateImportedCandidatesBatch] HubSpot check error:', hsErr);
-          hubspotStatus = 'error';
+        // Actualizar contador de batch HubSpot
+        if (dupResult.hubspot_connected) {
+          hubspotStatusForBatch = 'connected';
         }
 
         // --- Quality Check ---
@@ -2656,8 +2547,7 @@ export async function validateImportedCandidatesBatch(
         const warnings: string[] = [];
 
         const has_website = !!candidate.website;
-        const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
-        const has_linkedin = !!(candidateMeta.linkedin_url || candidateMeta.import?.linkedin_url);
+        const has_linkedin = !!linkedinUrl;
         const has_country = !!candidate.country_code;
         const has_industry = !!candidate.industry;
         const has_tax_identifier = !!candidate.tax_identifier;
@@ -2711,23 +2601,18 @@ export async function validateImportedCandidatesBatch(
           has_company_size,
         };
 
-        // --- Mapeo de duplicate_status de BD ---
-        let dbDuplicateStatus: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data' = 'no_match';
-        if (sellupDupStatus === 'duplicate') {
-          dbDuplicateStatus = 'exact_duplicate';
+        // --- Contadores de batch ---
+        const sellupStatus = dupResult.sellup_duplicate_check.status;
+        const hubspotStatus = dupResult.hubspot_duplicate_check.status;
+
+        if (sellupStatus === 'duplicate') {
           sellup_matches_count++;
-        } else if (sellupDupStatus === 'possible_duplicate') {
-          dbDuplicateStatus = 'possible_duplicate';
-          possible_duplicates_count++;
         } else if (hubspotStatus === 'match') {
-          dbDuplicateStatus = 'possible_duplicate';
           hubspot_matches_count++;
+        }
+        if (dupResult.db_duplicate_status === 'possible_duplicate') {
           possible_duplicates_count++;
-        } else if (hubspotStatus === 'possible_match') {
-          dbDuplicateStatus = 'possible_duplicate';
-          possible_duplicates_count++;
-        } else {
-          dbDuplicateStatus = 'no_match';
+        } else if (dupResult.db_duplicate_status === 'no_match') {
           no_match_count++;
         }
 
@@ -2739,17 +2624,9 @@ export async function validateImportedCandidatesBatch(
           validated_by: userId,
           validation_source: 'post_import_auto',
           validation_status: 'validated',
-          sellup_duplicate_check: {
-            status: sellupDupStatus,
-            matched_account_id: matchedAccountId,
-            matched_candidate_id: matchedCandidateId,
-            matched_by: matchedBy,
-            confidence: sellupConfidence,
-          },
-          hubspot_duplicate_check: {
-            status: hubspotStatus,
-            matches: hubspotMatches,
-          },
+          sellup_duplicate_check: dupResult.sellup_duplicate_check,
+          hubspot_duplicate_check: dupResult.hubspot_duplicate_check,
+          normalized_keys: dupResult.normalized_keys,
           quality_check,
         };
 
@@ -2762,10 +2639,10 @@ export async function validateImportedCandidatesBatch(
         await supabase
           .from('prospect_candidates')
           .update({
-            duplicate_status: dbDuplicateStatus,
-            matched_account_id: matchedAccountId,
-            matched_hubspot_company_id: hubspotMatches[0]?.id || null,
-            confidence_score: sellupConfidence,
+            duplicate_status: dupResult.db_duplicate_status,
+            matched_account_id: dupResult.db_matched_account_id,
+            matched_hubspot_company_id: dupResult.db_matched_hubspot_company_id,
+            confidence_score: dupResult.db_confidence_score,
             metadata: updatedMetadata,
           })
           .eq('id', candidate.id);

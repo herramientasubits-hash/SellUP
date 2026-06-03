@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import {
+  normalizeCompanyName,
+  normalizeDomain,
+} from '@/server/agents/prospecting-toolkit/normalization';
 
 interface CheckItem {
   index: number;
   company_name: string;
   country_code?: string | null;
   domain?: string | null;
+  website?: string | null;
   tax_identifier?: string | null;
 }
 
@@ -13,16 +18,6 @@ interface DuplicateResult {
   index: number;
   duplicate_status: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data';
   reason?: string;
-}
-
-function normalizeName(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 export async function POST(request: NextRequest) {
@@ -64,7 +59,11 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const normalizedName = normalizeName(item.company_name);
+      const normalizedName = normalizeCompanyName(item.company_name);
+      const itemDomain =
+        normalizeDomain(item.domain ?? '') ??
+        normalizeDomain(item.website ?? '');
+
       let found: 'possible_duplicate' | 'exact_duplicate' | null = null;
       let reason: string | undefined;
 
@@ -76,15 +75,15 @@ export async function POST(request: NextRequest) {
         if (taxMatch.length > 0) { found = 'exact_duplicate'; reason = 'Mismo identificador fiscal'; }
       }
 
-      if (item.domain && !found) {
+      if (itemDomain && !found) {
         const domainMatch = [
-          ...candidates.filter((c) => c.domain === item.domain),
-          ...accounts.filter((a) => a.domain === item.domain),
+          ...candidates.filter((c) => c.domain === itemDomain),
+          ...accounts.filter((a) => a.domain === itemDomain),
         ];
         if (domainMatch.length > 0) { found = 'exact_duplicate'; reason = 'Mismo dominio web'; }
       }
 
-      if (!found) {
+      if (!found && normalizedName.length >= 3) {
         const nameMatches = [
           ...candidates.filter(
             (c) =>

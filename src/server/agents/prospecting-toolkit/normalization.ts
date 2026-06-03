@@ -133,6 +133,42 @@ export function normalizeTaxIdentifier(value: string): string {
 }
 
 // ============================================================
+// normalizeLinkedinUrl
+// ============================================================
+
+/**
+ * Normaliza una URL de LinkedIn de empresa para comparación:
+ * - Extrae el slug de /company/<slug>
+ * - Descarta perfiles personales (/in/)
+ * - Retorna null si no es una URL válida de empresa LinkedIn
+ *
+ * @example
+ * normalizeLinkedinUrl("https://www.linkedin.com/company/siigo/") → "linkedin.com/company/siigo"
+ * normalizeLinkedinUrl("https://www.linkedin.com/in/persona") → null
+ * normalizeLinkedinUrl("linkedin.com/company/rappi?trk=...") → "linkedin.com/company/rappi"
+ */
+export function normalizeLinkedinUrl(url: string | null | undefined): string | null {
+  if (!url || url.trim().length === 0) return null;
+
+  const input = url.trim().toLowerCase();
+
+  if (!input.includes('linkedin.com')) return null;
+  if (input.includes('/in/')) return null; // reject personal profiles
+
+  try {
+    const withProtocol = input.startsWith('http') ? input : `https://${input}`;
+    const u = new URL(withProtocol);
+    const match = u.pathname.match(/\/company\/([^/?#]+)/);
+    if (!match) return null;
+    return `linkedin.com/company/${match[1].replace(/\/$/, '')}`;
+  } catch {
+    const match = input.match(/linkedin\.com\/company\/([^/?#\s]+)/);
+    if (!match) return null;
+    return `linkedin.com/company/${match[1].replace(/\/$/, '')}`;
+  }
+}
+
+// ============================================================
 // buildCompanySearchTerms
 // ============================================================
 

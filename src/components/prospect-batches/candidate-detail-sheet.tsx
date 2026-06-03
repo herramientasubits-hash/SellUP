@@ -65,10 +65,27 @@ interface SheetDuplicateCheck {
   confidence?: number;
 }
 
+interface SheetHubSpotCheck {
+  status?: string;
+  matched_company_id?: string | null;
+  matched_company_name?: string | null;
+  matched_by?: string | null;
+  confidence?: number;
+}
+
+interface SheetNormalizedKeys {
+  normalized_name?: string;
+  normalized_domain?: string | null;
+  normalized_tax_identifier?: string | null;
+  normalized_linkedin_url?: string | null;
+  country_code?: string | null;
+}
+
 interface SheetValidationMetadata {
   validation_source?: string;
   sellup_duplicate_check?: SheetDuplicateCheck;
-  hubspot_duplicate_check?: SheetDuplicateCheck;
+  hubspot_duplicate_check?: SheetHubSpotCheck;
+  normalized_keys?: SheetNormalizedKeys;
   quality_check?: SheetQualityCheck;
   validated_at?: string;
 }
@@ -1171,12 +1188,22 @@ export function CandidateDetailSheet({
               <div>
                 <SectionHeader>Validación</SectionHeader>
                 <div className="rounded-lg border border-border/40 bg-card p-3 space-y-3">
-                  {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.validation_source === 'post_import_auto' && (
-                    <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                      Validado automáticamente al importar.
-                    </p>
-                  )}
+                  {(() => {
+                    const src = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.validation_source;
+                    const srcLabels: Record<string, string> = {
+                      post_import_auto: 'Validado automáticamente al importar',
+                      manual: 'Validado manualmente',
+                    };
+                    const srcLabel = src ? (srcLabels[src] ?? `Fuente: ${src}`) : null;
+                    return srcLabel ? (
+                      <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                        {srcLabel}
+                      </p>
+                    ) : null;
+                  })()}
+
                   <FieldGrid>
+                    {/* SellUp — estado principal */}
                     <Field
                       label="Estado SellUp"
                       value={(() => {
@@ -1192,6 +1219,27 @@ export function CandidateDetailSheet({
                       })()}
                     />
                     <Field
+                      label="Señal SellUp"
+                      value={(() => {
+                        const check = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.sellup_duplicate_check;
+                        const parts: string[] = [];
+                        if (check?.matched_by) {
+                          const byMap: Record<string, string> = {
+                            tax_identifier: 'NIT/RFC/RUT',
+                            domain: 'Dominio web',
+                            normalized_name_country: 'Nombre + país',
+                            name_and_country: 'Nombre + país',
+                            domain_exact: 'Dominio exacto',
+                          };
+                          parts.push(byMap[check.matched_by] ?? check.matched_by);
+                        }
+                        if (check?.confidence && check.confidence > 0) parts.push(`conf. ${check.confidence}%`);
+                        return parts.length > 0 ? parts.join(' · ') : '—';
+                      })()}
+                    />
+
+                    {/* HubSpot — estado secundario */}
+                    <Field
                       label="Estado HubSpot"
                       value={(() => {
                         const status = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check?.status;
@@ -1199,13 +1247,54 @@ export function CandidateDetailSheet({
                         const labelMap: Record<string, string> = {
                           no_match: 'Sin coincidencia',
                           possible_match: 'Posible coincidencia',
-                          match: 'Coincidencia HubSpot',
-                          not_configured: 'HubSpot no configurado',
+                          match: 'Coincidencia confirmada',
+                          not_configured: 'No configurado',
                           error: 'Error de verificación',
                         };
                         return labelMap[status] ?? status;
                       })()}
                     />
+                    <Field
+                      label="Empresa HubSpot"
+                      value={(() => {
+                        const check = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check;
+                        if (!check?.matched_company_name && !check?.matched_company_id) return '—';
+                        return check.matched_company_name ?? check.matched_company_id ?? '—';
+                      })()}
+                    />
+                  </FieldGrid>
+
+                  {/* Claves normalizadas */}
+                  {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys && (
+                    <div className="pt-1 space-y-1">
+                      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/50">Claves normalizadas</p>
+                      <FieldGrid>
+                        {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_name && (
+                          <Field
+                            label="Nombre norm."
+                            value={(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_name ?? '—'}
+                            mono
+                          />
+                        )}
+                        {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_domain && (
+                          <Field
+                            label="Dominio norm."
+                            value={(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_domain ?? '—'}
+                            mono
+                          />
+                        )}
+                        {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_tax_identifier && (
+                          <Field
+                            label="Tax ID norm."
+                            value={(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_tax_identifier ?? '—'}
+                            mono
+                          />
+                        )}
+                      </FieldGrid>
+                    </div>
+                  )}
+
+                  <FieldGrid>
                     <Field
                       label="Campos faltantes"
                       value={(() => {
@@ -1226,12 +1315,8 @@ export function CandidateDetailSheet({
                         const conf = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.quality_check?.import_confidence ?? (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.confidence;
                         if (!conf) return 'No disponible';
                         const confMap: Record<string, string> = {
-                          alta: 'Alta',
-                          media: 'Media',
-                          baja: 'Baja',
-                          high: 'Alta',
-                          medium: 'Media',
-                          low: 'Baja',
+                          alta: 'Alta', media: 'Media', baja: 'Baja',
+                          high: 'Alta', medium: 'Media', low: 'Baja',
                         };
                         return confMap[String(conf).toLowerCase()] ?? String(conf);
                       })()}
@@ -1266,14 +1351,11 @@ export function CandidateDetailSheet({
                     <Field
                       label="Última validación"
                       value={(() => {
-                        const val = (candidate.metadata as unknown as SheetCandidateMetadata).validation;
-                        if (!val || !val.validated_at) return 'No disponible';
-                        return new Date(val.validated_at).toLocaleString('es-CO', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
+                        const valMeta = (candidate.metadata as unknown as SheetCandidateMetadata).validation;
+                        if (!valMeta?.validated_at) return 'No disponible';
+                        return new Date(valMeta.validated_at).toLocaleString('es-CO', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
                         });
                       })()}
                     />

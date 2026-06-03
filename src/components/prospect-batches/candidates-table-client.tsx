@@ -222,35 +222,50 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
   const sources = dc?.sources_checked ?? [];
   const matches = dc?.matches ?? [];
 
-  if (candidate.source_primary === 'external_import' && (candidate.metadata as unknown as TableCandidateMetadata)?.validation) {
+  // Mostrar validación homologada para cualquier origen que tenga metadata.validation
+  if ((candidate.metadata as unknown as TableCandidateMetadata)?.validation) {
     const valObj = (candidate.metadata as unknown as TableCandidateMetadata).validation;
     const sellupStatus = valObj?.sellup_duplicate_check?.status;
     const hsStatus = valObj?.hubspot_duplicate_check?.status;
 
-    let label = 'Sin coincidencia';
-    let style = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+    // Estado primario: SellUp
+    let primaryLabel = 'Sin coincidencia en SellUp';
+    let primaryStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
 
     if (sellupStatus === 'duplicate') {
-      label = 'Duplicado SellUp';
-      style = 'bg-destructive/10 text-destructive';
-    } else if (hsStatus === 'match') {
-      label = 'Coincidencia HubSpot';
-      style = 'bg-orange-500/10 text-orange-600 dark:text-orange-400';
-    } else if (sellupStatus === 'possible_duplicate' || hsStatus === 'possible_match') {
-      label = 'Posible duplicado';
-      style = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
-    } else if (hsStatus === 'not_configured') {
-      if (sellupStatus === 'no_match' || !sellupStatus) {
-        label = 'HubSpot no configurado';
-        style = 'bg-muted text-muted-foreground/60';
-      }
+      primaryLabel = 'Duplicado SellUp';
+      primaryStyle = 'bg-destructive/10 text-destructive';
+    } else if (sellupStatus === 'possible_duplicate') {
+      primaryLabel = 'Posible duplicado SellUp';
+      primaryStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    }
+
+    // Estado secundario: HubSpot (solo mostrar si es relevante)
+    let hsLabel: string | null = null;
+    let hsStyle = '';
+
+    if (hsStatus === 'match') {
+      hsLabel = 'Coincidencia HubSpot';
+      hsStyle = 'bg-orange-500/10 text-orange-600 dark:text-orange-400';
+    } else if (hsStatus === 'possible_match') {
+      hsLabel = 'Posible HubSpot';
+      hsStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    } else if (hsStatus === 'not_configured' && sellupStatus !== 'duplicate') {
+      // Solo mostrar "no config" como secundario, nunca como único estado principal
+      hsLabel = 'HubSpot no config.';
+      hsStyle = 'bg-muted text-muted-foreground/50';
     }
 
     return (
       <div className="flex flex-col gap-1 min-w-[120px]">
-        <Badge className={`${style} border-0 text-[10px] font-semibold w-fit`}>
-          {label}
+        <Badge className={`${primaryStyle} border-0 text-[10px] font-semibold w-fit`}>
+          {primaryLabel}
         </Badge>
+        {hsLabel && (
+          <Badge className={`${hsStyle} border-0 text-[10px] font-medium w-fit`}>
+            {hsLabel}
+          </Badge>
+        )}
       </div>
     );
   }
@@ -744,7 +759,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                             Conv. revertida
                           </Badge>
                         )}
-                      {c.source_primary === 'external_import' && (c.metadata as unknown as TableCandidateMetadata)?.validation ? (
+                      {(c.metadata as unknown as TableCandidateMetadata)?.validation ? (
                         <Badge className={`${
                           c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate'
                             ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
