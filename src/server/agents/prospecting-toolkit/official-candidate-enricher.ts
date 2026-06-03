@@ -556,18 +556,31 @@ export async function enrichBatchCandidatesWithWebAndAI(
       anthropicApiKey !== null &&
       hasMinimumEvidenceForClaude(webEnrichment, scoredResults, candidate);
 
-    let claudeSkipReason: 'insufficient_evidence' | 'tax_identifier_conflict' | 'weak_entity_match' | null = null;
+    let claudeSkipReason: 'insufficient_evidence' | 'tax_identifier_conflict' | 'weak_entity_match' | 'no_country_coherent_evidence' | null = null;
     if (anthropicApiKey && !shouldCallClaude) {
-      if (nitConflicts.length > 0 && nitMatches.length === 0) {
-        claudeSkipReason = 'tax_identifier_conflict';
-      } else if (
-        !webEnrichment.official_website &&
-        !webEnrichment.linkedin_company &&
-        webEnrichment.public_evidence.length === 0
-      ) {
-        claudeSkipReason = 'insufficient_evidence';
+      const isChileCandidate = candidate.country_code === 'CL';
+      if (isChileCandidate) {
+        // 16AK.17B: Chile-specific skip reason — geographic coherence gate
+        const hasAnyCoherent = scoredResults.some((r) => r.geographic_coherence?.coherent === true);
+        if (!hasAnyCoherent && scoredResults.length > 0) {
+          claudeSkipReason = 'no_country_coherent_evidence';
+        } else if (!webEnrichment.official_website && !webEnrichment.linkedin_company && webEnrichment.public_evidence.length === 0) {
+          claudeSkipReason = 'insufficient_evidence';
+        } else {
+          claudeSkipReason = 'weak_entity_match';
+        }
       } else {
-        claudeSkipReason = 'weak_entity_match';
+        if (nitConflicts.length > 0 && nitMatches.length === 0) {
+          claudeSkipReason = 'tax_identifier_conflict';
+        } else if (
+          !webEnrichment.official_website &&
+          !webEnrichment.linkedin_company &&
+          webEnrichment.public_evidence.length === 0
+        ) {
+          claudeSkipReason = 'insufficient_evidence';
+        } else {
+          claudeSkipReason = 'weak_entity_match';
+        }
       }
     }
 
@@ -754,6 +767,13 @@ export async function enrichBatchCandidatesWithWebAndAI(
       ? 'possible'
       : 'not_found';
 
+    const visibleWebsiteAllowed = !hasNitConflictBlocking && !!finalWebsite;
+    const apolloSkipReason = visibleWebsiteAllowed
+      ? null
+      : candidate.country_code === 'CL'
+        ? 'no_confirmed_country_coherent_domain'
+        : 'no_confirmed_domain';
+
     const enrichmentMeta = {
       web: {
         skipped: false,
@@ -762,7 +782,8 @@ export async function enrichBatchCandidatesWithWebAndAI(
         queries: queriesRun,
         official_website: hasNitConflictBlocking ? null : (officialWebsiteEvidence ?? null),
         official_website_status: officialWebsiteStatus,
-        visible_website_allowed: !hasNitConflictBlocking && !!finalWebsite,
+        visible_website_allowed: visibleWebsiteAllowed,
+        apollo_skip_reason: apolloSkipReason,
         linkedin_company: hasNitConflictBlocking ? null : (linkedInEvidence
           ? linkedInEvidence
           : finalLinkedIn

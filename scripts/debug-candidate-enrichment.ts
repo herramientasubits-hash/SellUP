@@ -58,6 +58,7 @@ import {
   hasTaxIdentifierConflict,
   getDistinctiveCompanyTokens,
   normalizeNIT,
+  getCountrySearchContext,
   type CandidateBasicInfo,
   type ScoredWebResult,
   type WebEnrichmentResult,
@@ -327,16 +328,29 @@ async function main() {
     }
     candidate = data as CandidateInput;
   } else if (args['name']) {
+    // --rut is an alias for --nit (Chile-friendly) — 16AK.17B
+    const taxId = args['rut'] ?? args['nit'] ?? null;
+    // Derive country_code from --country-code or --country arg
+    const countryArg = (args['country-code'] ?? args['country'] ?? 'Colombia').trim();
+    let derivedCountryCode: string | null = null;
+    if (countryArg.toUpperCase() === 'CL' || countryArg.toLowerCase() === 'chile') {
+      derivedCountryCode = 'CL';
+    } else if (countryArg.toUpperCase() === 'CO' || countryArg.toLowerCase() === 'colombia') {
+      derivedCountryCode = 'CO';
+    } else {
+      derivedCountryCode = countryArg.length === 2 ? countryArg.toUpperCase() : 'CO';
+    }
     candidate = {
       id: undefined,
       name: args['name'] ?? null,
       legal_name: args['name'] ?? null,
-      tax_identifier: args['nit'] ?? null,
+      tax_identifier: taxId,
       city: args['city'] ?? null,
       industry: args['industry'] ?? null,
+      country_code: derivedCountryCode,
       website: null,
       domain: null,
-      country: args['country'] ?? 'Colombia',
+      country: countryArg,
       region: args['region'] ?? null,
     };
   } else {
@@ -348,19 +362,28 @@ async function main() {
 
   // ─── A. Candidate input ───────────────────────────────────────────────────────
   h2('A. Candidate input');
+  const candidateCtx = getCountrySearchContext(candidate);
   info('ID', candidate.id ?? '(inline — no DB)');
   info('name', candidate.name);
   info('legal_name', candidate.legal_name);
-  info('tax_identifier (NIT)', candidate.tax_identifier);
+  info(`tax_identifier (${candidateCtx.taxIdLabel})`, candidate.tax_identifier);
+  info('country_code', candidate.country_code ?? '(not set — defaulting to CO)');
   info('city', candidate.city);
   info('region', candidate.region ?? args['region'] ?? null);
-  info('country', candidate.country ?? args['country'] ?? 'Colombia');
+  info('country', candidate.country ?? candidateCtx.countryTerm);
   info('industry', candidate.industry);
   info('website (actual)', candidate.website ?? null);
   info('domain (actual)', candidate.domain ?? null);
 
   // ─── B. Search plan ───────────────────────────────────────────────────────────
   h2('B. Search plan');
+
+  console.log(`  ${DIM}Country context (16AK.17B):${RESET}`);
+  info('  country_term', candidateCtx.countryTerm);
+  info('  tax_id_label', candidateCtx.taxIdLabel);
+  info('  registry_label', candidateCtx.officialRegistryLabel);
+  info('  preferred_tlds', candidateCtx.preferredTLDs.join(', '));
+  info('  foreign_hints', candidateCtx.foreignHints.slice(0, 6).join(', '));
 
   const nameVariants = buildCompanyNameVariants(
     candidate.legal_name ?? candidate.name ?? '',
@@ -510,6 +533,25 @@ async function main() {
         }
       }
 
+      // ── Geographic coherence (16AK.17B) ─────────────────────────────────────
+      const geo = scored.geographic_coherence;
+      if (geo) {
+        if (geo.coherent) {
+          ok(`  geo_coherent: true  signals=[${geo.country_signals_found.join(', ')}]`);
+        } else {
+          err(`  geo_coherent: false  reason=${geo.rejection_reason ?? 'unknown'}`);
+          if (geo.foreign_signals_found.length > 0) {
+            err(`  foreign_signals_found: ${geo.foreign_signals_found.join(', ')}`);
+          }
+        }
+        info('  country_signals_found', geo.country_signals_found.join(', ') || '(ninguno)');
+        info('  matched_city_region', String(geo.matched_city_region));
+        info('  matched_tax_id', String(geo.matched_tax_id));
+        info('  matched_exact_legal_name', String(geo.matched_exact_legal_name));
+      } else {
+        dim(`  geo_coherent: (not computed — country_code not set)`);
+      }
+
       if (scored.snippet) dim(`  Snippet: ${scored.snippet.slice(0, 150)}…`);
     }
   }
@@ -579,30 +621,77 @@ async function main() {
     ok('limited_public_data = false');
   }
 
-  // ─── F. Claude evaluation ─────────────────────────────────────────────────────
-  h2('F. Claude evaluation');
+  // ─── F. Gate summary (16AK.17B) ──────────────────────────────────────────────
+  h2('F. Gate summary (Digital Presence Gate)');
+
+  const isChile = candidate.country_code === 'CL';
+  const hasAnyCoherentResult = scoredResults.some((r) => r.geographic_coherence?.coherent === true);
+  const allResultsForeign = scoredResults.length > 0 && !hasAnyCoherentResult;
 
   const shouldCallClaude = hasMinimumEvidenceForClaude(webResult, scoredResults, candidate);
+  const apolloAllowed = !!webResult.official_website;
+  const apolloSkipReason = apolloAllowed ? null : isChile ? 'no_confirmed_country_coherent_domain' : 'no_confirmed_domain';
+
+  // Gate decision
+  const gatePass = !!(webResult.official_website || webResult.linkedin_company);
+  const gateReason = isChile && allResultsForeign
+    ? 'foreign_entity_matches_only'
+    : !webResult.official_website && !webResult.linkedin_company && webResult.public_evidence.length === 0
+    ? 'no_digital_presence'
+    : !webResult.official_website && !webResult.linkedin_company
+    ? 'public_evidence_only_no_confirmed_site'
+    : webResult.official_website
+    ? 'official_website_confirmed'
+    : 'linkedin_confirmed';
+
+  if (gatePass) {
+    ok(`Gate: PASS  (${gateReason})`);
+  } else {
+    err(`Gate: FAIL  (${gateReason})`);
+  }
+  info('  official_website', webResult.official_website?.url ?? null);
+  info('  linkedin_company', webResult.linkedin_company?.url ?? null);
+
+  if (isChile) {
+    info('  geo_coherent_results', `${scoredResults.filter((r) => r.geographic_coherence?.coherent).length} / ${scoredResults.length}`);
+    if (allResultsForeign) {
+      err('  Chile gate: ALL results are foreign/incoherent → FAIL');
+    } else {
+      ok(`  Chile gate: ${hasAnyCoherentResult ? 'at least 1 coherent result found' : 'no results'}`);
+    }
+  }
 
   // Compute claude_skip_reason for diagnostics
   let claudeSkipReason: string | null = null;
   if (!shouldCallClaude) {
-    const hasAnyConflict = scoredResults.some((r) =>
-      hasTaxIdentifierConflict(candidate.tax_identifier, `${r.url} ${r.title} ${r.snippet ?? ''}`) === 'conflict',
-    );
-    const hasAnyMatch = scoredResults.some((r) =>
-      hasTaxIdentifierConflict(candidate.tax_identifier, `${r.url} ${r.title} ${r.snippet ?? ''}`) === 'match',
-    );
-    if (hasAnyConflict && !hasAnyMatch) {
-      claudeSkipReason = 'tax_identifier_conflict — NIT diferente encontrado en evidencia sin corroboración';
-    } else if (!webResult.official_website && !webResult.linkedin_company && webResult.public_evidence.length === 0) {
-      claudeSkipReason = 'no_evidence — sin website, LinkedIn ni directorios con nombre';
-    } else if (!webResult.official_website && !webResult.linkedin_company) {
-      claudeSkipReason = 'weak_entity_match — solo empresas parecidas, sin match de entidad específica';
+    if (isChile && allResultsForeign) {
+      claudeSkipReason = 'no_country_coherent_evidence — todos los resultados son entidades extranjeras o sin señal chilena';
     } else {
-      claudeSkipReason = 'insufficient_evidence';
+      const hasAnyConflict = scoredResults.some((r) =>
+        hasTaxIdentifierConflict(candidate.tax_identifier, `${r.url} ${r.title} ${r.snippet ?? ''}`) === 'conflict',
+      );
+      const hasAnyMatch = scoredResults.some((r) =>
+        hasTaxIdentifierConflict(candidate.tax_identifier, `${r.url} ${r.title} ${r.snippet ?? ''}`) === 'match',
+      );
+      if (hasAnyConflict && !hasAnyMatch) {
+        claudeSkipReason = 'tax_identifier_conflict — NIT/RUT diferente encontrado en evidencia sin corroboración';
+      } else if (!webResult.official_website && !webResult.linkedin_company && webResult.public_evidence.length === 0) {
+        claudeSkipReason = 'no_evidence — sin website, LinkedIn ni directorios con nombre';
+      } else if (!webResult.official_website && !webResult.linkedin_company) {
+        claudeSkipReason = 'weak_entity_match — solo empresas parecidas, sin match de entidad específica';
+      } else {
+        claudeSkipReason = 'insufficient_evidence';
+      }
     }
   }
+
+  info('  claude_allowed', String(shouldCallClaude));
+  if (!shouldCallClaude) info('  claude_skip_reason', claudeSkipReason ?? 'insufficient_evidence');
+  info('  apollo_allowed', String(apolloAllowed));
+  if (!apolloAllowed) info('  apollo_skip_reason', apolloSkipReason ?? 'no_confirmed_domain');
+
+  // ─── G. Claude evaluation ─────────────────────────────────────────────────────
+  h2('G. Claude evaluation');
 
   if (!shouldCallClaude) {
     warn('Claude NO se llama — evidencia insuficiente.');

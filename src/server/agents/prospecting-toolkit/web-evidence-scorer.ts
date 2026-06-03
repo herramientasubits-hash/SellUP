@@ -80,6 +80,8 @@ const DIRECTORY_SUBSTRINGS = [
 const REGISTRY_SUBSTRINGS = [
   'rues.gov', 'rues.org', 'supersociedades', 'camaracomercio',
   'ccb.org', 'ccb.com', 'camaramedellin', 'registraduría',
+  // Chilean registry / tax authority — 16AK.17B
+  'sii.cl', 'registrocomercial.cl', 'empresaenundia.cl',
 ];
 
 const CHAMBER_OF_COMMERCE_SUBSTRINGS = [
@@ -110,6 +112,10 @@ const GENERIC_COMPANY_TOKENS = new Set([
   'asociados', 'hermanos', 'bogota', 'medellin', 'cali', 'barranquilla',
   'bucaramanga', 'manizales', 'pereira', 'armenia', 'cucuta', 'ibague',
   'neiva', 'villavicencio', 'pasto', 'monteria', 'sincelejo', 'valledupar',
+  // Chilean legal/generic terms — 16AK.17B
+  'spa', 'eirl', 'srl', 'corporacion', 'fundacion', 'asociacion', 'chile',
+  'santiago', 'valparaiso', 'concepcion', 'antofagasta', 'temuco',
+  'rancagua', 'iquique', 'talca', 'arica', 'chillan', 'osorno',
 ]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -141,6 +147,7 @@ export interface ScoredWebResult extends RawWebResult {
   confidence: EvidenceConfidence;
   matched_signals: string[];
   raw_score: number;
+  geographic_coherence?: GeographicCoherenceResult;  // Added 16AK.17B
 }
 
 export interface OfficialWebsiteEvidence {
@@ -229,6 +236,7 @@ export interface CandidateBasicInfo {
   tax_identifier: string | null;
   city: string | null;
   industry: string | null;
+  country_code?: string | null;  // Added 16AK.17B — 'CL' for Chile, 'CO' for Colombia
 }
 
 // ─── NIT / tax identifier helpers ────────────────────────────────────────────
@@ -287,6 +295,161 @@ export function hasTaxIdentifierConflict(
   return hasMatch ? 'match' : 'conflict';
 }
 
+// ─── Country search context — 16AK.17B ───────────────────────────────────────
+
+export interface CountrySearchContext {
+  countryTerm: string;
+  taxIdLabel: string;
+  officialRegistryLabel: string;
+  expectedCountryCode: string;
+  preferredTLDs: string[];
+  foreignHints: string[];
+}
+
+export function getCountrySearchContext(candidate: CandidateBasicInfo): CountrySearchContext {
+  if (candidate.country_code === 'CL') {
+    return {
+      countryTerm: 'Chile',
+      taxIdLabel: 'RUT',
+      officialRegistryLabel: 'RES Chile',
+      expectedCountryCode: 'CL',
+      preferredTLDs: ['.cl'],
+      foreignHints: [
+        'colombia', 'peru', 'perú', 'argentina', 'italia', 'suiza', 'switzerland',
+        'usa', 'united states', 'estados unidos', 'mexico', 'brasil', 'brazil',
+        'germany', 'alemania', 'france', 'austria',
+      ],
+    };
+  }
+  return {
+    countryTerm: 'Colombia',
+    taxIdLabel: 'NIT',
+    officialRegistryLabel: 'RUES',
+    expectedCountryCode: 'CO',
+    preferredTLDs: ['.com.co', '.co'],
+    foreignHints: [
+      'chile', 'peru', 'perú', 'argentina', 'espana', 'españa', 'italia',
+      'usa', 'united states', 'estados unidos', 'mexico', 'brasil', 'brazil',
+    ],
+  };
+}
+
+export interface GeographicCoherenceResult {
+  coherent: boolean;
+  country_signals_found: string[];
+  foreign_signals_found: string[];
+  matched_city_region: boolean;
+  matched_tax_id: boolean;
+  matched_exact_legal_name: boolean;
+  rejection_reason: string | null;
+}
+
+/**
+ * Evaluates geographic coherence of a web result for a given candidate.
+ * For Chile: requires .cl TLD, "Chile" in text, city/RUT match, or exact legal name.
+ * Penalizes results with explicit foreign signals (foreign TLDs, foreign country mentions).
+ */
+export function evaluateGeographicCoherence(
+  result: RawWebResult,
+  candidate: CandidateBasicInfo,
+  ctx: CountrySearchContext,
+): GeographicCoherenceResult {
+  const domain = extractDomainFromUrl(result.url) ?? '';
+  const fullText = `${result.url} ${result.title} ${result.snippet ?? ''}`.toLowerCase();
+
+  const countrySignals: string[] = [];
+  const foreignSignals: string[] = [];
+
+  // 1. Preferred TLD match
+  const matchedTLD = ctx.preferredTLDs.find((tld) => domain.endsWith(tld));
+  if (matchedTLD) countrySignals.push(`domain_tld:${matchedTLD}`);
+
+  // 2. Foreign TLD detection (Chile: .co/.com.co is Colombia; European TLDs are foreign)
+  if (ctx.expectedCountryCode === 'CL') {
+    if (domain.endsWith('.co') || domain.includes('.com.co') || domain.includes('.gov.co')) {
+      foreignSignals.push('domain_tld:.co');
+    }
+    const knownForeignTLDs = ['.it', '.ch', '.de', '.fr', '.at', '.es', '.us', '.uk', '.com.ar', '.com.br'];
+    const foundForeignTLD = knownForeignTLDs.find((tld) => domain.endsWith(tld));
+    if (foundForeignTLD) foreignSignals.push(`domain_tld:${foundForeignTLD}`);
+  } else if (ctx.expectedCountryCode === 'CO') {
+    if (domain.endsWith('.cl')) foreignSignals.push('domain_tld:.cl');
+  }
+
+  // 3. Country term in text
+  if (fullText.includes(ctx.countryTerm.toLowerCase())) {
+    countrySignals.push(`country_term:${ctx.countryTerm}`);
+  }
+
+  // 4. City/region match (accent-tolerant)
+  let matchedCityRegion = false;
+  if (candidate.city) {
+    const cityNorm = candidate.city.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const textNorm = fullText.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (fullText.includes(candidate.city.toLowerCase()) || textNorm.includes(cityNorm)) {
+      countrySignals.push(`city:${candidate.city}`);
+      matchedCityRegion = true;
+    }
+  }
+
+  // 5. Tax ID match (RUT for Chile, NIT for Colombia)
+  let matchedTaxId = false;
+  if (candidate.tax_identifier) {
+    const taxNorm = normalizeNIT(candidate.tax_identifier);
+    if (taxNorm && taxNorm.length >= 7) {
+      const textStripped = fullText.replace(/[\s.\-]/g, '');
+      if (textStripped.includes(taxNorm)) {
+        countrySignals.push(`tax_id:${ctx.taxIdLabel}`);
+        matchedTaxId = true;
+      }
+    }
+  }
+
+  // 6. Exact legal name match
+  const legalName = (candidate.legal_name ?? candidate.name ?? '').toLowerCase().trim();
+  const matchedExactLegalName = legalName.length > 6 && fullText.includes(legalName);
+  if (matchedExactLegalName) countrySignals.push('exact_legal_name');
+
+  // 7. Foreign hint words in text
+  for (const hint of ctx.foreignHints) {
+    if (fullText.includes(hint)) foreignSignals.push(`text:${hint}`);
+  }
+
+  // ── Coherence decision ───────────────────────────────────────────────────
+  let coherent = false;
+  let rejectionReason: string | null = null;
+
+  if (matchedTaxId || matchedExactLegalName) {
+    // Strong entity signal — overrides geographic ambiguity
+    coherent = true;
+  } else if (countrySignals.length > 0 && foreignSignals.length === 0) {
+    coherent = true;
+  } else if (countrySignals.length > 0 && foreignSignals.length > 0) {
+    // Mixed signals — coherent only if domain TLD or city+country term present
+    const hasStrongLocal =
+      matchedTLD !== undefined ||
+      (matchedCityRegion && countrySignals.includes(`country_term:${ctx.countryTerm}`));
+    coherent = hasStrongLocal;
+    if (!coherent) rejectionReason = 'weak_country_match';
+  } else if (foreignSignals.length > 0) {
+    coherent = false;
+    rejectionReason = 'foreign_entity_match';
+  } else {
+    coherent = false;
+    rejectionReason = 'no_country_signal';
+  }
+
+  return {
+    coherent,
+    country_signals_found: countrySignals,
+    foreign_signals_found: foreignSignals,
+    matched_city_region: matchedCityRegion,
+    matched_tax_id: matchedTaxId,
+    matched_exact_legal_name: matchedExactLegalName,
+    rejection_reason: rejectionReason,
+  };
+}
+
 // ─── Distinctive token helpers ────────────────────────────────────────────────
 
 /**
@@ -306,7 +469,9 @@ export function getDistinctiveCompanyTokens(name: string): {
   for (const token of tokens) {
     const clean = token.replace(/[^a-z0-9áéíóúüñ]/g, '');
     if (!clean || clean.length < 2) continue;
-    if (GENERIC_COMPANY_TOKENS.has(clean)) {
+    // Normalize accents for set lookup so 'corporación' matches 'corporacion'
+    const cleanNoAccents = clean.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (GENERIC_COMPANY_TOKENS.has(clean) || GENERIC_COMPANY_TOKENS.has(cleanNoAccents)) {
       generic.push(clean);
     } else {
       distinctive.push(clean);
@@ -339,6 +504,8 @@ export function isDirectoryOrThirdPartyEvidenceDomain(domain: string): boolean {
   if (/\.edu(\.[a-z]{2})?$/.test(d)) return true;
   // Colombian government institutional domains (.gov.co) — always governmental, never a commercial company website
   if (/\.gov\.co$/.test(d) || d === 'gov.co') return true;
+  // Chilean government domains (.gob.cl) — 16AK.17B
+  if (/\.gob\.cl$/.test(d) || d === 'gob.cl') return true;
   // Government procurement portals (Colombia Compra Eficiente, SECOP, etc.)
   if (d.includes('colombiacompra') || d.includes('secop')) return true;
   return false;
@@ -440,8 +607,16 @@ export function hasMinimumEvidenceForClaude(
   scoredResults: ScoredWebResult[],
   candidate?: CandidateBasicInfo,
 ): boolean {
-  // ── NIT conflict gate ─────────────────────────────────────────────────────
-  if (candidate?.tax_identifier) {
+  // ── Geographic coherence gate (Chile) — 16AK.17B ─────────────────────────
+  // If ALL results lack geographic coherence for Chile, block Claude entirely.
+  if (candidate?.country_code === 'CL' && scoredResults.length > 0) {
+    const hasAnyCoherent = scoredResults.some((r) => r.geographic_coherence?.coherent === true);
+    if (!hasAnyCoherent) return false;
+  }
+
+  // ── NIT/RUT conflict gate ─────────────────────────────────────────────────
+  // Only run tax-identifier conflict check for Colombia (Chile RUT conflicts are less structured)
+  if (candidate?.tax_identifier && candidate.country_code !== 'CL') {
     const allText = scoredResults
       .map((r) => `${r.url} ${r.title} ${r.snippet ?? ''}`)
       .join(' ');
@@ -585,9 +760,7 @@ export function scoreEntityMatch(
 
 /**
  * Builds search queries differentiated by intent.
- * 16AK.13B: uses only official_website and linkedin_company (2 queries max).
- * 16AK.13C roadmap: add public_evidence, company_description intents
- *   without increasing cost per candidate until latency/budget allows.
+ * 16AK.17B: country-aware queries — Chile uses RUT/Chile/.cl, Colombia uses NIT/Colombia/RUES.
  */
 export function buildSearchQueriesByIntent(
   candidate: CandidateBasicInfo,
@@ -595,12 +768,60 @@ export function buildSearchQueriesByIntent(
 ): QueryStrategy[] {
   const name = (candidate.legal_name ?? candidate.name ?? '').trim();
   const normalized = normalizeCompanyName(name);
-  const nit = candidate.tax_identifier;
+  const taxId = candidate.tax_identifier;
   const city = candidate.city ?? '';
+  const ctx = getCountrySearchContext(candidate);
 
+  if (ctx.expectedCountryCode === 'CL') {
+    // ── Chile queries — RUT, Chile, .cl signals ───────────────────────────
+    const queries: QueryStrategy[] = [];
+
+    // Q1: name + RUT + Chile
+    const q1Parts: string[] = [];
+    if (name) q1Parts.push(`"${name}"`);
+    if (taxId) q1Parts.push(`"${taxId}"`);
+    q1Parts.push('Chile');
+    queries.push({ query: q1Parts.filter(Boolean).join(' '), intent: 'official_website' });
+
+    // Q2: name + Chile + city + sitio oficial
+    const q2Parts: string[] = [];
+    if (normalized) q2Parts.push(`"${normalized}"`);
+    q2Parts.push('Chile');
+    if (city) q2Parts.push(city);
+    q2Parts.push('sitio oficial');
+    queries.push({ query: q2Parts.filter(Boolean).join(' '), intent: 'official_website' });
+
+    // Q3: LinkedIn company + Chile
+    const q3Parts: string[] = [];
+    if (name) q3Parts.push(`"${name}"`);
+    q3Parts.push('Chile');
+    if (city) q3Parts.push(city);
+    q3Parts.push('site:linkedin.com/company');
+    queries.push({ query: q3Parts.filter(Boolean).join(' '), intent: 'linkedin_company' });
+
+    // Q4: public evidence — RUT label
+    const q4Parts: string[] = [];
+    if (normalized) q4Parts.push(`"${normalized}"`);
+    if (taxId) q4Parts.push(`RUT ${taxId}`);
+    q4Parts.push('Chile registro empresa');
+    queries.push({ query: q4Parts.filter(Boolean).join(' '), intent: 'public_evidence' });
+
+    // Q5: city + region + Chile (if city present)
+    if (city) {
+      const q5Parts: string[] = [];
+      if (name) q5Parts.push(`"${name}"`);
+      q5Parts.push(city);
+      q5Parts.push('Chile');
+      queries.push({ query: q5Parts.filter(Boolean).join(' '), intent: 'official_website' });
+    }
+
+    return queries;
+  }
+
+  // ── Colombia queries (default) — NIT, Colombia, RUES ─────────────────────
   const websiteParts: string[] = [];
   if (name) websiteParts.push(`"${name}"`);
-  if (nit) websiteParts.push(`NIT ${nit}`);
+  if (taxId) websiteParts.push(`NIT ${taxId}`);
   websiteParts.push('Colombia');
   if (city) websiteParts.push(city);
   websiteParts.push('sitio web empresa');
@@ -615,7 +836,7 @@ export function buildSearchQueriesByIntent(
 
   const publicEvidenceParts: string[] = [];
   if (normalized) publicEvidenceParts.push(`"${normalized}"`);
-  if (nit) publicEvidenceParts.push(`NIT ${nit}`);
+  if (taxId) publicEvidenceParts.push(`NIT ${taxId}`);
   publicEvidenceParts.push('Colombia registro directorio ciiu');
 
   return [
@@ -715,8 +936,9 @@ function scoreResult(candidate: CandidateBasicInfo, result: RawWebResult): numbe
   // NIT / tax identifier explicit match (very strong signal)
   if (candidate.tax_identifier && combined.includes(candidate.tax_identifier)) score += 30;
 
-  // Country
-  if (combined.includes('colombia')) score += 8;
+  // Country term (country-aware — 16AK.17B)
+  const _ctx = getCountrySearchContext(candidate);
+  if (combined.includes(_ctx.countryTerm.toLowerCase())) score += 8;
 
   // City
   if (candidate.city && combined.includes(candidate.city.toLowerCase())) score += 8;
@@ -748,27 +970,53 @@ export function scoreWebEvidence(
   results: RawWebResult[],
 ): ScoredWebResult[] {
   const name = candidate.legal_name ?? candidate.name ?? '';
+  const ctx = getCountrySearchContext(candidate);
+  const isChile = candidate.country_code === 'CL';
 
   return results.map((r) => {
     const sourceType = classifySourceType(r.url, r.title, r.snippet);
-    const rawScore = scoreResult(candidate, r);
+    let baseScore = scoreResult(candidate, r);
+
+    // 16AK.17B: Distinctive token check — penalize results with no match on the
+    // company's distinctive tokens (prevents wrong-entity matches like
+    // "Corporacion Municipal de Macul" matching "Corporacion Pedrazzini SpA").
+    if (sourceType === 'official_website' || sourceType === 'linkedin_company') {
+      const { distinctive } = getDistinctiveCompanyTokens(name);
+      if (distinctive.length > 0) {
+        const evidenceText = `${r.url} ${r.title} ${r.snippet ?? ''}`.toLowerCase();
+        const hasDistinctiveMatch = distinctive.some((t) => evidenceText.includes(t));
+        if (!hasDistinctiveMatch) baseScore = Math.max(0, baseScore - 30);
+      }
+    }
+
+    // 16AK.17B: Geographic coherence evaluation and penalty
+    const geo = evaluateGeographicCoherence(r, candidate, ctx);
+    if (isChile && !geo.coherent) {
+      // Heavy penalty for results with no Chilean geographic coherence
+      baseScore = Math.max(0, baseScore - 50);
+    }
+
     // LinkedIn gets a boost since it passed the /company/ gate
-    const adjustedScore = sourceType === 'linkedin_company' ? Math.min(rawScore + 12, 100) : rawScore;
+    const adjustedScore = sourceType === 'linkedin_company' ? Math.min(baseScore + 12, 100) : baseScore;
     const confidence = scoreToConfidence(adjustedScore, sourceType);
 
     const signals: string[] = [];
     const text = `${r.title} ${r.snippet ?? ''}`.toLowerCase();
     const fullText = `${r.url} ${r.title} ${r.snippet ?? ''}`;
     if (candidate.tax_identifier && text.includes(candidate.tax_identifier)) signals.push('nit_match');
-    if (text.includes('colombia')) signals.push('country_match');
+    if (text.includes(ctx.countryTerm.toLowerCase())) signals.push('country_match');
     if (candidate.city && text.includes(candidate.city.toLowerCase())) signals.push('city_match');
     if (scoreEntityMatch(name, r.title, candidate.city, candidate.tax_identifier) >= 60) signals.push('name_in_title');
-    // NIT conflict/match signals using normalized extraction
+    // Tax ID conflict/match signals (works for both NIT and RUT)
     if (candidate.tax_identifier) {
       const taxCheck = hasTaxIdentifierConflict(candidate.tax_identifier, fullText);
       if (taxCheck === 'conflict') signals.push('tax_id_conflict');
       else if (taxCheck === 'match') signals.push('tax_id_match');
     }
+    // Geographic coherence signals — 16AK.17B
+    if (geo.coherent) signals.push('geo_coherent');
+    else if (geo.foreign_signals_found.length > 0) signals.push('geo_foreign');
+    else if (!geo.coherent) signals.push('geo_no_signal');
 
     return {
       ...r,
@@ -776,6 +1024,7 @@ export function scoreWebEvidence(
       confidence,
       matched_signals: signals,
       raw_score: adjustedScore,
+      geographic_coherence: geo,
     };
   });
 }

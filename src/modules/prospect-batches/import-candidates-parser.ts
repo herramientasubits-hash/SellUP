@@ -1,0 +1,422 @@
+// ── Tipos ─────────────────────────────────────────────────────
+
+export type ImportMethod = 'paste' | 'csv';
+
+export interface ParsedImportRow {
+  company_name: string;
+  country?: string;
+  country_code?: string;
+  website?: string;
+  industry?: string;
+  city?: string;
+  region?: string;
+  tax_identifier?: string;
+  tax_identifier_type?: string;
+  linkedin_url?: string;
+  company_size?: string;
+  description?: string;
+  notes?: string;
+  source_url?: string;
+  contact_name?: string;
+  contact_role?: string;
+  contact_email?: string;
+  owner_email?: string;
+}
+
+export type RowStatus = 'valid' | 'error' | 'warning';
+
+export interface ImportRow {
+  index: number;
+  raw: ParsedImportRow;
+  status: RowStatus;
+  errors: string[];
+  warnings: string[];
+  resolved_country_code: string | null;
+}
+
+export interface ImportPreview {
+  total: number;
+  valid: number;
+  errors: number;
+  warnings_only: number;
+  recognized_columns: string[];
+  unrecognized_columns: string[];
+  rows: ImportRow[];
+}
+
+// ── Mapas de alias de columnas ─────────────────────────────────
+
+const COLUMN_ALIASES: Record<string, string> = {
+  // company_name
+  empresa: 'company_name',
+  'nombre empresa': 'company_name',
+  'nombre de empresa': 'company_name',
+  'razón social': 'company_name',
+  'razon social': 'company_name',
+  company: 'company_name',
+  'company name': 'company_name',
+  organization: 'company_name',
+  'organization name': 'company_name',
+  nombre: 'company_name',
+  // country
+  país: 'country',
+  pais: 'country',
+  country: 'country',
+  // country_code
+  country_code: 'country_code',
+  'código país': 'country_code',
+  'codigo pais': 'country_code',
+  'iso country': 'country_code',
+  // website
+  'sitio web': 'website',
+  web: 'website',
+  website: 'website',
+  url: 'website',
+  dominio: 'website',
+  domain: 'website',
+  // industry
+  sector: 'industry',
+  industria: 'industry',
+  industry: 'industry',
+  vertical: 'industry',
+  rubro: 'industry',
+  giro: 'industry',
+  // tax_identifier
+  nit: 'tax_identifier',
+  rut: 'tax_identifier',
+  rfc: 'tax_identifier',
+  'identificación fiscal': 'tax_identifier',
+  'identificacion fiscal': 'tax_identifier',
+  'tax id': 'tax_identifier',
+  tax_identifier: 'tax_identifier',
+  'tax identifier': 'tax_identifier',
+  'id fiscal': 'tax_identifier',
+  // linkedin_url
+  linkedin: 'linkedin_url',
+  'linkedin url': 'linkedin_url',
+  'linkedin company': 'linkedin_url',
+  'perfil linkedin': 'linkedin_url',
+  linkedin_url: 'linkedin_url',
+  // city
+  ciudad: 'city',
+  city: 'city',
+  // region
+  región: 'region',
+  region: 'region',
+  departamento: 'region',
+  estado: 'region',
+  provincia: 'region',
+  // company_size
+  tamaño: 'company_size',
+  'tamaño empresa': 'company_size',
+  company_size: 'company_size',
+  empleados: 'company_size',
+  // description
+  descripción: 'description',
+  descripcion: 'description',
+  description: 'description',
+  'qué hace': 'description',
+  'que hace': 'description',
+  // notes
+  notas: 'notes',
+  notes: 'notes',
+  observaciones: 'notes',
+  // source_url
+  fuente: 'source_url',
+  source_url: 'source_url',
+  'source url': 'source_url',
+  evidencia: 'source_url',
+  evidence_url: 'source_url',
+  // contact fields
+  contacto: 'contact_name',
+  contact_name: 'contact_name',
+  'nombre contacto': 'contact_name',
+  'contact name': 'contact_name',
+  cargo: 'contact_role',
+  contact_role: 'contact_role',
+  rol: 'contact_role',
+  'email contacto': 'contact_email',
+  contact_email: 'contact_email',
+  'correo contacto': 'contact_email',
+  // owner
+  owner_email: 'owner_email',
+  responsable: 'owner_email',
+  asignado: 'owner_email',
+};
+
+// ── Mapeo país → código ISO ────────────────────────────────────
+
+const COUNTRY_TO_CODE: Record<string, string> = {
+  colombia: 'CO',
+  chile: 'CL',
+  mexico: 'MX',
+  méxico: 'MX',
+  argentina: 'AR',
+  brasil: 'BR',
+  brazil: 'BR',
+  peru: 'PE',
+  perú: 'PE',
+  uruguay: 'UY',
+  ecuador: 'EC',
+  paraguay: 'PY',
+  bolivia: 'BO',
+  venezuela: 'VE',
+  guatemala: 'GT',
+  honduras: 'HN',
+  'el salvador': 'SV',
+  nicaragua: 'NI',
+  'costa rica': 'CR',
+  panama: 'PA',
+  panamá: 'PA',
+  'republica dominicana': 'DO',
+  'república dominicana': 'DO',
+  'rep. dominicana': 'DO',
+  'estados unidos': 'US',
+  'united states': 'US',
+  usa: 'US',
+  españa: 'ES',
+  espana: 'ES',
+  spain: 'ES',
+  // códigos directos (pasan tal cual)
+  co: 'CO',
+  cl: 'CL',
+  mx: 'MX',
+  ar: 'AR',
+  br: 'BR',
+  pe: 'PE',
+  uy: 'UY',
+  ec: 'EC',
+  py: 'PY',
+  bo: 'BO',
+  ve: 'VE',
+  gt: 'GT',
+  hn: 'HN',
+  sv: 'SV',
+  ni: 'NI',
+  cr: 'CR',
+  pa: 'PA',
+  do: 'DO',
+  us: 'US',
+  es: 'ES',
+};
+
+// ── Helpers de parsing ─────────────────────────────────────────
+
+function normalizeHeader(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[_\-]/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function resolveHeader(raw: string): { field: string | null; original: string } {
+  const normalized = normalizeHeader(raw);
+  const field = COLUMN_ALIASES[normalized] ?? null;
+  return { field, original: raw.trim() };
+}
+
+function resolveCountryCode(countryValue: string): string | null {
+  if (!countryValue) return null;
+  const normalized = countryValue.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return COUNTRY_TO_CODE[normalized] ?? null;
+}
+
+function detectSeparator(line: string): string {
+  const tabCount = (line.match(/\t/g) ?? []).length;
+  const commaCount = (line.match(/,/g) ?? []).length;
+  const semicolonCount = (line.match(/;/g) ?? []).length;
+  if (tabCount >= commaCount && tabCount >= semicolonCount) return '\t';
+  if (semicolonCount >= commaCount) return ';';
+  return ',';
+}
+
+function splitCsvLine(line: string, sep: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === sep && !inQuotes) {
+      cells.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function isBlankRow(cells: string[]): boolean {
+  return cells.every((c) => !c.trim());
+}
+
+function isValidUrl(value: string): boolean {
+  try {
+    const url = value.startsWith('http') ? value : `https://${value}`;
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+// ── Normalización de alias de columna ─────────────────────────
+
+export function normalizeImportColumns(headers: string[]): {
+  fieldMap: Array<{ original: string; field: string | null }>;
+  recognized: string[];
+  unrecognized: string[];
+} {
+  const fieldMap = headers.map((h) => resolveHeader(h));
+  const recognized = fieldMap.filter((f) => f.field !== null).map((f) => f.field as string);
+  const unrecognized = fieldMap.filter((f) => f.field === null).map((f) => f.original);
+  return { fieldMap, recognized, unrecognized };
+}
+
+// ── Validación de fila ─────────────────────────────────────────
+
+function validateRow(raw: ParsedImportRow, index: number): ImportRow {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!raw.company_name || !raw.company_name.trim()) {
+    errors.push('Falta nombre de empresa');
+  }
+
+  const hasCountry = !!(raw.country?.trim() || raw.country_code?.trim());
+  if (!hasCountry) {
+    errors.push('Falta país');
+  }
+
+  const resolved_country_code = raw.country_code?.trim().toUpperCase() ||
+    (raw.country ? resolveCountryCode(raw.country) : null);
+
+  if (hasCountry && !resolved_country_code && raw.country) {
+    warnings.push(`País "${raw.country}" no reconocido — verificar manualmente`);
+  }
+
+  if (!raw.website?.trim()) {
+    warnings.push('Sin sitio web');
+  } else if (!isValidUrl(raw.website)) {
+    warnings.push(`Sitio web inválido: "${raw.website}"`);
+  }
+
+  if (!raw.tax_identifier?.trim()) {
+    warnings.push('Sin identificador fiscal — requiere revisión');
+  }
+
+  if (!raw.industry?.trim()) {
+    warnings.push('Sin sector/industria');
+  }
+
+  if (raw.contact_email?.trim() && !isValidEmail(raw.contact_email)) {
+    warnings.push(`Email de contacto inválido: "${raw.contact_email}"`);
+  }
+
+  const status: RowStatus = errors.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'valid';
+
+  return {
+    index,
+    raw,
+    status,
+    errors,
+    warnings,
+    resolved_country_code: errors.length === 0 ? resolved_country_code : null,
+  };
+}
+
+// ── Parsing de texto (paste o CSV) ────────────────────────────
+
+interface ParseResult {
+  rows: ImportRow[];
+  recognized_columns: string[];
+  unrecognized_columns: string[];
+  truncated: boolean;
+  truncatedAt: number;
+}
+
+const MAX_IMPORT_ROWS = 200;
+
+function parseTextToRows(text: string): ParseResult {
+  const allLines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (allLines.length < 2) {
+    return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };
+  }
+
+  const sep = detectSeparator(allLines[0]);
+  const headers = splitCsvLine(allLines[0], sep);
+  const { fieldMap, recognized, unrecognized } = normalizeImportColumns(headers);
+
+  const dataLines = allLines.slice(1);
+  const truncated = dataLines.length > MAX_IMPORT_ROWS;
+  const limitedLines = truncated ? dataLines.slice(0, MAX_IMPORT_ROWS) : dataLines;
+
+  const rows: ImportRow[] = [];
+  let rowIndex = 0;
+
+  for (const line of limitedLines) {
+    const cells = splitCsvLine(line, sep);
+    if (isBlankRow(cells)) continue;
+
+    const rawObj: Record<string, string> = {};
+    for (let i = 0; i < fieldMap.length; i++) {
+      const { field } = fieldMap[i];
+      if (field && cells[i] !== undefined) {
+        rawObj[field] = cells[i]?.trim() ?? '';
+      }
+    }
+
+    const raw = rawObj as unknown as ParsedImportRow;
+    rows.push(validateRow(raw, rowIndex));
+    rowIndex++;
+  }
+
+  return { rows, recognized_columns: recognized, unrecognized_columns: unrecognized, truncated, truncatedAt: MAX_IMPORT_ROWS };
+}
+
+// ── API pública ────────────────────────────────────────────────
+
+export function parsePastedCandidates(text: string): ParseResult {
+  return parseTextToRows(text);
+}
+
+export function parseCsvCandidates(csvText: string): ParseResult {
+  return parseTextToRows(csvText);
+}
+
+export function buildImportPreview(parseResult: ParseResult): ImportPreview {
+  const { rows, recognized_columns, unrecognized_columns } = parseResult;
+  const valid = rows.filter((r) => r.status === 'valid').length;
+  const errors = rows.filter((r) => r.status === 'error').length;
+  const warnings_only = rows.filter((r) => r.status === 'warning').length;
+
+  return {
+    total: rows.length,
+    valid,
+    errors,
+    warnings_only,
+    recognized_columns,
+    unrecognized_columns,
+    rows,
+  };
+}
+
+export function getValidRows(preview: ImportPreview): ImportRow[] {
+  return preview.rows.filter((r) => r.status !== 'error');
+}
