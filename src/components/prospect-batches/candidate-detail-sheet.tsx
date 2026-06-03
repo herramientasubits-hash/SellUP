@@ -95,6 +95,7 @@ interface SheetImportMetadata {
   company_size?: string;
   source_url?: string;
   source_evidence?: string;
+  linkedin_url?: string | null;
 }
 
 interface SheetCandidateMetadata {
@@ -410,6 +411,20 @@ export function CandidateDetailSheet({
   const linkedinUrl = isChileOfficialCandidate
     ? (linkedinStatus === 'confirmed' ? linkedinConfirmedUrl : null)
     : (linkedinConfirmedUrl ?? linkedinFallbackUrl);
+
+  // External import LinkedIn fallbacks — used when enrichment paths are absent
+  const isExternalImport = candidate.source_primary === 'external_import';
+  const importMeta = candidate.metadata as unknown as SheetCandidateMetadata;
+  const importLinkedinUrl: string | null =
+    importMeta?.import?.linkedin_url ??
+    ((candidate.metadata?.external as Record<string, unknown> | undefined)?.linkedin_url as string | undefined ?? null) ??
+    (() => {
+      const nli = importMeta?.validation?.normalized_keys?.normalized_linkedin_url;
+      return nli && nli.includes('/company/') ? nli : null;
+    })() ??
+    null;
+  const hasLinkedinSignal = importMeta?.validation?.quality_check?.has_linkedin === true;
+  const effectiveLinkedinUrl = linkedinUrl ?? (isExternalImport ? importLinkedinUrl : null);
 
   // Chile official data from source_trace
   const chileSourceParams = isChileOfficialCandidate
@@ -854,7 +869,7 @@ export function CandidateDetailSheet({
                 />
                 <Field
                   label={
-                    linkedinUrl
+                    effectiveLinkedinUrl
                       ? "LinkedIn corporativo"
                       : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl))
                       ? "Posibles coincidencias no confirmadas"
@@ -863,10 +878,10 @@ export function CandidateDetailSheet({
                       : "LinkedIn corporativo"
                   }
                   value={
-                    linkedinUrl ? (
+                    effectiveLinkedinUrl ? (
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <a
-                          href={linkedinUrl.startsWith('http') ? linkedinUrl : `https://${linkedinUrl}`}
+                          href={effectiveLinkedinUrl.startsWith('http') ? effectiveLinkedinUrl : `https://${effectiveLinkedinUrl}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-1 text-su-brand hover:underline font-medium"
@@ -940,6 +955,8 @@ export function CandidateDetailSheet({
                           </div>
                         ))}
                       </div>
+                    ) : hasLinkedinSignal ? (
+                      <span className="text-xs text-muted-foreground/60 italic">No confirmado — revisar fuente importada</span>
                     ) : (
                       <MissingText text="Sin LinkedIn encontrado" />
                     )
@@ -1210,7 +1227,7 @@ export function CandidateDetailSheet({
                         const status = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.sellup_duplicate_check?.status;
                         if (!status) return 'Sin verificar';
                         const labelMap: Record<string, string> = {
-                          no_match: 'Sin coincidencia',
+                          no_match: 'Sin coincidencia en SellUp',
                           possible_duplicate: 'Posible duplicado',
                           duplicate: 'Duplicado SellUp',
                           error: 'Error de verificación',
@@ -1360,6 +1377,12 @@ export function CandidateDetailSheet({
                       })()}
                     />
                   </FieldGrid>
+
+                  {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check?.status === 'not_configured' && (
+                    <p className="text-[10px] text-muted-foreground/60 italic pt-1">
+                      Validación contra CRM pendiente hasta configurar HubSpot.
+                    </p>
+                  )}
                 </div>
               </div>
             </>

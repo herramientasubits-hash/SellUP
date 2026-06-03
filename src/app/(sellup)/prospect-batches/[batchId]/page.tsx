@@ -210,22 +210,52 @@ export default async function BatchDetailPage({ params }: Props) {
       />
 
       {/* Banner importación externa */}
-      {(batch.source as string) === 'external_import' && (
-        <div className="rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5 animate-in fade-in-0 duration-200">
-          <div className="flex items-start gap-2.5">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Candidatos importados desde fuente externa
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Estos candidatos fueron cargados manualmente o desde un archivo externo. Requieren
-                revisión humana antes de aprobarse o sincronizarse.
-              </p>
+      {(batch.source as string) === 'external_import' && (() => {
+        const hasImportValidation = !!(batch.metadata?.import_validation);
+        const hsNotConfigured = candidates.some(
+          (c) =>
+            ((c.metadata?.validation as Record<string, unknown> | undefined)
+              ?.hubspot_duplicate_check as Record<string, unknown> | undefined)
+              ?.status === 'not_configured',
+        );
+        return (
+          <div className="rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5 animate-in fade-in-0 duration-200">
+            <div className="flex items-start gap-2.5">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="flex-1">
+                {hasImportValidation ? (
+                  <>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-foreground">
+                        Candidatos importados y validados automáticamente
+                      </p>
+                      {hsNotConfigured && (
+                        <Badge className="border-0 bg-muted text-muted-foreground/60 text-[9px] font-medium">
+                          HubSpot no configurado
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      SellUp revisó duplicidad local y calidad básica. HubSpot se validará cuando la
+                      integración esté configurada.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-foreground">
+                      Candidatos importados desde fuente externa
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Estos candidatos fueron cargados manualmente o desde un archivo externo.
+                      Requieren revisión humana antes de aprobarse o sincronizarse.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Alerta de rollback lógico aplicado */}
       {batch.status === 'cancelled' && batch.metadata?.rollback_logical === true && (

@@ -747,43 +747,54 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   {/* ── Estado ── */}
                   <td className="px-4 py-3 min-w-[120px]">
                     <div className="space-y-1">
-                      <Badge
-                        className={`${STATUS_STYLES[c.status]} border-0 text-[10px] font-semibold`}
-                      >
-                        {CANDIDATE_STATUS_LABELS[c.status]}
-                      </Badge>
-                      {c.status === 'approved' &&
-                        (c.commercial_trace as Record<string, unknown> | null)
-                          ?.conversionRollback === true && (
-                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold block w-fit">
-                            Conv. revertida
-                          </Badge>
-                        )}
-                      {(c.metadata as unknown as TableCandidateMetadata)?.validation ? (
-                        <Badge className={`${
-                          c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate'
-                            ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
-                            : (((c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.warnings?.length ?? 0) > 0)
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                        } border-0 text-[9px] font-semibold block w-fit`}>
-                          {c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate'
-                            ? 'Posible duplicado'
-                            : (((c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.warnings?.length ?? 0) > 0)
-                            ? 'Requiere revisión manual'
-                            : 'Validado para revisión'}
-                        </Badge>
-                      ) : c.review_status && (
-                        <Badge
-                          className={`${
-                            REVIEW_STATUS_STYLES[c.review_status as ReviewStatus] ??
-                            'bg-muted text-muted-foreground'
-                          } border-0 text-[9px] font-semibold block w-fit`}
-                        >
-                          {REVIEW_STATUS_LABELS[c.review_status as ReviewStatus] ??
-                            c.review_status}
-                        </Badge>
-                      )}
+                      {(() => {
+                        const validationMeta = (c.metadata as unknown as TableCandidateMetadata)?.validation;
+                        const hasDuplicate =
+                          c.duplicate_status === 'possible_duplicate' ||
+                          c.duplicate_status === 'exact_duplicate';
+                        // Auto-validated, no duplicate issues → "Validado para revisión" as primary
+                        if (validationMeta && !hasDuplicate) {
+                          return (
+                            <>
+                              <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-0 text-[10px] font-semibold">
+                                Validado para revisión
+                              </Badge>
+                              <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-0 text-[9px] font-semibold block w-fit">
+                                Requiere revisión manual
+                              </Badge>
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            <Badge className={`${STATUS_STYLES[c.status]} border-0 text-[10px] font-semibold`}>
+                              {CANDIDATE_STATUS_LABELS[c.status]}
+                            </Badge>
+                            {c.status === 'approved' &&
+                              (c.commercial_trace as Record<string, unknown> | null)
+                                ?.conversionRollback === true && (
+                                <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold block w-fit">
+                                  Conv. revertida
+                                </Badge>
+                              )}
+                            {validationMeta ? (
+                              <Badge className="bg-orange-500/10 text-orange-600 dark:text-orange-400 border-0 text-[9px] font-semibold block w-fit">
+                                Posible duplicado
+                              </Badge>
+                            ) : c.review_status ? (
+                              <Badge
+                                className={`${
+                                  REVIEW_STATUS_STYLES[c.review_status as ReviewStatus] ??
+                                  'bg-muted text-muted-foreground'
+                                } border-0 text-[9px] font-semibold block w-fit`}
+                              >
+                                {REVIEW_STATUS_LABELS[c.review_status as ReviewStatus] ??
+                                  c.review_status}
+                              </Badge>
+                            ) : null}
+                          </>
+                        );
+                      })()}
                     </div>
                   </td>
 
