@@ -835,12 +835,22 @@ export async function writeStructuredSourceCandidatesPreview(
       .single();
 
     if (batchError) {
-      console.error('[StructuredSourceWriter] Error al crear lote en prospect_batches:', {
-        code: batchError.code,
-        message: batchError.message,
-        details: batchError.details,
-        hint: batchError.hint,
-        batchRow: { ...batchRow, created_by: batchRow.created_by ? '[set]' : null },
+      console.error('[StructuredSourceWriter] batch_creation_failed — prospect_batches insert rejected:', {
+        errorCode: batchError.code,
+        errorMessage: batchError.message,
+        errorDetails: batchError.details,
+        errorHint: batchError.hint,
+        batchPayload: {
+          country_code: batchRow.country_code,
+          source: batchRow.source,
+          status: batchRow.status,
+          search_depth: batchRow.search_depth,
+          target_count: batchRow.target_count,
+          hasCreatedBy: Boolean(batchRow.created_by),
+          hasOwnerId: Boolean(batchRow.owner_id),
+          hasAgentRunId: Boolean(batchRow.agent_run_id),
+          hasMetadata: Boolean(batchRow.metadata),
+        },
       });
       errors.push({
         name: null,
@@ -971,6 +981,21 @@ export async function writeStructuredSourceCandidatesPreview(
         .insert(candidateRow);
 
       if (insertError) {
+        console.error('[StructuredSourceWriter] candidate_insert_failed — prospect_candidates insert rejected:', {
+          errorCode: insertError.code,
+          errorMessage: insertError.message,
+          errorDetails: insertError.details,
+          errorHint: insertError.hint,
+          candidatePayload: {
+            name: draft.name,
+            country_code: input.countryCode,
+            tax_identifier_type: candidateRow.tax_identifier_type,
+            hasTaxIdentifier: Boolean(candidateRow.tax_identifier),
+            source: input.sourceProvider,
+            review_status: candidateRow.review_status,
+            hasMetadata: Boolean(candidateRow.metadata),
+          },
+        });
         errors.push({
           name: draft.name,
           taxId: draft.taxId,
