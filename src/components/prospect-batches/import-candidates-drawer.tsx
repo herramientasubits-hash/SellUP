@@ -45,17 +45,18 @@ import {
   type ImportMethod,
   type ImportDefaults,
 } from '@/modules/prospect-batches/import-candidates-parser';
-import {
-  checkImportDuplicates,
-  createExternalCandidatesBatch,
-  type ImportDuplicateResult,
-} from '@/modules/prospect-batches/actions';
 import { LATAM_COUNTRIES, INDUSTRIES } from '@/modules/accounts/types';
 
 // ── Tipos locales ─────────────────────────────────────────────
 
 type Step = 'input' | 'preview' | 'success';
 type FileMethod = 'paste' | 'file';
+
+interface ImportDuplicateResult {
+  index: number;
+  duplicate_status: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data';
+  reason?: string;
+}
 
 interface ImportCandidatesDrawerProps {
   children: React.ReactNode;
@@ -219,6 +220,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     industry: selectedIndustry || undefined,
   };
 
+  // TAREA 3: handleBuildPreview usa fetch (no Server Action) → sin router.refresh automático
   async function handleBuildPreview() {
     if (fileMethod === 'paste' && !pasteText.trim()) {
       toast.error('Ingresa datos primero.');
@@ -271,7 +273,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       }));
 
       if (validForCheck.length > 0) {
-        const dupResults = await checkImportDuplicates(validForCheck);
+        // Fetch en lugar de Server Action → Next.js no hace router.refresh automático
+        const res = await fetch('/api/prospect-batches/check-duplicates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: validForCheck }),
+        });
+        if (!res.ok) throw new Error('Error al verificar duplicados');
+        const dupResults: ImportDuplicateResult[] = await res.json() as ImportDuplicateResult[];
         setDuplicates(dupResults);
       } else {
         setDuplicates([]);
@@ -285,6 +294,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     }
   }
 
+  // handleConfirm usa fetch (no Server Action) → sin router.refresh automático
   async function handleConfirm() {
     if (!preview) return;
     const validRows = getValidRows(preview);
@@ -315,25 +325,37 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         owner_email: r.raw.owner_email,
       }));
 
-      const result = await createExternalCandidatesBatch({
-        import_type: detectedMethod,
-        candidates,
-        recognized_columns: preview.recognized_columns,
-        unrecognized_columns: preview.unrecognized_columns,
-        total_rows: preview.total,
-        valid_rows: preview.valid,
-        invalid_rows: preview.errors,
-        warning_rows: preview.warnings_only,
-        defaults: {
-          country: selectedCountry?.name,
-          country_code: selectedCountryCode || undefined,
-          industry: selectedIndustry || undefined,
-        },
+      const res = await fetch('/api/prospect-batches/create-import-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          import_type: detectedMethod,
+          candidates,
+          recognized_columns: preview.recognized_columns,
+          unrecognized_columns: preview.unrecognized_columns,
+          total_rows: preview.total,
+          valid_rows: preview.valid,
+          invalid_rows: preview.errors,
+          warning_rows: preview.warnings_only,
+          defaults: {
+            country: selectedCountry?.name,
+            country_code: selectedCountryCode || undefined,
+            industry: selectedIndustry || undefined,
+          },
+        }),
       });
 
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(errData.error ?? 'Error al crear el lote');
+      }
+
+      const result = await res.json() as { batchId: string; candidatesCreated: number };
       setResultBatchId(result.batchId);
       setResultCount(result.candidatesCreated);
       setStep('success');
+      // Refresh manual en background: el estado del drawer se preserva
+      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al crear el lote');
     } finally {
@@ -431,6 +453,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 {/* ── Selector de método ─────────────────────── */}
                 <div className="grid grid-cols-2 gap-2">
                   <button
+                    type="button"
                     onClick={() => setFileMethod('paste')}
                     className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
                       fileMethod === 'paste'
@@ -442,6 +465,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     Pegar tabla
                   </button>
                   <button
+                    type="button"
                     onClick={() => setFileMethod('file')}
                     className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
                       fileMethod === 'file'
@@ -535,10 +559,11 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </div>
 
               <SheetFooter className="border-t border-border/40 px-6 py-4">
-                <Button variant="ghost" onClick={handleClose} className="text-xs">
+                <Button type="button" variant="ghost" onClick={handleClose} className="text-xs">
                   Cancelar
                 </Button>
                 <Button
+                  type="button"
                   onClick={handleBuildPreview}
                   disabled={!hasInput || loadingPreview}
                   className="gap-2 text-xs"
@@ -561,6 +586,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             <>
               <SheetHeader className="border-b border-border/40 px-6 py-5">
                 <button
+                  type="button"
                   onClick={() => setStep('input')}
                   className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
@@ -745,11 +771,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </div>
 
               <SheetFooter className="border-t border-border/40 px-6 py-4">
-                <Button variant="ghost" onClick={() => setStep('input')} className="text-xs">
+                <Button type="button" variant="ghost" onClick={() => setStep('input')} className="text-xs">
                   <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
                   Volver
                 </Button>
                 <Button
+                  type="button"
                   onClick={handleConfirm}
                   disabled={
                     confirming ||
@@ -798,7 +825,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 </div>
 
                 <div className="flex flex-col gap-2 w-full max-w-xs">
+                  {/* Revisar lote: cierre explícito por el usuario */}
                   <Button
+                    type="button"
                     onClick={() => {
                       handleClose();
                       if (resultBatchId) router.push(`/prospect-batches/${resultBatchId}`);
@@ -808,12 +837,23 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     <ExternalLink className="h-3.5 w-3.5" />
                     Revisar lote
                   </Button>
+                  {/* Importar otro: resetea sin cerrar */}
                   <Button
+                    type="button"
                     variant="outline"
                     onClick={resetState}
                     className="w-full text-xs"
                   >
                     Importar otro archivo
+                  </Button>
+                  {/* Cerrar manual */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleClose}
+                    className="w-full text-xs text-muted-foreground"
+                  >
+                    Cerrar
                   </Button>
                 </div>
               </div>
