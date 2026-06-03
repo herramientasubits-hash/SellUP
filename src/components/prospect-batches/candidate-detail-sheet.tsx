@@ -49,6 +49,9 @@ interface HubSpotSyncAudit {
   owner_assigned?: boolean | null;
   owner_id?: string | null;
   owner_email?: string | null;
+  account_executive_assigned?: boolean | null;
+  account_executive_property?: string | null;
+  account_executive_value?: string | null;
   lifecyclestage_sent?: string | null;
   properties_sent?: Record<string, string> | null;
   properties_skipped?: string[] | null;
@@ -750,12 +753,39 @@ export function CandidateDetailSheet({
                                     : 'No asignado'}
                                 </span>
                               </div>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Account Executive:</span>
+                                <span className="font-medium text-foreground text-[10px]">
+                                  {hsSync.account_executive_assigned === true
+                                    ? `Asignado (${hsSync.account_executive_value || 'Mapeado'})`
+                                    : 'No asignado'}
+                                </span>
+                              </div>
+                              {(() => {
+                                const linkedinProp = hsSync.properties_sent && Object.keys(hsSync.properties_sent).find(k => k.includes('linkedin'));
+                                return (
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-muted-foreground">LinkedIn enviado:</span>
+                                    <span className="font-medium text-foreground text-[10px]">
+                                      {linkedinProp ? `Sí (${linkedinProp})` : 'No'}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                               {hsSync.lifecyclestage_sent && (
                                 <div className="flex items-center justify-between text-xs">
                                   <span className="text-muted-foreground">Lifecycle Stage:</span>
                                   <span className="font-medium text-foreground text-[10px]">
                                     {hsSync.lifecyclestage_sent}
                                   </span>
+                                </div>
+                              )}
+                              {hsSync.warnings && hsSync.warnings.length > 0 && (
+                                <div className="pt-1 border-t border-border/20 mt-1">
+                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold uppercase">Advertencias:</p>
+                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-mono">
+                                    {hsSync.warnings.join(', ')}
+                                  </p>
                                 </div>
                               )}
                               {hsSync.properties_sent && Object.keys(hsSync.properties_sent).length > 0 && (
@@ -783,6 +813,14 @@ export function CandidateDetailSheet({
                                 <p className="text-muted-foreground italic leading-relaxed text-[11px]">
                                   Motivo: {hsSync.blocked_reason}
                                 </p>
+                              )}
+                              {hsSync.warnings && hsSync.warnings.length > 0 && (
+                                <div className="pt-1 border-t border-border/20 mt-1">
+                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold uppercase">Advertencias:</p>
+                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-mono">
+                                    {hsSync.warnings.join(', ')}
+                                  </p>
+                                </div>
                               )}
                               {hsSync.skipped_properties && hsSync.skipped_properties.length > 0 && (
                                 <div className="pt-1 border-t border-border/20 mt-1">

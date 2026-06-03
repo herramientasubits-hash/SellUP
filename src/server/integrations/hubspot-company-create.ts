@@ -63,6 +63,7 @@ export interface CreateHubSpotCompanyInput {
   batchName?: string | null;
   // Actor info
   approvedByEmail?: string | null;
+  approvedByName?: string | null;
 }
 
 export interface CreateHubSpotCompanySentAudit {
@@ -97,6 +98,9 @@ export interface CreateHubSpotCompanyResult {
   owner_assigned?: boolean;
   owner_id?: string;
   owner_email?: string;
+  account_executive_assigned?: boolean;
+  account_executive_property?: string;
+  account_executive_value?: string;
   warnings?: string[];
 }
 
@@ -118,6 +122,8 @@ export interface HubSpotProperty {
   fieldType: string;
   type: string;
   options?: HubSpotPropertyOption[];
+  referencedObjectType?: string;
+  externalOptions?: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -257,6 +263,8 @@ const SAFE_STANDARD_PROPERTIES = [
   'numberofemployees',
   'description',
   'linkedin_company_page',
+  'linkedinbio',
+  'account_executive',
   'lifecyclestage',
   'hubspot_owner_id'
 ];
@@ -266,7 +274,7 @@ export async function createHubSpotCompany(
 ): Promise<CreateHubSpotCompanyResult> {
   const token = await getHubSpotToken();
   if (!token) {
-    return { ok: false, success: false, error: 'TOKEN_UNAVAILABLE', owner_assigned: false, warnings: [] };
+    return { ok: false, success: false, error: 'TOKEN_UNAVAILABLE', owner_assigned: false, account_executive_assigned: false, warnings: [] };
   }
 
   const warnings: string[] = [];
@@ -319,8 +327,130 @@ export async function createHubSpotCompany(
   if (input.city) properties.city = input.city;
   if (input.region) properties.state = input.region;
   if (input.description) properties.description = input.description;
-  if (input.linkedinUrl) properties.linkedin_company_page = input.linkedinUrl;
   if (finalOwnerId) properties.hubspot_owner_id = finalOwnerId;
+
+  // TAREA 2: Mapear LinkedIn corporativo dinámicamente
+  let linkedinPropName: string | null = null;
+  const hasLinkedinCompanyPage = hubspotProps.some(p => p.name === 'linkedin_company_page');
+  if (hasLinkedinCompanyPage) {
+    linkedinPropName = 'linkedin_company_page';
+  } else {
+    const customLinkedinProp = findPropertyInternalName(hubspotProps, {
+      names: ['linkedin_url', 'linkedin_company_url', 'linkedin_page', 'linkedin'],
+      labels: ['LinkedIn URL', 'LinkedIn Company URL', 'LinkedIn Page', 'LinkedIn']
+    });
+    if (customLinkedinProp) {
+      linkedinPropName = customLinkedinProp;
+    }
+  }
+
+  if (input.linkedinUrl) {
+    if (linkedinPropName) {
+      properties[linkedinPropName] = input.linkedinUrl;
+    } else {
+      skippedProperties.push('linkedin_company_page (property not found)');
+      warnings.push('hubspot_linkedin_property_not_found');
+    }
+  }
+
+  // Si existe linkedinbio y tenemos bio/descripción real, enviarla (no URL)
+  const hasLinkedinBio = hubspotProps.some(p => p.name === 'linkedinbio');
+  if (hasLinkedinBio && input.description) {
+    properties.linkedinbio = input.description;
+  }
+
+  // TAREA 3 & 4: Mapear Account Executive dinámicamente
+  let aePropName: string | null = null;
+  let account_executive_assigned = false;
+  let account_executive_property: string | undefined;
+  let account_executive_value: string | undefined;
+
+  aePropName = findPropertyInternalName(hubspotProps, {
+    names: ['account_executive', 'account_executive_id', 'account_executive_owner', 'ejecutivo_de_cuenta', 'ae_owner', 'hs_account_executive'],
+    labels: ['Account Executive', 'Account executive', 'Ejecutivo de cuenta', 'AE', 'Owner comercial']
+  });
+
+  if (aePropName) {
+    account_executive_property = aePropName;
+    const aeProp = hubspotProps.find(p => p.name === aePropName);
+    if (aeProp) {
+      const ownerName = owner_id ? (input.approvedByName || '') : '';
+      
+      if (aeProp.referencedObjectType === 'OWNER' || aeProp.name === 'hubspot_owner_id') {
+        // Type A: HubSpot Owner
+        if (finalOwnerId) {
+          properties[aePropName] = finalOwnerId;
+          account_executive_assigned = true;
+          account_executive_value = finalOwnerId;
+        } else {
+          skippedProperties.push(`${aePropName}: no owner resolved to assign`);
+          warnings.push('hubspot_account_executive_value_not_supported');
+        }
+      } else if (aeProp.type === 'enumeration') {
+        // Type B: Enumeration
+        if (aeProp.options && aeProp.options.length > 0 && finalOwnerId) {
+          const ownerIdLower = finalOwnerId.toLowerCase();
+          const emailLower = owner_email?.toLowerCase();
+          const nameLower = ownerName?.toLowerCase();
+
+          const matchOption = aeProp.options.find(opt => {
+            const val = opt.value.toLowerCase();
+            const label = opt.label.toLowerCase();
+
+            return (
+              (ownerIdLower && (val === ownerIdLower || label === ownerIdLower)) ||
+              (emailLower && (val === emailLower || label === emailLower)) ||
+              (nameLower && (val === nameLower || label === nameLower || label.includes(nameLower) || nameLower.includes(label)))
+            );
+          });
+
+          if (matchOption) {
+            properties[aePropName] = matchOption.value;
+            account_executive_assigned = true;
+            account_executive_value = matchOption.value;
+          } else {
+            skippedProperties.push(`${aePropName}: no matching option in enumeration for owner`);
+            warnings.push('hubspot_account_executive_value_not_supported');
+          }
+        } else {
+          skippedProperties.push(`${aePropName}: enumeration options are empty or no owner resolved`);
+          warnings.push('hubspot_account_executive_value_not_supported');
+        }
+      } else if (aeProp.type === 'string') {
+        // Type C: String
+        const isTechnical = aeProp.name.toLowerCase().includes('email') || aeProp.name.toLowerCase().includes('id') || aeProp.name.toLowerCase().includes('user') ||
+                            aeProp.label.toLowerCase().includes('email') || aeProp.label.toLowerCase().includes('id') || aeProp.label.toLowerCase().includes('usuario');
+
+        if (isTechnical) {
+          if (owner_email) {
+            properties[aePropName] = owner_email;
+            account_executive_assigned = true;
+            account_executive_value = owner_email;
+          } else {
+            skippedProperties.push(`${aePropName}: owner email not found for technical string field`);
+            warnings.push('hubspot_account_executive_value_not_supported');
+          }
+        } else {
+          const valToSend = ownerName || owner_email || finalOwnerId;
+          if (valToSend) {
+            properties[aePropName] = valToSend;
+            account_executive_assigned = true;
+            account_executive_value = valToSend;
+          } else {
+            skippedProperties.push(`${aePropName}: no owner info available to assign`);
+            warnings.push('hubspot_account_executive_value_not_supported');
+          }
+        }
+      } else {
+        // Type D: Other
+        skippedProperties.push(`${aePropName}: field type "${aeProp.type}" not supported`);
+        warnings.push('hubspot_account_executive_value_not_supported');
+      }
+    }
+  } else {
+    skippedProperties.push('account_executive (property not found)');
+    warnings.push('hubspot_account_executive_property_not_found');
+  }
 
   // Country normalisation
   const normalizedCountryName = getCountryNameFromCode(input.countryCode) ?? input.country;
@@ -475,6 +605,9 @@ export async function createHubSpotCompany(
           owner_assigned,
           owner_id,
           owner_email,
+          account_executive_assigned,
+          account_executive_property,
+          account_executive_value,
           warnings,
         };
       }
@@ -493,6 +626,9 @@ export async function createHubSpotCompany(
         owner_assigned,
         owner_id,
         owner_email,
+        account_executive_assigned,
+        account_executive_property,
+        account_executive_value,
         warnings,
       };
     }
@@ -511,6 +647,9 @@ export async function createHubSpotCompany(
         owner_assigned,
         owner_id,
         owner_email,
+        account_executive_assigned,
+        account_executive_property,
+        account_executive_value,
         warnings,
       };
     }
@@ -526,8 +665,15 @@ export async function createHubSpotCompany(
       numberofemployees: properties.numberofemployees ?? null,
       hubspot_owner_id: properties.hubspot_owner_id ?? null,
       description: properties.description ?? null,
-      linkedin_company_page: properties.linkedin_company_page ?? null,
+      linkedin_company_page: linkedinPropName ? (properties[linkedinPropName] ?? null) : null,
     };
+
+    if (linkedinPropName && properties[linkedinPropName]) {
+      sentPropertiesAudit[linkedinPropName] = properties[linkedinPropName];
+    }
+    if (aePropName && properties[aePropName]) {
+      sentPropertiesAudit[aePropName] = properties[aePropName];
+    }
 
     return {
       ok: true,
@@ -544,6 +690,9 @@ export async function createHubSpotCompany(
       owner_assigned,
       owner_id,
       owner_email,
+      account_executive_assigned,
+      account_executive_property,
+      account_executive_value,
       warnings,
     };
   } catch (err: unknown) {
@@ -560,6 +709,9 @@ export async function createHubSpotCompany(
       owner_assigned,
       owner_id,
       owner_email,
+      account_executive_assigned,
+      account_executive_property,
+      account_executive_value,
       warnings,
     };
   }

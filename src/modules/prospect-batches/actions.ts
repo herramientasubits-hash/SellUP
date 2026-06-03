@@ -58,6 +58,9 @@ export interface HubSpotSyncResult {
   owner_assigned?: boolean;
   owner_id?: string;
   owner_email?: string;
+  account_executive_assigned?: boolean;
+  account_executive_property?: string;
+  account_executive_value?: string;
   properties_sent?: Record<string, string>;
   properties_skipped?: string[];
   warnings?: string[];
@@ -927,6 +930,8 @@ async function attemptHubSpotSync(params: {
   linkedinUrl?: string | null;
   industry?: string | null;
   approvedByEmail?: string | null;
+  approvedByName?: string | null;
+  description?: string | null;
 }): Promise<HubSpotSyncResult> {
   const {
     accountId,
@@ -947,6 +952,8 @@ async function attemptHubSpotSync(params: {
     linkedinUrl,
     industry,
     approvedByEmail,
+    approvedByName,
+    description,
   } = params;
 
   const nowStr = new Date().toISOString();
@@ -1073,6 +1080,8 @@ async function attemptHubSpotSync(params: {
     linkedinUrl: linkedinUrl ?? null,
     industry: industry ?? null,
     approvedByEmail: approvedByEmail ?? null,
+    approvedByName: approvedByName ?? null,
+    description: description ?? null,
   });
 
   if (createResult.ok && createResult.hubspotCompanyId) {
@@ -1102,6 +1111,9 @@ async function attemptHubSpotSync(params: {
             owner_assigned: createResult.owner_assigned ?? false,
             owner_id: createResult.owner_id ?? null,
             owner_email: createResult.owner_email ?? null,
+            account_executive_assigned: createResult.account_executive_assigned ?? false,
+            account_executive_property: createResult.account_executive_property ?? null,
+            account_executive_value: createResult.account_executive_value ?? null,
             lifecyclestage_sent: 'marketingqualifiedlead',
             properties_sent: createResult.properties_sent ?? null,
             properties_skipped: createResult.properties_skipped ?? null,
@@ -1129,6 +1141,9 @@ async function attemptHubSpotSync(params: {
       owner_assigned: createResult.owner_assigned,
       owner_id: createResult.owner_id,
       owner_email: createResult.owner_email,
+      account_executive_assigned: createResult.account_executive_assigned,
+      account_executive_property: createResult.account_executive_property,
+      account_executive_value: createResult.account_executive_value,
       properties_sent: createResult.properties_sent,
       properties_skipped: createResult.properties_skipped,
       warnings: createResult.warnings,
@@ -1152,6 +1167,9 @@ async function attemptHubSpotSync(params: {
     owner_assigned: createResult.owner_assigned,
     owner_id: createResult.owner_id,
     owner_email: createResult.owner_email,
+    account_executive_assigned: createResult.account_executive_assigned,
+    account_executive_property: createResult.account_executive_property,
+    account_executive_value: createResult.account_executive_value,
     properties_sent: createResult.properties_sent,
     properties_skipped: createResult.properties_skipped,
     warnings: createResult.warnings,
@@ -1258,20 +1276,43 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
     const metadata = (candidate.metadata as Record<string, unknown> | null) ?? {};
     const enrichment = (metadata.enrichment as Record<string, unknown> | null) ?? {};
     const webEnrichment = (enrichment.web as Record<string, unknown> | null) ?? {};
-    const linkedInObj = webEnrichment.linkedin_company as Record<string, unknown> | null;
-    const linkedinConfirmedUrl = (linkedInObj?.url as string | undefined) ?? null;
-    const linkedinFallbackUrl =
-      (enrichment.linkedin_url as string | undefined) ??
-      (enrichment.linkedin as string | undefined) ??
+
+    const getLinkedInUrl = () => {
+      if (candidate.linkedin_url) return candidate.linkedin_url;
+      const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
+      const importObj = meta.import as Record<string, unknown> | undefined;
+      if (importObj?.linkedin_url && typeof importObj.linkedin_url === 'string') {
+        return importObj.linkedin_url;
+      }
+      const externalObj = meta.external as Record<string, unknown> | undefined;
+      if (externalObj?.linkedin_url && typeof externalObj.linkedin_url === 'string') {
+        return externalObj.linkedin_url;
+      }
+      const validationObj = meta.validation as Record<string, unknown> | undefined;
+      const normalizedKeys = validationObj?.normalized_keys as Record<string, unknown> | undefined;
+      const normUrl = normalizedKeys?.normalized_linkedin_url;
+      if (normUrl && typeof normUrl === 'string' && normUrl.includes('/company/')) {
+        return normUrl;
+      }
+      return null;
+    };
+    const linkedinUrl = getLinkedInUrl();
+
+    const publicDescObj = webEnrichment.public_description as Record<string, unknown> | null;
+    const description =
+      (publicDescObj?.text as string | undefined) ??
+      (enrichment.description as string | undefined) ??
+      (enrichment.public_description as string | undefined) ??
+      ((candidate.metadata?.ai_evaluation as Record<string, unknown> | null)?.description as string | undefined) ??
       null;
-    const linkedinUrl = linkedinConfirmedUrl ?? linkedinFallbackUrl;
 
     const { data: userRow } = await supabase
       .from('internal_users')
-      .select('email')
+      .select('email, full_name')
       .eq('id', internalUserId)
       .single();
     const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
+    const userFullName = userRow?.full_name ?? '';
     const mappedOwnerId = EMAIL_TO_HUBSPOT_OWNER_ID[userEmail] ?? 'skipped_missing_mapping';
 
     hubspotSync = await attemptHubSpotSync({
@@ -1293,6 +1334,8 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       linkedinUrl,
       industry: candidate.industry ?? null,
       approvedByEmail: userEmail,
+      approvedByName: userFullName,
+      description,
     });
   } catch {
     hubspotSync = { attempted: false, status: 'failed_create', message: 'Error inesperado en sync' };
@@ -1324,6 +1367,9 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
         owner_assigned: hubspotSync.owner_assigned ?? false,
         owner_id: hubspotSync.owner_id ?? null,
         owner_email: hubspotSync.owner_email ?? null,
+        account_executive_assigned: hubspotSync.account_executive_assigned ?? false,
+        account_executive_property: hubspotSync.account_executive_property ?? null,
+        account_executive_value: hubspotSync.account_executive_value ?? null,
         lifecyclestage_sent: hubspotSync.status === 'synced' ? 'marketingqualifiedlead' : null,
         properties_sent: hubspotSync.properties_sent ?? null,
         properties_skipped: hubspotSync.properties_skipped ?? null,
@@ -1551,13 +1597,27 @@ export async function approveAndConvertCandidateAction(
       // Enriquecimiento y fallbacks para campos adicionales
       const enrichment = (candidate.metadata?.enrichment as Record<string, unknown> | null) ?? {};
       const webEnrichment = (enrichment.web as Record<string, unknown> | null) ?? {};
-      const linkedInObj = webEnrichment.linkedin_company as Record<string, unknown> | null;
-      const linkedinConfirmedUrl = (linkedInObj?.url as string | undefined) ?? null;
-      const linkedinFallbackUrl =
-        (enrichment.linkedin_url as string | undefined) ??
-        (enrichment.linkedin as string | undefined) ??
-        null;
-      const linkedinUrl = linkedinConfirmedUrl ?? linkedinFallbackUrl;
+
+      const getLinkedInUrl = () => {
+        if (candidate.linkedin_url) return candidate.linkedin_url;
+        const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
+        const importObj = meta.import as Record<string, unknown> | undefined;
+        if (importObj?.linkedin_url && typeof importObj.linkedin_url === 'string') {
+          return importObj.linkedin_url;
+        }
+        const externalObj = meta.external as Record<string, unknown> | undefined;
+        if (externalObj?.linkedin_url && typeof externalObj.linkedin_url === 'string') {
+          return externalObj.linkedin_url;
+        }
+        const validationObj = meta.validation as Record<string, unknown> | undefined;
+        const normalizedKeys = validationObj?.normalized_keys as Record<string, unknown> | undefined;
+        const normUrl = normalizedKeys?.normalized_linkedin_url;
+        if (normUrl && typeof normUrl === 'string' && normUrl.includes('/company/')) {
+          return normUrl;
+        }
+        return null;
+      };
+      const linkedinUrl = getLinkedInUrl();
 
       const publicDescObj = webEnrichment.public_description as Record<string, unknown> | null;
       const description =
@@ -1569,10 +1629,11 @@ export async function approveAndConvertCandidateAction(
 
       const { data: userRow } = await supabase
         .from('internal_users')
-        .select('email')
+        .select('email, full_name')
         .eq('id', internalUserId)
         .single();
       const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
+      const userFullName = userRow?.full_name ?? '';
       const mappedOwnerId = EMAIL_TO_HUBSPOT_OWNER_ID[userEmail] ?? 'skipped_missing_mapping';
 
       createResult = await createHubSpotCompany({
@@ -1591,6 +1652,7 @@ export async function approveAndConvertCandidateAction(
         industry: candidate.industry ?? null,
         description,
         approvedByEmail: userEmail,
+        approvedByName: userFullName,
       });
 
       if (createResult.ok && createResult.hubspotCompanyId) {
@@ -1622,6 +1684,9 @@ export async function approveAndConvertCandidateAction(
       owner_assigned: createResult?.owner_assigned ?? false,
       owner_id: createResult?.owner_id ?? null,
       owner_email: createResult?.owner_email ?? null,
+      account_executive_assigned: createResult?.account_executive_assigned ?? false,
+      account_executive_property: createResult?.account_executive_property ?? null,
+      account_executive_value: createResult?.account_executive_value ?? null,
       lifecyclestage_sent: 'marketingqualifiedlead',
       properties_sent: createResult?.properties_sent ?? null,
       properties_skipped: createResult?.properties_skipped ?? null,
@@ -1676,6 +1741,9 @@ export async function approveAndConvertCandidateAction(
     owner_assigned: createResult?.owner_assigned ?? false,
     owner_id: createResult?.owner_id ?? null,
     owner_email: createResult?.owner_email ?? null,
+    account_executive_assigned: createResult?.account_executive_assigned ?? false,
+    account_executive_property: createResult?.account_executive_property ?? null,
+    account_executive_value: createResult?.account_executive_value ?? null,
     lifecyclestage_sent: hubspotAction === 'created' ? 'marketingqualifiedlead' : null,
     properties_sent: createResult?.properties_sent ?? null,
     properties_skipped: createResult?.properties_skipped ?? null,
@@ -1699,6 +1767,9 @@ export async function approveAndConvertCandidateAction(
       owner_assigned: createResult?.owner_assigned ?? false,
       owner_id: createResult?.owner_id ?? null,
       owner_email: createResult?.owner_email ?? null,
+      account_executive_assigned: createResult?.account_executive_assigned ?? false,
+      account_executive_property: createResult?.account_executive_property ?? null,
+      account_executive_value: createResult?.account_executive_value ?? null,
       properties_sent: createResult?.properties_sent ?? null,
       properties_skipped: createResult?.properties_skipped ?? null,
       warnings: createResult?.warnings ?? [],
