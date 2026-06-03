@@ -337,6 +337,18 @@ interface CandidateDetailSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface FailedEnrichmentDetails {
+  status?: string;
+  failed_at?: string;
+  provider?: string | null;
+  display_name?: string | null;
+  provider_model_id?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  raw_error_safe?: Record<string, unknown> | null;
+  eligibility?: unknown;
+}
+
 export function CandidateDetailSheet({
   candidate,
   open,
@@ -345,11 +357,15 @@ export function CandidateDetailSheet({
   const router = useRouter();
   const [isEnriching, setIsEnriching] = React.useState(false);
   const [enrichError, setEnrichError] = React.useState<string | null>(null);
+  const [enrichErrorCode, setEnrichErrorCode] = React.useState<string | null>(null);
+  const [enrichErrorDetails, setEnrichErrorDetails] = React.useState<FailedEnrichmentDetails | null>(null);
 
   const handleEnrich = async () => {
     if (!candidate) return;
     setIsEnriching(true);
     setEnrichError(null);
+    setEnrichErrorCode(null);
+    setEnrichErrorDetails(null);
     try {
       const response = await fetch('/api/prospect-candidates/enrich', {
         method: 'POST',
@@ -361,6 +377,8 @@ export function CandidateDetailSheet({
       const data = await response.json();
       if (!response.ok || !data.success) {
         setEnrichError(data.error || 'Error al enriquecer candidato');
+        setEnrichErrorCode(data.errorCode || null);
+        setEnrichErrorDetails(data.errorDetails || null);
       } else {
         router.refresh();
       }
@@ -1225,16 +1243,67 @@ export function CandidateDetailSheet({
                 );
               }
 
-              if (enrichError) {
+              const hasEnrichError = !!enrichError || (enrichmentData && enrichmentData.status === 'failed');
+              const activeErrorCode = enrichErrorCode || enrichmentData?.error_code || null;
+              const activeErrorMessage = enrichError || enrichmentData?.error_message || null;
+              const activeErrorDetails = enrichErrorDetails || enrichmentData || null;
+
+              if (hasEnrichError) {
+                const isModelError = activeErrorCode === 'provider_model_not_found';
+                const friendlyMessage = isModelError
+                  ? 'El modelo de IA configurado no está disponible o tiene un ID inválido. Revisa Configuración > Proveedores de IA.'
+                  : (activeErrorMessage || 'Fallo en enriquecimiento');
+
+                const showDetails = !!activeErrorDetails && (
+                  activeErrorDetails.provider ||
+                  activeErrorDetails.display_name ||
+                  activeErrorDetails.provider_model_id ||
+                  activeErrorDetails.raw_error_safe
+                );
+
                 return (
                   <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 space-y-3">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-                      <div className="space-y-1">
+                      <div className="space-y-1 flex-1 min-w-0">
                         <p className="text-xs font-semibold text-destructive">Fallo en enriquecimiento</p>
-                        <p className="text-xs text-muted-foreground">{enrichError}</p>
+                        <p className="text-xs text-muted-foreground leading-normal">{friendlyMessage}</p>
                       </div>
                     </div>
+
+                    {showDetails && (
+                      <CollapsibleSection title="Detalle técnico del error" defaultOpen={false}>
+                        <div className="mt-2 rounded-lg border border-border/40 bg-card p-2.5 space-y-1.5 font-mono text-[10px] text-muted-foreground">
+                          {activeErrorDetails.provider && (
+                            <div>
+                              <span className="font-semibold text-foreground/80">Proveedor:</span>{' '}
+                              {activeErrorDetails.provider}
+                            </div>
+                          )}
+                          {activeErrorDetails.display_name && (
+                            <div>
+                              <span className="font-semibold text-foreground/80">Modelo (display):</span>{' '}
+                              {activeErrorDetails.display_name}
+                            </div>
+                          )}
+                          {activeErrorDetails.provider_model_id !== undefined && (
+                            <div>
+                              <span className="font-semibold text-foreground/80">ID técnico intentado:</span>{' '}
+                              {activeErrorDetails.provider_model_id || '(vacío)'}
+                            </div>
+                          )}
+                          {activeErrorDetails.raw_error_safe && (
+                            <div className="pt-1.5 border-t border-border/20 mt-1.5">
+                              <span className="font-semibold text-foreground/80 block mb-1">Detalle del error:</span>
+                              <pre className="overflow-x-auto whitespace-pre-wrap max-h-[150px] text-[9px] bg-muted/30 p-1.5 rounded">
+                                {JSON.stringify(activeErrorDetails.raw_error_safe, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      </CollapsibleSection>
+                    )}
+
                     <Button 
                       onClick={handleEnrich} 
                       size="sm" 

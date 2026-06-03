@@ -25,7 +25,13 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { error: result.error, reason: result.reason, skipped: result.skipped },
+        { 
+          error: result.error, 
+          reason: result.reason, 
+          skipped: result.skipped,
+          errorCode: result.errorCode,
+          errorDetails: result.errorDetails
+        },
         { status: result.skipped ? 200 : 400 }
       );
     }

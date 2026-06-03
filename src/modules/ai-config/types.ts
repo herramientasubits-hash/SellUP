@@ -46,6 +46,8 @@ export interface AIActiveConfig {
   active_model_id: string | null;
   provider_name: string | null;
   model_name: string | null;
+  provider_key?: string | null;
+  model_key?: string | null;
   updated_at: string | null;
 }
 

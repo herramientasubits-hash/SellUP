@@ -161,8 +161,8 @@ export async function getAIActiveConfig(): Promise<AIActiveConfig | null> {
       active_provider_id,
       active_model_id,
       updated_at,
-      ai_providers!active_provider_id(name),
-      ai_models!active_model_id(name)
+      ai_providers!active_provider_id(name, key),
+      ai_models!active_model_id(name, key)
     `)
     .eq('id', configId)
     .single();
@@ -174,6 +174,8 @@ export async function getAIActiveConfig(): Promise<AIActiveConfig | null> {
     active_model_id: data.active_model_id,
     provider_name: (data.ai_providers as any)?.name ?? null,
     model_name: (data.ai_models as any)?.name ?? null,
+    provider_key: (data.ai_providers as any)?.key ?? null,
+    model_key: (data.ai_models as any)?.key ?? null,
     updated_at: data.updated_at
   };
 }

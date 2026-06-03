@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getAiProviderCredential } from '../services/ai-connection';
 import { getAIActiveConfig } from '@/modules/ai-config/actions';
+import type { AIActiveConfig } from '@/modules/ai-config/types';
 import { evaluateCandidateEnrichmentNeed } from './candidate-enrichment-eligibility';
 import {
   createAgentRun,
@@ -23,6 +24,124 @@ export interface EnrichProspectCandidateResult {
   reason?: string;
   error?: string;
   data?: unknown;
+  errorCode?: string;
+  errorDetails?: unknown;
+}
+
+export class AILlmCallError extends Error {
+  constructor(
+    public readonly provider: string,
+    public readonly status: number,
+    public readonly rawError: string,
+    message: string
+  ) {
+    super(message);
+    this.name = 'AILlmCallError';
+  }
+}
+
+function resolveCanonicalProvider(config: AIActiveConfig): string {
+  const provKey = (config.provider_key || '').toLowerCase();
+  if (provKey === 'anthropic' || provKey === 'claude') return 'anthropic';
+  if (provKey === 'google' || provKey === 'gemini') return 'google';
+  if (provKey === 'openai') return 'openai';
+
+  const provName = (config.provider_name || '').toLowerCase();
+  if (provName.includes('claude') || provName.includes('anthropic')) return 'anthropic';
+  if (provName.includes('gemini') || provName.includes('google')) return 'google';
+  if (provName.includes('openai')) return 'openai';
+
+  return config.provider_key || config.active_provider_id || '';
+}
+
+function resolveProviderModelId(config: AIActiveConfig, canonicalProvider: string): string {
+  const rawModelKey = config.model_key || (config as unknown as Record<string, string>).provider_model_id || '';
+  const cleanKey = rawModelKey.trim();
+
+  const isTechnical = cleanKey && !cleanKey.includes(' ') && (
+    cleanKey.startsWith('claude-') ||
+    cleanKey.startsWith('gpt-') ||
+    cleanKey.startsWith('gemini-') ||
+    cleanKey.startsWith('o4-')
+  );
+
+  if (isTechnical) {
+    return cleanKey;
+  }
+
+  const displayName = (config.model_name || '').trim();
+
+  if (canonicalProvider === 'anthropic') {
+    switch (displayName) {
+      case 'Claude 3.5 Haiku':
+        return 'claude-3-5-haiku-20241022';
+      case 'Claude 3.5 Sonnet':
+        return 'claude-3-5-sonnet-20241022';
+      case 'Claude 3 Haiku':
+        return 'claude-3-haiku-20240307';
+      case 'Claude 3 Sonnet':
+        return 'claude-3-sonnet-20240229';
+      case 'Claude 3 Opus':
+        return 'claude-3-opus-20240229';
+      default:
+        if (displayName.toLowerCase().includes('haiku') && displayName.includes('3.5')) {
+          return 'claude-3-5-haiku-20241022';
+        }
+        if (displayName.toLowerCase().includes('sonnet') && displayName.includes('3.5')) {
+          return 'claude-3-5-sonnet-20241022';
+        }
+        if (displayName.toLowerCase().includes('opus')) {
+          return 'claude-3-opus-20240229';
+        }
+    }
+  } else if (canonicalProvider === 'google') {
+    switch (displayName) {
+      case 'Gemini 3.1 Pro':
+        return 'gemini-3.1-pro';
+      case 'Gemini 3.1 Flash':
+        return 'gemini-3.1-flash';
+      case 'Gemini 3.0 Pro':
+        return 'gemini-3.0-pro';
+      case 'Gemini 3.0 Flash':
+        return 'gemini-3.0-flash';
+      case 'Gemini 2.5 Pro':
+        return 'gemini-2.5-pro';
+      case 'Gemini 2.5 Flash':
+        return 'gemini-2.5-flash';
+      case 'Gemini 2.0 Pro':
+        return 'gemini-2.0-pro';
+      case 'Gemini 2.0 Flash':
+        return 'gemini-2.0-flash';
+      case 'Gemini 1.5 Pro':
+        return 'gemini-1.5-pro';
+      case 'Gemini 1.5 Flash 8B':
+        return 'gemini-1.5-flash-8b';
+      default:
+        if (displayName.toLowerCase().startsWith('gemini-')) {
+          return displayName.toLowerCase();
+        }
+    }
+  } else if (canonicalProvider === 'openai') {
+    switch (displayName) {
+      case 'o4-mini':
+        return 'o4-mini';
+      case 'GPT-4.1':
+        return 'gpt-4.1';
+      case 'GPT-4.1 Mini':
+        return 'gpt-4.1-mini';
+      case 'GPT-4o':
+        return 'gpt-4o';
+      case 'GPT-4o Mini':
+        return 'gpt-4o-mini';
+      default:
+        if (displayName.toLowerCase().startsWith('gpt-')) {
+          return displayName.toLowerCase();
+        }
+    }
+  }
+
+  if (cleanKey) return cleanKey;
+  return '';
 }
 
 /**
@@ -59,7 +178,16 @@ async function callAiProviderAPI(
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        throw new Error(`Anthropic error ${response.status}: ${body.slice(0, 300)}`);
+        let parsedJson: { error?: { message?: string } } | null = null;
+        try {
+          parsedJson = JSON.parse(body);
+        } catch {}
+        
+        let detailMessage = `Anthropic error ${response.status}: ${body.slice(0, 300)}`;
+        if (parsedJson?.error?.message) {
+          detailMessage = parsedJson.error.message;
+        }
+        throw new AILlmCallError('anthropic', response.status, body, detailMessage);
       }
 
       const data = await response.json();
@@ -98,7 +226,16 @@ async function callAiProviderAPI(
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        throw new Error(`Gemini error ${response.status}: ${body.slice(0, 300)}`);
+        let parsedJson: { error?: { message?: string } } | null = null;
+        try {
+          parsedJson = JSON.parse(body);
+        } catch {}
+        
+        let detailMessage = `Gemini error ${response.status}: ${body.slice(0, 300)}`;
+        if (parsedJson?.error?.message) {
+          detailMessage = parsedJson.error.message;
+        }
+        throw new AILlmCallError('google', response.status, body, detailMessage);
       }
 
       const data = await response.json();
@@ -129,7 +266,16 @@ async function callAiProviderAPI(
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        throw new Error(`OpenAI error ${response.status}: ${body.slice(0, 300)}`);
+        let parsedJson: { error?: { message?: string } } | null = null;
+        try {
+          parsedJson = JSON.parse(body);
+        } catch {}
+        
+        let detailMessage = `OpenAI error ${response.status}: ${body.slice(0, 300)}`;
+        if (parsedJson?.error?.message) {
+          detailMessage = parsedJson.error.message;
+        }
+        throw new AILlmCallError('openai', response.status, body, detailMessage);
       }
 
       const data = await response.json();
@@ -258,16 +404,44 @@ export async function enrichProspectCandidate({
       };
     }
 
-    const providerKey = activeConfig.provider_name === 'Google Gemini' ? 'google' : 
-                        activeConfig.provider_name === 'Claude' ? 'anthropic' : 
-                        activeConfig.provider_name === 'OpenAI' ? 'openai' : 
-                        activeConfig.active_provider_id; // fallback if name doesn't match canonical keys
+    const canonicalProvider = resolveCanonicalProvider(activeConfig);
+    const resolvedModelId = resolveProviderModelId(activeConfig, canonicalProvider);
 
-    // Canonical keys: 'google', 'anthropic', 'openai'
-    let canonicalProvider = providerKey;
-    if (activeConfig.provider_name === 'Google Gemini') canonicalProvider = 'google';
-    else if (activeConfig.provider_name === 'Claude') canonicalProvider = 'anthropic';
-    else if (activeConfig.provider_name === 'OpenAI') canonicalProvider = 'openai';
+    if (!resolvedModelId) {
+      const errMsg = 'El modelo configurado no tiene un ID técnico válido para Anthropic.';
+      const failedMetadata = {
+        status: 'failed',
+        failed_at: new Date().toISOString(),
+        provider: canonicalProvider,
+        display_name: activeConfig.model_name ?? '',
+        provider_model_id: '',
+        error_code: 'provider_model_not_found',
+        error_message: errMsg,
+        raw_error_safe: { message: errMsg },
+        eligibility: {
+          completeness_score: eligibility.completeness_score,
+          reasons: eligibility.reasons,
+          missing_fields: eligibility.missing_fields,
+        }
+      };
+
+      await supabase
+        .from('prospect_candidates')
+        .update({
+          metadata: {
+            ...(candidate.metadata || {}),
+            enrichment: failedMetadata
+          }
+        })
+        .eq('id', candidateId);
+
+      return {
+        success: false,
+        error: errMsg,
+        errorCode: 'provider_model_not_found',
+        errorDetails: failedMetadata
+      };
+    }
 
     // 4. Obtener API key desde Vault
     const creds = await getAiProviderCredential(canonicalProvider);
@@ -315,7 +489,7 @@ export async function enrichProspectCandidate({
     try {
       const response = await callAiProviderAPI(
         canonicalProvider,
-        activeConfig.model_name ?? activeConfig.active_model_id, // Use model name or id as needed
+        resolvedModelId,
         creds.apiKey,
         prompt
       );
@@ -323,9 +497,42 @@ export async function enrichProspectCandidate({
       inputTokens = response.inputTokens;
       outputTokens = response.outputTokens;
     } catch (apiErr) {
+      const isLlmError = apiErr instanceof AILlmCallError;
+      const status = isLlmError ? apiErr.status : 500;
+      const rawError = isLlmError ? apiErr.rawError : String(apiErr);
       const errMsg = apiErr instanceof Error ? apiErr.message : String(apiErr);
       
-      // Log failure in runs if initialized
+      let errorCode = 'api_error';
+      let errorMsg = errMsg;
+      
+      if (status === 404 || rawError.includes('not_found_error') || rawError.includes('model_not_found') || rawError.includes('model: ') || rawError.includes('models/')) {
+        errorCode = 'provider_model_not_found';
+        errorMsg = `Modelo no encontrado en ${canonicalProvider === 'anthropic' ? 'Anthropic' : canonicalProvider === 'google' ? 'Google Gemini' : 'OpenAI'}`;
+      }
+
+      let rawErrorSafe: Record<string, unknown> = { message: errMsg };
+      try {
+        if (isLlmError) {
+          rawErrorSafe = JSON.parse(rawError);
+        }
+      } catch {}
+
+      const failedMetadata = {
+        status: 'failed',
+        failed_at: new Date().toISOString(),
+        provider: canonicalProvider,
+        display_name: activeConfig.model_name ?? '',
+        provider_model_id: resolvedModelId,
+        error_code: errorCode,
+        error_message: errorMsg,
+        raw_error_safe: rawErrorSafe,
+        eligibility: {
+          completeness_score: eligibility.completeness_score,
+          reasons: eligibility.reasons,
+          missing_fields: eligibility.missing_fields,
+        }
+      };
+
       if (agentRunId && stepId) {
         await finishAgentRunStep(stepId, {
           status: 'error',
@@ -338,9 +545,23 @@ export async function enrichProspectCandidate({
         });
       }
 
+      await supabase
+        .from('prospect_candidates')
+        .update({
+          metadata: {
+            ...(candidate.metadata || {}),
+            enrichment: failedMetadata
+          }
+        })
+        .eq('id', candidateId);
+
       return {
         success: false,
-        error: `Error al llamar al proveedor de IA: ${errMsg}`,
+        error: isLlmError 
+          ? `Error al llamar al proveedor de IA: ${canonicalProvider.toUpperCase()} error ${status}: ${rawError}`
+          : `Error al llamar al proveedor de IA: ${errMsg}`,
+        errorCode,
+        errorDetails: failedMetadata
       };
     }
 
@@ -363,7 +584,22 @@ export async function enrichProspectCandidate({
       parsedJson = JSON.parse(cleanedText.slice(jsonStart, jsonEnd + 1));
     } catch (parseErr) {
       const errMsg = `Fallo al parsear respuesta JSON de la IA: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`;
-      
+      const failedMetadata = {
+        status: 'failed',
+        failed_at: new Date().toISOString(),
+        provider: canonicalProvider,
+        display_name: activeConfig.model_name ?? '',
+        provider_model_id: resolvedModelId,
+        error_code: 'parse_error',
+        error_message: errMsg,
+        raw_error_safe: { message: parseErr instanceof Error ? parseErr.message : String(parseErr), raw_response: text.slice(0, 1000) },
+        eligibility: {
+          completeness_score: eligibility.completeness_score,
+          reasons: eligibility.reasons,
+          missing_fields: eligibility.missing_fields,
+        }
+      };
+
       if (agentRunId && stepId) {
         await finishAgentRunStep(stepId, {
           status: 'error',
@@ -376,9 +612,21 @@ export async function enrichProspectCandidate({
         });
       }
 
+      await supabase
+        .from('prospect_candidates')
+        .update({
+          metadata: {
+            ...(candidate.metadata || {}),
+            enrichment: failedMetadata
+          }
+        })
+        .eq('id', candidateId);
+
       return {
         success: false,
         error: errMsg,
+        errorCode: 'parse_error',
+        errorDetails: failedMetadata
       };
     }
 
@@ -407,12 +655,11 @@ export async function enrichProspectCandidate({
         }
       } else {
         // Fallback calculations using local helper
-        const modelName = activeConfig.model_name ?? '';
-        estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, modelName);
+        estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, resolvedModelId);
       }
     } catch (priceErr) {
       console.warn('[enrichProspectCandidate] Error calculating dynamic pricing, using fallbacks:', priceErr);
-      estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, activeConfig.model_name ?? '');
+      estimatedCostUsd = estimateLLMCost(inputTokens, outputTokens, resolvedModelId);
     }
 
     // 9. Registrar logs de ejecución en Supabase
@@ -424,7 +671,7 @@ export async function enrichProspectCandidate({
           agent_run_step_id: stepId,
           provider_key: canonicalProvider,
           operation_key: 'enrich_candidate',
-          model: activeConfig.model_name ?? activeConfig.active_model_id,
+          model: resolvedModelId,
           input_tokens: inputTokens,
           output_tokens: outputTokens,
           estimated_cost_usd: estimatedCostUsd,
@@ -461,7 +708,8 @@ export async function enrichProspectCandidate({
       enriched_at: new Date().toISOString(),
       enriched_by: userId,
       provider: canonicalProvider,
-      model: activeConfig.model_name ?? activeConfig.active_model_id,
+      model: resolvedModelId,
+      display_name: activeConfig.model_name ?? '',
       input_sources: inputSources,
       eligibility: {
         completeness_score: eligibility.completeness_score,
