@@ -1109,7 +1109,7 @@ export async function runProspectGenerationAgent(
           sourceKey: 'cl_res',
           sourceProvider: 'datos_gob_cl',
           dataset: 'cl_res',
-          batchName: `Agente 1 · ${country} · ${industry} · RES Chile · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+          batchName: `Empresas candidatas · Chile · RES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
           industry,
           targetCount: structuredLimit,
           searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',

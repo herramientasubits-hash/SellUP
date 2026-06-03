@@ -11,7 +11,7 @@ export type BatchStatus =
   | 'cancelled'
   | 'failed';
 
-export type BatchSource = 'manual' | 'agent_1' | 'imported' | 'apollo' | 'socrata_colombia' | 'denue_mexico' | 'other';
+export type BatchSource = 'manual' | 'agent_1' | 'imported' | 'apollo' | 'socrata_colombia' | 'denue_mexico' | 'datos_gob_cl' | 'other';
 
 export type CandidateStatus =
   | 'generated'
@@ -40,6 +40,7 @@ export type CandidateSourcePrimary =
   | 'web_ai'
   | 'socrata_colombia'
   | 'denue_mexico'
+  | 'datos_gob_cl'
   | 'other';
 
 export type CandidateAuditAction =
@@ -308,6 +309,7 @@ export const BATCH_SOURCE_LABELS: Record<BatchSource, string> = {
   apollo: 'Apollo',
   socrata_colombia: 'Socrata Colombia',
   denue_mexico: 'DENUE México',
+  datos_gob_cl: 'Datos.gob.cl Chile',
   other: 'Otro',
 };
 
@@ -346,6 +348,7 @@ export const CANDIDATE_SOURCE_LABELS: Record<CandidateSourcePrimary, string> = {
   web_ai: 'Web/IA',
   socrata_colombia: 'Socrata Colombia',
   denue_mexico: 'DENUE México',
+  datos_gob_cl: 'Fuente oficial Chile',
   other: 'Otro',
 };
 
@@ -565,6 +568,7 @@ export const STRUCTURED_SOURCE_LABELS: Record<string, string> = {
 export const VENDOR_CANDIDATE_SOURCE_LABELS: Record<string, string> = {
   socrata_colombia: 'Fuente oficial',
   denue_mexico: 'DENUE México',
+  datos_gob_cl: 'Fuente oficial Chile',
   apollo: 'Apollo',
   web_ai: 'Web/IA',
   manual: 'Manual',

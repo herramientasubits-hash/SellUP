@@ -36,6 +36,7 @@ import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types'
 
 const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
   socrata_colombia: 'Fuente oficial',
+  datos_gob_cl: 'Fuente oficial Chile',
 };
 
 const STATUS_STYLES: Record<BatchStatus, string> = {
@@ -64,20 +65,43 @@ export default async function BatchDetailPage({ params }: Props) {
   if (!batch) notFound();
 
   const isStructuredRues =
-    batch.metadata?.batch_type === 'structured' &&
-    (batch.metadata?.source_key === 'co_rues' ||
-      batch.metadata?.source_provider === 'socrata_colombia' ||
-      batch.source === 'socrata_colombia');
+    batch.country_code === 'CO' ||
+    (batch.source as string) === 'socrata_colombia' ||
+    batch.metadata?.source_provider === 'socrata_colombia' ||
+    batch.metadata?.source_key === 'co_rues' ||
+    (batch.metadata?.batch_type === 'structured' &&
+      (batch.metadata?.source_key === 'co_rues' ||
+        batch.metadata?.source_provider === 'socrata_colombia' ||
+        (batch.source as string) === 'socrata_colombia'));
 
-  const isApolloCandidateBatch =
-    !isStructuredRues && batch.source === 'agent_1';
+  const isStructuredChile =
+    batch.country_code === 'CL' ||
+    batch.source === 'datos_gob_cl' ||
+    batch.metadata?.source_key === 'datos_gob_cl' ||
+    batch.metadata?.source_key === 'cl_res' ||
+    batch.metadata?.source_provider === 'datos_gob_cl' ||
+    (batch.metadata?.batch_type === 'structured' &&
+      (batch.metadata?.source_key === 'datos_gob_cl' ||
+        batch.metadata?.source_key === 'cl_res' ||
+        batch.metadata?.source_provider === 'datos_gob_cl'));
+
+  const isStructuredOfficial = isStructuredRues || isStructuredChile;
+  const isApolloCandidateBatch = !isStructuredOfficial && batch.source === 'agent_1';
 
   const pageTitle =
-    (isStructuredRues || isApolloCandidateBatch) && (batch.country || batch.industry)
-      ? `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}${batch.industry ? ` · ${batch.industry}` : ''}`
+    (isStructuredOfficial || isApolloCandidateBatch) && (batch.country || batch.industry)
+      ? isStructuredChile
+        ? `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}`
+        : `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}${batch.industry ? ` · ${batch.industry}` : ''}`
       : batch.name;
 
-  const pageSubtitle = (isStructuredRues || isApolloCandidateBatch) ? batch.name : (batch.description ?? undefined);
+  const chileSubtitle = isStructuredChile
+    ? `Fuente oficial Chile · RES · ${new Date(batch.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}`
+    : null;
+
+  const pageSubtitle = (isStructuredOfficial || isApolloCandidateBatch)
+    ? (chileSubtitle ?? batch.name)
+    : (batch.description ?? undefined);
 
   const usefulCandidates = candidates.filter(isUsefulReviewCandidate);
   const omittedCandidates = candidates.filter((c) => !isUsefulReviewCandidate(c));
@@ -166,7 +190,10 @@ export default async function BatchDetailPage({ params }: Props) {
               batch.metadata?.batch_type === 'structured' &&
               (batch.metadata?.source_key === 'co_rues' ||
                 batch.metadata?.source_provider === 'socrata_colombia' ||
-                batch.source === 'socrata_colombia') && (
+                batch.source === 'socrata_colombia' ||
+                batch.source === 'datos_gob_cl' ||
+                batch.metadata?.source_key === 'datos_gob_cl' ||
+                batch.metadata?.source_key === 'cl_res') && (
                 <RehydrateBatchButton batchId={batch.id} />
               )}
             {batch.metadata?.batch_type === 'structured' &&
@@ -214,7 +241,9 @@ export default async function BatchDetailPage({ params }: Props) {
                   Empresas verificadas con fuente oficial
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Estas empresas fueron contrastadas con el registro oficial de Colombia. Requieren revisión humana antes de aprobarse o sincronizarse con HubSpot.
+                  {isStructuredChile
+                    ? 'Estas empresas fueron contrastadas con el Registro de Empresas y Sociedades de Chile. Requieren revisión humana antes de aprobarse o sincronizarse.'
+                    : 'Estas empresas fueron contrastadas con el registro oficial de Colombia. Requieren revisión humana antes de aprobarse o sincronizarse con HubSpot.'}
                 </p>
               </div>
             </div>
@@ -352,9 +381,11 @@ export default async function BatchDetailPage({ params }: Props) {
         <Badge variant="outline" className="text-[10px]">
           {isApolloCandidateBatch
             ? 'Fuente comercial'
+            : isStructuredChile
+            ? 'Fuente oficial Chile'
             : (BATCH_SOURCE_VENDOR_LABELS[batch.source] ?? BATCH_SOURCE_LABELS[batch.source])}
         </Badge>
-        {!isStructuredRues && !isApolloCandidateBatch && (
+        {!isStructuredOfficial && !isApolloCandidateBatch && (
           <Badge variant="outline" className="text-[10px]">
             Profundidad: {BATCH_SEARCH_DEPTH_LABELS[batch.search_depth]}
           </Badge>
@@ -366,7 +397,7 @@ export default async function BatchDetailPage({ params }: Props) {
         )}
         {batch.industry && (
           <Badge variant="outline" className="text-[10px]">
-            {batch.industry}
+            {isStructuredChile ? `Criterio solicitado: ${batch.industry}` : batch.industry}
           </Badge>
         )}
         {!isApolloCandidateBatch && batch.estimated_cost_usd !== null && batch.estimated_cost_usd > 0 && (

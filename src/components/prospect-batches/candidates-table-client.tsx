@@ -79,6 +79,7 @@ const DIRECTORY_DOMAINS = new Set([
   'empresite.eleconomistaamerica.co',
   'empresite.com',
   'paginasamarillas.com.co',
+  'procolombia.co',
   'linkedin.com',
   'facebook.com',
   'instagram.com',
@@ -111,6 +112,8 @@ const DIRECTORY_KEYWORDS = [
   'rues.org',
   'colombiacompra',
   'secop',
+  'procolombia',
+  'b2bmarketplace',
 ];
 
 const FIT_STATUS_LABELS: Record<string, string> = {
@@ -132,8 +135,9 @@ function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean 
   if (!domain) return false;
   if (DIRECTORY_DOMAINS.has(domain)) return true;
   if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
-  // Colombian government institutional domains (.gov.co) — never a commercial company website
+  // Government institutional domains — never a commercial company website
   if (/\.gov\.co$/.test(domain) || domain === 'gov.co') return true;
+  if (/\.gov\.cl$/.test(domain) || domain === 'gov.cl') return true;
   return false;
 }
 
@@ -339,6 +343,10 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
           </thead>
           <tbody>
             {candidates.map((c) => {
+              const isChileOfficialCandidate =
+                c.source_primary === 'datos_gob_cl' ||
+                c.country_code === 'CL' ||
+                (c.source_primary as string) === 'cl_res';
               const sectorDescription =
                 c.industry ??
                 ((c.metadata?.enrichment as Record<string, unknown> | undefined)
@@ -355,7 +363,52 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               const webEnrichment = enrichment?.web as Record<string, unknown> | undefined;
               const publicEvidence = webEnrichment?.public_evidence as unknown[] | undefined;
               const hasPublicEvidence = !!(publicEvidence && publicEvidence.length > 0);
-              const isOfficialWebsite = !!c.website && !isDirectoryOrThirdPartyDomain(c.website);
+
+              const officialWebsiteStatus = webEnrichment?.official_website_status as string | undefined;
+              const visibleWebsiteAllowed = webEnrichment?.visible_website_allowed as boolean | undefined;
+
+              const isOfficialWebsiteConfirmed =
+                officialWebsiteStatus === 'confirmed' &&
+                visibleWebsiteAllowed === true;
+
+              const domain = c.website ? extractDomainFromUrl(c.website) : null;
+              
+              let isValidChileWebsite = false;
+              if (c.website && domain) {
+                const isNotDir = !isDirectoryOrThirdPartyDomain(c.website);
+                const isNotCol = !(
+                  domain.includes('procolombia.co') ||
+                  domain.includes('b2bmarketplace') ||
+                  domain.endsWith('.co') ||
+                  domain.includes('.com.co') ||
+                  domain.includes('.org.co') ||
+                  domain.includes('.gov.co')
+                );
+                
+                let hasDistinctiveMatch = true;
+                const nameWords = (c.name || '').toLowerCase()
+                  .replace(/[^a-z0-9]/g, ' ')
+                  .split(/\s+/)
+                  .filter(w => w.length > 3 && !['chile', 'limitada', 'sociedad', 'holding', 'grupo', 'spa', 'eirl'].includes(w));
+                
+                if (nameWords.length > 0) {
+                  const domainLower = domain.toLowerCase();
+                  hasDistinctiveMatch = nameWords.some(w => domainLower.includes(w));
+                }
+                
+                isValidChileWebsite = isNotDir && isNotCol && hasDistinctiveMatch;
+              }
+
+              const isOfficialWebsite =
+                !!c.website &&
+                !isDirectoryOrThirdPartyDomain(c.website) &&
+                (!isChileOfficialCandidate || (isOfficialWebsiteConfirmed && isValidChileWebsite));
+
+              const linkedinStatus = webEnrichment?.linkedin_status as string | undefined;
+              const hasStrongEvidenceChile =
+                !isChileOfficialCandidate ||
+                (isOfficialWebsiteConfirmed && isValidChileWebsite) ||
+                (linkedinStatus === 'confirmed');
 
               return (
                 <tr
@@ -369,20 +422,31 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         <p className="font-medium text-foreground leading-snug line-clamp-2">
                           {c.name}
                         </p>
-                        {isStructuredCandidate(c) && (
+                        {isChileOfficialCandidate ? (
+                          <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
+                            <ShieldCheck className="h-2.5 w-2.5" />
+                            Fuente oficial Chile
+                          </Badge>
+                        ) : isStructuredCandidate(c) ? (
                           <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                             <ShieldCheck className="h-2.5 w-2.5" />
                             {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
                           </Badge>
-                        )}
+                        ) : null}
                       </div>
-                      {c.tax_identifier && (
+                      {isChileOfficialCandidate ? (
+                        c.tax_identifier && (
+                          <p className="text-[10px] font-mono text-muted-foreground/80">
+                            RUT {c.tax_identifier}
+                          </p>
+                        )
+                      ) : c.tax_identifier ? (
                         <p className="text-[10px] font-mono text-muted-foreground/80">
                           {c.tax_identifier_type
                             ? `${c.tax_identifier_type} ${c.tax_identifier}`
                             : c.tax_identifier}
                         </p>
-                      )}
+                      ) : null}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -409,7 +473,11 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           )}
                         </span>
                       ) : null}
-                      {sectorDescription ? (
+                      {isChileOfficialCandidate ? (
+                        <span className="text-[10px] text-muted-foreground/60 italic">
+                          Sector no disponible en fuente oficial
+                        </span>
+                      ) : sectorDescription ? (
                         <p className="text-xs text-muted-foreground leading-snug line-clamp-2 max-w-[160px]">
                           {sectorDescription}
                         </p>
@@ -426,7 +494,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           <Globe className="h-2.5 w-2.5" />
                           {c.domain ?? c.website}
                         </a>
-                      ) : (c.website && isDirectoryOrThirdPartyDomain(c.website)) || hasPublicEvidence ? (
+                      ) : (!isChileOfficialCandidate && ((c.website && isDirectoryOrThirdPartyDomain(c.website)) || hasPublicEvidence)) ? (
                         <span className="text-[9px] text-muted-foreground/60 italic">
                           Evidencia pública disponible
                         </span>
@@ -439,7 +507,37 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   {/* ── Señales ── */}
                   <td className="px-4 py-3 min-w-[130px]">
                     <div className="space-y-1">
-                      {flags.length === 0 ? (
+                      {isChileOfficialCandidate ? (
+                        <div className="flex flex-col gap-1">
+                          {(() => {
+                            const chileSourceParams = c.source_trace?.queryParams as Record<string, unknown> | undefined;
+                            const chileCapital = chileSourceParams?.capitalAmount as number | null | undefined;
+                            const chileIncorporationDate = chileSourceParams?.incorporationDate as string | null | undefined;
+                            
+                            const capitalFormatted = typeof chileCapital === 'number'
+                              ? `$${chileCapital.toLocaleString('es-CL')} CLP`
+                              : null;
+
+                            return (
+                              <>
+                                {capitalFormatted && (
+                                  <span className="inline-block rounded px-1.5 py-0.5 text-[9px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 w-fit">
+                                    Cap: {capitalFormatted}
+                                  </span>
+                                )}
+                                {chileIncorporationDate && (
+                                  <span className="inline-block rounded px-1.5 py-0.5 text-[9px] font-medium bg-su-brand-soft text-su-brand w-fit">
+                                    Const: {chileIncorporationDate}
+                                  </span>
+                                )}
+                                {!capitalFormatted && !chileIncorporationDate && (
+                                  <span className="text-[10px] text-muted-foreground/40">Sin señales</span>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      ) : flags.length === 0 ? (
                         typeof c.data_completeness_score === 'number' ? (
                           <span
                             className={`text-[10px] font-medium ${
@@ -502,7 +600,11 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   {/* ── Evaluación IA (condicional) ── */}
                   {hasFit && (
                     <td className="px-4 py-3 min-w-[100px]">
-                      {fitStatus || c.fit_score !== null ? (
+                      {!hasStrongEvidenceChile ? (
+                        <span className="text-[10px] text-muted-foreground/60 italic" title="Falta de evidencia pública confiable">
+                          Evaluación no disponible
+                        </span>
+                      ) : fitStatus || c.fit_score !== null ? (
                         <div className="space-y-1">
                           {fitStatus && (
                             <Badge

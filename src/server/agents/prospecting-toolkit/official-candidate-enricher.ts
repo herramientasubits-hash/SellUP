@@ -35,6 +35,7 @@ import {
   hasTaxIdentifierConflict,
   isDirectoryOrThirdPartyEvidenceDomain,
   extractDomainFromUrl,
+  validateChileOfficialWebsite,
   type ScoredWebResult,
   type CandidateBasicInfo,
   type WebEnrichmentResult,
@@ -686,9 +687,14 @@ export async function enrichBatchCandidatesWithWebAndAI(
       officialWebsiteEvidence?.domain ??
       (aiWebsiteIsValid ? (aiResult?.domain ?? extractDomainSimple(aiResult?.website)) : null);
 
-    // Gate: if NIT conflict without any NIT match, block all locally-derived website
-    const finalWebsite = hasNitConflictBlocking ? null : rawFinalWebsite;
-    const finalDomain = hasNitConflictBlocking ? null : rawFinalDomain;
+    const isChile = candidate.country_code === 'CL';
+    const websiteValidation = isChile
+      ? validateChileOfficialWebsite(rawFinalWebsite, candidate.name ?? candidate.legal_name ?? '')
+      : { valid: true, reason: 'ok' };
+
+    // Gate: if NIT conflict without any NIT match, or if Chile validation fails, block all locally-derived website
+    const finalWebsite = hasNitConflictBlocking || !websiteValidation.valid ? null : rawFinalWebsite;
+    const finalDomain = hasNitConflictBlocking || !websiteValidation.valid ? null : rawFinalDomain;
 
     if (!candidate.website && finalWebsite) {
       updatePayload.website = finalWebsite;
@@ -726,10 +732,10 @@ export async function enrichBatchCandidatesWithWebAndAI(
     // 16AK.16D: Compute status fields for metadata
     const officialWebsiteStatus = hasNitConflictBlocking
       ? 'blocked_by_tax_conflict'
+      : !websiteValidation.valid
+      ? 'rejected'
       : finalWebsite
       ? 'confirmed'
-      : rawFinalWebsite
-      ? 'rejected'
       : 'not_found';
 
     const publicDescriptionStatus = hasNitConflictBlocking

@@ -81,6 +81,7 @@ const DIRECTORY_DOMAINS = new Set([
   'empresite.eleconomistaamerica.co',
   'empresite.com',
   'paginasamarillas.com.co',
+  'procolombia.co',
   'linkedin.com',
   'facebook.com',
   'instagram.com',
@@ -113,6 +114,8 @@ const DIRECTORY_KEYWORDS = [
   'rues.org',
   'colombiacompra',
   'secop',
+  'procolombia',
+  'b2bmarketplace',
 ];
 
 function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
@@ -120,8 +123,9 @@ function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean 
   if (!domain) return false;
   if (DIRECTORY_DOMAINS.has(domain)) return true;
   if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
-  // Colombian government institutional domains (.gov.co) — never a commercial company website
+  // Government institutional domains — never a commercial company website
   if (/\.gov\.co$/.test(domain) || domain === 'gov.co') return true;
+  if (/\.gov\.cl$/.test(domain) || domain === 'gov.cl') return true;
   return false;
 }
 
@@ -238,9 +242,38 @@ export function CandidateDetailSheet({
   open,
   onOpenChange,
 }: CandidateDetailSheetProps) {
+  // TAREA 4 — Chile website verification check client-side (called unconditionally before early return)
+  const isValidChileWebsite = React.useMemo(() => {
+    if (!candidate?.website) return false;
+    const domain = extractDomainFromUrl(candidate.website);
+    if (!domain) return false;
+
+    // no sea directorio, etc.
+    if (isDirectoryOrThirdPartyDomain(candidate.website)) return false;
+    if (domain.includes('procolombia.co') || domain.includes('b2bmarketplace')) return false;
+    if (domain.endsWith('.co') || domain.includes('.com.co') || domain.includes('.org.co') || domain.includes('.gov.co')) return false;
+
+    // tenga match distintivo con razón social
+    const nameWords = (candidate.name || '').toLowerCase()
+      .replace(/[^a-z0-9]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !['chile', 'limitada', 'sociedad', 'holding', 'grupo', 'spa', 'eirl'].includes(w));
+
+    if (nameWords.length > 0) {
+      const domainLower = domain.toLowerCase();
+      const hasDistinctiveMatch = nameWords.some(w => domainLower.includes(w));
+      if (!hasDistinctiveMatch) return false;
+    }
+    return true;
+  }, [candidate?.website, candidate?.name]);
+
   if (!candidate) return null;
 
   const isStructured = isStructuredCandidate(candidate);
+  const isChileOfficialCandidate =
+    candidate.source_primary === 'datos_gob_cl' ||
+    candidate.country_code === 'CL' ||
+    (candidate.source_primary as string) === 'cl_res';
   const dc = parseDuplicateCheck(candidate.metadata);
   const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
   // 16AK.16C: read from enrichment.ai_evaluation (structured path), fallback to legacy top-level
@@ -287,8 +320,20 @@ export function CandidateDetailSheet({
 
   const websiteConfidence = (officialWebsiteObj?.confidence as string | undefined) ?? null;
 
+  const officialWebsiteStatus = webEnrichment?.official_website_status as string | undefined;
+  const visibleWebsiteAllowed = webEnrichment?.visible_website_allowed as boolean | undefined;
+
+  const isOfficialWebsiteConfirmed =
+    officialWebsiteStatus === 'confirmed' &&
+    visibleWebsiteAllowed === true;
+
+
+
   // Is the stored website a confirmed official website?
-  const hasOfficialWebsite = !!candidate.website && !isDirectoryOrThirdPartyDomain(candidate.website);
+  const hasOfficialWebsite =
+    !!candidate.website &&
+    !isDirectoryOrThirdPartyDomain(candidate.website) &&
+    (!isChileOfficialCandidate || (isOfficialWebsiteConfirmed && isValidChileWebsite));
 
   // NIT conflict data (16AK.16C)
   const taxIdConflicts = (webEnrichment?.tax_id_conflicts as string[] | undefined) ?? [];
@@ -304,7 +349,22 @@ export function CandidateDetailSheet({
     (enrichment?.linkedin as string | undefined) ??
     null;
 
-  const linkedinUrl = linkedinConfirmedUrl ?? linkedinFallbackUrl;
+  const linkedinStatus = webEnrichment?.linkedin_status as string | undefined;
+
+  // For Chile preview: only show confirmed corporate LinkedIn
+  const linkedinUrl = isChileOfficialCandidate
+    ? (linkedinStatus === 'confirmed' ? linkedinConfirmedUrl : null)
+    : (linkedinConfirmedUrl ?? linkedinFallbackUrl);
+
+  // Chile official data from source_trace
+  const chileSourceParams = isChileOfficialCandidate
+    ? (candidate.source_trace?.queryParams as Record<string, unknown> | undefined)
+    : null;
+  const chileCapital = chileSourceParams?.capitalAmount as number | null | undefined;
+  const chileCapitalCurrency = (chileSourceParams?.capitalCurrency as string | undefined) ?? 'CLP';
+  const chileIncorporationDate = chileSourceParams?.incorporationDate as string | null | undefined;
+  const chileCompanyType = chileSourceParams?.companyType as string | null | undefined;
+
 
   const publicDescription =
     (publicDescObj?.text as string | undefined) ??
@@ -314,6 +374,29 @@ export function CandidateDetailSheet({
     null;
 
   const publicDescriptionConfidence = (publicDescObj?.confidence as string | undefined) ?? null;
+
+  const publicDescriptionStatus = webEnrichment?.public_description_status as string | undefined;
+
+  // For Chile preview: only show confirmed description based on strong evidence
+  const isDescriptionConfiable = isChileOfficialCandidate
+    ? (publicDescriptionStatus === 'confirmed' &&
+       (publicDescriptionConfidence === 'high' || publicDescriptionConfidence === 'medium'))
+    : !!publicDescription;
+
+  // For Chile preview: check if we have strong evidence (confirmed website or confirmed LinkedIn)
+  const hasStrongEvidenceChile =
+    !isChileOfficialCandidate ||
+    (isOfficialWebsiteConfirmed && isValidChileWebsite) ||
+    (linkedinStatus === 'confirmed');
+
+  const showAiEvaluation = hasAiEval && hasStrongEvidenceChile;
+
+  const sanitizeTextForChile = (text: string) => {
+    if (!text) return text;
+    return text
+      .replace(/\bRUES\b/g, 'RES Chile')
+      .replace(/sector Tecnología confirmado/gi, 'criterio solicitado Tecnología');
+  };
 
   // Prepara la evidencia pública sumando la web física si es un directorio (caso legacy)
   const displayedPublicEvidence = [...publicEvidenceItems];
@@ -571,41 +654,109 @@ export function CandidateDetailSheet({
           {/* B. Datos oficiales / legales */}
           <div>
             <SectionHeader>Datos oficiales / legales</SectionHeader>
-            <FieldGrid>
-              <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
-              <Field
-                label={candidate.tax_identifier_type ?? 'Identificador fiscal'}
-                value={candidate.tax_identifier ? (
-                  <span className="font-mono">{candidate.tax_identifier}</span>
-                ) : (
-                  <MissingText text="Sin dato" />
-                )}
-              />
-              <Field
-                label="País"
-                value={
-                  candidate.country_code ? (
-                    <span className="flex items-center gap-1">
-                      {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
-                    </span>
+            {isChileOfficialCandidate ? (
+              <FieldGrid>
+                <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
+                <Field
+                  label="RUT"
+                  value={candidate.tax_identifier ? (
+                    <span className="font-mono">{candidate.tax_identifier}</span>
                   ) : (
                     <MissingText text="Sin dato" />
-                  )
-                }
-              />
-              <Field
-                label="Ciudad / Región"
-                value={val(
-                  [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
-                  'Sin dato'
+                  )}
+                />
+                <Field
+                  label="País"
+                  value={
+                    candidate.country_code ? (
+                      <span className="flex items-center gap-1">
+                        {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
+                      </span>
+                    ) : (
+                      <MissingText text="Sin dato" />
+                    )
+                  }
+                />
+                <Field
+                  label="Ciudad / Región"
+                  value={val(
+                    [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
+                    'Sin dato'
+                  )}
+                />
+                {chileCompanyType && (
+                  <Field label="Tipo societario" value={chileCompanyType} />
                 )}
-              />
-              {ciiu && <Field label="CIIU / Código sector" value={ciiu} mono />}
-              <Field label="Actividad económica" value={val(sectorDescription, 'Sin sector')} />
-              {structuredSourceLabel && (
-                <Field label="Fuente oficial" value={structuredSourceLabel} />
-              )}
-            </FieldGrid>
+                {chileIncorporationDate && (
+                  <Field
+                    label="Fecha de constitución"
+                    value={new Date(chileIncorporationDate).toLocaleDateString('es-CL', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  />
+                )}
+                {chileCapital !== null && chileCapital !== undefined && (
+                  <Field
+                    label="Capital CLP"
+                    value={
+                      <span className="font-mono">
+                        ${chileCapital.toLocaleString('es-CL')} {chileCapitalCurrency}
+                      </span>
+                    }
+                  />
+                )}
+                <Field label="Fuente oficial" value="Fuente oficial Chile" />
+              </FieldGrid>
+            ) : (
+              <FieldGrid>
+                <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
+                <Field
+                  label={candidate.tax_identifier_type ?? 'Identificador fiscal'}
+                  value={candidate.tax_identifier ? (
+                    <span className="font-mono">{candidate.tax_identifier}</span>
+                  ) : (
+                    <MissingText text="Sin dato" />
+                  )}
+                />
+                <Field
+                  label="País"
+                  value={
+                    candidate.country_code ? (
+                      <span className="flex items-center gap-1">
+                        {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
+                      </span>
+                    ) : (
+                      <MissingText text="Sin dato" />
+                    )
+                  }
+                />
+                <Field
+                  label="Ciudad / Región"
+                  value={val(
+                    [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
+                    'Sin dato'
+                  )}
+                />
+                {ciiu && <Field label="CIIU / Código sector" value={ciiu} mono />}
+                <Field
+                  label="Actividad económica"
+                  value={
+                    isChileOfficialCandidate ? (
+                      <span className="text-xs text-muted-foreground/60 italic">
+                        Sector no disponible en fuente oficial
+                      </span>
+                    ) : (
+                      val(sectorDescription, 'Sin sector')
+                    )
+                  }
+                />
+                {structuredSourceLabel && (
+                  <Field label="Fuente oficial" value={structuredSourceLabel} />
+                )}
+              </FieldGrid>
+            )}
           </div>
 
           <Divider />
@@ -650,7 +801,9 @@ export function CandidateDetailSheet({
                   label={
                     linkedinUrl
                       ? "LinkedIn corporativo"
-                      : (!hasNitConflict && possibleLinkedInMatches.length > 0)
+                      : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl))
+                      ? "Posibles coincidencias no confirmadas"
+                      : (!isChileOfficialCandidate && !hasNitConflict && possibleLinkedInMatches.length > 0)
                       ? "Posibles coincidencias de LinkedIn"
                       : "LinkedIn corporativo"
                   }
@@ -678,7 +831,41 @@ export function CandidateDetailSheet({
                           </span>
                         )}
                       </div>
-                    ) : (!hasNitConflict && possibleLinkedInMatches.length > 0) ? (
+                    ) : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl)) ? (
+                      <div className="space-y-1.5">
+                        <p className="text-[9px] text-muted-foreground/50 italic">No confirmado — requiere revisión</p>
+                        {linkedinConfirmedUrl && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <a
+                              href={linkedinConfirmedUrl.startsWith('http') ? linkedinConfirmedUrl : `https://${linkedinConfirmedUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
+                            >
+                              <Link2 className="h-3 w-3 shrink-0" />
+                              Posible perfil corporativo
+                            </a>
+                            <span className="text-[9px] text-muted-foreground/50">(no confirmado)</span>
+                          </div>
+                        )}
+                        {possibleLinkedInMatches.slice(0, 2).map((match, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5 flex-wrap">
+                            <a
+                              href={(match.url as string).startsWith('http') ? (match.url as string) : `https://${match.url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
+                            >
+                              <Link2 className="h-3 w-3 shrink-0" />
+                              {match.title ? (match.title as string) : `Posible perfil ${idx + 1}`}
+                            </a>
+                            <span className="text-[9px] text-muted-foreground/50">
+                              ({(match.match_quality as string) === 'partial' ? 'parcial' : 'débil'})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (!isChileOfficialCandidate && !hasNitConflict && possibleLinkedInMatches.length > 0) ? (
                       <div className="space-y-1.5">
                         <p className="text-[9px] text-muted-foreground/50 italic">No confirmado — requiere revisión</p>
                         {possibleLinkedInMatches.slice(0, 2).map((match, idx) => (
@@ -756,7 +943,7 @@ export function CandidateDetailSheet({
                 </div>
               )}
 
-              {!hasNitConflict && publicDescription && (
+              {!hasNitConflict && publicDescription && (!isChileOfficialCandidate || isDescriptionConfiable) ? (
                 <div className="space-y-0.5 pt-2">
                   <div className="flex items-center gap-1.5">
                     <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción pública</p>
@@ -768,10 +955,11 @@ export function CandidateDetailSheet({
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{publicDescription}</p>
                 </div>
-              )}
-              {(hasNitConflict || !publicDescription) && (
+              ) : (
                 <p className="text-xs text-muted-foreground/40 italic pt-2">
-                  {hasNitConflict
+                  {isChileOfficialCandidate
+                    ? 'Sin descripción pública confiable.'
+                    : hasNitConflict
                     ? 'Sin descripción pública confiable.'
                     : 'No encontrado en evidencia pública'}
                 </p>
@@ -784,7 +972,7 @@ export function CandidateDetailSheet({
           {/* D. Evaluación IA */}
           <div>
             <SectionHeader>Evaluación IA</SectionHeader>
-            {hasAiEval ? (
+            {showAiEvaluation ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   {fitStatus && (
@@ -821,7 +1009,7 @@ export function CandidateDetailSheet({
                       {fitReasons.map((r, i) => (
                         <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
                           <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                          {r}
+                          {isChileOfficialCandidate ? sanitizeTextForChile(r) : r}
                         </li>
                       ))}
                     </ul>
@@ -834,7 +1022,7 @@ export function CandidateDetailSheet({
                       {risks.map((r, i) => (
                         <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
                           <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
-                          {r}
+                          {isChileOfficialCandidate ? sanitizeTextForChile(r) : r}
                         </li>
                       ))}
                     </ul>
@@ -863,6 +1051,10 @@ export function CandidateDetailSheet({
                   </div>
                 )}
               </div>
+            ) : isChileOfficialCandidate ? (
+              <p className="text-xs text-muted-foreground/60 italic">
+                Evaluación no disponible por falta de evidencia pública confiable.
+              </p>
             ) : aiEvalStatus === 'skipped' && aiEvalSkipReason ? (
               <p className="text-xs text-muted-foreground/60 italic">
                 {({

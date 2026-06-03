@@ -74,7 +74,7 @@ const DIRECTORY_SUBSTRINGS = [
   'listado.net', 'empresite', 'infobel', 'registrociv', 'yellowpages',
   'directoriocomercial', 'mapas.google', 'maps.google',
   'registronit', 'informacolombia', 'datacreditoempresas', 'einforma',
-  'datospymes', 'directorioempresas', 'buscaempresas',
+  'datospymes', 'directorioempresas', 'buscaempresas', 'procolombia', 'b2bmarketplace',
 ];
 
 const REGISTRY_SUBSTRINGS = [
@@ -379,6 +379,51 @@ export function isOfficialWebsiteCandidate(url: string): boolean {
   // Must have at least one dot (basic sanity)
   if (!domain.includes('.')) return false;
   return true;
+}
+
+/**
+ * Validates whether a website can be shown as the official website of a Chilean company.
+ * Returns { valid, reason }.
+ */
+export function validateChileOfficialWebsite(
+  url: string | null,
+  companyName: string,
+): { valid: boolean; reason: string } {
+  if (!url) return { valid: false, reason: 'empty' };
+  const domain = extractDomainFromUrl(url);
+  if (!domain) return { valid: false, reason: 'invalid_url' };
+
+  // 1. Check directory/marketplace domain list
+  if (isDirectoryOrThirdPartyEvidenceDomain(domain)) {
+    return { valid: false, reason: 'directory_or_third_party' };
+  }
+
+  // 2. Reject explicitly procolombia or b2bmarketplace
+  if (domain.includes('procolombia.co') || domain.includes('b2bmarketplace')) {
+    return { valid: false, reason: 'colombia_marketplace' };
+  }
+
+  // 3. Reject other country domains (like Colombia .co)
+  if (
+    domain.endsWith('.co') ||
+    domain.includes('.com.co') ||
+    domain.includes('.org.co') ||
+    domain.includes('.gov.co')
+  ) {
+    return { valid: false, reason: 'other_country_domain' };
+  }
+
+  // 4. Require distinctive match with company name
+  const { distinctive } = getDistinctiveCompanyTokens(companyName);
+  if (distinctive.length > 0) {
+    const domainLower = domain.toLowerCase();
+    const hasDistinctiveMatch = distinctive.some((token) => domainLower.includes(token));
+    if (!hasDistinctiveMatch) {
+      return { valid: false, reason: 'no_distinctive_match' };
+    }
+  }
+
+  return { valid: true, reason: 'ok' };
 }
 
 /**
