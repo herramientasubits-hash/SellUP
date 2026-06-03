@@ -97,6 +97,21 @@ const LEGAL_SUFFIXES = [
   'S\\.C\\.A', 'S\\.C\\.S', 'E\\.U', 'EU', 'EN LIQUIDACION', 'EN LIQUIDACIÓN',
 ];
 
+/**
+ * Tokens genéricos que no identifican a ninguna empresa específica.
+ * Usados para filtrar en el matching de LinkedIn.
+ */
+const GENERIC_COMPANY_TOKENS = new Set([
+  'sas', 'sa', 'ltda', 'limitada', 'empresa', 'compania', 'compañia',
+  'agencia', 'seguros', 'inversiones', 'servicios', 'asesores',
+  'consultores', 'grupo', 'colombia', 'cia', 'comercial', 'industrial',
+  'nacional', 'internacional', 'soluciones', 'tecnologia', 'tecnologias',
+  'distribuciones', 'distribuidora', 'constructora', 'ingenieria',
+  'asociados', 'hermanos', 'bogota', 'medellin', 'cali', 'barranquilla',
+  'bucaramanga', 'manizales', 'pereira', 'armenia', 'cucuta', 'ibague',
+  'neiva', 'villavicencio', 'pasto', 'monteria', 'sincelejo', 'valledupar',
+]);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type SourceType =
@@ -216,6 +231,91 @@ export interface CandidateBasicInfo {
   industry: string | null;
 }
 
+// ─── NIT / tax identifier helpers ────────────────────────────────────────────
+
+/**
+ * Extracts candidate Colombian tax identifiers (NIT) from arbitrary text.
+ * Handles: "901955673", "901.955.673", "901955673-2", "63456575-8".
+ * Returns normalized base digits (8 or 9 digits, no check digit, no dots).
+ */
+export function extractColombianTaxIdentifiersFromText(text: string): string[] {
+  if (!text) return [];
+  const found = new Set<string>();
+  // Match digit sequences (with optional dot separators) optionally followed by -digit (check digit)
+  const pattern = /\b(\d[\d.]{6,11}\d)(?:-\d)?\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    const raw = match[1];
+    const digits = raw.replace(/\./g, '');
+    if (digits.length === 8 || digits.length === 9) {
+      found.add(digits);
+    }
+  }
+  return Array.from(found);
+}
+
+/** Normalizes a NIT string to its base digits (strips dots, spaces, check digit). */
+export function normalizeNIT(nit: string): string {
+  if (!nit) return '';
+  const withoutDots = nit.replace(/[.\s]/g, '');
+  const withoutCheck = withoutDots.replace(/-\d$/, '');
+  return withoutCheck.replace(/\D/g, '');
+}
+
+export type TaxIdCheckResult = 'match' | 'conflict' | 'neutral';
+
+/**
+ * Checks if evidence text contains a NIT that conflicts or matches the candidate's NIT.
+ * - 'match': evidence contains the candidate's NIT → boosts confidence
+ * - 'conflict': evidence contains a different NIT → lowers confidence
+ * - 'neutral': no NIT found in evidence
+ */
+export function hasTaxIdentifierConflict(
+  candidateTaxId: string | null,
+  evidenceText: string,
+): TaxIdCheckResult {
+  if (!candidateTaxId) return 'neutral';
+  const normalizedCandidate = normalizeNIT(candidateTaxId);
+  if (!normalizedCandidate || normalizedCandidate.length < 8) return 'neutral';
+
+  const foundNITs = extractColombianTaxIdentifiersFromText(evidenceText);
+  if (foundNITs.length === 0) return 'neutral';
+
+  const hasMatch = foundNITs.some(
+    (n) => n === normalizedCandidate || n.startsWith(normalizedCandidate) || normalizedCandidate.startsWith(n),
+  );
+  return hasMatch ? 'match' : 'conflict';
+}
+
+// ─── Distinctive token helpers ────────────────────────────────────────────────
+
+/**
+ * Splits a company name into distinctive vs generic tokens.
+ * Distinctive tokens identify a specific company; generic ones don't.
+ */
+export function getDistinctiveCompanyTokens(name: string): {
+  distinctive: string[];
+  generic: string[];
+} {
+  const normalized = normalizeCompanyNameForSearch(name);
+  const tokens = normalized.split(/\s+/).filter((t) => t.length >= 2);
+
+  const distinctive: string[] = [];
+  const generic: string[] = [];
+
+  for (const token of tokens) {
+    const clean = token.replace(/[^a-z0-9áéíóúüñ]/g, '');
+    if (!clean || clean.length < 2) continue;
+    if (GENERIC_COMPANY_TOKENS.has(clean)) {
+      generic.push(clean);
+    } else {
+      distinctive.push(clean);
+    }
+  }
+
+  return { distinctive, generic };
+}
+
 // ─── Public domain helpers ─────────────────────────────────────────────────────
 
 /**
@@ -279,28 +379,57 @@ export function isOfficialWebsiteCandidate(url: string): boolean {
 
 /**
  * Returns true if the evidence is sufficient to warrant calling Claude.
- * Avoids spending tokens when only weak/directory results are available.
+ *
+ * 16AK.16B rules:
+ * - Block if any result carries a NIT conflict and no result carries a NIT match.
+ * - Block if only similar-named companies found (no entity match with name_in_title).
+ * - Allow only if: official website confirmed, LinkedIn confirmed, public_evidence
+ *   with high confidence + nit_match signal, or non-directory medium+ with name_in_title.
  */
 export function hasMinimumEvidenceForClaude(
   webResult: WebEnrichmentResult,
   scoredResults: ScoredWebResult[],
+  candidate?: CandidateBasicInfo,
 ): boolean {
+  // ── NIT conflict gate ─────────────────────────────────────────────────────
+  if (candidate?.tax_identifier) {
+    const allText = scoredResults
+      .map((r) => `${r.url} ${r.title} ${r.snippet ?? ''}`)
+      .join(' ');
+    const anyMatch = scoredResults.some((r) => {
+      const t = `${r.url} ${r.title} ${r.snippet ?? ''}`;
+      return hasTaxIdentifierConflict(candidate.tax_identifier, t) === 'match';
+    });
+    const anyConflict = scoredResults.some((r) => {
+      const t = `${r.url} ${r.title} ${r.snippet ?? ''}`;
+      return hasTaxIdentifierConflict(candidate.tax_identifier, t) === 'conflict';
+    });
+    // Conflict without any corroborating NIT match → block Claude
+    if (anyConflict && !anyMatch) return false;
+    void allText; // suppress unused var
+  }
+
   if (webResult.official_website !== null) return true;
   if (webResult.linkedin_company !== null) return true;
-  // Public evidence with NIT or strong name match
+
+  // Public evidence: require high confidence AND explicit NIT match signal
   if (webResult.public_evidence.length > 0) {
-    const strongPublic = webResult.public_evidence.some(
-      (e) => e.confidence === 'high' || e.confidence === 'medium',
+    const strongWithNit = webResult.public_evidence.some(
+      (e) => e.confidence === 'high' && e.reason.includes('nit_match'),
     );
-    if (strongPublic) return true;
+    if (strongWithNit) return true;
   }
-  // At least one non-directory result with medium+ confidence
+
+  // Non-directory result with medium+ confidence AND name_in_title (not just similar company)
   const hasUsableResult = scoredResults.some(
     (r) =>
       r.source_type !== 'commercial_directory' &&
+      r.source_type !== 'public_registry' &&
+      r.source_type !== 'chamber_of_commerce' &&
       r.source_type !== 'unknown' &&
       r.source_type !== 'social' &&
-      (r.confidence === 'high' || r.confidence === 'medium'),
+      (r.confidence === 'high' || r.confidence === 'medium') &&
+      r.matched_signals.includes('name_in_title'),
   );
   return hasUsableResult;
 }
@@ -580,10 +709,17 @@ export function scoreWebEvidence(
 
     const signals: string[] = [];
     const text = `${r.title} ${r.snippet ?? ''}`.toLowerCase();
+    const fullText = `${r.url} ${r.title} ${r.snippet ?? ''}`;
     if (candidate.tax_identifier && text.includes(candidate.tax_identifier)) signals.push('nit_match');
     if (text.includes('colombia')) signals.push('country_match');
     if (candidate.city && text.includes(candidate.city.toLowerCase())) signals.push('city_match');
     if (scoreEntityMatch(name, r.title, candidate.city, candidate.tax_identifier) >= 60) signals.push('name_in_title');
+    // NIT conflict/match signals using normalized extraction
+    if (candidate.tax_identifier) {
+      const taxCheck = hasTaxIdentifierConflict(candidate.tax_identifier, fullText);
+      if (taxCheck === 'conflict') signals.push('tax_id_conflict');
+      else if (taxCheck === 'match') signals.push('tax_id_match');
+    }
 
     return {
       ...r,
@@ -625,7 +761,10 @@ export function extractOfficialWebsite(
 
 /**
  * Extracts a confirmed LinkedIn company page.
- * Requires: /company/ path + strong name entity match (score >= 40).
+ * 16AK.16B rules:
+ * - Requires /company/ path + name_match >= 70.
+ * - At least one distinctive token (non-generic) must appear in title/snippet/url.
+ * - If only generic tokens match (e.g. "Agencia de Seguros"), the result is rejected.
  * Weak matches go to extractPossibleLinkedInMatches instead.
  */
 export function extractLinkedInCompany(
@@ -641,9 +780,16 @@ export function extractLinkedInCompany(
   if (linkedInResults.length === 0) return null;
 
   const best = linkedInResults[0];
-  // Require name match >= 70 (strong match) to be "confirmed"
   const nameMatchScore = scoreEntityMatch(name, `${best.title} ${best.snippet ?? ''}`, candidate.city, candidate.tax_identifier);
   if (nameMatchScore < 70) return null;
+
+  // 16AK.16B: require at least one distinctive token to be present in the evidence
+  const { distinctive } = getDistinctiveCompanyTokens(name);
+  if (distinctive.length > 0) {
+    const evidenceText = `${best.url} ${best.title} ${best.snippet ?? ''}`.toLowerCase();
+    const hasDistinctiveMatch = distinctive.some((token) => evidenceText.includes(token));
+    if (!hasDistinctiveMatch) return null;
+  }
 
   return {
     url: best.url,

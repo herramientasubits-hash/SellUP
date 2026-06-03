@@ -33,6 +33,12 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Carga .env.local desde la raíz del proyecto para que el script tenga
+// acceso a NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
+config({ path: resolve(process.cwd(), '.env.local') });
 
 // ─── Relative imports from prospecting-toolkit ────────────────────────────────
 // Uses relative paths to avoid tsconfig @/ alias dependency in scripts.
@@ -48,6 +54,10 @@ import {
   extractDomainFromUrl,
   buildCompanyNameVariants,
   scoreEntityMatch,
+  extractColombianTaxIdentifiersFromText,
+  hasTaxIdentifierConflict,
+  getDistinctiveCompanyTokens,
+  normalizeNIT,
   type CandidateBasicInfo,
   type ScoredWebResult,
   type WebEnrichmentResult,
@@ -269,11 +279,33 @@ async function main() {
   // ── Load env ─────────────────────────────────────────────────────────────────
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
-  const tavilyKey = process.env.TAVILY_API_KEY ?? null;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY ?? null;
 
-  if (!tavilyKey) warn('TAVILY_API_KEY no configurada — búsquedas reales deshabilitadas.');
-  if (!anthropicKey) warn('ANTHROPIC_API_KEY no configurada — evaluación Claude deshabilitada.');
+  // Intenta leer keys desde process.env primero; si no, las lee de Supabase Vault.
+  async function readKeyFromVault(vaultName: string): Promise<string | null> {
+    if (!supabaseUrl || !serviceKey) return null;
+    try {
+      const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+      const { data, error } = await admin.rpc('get_vault_secret_decrypted', { p_name: vaultName });
+      if (error || !data) return null;
+      return data as string;
+    } catch {
+      return null;
+    }
+  }
+
+  let tavilyKey: string | null = process.env.TAVILY_API_KEY ?? null;
+  let anthropicKey: string | null = process.env.ANTHROPIC_API_KEY ?? null;
+
+  if (!tavilyKey) {
+    tavilyKey = await readKeyFromVault('sellup_tavily_api_key');
+    if (tavilyKey) console.log(`  ${DIM}[env] TAVILY_API_KEY cargada desde Supabase Vault.${RESET}`);
+    else warn('TAVILY_API_KEY no configurada — búsquedas reales deshabilitadas.');
+  }
+  if (!anthropicKey) {
+    anthropicKey = await readKeyFromVault('sellup_ai_anthropic');
+    if (anthropicKey) console.log(`  ${DIM}[env] ANTHROPIC_API_KEY cargada desde Supabase Vault.${RESET}`);
+    else warn('ANTHROPIC_API_KEY no configurada — evaluación Claude deshabilitada.');
+  }
 
   // ── Resolve candidate ─────────────────────────────────────────────────────────
   let candidate: CandidateInput;
@@ -418,6 +450,19 @@ async function main() {
         candidate.tax_identifier,
       );
 
+      // NIT analysis for this result
+      const evidenceFullText = `${scored.url} ${scored.title} ${scored.snippet ?? ''}`;
+      const extractedTaxIds = extractColombianTaxIdentifiersFromText(evidenceFullText);
+      const taxCheck = hasTaxIdentifierConflict(candidate.tax_identifier, evidenceFullText);
+      const candidateNitNorm = normalizeNIT(candidate.tax_identifier ?? '');
+
+      // Distinctive tokens analysis for LinkedIn
+      const { distinctive: distinctiveTokens, generic: genericTokens } = getDistinctiveCompanyTokens(
+        candidate.legal_name ?? candidate.name ?? '',
+      );
+      const evidenceLower = evidenceFullText.toLowerCase();
+      const matchedDistinctive = distinctiveTokens.filter((t) => evidenceLower.includes(t));
+
       console.log(`\n  ${BOLD}[${i + 1}] ${scored.title.slice(0, 60)}${RESET}`);
       info('  URL', scored.url);
       info('  Domain', domain);
@@ -428,6 +473,23 @@ async function main() {
       info('  entity_match_score', nameMatch);
       info('  matched_signals', scored.matched_signals.join(', ') || '(ninguno)');
 
+      // ── NIT diagnostic ────────────────────────────────────────────
+      info('  extracted_tax_ids', extractedTaxIds.length > 0 ? extractedTaxIds.join(', ') : '(ninguno)');
+      if (taxCheck === 'match') {
+        ok(`  tax_id_match = true  (NIT candidato ${candidateNitNorm} encontrado)`);
+      } else if (taxCheck === 'conflict') {
+        err(`  tax_id_conflict = true  (NIT diferente al candidato: ${extractedTaxIds.join(', ')} ≠ ${candidateNitNorm})`);
+      } else {
+        dim(`  tax_id_neutral (sin NIT en evidencia)`);
+      }
+
+      // ── Distinctive token diagnostic ──────────────────────────────
+      if (isLinkedIn) {
+        info('  distinctive_tokens', distinctiveTokens.length > 0 ? distinctiveTokens.join(', ') : '(ninguno)');
+        info('  generic_tokens_ignored', genericTokens.length > 0 ? genericTokens.join(', ') : '(ninguno)');
+        info('  matched_distinctive_tokens', matchedDistinctive.length > 0 ? matchedDistinctive.join(', ') : '(ninguno)');
+      }
+
       if (isBlockedAsOfficial) {
         err(`  Rechazado como website oficial: ${rejectionReason}`);
       } else if (isOfficialCandidate && scored.source_type === 'official_website') {
@@ -435,13 +497,16 @@ async function main() {
       }
 
       if (isLinkedIn) {
-        const linkedInMatch = nameMatch;
-        if (linkedInMatch >= 70) {
-          ok(`  LinkedIn confirmado (name_match=${linkedInMatch} ≥ 70)`);
-        } else if (linkedInMatch >= 20) {
-          warn(`  LinkedIn posible (name_match=${linkedInMatch}, umbral confirmado=70)`);
+        if (nameMatch >= 70 && matchedDistinctive.length > 0) {
+          ok(`  linkedin_verdict_reason: CONFIRMADO (name_match=${nameMatch} ≥ 70, token distintivo "${matchedDistinctive[0]}" presente)`);
+        } else if (nameMatch >= 70 && distinctiveTokens.length > 0 && matchedDistinctive.length === 0) {
+          err(`  linkedin_verdict_reason: RECHAZADO — name_match=${nameMatch} ≥ 70 pero ningún token distintivo [${distinctiveTokens.join(', ')}] en evidencia`);
+        } else if (nameMatch >= 70 && distinctiveTokens.length === 0) {
+          warn(`  linkedin_verdict_reason: POSIBLE — name_match=${nameMatch} ≥ 70 pero nombre sin tokens distintivos (solo genéricos)`);
+        } else if (nameMatch >= 20) {
+          warn(`  linkedin_verdict_reason: POSIBLE (name_match=${nameMatch}, umbral confirmado=70)`);
         } else {
-          err(`  LinkedIn rechazado (name_match=${linkedInMatch} < 20)`);
+          err(`  linkedin_verdict_reason: RECHAZADO (name_match=${nameMatch} < 20)`);
         }
       }
 
@@ -517,13 +582,33 @@ async function main() {
   // ─── F. Claude evaluation ─────────────────────────────────────────────────────
   h2('F. Claude evaluation');
 
-  const shouldCallClaude = hasMinimumEvidenceForClaude(webResult, scoredResults);
+  const shouldCallClaude = hasMinimumEvidenceForClaude(webResult, scoredResults, candidate);
+
+  // Compute claude_skip_reason for diagnostics
+  let claudeSkipReason: string | null = null;
+  if (!shouldCallClaude) {
+    const hasAnyConflict = scoredResults.some((r) =>
+      hasTaxIdentifierConflict(candidate.tax_identifier, `${r.url} ${r.title} ${r.snippet ?? ''}`) === 'conflict',
+    );
+    const hasAnyMatch = scoredResults.some((r) =>
+      hasTaxIdentifierConflict(candidate.tax_identifier, `${r.url} ${r.title} ${r.snippet ?? ''}`) === 'match',
+    );
+    if (hasAnyConflict && !hasAnyMatch) {
+      claudeSkipReason = 'tax_identifier_conflict — NIT diferente encontrado en evidencia sin corroboración';
+    } else if (!webResult.official_website && !webResult.linkedin_company && webResult.public_evidence.length === 0) {
+      claudeSkipReason = 'no_evidence — sin website, LinkedIn ni directorios con nombre';
+    } else if (!webResult.official_website && !webResult.linkedin_company) {
+      claudeSkipReason = 'weak_entity_match — solo empresas parecidas, sin match de entidad específica';
+    } else {
+      claudeSkipReason = 'insufficient_evidence';
+    }
+  }
 
   if (!shouldCallClaude) {
     warn('Claude NO se llama — evidencia insuficiente.');
-    dim('  Motivo: sin website oficial, sin LinkedIn confirmado, sin evidencia pública strong.');
+    dim(`  claude_skip_reason: ${claudeSkipReason}`);
     dim('  evaluation_status = insufficient_evidence');
-    dim('  Evaluación no disponible por falta de evidencia pública');
+    dim('  fit_score = null');
   } else if (!anthropicKey) {
     warn('Claude habilitado por evidencia, pero ANTHROPIC_API_KEY no configurada.');
     dim('  Para ejecutar evaluación, agrega ANTHROPIC_API_KEY al entorno.');
@@ -600,7 +685,7 @@ async function main() {
   info('tavily_results_total', rawResults.length);
   info('claude_called', shouldCallClaude && !!anthropicKey ? 'sí' : 'no');
   if (!shouldCallClaude) {
-    info('claude_skip_reason', 'insufficient_evidence');
+    info('claude_skip_reason', claudeSkipReason ?? 'insufficient_evidence');
   } else if (!anthropicKey) {
     info('claude_skip_reason', 'ANTHROPIC_API_KEY no configurada');
   }
