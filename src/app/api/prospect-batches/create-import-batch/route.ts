@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 
 interface ImportCandidate {
   company_name: string;
@@ -197,6 +198,9 @@ export async function POST(request: NextRequest) {
 
       if (!candidateError) candidatesCreated++;
     }
+
+    // Ejecutar validación post-importación automáticamente
+    await validateImportedCandidatesBatch(batch.id, internalUserId);
 
     return NextResponse.json({ batchId: batch.id, candidatesCreated });
   } catch (err) {

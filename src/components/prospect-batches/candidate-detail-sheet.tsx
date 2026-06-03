@@ -48,6 +48,44 @@ interface HubSpotSyncAudit {
   synced_at?: string | null;
 }
 
+interface SheetQualityCheck {
+  has_website?: boolean;
+  has_linkedin?: boolean;
+  import_confidence?: string;
+  has_tax_identifier?: boolean;
+  warnings?: string[];
+  missing_fields?: string[];
+}
+
+interface SheetDuplicateCheck {
+  status?: string;
+  matched_account_id?: string | null;
+  matched_candidate_id?: string | null;
+  matched_by?: string | null;
+  confidence?: number;
+}
+
+interface SheetValidationMetadata {
+  validation_source?: string;
+  sellup_duplicate_check?: SheetDuplicateCheck;
+  hubspot_duplicate_check?: SheetDuplicateCheck;
+  quality_check?: SheetQualityCheck;
+  validated_at?: string;
+}
+
+interface SheetImportMetadata {
+  confidence?: string;
+  company_size?: string;
+  source_url?: string;
+  source_evidence?: string;
+}
+
+interface SheetCandidateMetadata {
+  validation?: SheetValidationMetadata;
+  import?: SheetImportMetadata;
+  source_url?: string;
+}
+
 // ── Helpers de presentación ────────────────────────────────────
 
 function val(v: string | null | undefined, fallback = 'Sin dato'): string {
@@ -282,9 +320,9 @@ export function CandidateDetailSheet({
   const sourcePrimaryLabel = candidate.source_primary
     ? (VENDOR_CANDIDATE_SOURCE_LABELS[candidate.source_primary] ?? candidate.source_primary)
     : null;
-  const structuredSourceLabel = isStructured && candidate.source_primary
+  const structuredSourceLabel = (isStructured && candidate.source_primary
     ? (STRUCTURED_SOURCE_LABELS[candidate.source_primary] ?? sourcePrimaryLabel)
-    : null;
+    : null) as React.ReactNode;
 
   const flags = (candidate.review_flags as string[] | null) ?? [];
   const dcSources = dc?.sources_checked ?? [];
@@ -1125,6 +1163,125 @@ export function CandidateDetailSheet({
               )}
             </div>
           </div>
+
+          {/* Sección de Validación */}
+          {(candidate.metadata as unknown as SheetCandidateMetadata)?.validation && (
+            <>
+              <Divider />
+              <div>
+                <SectionHeader>Validación</SectionHeader>
+                <div className="rounded-lg border border-border/40 bg-card p-3 space-y-3">
+                  {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.validation_source === 'post_import_auto' && (
+                    <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      Validado automáticamente al importar.
+                    </p>
+                  )}
+                  <FieldGrid>
+                    <Field
+                      label="Estado SellUp"
+                      value={(() => {
+                        const status = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.sellup_duplicate_check?.status;
+                        if (!status) return 'Sin verificar';
+                        const labelMap: Record<string, string> = {
+                          no_match: 'Sin coincidencia',
+                          possible_duplicate: 'Posible duplicado',
+                          duplicate: 'Duplicado SellUp',
+                          error: 'Error de verificación',
+                        };
+                        return labelMap[status] ?? status;
+                      })()}
+                    />
+                    <Field
+                      label="Estado HubSpot"
+                      value={(() => {
+                        const status = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check?.status;
+                        if (!status) return 'Sin verificar';
+                        const labelMap: Record<string, string> = {
+                          no_match: 'Sin coincidencia',
+                          possible_match: 'Posible coincidencia',
+                          match: 'Coincidencia HubSpot',
+                          not_configured: 'HubSpot no configurado',
+                          error: 'Error de verificación',
+                        };
+                        return labelMap[status] ?? status;
+                      })()}
+                    />
+                    <Field
+                      label="Campos faltantes"
+                      value={(() => {
+                        const missing = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.quality_check?.missing_fields;
+                        if (!missing || missing.length === 0) return 'Ninguno';
+                        const labels: Record<string, string> = {
+                          tax_identifier: 'Identificador fiscal',
+                          linkedin_url: 'LinkedIn',
+                          website: 'Sitio web',
+                          industry: 'Sector/Industria',
+                        };
+                        return missing.map((f: string) => labels[f] ?? f).join(', ');
+                      })()}
+                    />
+                    <Field
+                      label="Confianza importada"
+                      value={(() => {
+                        const conf = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.quality_check?.import_confidence ?? (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.confidence;
+                        if (!conf) return 'No disponible';
+                        const confMap: Record<string, string> = {
+                          alta: 'Alta',
+                          media: 'Media',
+                          baja: 'Baja',
+                          high: 'Alta',
+                          medium: 'Media',
+                          low: 'Baja',
+                        };
+                        return confMap[String(conf).toLowerCase()] ?? String(conf);
+                      })()}
+                    />
+                    <Field
+                      label="Tamaño importado"
+                      value={(candidate.metadata as unknown as SheetCandidateMetadata)?.import?.company_size ?? candidate.company_size ?? 'No disponible'}
+                    />
+                    <Field
+                      label="Fuente / Evidencia"
+                      value={(() => {
+                        const sourceUrl = (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.source_url ?? (candidate.metadata as unknown as SheetCandidateMetadata)?.source_url;
+                        const evidence = (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.source_evidence;
+                        if (!sourceUrl && !evidence) return 'No disponible';
+                        return (
+                          <div className="space-y-1">
+                            {evidence && <p className="text-xs text-foreground/90">{evidence}</p>}
+                            {sourceUrl && (
+                              <a
+                                href={sourceUrl.startsWith('http') ? sourceUrl : `https://${sourceUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-su-brand hover:underline font-medium break-all block"
+                              >
+                                {sourceUrl}
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    />
+                    <Field
+                      label="Última validación"
+                      value={(() => {
+                        const val = (candidate.metadata as unknown as SheetCandidateMetadata).validation;
+                        if (!val || !val.validated_at) return 'No disponible';
+                        return new Date(val.validated_at).toLocaleString('es-CO', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        });
+                      })()}
+                    />
+                  </FieldGrid>
+                </div>
+              </div>
+            </>
+          )}
 
           <Divider />
 

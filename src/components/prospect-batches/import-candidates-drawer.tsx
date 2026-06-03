@@ -876,12 +876,15 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </div>
 
               <SheetFooter className="border-t border-border/40 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="text-left flex-1">
+                <div className="text-left flex-1 space-y-1">
                   {preview.errors > 0 && (
                     <p className="text-[11px] text-destructive font-medium">
                       ⚠️ {preview.errors} {preview.errors === 1 ? 'fila' : 'filas'} con errores no {preview.errors === 1 ? 'será importada' : 'serán importadas'}.
                     </p>
                   )}
+                  <p className="text-[11px] text-muted-foreground">
+                    SellUp validará duplicidad y calidad básica. No creará cuentas ni sincronizará con HubSpot hasta que apruebes candidatos.
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 justify-end shrink-0">
                   <Button type="button" variant="ghost" onClick={() => setStep('input')} className="text-xs">
@@ -900,12 +903,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     {confirming ? (
                       <>
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Importando…
+                        Importando y validando…
                       </>
                     ) : (
                       preview.errors > 0
-                        ? `Importar ${preview.valid + preview.warnings_only} candidato${preview.valid + preview.warnings_only !== 1 ? 's' : ''} válido${preview.valid + preview.warnings_only !== 1 ? 's' : ''}`
-                        : `Importar ${preview.valid + preview.warnings_only} candidato${preview.valid + preview.warnings_only !== 1 ? 's' : ''}`
+                        ? `Importar y validar ${preview.valid + preview.warnings_only} candidato${preview.valid + preview.warnings_only !== 1 ? 's' : ''} válido${preview.valid + preview.warnings_only !== 1 ? 's' : ''}`
+                        : `Importar y validar ${preview.valid + preview.warnings_only} candidato${preview.valid + preview.warnings_only !== 1 ? 's' : ''}`
                     )}
                   </Button>
                 </div>

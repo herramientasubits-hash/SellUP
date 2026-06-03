@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
@@ -9,6 +9,7 @@ import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult }
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
+import { checkHubSpotCompanyDuplicate, type HubSpotCompany } from '@/server/integrations/hubspot-company-search';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -2455,4 +2456,365 @@ export async function createExternalCandidatesBatch(
   revalidatePath(`/prospect-batches/${batch.id}`);
 
   return { batchId: batch.id, candidatesCreated };
+}
+
+interface ActionsImportMeta {
+  confidence?: string;
+  company_size?: string;
+  source_url?: string;
+  source_evidence?: string;
+  linkedin_url?: string;
+}
+
+interface ActionsCandidateMeta {
+  linkedin_url?: string;
+  import?: ActionsImportMeta;
+  source_url?: string;
+  confidence?: string;
+}
+
+export async function validateImportedCandidatesBatch(
+  batchId: string,
+  userId: string,
+  supabaseClient?: SupabaseClient
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = supabaseClient || (await createClient());
+
+    // 1. Cargar batch
+    const { data: batch, error: batchError } = await supabase
+      .from('prospect_batches')
+      .select('*')
+      .eq('id', batchId)
+      .single();
+
+    if (batchError || !batch) {
+      return { success: false, error: `Batch no encontrado: ${batchError?.message}` };
+    }
+
+    // 2. Verificar source === 'external_import'
+    if (batch.source !== 'external_import') {
+      return { success: false, error: 'El lote no es de tipo importación externa' };
+    }
+
+    // 3. Cargar candidates
+    const { data: candidates, error: candidatesError } = await supabase
+      .from('prospect_candidates')
+      .select('*')
+      .eq('batch_id', batchId);
+
+    if (candidatesError || !candidates) {
+      return { success: false, error: `Error al cargar candidatos: ${candidatesError?.message}` };
+    }
+
+    let validated_candidates = 0;
+    let sellup_matches_count = 0;
+    let hubspot_matches_count = 0;
+    let possible_duplicates_count = 0;
+    let no_match_count = 0;
+    let warnings_count = 0;
+    let failed_count = 0;
+    let hubspotStatusForBatch = 'not_configured';
+
+    for (const candidate of candidates) {
+      try {
+        // --- Validación SellUp ---
+        let matchedAccountId: string | null = null;
+        let matchedCandidateId: string | null = null;
+        let matchedBy: string | null = null;
+        let sellupDupStatus: 'no_match' | 'possible_duplicate' | 'duplicate' | 'error' = 'no_match';
+        let sellupConfidence = 0;
+
+        // NIT match
+        if (candidate.tax_identifier) {
+          const { data: accMatch } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('tax_identifier', candidate.tax_identifier)
+            .is('archived_at', null)
+            .limit(1);
+          if (accMatch && accMatch.length > 0) {
+            matchedAccountId = accMatch[0].id;
+            matchedBy = 'tax_identifier';
+            sellupDupStatus = 'duplicate';
+            sellupConfidence = 100;
+          } else {
+            const { data: candMatch } = await supabase
+              .from('prospect_candidates')
+              .select('id')
+              .eq('tax_identifier', candidate.tax_identifier)
+              .neq('id', candidate.id)
+              .neq('status', 'discarded')
+              .limit(1);
+            if (candMatch && candMatch.length > 0) {
+              matchedCandidateId = candMatch[0].id;
+              matchedBy = 'tax_identifier';
+              sellupDupStatus = 'duplicate';
+              sellupConfidence = 100;
+            }
+          }
+        }
+
+        // Domain match
+        if (sellupDupStatus === 'no_match' && candidate.domain) {
+          const { data: accMatch } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('domain', candidate.domain)
+            .is('archived_at', null)
+            .limit(1);
+          if (accMatch && accMatch.length > 0) {
+            matchedAccountId = accMatch[0].id;
+            matchedBy = 'domain';
+            sellupDupStatus = 'duplicate';
+            sellupConfidence = 100;
+          } else {
+            const { data: candMatch } = await supabase
+              .from('prospect_candidates')
+              .select('id')
+              .eq('domain', candidate.domain)
+              .neq('id', candidate.id)
+              .neq('status', 'discarded')
+              .limit(1);
+            if (candMatch && candMatch.length > 0) {
+              matchedCandidateId = candMatch[0].id;
+              matchedBy = 'domain';
+              sellupDupStatus = 'duplicate';
+              sellupConfidence = 100;
+            }
+          }
+        }
+
+        // Name + Country match
+        if (sellupDupStatus === 'no_match' && candidate.normalized_name && candidate.country_code) {
+          const { data: accMatch } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('normalized_name', candidate.normalized_name)
+            .eq('country_code', candidate.country_code)
+            .is('archived_at', null)
+            .limit(1);
+          if (accMatch && accMatch.length > 0) {
+            matchedAccountId = accMatch[0].id;
+            matchedBy = 'name_and_country';
+            sellupDupStatus = 'possible_duplicate';
+            sellupConfidence = 85;
+          } else {
+            const { data: candMatch } = await supabase
+              .from('prospect_candidates')
+              .select('id')
+              .eq('normalized_name', candidate.normalized_name)
+              .eq('country_code', candidate.country_code)
+              .neq('id', candidate.id)
+              .neq('status', 'discarded')
+              .limit(1);
+            if (candMatch && candMatch.length > 0) {
+              matchedCandidateId = candMatch[0].id;
+              matchedBy = 'name_and_country';
+              sellupDupStatus = 'possible_duplicate';
+              sellupConfidence = 85;
+            }
+          }
+        }
+
+        // --- Validación HubSpot ---
+        let hubspotStatus: 'no_match' | 'possible_match' | 'match' | 'not_configured' | 'error' = 'not_configured';
+        let hubspotMatches: HubSpotCompany[] = [];
+        try {
+          const dupResult = await checkHubSpotCompanyDuplicate({
+            domain: candidate.domain || undefined,
+            companyName: candidate.name || undefined,
+          });
+          if (dupResult.checked) {
+            if (dupResult.hasDuplicate) {
+              hubspotMatches = dupResult.matches;
+              const matchedByDomain = dupResult.matches.some(
+                (m) =>
+                  m.domain &&
+                  candidate.domain &&
+                  m.domain.toLowerCase() === candidate.domain.toLowerCase()
+              );
+              hubspotStatus = matchedByDomain ? 'match' : 'possible_match';
+              hubspotStatusForBatch = 'connected';
+            } else {
+              hubspotStatus = 'no_match';
+              hubspotStatusForBatch = 'connected';
+            }
+          } else if (dupResult.error) {
+            hubspotStatus = 'error';
+            hubspotStatusForBatch = 'error';
+          } else if (dupResult.skipped) {
+            hubspotStatus = 'not_configured';
+          }
+        } catch (hsErr) {
+          console.error('[validateImportedCandidatesBatch] HubSpot check error:', hsErr);
+          hubspotStatus = 'error';
+        }
+
+        // --- Quality Check ---
+        const missing_fields: string[] = [];
+        const warnings: string[] = [];
+
+        const has_website = !!candidate.website;
+        const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
+        const has_linkedin = !!(candidateMeta.linkedin_url || candidateMeta.import?.linkedin_url);
+        const has_country = !!candidate.country_code;
+        const has_industry = !!candidate.industry;
+        const has_tax_identifier = !!candidate.tax_identifier;
+        const has_company_size = !!candidate.company_size;
+        const has_external_evidence = !!(
+          candidateMeta.source_url ||
+          candidateMeta.import?.source_url ||
+          candidateMeta.import?.source_evidence
+        );
+
+        const import_confidence = candidateMeta.import?.confidence || candidateMeta.confidence || 'alta';
+
+        if (!has_tax_identifier) {
+          missing_fields.push('tax_identifier');
+          warnings.push('missing_tax_identifier');
+        }
+        if (!has_linkedin) {
+          missing_fields.push('linkedin_url');
+          warnings.push('missing_linkedin');
+        }
+        if (!has_website) {
+          missing_fields.push('website');
+          warnings.push('missing_website');
+        }
+        if (!has_industry) {
+          missing_fields.push('industry');
+          warnings.push('missing_industry');
+        }
+
+        const lowerConf = String(import_confidence).toLowerCase();
+        if (lowerConf === 'baja' || lowerConf === 'low') {
+          warnings.push('low_confidence');
+        } else if (lowerConf === 'media' || lowerConf === 'medium') {
+          warnings.push('medium_confidence');
+        }
+
+        if (candidate.review_notes) {
+          warnings.push('external_review_note');
+        }
+
+        const quality_check = {
+          missing_fields,
+          warnings,
+          import_confidence,
+          has_website,
+          has_linkedin,
+          has_country,
+          has_industry,
+          has_tax_identifier,
+          has_external_evidence,
+          has_company_size,
+        };
+
+        // --- Mapeo de duplicate_status de BD ---
+        let dbDuplicateStatus: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data' = 'no_match';
+        if (sellupDupStatus === 'duplicate') {
+          dbDuplicateStatus = 'exact_duplicate';
+          sellup_matches_count++;
+        } else if (sellupDupStatus === 'possible_duplicate') {
+          dbDuplicateStatus = 'possible_duplicate';
+          possible_duplicates_count++;
+        } else if (hubspotStatus === 'match') {
+          dbDuplicateStatus = 'possible_duplicate';
+          hubspot_matches_count++;
+          possible_duplicates_count++;
+        } else if (hubspotStatus === 'possible_match') {
+          dbDuplicateStatus = 'possible_duplicate';
+          possible_duplicates_count++;
+        } else {
+          dbDuplicateStatus = 'no_match';
+          no_match_count++;
+        }
+
+        warnings_count += warnings.length;
+
+        // --- Guardar metadata por candidato ---
+        const validation = {
+          validated_at: new Date().toISOString(),
+          validated_by: userId,
+          validation_source: 'post_import_auto',
+          validation_status: 'validated',
+          sellup_duplicate_check: {
+            status: sellupDupStatus,
+            matched_account_id: matchedAccountId,
+            matched_candidate_id: matchedCandidateId,
+            matched_by: matchedBy,
+            confidence: sellupConfidence,
+          },
+          hubspot_duplicate_check: {
+            status: hubspotStatus,
+            matches: hubspotMatches,
+          },
+          quality_check,
+        };
+
+        const updatedMetadata = {
+          ...candidateMeta,
+          validation,
+        };
+
+        // Actualizar candidato
+        await supabase
+          .from('prospect_candidates')
+          .update({
+            duplicate_status: dbDuplicateStatus,
+            matched_account_id: matchedAccountId,
+            matched_hubspot_company_id: hubspotMatches[0]?.id || null,
+            confidence_score: sellupConfidence,
+            metadata: updatedMetadata,
+          })
+          .eq('id', candidate.id);
+
+        validated_candidates++;
+      } catch (candErr) {
+        console.error(`Error validando candidato ${candidate.id}:`, candErr);
+        failed_count++;
+      }
+    }
+
+    // 4. Actualizar metadata del lote
+    const batchMeta = (batch.metadata || {}) as Record<string, unknown>;
+    const import_validation = {
+      validated_at: new Date().toISOString(),
+      validation_source: 'post_import_auto',
+      total_candidates: candidates.length,
+      validated_candidates,
+      sellup_matches_count,
+      hubspot_matches_count,
+      possible_duplicates_count,
+      no_match_count,
+      warnings_count,
+      failed_count,
+      hubspot_status: hubspotStatusForBatch,
+    };
+
+    const updatedBatchMeta = {
+      ...batchMeta,
+      import_validation,
+    };
+
+    await supabase
+      .from('prospect_batches')
+      .update({
+        metadata: updatedBatchMeta,
+      })
+      .eq('id', batchId);
+
+    try {
+      revalidatePath('/prospect-batches');
+      revalidatePath(`/prospect-batches/${batchId}`);
+    } catch (revalErr) {
+      console.warn('[validateImportedCandidatesBatch] revalidatePath skipped/failed:', revalErr);
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error en validateImportedCandidatesBatch:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Error desconocido' };
+  }
 }

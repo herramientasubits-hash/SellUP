@@ -29,6 +29,25 @@ import {
 import { CandidateRowActions } from './candidate-row-actions';
 import { CandidateDetailSheet } from './candidate-detail-sheet';
 
+interface TableQualityCheck {
+  has_website?: boolean;
+  has_linkedin?: boolean;
+  import_confidence?: string;
+  has_tax_identifier?: boolean;
+  warnings?: string[];
+}
+
+interface TableValidationMetadata {
+  validation_source?: string;
+  sellup_duplicate_check?: { status?: string };
+  hubspot_duplicate_check?: { status?: string };
+  quality_check?: TableQualityCheck;
+}
+
+interface TableCandidateMetadata {
+  validation?: TableValidationMetadata;
+}
+
 const STATUS_STYLES: Record<CandidateStatus, string> = {
   generated: 'bg-muted text-muted-foreground',
   normalized: 'bg-muted text-muted-foreground',
@@ -202,6 +221,39 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
   const dc = parseDuplicateCheck(candidate.metadata);
   const sources = dc?.sources_checked ?? [];
   const matches = dc?.matches ?? [];
+
+  if (candidate.source_primary === 'external_import' && (candidate.metadata as unknown as TableCandidateMetadata)?.validation) {
+    const valObj = (candidate.metadata as unknown as TableCandidateMetadata).validation;
+    const sellupStatus = valObj?.sellup_duplicate_check?.status;
+    const hsStatus = valObj?.hubspot_duplicate_check?.status;
+
+    let label = 'Sin coincidencia';
+    let style = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+
+    if (sellupStatus === 'duplicate') {
+      label = 'Duplicado SellUp';
+      style = 'bg-destructive/10 text-destructive';
+    } else if (hsStatus === 'match') {
+      label = 'Coincidencia HubSpot';
+      style = 'bg-orange-500/10 text-orange-600 dark:text-orange-400';
+    } else if (sellupStatus === 'possible_duplicate' || hsStatus === 'possible_match') {
+      label = 'Posible duplicado';
+      style = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    } else if (hsStatus === 'not_configured') {
+      if (sellupStatus === 'no_match' || !sellupStatus) {
+        label = 'HubSpot no configurado';
+        style = 'bg-muted text-muted-foreground/60';
+      }
+    }
+
+    return (
+      <div className="flex flex-col gap-1 min-w-[120px]">
+        <Badge className={`${style} border-0 text-[10px] font-semibold w-fit`}>
+          {label}
+        </Badge>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1 min-w-[120px]">
@@ -507,7 +559,55 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   {/* ── Señales ── */}
                   <td className="px-4 py-3 min-w-[130px]">
                     <div className="space-y-1">
-                      {isChileOfficialCandidate ? (
+                      {c.source_primary === 'external_import' && (c.metadata as unknown as TableCandidateMetadata)?.validation ? (
+                        <div className="flex flex-wrap gap-1 max-w-[160px]">
+                          {(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.has_website && (
+                            <Badge variant="outline" className="text-[9px] font-medium bg-su-brand-soft text-su-brand border-su-brand/20">
+                              Website presente
+                            </Badge>
+                          )}
+                          {(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.has_linkedin && (
+                            <Badge variant="outline" className="text-[9px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+                              LinkedIn presente
+                            </Badge>
+                          )}
+                          {(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.import_confidence && (() => {
+                            const conf = String((c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.import_confidence).toLowerCase();
+                            if (conf === 'alta' || conf === 'high') {
+                              return (
+                                <Badge variant="outline" className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+                                  Confianza Alta
+                                </Badge>
+                              );
+                            }
+                            if (conf === 'media' || conf === 'medium') {
+                              return (
+                                <Badge variant="outline" className="text-[9px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+                                  Confianza Media
+                                </Badge>
+                              );
+                            }
+                            if (conf === 'baja' || conf === 'low') {
+                              return (
+                                <Badge variant="outline" className="text-[9px] font-semibold bg-destructive/10 text-destructive border-destructive/20">
+                                  Confianza Baja
+                                </Badge>
+                              );
+                            }
+                            return null;
+                          })()}
+                          {c.company_size && (
+                            <Badge variant="outline" className="text-[9px] font-medium bg-muted text-muted-foreground border-transparent">
+                              T: {c.company_size}
+                            </Badge>
+                          )}
+                          {!(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.has_tax_identifier && (
+                            <Badge variant="outline" className="text-[9px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20">
+                              Sin identificador fiscal
+                            </Badge>
+                          )}
+                        </div>
+                      ) : isChileOfficialCandidate ? (
                         <div className="flex flex-col gap-1">
                           {(() => {
                             const chileSourceParams = c.source_trace?.queryParams as Record<string, unknown> | undefined;
@@ -644,7 +744,21 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                             Conv. revertida
                           </Badge>
                         )}
-                      {c.review_status && (
+                      {c.source_primary === 'external_import' && (c.metadata as unknown as TableCandidateMetadata)?.validation ? (
+                        <Badge className={`${
+                          c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate'
+                            ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
+                            : (((c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.warnings?.length ?? 0) > 0)
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                        } border-0 text-[9px] font-semibold block w-fit`}>
+                          {c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate'
+                            ? 'Posible duplicado'
+                            : (((c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.warnings?.length ?? 0) > 0)
+                            ? 'Requiere revisión manual'
+                            : 'Validado para revisión'}
+                        </Badge>
+                      ) : c.review_status && (
                         <Badge
                           className={`${
                             REVIEW_STATUS_STYLES[c.review_status as ReviewStatus] ??
