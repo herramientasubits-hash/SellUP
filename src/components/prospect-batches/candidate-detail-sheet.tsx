@@ -564,7 +564,7 @@ export function CandidateDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full max-w-xl overflow-y-auto flex flex-col gap-0 px-0">
+      <SheetContent side="right" className="w-full sm:w-[40vw] sm:min-w-[520px] sm:max-w-none overflow-y-auto flex flex-col gap-0 px-0">
         {/* Header */}
         <SheetHeader className="px-5 pt-5 pb-3 border-b border-border/30">
           <div className="flex items-start gap-2">
