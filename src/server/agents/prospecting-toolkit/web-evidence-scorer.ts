@@ -40,6 +40,34 @@ const COMMERCIAL_DIRECTORY_DOMAINS = new Set([
   'wikipedia.org',
 ]);
 
+/**
+ * Dominios académicos, repositorios documentales y plataformas de documentos.
+ * Pueden ser public_evidence si mencionan nombre/NIT, pero NUNCA website oficial.
+ */
+const ACADEMIC_REPOSITORY_DOMAINS = new Set([
+  'academia.edu',
+  'researchgate.net',
+  'docs.google.com',
+  'drive.google.com',
+  'scribd.com',
+  'issuu.com',
+  'pdfcoffee.com',
+  'studocu.com',
+]);
+
+const ACADEMIC_REPOSITORY_SUBSTRINGS = [
+  'repositorio.',
+  'repository.',
+  'scholar.',
+  'researchgate.',
+  'scielo.',
+  'dialnet.',
+  'redalyc.',
+  'semanticscholar.',
+  '.edu.co/repositorio',
+  '.edu/repositorio',
+];
+
 const DIRECTORY_SUBSTRINGS = [
   'paginasamarillas', 'paginas-amarillas', 'kompass', 'opencorporates',
   'dnb.com', 'zoominfo', 'clutch.co', 'crunchbase', 'emis.com', 'cylex',
@@ -191,20 +219,90 @@ export interface CandidateBasicInfo {
 // ─── Public domain helpers ─────────────────────────────────────────────────────
 
 /**
- * Returns true if a domain is a directory, registry, social network, or
- * third-party aggregator — i.e. it must NEVER be stored as an official website.
+ * Returns true if a domain is a directory, registry, social network,
+ * third-party aggregator, or academic/repository site — i.e. it must NEVER
+ * be stored as an official website. May still be used as public_evidence.
  */
 export function isDirectoryOrThirdPartyEvidenceDomain(domain: string): boolean {
   if (!domain) return false;
   const d = domain.toLowerCase().replace(/^www\./, '');
   if (COMMERCIAL_DIRECTORY_DOMAINS.has(d)) return true;
+  if (ACADEMIC_REPOSITORY_DOMAINS.has(d)) return true;
   if (SOCIAL_PERSONAL.has(d)) return true;
   if (SEARCH_ENGINES.has(d)) return true;
   if (EMAIL_PROVIDERS.has(d)) return true;
   if (DIRECTORY_SUBSTRINGS.some((k) => d.includes(k))) return true;
   if (REGISTRY_SUBSTRINGS.some((k) => d.includes(k))) return true;
   if (CHAMBER_OF_COMMERCE_SUBSTRINGS.some((k) => d.includes(k))) return true;
+  if (ACADEMIC_REPOSITORY_SUBSTRINGS.some((k) => d.includes(k) || domain.toLowerCase().includes(k))) return true;
+  // Reject any subdomain of a university (.edu, .edu.co, .edu.mx, etc.)
+  if (/\.edu(\.[a-z]{2})?$/.test(d)) return true;
   return false;
+}
+
+/**
+ * Returns a rejection reason if the domain cannot be an official website,
+ * or null if the domain passes all guards.
+ * More descriptive than isDirectoryOrThirdPartyEvidenceDomain — used in debug reports.
+ */
+export function getOfficialWebsiteRejectionReason(domain: string): string | null {
+  if (!domain) return 'empty_domain';
+  const d = domain.toLowerCase().replace(/^www\./, '');
+  if (ACADEMIC_REPOSITORY_DOMAINS.has(d)) return 'academic_repository_domain';
+  if (ACADEMIC_REPOSITORY_SUBSTRINGS.some((k) => d.includes(k) || domain.toLowerCase().includes(k))) return 'academic_repository_substring';
+  if (/\.edu(\.[a-z]{2})?$/.test(d)) return 'university_edu_domain';
+  if (COMMERCIAL_DIRECTORY_DOMAINS.has(d)) return 'commercial_directory';
+  if (DIRECTORY_SUBSTRINGS.some((k) => d.includes(k))) return 'directory_substring';
+  if (REGISTRY_SUBSTRINGS.some((k) => d.includes(k))) return 'public_registry_substring';
+  if (CHAMBER_OF_COMMERCE_SUBSTRINGS.some((k) => d.includes(k))) return 'chamber_of_commerce';
+  if (NEWS_SUBSTRINGS.some((k) => d.includes(k))) return 'news_media_domain';
+  if (SOCIAL_PERSONAL.has(d)) return 'social_network';
+  if (SEARCH_ENGINES.has(d)) return 'search_engine';
+  if (EMAIL_PROVIDERS.has(d)) return 'email_provider';
+  return null;
+}
+
+/**
+ * Returns true if the URL/domain is a strong candidate for an official company website.
+ * Stricter than the classifier — used for the final guard before accepting a result.
+ */
+export function isOfficialWebsiteCandidate(url: string): boolean {
+  const domain = extractDomainFromUrl(url);
+  if (!domain) return false;
+  if (isDirectoryOrThirdPartyEvidenceDomain(domain)) return false;
+  // Must not be linkedin
+  if (domain.includes('linkedin.com')) return false;
+  // Must have at least one dot (basic sanity)
+  if (!domain.includes('.')) return false;
+  return true;
+}
+
+/**
+ * Returns true if the evidence is sufficient to warrant calling Claude.
+ * Avoids spending tokens when only weak/directory results are available.
+ */
+export function hasMinimumEvidenceForClaude(
+  webResult: WebEnrichmentResult,
+  scoredResults: ScoredWebResult[],
+): boolean {
+  if (webResult.official_website !== null) return true;
+  if (webResult.linkedin_company !== null) return true;
+  // Public evidence with NIT or strong name match
+  if (webResult.public_evidence.length > 0) {
+    const strongPublic = webResult.public_evidence.some(
+      (e) => e.confidence === 'high' || e.confidence === 'medium',
+    );
+    if (strongPublic) return true;
+  }
+  // At least one non-directory result with medium+ confidence
+  const hasUsableResult = scoredResults.some(
+    (r) =>
+      r.source_type !== 'commercial_directory' &&
+      r.source_type !== 'unknown' &&
+      r.source_type !== 'social' &&
+      (r.confidence === 'high' || r.confidence === 'medium'),
+  );
+  return hasUsableResult;
 }
 
 // ─── Name normalization ───────────────────────────────────────────────────────
@@ -403,6 +501,12 @@ function classifySourceType(url: string, title: string, snippet: string | null):
 
   // Public registry (RUES, Supersociedades)
   if (domainMatchesList(domain, REGISTRY_SUBSTRINGS)) return 'public_registry';
+
+  // Academic repositories and document platforms — treated as public_registry
+  // so they flow into public_evidence, never official_website
+  if (ACADEMIC_REPOSITORY_DOMAINS.has(domain)) return 'public_registry';
+  if (domainMatchesList(domain, ACADEMIC_REPOSITORY_SUBSTRINGS)) return 'public_registry';
+  if (/\.edu(\.[a-z]{2})?$/.test(domain)) return 'public_registry';
 
   // News / media
   if (domainMatchesList(domain, NEWS_SUBSTRINGS)) return 'news';
