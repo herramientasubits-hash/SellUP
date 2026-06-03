@@ -27,6 +27,30 @@ export function normalizeAIProviderKey(value: string): string {
 }
 
 /**
+ * Verifica credencial en Vault probando todos los aliases conocidos.
+ * Para Google: google, gemini, Google Gemini.
+ * Devuelve info de diagnóstico segura (sin exponer keys).
+ */
+export async function hasGeminiCredential(): Promise<{
+  available: boolean;
+  resolved_provider_key: string | null;
+  checked_aliases: Array<{ alias: string; vault_key: string; found: boolean }>;
+}> {
+  const aliases = ['google', 'gemini'];
+  const checks: Array<{ alias: string; vault_key: string; found: boolean }> = [];
+
+  for (const alias of aliases) {
+    const found = await hasAiProviderCredential(alias);
+    checks.push({ alias, vault_key: `sellup_ai_${alias}`, found });
+    if (found) {
+      return { available: true, resolved_provider_key: alias, checked_aliases: checks };
+    }
+  }
+
+  return { available: false, resolved_provider_key: null, checked_aliases: checks };
+}
+
+/**
  * Verifica si existe credencial en Vault probando el key canónico
  * y también el alias alternativo (google ↔ gemini).
  */
@@ -36,24 +60,26 @@ async function hasAiProviderCredentialWithAlias(providerKey: string): Promise<bo
   if (hasDirect) return true;
   // Intentar alias alternativo para Google
   if (canonical === 'google') {
-    return hasAiProviderCredential('gemini');
+    const aliasResult = await hasAiProviderCredential('gemini');
+    if (aliasResult) return true;
   }
   return false;
 }
 
 /**
  * Recupera credencial desde Vault probando key canónico y alias alternativo.
+ * Para Google/Gemini prueba: google → gemini.
  */
 async function getAiProviderCredentialWithAlias(
   providerKey: string
-): Promise<{ success: boolean; apiKey?: string; error?: string }> {
+): Promise<{ success: boolean; apiKey?: string; error?: string; resolved_alias?: string }> {
   const canonical = normalizeAIProviderKey(providerKey);
   const direct = await getAiProviderCredential(canonical);
-  if (direct.success && direct.apiKey) return direct;
+  if (direct.success && direct.apiKey) return { ...direct, resolved_alias: canonical };
   // Intentar alias alternativo para Google
   if (canonical === 'google') {
     const alias = await getAiProviderCredential('gemini');
-    if (alias.success && alias.apiKey) return alias;
+    if (alias.success && alias.apiKey) return { ...alias, resolved_alias: 'gemini' };
   }
   return direct;
 }
@@ -416,10 +442,24 @@ function getAdminSupabase() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+/**
+ * Determina si un error de proveedor permite continuar con el siguiente candidato.
+ *
+ * Política:
+ * - Errores de modelo no encontrado → siempre recuperable (probar siguiente modelo).
+ * - Errores HTTP de proveedor (401, 402, 429, 500, 503, red) → recuperable,
+ *   para que el fallback a otro PROVEEDOR siempre ocurra.
+ * - Solo errores de parseo de respuesta sin relación con el proveedor podrían
+ *   no ser recuperables, pero en la práctica también se permite continuar.
+ *
+ * IMPORTANTE: Esta función siendo liberal (devolver true) es segura porque
+ * el loop tiene un maxAttempts limitado y siempre termina.
+ */
 function isRecoverableError(status: number, message: string, rawError: string): boolean {
   const errMsg = (message || '').toLowerCase();
   const rawErr = (rawError || '').toLowerCase();
-  
+
+  // ── Errores de modelo no encontrado ──────────────────────────────────────
   if (status === 404) return true;
   if (errMsg.includes('not_found') || rawErr.includes('not_found')) return true;
   if (errMsg.includes('not found') || rawErr.includes('not found')) return true;
@@ -430,15 +470,58 @@ function isRecoverableError(status: number, message: string, rawError: string): 
   if (errMsg.includes('model_not_found') || rawErr.includes('model_not_found')) return true;
   if (errMsg.includes('model not found') || rawErr.includes('model not found')) return true;
   if (errMsg.includes('model_error') || rawErr.includes('model_error')) return true;
-  
   if (status === 400 && (errMsg.includes('model') || rawErr.includes('model'))) return true;
-  
-  return false;
+
+  // ── Errores de autenticación/créditos/rate-limit ─────────────────────────
+  // Son recuperables porque el SIGUIENTE proveedor puede tener credenciales válidas.
+  if (status === 401) return true; // Unauthorized — credencial inválida, probar otro proveedor
+  if (status === 402) return true; // Payment Required — créditos agotados, probar otro proveedor
+  if (status === 403) return true; // Forbidden — permisos, probar otro proveedor
+  if (status === 429) return true; // Too Many Requests — rate limit, probar otro proveedor
+
+  // ── Errores de infraestructura del proveedor ──────────────────────────────
+  if (status === 500) return true; // Internal Server Error del proveedor
+  if (status === 502) return true; // Bad Gateway
+  if (status === 503) return true; // Service Unavailable
+  if (status === 504) return true; // Gateway Timeout
+
+  // ── Errores de red/timeout ────────────────────────────────────────────────
+  if (errMsg.includes('aborted') || rawErr.includes('aborted')) return true;
+  if (errMsg.includes('timeout') || rawErr.includes('timeout')) return true;
+  if (errMsg.includes('network') || rawErr.includes('network')) return true;
+  if (errMsg.includes('fetch failed') || rawErr.includes('fetch failed')) return true;
+
+  // ── Errores de parseo de respuesta ────────────────────────────────────────
+  // También recuperables: quizás otro proveedor devuelve JSON válido.
+  if (errMsg.includes('json') || rawErr.includes('json')) return true;
+  if (errMsg.includes('parse') || rawErr.includes('parse')) return true;
+
+  // Por defecto, intentar el siguiente candidato en lugar de detenerse.
+  // Esto garantiza que Gemini siempre se intente si está configurado.
+  return true;
+}
+
+export interface AIExecutionDebugInfo {
+  active_config_summary: {
+    provider_key: string;
+    model_key: string;
+  } | null;
+  vault_checks: Array<{ alias: string; vault_key: string; found: boolean }>;
+  gemini_credential: {
+    available: boolean;
+    resolved_provider_key: string | null;
+  };
+  db_models_count: number;
+  gemini_models_in_db: Array<{ key: string; name: string }>;
+  candidates_before_dedup: Array<{ provider_key: string; model_key: string; priority: number }>;
+  candidates_final: Array<{ provider_key: string; model_key: string; priority: number }>;
+  skipped_gemini_reason: string | null;
 }
 
 export async function buildAIExecutionCandidates(
   supabase: SupabaseClient,
-  activeConfig: AIActiveConfig | null
+  activeConfig: AIActiveConfig | null,
+  debugOut?: { info: AIExecutionDebugInfo }
 ): Promise<AIExecutionCandidate[]> {
   const candidates: AIExecutionCandidate[] = [];
 
@@ -467,15 +550,37 @@ export async function buildAIExecutionCandidates(
     console.error('[buildAIExecutionCandidates] Error fetching DB models:', error);
   }
 
-  // Verificar credenciales usando alias para Google (puede estar guardada como 'google' o 'gemini')
+  // ── Verificar credenciales con todos los aliases conocidos ────────────────
+  // Para Google se prueban: google (sellup_ai_google) y gemini (sellup_ai_gemini)
   const providersToCheck = ['anthropic', 'google', 'openai'];
   const credentialsMap: Record<string, boolean> = {};
   for (const p of providersToCheck) {
     credentialsMap[p] = await hasAiProviderCredentialWithAlias(p);
   }
 
-  console.log('[buildAIExecutionCandidates] credentialsMap:', credentialsMap);
-  console.log('[buildAIExecutionCandidates] activeProviderKey:', activeProviderKey, 'activeModelKey:', activeModelKey);
+  // Verificación Gemini detallada con diagnóstico seguro
+  const geminiCheck = await hasGeminiCredential();
+  // Sincronizar resultado detallado con el mapa de credenciales
+  if (geminiCheck.available) {
+    credentialsMap['google'] = true;
+  }
+
+  const isDev = process.env.NODE_ENV !== 'production';
+
+  if (isDev) {
+    console.log('[buildAIExecutionCandidates] credentialsMap:', credentialsMap);
+    console.log('[buildAIExecutionCandidates] activeProviderKey:', activeProviderKey, 'activeModelKey:', activeModelKey);
+    console.log('[buildAIExecutionCandidates] geminiCheck:', {
+      available: geminiCheck.available,
+      resolved_provider_key: geminiCheck.resolved_provider_key,
+      checked_aliases: geminiCheck.checked_aliases,
+    });
+  } else {
+    // En producción: solo loguear resultado (sin aliases, sin keys)
+    console.log('[buildAIExecutionCandidates] active:', activeProviderKey, activeModelKey,
+      '| google_cred:', geminiCheck.available,
+      '| anthropic_cred:', credentialsMap['anthropic']);
+  }
 
   const getProviderDisplayName = (pKey: string) => {
     if (pKey === 'anthropic') return 'Claude';
@@ -499,35 +604,51 @@ export async function buildAIExecutionCandidates(
     }
   }
 
-  // ── SLOT 2: Gemini preferente si el activo no es Gemini ───────────────────
-  // Esto garantiza que Gemini esté en los primeros intentos antes de agotar
-  // todos los modelos del proveedor activo.
+  // ── SLOT 2: Gemini como fallback preferente ───────────────────────────────
+  // Si el proveedor activo NO es Google y Gemini tiene credencial, se agrega
+  // como segundo intento ANTES de agotar todos los modelos del proveedor activo.
+  //
+  // Modelos hardcoded seguros: no exponen secretos, solo IDs técnicos públicos.
   const geminiPriorityModels = [
     { key: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
     { key: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B' },
     { key: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
   ];
 
-  if (activeProviderKey !== 'google' && credentialsMap['google']) {
-    for (const gm of geminiPriorityModels) {
-      candidates.push({
-        provider_key: 'google',
-        provider_display_name: 'Google Gemini',
-        model_key: gm.key,
-        model_display_name: gm.name,
-        credential_available: true,
-        priority: 2, // Antes que otros modelos del proveedor activo
-      });
+  let skippedGeminiReason: string | null = null;
+
+  if (activeProviderKey !== 'google') {
+    if (geminiCheck.available) {
+      for (const gm of geminiPriorityModels) {
+        candidates.push({
+          provider_key: 'google',
+          provider_display_name: 'Google Gemini',
+          model_key: gm.key,
+          model_display_name: gm.name,
+          credential_available: true,
+          priority: 2,
+        });
+      }
+    } else {
+      // Gemini no tiene credencial — registrar razón para skipped markers
+      skippedGeminiReason = `No Gemini credential found in Vault. Checked aliases: ${geminiCheck.checked_aliases.map((c) => c.vault_key).join(', ')}`;
+      console.warn('[buildAIExecutionCandidates] Gemini skipped —', skippedGeminiReason);
     }
   }
 
   // ── SLOTS 3+: Modelos adicionales desde la DB ─────────────────────────────
+  const dbGeminiModels: Array<{ key: string; name: string }> = [];
+
   if (dbModels && dbModels.length > 0) {
     for (const m of dbModels) {
       const rawProvider = m.ai_providers as unknown;
       const providerData = (Array.isArray(rawProvider) ? rawProvider[0] : rawProvider) as { key: string; name: string } | null;
       const pKey = normalizeAIProviderKey(providerData?.key || '');
       if (!pKey) continue;
+
+      if (pKey === 'google') {
+        dbGeminiModels.push({ key: m.key, name: m.name });
+      }
 
       const isCredAvailable = credentialsMap[pKey] ?? false;
       if (!isCredAvailable) continue;
@@ -540,10 +661,10 @@ export async function buildAIExecutionCandidates(
 
       let priority: number;
       if (pKey === 'google') {
-        // Gemini: prioridad 2 si es preferente, 3 si ya fue agregado como slot 2
+        // Gemini desde DB: prioridad 3 (después del SLOT 2 hardcoded)
         priority = 3;
       } else if (pKey === activeProviderKey) {
-        // Otros modelos del proveedor activo van después de Gemini
+        // Otros modelos del proveedor activo van DESPUÉS de Gemini
         priority = 4;
       } else if (pKey === 'openai') {
         priority = 5;
@@ -561,6 +682,13 @@ export async function buildAIExecutionCandidates(
       });
     }
   }
+
+  // ── Diagnóstico antes de dedup (para debugOut) ────────────────────────────
+  const candidatesBeforeDedup = candidates.map((c) => ({
+    provider_key: c.provider_key,
+    model_key: c.model_key,
+    priority: c.priority,
+  }));
 
   // ── Deduplicar preservando primera aparición (menor priority) ─────────────
   candidates.sort((a, b) => a.priority - b.priority);
@@ -601,10 +729,31 @@ export async function buildAIExecutionCandidates(
     return a.model_key.localeCompare(b.model_key);
   });
 
-  console.log(
-    '[buildAIExecutionCandidates] Final order:',
-    uniqueCandidates.map((c) => `[${c.priority}] ${c.provider_key}/${c.model_key}`)
-  );
+  const finalOrder = uniqueCandidates.map((c) => `[${c.priority}] ${c.provider_key}/${c.model_key}`);
+  console.log('[buildAIExecutionCandidates] Final order:', finalOrder);
+
+  // ── Poblar debugOut si se proporcionó ─────────────────────────────────────
+  if (debugOut) {
+    debugOut.info = {
+      active_config_summary: activeProviderKey
+        ? { provider_key: activeProviderKey, model_key: activeModelKey }
+        : null,
+      vault_checks: geminiCheck.checked_aliases,
+      gemini_credential: {
+        available: geminiCheck.available,
+        resolved_provider_key: geminiCheck.resolved_provider_key,
+      },
+      db_models_count: dbModels?.length ?? 0,
+      gemini_models_in_db: dbGeminiModels,
+      candidates_before_dedup: candidatesBeforeDedup,
+      candidates_final: uniqueCandidates.map((c) => ({
+        provider_key: c.provider_key,
+        model_key: c.model_key,
+        priority: c.priority,
+      })),
+      skipped_gemini_reason: skippedGeminiReason,
+    };
+  }
 
   return uniqueCandidates;
 }
@@ -646,7 +795,15 @@ export async function enrichProspectCandidate({
     }
 
     const activeConfig = await getAIActiveConfig();
-    const executionCandidates = await buildAIExecutionCandidates(supabase, activeConfig);
+
+    // debugOut captura diagnóstico seguro sin exponer API keys
+    const debugOut: { info?: AIExecutionDebugInfo } = {};
+    const executionCandidates = await buildAIExecutionCandidates(supabase, activeConfig, debugOut as { info: AIExecutionDebugInfo });
+
+    // Log de diagnóstico seguro (sin API keys)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[enrichProspectCandidate] AI Fallback Debug:', JSON.stringify(debugOut.info ?? {}, null, 2));
+    }
 
     if (executionCandidates.length === 0) {
       const errMsg = 'No fue posible ejecutar el enriquecimiento con los proveedores de IA configurados. Revisa Configuración > Proveedores de IA.';
@@ -714,9 +871,24 @@ export async function enrichProspectCandidate({
       candidate: AIExecutionCandidate;
     } | null = null;
 
-    // Aumentado a 5 para asegurar que Gemini siempre entre dentro de los intentos
-    // aunque haya múltiples modelos del proveedor activo disponibles.
-    const maxAttempts = Math.min(5, executionCandidates.length);
+    // maxAttempts cubre todos los candidatos disponibles.
+    // Con Gemini en posición 2, siempre se intenta si tiene credencial.
+    // El límite se aumenta a 8 para garantizar cobertura completa de fallbacks.
+    const maxAttempts = Math.min(8, executionCandidates.length);
+
+    // Si Gemini no tiene credencial, registrar un marker de skipped antes de los intentos
+    // para que la UI pueda mostrar claramente que Gemini fue evaluado pero omitido.
+    if (debugOut.info?.skipped_gemini_reason) {
+      attempts.push({
+        provider: 'google',
+        provider_display_name: 'Google Gemini',
+        model: 'gemini-2.0-flash',
+        model_display_name: 'Gemini 2.0 Flash',
+        status: 'skipped',
+        error_code: 'credential_not_found',
+        error_message: debugOut.info.skipped_gemini_reason,
+      });
+    }
 
     for (let i = 0; i < maxAttempts; i++) {
       const execCand = executionCandidates[i];
