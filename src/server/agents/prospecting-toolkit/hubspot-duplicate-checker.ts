@@ -196,7 +196,7 @@ function classifyHubSpotResult(
       matchedWebsite: p.website,
       matchedTaxIdentifier: p.nit,
       reason: `Dominio exacto coincide en HubSpot: ${rDomain}`,
-      raw: { id: result.id, domain: rDomain, name: rName, lifecyclestage: p.lifecyclestage },
+      raw: { id: result.id, domain: rDomain, name: rName, lifecyclestage: p.lifecyclestage, country: p.country, city: p.city, industry: p.industry },
     };
   }
 
@@ -216,7 +216,7 @@ function classifyHubSpotResult(
         matchedWebsite: p.website,
         matchedTaxIdentifier: p.nit,
         reason: `Nombre normalizado exacto coincide en HubSpot: "${rName}"`,
-        raw: { id: result.id, domain: rDomain, name: rName, lifecyclestage: p.lifecyclestage },
+        raw: { id: result.id, domain: rDomain, name: rName, lifecyclestage: p.lifecyclestage, country: p.country, city: p.city, industry: p.industry },
       };
     }
 
@@ -232,7 +232,7 @@ function classifyHubSpotResult(
         matchedWebsite: p.website,
         matchedTaxIdentifier: p.nit,
         reason: `Nombre similar por contenido en HubSpot: "${rName}"`,
-        raw: { id: result.id, domain: rDomain, name: rName, lifecyclestage: p.lifecyclestage },
+        raw: { id: result.id, domain: rDomain, name: rName, lifecyclestage: p.lifecyclestage, country: p.country, city: p.city, industry: p.industry },
       };
     }
   }
@@ -248,7 +248,7 @@ function classifyHubSpotResult(
     matchedWebsite: p.website,
     matchedTaxIdentifier: p.nit,
     reason: `HubSpot devolvió coincidencia por búsqueda de nombre pero similitud baja`,
-    raw: { id: result.id, domain: rDomain, name: rName },
+    raw: { id: result.id, domain: rDomain, name: rName, lifecyclestage: p.lifecyclestage, country: p.country, city: p.city, industry: p.industry },
   };
 }
 

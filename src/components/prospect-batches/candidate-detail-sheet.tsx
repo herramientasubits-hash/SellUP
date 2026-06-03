@@ -61,6 +61,13 @@ interface SheetDuplicateCheck {
   status?: string;
   matched_account_id?: string | null;
   matched_candidate_id?: string | null;
+  matched_name?: string | null;
+  matched_domain?: string | null;
+  matched_website?: string | null;
+  matched_country_code?: string | null;
+  matched_tax_identifier?: string | null;
+  matched_source?: string | null;
+  matched_status?: string | null;
   matched_by?: string | null;
   confidence?: number;
 }
@@ -69,8 +76,15 @@ interface SheetHubSpotCheck {
   status?: string;
   matched_company_id?: string | null;
   matched_company_name?: string | null;
+  matched_domain?: string | null;
+  matched_website?: string | null;
+  matched_country?: string | null;
+  matched_city?: string | null;
+  matched_industry?: string | null;
+  matched_lifecycle_stage?: string | null;
   matched_by?: string | null;
   confidence?: number;
+  hubspot_url?: string | null;
 }
 
 interface SheetNormalizedKeys {
@@ -1246,6 +1260,159 @@ export function CandidateDetailSheet({
                       ? 'Sin coincidencia en SellUp ni HubSpot.'
                       : 'Sin coincidencia en SellUp.'}
                   </p>
+
+                  {/* Bloque SellUp detail */}
+                  {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate') &&
+                    validationMetaSheet?.sellup_duplicate_check?.matched_name && (
+                    <div className="rounded-lg border border-border/40 bg-card p-3 space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                        Coincidencia en SellUp
+                      </p>
+                      <FieldGrid>
+                        <Field label="Empresa encontrada" value={val(validationMetaSheet.sellup_duplicate_check.matched_name)} />
+                        <Field
+                          label="Tipo de registro"
+                          value={
+                            validationMetaSheet.sellup_duplicate_check.matched_source === 'account'
+                              ? 'Cuenta (Account)'
+                              : validationMetaSheet.sellup_duplicate_check.matched_source === 'prospect_candidate'
+                              ? 'Candidato'
+                              : '—'
+                          }
+                        />
+                        <Field
+                          label="ID interno"
+                          value={val(validationMetaSheet.sellup_duplicate_check.matched_account_id ?? validationMetaSheet.sellup_duplicate_check.matched_candidate_id)}
+                          mono
+                        />
+                        <Field
+                          label="Dominio / web"
+                          value={val(validationMetaSheet.sellup_duplicate_check.matched_domain ?? validationMetaSheet.sellup_duplicate_check.matched_website)}
+                        />
+                        <Field label="País" value={val(validationMetaSheet.sellup_duplicate_check.matched_country_code)} />
+                        <Field label="Identificador fiscal" value={val(validationMetaSheet.sellup_duplicate_check.matched_tax_identifier)} mono />
+                        <Field
+                          label="Coincidió por"
+                          value={({
+                            tax_identifier: 'NIT/RFC/RUT',
+                            domain: 'Dominio web',
+                            normalized_name_country: 'Nombre + país',
+                            company_name: 'Nombre de empresa',
+                          } as Record<string, string>)[validationMetaSheet.sellup_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.sellup_duplicate_check.matched_by)}
+                        />
+                        <Field
+                          label="Confianza"
+                          value={(validationMetaSheet.sellup_duplicate_check.confidence ?? 0) > 0
+                            ? `${validationMetaSheet.sellup_duplicate_check.confidence}%`
+                            : '—'
+                          }
+                        />
+                        <Field label="Estado del registro" value={val(validationMetaSheet.sellup_duplicate_check.matched_status)} />
+                      </FieldGrid>
+                    </div>
+                  )}
+
+                  {/* Bloque HubSpot detail */}
+                  {(hsDupStatus === 'match' || hsDupStatus === 'possible_match') && (
+                    <div className="rounded-lg border border-border/40 bg-card p-3 space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                        Coincidencia en HubSpot
+                      </p>
+                      {(validationMetaSheet?.hubspot_duplicate_check?.matched_company_name ||
+                        validationMetaSheet?.hubspot_duplicate_check?.matched_company_id) ? (
+                        <FieldGrid>
+                          <Field label="Empresa encontrada" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_name)} />
+                          <Field label="HubSpot Company ID" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_id)} mono />
+                          <Field
+                            label="Dominio / web"
+                            value={val(validationMetaSheet.hubspot_duplicate_check.matched_domain ?? validationMetaSheet.hubspot_duplicate_check.matched_website)}
+                          />
+                          <Field
+                            label="País / ciudad"
+                            value={[validationMetaSheet.hubspot_duplicate_check.matched_country, validationMetaSheet.hubspot_duplicate_check.matched_city].filter(Boolean).join(' / ') || '—'}
+                          />
+                          <Field label="Industria" value={val(validationMetaSheet.hubspot_duplicate_check.matched_industry)} />
+                          <Field
+                            label="Lifecycle stage"
+                            value={({
+                              subscriber: 'Suscriptor', lead: 'Lead', marketingqualifiedlead: 'MQL',
+                              salesqualifiedlead: 'SQL', opportunity: 'Oportunidad', customer: 'Cliente',
+                              evangelist: 'Evangelizador', other: 'Otro',
+                            } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage)}
+                          />
+                          <Field
+                            label="Coincidió por"
+                            value={({
+                              tax_identifier: 'NIT/RFC/RUT',
+                              domain: 'Dominio web',
+                              normalized_name_country: 'Nombre + país',
+                              company_name: 'Nombre de empresa',
+                            } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_by)}
+                          />
+                          <Field
+                            label="Confianza"
+                            value={(validationMetaSheet.hubspot_duplicate_check.confidence ?? 0) > 0
+                              ? `${validationMetaSheet.hubspot_duplicate_check.confidence}%`
+                              : '—'
+                            }
+                          />
+                        </FieldGrid>
+                      ) : (
+                        <p className="text-xs text-muted-foreground/60 italic">
+                          Coincidencia detectada pero sin detalle adicional. Revalida el lote para obtener más datos.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Comparación rápida */}
+                  {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate' ||
+                    hsDupStatus === 'match' || hsDupStatus === 'possible_match') && (() => {
+                    const su = validationMetaSheet?.sellup_duplicate_check;
+                    const hs = validationMetaSheet?.hubspot_duplicate_check;
+                    const hasSellupDetail = !!(su?.matched_name);
+                    const matchName = hasSellupDetail ? su?.matched_name : hs?.matched_company_name;
+                    const matchDomain = hasSellupDetail
+                      ? (su?.matched_domain ?? su?.matched_website)
+                      : (hs?.matched_domain ?? hs?.matched_website);
+                    const matchCountry = hasSellupDetail ? su?.matched_country_code : hs?.matched_country;
+                    const matchCity: string | null | undefined = hasSellupDetail ? null : hs?.matched_city;
+                    const matchTaxId = hasSellupDetail ? su?.matched_tax_identifier : null;
+                    if (!matchName && !matchDomain) return null;
+                    const rows = [
+                      { label: 'Nombre', cv: candidate.name, mv: matchName },
+                      { label: 'Sitio web / dominio', cv: candidate.domain ?? candidate.website, mv: matchDomain },
+                      { label: 'País', cv: candidate.country ?? candidate.country_code, mv: matchCountry },
+                      { label: 'Ciudad', cv: candidate.city, mv: matchCity },
+                      { label: 'Identificador fiscal', cv: candidate.tax_identifier, mv: matchTaxId },
+                    ].filter(r => r.cv || r.mv);
+                    if (rows.length === 0) return null;
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Comparación rápida</p>
+                        <div className="overflow-x-auto rounded-lg border border-border/40">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/30">
+                              <tr>
+                                <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Campo</th>
+                                <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Candidato</th>
+                                <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Coincidencia</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/20">
+                              {rows.map(({ label: rl, cv, mv }) => (
+                                <tr key={rl}>
+                                  <td className="py-2 px-3 text-muted-foreground/70 font-medium">{rl}</td>
+                                  <td className="py-2 px-3 text-foreground/90">{cv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
+                                  <td className="py-2 px-3 text-foreground/90">{mv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 <>

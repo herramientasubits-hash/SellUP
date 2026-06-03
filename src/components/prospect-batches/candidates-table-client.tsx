@@ -39,8 +39,8 @@ interface TableQualityCheck {
 
 interface TableValidationMetadata {
   validation_source?: string;
-  sellup_duplicate_check?: { status?: string };
-  hubspot_duplicate_check?: { status?: string };
+  sellup_duplicate_check?: { status?: string; matched_name?: string | null };
+  hubspot_duplicate_check?: { status?: string; matched_company_name?: string | null };
   quality_check?: TableQualityCheck;
 }
 
@@ -261,15 +261,35 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
       hsStyle = 'bg-muted text-muted-foreground/50';
     }
 
+    const sellupMatchName =
+      (sellupStatus === 'duplicate' || sellupStatus === 'possible_duplicate')
+        ? (valObj?.sellup_duplicate_check?.matched_name ?? null)
+        : null;
+
+    const hsMatchName =
+      (hsStatus === 'match' || hsStatus === 'possible_match')
+        ? (valObj?.hubspot_duplicate_check?.matched_company_name ?? null)
+        : null;
+
     return (
       <div className="flex flex-col gap-1 min-w-[120px]">
         <Badge className={`${primaryStyle} border-0 text-[10px] font-semibold w-fit`}>
           {primaryLabel}
         </Badge>
+        {sellupMatchName && (
+          <span className="text-[9px] text-muted-foreground/60 truncate max-w-[130px]" title={sellupMatchName}>
+            ↳ {sellupMatchName}
+          </span>
+        )}
         {hsLabel && (
           <Badge className={`${hsStyle} border-0 text-[10px] font-medium w-fit`}>
             {hsLabel}
           </Badge>
+        )}
+        {hsMatchName && (
+          <span className="text-[9px] text-muted-foreground/60 truncate max-w-[130px]" title={hsMatchName}>
+            ↳ {hsMatchName}
+          </span>
         )}
       </div>
     );

@@ -43,6 +43,13 @@ export interface SellUpDuplicateCheck {
   status: 'no_match' | 'possible_duplicate' | 'duplicate' | 'error';
   matched_account_id: string | null;
   matched_candidate_id: string | null;
+  matched_name: string | null;
+  matched_domain: string | null;
+  matched_website: string | null;
+  matched_country_code: string | null;
+  matched_tax_identifier: string | null;
+  matched_source: 'account' | 'prospect_candidate' | null;
+  matched_status: string | null;
   matched_by: string | null;
   confidence: number;
 }
@@ -51,8 +58,15 @@ export interface HubSpotDuplicateCheck {
   status: 'not_configured' | 'no_match' | 'possible_match' | 'match' | 'error';
   matched_company_id: string | null;
   matched_company_name: string | null;
+  matched_domain: string | null;
+  matched_website: string | null;
+  matched_country: string | null;
+  matched_city: string | null;
+  matched_industry: string | null;
+  matched_lifecycle_stage: string | null;
   matched_by: string | null;
   confidence: number;
+  hubspot_url: string | null;
 }
 
 export interface NormalizedKeys {
@@ -85,6 +99,13 @@ export interface CandidateDuplicateResult {
 
 interface SellUpRow {
   id: string;
+  name?: string | null;
+  domain?: string | null;
+  website?: string | null;
+  country_code?: string | null;
+  tax_identifier?: string | null;
+  status?: string | null;
+  source_primary?: string | null;
 }
 
 async function checkSellUp(
@@ -93,29 +114,49 @@ async function checkSellUp(
   keys: NormalizedKeys,
   taxIdentifierRaw: string | null
 ): Promise<SellUpDuplicateCheck> {
-  const result: SellUpDuplicateCheck = {
+  const NO_MATCH: SellUpDuplicateCheck = {
     status: 'no_match',
     matched_account_id: null,
     matched_candidate_id: null,
+    matched_name: null,
+    matched_domain: null,
+    matched_website: null,
+    matched_country_code: null,
+    matched_tax_identifier: null,
+    matched_source: null,
+    matched_status: null,
     matched_by: null,
     confidence: 0,
   };
+
+  const result: SellUpDuplicateCheck = { ...NO_MATCH };
+
+  const ACC_SELECT = 'id, name, domain, website, country_code, tax_identifier';
+  const CAND_SELECT = 'id, name, domain, website, country_code, tax_identifier, status, source_primary';
 
   try {
     // ── 1. Tax identifier exacto ──────────────────────────────
     if (taxIdentifierRaw && taxIdentifierRaw.trim().length >= 4) {
       const { data: accMatch } = await supabase
         .from('accounts')
-        .select('id')
+        .select(ACC_SELECT)
         .eq('tax_identifier', taxIdentifierRaw.trim())
         .is('archived_at', null)
         .limit(1);
 
       if (accMatch && accMatch.length > 0) {
+        const r = accMatch[0] as SellUpRow;
         return {
           status: 'duplicate',
-          matched_account_id: (accMatch[0] as SellUpRow).id,
+          matched_account_id: r.id,
           matched_candidate_id: null,
+          matched_name: r.name ?? null,
+          matched_domain: r.domain ?? null,
+          matched_website: r.website ?? null,
+          matched_country_code: r.country_code ?? null,
+          matched_tax_identifier: r.tax_identifier ?? null,
+          matched_source: 'account',
+          matched_status: null,
           matched_by: 'tax_identifier',
           confidence: 100,
         };
@@ -123,17 +164,25 @@ async function checkSellUp(
 
       const { data: candMatch } = await supabase
         .from('prospect_candidates')
-        .select('id')
+        .select(CAND_SELECT)
         .eq('tax_identifier', taxIdentifierRaw.trim())
         .neq('id', candidateId)
         .neq('status', 'discarded')
         .limit(1);
 
       if (candMatch && candMatch.length > 0) {
+        const r = candMatch[0] as SellUpRow;
         return {
           status: 'duplicate',
           matched_account_id: null,
-          matched_candidate_id: (candMatch[0] as SellUpRow).id,
+          matched_candidate_id: r.id,
+          matched_name: r.name ?? null,
+          matched_domain: r.domain ?? null,
+          matched_website: r.website ?? null,
+          matched_country_code: r.country_code ?? null,
+          matched_tax_identifier: r.tax_identifier ?? null,
+          matched_source: 'prospect_candidate',
+          matched_status: r.status ?? null,
           matched_by: 'tax_identifier',
           confidence: 100,
         };
@@ -144,16 +193,24 @@ async function checkSellUp(
     if (keys.normalized_domain) {
       const { data: accMatch } = await supabase
         .from('accounts')
-        .select('id')
+        .select(ACC_SELECT)
         .eq('domain', keys.normalized_domain)
         .is('archived_at', null)
         .limit(1);
 
       if (accMatch && accMatch.length > 0) {
+        const r = accMatch[0] as SellUpRow;
         return {
           status: 'duplicate',
-          matched_account_id: (accMatch[0] as SellUpRow).id,
+          matched_account_id: r.id,
           matched_candidate_id: null,
+          matched_name: r.name ?? null,
+          matched_domain: r.domain ?? null,
+          matched_website: r.website ?? null,
+          matched_country_code: r.country_code ?? null,
+          matched_tax_identifier: r.tax_identifier ?? null,
+          matched_source: 'account',
+          matched_status: null,
           matched_by: 'domain',
           confidence: 100,
         };
@@ -161,17 +218,25 @@ async function checkSellUp(
 
       const { data: candMatch } = await supabase
         .from('prospect_candidates')
-        .select('id')
+        .select(CAND_SELECT)
         .eq('domain', keys.normalized_domain)
         .neq('id', candidateId)
         .neq('status', 'discarded')
         .limit(1);
 
       if (candMatch && candMatch.length > 0) {
+        const r = candMatch[0] as SellUpRow;
         return {
           status: 'duplicate',
           matched_account_id: null,
-          matched_candidate_id: (candMatch[0] as SellUpRow).id,
+          matched_candidate_id: r.id,
+          matched_name: r.name ?? null,
+          matched_domain: r.domain ?? null,
+          matched_website: r.website ?? null,
+          matched_country_code: r.country_code ?? null,
+          matched_tax_identifier: r.tax_identifier ?? null,
+          matched_source: 'prospect_candidate',
+          matched_status: r.status ?? null,
           matched_by: 'domain',
           confidence: 100,
         };
@@ -182,21 +247,28 @@ async function checkSellUp(
     if (keys.normalized_name && keys.normalized_name.length >= 3 && keys.country_code) {
       const { data: accMatch } = await supabase
         .from('accounts')
-        .select('id')
+        .select(ACC_SELECT)
         .eq('normalized_name', keys.normalized_name)
         .eq('country_code', keys.country_code)
         .is('archived_at', null)
         .limit(1);
 
       if (accMatch && accMatch.length > 0) {
+        const r = accMatch[0] as SellUpRow;
         result.status = 'possible_duplicate';
-        result.matched_account_id = (accMatch[0] as SellUpRow).id;
+        result.matched_account_id = r.id;
+        result.matched_name = r.name ?? null;
+        result.matched_domain = r.domain ?? null;
+        result.matched_website = r.website ?? null;
+        result.matched_country_code = r.country_code ?? null;
+        result.matched_tax_identifier = r.tax_identifier ?? null;
+        result.matched_source = 'account';
         result.matched_by = 'normalized_name_country';
         result.confidence = 85;
       } else {
         const { data: candMatch } = await supabase
           .from('prospect_candidates')
-          .select('id')
+          .select(CAND_SELECT)
           .eq('normalized_name', keys.normalized_name)
           .eq('country_code', keys.country_code)
           .neq('id', candidateId)
@@ -204,8 +276,16 @@ async function checkSellUp(
           .limit(1);
 
         if (candMatch && candMatch.length > 0) {
+          const r = candMatch[0] as SellUpRow;
           result.status = 'possible_duplicate';
-          result.matched_candidate_id = (candMatch[0] as SellUpRow).id;
+          result.matched_candidate_id = r.id;
+          result.matched_name = r.name ?? null;
+          result.matched_domain = r.domain ?? null;
+          result.matched_website = r.website ?? null;
+          result.matched_country_code = r.country_code ?? null;
+          result.matched_tax_identifier = r.tax_identifier ?? null;
+          result.matched_source = 'prospect_candidate';
+          result.matched_status = r.status ?? null;
           result.matched_by = 'normalized_name_country';
           result.confidence = 85;
         }
@@ -216,6 +296,13 @@ async function checkSellUp(
       status: 'error',
       matched_account_id: null,
       matched_candidate_id: null,
+      matched_name: null,
+      matched_domain: null,
+      matched_website: null,
+      matched_country_code: null,
+      matched_tax_identifier: null,
+      matched_source: null,
+      matched_status: null,
       matched_by: null,
       confidence: 0,
     };
@@ -231,33 +318,33 @@ async function checkSellUp(
 async function checkHubSpot(
   input: DuplicateCheckInput
 ): Promise<{ check: HubSpotDuplicateCheck; connected: boolean }> {
+  const EMPTY_HS: HubSpotDuplicateCheck = {
+    status: 'not_configured',
+    matched_company_id: null,
+    matched_company_name: null,
+    matched_domain: null,
+    matched_website: null,
+    matched_country: null,
+    matched_city: null,
+    matched_industry: null,
+    matched_lifecycle_stage: null,
+    matched_by: null,
+    confidence: 0,
+    hubspot_url: null,
+  };
+
   try {
     const outcome = await checkHubSpotDuplicates(input);
 
     if (!outcome.connected) {
-      return {
-        check: {
-          status: 'not_configured',
-          matched_company_id: null,
-          matched_company_name: null,
-          matched_by: null,
-          confidence: 0,
-        },
-        connected: false,
-      };
+      return { check: { ...EMPTY_HS, status: 'not_configured' }, connected: false };
     }
 
     const matches = outcome.matches ?? [];
 
     if (matches.length === 0) {
       return {
-        check: {
-          status: outcome.error ? 'error' : 'no_match',
-          matched_company_id: null,
-          matched_company_name: null,
-          matched_by: null,
-          confidence: 0,
-        },
+        check: { ...EMPTY_HS, status: outcome.error ? 'error' : 'no_match' },
         connected: true,
       };
     }
@@ -271,25 +358,28 @@ async function checkHubSpot(
     else if (best.reason?.includes('nombre')) matched_by = 'company_name';
     else matched_by = 'company_name';
 
+    const raw = best.raw as Record<string, string | null | undefined> | undefined;
+
     return {
       check: {
         status: isExactMatch ? 'match' : 'possible_match',
         matched_company_id: best.matchedId ?? null,
         matched_company_name: best.matchedName ?? null,
+        matched_domain: best.matchedDomain ?? null,
+        matched_website: best.matchedWebsite ?? null,
+        matched_country: raw?.country ?? null,
+        matched_city: raw?.city ?? null,
+        matched_industry: raw?.industry ?? null,
+        matched_lifecycle_stage: raw?.lifecyclestage ?? null,
         matched_by,
         confidence: best.confidence,
+        hubspot_url: null,
       },
       connected: true,
     };
   } catch {
     return {
-      check: {
-        status: 'error',
-        matched_company_id: null,
-        matched_company_name: null,
-        matched_by: null,
-        confidence: 0,
-      },
+      check: { ...EMPTY_HS, status: 'error' },
       connected: false,
     };
   }
@@ -365,9 +455,16 @@ export async function detectCandidateDuplicates({
             status: 'not_configured' as const,
             matched_company_id: null,
             matched_company_name: null,
+            matched_domain: null,
+            matched_website: null,
+            matched_country: null,
+            matched_city: null,
+            matched_industry: null,
+            matched_lifecycle_stage: null,
             matched_by: null,
             confidence: 0,
-          },
+            hubspot_url: null,
+          } as HubSpotDuplicateCheck,
           connected: false,
         }),
   ]);
