@@ -530,7 +530,7 @@ export default async function BatchDetailPage({ params }: Props) {
                     }
                   }
                   if (c.duplicate_status === 'exact_duplicate') reasons.push('Duplicado exacto');
-                  if (c.country_code === 'CO' && !c.tax_identifier) reasons.push('Sin NIT en CO');
+                  if (c.country_code === 'CO' && !c.tax_identifier && c.source_primary !== 'external_import') reasons.push('Sin NIT en CO');
 
                   const upperName = (c.name || '').toUpperCase();
                   const upperLegalName = (c.legal_name || '').toUpperCase();

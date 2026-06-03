@@ -615,7 +615,10 @@ export function isUsefulReviewCandidate(candidate: {
 
   const country = (candidate.country_code || '').toUpperCase();
   if (country === 'CO' && (!candidate.tax_identifier || candidate.tax_identifier.trim() === '')) {
-    return false;
+    // external_import: missing NIT is a warning, not a blocking omission
+    if (candidate.source_primary !== 'external_import') {
+      return false;
+    }
   }
 
   if (candidate.status === 'discarded') {

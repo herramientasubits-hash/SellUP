@@ -156,7 +156,7 @@ export async function getProspectBatchesSummary(): Promise<BatchesSummary> {
 
   const { data: approvedCandidates } = await supabase
     .from('prospect_candidates')
-    .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status')
+    .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status, source_primary')
     .eq('status', 'approved');
 
   const list = batches ?? [];
@@ -197,7 +197,7 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
 
   const { data: candidates } = await supabase
     .from('prospect_candidates')
-    .select('batch_id, status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status')
+    .select('batch_id, status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status, source_primary')
     .in('batch_id', batchIds);
 
   const list = candidates ?? [];
@@ -242,7 +242,7 @@ export async function getProspectBatchById(id: string): Promise<ProspectBatchWit
 
   const { data: candidates } = await supabase
     .from('prospect_candidates')
-    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status')
+    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status, source_primary')
     .eq('batch_id', id);
 
   const list = candidates ?? [];
@@ -270,7 +270,7 @@ export async function getBatchDetailSummary(batchId: string): Promise<BatchDetai
 
   const { data: candidates } = await supabase
     .from('prospect_candidates')
-    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status')
+    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status, source_primary')
     .eq('batch_id', batchId);
 
   const list = candidates ?? [];
