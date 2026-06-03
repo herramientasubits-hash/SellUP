@@ -57,6 +57,7 @@ export interface CreateHubSpotCompanyInput {
   hubspotOwnerId?: string | null;
   linkedinUrl?: string | null;
   industry?: string | null;
+  description?: string | null;
 }
 
 export interface CreateHubSpotCompanySentAudit {
@@ -69,6 +70,8 @@ export interface CreateHubSpotCompanySentAudit {
   lifecyclestage: string;
   numberofemployees: string | null;
   hubspot_owner_id: string | null;
+  description?: string | null;
+  linkedin_company_page?: string | null;
 }
 
 export interface CreateHubSpotCompanyResult {
@@ -98,6 +101,8 @@ export async function createHubSpotCompany(
   if (input.domain) properties.domain = input.domain;
   if (input.city) properties.city = input.city;
   if (input.region) properties.state = input.region;
+  if (input.description) properties.description = input.description;
+  if (input.linkedinUrl) properties.linkedin_company_page = input.linkedinUrl;
 
   // Lifecycle stage — all converted candidates are leads (standard HubSpot property)
   properties.lifecyclestage = 'lead';
@@ -139,7 +144,6 @@ export async function createHubSpotCompany(
   // - ARR, licencias, churn, OPS, vigencias → never sent (not for prospects)
   const skippedProperties: string[] = [];
   if (input.legalName) skippedProperties.push('legalName (razonsocialdelaempresa pending)');
-  if (input.linkedinUrl) skippedProperties.push('linkedinUrl (unconfirmed)');
   if (input.industry) skippedProperties.push('industry (unconfirmed)');
 
   const sentPropertyKeys = Object.keys(properties);
@@ -153,6 +157,8 @@ export async function createHubSpotCompany(
     lifecyclestage: 'lead',
     numberofemployees: sentEmployeeCount,
     hubspot_owner_id: properties.hubspot_owner_id ?? null,
+    description: properties.description ?? null,
+    linkedin_company_page: properties.linkedin_company_page ?? null,
   };
 
   try {

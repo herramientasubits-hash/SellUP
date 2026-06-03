@@ -151,38 +151,43 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
     setLoading(true);
     try {
       const result = await approveAndConvertCandidateAction(candidate.id);
-      const sync = result.hubspotSync;
 
-      let message: string;
-      if (sync.status === 'synced') {
-        message = 'Empresa aprobada y creada en SellUp y HubSpot.';
-      } else if (sync.status === 'skipped_flag_off') {
-        message = 'Empresa aprobada en SellUp. La sincronización con HubSpot está desactivada.';
-      } else if (sync.status === 'skipped_missing_write_scope') {
-        message = 'Empresa aprobada en SellUp. No se creó en HubSpot porque falta permiso de escritura.';
-      } else if (sync.status === 'blocked_duplicate') {
-        message = 'Empresa aprobada en SellUp. No se creó en HubSpot porque se detectó una coincidencia.';
-      } else if (sync.status === 'blocked_inactive_or_liquidation') {
-        message = 'Empresa aprobada en SellUp. No se sincronizó con HubSpot porque tiene señal de liquidación o inactividad.';
-      } else if (sync.attempted) {
-        message = 'Empresa aprobada en SellUp. No se pudo sincronizar con HubSpot.';
-      } else {
-        message = `"${candidate.name}" aprobado y creado en SellUp.`;
+      if (!result.success) {
+        toast.error(result.message || 'Error al aprobar candidato');
+        return;
       }
 
-      toast.success(
-        <span>
-          {message}{' '}
-          <button
-            className="underline font-medium"
-            onClick={() => router.push('/accounts')}
-          >
-            Ver empresas
-          </button>
-        </span>
-      );
+      const hs = result.hubspot;
+      const message = result.message;
+
+      if (hs.action === 'failed') {
+        toast.warning(
+          <span>
+            {message}{' '}
+            <button
+              className="underline font-medium"
+              onClick={() => router.push('/accounts')}
+            >
+              Ver empresas
+            </button>
+          </span>
+        );
+      } else {
+        toast.success(
+          <span>
+            {message}{' '}
+            <button
+              className="underline font-medium"
+              onClick={() => router.push('/accounts')}
+            >
+              Ver empresas
+            </button>
+          </span>
+        );
+      }
       setApproveConfirmOpen(false);
       setRelatedCompanyWarnOpen(false);
+      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al aprobar');
     } finally {

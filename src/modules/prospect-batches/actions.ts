@@ -1311,18 +1311,429 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
 
 // ── Approve + convert unificado (16AK.14) ────────────────────
 
+export interface CandidateApprovalResult {
+  success: boolean;
+  sellup: {
+    approved: boolean;
+    account_created: boolean;
+    account_id?: string;
+    status: 'approved' | 'failed';
+  };
+  hubspot: {
+    attempted: boolean;
+    action: 'created' | 'linked_existing' | 'skipped_possible_match' | 'skipped_not_configured' | 'failed' | 'not_required';
+    company_id?: string;
+    company_name?: string;
+    error?: string;
+  };
+  message: string;
+}
+
 /**
  * Aprueba un candidato y lo convierte a cuenta SellUp en un solo paso.
- * Reutiliza las validaciones y guardrails existentes de approveCandidate
- * y convertCandidateToAccount — no duplica lógica.
- *
- * El vendedor solo necesita hacer un click: "Aprobar".
+ * Sincroniza o vincula con HubSpot de forma segura sin crear duplicados.
  */
 export async function approveAndConvertCandidateAction(
   id: string
-): Promise<{ accountId: string; hubspotSync: HubSpotSyncResult }> {
-  await approveCandidate(id);
-  return await convertCandidateToAccount(id);
+): Promise<CandidateApprovalResult> {
+  const { internalUserId } = await requireActiveUser();
+  const supabase = await createClient();
+
+  // 1. Cargar candidato
+  const { data: candidate, error: candidateErr } = await supabase
+    .from('prospect_candidates')
+    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source)')
+    .eq('id', id)
+    .single();
+
+  if (candidateErr || !candidate) {
+    return {
+      success: false,
+      sellup: { approved: false, account_created: false, status: 'failed' },
+      hubspot: { attempted: false, action: 'failed', error: 'Candidato no encontrado' },
+      message: 'Candidato no encontrado en SellUp.',
+    };
+  }
+
+  // 2. Guardia server-side: rechaza si duplicate_status bloquea la aprobación
+  if (candidate.duplicate_status) {
+    const blockMsg = APPROVE_BLOCK_MESSAGES[candidate.duplicate_status as DuplicateStatus];
+    if (blockMsg) {
+      return {
+        success: false,
+        sellup: { approved: false, account_created: false, status: 'failed' },
+        hubspot: { attempted: false, action: 'failed', error: blockMsg },
+        message: blockMsg,
+      };
+    }
+  }
+
+  // Para candidatos estructurados: exigir review_status = ready_for_approval (o ya procesado)
+  const reviewStatus = candidate.review_status ?? null;
+  if (reviewStatus !== null && reviewStatus !== undefined) {
+    if (reviewStatus !== 'ready_for_approval' && reviewStatus !== 'approved' && reviewStatus !== 'synced_to_hubspot') {
+      return {
+        success: false,
+        sellup: { approved: false, account_created: false, status: 'failed' },
+        hubspot: { attempted: false, action: 'failed', error: 'Candidato no listo para aprobación' },
+        message: 'Este candidato viene de una fuente oficial. Primero debe marcarse como listo para aprobación.',
+      };
+    }
+  }
+
+  const nowStr = new Date().toISOString();
+
+  // 3. Resolver/Vincular cuenta en SellUp
+  let accountId = candidate.matched_account_id;
+  if (!accountId && candidate.metadata?.validation?.sellup_duplicate_check?.matched_account_id) {
+    accountId = (candidate.metadata.validation.sellup_duplicate_check as Record<string, unknown>).matched_account_id as string | null;
+  }
+
+  let accountCreated = false;
+  let accountMeta = (candidate.metadata || {}) as Record<string, unknown>;
+
+  if (accountId) {
+    const { data: existingAccount } = await supabase
+      .from('accounts')
+      .select('id, name, metadata, hubspot_company_id')
+      .eq('id', accountId)
+      .single();
+
+    if (existingAccount) {
+      accountId = existingAccount.id;
+      accountMeta = (existingAccount.metadata || {}) as Record<string, unknown>;
+    } else {
+      accountId = null;
+    }
+  }
+
+  if (!accountId) {
+    const batchSource = (candidate.batch as { source?: string })?.source ?? 'manual';
+    const accountSource = batchSource === 'agent_1' ? 'agent_1' : 'manual';
+    const sourceTrace = candidate.source_trace as Record<string, unknown> | null ?? null;
+    const newAccountMeta: Record<string, unknown> = {
+      converted_from_candidate_id: id,
+      batch_id: candidate.batch_id,
+    };
+    if (reviewStatus !== null && reviewStatus !== undefined) {
+      newAccountMeta.source_trace = sourceTrace;
+      newAccountMeta.source_key = sourceTrace?.sourceKey ?? null;
+      newAccountMeta.source_provider = sourceTrace?.sourceProvider ?? null;
+      newAccountMeta.review_flags_at_conversion = (candidate.review_flags as string[] | null) ?? null;
+      newAccountMeta.commercial_fit_status = (candidate.commercial_fit_status as string | null) ?? null;
+    }
+
+    const { data: newAccount, error: accountError } = await supabase
+      .from('accounts')
+      .insert({
+        name: candidate.name,
+        legal_name: candidate.legal_name ?? null,
+        normalized_name: candidate.normalized_name ?? null,
+        website: candidate.website ?? null,
+        domain: candidate.domain ?? null,
+        country: candidate.country ?? null,
+        country_code: candidate.country_code ?? null,
+        city: candidate.city ?? null,
+        region: candidate.region ?? null,
+        industry: candidate.industry ?? null,
+        company_size: candidate.company_size ?? null,
+        tax_identifier: candidate.tax_identifier ?? null,
+        tax_identifier_type: candidate.tax_identifier_type ?? null,
+        source: accountSource,
+        pipeline_status: 'new',
+        created_by: internalUserId,
+        metadata: newAccountMeta,
+      })
+      .select()
+      .single();
+
+    if (accountError || !newAccount) {
+      return {
+        success: false,
+        sellup: { approved: false, account_created: false, status: 'failed' },
+        hubspot: { attempted: false, action: 'failed', error: accountError?.message || 'Error al crear cuenta' },
+        message: `Error al crear cuenta en SellUp: ${accountError?.message || 'error desconocido'}`
+      };
+    }
+
+    accountId = newAccount.id;
+    accountCreated = true;
+    accountMeta = newAccountMeta;
+  }
+
+  // 4. Resolver sincronización / vinculación a HubSpot
+  const validation = (candidate.metadata?.validation || {}) as Record<string, unknown>;
+  const hsCheck = (validation.hubspot_duplicate_check || {}) as Record<string, unknown>;
+  const hsStatus = hsCheck.status as string | undefined;
+  const matchedCompanyId = (hsCheck.matched_company_id || candidate.matched_hubspot_company_id) as string | null | undefined;
+  const matchedCompanyName = hsCheck.matched_company_name as string | null | undefined;
+
+  let isHubSpotConfigured = false;
+  let hasWriteScope = false;
+  let connectionError: string | undefined;
+
+  try {
+    const connTest = await testHubSpotConnection();
+    isHubSpotConfigured = connTest.success;
+    hasWriteScope = !!connTest.hubspotScopes?.canWriteCompanies;
+    if (!connTest.success) {
+      connectionError = connTest.message || connTest.error;
+    }
+  } catch (e) {
+    connectionError = e instanceof Error ? e.message : 'Error al conectar con HubSpot';
+  }
+
+  let hubspotAttempted = false;
+  let hubspotAction: 'created' | 'linked_existing' | 'skipped_possible_match' | 'skipped_not_configured' | 'failed' | 'not_required' = 'not_required';
+  let hubspotCompanyId: string | null = null;
+  let hubspotCompanyName: string | null = null;
+  let hubspotError: string | null = null;
+
+  // Caso A — match HubSpot confirmado
+  if (hsStatus === 'match' || matchedCompanyId) {
+    hubspotAttempted = true;
+    hubspotAction = 'linked_existing';
+    hubspotCompanyId = matchedCompanyId ?? null;
+    hubspotCompanyName = matchedCompanyName ?? null;
+  }
+  // Caso B — possible_match HubSpot
+  else if (hsStatus === 'possible_match') {
+    hubspotAttempted = false;
+    hubspotAction = 'skipped_possible_match';
+    hubspotCompanyName = matchedCompanyName ?? null;
+  }
+  // Caso C / D — no_match HubSpot u otros estados (e.g. unchecked, error en validación previa)
+  else {
+    if (!isHubSpotConfigured || !hasWriteScope) {
+      hubspotAttempted = false;
+      hubspotAction = 'skipped_not_configured';
+      hubspotError = connectionError ?? 'HubSpot no configurado o sin permisos de escritura';
+    } else {
+      hubspotAttempted = true;
+
+      // Enriquecimiento y fallbacks para campos adicionales
+      const enrichment = (candidate.metadata?.enrichment as Record<string, unknown> | null) ?? {};
+      const webEnrichment = (enrichment.web as Record<string, unknown> | null) ?? {};
+      const linkedInObj = webEnrichment.linkedin_company as Record<string, unknown> | null;
+      const linkedinConfirmedUrl = (linkedInObj?.url as string | undefined) ?? null;
+      const linkedinFallbackUrl =
+        (enrichment.linkedin_url as string | undefined) ??
+        (enrichment.linkedin as string | undefined) ??
+        null;
+      const linkedinUrl = linkedinConfirmedUrl ?? linkedinFallbackUrl;
+
+      const publicDescObj = webEnrichment.public_description as Record<string, unknown> | null;
+      const description =
+        (publicDescObj?.text as string | undefined) ??
+        (enrichment.description as string | undefined) ??
+        (enrichment.public_description as string | undefined) ??
+        ((candidate.metadata?.ai_evaluation as Record<string, unknown> | null)?.description as string | undefined) ??
+        null;
+
+      const { data: userRow } = await supabase
+        .from('internal_users')
+        .select('email')
+        .eq('id', internalUserId)
+        .single();
+      const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
+      const mappedOwnerId = EMAIL_TO_HUBSPOT_OWNER_ID[userEmail] ?? 'skipped_missing_mapping';
+
+      const createResult = await createHubSpotCompany({
+        name: candidate.name,
+        country: candidate.country ?? null,
+        countryCode: candidate.country_code ?? null,
+        taxIdentifier: candidate.tax_identifier ?? null,
+        website: candidate.website ?? null,
+        domain: candidate.domain ?? null,
+        city: candidate.city ?? null,
+        region: candidate.region ?? null,
+        legalName: candidate.legal_name ?? null,
+        numberOfEmployees: candidate.company_size ?? null,
+        hubspotOwnerId: mappedOwnerId,
+        linkedinUrl,
+        industry: candidate.industry ?? null,
+        description,
+      });
+
+      if (createResult.ok && createResult.hubspotCompanyId) {
+        hubspotAction = 'created';
+        hubspotCompanyId = createResult.hubspotCompanyId;
+        hubspotCompanyName = candidate.name;
+      } else {
+        hubspotAction = 'failed';
+        hubspotError = createResult.error || 'Error al crear en HubSpot';
+      }
+    }
+  }
+
+  // 5. Aplicar cambios a las tablas en Supabase
+  const accountMetadataPatch: Record<string, unknown> = {};
+  if (hubspotAction === 'created' || hubspotAction === 'linked_existing') {
+    accountMetadataPatch.hubspot_sync_status = 'synced';
+    accountMetadataPatch.hubspot_sync_method = 'auto';
+    accountMetadataPatch.hubspot_sync_attempted_at = nowStr;
+    accountMetadataPatch.hubspot_synced_at = nowStr;
+    accountMetadataPatch.hubspot_company_id = hubspotCompanyId;
+    accountMetadataPatch.hubspot_match_status_at_sync = hubspotAction === 'created' ? 'no_match' : 'match';
+    accountMetadataPatch.hubspot_sync_source = 'candidate_conversion';
+    accountMetadataPatch.hubspot_sync = {
+      status: 'synced',
+      company_id: hubspotCompanyId,
+      synced_at: nowStr,
+      owner_mapping_status: hubspotAction === 'created' ? 'mapped' : 'skipped',
+    };
+  } else if (hubspotAction === 'skipped_possible_match') {
+    accountMetadataPatch.hubspot_sync_status = 'blocked_duplicate';
+    accountMetadataPatch.hubspot_sync_blocked_reason = 'skipped_possible_match';
+    accountMetadataPatch.hubspot_sync_method = 'auto';
+    accountMetadataPatch.hubspot_sync_attempted_at = nowStr;
+  } else if (hubspotAction === 'skipped_not_configured') {
+    accountMetadataPatch.hubspot_sync_status = 'skipped_no_connection';
+    accountMetadataPatch.hubspot_sync_method = 'auto';
+    accountMetadataPatch.hubspot_sync_attempted_at = nowStr;
+  } else if (hubspotAction === 'failed') {
+    accountMetadataPatch.hubspot_sync_status = 'failed_create';
+    accountMetadataPatch.hubspot_sync_method = 'auto';
+    accountMetadataPatch.hubspot_sync_attempted_at = nowStr;
+    accountMetadataPatch.hubspot_sync_error = hubspotError?.slice(0, 200) || 'unknown';
+  }
+
+  const updatedAccountMetadata = {
+    ...accountMeta,
+    ...accountMetadataPatch,
+  };
+
+  const accountUpdates: Record<string, unknown> = {
+    metadata: updatedAccountMetadata,
+    updated_at: nowStr,
+  };
+
+  if (hubspotCompanyId) {
+    accountUpdates.hubspot_company_id = hubspotCompanyId;
+  }
+
+  await supabase
+    .from('accounts')
+    .update(accountUpdates)
+    .eq('id', accountId);
+
+  // Formatear candidate.metadata.hubspot_sync para compatibilidad del panel de detalle
+  const candidateHubspotSync: Record<string, unknown> = {
+    status: hubspotAction === 'created' || hubspotAction === 'linked_existing' ? 'synced' :
+            hubspotAction === 'skipped_possible_match' ? 'blocked_duplicate' :
+            hubspotAction === 'skipped_not_configured' ? 'skipped_no_connection' :
+            hubspotAction === 'failed' ? 'failed_create' : 'skipped_flag_off',
+    company_id: hubspotCompanyId ?? null,
+    blocked_reason: hubspotAction === 'skipped_possible_match' ? 'skipped_possible_match' :
+                    hubspotAction === 'skipped_not_configured' ? 'HubSpot no está configurado' :
+                    hubspotAction === 'failed' ? hubspotError : null,
+    synced_at: hubspotAction === 'created' || hubspotAction === 'linked_existing' ? nowStr : null,
+  };
+
+  const approvalMetadata = {
+    approved_at: nowStr,
+    approved_by: internalUserId,
+    sellup: {
+      account_created: accountCreated,
+      account_id: accountId,
+      action: accountCreated ? 'created' : 'linked_existing',
+    },
+    hubspot: {
+      attempted: hubspotAttempted,
+      action: hubspotAction,
+      company_id: hubspotCompanyId ?? undefined,
+      company_name: hubspotCompanyName ?? undefined,
+      error: hubspotError ?? undefined,
+    },
+  };
+
+  const candidateMeta = (candidate.metadata || {}) as Record<string, unknown>;
+  const updatedCandidateMeta = {
+    ...candidateMeta,
+    approval: approvalMetadata,
+    hubspot_sync: candidateHubspotSync,
+  };
+
+  const candidateUpdates: Record<string, unknown> = {
+    status: 'converted_to_account',
+    converted_account_id: accountId,
+    reviewed_by: internalUserId,
+    reviewed_at: nowStr,
+    metadata: updatedCandidateMeta,
+    updated_at: nowStr,
+  };
+
+  if (reviewStatus !== null && reviewStatus !== undefined) {
+    candidateUpdates.review_status = (hubspotAction === 'created' || hubspotAction === 'linked_existing')
+      ? 'synced_to_hubspot'
+      : 'approved';
+  }
+
+  await supabase
+    .from('prospect_candidates')
+    .update(candidateUpdates)
+    .eq('id', id);
+
+  // 6. Registrar logs de auditoría
+  try {
+    await logProspectCandidateAudit({
+      batchId: candidate.batch_id,
+      candidateId: id,
+      actorUserId: internalUserId,
+      actionType: 'candidate_approved',
+      details: { candidate_name: candidate.name },
+    });
+
+    await logProspectCandidateAudit({
+      batchId: candidate.batch_id,
+      candidateId: id,
+      actorUserId: internalUserId,
+      actionType: 'candidate_converted_to_account',
+      details: {
+        candidate_name: candidate.name,
+        account_id: accountId,
+        account_source: accountCreated ? 'manual' : 'linked_existing',
+      },
+    });
+  } catch (auditErr) {
+    console.warn('[approveAndConvertCandidateAction] Non-critical audit error:', auditErr);
+  }
+
+  revalidatePath(`/prospect-batches/${candidate.batch_id}`);
+  revalidatePath('/accounts');
+
+  let responseMessage = '';
+  if (hubspotAction === 'created') {
+    responseMessage = 'Candidato aprobado y empresa creada en HubSpot.';
+  } else if (hubspotAction === 'linked_existing') {
+    responseMessage = 'Candidato aprobado y vinculado a empresa existente en HubSpot.';
+  } else if (hubspotAction === 'skipped_possible_match') {
+    responseMessage = 'Candidato aprobado en SellUp, pero HubSpot requiere revisión por posible coincidencia.';
+  } else if (hubspotAction === 'skipped_not_configured') {
+    responseMessage = 'Candidato aprobado en SellUp. HubSpot no está configurado.';
+  } else if (hubspotAction === 'failed') {
+    responseMessage = `Candidato aprobado en SellUp, pero falló la creación en HubSpot.`;
+  } else {
+    responseMessage = 'Candidato aprobado en SellUp.';
+  }
+
+  return {
+    success: true,
+    sellup: {
+      approved: true,
+      account_created: accountCreated,
+      account_id: accountId,
+      status: 'approved',
+    },
+    hubspot: {
+      attempted: hubspotAttempted,
+      action: hubspotAction,
+      company_id: hubspotCompanyId ?? undefined,
+      company_name: hubspotCompanyName ?? undefined,
+      error: hubspotError ?? undefined,
+    },
+    message: responseMessage,
+  };
 }
 
 // ── Usuarios para selectores ──────────────────────────────────
