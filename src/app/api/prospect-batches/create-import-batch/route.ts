@@ -20,6 +20,8 @@ interface ImportCandidate {
   contact_role?: string;
   contact_email?: string;
   owner_email?: string;
+  source_evidence?: string;
+  confidence?: string;
 }
 
 interface ImportBatchInput {
@@ -179,12 +181,17 @@ export async function POST(request: NextRequest) {
         review_notes: notesArr.length > 0 ? notesArr.join('\n') : null,
         metadata: {
           ...(candidate.linkedin_url ? { linkedin_url: candidate.linkedin_url.trim() } : {}),
-          ...(candidate.source_url ? { source_url: candidate.source_url.trim() } : {}),
+          ...(candidate.source_url ? { source_url: candidate.source_url.trim(), evidence_url: candidate.source_url.trim() } : {}),
           ...(candidate.contact_name ? { contact_name: candidate.contact_name.trim() } : {}),
           ...(candidate.contact_role ? { contact_role: candidate.contact_role.trim() } : {}),
           ...(candidate.contact_email ? { contact_email: candidate.contact_email.trim() } : {}),
           ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
           imported_from: input.import_type,
+          import: {
+            ...(candidate.source_url ? { source_url: candidate.source_url.trim() } : {}),
+            ...(candidate.source_evidence ? { source_evidence: candidate.source_evidence.trim() } : {}),
+            ...(candidate.confidence ? { confidence: candidate.confidence.trim() } : {}),
+          }
         },
       });
 

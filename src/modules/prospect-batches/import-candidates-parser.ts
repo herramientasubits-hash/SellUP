@@ -27,6 +27,8 @@ export interface ParsedImportRow {
   contact_role?: string;
   contact_email?: string;
   owner_email?: string;
+  source_evidence?: string;
+  confidence?: string;
 }
 
 export type RowStatus = 'valid' | 'error' | 'warning';
@@ -119,6 +121,10 @@ const COLUMN_ALIASES: Record<string, string> = {
   'tamaño empresa': 'company_size',
   company_size: 'company_size',
   empleados: 'company_size',
+  'tamaño estimado': 'company_size',
+  employees: 'company_size',
+  'estimated size': 'company_size',
+  'company size': 'company_size',
   // description
   descripción: 'description',
   descripcion: 'description',
@@ -130,11 +136,24 @@ const COLUMN_ALIASES: Record<string, string> = {
   notes: 'notes',
   observaciones: 'notes',
   // source_url
-  fuente: 'source_url',
-  source_url: 'source_url',
+  'url evidencia principal': 'source_url',
+  'evidencia principal': 'source_url',
+  'evidence url': 'source_url',
   'source url': 'source_url',
-  evidencia: 'source_url',
+  'fuente url': 'source_url',
+  source_url: 'source_url',
   evidence_url: 'source_url',
+  // source_evidence
+  'fuente / evidencia': 'source_evidence',
+  'fuente evidencia': 'source_evidence',
+  fuente: 'source_evidence',
+  evidencia: 'source_evidence',
+  'source evidence': 'source_evidence',
+  source_evidence: 'source_evidence',
+  // confidence
+  confianza: 'confidence',
+  confidence: 'confidence',
+  'nivel de confianza': 'confidence',
   // contact fields
   contacto: 'contact_name',
   contact_name: 'contact_name',
