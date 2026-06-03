@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
 import {
   Globe,
   Link2,
@@ -13,6 +15,10 @@ import {
   CheckCircle2,
   XCircle,
   ArrowRightCircle,
+  Sparkles,
+  Loader2,
+  RefreshCw,
+  Info,
 } from 'lucide-react';
 import {
   Sheet,
@@ -36,6 +42,7 @@ import {
   type ReviewStatus,
   type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
+import { evaluateCandidateEnrichmentNeed } from '@/server/prospect-batches/candidate-enrichment-eligibility';
 
 interface HubSpotSyncAudit {
   status: string;
@@ -335,6 +342,35 @@ export function CandidateDetailSheet({
   open,
   onOpenChange,
 }: CandidateDetailSheetProps) {
+  const router = useRouter();
+  const [isEnriching, setIsEnriching] = React.useState(false);
+  const [enrichError, setEnrichError] = React.useState<string | null>(null);
+
+  const handleEnrich = async () => {
+    if (!candidate) return;
+    setIsEnriching(true);
+    setEnrichError(null);
+    try {
+      const response = await fetch('/api/prospect-candidates/enrich', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ candidateId: candidate.id }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setEnrichError(data.error || 'Error al enriquecer candidato');
+      } else {
+        router.refresh();
+      }
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : 'Error de red al enriquecer candidato');
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
   // TAREA 4 — Chile website verification check client-side (called unconditionally before early return)
   const isValidChileWebsite = React.useMemo(() => {
     if (!candidate?.website) return false;
@@ -1165,6 +1201,308 @@ export function CandidateDetailSheet({
                 </p>
               )}
             </div>
+          </div>
+
+          <Divider />
+
+          {/* Enriquecimiento manual condicionado */}
+          <div>
+            <SectionHeader>Enriquecimiento comercial</SectionHeader>
+            {(() => {
+              const eligibility = evaluateCandidateEnrichmentNeed(candidate);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const enrichmentData = candidate.metadata?.enrichment as any;
+              
+              if (isEnriching) {
+                return (
+                  <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-4 flex flex-col items-center justify-center gap-3 text-center animate-pulse">
+                    <Loader2 className="h-6 w-6 text-su-brand animate-spin" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-su-brand">Enriqueciendo candidato...</p>
+                      <p className="text-[10px] text-muted-foreground/80">Evaluando perfil comercial, propuesta de encaje y señales con IA.</p>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (enrichError) {
+                return (
+                  <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-destructive">Fallo en enriquecimiento</p>
+                        <p className="text-xs text-muted-foreground">{enrichError}</p>
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={handleEnrich} 
+                      size="sm" 
+                      className="w-full bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Reintentar enriquecimiento
+                    </Button>
+                  </div>
+                );
+              }
+
+              if (enrichmentData && enrichmentData.status === 'completed') {
+                const profile = enrichmentData.company_profile || {};
+                const fit = enrichmentData.sellup_fit || {};
+                const usage = enrichmentData.usage || {};
+                
+                return (
+                  <div className="space-y-4">
+                    {/* Summary callout */}
+                    {enrichmentData.summary && (
+                      <div className="rounded-xl border border-border/40 bg-card p-3 text-xs italic text-foreground/80 leading-relaxed">
+                        &ldquo;{enrichmentData.summary}&rdquo;
+                      </div>
+                    )}
+
+                    {/* Fit level & score */}
+                    <div className="rounded-xl border border-border/40 bg-card p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Encaje comercial</span>
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            className={`border-0 text-[10px] font-semibold ${
+                              fit.fit_level === 'high' 
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' 
+                                : fit.fit_level === 'medium'
+                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                : 'bg-destructive/10 text-destructive'
+                            }`}
+                          >
+                            {fit.fit_level === 'high' ? 'Encaje alto' : fit.fit_level === 'medium' ? 'Encaje medio' : 'Encaje bajo'}
+                          </Badge>
+                          {fit.fit_score !== undefined && (
+                            <span className="text-xs font-semibold">{fit.fit_score} / 100</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {fit.why_fit && (
+                        <p className="text-xs text-muted-foreground leading-normal">{fit.why_fit}</p>
+                      )}
+
+                      {fit.recommended_next_step && (
+                        <div className="pt-2 border-t border-border/20 space-y-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">Siguiente paso recomendado</p>
+                          <p className="text-xs text-foreground/80 font-medium">{fit.recommended_next_step}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Company Profile detailed */}
+                    <CollapsibleSection title="Perfil de la empresa" defaultOpen={true}>
+                      <div className="rounded-lg border border-border/30 bg-muted/20 p-3 space-y-3">
+                        <FieldGrid>
+                          <Field label="Descripción de negocio" value={profile.business_description || <MissingText text="No disponible" />} />
+                          <Field label="Modelo de negocio" value={profile.business_model || <MissingText text="No disponible" />} />
+                          <Field label="Clientes objetivo" value={profile.target_customers || <MissingText text="No disponible" />} />
+                          <Field label="Tamaño estimado" value={profile.estimated_size || <MissingText text="No disponible" />} />
+                        </FieldGrid>
+                        
+                        {profile.products_or_services && profile.products_or_services.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Productos o servicios</p>
+                            <div className="flex flex-wrap gap-1">
+                              {profile.products_or_services.map((p: string, i: number) => (
+                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{p}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {profile.industries_served && profile.industries_served.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Sectores atendidos</p>
+                            <div className="flex flex-wrap gap-1">
+                              {profile.industries_served.map((ind: string, i: number) => (
+                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{ind}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {profile.geographic_presence && profile.geographic_presence.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Presencia geográfica</p>
+                            <div className="flex flex-wrap gap-1">
+                              {profile.geographic_presence.map((geo: string, i: number) => (
+                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{geo}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {profile.technology_signals && profile.technology_signals.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Señales tecnológicas</p>
+                            <div className="flex flex-wrap gap-1">
+                              {profile.technology_signals.map((tech: string, i: number) => (
+                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{tech}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CollapsibleSection>
+
+                    {/* Needs and angles */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {fit.possible_needs && fit.possible_needs.length > 0 && (
+                        <div className="rounded-xl border border-border/40 bg-card p-3 space-y-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Necesidades UBITS</p>
+                          <ul className="space-y-1">
+                            {fit.possible_needs.map((n: string, i: number) => (
+                              <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                                <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                                {n}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {enrichmentData.commercial_angles && enrichmentData.commercial_angles.length > 0 && (
+                        <div className="rounded-xl border border-border/40 bg-card p-3 space-y-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Ángulos comerciales</p>
+                          <ul className="space-y-1">
+                            {enrichmentData.commercial_angles.map((ang: string, i: number) => (
+                              <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80 font-medium">
+                                <Sparkles className="h-3 w-3 text-su-brand mt-0.5 shrink-0" />
+                                {ang}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Risks and Uncertainties */}
+                    {enrichmentData.risks_or_uncertainties && enrichmentData.risks_or_uncertainties.length > 0 && (
+                      <div className="rounded-xl border border-amber-500/10 bg-amber-500/5 p-3 space-y-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">Riesgos o incertidumbres</p>
+                        <ul className="space-y-1">
+                          {enrichmentData.risks_or_uncertainties.map((r: string, i: number) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                              {r}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Missing Data */}
+                    {enrichmentData.missing_data && enrichmentData.missing_data.length > 0 && (
+                      <div className="rounded-xl border border-red-500/10 bg-red-500/5 p-3 space-y-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-400">Datos faltantes</p>
+                        <ul className="space-y-1">
+                          {enrichmentData.missing_data.map((m: string, i: number) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-red-800 dark:text-red-300">
+                              <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                              {m}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* AI Info details banner */}
+                    <div className="flex items-center justify-between text-[9px] text-muted-foreground/60 pt-2 border-t border-border/20">
+                      <span>Proveedor: {enrichmentData.provider} ({enrichmentData.model})</span>
+                      <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
+                      {usage && usage.estimated_cost !== undefined && (
+                        <span>Costo: ${Number(usage.estimated_cost).toFixed(5)} USD</span>
+                      )}
+                    </div>
+
+                    {/* Re-enriquecer button */}
+                    <Button 
+                      onClick={handleEnrich} 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full gap-1.5 hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Re-enriquecer candidato
+                    </Button>
+                  </div>
+                );
+              }
+
+              if (eligibility.needs_enrichment) {
+                return (
+                  <div className="rounded-xl border border-border/40 bg-card p-4 space-y-4">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="h-4.5 w-4.5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-foreground/90">Faltan datos para completar el perfil comercial.</p>
+                        <p className="text-[11px] text-muted-foreground">Este candidato tiene información inicial insuficiente para su revisión comercial.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 bg-muted/30 rounded-lg p-3">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground">Completitud del perfil:</span>
+                        <span className="font-semibold text-foreground">{eligibility.completeness_score}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full ${
+                            eligibility.completeness_score >= 50 
+                              ? 'bg-amber-500' 
+                              : 'bg-destructive'
+                          }`}
+                          style={{ width: `${eligibility.completeness_score}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {eligibility.missing_fields.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Campos faltantes recomendados</p>
+                        <div className="flex flex-wrap gap-1">
+                          {eligibility.missing_fields.map((f, i) => (
+                            <Badge key={i} className="border-0 bg-muted text-muted-foreground text-[9px] font-normal">
+                              {f === 'website' ? 'Sitio Web/Dominio' :
+                               f === 'linkedin_url' ? 'LinkedIn Corporativo' :
+                               f === 'industry' ? 'Sector/Industria' :
+                               f === 'company_size' ? 'Tamaño de empleados' :
+                               f === 'description' ? 'Descripción de negocio' :
+                               f === 'city' ? 'Ciudad/Región' : f}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <Button 
+                      onClick={handleEnrich} 
+                      size="sm" 
+                      className="w-full bg-su-brand text-su-brand-foreground hover:bg-su-brand/90 gap-1.5 font-medium"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Enriquecer candidato
+                    </Button>
+                  </div>
+                );
+              }
+
+              // Default: has enough data
+              return (
+                <div className="rounded-xl border border-border/30 bg-muted/10 p-3.5 text-center flex items-center justify-center gap-2">
+                  <Info className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+                  <p className="text-xs text-muted-foreground/80 leading-normal">
+                    Este candidato ya tiene información inicial suficiente para revisión.
+                  </p>
+                </div>
+              );
+            })()}
           </div>
 
           <Divider />
