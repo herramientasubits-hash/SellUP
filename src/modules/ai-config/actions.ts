@@ -7,13 +7,16 @@ import {
   testGeminiWithKey,
   testOpenAIConnection,
   testClaudeConnection,
+  listAnthropicModels,
+  testAnthropicModelExecution,
   hasAiProviderCredential,
   getAiProviderCredential,
   hasVaultSecretByRawName,
   getVaultSecretByRawName,
   storeAiProviderCredential,
   removeAiProviderCredential,
-  type ConnectionTestResult
+  type ConnectionTestResult,
+  type AnthropicExecutionTestResult,
 } from '@/server/services/ai-connection';
 import type { 
   AIProvider, 
@@ -867,8 +870,14 @@ export async function testAiProviderConnectionWithVault(
     log('[testVault] Probando OpenAI...');
     testResult = await testOpenAIConnection(credentialResult.apiKey);
   } else if (providerKey === 'anthropic' || providerKey === 'claude') {
-    log('[testVault] Probando Anthropic...');
-    testResult = await testClaudeConnection(credentialResult.apiKey);
+    log('[testVault] Probando Anthropic (2 niveles: key + ejecución real)...');
+    // Pass active model key so Level 2 tests the actually-configured model
+    const activeConfig = await getAIActiveConfig();
+    const isAnthropicActive =
+      activeConfig?.provider_key === 'anthropic' || activeConfig?.provider_key === 'claude';
+    const activeModelId = isAnthropicActive ? (activeConfig?.model_key ?? undefined) : undefined;
+    log('[testVault] active model for Claude test: ' + (activeModelId ?? 'none — will auto-detect'));
+    testResult = await testClaudeConnection(credentialResult.apiKey, activeModelId);
   } else {
     return {
       success: false,
@@ -921,6 +930,186 @@ export async function testAiProviderConnectionWithVault(
     error: testResult.error,
     message: testResult.message,
     debugLogs: logs
+  };
+}
+
+export interface SyncAnthropicModelsResult {
+  success: boolean;
+  error?: string;
+  api_models_found: number;
+  models_checked: Array<{
+    key: string;
+    name: string;
+    is_available: boolean;
+    is_executable: boolean;
+    error_message: string | null;
+    latency_ms?: number;
+  }>;
+  models_marked_unavailable: string[];
+  models_added: string[];
+}
+
+/**
+ * Syncs Anthropic model availability and executability against the live API.
+ * 1. Reads API key from Vault.
+ * 2. Lists models from GET /v1/models.
+ * 3. Tests real execution via POST /v1/messages for each model in DB.
+ * 4. Updates is_available, is_executable, last_checked_at, error_message in DB.
+ * NEVER logs or returns the API key.
+ */
+export async function syncAnthropicModels(): Promise<SyncAnthropicModelsResult> {
+  const admin = getAdminSupabaseClient();
+
+  // Auth gate: admin only
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: 'No autenticado', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
+
+  const { data: adminUser } = await supabase.from('internal_users').select('id, role_id').eq('auth_user_id', user.id).eq('access_status', 'active').single();
+  if (!adminUser) return { success: false, error: 'No autorizado', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
+
+  const { data: role } = await supabase.from('roles').select('key').eq('id', adminUser.role_id).single();
+  if (role?.key !== 'admin') return { success: false, error: 'No autorizado', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
+
+  // Get Anthropic API key from Vault
+  const credResult = await (await import('@/server/services/ai-connection')).getAiProviderCredential('anthropic');
+  if (!credResult.success || !credResult.apiKey) {
+    return { success: false, error: 'No hay credencial de Anthropic en Vault. Conecta el proveedor primero.', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
+  }
+
+  // Level 1: list models from Anthropic API
+  const listResult = await listAnthropicModels(credResult.apiKey);
+  if (!listResult.ok) {
+    return { success: false, error: `Error al listar modelos de Anthropic: ${listResult.error}`, api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
+  }
+
+  const apiModelIds = new Set((listResult.models ?? []).map((m) => m.id));
+  const apiModelsFound = apiModelIds.size;
+
+  // Get Anthropic provider from DB
+  const { data: provider } = await admin.from('ai_providers').select('id').eq('key', 'anthropic').single();
+  if (!provider) {
+    return { success: false, error: 'Proveedor Anthropic no encontrado en DB', api_models_found: apiModelsFound, models_checked: [], models_marked_unavailable: [], models_added: [] };
+  }
+
+  // Get existing models in DB for Anthropic
+  const { data: dbModels } = await admin
+    .from('ai_models')
+    .select('id, key, name')
+    .eq('provider_id', provider.id);
+
+  const dbModelMap = new Map<string, { id: string; name: string }>(
+    (dbModels ?? []).map((m: { id: string; key: string; name: string }) => [m.key, { id: m.id, name: m.name }])
+  );
+
+  const modelsChecked: SyncAnthropicModelsResult['models_checked'] = [];
+  const modelsMarkedUnavailable: string[] = [];
+  const modelsAdded: string[] = [];
+  const now = new Date().toISOString();
+
+  // Level 2: test execution and update DB for each known model
+  for (const [key, dbModel] of dbModelMap.entries()) {
+    const isAvailable = apiModelIds.has(key);
+
+    if (!isAvailable) {
+      modelsMarkedUnavailable.push(key);
+      await admin.from('ai_models').update({
+        is_available: false,
+        is_executable: false,
+        deprecation_status: 'unavailable_or_deprecated',
+        last_checked_at: now,
+        error_message: 'Model not available for current Anthropic API key',
+        updated_at: now,
+      }).eq('id', dbModel.id);
+
+      modelsChecked.push({ key, name: dbModel.name, is_available: false, is_executable: false, error_message: 'Model not available for current Anthropic API key' });
+      continue;
+    }
+
+    // Model is in list — test actual execution
+    const execResult: AnthropicExecutionTestResult = await testAnthropicModelExecution({
+      apiKey: credResult.apiKey,
+      modelId: key,
+    });
+
+    const isExecutable = execResult.ok;
+    const errMsg = execResult.ok ? null : (execResult.error_message ?? execResult.error_code ?? 'Execution failed');
+
+    await admin.from('ai_models').update({
+      is_available: true,
+      is_executable: isExecutable,
+      deprecation_status: isExecutable ? 'available' : 'unavailable_or_deprecated',
+      last_checked_at: now,
+      error_message: errMsg,
+      updated_at: now,
+    }).eq('id', dbModel.id);
+
+    modelsChecked.push({
+      key,
+      name: dbModel.name,
+      is_available: true,
+      is_executable: isExecutable,
+      error_message: errMsg,
+      latency_ms: execResult.latency_ms,
+    });
+  }
+
+  // Add new models from API list that aren't in DB yet
+  for (const apiModel of listResult.models ?? []) {
+    if (dbModelMap.has(apiModel.id)) continue;
+    // Only add claude-* models to avoid noise
+    if (!apiModel.id.startsWith('claude-')) continue;
+
+    const displayName = apiModel.display_name ?? apiModel.id;
+    const execResult: AnthropicExecutionTestResult = await testAnthropicModelExecution({
+      apiKey: credResult.apiKey,
+      modelId: apiModel.id,
+    });
+    const isExecutable = execResult.ok;
+    const errMsg = execResult.ok ? null : (execResult.error_message ?? execResult.error_code ?? 'Execution failed');
+
+    await admin.from('ai_models').insert({
+      provider_id: provider.id,
+      key: apiModel.id,
+      name: displayName,
+      description: `Modelo Anthropic descubierto en sincronización (${now})`,
+      status: 'inactive',
+      is_selectable: true,
+      is_available: true,
+      is_executable: isExecutable,
+      deprecation_status: isExecutable ? 'available' : 'unavailable_or_deprecated',
+      last_checked_at: now,
+      error_message: errMsg,
+    });
+
+    modelsAdded.push(apiModel.id);
+    modelsChecked.push({
+      key: apiModel.id,
+      name: displayName,
+      is_available: true,
+      is_executable: isExecutable,
+      error_message: errMsg,
+      latency_ms: execResult.latency_ms,
+    });
+  }
+
+  // Audit log — safe: no secrets, just metadata
+  await supabase.rpc('log_ai_provider_audit', {
+    p_event_type: 'ai_anthropic_models_synced',
+    p_provider_id: provider.id,
+    p_details: {
+      api_models_found: apiModelsFound,
+      models_checked: modelsChecked.length,
+      executable_count: modelsChecked.filter((m) => m.is_executable).length,
+    },
+  });
+
+  return {
+    success: true,
+    api_models_found: apiModelsFound,
+    models_checked: modelsChecked,
+    models_marked_unavailable: modelsMarkedUnavailable,
+    models_added: modelsAdded,
   };
 }
 

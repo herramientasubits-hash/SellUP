@@ -578,6 +578,8 @@ export async function buildAIExecutionCandidates(
     .select(`
       key,
       name,
+      is_executable,
+      last_checked_at,
       ai_providers!provider_id (
         key,
         name,
@@ -633,14 +635,29 @@ export async function buildAIExecutionCandidates(
   if (activeProviderKey && activeModelKey) {
     const isCredAvailable = credentialsMap[activeProviderKey] ?? false;
     if (isCredAvailable) {
-      candidates.push({
-        provider_key: activeProviderKey,
-        provider_display_name: activeConfig?.provider_name || getProviderDisplayName(activeProviderKey),
-        model_key: activeModelKey,
-        model_display_name: activeConfig?.model_name || activeModelKey,
-        credential_available: true,
-        priority: 1,
+      // Check if active model is explicitly marked non-executable in DB (skip if so)
+      const activeModelDbRow = (dbModels ?? []).find((m) => {
+        const rawProvider = m.ai_providers as unknown;
+        const providerData = (Array.isArray(rawProvider) ? rawProvider[0] : rawProvider) as { key: string } | null;
+        const pKey = normalizeAIProviderKey(providerData?.key || '');
+        return pKey === activeProviderKey && m.key === activeModelKey;
       });
+      const activeModelKnownNonExecutable = activeModelDbRow
+        ? (activeModelDbRow as unknown as { is_executable: boolean | null }).is_executable === false
+        : false;
+
+      if (!activeModelKnownNonExecutable) {
+        candidates.push({
+          provider_key: activeProviderKey,
+          provider_display_name: activeConfig?.provider_name || getProviderDisplayName(activeProviderKey),
+          model_key: activeModelKey,
+          model_display_name: activeConfig?.model_name || activeModelKey,
+          credential_available: true,
+          priority: 1,
+        });
+      } else {
+        console.warn(`[buildAIExecutionCandidates] Active model ${activeProviderKey}/${activeModelKey} is marked non-executable — skipping SLOT 1.`);
+      }
     }
   }
 
@@ -688,6 +705,13 @@ export async function buildAIExecutionCandidates(
 
       if (pKey === 'google') {
         dbGeminiModels.push({ key: m.key, name: m.name });
+      }
+
+      // Skip models explicitly verified as non-executable — avoids wasting attempts
+      const isExecutable = (m as unknown as { is_executable: boolean | null }).is_executable;
+      if (isExecutable === false) {
+        console.log(`[buildAIExecutionCandidates] Skipping ${pKey}/${m.key} — marked is_executable=false in DB`);
+        continue;
       }
 
       const isCredAvailable = credentialsMap[pKey] ?? false;

@@ -242,7 +242,28 @@ export async function testOpenAIConnection(apiKey: string): Promise<ConnectionTe
   }
 }
 
-export async function testClaudeConnection(apiKey: string): Promise<ConnectionTestResult> {
+// ============================================================
+// Anthropic model listing and execution testing
+// ============================================================
+
+export interface AnthropicModel {
+  id: string;
+  display_name: string | null;
+  created_at: string | null;
+  type: string | null;
+}
+
+/**
+ * Lists available models for the given Anthropic API key via GET /v1/models.
+ * Note: a model appearing here does NOT guarantee it can execute — only that
+ * the key has list access. Use testAnthropicModelExecution to confirm execution.
+ * NEVER logs the apiKey.
+ */
+export async function listAnthropicModels(apiKey: string): Promise<{
+  ok: boolean;
+  models?: AnthropicModel[];
+  error?: string;
+}> {
   try {
     const response = await fetch('https://api.anthropic.com/v1/models', {
       method: 'GET',
@@ -250,19 +271,168 @@ export async function testClaudeConnection(apiKey: string): Promise<ConnectionTe
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
-        return { success: false, error: 'INVALID_API_KEY', message: 'La API key de Claude no es válida' };
-      }
-      return { success: false, error: 'API_ERROR', message: `Error de Claude: ${response.status}` };
+      if (response.status === 401) return { ok: false, error: 'INVALID_API_KEY' };
+      return { ok: false, error: `API_ERROR_${response.status}` };
     }
 
     const data = await response.json();
-    const modelCount: number = (data.data as unknown[])?.length ?? 0;
-    return { success: true, message: `Conexión exitosa. Modelos disponibles: ${modelCount}` };
+    const models: AnthropicModel[] = ((data.data ?? []) as Record<string, unknown>[]).map((m) => ({
+      id: m.id as string,
+      display_name: (m.display_name as string) ?? null,
+      created_at: (m.created_at as string) ?? null,
+      type: (m.type as string) ?? null,
+    }));
+
+    return { ok: true, models };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error desconocido';
-    return { success: false, error: 'CONNECTION_ERROR', message: `Error de conexión: ${msg}` };
+    return { ok: false, error: `CONNECTION_ERROR: ${msg}` };
   }
+}
+
+export interface AnthropicExecutionTestResult {
+  ok: boolean;
+  model_id: string;
+  latency_ms?: number;
+  status?: number;
+  error_code?: string;
+  error_message?: string;
+  request_id?: string;
+}
+
+/**
+ * Tests real generation execution for a specific Anthropic model via POST /v1/messages.
+ * Uses a minimal prompt (max_tokens=16) to confirm the model is actually executable.
+ * NEVER logs the apiKey.
+ */
+export async function testAnthropicModelExecution({
+  apiKey,
+  modelId,
+}: {
+  apiKey: string;
+  modelId: string;
+}): Promise<AnthropicExecutionTestResult> {
+  const start = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: modelId,
+        max_tokens: 16,
+        messages: [{ role: 'user', content: 'Reply only: ok' }],
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const latency = Date.now() - start;
+    const requestId = response.headers.get('request-id') ?? undefined;
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      let errorCode = `HTTP_${response.status}`;
+      let errorMessage = body.slice(0, 200);
+      try {
+        const parsed = JSON.parse(body) as { error?: { type?: string; message?: string } };
+        if (parsed?.error?.type) errorCode = parsed.error.type;
+        if (parsed?.error?.message) errorMessage = parsed.error.message;
+      } catch {}
+
+      return {
+        ok: false,
+        model_id: modelId,
+        status: response.status,
+        error_code: errorCode,
+        error_message: errorMessage,
+        request_id: requestId,
+        latency_ms: latency,
+      };
+    }
+
+    return { ok: true, model_id: modelId, latency_ms: latency };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      model_id: modelId,
+      error_code: 'CONNECTION_ERROR',
+      error_message: msg,
+    };
+  }
+}
+
+/**
+ * Two-level Claude connection test:
+ *   Level 1 — API key valid (GET /v1/models).
+ *   Level 2 — Specific model executes (POST /v1/messages).
+ *
+ * If modelIdToTest is provided, level 2 uses that model.
+ * Otherwise, the first model from the list API is tried.
+ *
+ * Returns:
+ *   success=true  → "Conectado. Modelo validado correctamente."
+ *   success=false, error=MODEL_NOT_EXECUTABLE → "API key válida, pero el modelo no está disponible."
+ *   success=false, error=INVALID_API_KEY → "Credencial inválida."
+ */
+export async function testClaudeConnection(
+  apiKey: string,
+  modelIdToTest?: string
+): Promise<ConnectionTestResult> {
+  // Level 1: validate API key via model list
+  const listResult = await listAnthropicModels(apiKey);
+  if (!listResult.ok) {
+    if (listResult.error === 'INVALID_API_KEY') {
+      return { success: false, error: 'INVALID_API_KEY', message: 'La API key de Claude no es válida o está vencida' };
+    }
+    return { success: false, error: listResult.error ?? 'API_ERROR', message: `Error al conectar con Anthropic: ${listResult.error}` };
+  }
+
+  const availableIds = (listResult.models ?? []).map((m) => m.id);
+
+  // Level 2: test real execution
+  const candidateIds: string[] = [];
+  if (modelIdToTest) {
+    candidateIds.push(modelIdToTest);
+  }
+  // Always append first few available as fallback candidates for the test
+  availableIds
+    .filter((id) => !candidateIds.includes(id))
+    .slice(0, 3)
+    .forEach((id) => candidateIds.push(id));
+
+  for (const modelId of candidateIds) {
+    const execResult = await testAnthropicModelExecution({ apiKey, modelId });
+    if (execResult.ok) {
+      const testedLabel = modelIdToTest === modelId ? ` (modelo activo: ${modelId})` : ` (${modelId})`;
+      return {
+        success: true,
+        message: `Conectado. Modelo validado correctamente${testedLabel}. Latencia: ${execResult.latency_ms}ms`,
+      };
+    }
+    // If the tested active model fails, surface that specifically
+    if (modelIdToTest && modelId === modelIdToTest) {
+      return {
+        success: false,
+        error: 'MODEL_NOT_EXECUTABLE',
+        message: `API key válida (${availableIds.length} modelos en lista), pero el modelo seleccionado "${modelId}" no está disponible. Selecciona otro modelo en Configuración > Proveedores de IA.`,
+      };
+    }
+  }
+
+  return {
+    success: false,
+    error: 'MODEL_NOT_EXECUTABLE',
+    message: `API key válida (${availableIds.length} modelos en lista), pero ningún modelo pudo ejecutarse. Verifica los permisos de tu plan Anthropic o usa "Actualizar modelos disponibles".`,
+  };
 }
 
 /** Unused — kept for backward compat with legacy callers during transition */

@@ -37,6 +37,7 @@ import {
   disconnectAiProvider,
   testAiProviderConnectionWithVault,
   getAiProviderConnectionStatus,
+  syncAnthropicModels,
 } from '@/modules/ai-config/actions';
 import type { AIProvider, AIModel, AIActiveConfig } from '@/modules/ai-config/types';
 
@@ -58,6 +59,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
   const [outputCost, setOutputCost] = useState('');
   const [loading, setLoading] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [syncingModels, setSyncingModels] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -174,6 +176,29 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
     }
   };
 
+  const handleSyncAnthropicModels = async () => {
+    if (!provider || provider.key !== 'anthropic') return;
+    setSyncingModels(true);
+    try {
+      const result = await syncAnthropicModels();
+      if (result.success) {
+        const executableCount = result.models_checked.filter((m) => m.is_executable).length;
+        const total = result.models_checked.length;
+        showToast(
+          `Modelos sincronizados: ${executableCount}/${total} ejecutables. Nuevos: ${result.models_added.length}.`,
+          executableCount > 0 ? 'success' : 'error'
+        );
+      } else {
+        showToast(result.error || 'Error al sincronizar modelos', 'error');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Error inesperado: ${msg}`, 'error');
+    }
+    setSyncingModels(false);
+    setTimeout(() => window.location.reload(), 2000);
+  };
+
   const handleTestConnection = async () => {
     if (!provider) return;
     setTestingConnection(true);
@@ -282,6 +307,15 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
                     <Key className="mr-2 h-4 w-4" />
                     Actualizar credencial
                   </DropdownMenuItem>
+                  {provider.key === 'anthropic' && (
+                    <DropdownMenuItem
+                      onClick={handleSyncAnthropicModels}
+                      disabled={syncingModels}
+                    >
+                      <div className="mr-2 h-4 w-4">↻</div>
+                      {syncingModels ? 'Sincronizando...' : 'Actualizar modelos disponibles'}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => setShowDisconnectDialog(true)}>
                     <Unplug className="mr-2 h-4 w-4" />
                     Desconectar proveedor

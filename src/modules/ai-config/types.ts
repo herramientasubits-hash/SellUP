@@ -25,6 +25,11 @@ export interface AIModel {
   description: string | null;
   status: AIModelStatus;
   is_selectable: boolean;
+  is_available: boolean | null;
+  is_executable: boolean | null;
+  deprecation_status: string | null;
+  last_checked_at: string | null;
+  error_message: string | null;
   context_window_tokens: number | null;
   created_at: string;
   updated_at: string;

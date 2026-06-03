@@ -27,7 +27,10 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  const filteredModels = models.filter(m => m.provider_id === selectedProvider);
+  const filteredModels = models.filter(m => m.provider_id === selectedProvider && m.is_executable !== false);
+
+  const activeModelObj = models.find(m => m.id === activeConfig?.active_model_id);
+  const activeModelNonExecutable = activeModelObj?.is_executable === false;
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
@@ -48,6 +51,12 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
   };
 
   return (
+    <div className="flex flex-col gap-4">
+      {activeModelNonExecutable && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
+          El modelo activo de Claude no está disponible. Selecciona otro modelo o usa <strong>Actualizar modelos disponibles</strong> en el proveedor.
+        </div>
+      )}
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
       <div className="flex-1">
         <Label className="text-xs text-muted-foreground mb-1.5 block">Proveedor activo</Label>
@@ -122,6 +131,7 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
           {toast.message}
         </div>
       )}
+    </div>
     </div>
   );
 }
