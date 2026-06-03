@@ -12,6 +12,52 @@ import {
 } from '@/modules/usage-tracking/logging';
 import { estimateLLMCost } from '../agents/prospecting-toolkit/llm-evaluator';
 
+/**
+ * Normaliza aliases de proveedor de IA a una clave canónica.
+ * Soporta: google, gemini, Google Gemini → "google"
+ *          anthropic, claude → "anthropic"
+ *          openai → "openai"
+ */
+export function normalizeAIProviderKey(value: string): string {
+  const v = (value || '').toLowerCase().trim();
+  if (v === 'google' || v === 'gemini' || v.includes('gemini') || v.includes('google')) return 'google';
+  if (v === 'anthropic' || v === 'claude' || v.includes('claude') || v.includes('anthropic')) return 'anthropic';
+  if (v === 'openai' || v.includes('openai') || v.includes('gpt')) return 'openai';
+  return v;
+}
+
+/**
+ * Verifica si existe credencial en Vault probando el key canónico
+ * y también el alias alternativo (google ↔ gemini).
+ */
+async function hasAiProviderCredentialWithAlias(providerKey: string): Promise<boolean> {
+  const canonical = normalizeAIProviderKey(providerKey);
+  const hasDirect = await hasAiProviderCredential(canonical);
+  if (hasDirect) return true;
+  // Intentar alias alternativo para Google
+  if (canonical === 'google') {
+    return hasAiProviderCredential('gemini');
+  }
+  return false;
+}
+
+/**
+ * Recupera credencial desde Vault probando key canónico y alias alternativo.
+ */
+async function getAiProviderCredentialWithAlias(
+  providerKey: string
+): Promise<{ success: boolean; apiKey?: string; error?: string }> {
+  const canonical = normalizeAIProviderKey(providerKey);
+  const direct = await getAiProviderCredential(canonical);
+  if (direct.success && direct.apiKey) return direct;
+  // Intentar alias alternativo para Google
+  if (canonical === 'google') {
+    const alias = await getAiProviderCredential('gemini');
+    if (alias.success && alias.apiKey) return alias;
+  }
+  return direct;
+}
+
 export interface EnrichProspectCandidateInput {
   candidateId: string;
   userId: string;
@@ -395,11 +441,11 @@ export async function buildAIExecutionCandidates(
   activeConfig: AIActiveConfig | null
 ): Promise<AIExecutionCandidate[]> {
   const candidates: AIExecutionCandidate[] = [];
-  
+
   let activeProviderKey = '';
   let activeModelKey = '';
   if (activeConfig) {
-    activeProviderKey = resolveCanonicalProvider(activeConfig);
+    activeProviderKey = normalizeAIProviderKey(resolveCanonicalProvider(activeConfig));
     activeModelKey = resolveProviderModelId(activeConfig, activeProviderKey);
   }
 
@@ -421,11 +467,15 @@ export async function buildAIExecutionCandidates(
     console.error('[buildAIExecutionCandidates] Error fetching DB models:', error);
   }
 
+  // Verificar credenciales usando alias para Google (puede estar guardada como 'google' o 'gemini')
   const providersToCheck = ['anthropic', 'google', 'openai'];
   const credentialsMap: Record<string, boolean> = {};
   for (const p of providersToCheck) {
-    credentialsMap[p] = await hasAiProviderCredential(p);
+    credentialsMap[p] = await hasAiProviderCredentialWithAlias(p);
   }
+
+  console.log('[buildAIExecutionCandidates] credentialsMap:', credentialsMap);
+  console.log('[buildAIExecutionCandidates] activeProviderKey:', activeProviderKey, 'activeModelKey:', activeModelKey);
 
   const getProviderDisplayName = (pKey: string) => {
     if (pKey === 'anthropic') return 'Claude';
@@ -434,44 +484,71 @@ export async function buildAIExecutionCandidates(
     return pKey;
   };
 
+  // ── SLOT 1: Configuración activa ──────────────────────────────────────────
   if (activeProviderKey && activeModelKey) {
-    const isCredAvailable = credentialsMap[activeProviderKey] || false;
+    const isCredAvailable = credentialsMap[activeProviderKey] ?? false;
     if (isCredAvailable) {
       candidates.push({
         provider_key: activeProviderKey,
         provider_display_name: activeConfig?.provider_name || getProviderDisplayName(activeProviderKey),
         model_key: activeModelKey,
         model_display_name: activeConfig?.model_name || activeModelKey,
-        credential_available: isCredAvailable,
-        priority: 1
+        credential_available: true,
+        priority: 1,
       });
     }
   }
 
+  // ── SLOT 2: Gemini preferente si el activo no es Gemini ───────────────────
+  // Esto garantiza que Gemini esté en los primeros intentos antes de agotar
+  // todos los modelos del proveedor activo.
+  const geminiPriorityModels = [
+    { key: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+    { key: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B' },
+    { key: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
+  ];
+
+  if (activeProviderKey !== 'google' && credentialsMap['google']) {
+    for (const gm of geminiPriorityModels) {
+      candidates.push({
+        provider_key: 'google',
+        provider_display_name: 'Google Gemini',
+        model_key: gm.key,
+        model_display_name: gm.name,
+        credential_available: true,
+        priority: 2, // Antes que otros modelos del proveedor activo
+      });
+    }
+  }
+
+  // ── SLOTS 3+: Modelos adicionales desde la DB ─────────────────────────────
   if (dbModels && dbModels.length > 0) {
     for (const m of dbModels) {
       const rawProvider = m.ai_providers as unknown;
       const providerData = (Array.isArray(rawProvider) ? rawProvider[0] : rawProvider) as { key: string; name: string } | null;
-      const pKey = (providerData?.key || '').toLowerCase();
+      const pKey = normalizeAIProviderKey(providerData?.key || '');
       if (!pKey) continue;
-      
-      const isCredAvailable = credentialsMap[pKey] || false;
+
+      const isCredAvailable = credentialsMap[pKey] ?? false;
       if (!isCredAvailable) continue;
 
       const mKey = m.key;
       const mName = m.name;
 
-      if (pKey === activeProviderKey && mKey === activeModelKey) {
-        continue;
-      }
+      // Ya incluido en slot 1 (config activa)
+      if (pKey === activeProviderKey && mKey === activeModelKey) continue;
 
-      let priority = 5;
-      if (pKey === activeProviderKey) {
-        priority = 2;
-      } else if (pKey === 'google') {
+      let priority: number;
+      if (pKey === 'google') {
+        // Gemini: prioridad 2 si es preferente, 3 si ya fue agregado como slot 2
         priority = 3;
-      } else if (pKey === 'openai') {
+      } else if (pKey === activeProviderKey) {
+        // Otros modelos del proveedor activo van después de Gemini
         priority = 4;
+      } else if (pKey === 'openai') {
+        priority = 5;
+      } else {
+        priority = 6;
       }
 
       candidates.push({
@@ -479,12 +556,13 @@ export async function buildAIExecutionCandidates(
         provider_display_name: providerData?.name || getProviderDisplayName(pKey),
         model_key: mKey,
         model_display_name: mName,
-        credential_available: isCredAvailable,
-        priority
+        credential_available: true,
+        priority,
       });
     }
   }
 
+  // ── Deduplicar preservando primera aparición (menor priority) ─────────────
   candidates.sort((a, b) => a.priority - b.priority);
 
   const seen = new Set<string>();
@@ -498,32 +576,35 @@ export async function buildAIExecutionCandidates(
     }
   }
 
+  // ── Ordenar dentro de mismo priority por modelo preferente ────────────────
+  const preferredModelOrder = [
+    'gemini-2.0-flash',
+    'gemini-1.5-flash-8b',
+    'gemini-1.5-pro',
+    'gemini-2.0-pro',
+    'gemini-3.0-flash',
+    'gemini-3.1-flash',
+    'gpt-4o-mini',
+    'gpt-4o',
+    'claude-3-5-haiku-20241022',
+    'claude-3-5-sonnet-20241022',
+    'claude-sonnet-4-20250514',
+  ];
+
   uniqueCandidates.sort((a, b) => {
-    if (a.priority !== b.priority) {
-      return a.priority - b.priority;
-    }
-    const modelOrder = [
-      'gemini-2.0-flash',
-      'gemini-1.5-flash-8b',
-      'gemini-1.5-pro',
-      'gemini-2.0-pro',
-      'gemini-3.0-flash',
-      'gemini-3.1-flash',
-      'gpt-4o-mini',
-      'gpt-4o',
-      'claude-3-5-haiku-20241022',
-      'claude-3-5-sonnet-20241022',
-      'claude-sonnet-4-20250514'
-    ];
-    const idxA = modelOrder.indexOf(a.model_key);
-    const idxB = modelOrder.indexOf(b.model_key);
-    if (idxA !== -1 && idxB !== -1) {
-      return idxA - idxB;
-    }
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    const idxA = preferredModelOrder.indexOf(a.model_key);
+    const idxB = preferredModelOrder.indexOf(b.model_key);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
     if (idxA !== -1) return -1;
     if (idxB !== -1) return 1;
     return a.model_key.localeCompare(b.model_key);
   });
+
+  console.log(
+    '[buildAIExecutionCandidates] Final order:',
+    uniqueCandidates.map((c) => `[${c.priority}] ${c.provider_key}/${c.model_key}`)
+  );
 
   return uniqueCandidates;
 }
@@ -618,8 +699,10 @@ export async function enrichProspectCandidate({
     const prompt = buildEnrichmentPrompt(candidate, eligibility);
     const attempts: Array<{
       provider: string;
+      provider_display_name: string;
       model: string;
-      status: 'failed' | 'completed';
+      model_display_name: string;
+      status: 'failed' | 'completed' | 'skipped';
       error_code?: string;
       error_message?: string;
     }> = [];
@@ -631,7 +714,9 @@ export async function enrichProspectCandidate({
       candidate: AIExecutionCandidate;
     } | null = null;
 
-    const maxAttempts = Math.min(3, executionCandidates.length);
+    // Aumentado a 5 para asegurar que Gemini siempre entre dentro de los intentos
+    // aunque haya múltiples modelos del proveedor activo disponibles.
+    const maxAttempts = Math.min(5, executionCandidates.length);
 
     for (let i = 0; i < maxAttempts; i++) {
       const execCand = executionCandidates[i];
@@ -653,15 +738,18 @@ export async function enrichProspectCandidate({
         console.warn('[enrichProspectCandidate] Error creating step:', logErr);
       }
 
-      const creds = await getAiProviderCredential(execCand.provider_key);
+      // Usar alias-aware credential fetch para google/gemini
+      const creds = await getAiProviderCredentialWithAlias(execCand.provider_key);
       if (!creds.success || !creds.apiKey) {
         const errMsg = `Credenciales no encontradas para el proveedor ${execCand.provider_display_name}`;
         attempts.push({
           provider: execCand.provider_key,
+          provider_display_name: execCand.provider_display_name,
           model: execCand.model_key,
-          status: 'failed',
-          error_code: 'credentials_missing',
-          error_message: errMsg
+          model_display_name: execCand.model_display_name,
+          status: 'skipped',
+          error_code: 'credential_not_found',
+          error_message: errMsg,
         });
 
         if (agentRunId && stepId) {
@@ -708,8 +796,10 @@ export async function enrichProspectCandidate({
 
         attempts.push({
           provider: execCand.provider_key,
+          provider_display_name: execCand.provider_display_name,
           model: execCand.model_key,
-          status: 'completed'
+          model_display_name: execCand.model_display_name,
+          status: 'completed',
         });
 
         let estimatedCostUsd = 0;
@@ -789,10 +879,12 @@ export async function enrichProspectCandidate({
 
         attempts.push({
           provider: execCand.provider_key,
+          provider_display_name: execCand.provider_display_name,
           model: execCand.model_key,
+          model_display_name: execCand.model_display_name,
           status: 'failed',
           error_code: errorCode,
-          error_message: errMsg
+          error_message: errMsg,
         });
 
         if (agentRunId && stepId) {

@@ -1304,14 +1304,15 @@ export function CandidateDetailSheet({
                           {activeErrorDetails.attempts && activeErrorDetails.attempts.length > 0 && (
                             <div className="pt-1.5 border-t border-border/20 mt-1.5 space-y-1 font-sans">
                               <span className="font-semibold text-foreground/80 block mb-1">Historial de intentos:</span>
-                              {activeErrorDetails.attempts.map((att: { provider: string; model: string; status: string; error_message?: string }, idx: number) => (
+                              {activeErrorDetails.attempts.map((att: { provider: string; provider_display_name?: string; model: string; model_display_name?: string; status: string; error_message?: string; error_code?: string }, idx: number) => (
                                 <div key={idx} className="flex flex-col pl-1 border-l-2 border-muted/50 py-0.5">
                                   <div className="flex items-center gap-1.5 text-[9px]">
-                                    <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
-                                      {att.status === 'completed' ? '✓' : '✗'}
+                                    <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : att.status === 'skipped' ? 'text-amber-500 font-bold' : 'text-red-500 font-bold'}>
+                                      {att.status === 'completed' ? '✓' : att.status === 'skipped' ? '⚠' : '✗'}
                                     </span>
                                     <span className="font-semibold text-foreground/70">
-                                      {att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider} ({att.model})
+                                      {att.provider_display_name || (att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider)}{' '}
+                                      ({att.model_display_name || att.model})
                                     </span>
                                   </div>
                                   {att.error_message && (
@@ -1527,13 +1528,15 @@ export function CandidateDetailSheet({
                       {enrichmentData.attempts && enrichmentData.attempts.length > 0 && (
                         <div className="mt-1 rounded-lg border border-border/40 bg-card p-2 space-y-1">
                           <span className="font-semibold text-foreground/80 block">Historial de fallback:</span>
-                          {enrichmentData.attempts.map((att: { provider: string; model: string; status: string; error_message?: string }, idx: number) => (
+                          {enrichmentData.attempts.map((att: { provider: string; provider_display_name?: string; model: string; model_display_name?: string; status: string; error_message?: string; error_code?: string }, idx: number) => (
                             <div key={idx} className="flex items-start gap-1 font-sans">
-                              <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
-                                {att.status === 'completed' ? '✓' : '✗'}
+                              <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : att.status === 'skipped' ? 'text-amber-500 font-bold' : 'text-red-500 font-bold'}>
+                                {att.status === 'completed' ? '✓' : att.status === 'skipped' ? '⚠' : '✗'}
                               </span>
                               <span className="text-[8px] text-muted-foreground">
-                                {att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider} ({att.model}): {att.status === 'completed' ? 'Exitoso' : `Fallido (${att.error_message || 'Desconocido'})`}
+                                {att.provider_display_name || (att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider)}{' '}
+                                ({att.model_display_name || att.model}):{' '}
+                                {att.status === 'completed' ? 'Exitoso' : att.status === 'skipped' ? `Omitido (${att.error_code || 'sin credencial'})` : `Fallido (${att.error_message || 'Desconocido'})`}
                               </span>
                             </div>
                           ))}
