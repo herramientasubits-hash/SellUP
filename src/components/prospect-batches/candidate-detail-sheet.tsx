@@ -46,6 +46,13 @@ interface HubSpotSyncAudit {
   blocked_reason?: string | null;
   owner_mapping_status?: string | null;
   synced_at?: string | null;
+  owner_assigned?: boolean | null;
+  owner_id?: string | null;
+  owner_email?: string | null;
+  lifecyclestage_sent?: string | null;
+  properties_sent?: Record<string, string> | null;
+  properties_skipped?: string[] | null;
+  warnings?: string[] | null;
 }
 
 interface SheetQualityCheck {
@@ -736,11 +743,37 @@ export function CandidateDetailSheet({
                                 <span className="font-mono font-medium text-foreground">{hsSync.company_id}</span>
                               </div>
                               <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Asignación Owner:</span>
+                                <span className="text-muted-foreground">Owner asignado:</span>
                                 <span className="font-medium text-foreground text-[10px]">
-                                  {hsSync.owner_mapping_status === 'mapped' ? 'Mapeado (Éxito)' : hsSync.owner_mapping_status === 'skipped_missing_mapping' ? 'Omitido (Falta mapping)' : 'Omitido'}
+                                  {hsSync.owner_assigned === true || hsSync.owner_mapping_status === 'mapped'
+                                    ? `Asignado (${hsSync.owner_email || hsSync.owner_id || 'Mapeado'})`
+                                    : 'No asignado'}
                                 </span>
                               </div>
+                              {hsSync.lifecyclestage_sent && (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">Lifecycle Stage:</span>
+                                  <span className="font-medium text-foreground text-[10px]">
+                                    {hsSync.lifecyclestage_sent}
+                                  </span>
+                                </div>
+                              )}
+                              {hsSync.properties_sent && Object.keys(hsSync.properties_sent).length > 0 && (
+                                <div className="pt-1 border-t border-border/20 mt-1">
+                                  <p className="text-[9px] text-muted-foreground/60 uppercase">Campos Enviados:</p>
+                                  <p className="text-[9px] text-muted-foreground/50 font-mono line-clamp-3 overflow-y-auto max-h-[80px]">
+                                    {Object.keys(hsSync.properties_sent).join(', ')}
+                                  </p>
+                                </div>
+                              )}
+                              {((hsSync.properties_skipped && hsSync.properties_skipped.length > 0) || (hsSync.skipped_properties && hsSync.skipped_properties.length > 0)) && (
+                                <div className="pt-1 border-t border-border/20 mt-1">
+                                  <p className="text-[9px] text-muted-foreground/60 uppercase">Campos Omitidos:</p>
+                                  <p className="text-[9px] text-muted-foreground/50 font-mono line-clamp-2 overflow-y-auto max-h-[50px]">
+                                    {((hsSync.properties_skipped && hsSync.properties_skipped.length > 0) ? hsSync.properties_skipped : hsSync.skipped_properties)!.join(', ')}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           )}
 

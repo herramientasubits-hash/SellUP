@@ -10,7 +10,7 @@ import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-too
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
-import { createHubSpotCompany, type CreateHubSpotCompanySentAudit } from '@/server/integrations/hubspot-company-create';
+import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
@@ -55,6 +55,12 @@ export interface HubSpotSyncResult {
   sentPropertiesAudit?: CreateHubSpotCompanySentAudit | null;
   skippedProperties?: string[];
   ownerMappingStatus?: 'mapped' | 'skipped_missing_mapping' | 'skipped';
+  owner_assigned?: boolean;
+  owner_id?: string;
+  owner_email?: string;
+  properties_sent?: Record<string, string>;
+  properties_skipped?: string[];
+  warnings?: string[];
 }
 
 // ── Auth helpers ──────────────────────────────────────────────
@@ -920,6 +926,7 @@ async function attemptHubSpotSync(params: {
   hubspotOwnerId?: string | null;
   linkedinUrl?: string | null;
   industry?: string | null;
+  approvedByEmail?: string | null;
 }): Promise<HubSpotSyncResult> {
   const {
     accountId,
@@ -939,6 +946,7 @@ async function attemptHubSpotSync(params: {
     hubspotOwnerId,
     linkedinUrl,
     industry,
+    approvedByEmail,
   } = params;
 
   const nowStr = new Date().toISOString();
@@ -1064,6 +1072,7 @@ async function attemptHubSpotSync(params: {
     hubspotOwnerId: hubspotOwnerId ?? null,
     linkedinUrl: linkedinUrl ?? null,
     industry: industry ?? null,
+    approvedByEmail: approvedByEmail ?? null,
   });
 
   if (createResult.ok && createResult.hubspotCompanyId) {
@@ -1090,6 +1099,13 @@ async function attemptHubSpotSync(params: {
             skipped_properties: createResult.skippedProperties ?? null,
             blocked_reason: null,
             owner_mapping_status: createResult.ownerMappingStatus ?? 'skipped',
+            owner_assigned: createResult.owner_assigned ?? false,
+            owner_id: createResult.owner_id ?? null,
+            owner_email: createResult.owner_email ?? null,
+            lifecyclestage_sent: 'marketingqualifiedlead',
+            properties_sent: createResult.properties_sent ?? null,
+            properties_skipped: createResult.properties_skipped ?? null,
+            warnings: createResult.warnings ?? [],
             synced_at: nowStr,
           },
           // Flat keys kept for backwards compatibility
@@ -1110,6 +1126,12 @@ async function attemptHubSpotSync(params: {
       sentPropertiesAudit: createResult.sentPropertiesAudit,
       skippedProperties: createResult.skippedProperties,
       ownerMappingStatus: createResult.ownerMappingStatus,
+      owner_assigned: createResult.owner_assigned,
+      owner_id: createResult.owner_id,
+      owner_email: createResult.owner_email,
+      properties_sent: createResult.properties_sent,
+      properties_skipped: createResult.properties_skipped,
+      warnings: createResult.warnings,
     };
   }
 
@@ -1127,6 +1149,12 @@ async function attemptHubSpotSync(params: {
     sentPropertiesAudit: createResult.sentPropertiesAudit,
     skippedProperties: createResult.skippedProperties,
     ownerMappingStatus: createResult.ownerMappingStatus,
+    owner_assigned: createResult.owner_assigned,
+    owner_id: createResult.owner_id,
+    owner_email: createResult.owner_email,
+    properties_sent: createResult.properties_sent,
+    properties_skipped: createResult.properties_skipped,
+    warnings: createResult.warnings,
   };
 }
 
@@ -1264,6 +1292,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       hubspotOwnerId: mappedOwnerId,
       linkedinUrl,
       industry: candidate.industry ?? null,
+      approvedByEmail: userEmail,
     });
   } catch {
     hubspotSync = { attempted: false, status: 'failed_create', message: 'Error inesperado en sync' };
@@ -1292,6 +1321,13 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
           ? hubspotSync.message ?? null
           : null,
         owner_mapping_status: hubspotSync.ownerMappingStatus ?? 'skipped',
+        owner_assigned: hubspotSync.owner_assigned ?? false,
+        owner_id: hubspotSync.owner_id ?? null,
+        owner_email: hubspotSync.owner_email ?? null,
+        lifecyclestage_sent: hubspotSync.status === 'synced' ? 'marketingqualifiedlead' : null,
+        properties_sent: hubspotSync.properties_sent ?? null,
+        properties_skipped: hubspotSync.properties_skipped ?? null,
+        warnings: hubspotSync.warnings ?? [],
         synced_at: new Date().toISOString(),
       },
     };
@@ -1488,6 +1524,7 @@ export async function approveAndConvertCandidateAction(
   let hubspotCompanyId: string | null = null;
   let hubspotCompanyName: string | null = null;
   let hubspotError: string | null = null;
+  let createResult: CreateHubSpotCompanyResult | null = null;
 
   // Caso A — match HubSpot confirmado
   if (hsStatus === 'match' || matchedCompanyId) {
@@ -1538,7 +1575,7 @@ export async function approveAndConvertCandidateAction(
       const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
       const mappedOwnerId = EMAIL_TO_HUBSPOT_OWNER_ID[userEmail] ?? 'skipped_missing_mapping';
 
-      const createResult = await createHubSpotCompany({
+      createResult = await createHubSpotCompany({
         name: candidate.name,
         country: candidate.country ?? null,
         countryCode: candidate.country_code ?? null,
@@ -1553,6 +1590,7 @@ export async function approveAndConvertCandidateAction(
         linkedinUrl,
         industry: candidate.industry ?? null,
         description,
+        approvedByEmail: userEmail,
       });
 
       if (createResult.ok && createResult.hubspotCompanyId) {
@@ -1580,7 +1618,14 @@ export async function approveAndConvertCandidateAction(
       status: 'synced',
       company_id: hubspotCompanyId,
       synced_at: nowStr,
-      owner_mapping_status: hubspotAction === 'created' ? 'mapped' : 'skipped',
+      owner_mapping_status: hubspotAction === 'created' ? (createResult?.ownerMappingStatus ?? 'mapped') : 'skipped',
+      owner_assigned: createResult?.owner_assigned ?? false,
+      owner_id: createResult?.owner_id ?? null,
+      owner_email: createResult?.owner_email ?? null,
+      lifecyclestage_sent: 'marketingqualifiedlead',
+      properties_sent: createResult?.properties_sent ?? null,
+      properties_skipped: createResult?.properties_skipped ?? null,
+      warnings: createResult?.warnings ?? [],
     };
   } else if (hubspotAction === 'skipped_possible_match') {
     accountMetadataPatch.hubspot_sync_status = 'blocked_duplicate';
@@ -1628,6 +1673,13 @@ export async function approveAndConvertCandidateAction(
                     hubspotAction === 'skipped_not_configured' ? 'HubSpot no está configurado' :
                     hubspotAction === 'failed' ? hubspotError : null,
     synced_at: hubspotAction === 'created' || hubspotAction === 'linked_existing' ? nowStr : null,
+    owner_assigned: createResult?.owner_assigned ?? false,
+    owner_id: createResult?.owner_id ?? null,
+    owner_email: createResult?.owner_email ?? null,
+    lifecyclestage_sent: hubspotAction === 'created' ? 'marketingqualifiedlead' : null,
+    properties_sent: createResult?.properties_sent ?? null,
+    properties_skipped: createResult?.properties_skipped ?? null,
+    warnings: createResult?.warnings ?? [],
   };
 
   const approvalMetadata = {
@@ -1644,6 +1696,13 @@ export async function approveAndConvertCandidateAction(
       company_id: hubspotCompanyId ?? undefined,
       company_name: hubspotCompanyName ?? undefined,
       error: hubspotError ?? undefined,
+      owner_assigned: createResult?.owner_assigned ?? false,
+      owner_id: createResult?.owner_id ?? null,
+      owner_email: createResult?.owner_email ?? null,
+      properties_sent: createResult?.properties_sent ?? null,
+      properties_skipped: createResult?.properties_skipped ?? null,
+      warnings: createResult?.warnings ?? [],
+      synced_at: nowStr,
     },
   };
 
@@ -1704,7 +1763,14 @@ export async function approveAndConvertCandidateAction(
 
   let responseMessage = '';
   if (hubspotAction === 'created') {
-    responseMessage = 'Candidato aprobado y empresa creada en HubSpot.';
+    if (createResult?.owner_assigned === false || createResult?.ownerMappingStatus === 'skipped_missing_mapping') {
+      responseMessage = 'Candidato aprobado y empresa creada en HubSpot, pero no se encontró owner para asignar.';
+    } else {
+      responseMessage = 'Candidato aprobado y empresa creada en HubSpot.';
+    }
+    if (createResult?.properties_skipped && createResult.properties_skipped.length > 0) {
+      responseMessage += ' Algunos campos no existen en HubSpot y fueron omitidos.';
+    }
   } else if (hubspotAction === 'linked_existing') {
     responseMessage = 'Candidato aprobado y vinculado a empresa existente en HubSpot.';
   } else if (hubspotAction === 'skipped_possible_match') {
