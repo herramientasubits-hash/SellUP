@@ -362,7 +362,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         <SheetContent
           className={cn(
             "flex w-full flex-col gap-0 overflow-hidden p-0 transition-all duration-300",
-            step === 'preview' ? "sm:max-w-[1180px] sm:w-[92vw]" : "sm:max-w-2xl sm:w-full"
+            step === 'preview'
+              ? "data-[side=right]:sm:max-w-[50vw] sm:w-[50vw] w-full"
+              : "data-[side=right]:sm:max-w-[500px] sm:w-[500px] w-full"
           )}
         >
 
@@ -606,7 +608,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 )}
 
                 {/* Resumen estadístico */}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <div className="flex flex-wrap gap-2">
                   {[
                     { label: 'Filas detectadas', value: preview.total, color: 'text-foreground', bg: 'bg-muted/60' },
                     { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-su-brand font-bold', bg: 'bg-su-brand-soft' },
@@ -614,7 +616,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     { label: 'Con advertencias', value: preview.warnings_only, color: 'text-amber-500', bg: 'bg-amber-500/10' },
                     { label: 'Con errores', value: preview.errors, color: 'text-destructive', bg: 'bg-destructive/10' },
                   ].map((card) => (
-                    <div key={card.label} className={`rounded-xl ${card.bg} px-3 py-2.5`}>
+                    <div key={card.label} className={`rounded-xl ${card.bg} px-3 py-2.5 flex-1 min-w-[100px] sm:min-w-[120px]`}>
                       <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                         {card.label}
                       </p>

@@ -54,14 +54,11 @@ export interface ImportPreview {
   rows: ImportRow[];
 }
 
-// ── Mapas de alias de columnas ─────────────────────────────────
-
 const COLUMN_ALIASES: Record<string, string> = {
   // company_name
   empresa: 'company_name',
   'nombre empresa': 'company_name',
   'nombre de empresa': 'company_name',
-  'razón social': 'company_name',
   'razon social': 'company_name',
   company: 'company_name',
   'company name': 'company_name',
@@ -69,12 +66,10 @@ const COLUMN_ALIASES: Record<string, string> = {
   'organization name': 'company_name',
   nombre: 'company_name',
   // country
-  país: 'country',
   pais: 'country',
   country: 'country',
   // country_code
   country_code: 'country_code',
-  'código país': 'country_code',
   'codigo pais': 'country_code',
   'iso country': 'country_code',
   // website
@@ -95,7 +90,6 @@ const COLUMN_ALIASES: Record<string, string> = {
   nit: 'tax_identifier',
   rut: 'tax_identifier',
   rfc: 'tax_identifier',
-  'identificación fiscal': 'tax_identifier',
   'identificacion fiscal': 'tax_identifier',
   'tax id': 'tax_identifier',
   tax_identifier: 'tax_identifier',
@@ -111,25 +105,22 @@ const COLUMN_ALIASES: Record<string, string> = {
   ciudad: 'city',
   city: 'city',
   // region
-  región: 'region',
   region: 'region',
   departamento: 'region',
   estado: 'region',
   provincia: 'region',
   // company_size
-  tamaño: 'company_size',
-  'tamaño empresa': 'company_size',
+  tamano: 'company_size',
+  'tamano empresa': 'company_size',
   company_size: 'company_size',
   empleados: 'company_size',
-  'tamaño estimado': 'company_size',
+  'tamano estimado': 'company_size',
   employees: 'company_size',
   'estimated size': 'company_size',
   'company size': 'company_size',
   // description
-  descripción: 'description',
   descripcion: 'description',
   description: 'description',
-  'qué hace': 'description',
   'que hace': 'description',
   // notes
   notas: 'notes',
