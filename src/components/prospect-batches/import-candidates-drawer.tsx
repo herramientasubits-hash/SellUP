@@ -363,7 +363,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           className={cn(
             "flex w-full flex-col gap-0 overflow-hidden p-0 transition-all duration-300",
             step === 'preview'
-              ? "data-[side=right]:sm:max-w-[50vw] sm:w-[50vw] w-full"
+              ? "data-[side=right]:sm:max-w-[80vw] sm:w-[80vw] w-full"
               : "data-[side=right]:sm:max-w-[500px] sm:w-[500px] w-full"
           )}
         >
