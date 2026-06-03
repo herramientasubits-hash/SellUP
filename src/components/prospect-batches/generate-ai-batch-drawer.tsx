@@ -76,6 +76,12 @@ const STRUCTURED_SOURCE_LABELS: Record<string, string> = {
   cl_res: 'Registro de Empresas y Sociedades (Chile)',
 };
 
+const WARNING_LABELS: Record<string, string> = {
+  all_pages_scanned: 'SellUp revisó las páginas disponibles de la fuente oficial.',
+  all_candidates_already_in_db: 'Los registros encontrados ya existían o no eran nuevos para revisión.',
+  nothing_to_write: 'No hubo registros nuevos para crear.',
+};
+
 const PREFLIGHT_STATUS_ICONS = {
   success: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
   warning: <TriangleAlert className="h-3.5 w-3.5 text-amber-500" />,
@@ -872,15 +878,20 @@ function GenerationResultPanel({
               </div>
             ) : (
               <div className="space-y-1">
-                <p>No se encontraron empresas útiles para revisión.</p>
+                <p>La fuente oficial no entregó empresas revisables.</p>
                 {structuredBatch?.status === 'official_source_error' ? (
                   <p className="text-[11px] text-destructive dark:text-red-400 font-medium">
                     La fuente oficial no pudo completarse. Intenta nuevamente más tarde.
                   </p>
                 ) : (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                    La fuente oficial no entregó registros revisables con los criterios actuales. SellUp no usó fuente comercial porque para Colombia los registros deben tener NIT válido.
-                  </p>
+                  <>
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                      SellUp revisó la fuente oficial disponible, pero los registros encontrados fueron omitidos por duplicidad, liquidación, inactividad o datos mínimos insuficientes.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      No se usó fuente comercial porque para Colombia los registros deben tener NIT válido.
+                    </p>
+                  </>
                 )}
               </div>
             )
@@ -966,11 +977,6 @@ function GenerationResultPanel({
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
                 Fuente oficial procesada
               </span>
-              {structuredBatch.sourceKey && (
-                <span className="ml-auto text-[10px] text-muted-foreground/50 font-mono">
-                  {structuredBatch.sourceKey}
-                </span>
-              )}
             </div>
 
             {structuredBatch.ok || structuredBatch.status === 'official_source_success' ? (
@@ -1055,11 +1061,11 @@ function GenerationResultPanel({
                 <div className="flex items-center gap-1.5">
                   <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                   <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    La fuente oficial devolvió registros, pero ninguno fue útil
+                    La fuente oficial no entregó empresas revisables
                   </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
-                  Se recibieron registros de la fuente oficial, pero todos fueron omitidos por duplicidad, liquidación o inactividad.
+                  SellUp revisó la fuente oficial disponible, pero los registros encontrados fueron omitidos por duplicidad, liquidación, inactividad o datos mínimos insuficientes.
                 </p>
               </div>
             ) : isAutoModeAllPagesScanned(structuredBatch) ? (
@@ -1118,17 +1124,21 @@ function GenerationResultPanel({
               </div>
             )}
 
-            {!nothingToWrite && structuredBatch.warnings && structuredBatch.warnings.length > 0 && (
-              <div className="rounded-lg bg-amber-500/5 p-2 border border-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400 space-y-1">
-                <div className="flex items-center gap-1 font-semibold">
-                  <TriangleAlert className="h-3 w-3" />
-                  <span>Advertencias</span>
+            {!nothingToWrite && structuredBatch.warnings && structuredBatch.warnings.length > 0 && (() => {
+              const visible = structuredBatch.warnings!.filter(w => w in WARNING_LABELS);
+              if (visible.length === 0) return null;
+              return (
+                <div className="rounded-lg bg-amber-500/5 p-2 border border-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400 space-y-1">
+                  <div className="flex items-center gap-1 font-semibold">
+                    <TriangleAlert className="h-3 w-3" />
+                    <span>Advertencias</span>
+                  </div>
+                  {visible.map((w, i) => (
+                    <p key={i} className="pl-4">· {WARNING_LABELS[w]}</p>
+                  ))}
                 </div>
-                {structuredBatch.warnings.map((w, i) => (
-                  <p key={i} className="pl-4">· {w}</p>
-                ))}
-              </div>
-            )}
+              );
+            })()}
           </div>
         );
       })()}
