@@ -86,79 +86,80 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Light mode — crisp, warm whites with cool blue-indigo brand
+   Light mode — UBITS-aligned palette: cool blue-tinted whites + vibrant brand
+   Source of truth: plantilla-proyectos-shadcn (tokens.css) → oklch converted
 ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* Background — warm off-white */
-  --background: oklch(0.975 0.004 260);
-  --foreground: oklch(0.13 0.02 260);
+  /* Background — cool blue-tinted near-white (#f8faff) */
+  --background: oklch(0.985 0.007 269);
+  --foreground: oklch(0.345 0.027 255);
 
-  /* Cards / surfaces — pure white with gentle warmth */
-  --card: oklch(0.997 0.001 260);
-  --card-foreground: oklch(0.13 0.02 260);
-  --popover: oklch(0.997 0.001 260);
-  --popover-foreground: oklch(0.13 0.02 260);
+  /* Cards / surfaces — pure white with cool undertone */
+  --card: oklch(1 0 90);
+  --card-foreground: oklch(0.345 0.027 255);
+  --popover: oklch(1 0 90);
+  --popover-foreground: oklch(0.345 0.027 255);
 
   /* Primary — always mirrors su-brand token */
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  /* Secondary — cool neutral */
-  --secondary: oklch(0.955 0.005 260);
-  --secondary-foreground: oklch(0.22 0.04 260);
+  /* Secondary — UBITS surface-muted (#ebf1ff) */
+  --secondary: oklch(0.958 0.020 267);
+  --secondary-foreground: oklch(0.345 0.027 255);
 
-  /* Muted — warm gray */
-  --muted: oklch(0.960 0.003 260);
-  --muted-foreground: oklch(0.46 0.01 260);
+  /* Muted — same as secondary for shadcn compat */
+  --muted: oklch(0.958 0.020 267);
+  --muted-foreground: oklch(0.500 0.020 256);
 
-  /* Accent — slightly tinted */
-  --accent: oklch(0.950 0.008 265);
-  --accent-foreground: oklch(0.18 0.04 260);
+  /* Accent — UBITS blue-tinted hover (#dce4f0) */
+  --accent: oklch(0.916 0.018 258);
+  --accent-foreground: oklch(0.345 0.027 255);
 
-  /* Destructive */
-  --destructive: oklch(0.577 0.245 27.325);
+  /* Destructive — UBITS negative (#e9343c) */
+  --destructive: oklch(0.612 0.216 24);
 
-  /* Borders — refined, barely there */
-  --border: oklch(0.920 0.004 260);
-  --input: oklch(0.910 0.005 260);
-  --ring: oklch(0.55 0.19 265 / 40%);
+  /* Borders — UBITS #d0d2d5 */
+  --border: oklch(0.863 0.005 258);
+  --input: oklch(0.863 0.005 258);
+  --ring: oklch(0.530 0.233 262 / 40%);
 
   /* Charts — gradient from brand through cool spectrum */
-  --chart-1: oklch(0.55 0.20 265);
+  --chart-1: oklch(0.53 0.233 262);
   --chart-2: oklch(0.58 0.16 290);
   --chart-3: oklch(0.62 0.14 230);
   --chart-4: oklch(0.55 0.12 200);
   --chart-5: oklch(0.65 0.10 170);
 
-  /* Radius — 16px for generously rounded feel */
-  --radius: 1rem;
+  /* Radius — 14px to match template */
+  --radius: 0.875rem;
 
-  /* Sidebar — slightly cooler than main background */
-  --sidebar: oklch(0.985 0.003 260);
-  --sidebar-foreground: oklch(0.13 0.02 260);
-  --sidebar-primary: oklch(0.50 0.19 265);
+  /* Sidebar — UBITS surface-nav (#111827) — deep navy */
+  --sidebar: oklch(0.210 0.032 265);
+  --sidebar-foreground: oklch(0.985 0.007 269);
+  --sidebar-primary: oklch(0.530 0.233 262);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.950 0.006 265);
-  --sidebar-accent-foreground: oklch(0.18 0.04 260);
-  --sidebar-border: oklch(0.925 0.004 260);
-  --sidebar-ring: oklch(0.50 0.19 265 / 30%);
+  --sidebar-accent: oklch(0.279 0.037 260);
+  --sidebar-accent-foreground: oklch(0.985 0.007 269);
+  --sidebar-border: oklch(0.279 0.037 260);
+  --sidebar-ring: oklch(0.530 0.233 262 / 30%);
 
   /* SellUp semantic tokens */
-  --su-brand: oklch(0.55 0.20 265);
-  --su-brand-soft: oklch(0.55 0.20 265 / 8%);
+  --su-brand: oklch(0.530 0.233 262);            /* #0c5bef UBITS brand */
+  --su-brand-soft: oklch(0.530 0.233 262 / 8%);
   --su-brand-foreground: oklch(0.99 0 0);
-  --su-surface: oklch(0.993 0.002 260);
-  --su-surface-elevated: oklch(1 0 0);
-  --su-border-subtle: oklch(0.935 0.003 260);
-  --su-border-strong: oklch(0.870 0.006 260);
+  --su-surface: oklch(0.979 0.010 267);          /* #f5f8ff surface-subtle */
+  --su-surface-elevated: oklch(1 0 90);
+  --su-border-subtle: oklch(0.916 0.018 258);
+  --su-border-strong: oklch(0.689 0.013 264);    /* #979ba3 */
 
-  /* Accent spectrum */
-  --su-accent-warm: oklch(0.65 0.18 30);
-  --su-accent-cool: oklch(0.62 0.16 290);
-  --su-success: oklch(0.62 0.17 155);
-  --su-warning: oklch(0.72 0.18 75);
+  /* Accent spectrum — aligned with UBITS semantic states */
+  --su-accent-warm: oklch(0.612 0.216 24);       /* negative */
+  --su-accent-cool: oklch(0.595 0.190 266);      /* info */
+  --su-success: oklch(0.571 0.160 142);          /* positive #328e2c */
+  --su-warning: oklch(0.749 0.160 71);           /* warning #EC9907 */
 
-  /* AI gradient — same vibrant values as dark mode for visual consistency */
+  /* AI gradient — preserved from template (#2d5cf7 → #e11d48) */
   --su-ai-from: #2d5cf7;
   --su-ai-to: #e11d48;
   --su-ai-surface: rgba(45, 92, 247, 0.1);
@@ -166,75 +167,75 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Dark mode — layered depth with rich brand presence
-   Depth: sidebar (deepest) → background → card (lifted)
+   Dark mode — UBITS-aligned: near-black bg, deep navy cards, bright brand
+   Source of truth: plantilla-proyectos-shadcn (globals.css .dark)
 ───────────────────────────────────────────────────────────────────────────── */
 .dark {
-  /* Background — deep blue-black */
-  --background: oklch(0.130 0.016 265);
-  --foreground: oklch(0.955 0.005 260);
+  /* Background — UBITS #020617 (near-black) */
+  --background: oklch(0.129 0.041 265);
+  --foreground: oklch(0.949 0.002 248);
 
-  /* Cards — lifted surfaces with subtle warmth */
-  --card: oklch(0.165 0.014 265);
-  --card-foreground: oklch(0.950 0.004 260);
-  --popover: oklch(0.180 0.014 265);
-  --popover-foreground: oklch(0.950 0.004 260);
+  /* Cards — UBITS #0f172a (deep navy) */
+  --card: oklch(0.208 0.040 266);
+  --card-foreground: oklch(0.949 0.002 248);
+  --popover: oklch(0.307 0.031 258);
+  --popover-foreground: oklch(0.949 0.002 248);
 
   /* Primary — always mirrors su-brand token */
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  /* Secondary */
-  --secondary: oklch(0.200 0.014 265);
-  --secondary-foreground: oklch(0.880 0.005 260);
+  /* Secondary — UBITS #1e293b */
+  --secondary: oklch(0.279 0.037 260);
+  --secondary-foreground: oklch(0.949 0.002 248);
 
-  /* Muted */
-  --muted: oklch(0.195 0.012 265);
-  --muted-foreground: oklch(0.600 0.008 260);
+  /* Muted — UBITS #151c2e */
+  --muted: oklch(0.229 0.037 267);
+  --muted-foreground: oklch(0.658 0.012 257);
 
-  /* Accent */
-  --accent: oklch(0.215 0.015 265);
-  --accent-foreground: oklch(0.935 0.004 260);
+  /* Accent — UBITS #2a3449 (hover/active) */
+  --accent: oklch(0.326 0.040 265);
+  --accent-foreground: oklch(0.949 0.002 248);
 
-  /* Destructive */
-  --destructive: oklch(0.62 0.22 25);
+  /* Destructive — lighter red for dark visibility */
+  --destructive: oklch(0.626 0.193 23);
 
-  /* Borders — glass-like transparency */
-  --border: oklch(1 0 0 / 7%);
-  --input: oklch(1 0 0 / 10%);
-  --ring: oklch(0.66 0.20 265 / 50%);
+  /* Borders — UBITS #3d4555 */
+  --border: oklch(0.390 0.029 264);
+  --input: oklch(0.397 0.024 263);
+  --ring: oklch(0.564 0.221 266 / 50%);
 
   /* Charts — luminous in dark */
-  --chart-1: oklch(0.66 0.20 265);
+  --chart-1: oklch(0.564 0.221 266);
   --chart-2: oklch(0.62 0.18 290);
   --chart-3: oklch(0.65 0.15 230);
   --chart-4: oklch(0.60 0.13 200);
   --chart-5: oklch(0.68 0.11 170);
 
-  /* Sidebar — deepest layer */
-  --sidebar: oklch(0.095 0.018 265);
-  --sidebar-foreground: oklch(0.950 0.004 260);
-  --sidebar-primary: oklch(0.66 0.20 265);
+  /* Sidebar — deepest layer, slight contrast vs background */
+  --sidebar: oklch(0.155 0.035 265);
+  --sidebar-foreground: oklch(0.949 0.002 248);
+  --sidebar-primary: oklch(0.564 0.221 266);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.200 0.014 265);
-  --sidebar-accent-foreground: oklch(0.930 0.004 260);
-  --sidebar-border: oklch(1 0 0 / 5%);
-  --sidebar-ring: oklch(0.66 0.20 265 / 45%);
+  --sidebar-accent: oklch(0.279 0.037 260);
+  --sidebar-accent-foreground: oklch(0.949 0.002 248);
+  --sidebar-border: oklch(0.390 0.029 264);
+  --sidebar-ring: oklch(0.564 0.221 266 / 45%);
 
   /* SellUp semantic tokens */
-  --su-brand: oklch(0.66 0.20 265);
-  --su-brand-soft: oklch(0.66 0.20 265 / 10%);
+  --su-brand: oklch(0.564 0.221 266);            /* #3865f5 UBITS dark brand */
+  --su-brand-soft: oklch(0.564 0.221 266 / 12%);
   --su-brand-foreground: oklch(0.99 0 0);
-  --su-surface: oklch(0.165 0.014 265);
-  --su-surface-elevated: oklch(0.195 0.012 265);
-  --su-border-subtle: oklch(1 0 0 / 5%);
-  --su-border-strong: oklch(1 0 0 / 12%);
+  --su-surface: oklch(0.208 0.040 266);
+  --su-surface-elevated: oklch(0.279 0.037 260);
+  --su-border-subtle: oklch(0.390 0.029 264);
+  --su-border-strong: oklch(0.449 0.021 264);    /* #4f5561 */
 
   /* Accent spectrum */
-  --su-accent-warm: oklch(0.68 0.18 30);
-  --su-accent-cool: oklch(0.65 0.17 290);
-  --su-success: oklch(0.65 0.18 155);
-  --su-warning: oklch(0.75 0.18 75);
+  --su-accent-warm: oklch(0.626 0.193 23);
+  --su-accent-cool: oklch(0.595 0.190 266);
+  --su-success: oklch(0.620 0.170 142);
+  --su-warning: oklch(0.769 0.165 70);
 
   /* AI gradient — brighter in dark mode for max contrast on deep surfaces */
   --su-ai-from: #2d5cf7;

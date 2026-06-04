@@ -74,11 +74,35 @@ background (#070d1a) → sidebar/header → card → su-surface-elevated → pop
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--primary` | `bg-primary`, `text-primary` | Color primario (navy en light, azul en dark) |
+| `--primary` | `bg-primary`, `text-primary` | Color primario (azul vibrante en light, azul brillante en dark) |
 | `--primary-foreground` | `text-primary-foreground` | Texto sobre primary |
-| `--su-brand` | `text-su-brand`, `bg-su-brand` | Acento azul SellUp `oklch(0.60 0.20 265)` ≈ #5b7eff |
-| `--su-brand-soft` | `bg-su-brand-soft` | Fondo tintado del acento (10–12% opacidad) |
+| `--su-brand` | `text-su-brand`, `bg-su-brand` | Acento azul UBITS light `oklch(0.530 0.233 262)` ≈ `#0c5bef` |
+| `--su-brand` (dark) | `text-su-brand`, `bg-su-brand` | Acento azul UBITS dark `oklch(0.564 0.221 266)` ≈ `#3865f5` |
+| `--su-brand-soft` | `bg-su-brand-soft` | Fondo tintado del acento (8–12% opacidad) |
 | `--su-brand-foreground` | `text-su-brand-foreground` | Texto sobre brand sólido |
+
+**Paleta de referencia (alineada con `plantilla-proyectos-shadcn` / UBITS):**
+
+| Rol | Light (HEX) | Dark (HEX) |
+|---|---|---|
+| Brand | `#0c5bef` | `#3865f5` |
+| Brand hover | `#1e4abf` | — |
+| Brand pressed | `#223a91` | — |
+| Background | `#f8faff` | `#020617` |
+| Surface (card) | `#ffffff` | `#0f172a` |
+| Surface muted | `#ebf1ff` | `#1e293b` |
+| Surface subtle | `#f5f8ff` | — |
+| Surface nav (sidebar) | `#111827` | `#0f172a` |
+| Text primary | `#303a47` | `#edeeef` |
+| Text secondary | `#5c646f` | `#8d9299` |
+| Text muted | `#979ba3` | — |
+| Border | `#d0d2d5` | `#3d4555` |
+| Border strong | `#979ba3` | `#4f5561` |
+| Positive | `#328e2c` | — |
+| Negative | `#e9343c` | — |
+| Warning | `#EC9907` | `#f59e0b` |
+| Info | `#4a74ee` | — |
+| AI gradient | `#2d5cf7` → `#e11d48` | `#2d5cf7` → `#e11d48` |
 
 El token `--su-brand` es el acento visual central de SellUp. Se usa en:
 - Logo "Up"
