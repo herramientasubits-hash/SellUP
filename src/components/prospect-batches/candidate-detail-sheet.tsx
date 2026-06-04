@@ -337,6 +337,7 @@ interface CandidateDetailSheetProps {
   candidate: ProspectCandidateWithReviewer | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCandidateUpdated?: (updated: ProspectCandidateWithReviewer) => void;
 }
 
 interface FailedEnrichmentDetails {
@@ -355,8 +356,10 @@ export function CandidateDetailSheet({
   candidate,
   open,
   onOpenChange,
+  onCandidateUpdated,
 }: CandidateDetailSheetProps) {
   const router = useRouter();
+
   const [isEnriching, setIsEnriching] = React.useState(false);
   const [enrichError, setEnrichError] = React.useState<string | null>(null);
   const [enrichErrorCode, setEnrichErrorCode] = React.useState<string | null>(null);
@@ -365,6 +368,10 @@ export function CandidateDetailSheet({
   const [isLookingUpTaxId, setIsLookingUpTaxId] = React.useState(false);
   const [taxIdLookupError, setTaxIdLookupError] = React.useState<string | null>(null);
   const [taxIdLookupResult, setTaxIdLookupResult] = React.useState<TaxIdentifierLookupMetadata | null>(null);
+
+  const [isApprovingTaxId, setIsApprovingTaxId] = React.useState(false);
+  const [approveTaxIdError, setApproveTaxIdError] = React.useState<string | null>(null);
+  const [approvedTaxId, setApprovedTaxId] = React.useState<string | null>(null);
 
   const handleEnrich = async () => {
     if (!candidate) return;
@@ -416,6 +423,50 @@ export function CandidateDetailSheet({
       setTaxIdLookupError(err instanceof Error ? err.message : 'Error de red');
     } finally {
       setIsLookingUpTaxId(false);
+    }
+  };
+
+  const handleApproveTaxIdentifier = async (
+    taxIdentifier: string,
+    sourceName: string,
+    sourceUrl: string | null
+  ) => {
+    if (!candidate) return;
+    const confirmed = window.confirm(
+      'Este NIT quedará guardado como identificador fiscal del candidato. No se sincronizará con HubSpot todavía.'
+    );
+    if (!confirmed) return;
+
+    setIsApprovingTaxId(true);
+    setApproveTaxIdError(null);
+    setApprovedTaxId(taxIdentifier);
+    try {
+      const response = await fetch('/api/prospect-candidates/approve-tax-identifier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidateId: candidate.id,
+          taxIdentifier,
+          sourceName,
+          sourceUrl,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setApproveTaxIdError(data.error || 'Error al guardar el identificador fiscal');
+        setApprovedTaxId(null);
+      } else {
+        const updated = data.candidate as ProspectCandidateWithReviewer;
+        if (onCandidateUpdated) {
+          onCandidateUpdated(updated);
+        }
+        router.refresh();
+      }
+    } catch (err) {
+      setApproveTaxIdError(err instanceof Error ? err.message : 'Error de red');
+      setApprovedTaxId(null);
+    } finally {
+      setIsApprovingTaxId(false);
     }
   };
 
@@ -1078,9 +1129,18 @@ export function CandidateDetailSheet({
                   {taxIdLookupError && (
                     <p className="text-xs text-destructive">{taxIdLookupError}</p>
                   )}
+                </div>
+              )}
+
+              {/* Resultados de la búsqueda y trazabilidad (disponibles si hay lookup) */}
+              {taxIdLookup && (
+                <div className="mt-3 space-y-2">
+                  {approveTaxIdError && (
+                    <p className="text-xs text-destructive">{approveTaxIdError}</p>
+                  )}
 
                   {!taxIdLookupError &&
-                    taxIdLookup?.status === 'no_result' &&
+                    taxIdLookup.status === 'no_result' &&
                     taxIdLookup.candidates.length === 0 && (
                       <div className="space-y-1">
                         {(() => {
@@ -1148,7 +1208,7 @@ export function CandidateDetailSheet({
                       </div>
                     )}
 
-                  {taxIdLookup?.warnings && taxIdLookup.warnings.length > 0 && (
+                  {taxIdLookup.warnings && taxIdLookup.warnings.length > 0 && (
                     <div className="space-y-0.5">
                       {taxIdLookup.warnings
                         .filter(
@@ -1178,7 +1238,7 @@ export function CandidateDetailSheet({
                     </div>
                   )}
 
-                  {taxIdLookup && taxIdLookup.candidates.length > 0 && (
+                  {taxIdLookup.candidates.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex flex-col gap-0.5">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
@@ -1192,74 +1252,122 @@ export function CandidateDetailSheet({
                           </p>
                         )}
                       </div>
-                      {taxIdLookup.candidates.map((c, i) => (
-                        <div
-                          key={i}
-                          className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-1.5"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="font-mono text-xs font-semibold text-foreground">
-                              {c.tax_identifier}
-                            </span>
-                            <Badge
-                              className={`border-0 text-[9px] font-semibold shrink-0 ${
-                                c.confidence === 'high'
-                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : c.confidence === 'medium'
-                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                  : 'bg-muted text-muted-foreground'
-                              }`}
-                            >
-                              {c.confidence === 'high'
-                                ? 'Alta confianza'
-                                : c.confidence === 'medium'
-                                ? 'Confianza media'
-                                : 'Baja confianza'}
-                            </Badge>
-                          </div>
-                          {c.legal_name && (
-                            <p className="text-xs text-muted-foreground">{c.legal_name}</p>
-                          )}
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] text-muted-foreground/60">
-                              {c.source_name}
-                            </span>
-                            {c.source_url && (
-                              <a
-                                href={c.source_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] text-su-brand hover:underline flex items-center gap-0.5"
-                              >
-                                <Link2 className="h-2.5 w-2.5" />
-                                Ver fuente
-                              </a>
+                      {taxIdLookup.candidates.map((c, i) => {
+                        const isApprovedCandidate =
+                          candidate.tax_identifier &&
+                          (candidate.tax_identifier === c.normalized_tax_identifier ||
+                            candidate.tax_identifier === c.tax_identifier);
+
+                        return (
+                          <div
+                            key={i}
+                            className={`rounded-xl border p-3 space-y-1.5 ${
+                              isApprovedCandidate
+                                ? 'border-emerald-500/30 bg-emerald-500/5'
+                                : 'border-amber-500/20 bg-amber-500/5'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-mono text-xs font-semibold text-foreground">
+                                {c.tax_identifier}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <Badge
+                                  className={`border-0 text-[9px] font-semibold shrink-0 ${
+                                    c.confidence === 'high'
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                      : c.confidence === 'medium'
+                                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                      : 'bg-muted text-muted-foreground'
+                                  }`}
+                                >
+                                  {c.confidence === 'high'
+                                    ? 'Alta confianza'
+                                    : c.confidence === 'medium'
+                                    ? 'Confianza media'
+                                    : 'Baja confianza'}
+                                </Badge>
+                                {isApprovedCandidate && (
+                                  <Badge className="border-0 bg-emerald-500 text-white dark:bg-emerald-600 text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5">
+                                    <CheckCircle2 className="h-2.5 w-2.5" />
+                                    Seleccionado
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            {c.legal_name && (
+                              <p className="text-xs text-muted-foreground">{c.legal_name}</p>
+                            )}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] text-muted-foreground/60">
+                                {c.source_name}
+                              </span>
+                              {c.source_url && (
+                                <a
+                                  href={c.source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-su-brand hover:underline flex items-center gap-0.5"
+                                >
+                                  <Link2 className="h-2.5 w-2.5" />
+                                  Ver fuente
+                                </a>
+                              )}
+                            </div>
+                            {c.evidence_text && (
+                              <p className="text-[10px] text-muted-foreground/60 italic line-clamp-2">
+                                {c.evidence_text}
+                              </p>
+                            )}
+                            {c.risks.length > 0 && (
+                              <ul className="space-y-0.5">
+                                {c.risks.map((r, j) => (
+                                  <li
+                                    key={j}
+                                    className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1"
+                                  >
+                                    <AlertTriangle className="h-2.5 w-2.5 mt-0.5 shrink-0" />
+                                    {r}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {isApprovedCandidate ? (
+                              <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold">
+                                Aprobado por revisión humana
+                              </Badge>
+                            ) : (
+                              <>
+                                <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
+                                  Requiere revisión humana
+                                </Badge>
+                                {!candidate.tax_identifier && (
+                                  <div className="pt-1.5">
+                                    <Button
+                                      onClick={() =>
+                                        handleApproveTaxIdentifier(c.tax_identifier, c.source_name, c.source_url)
+                                      }
+                                      disabled={isApprovingTaxId}
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-[10px] font-semibold border-su-brand/20 bg-white hover:bg-su-brand hover:text-white dark:bg-zinc-900 transition-colors"
+                                    >
+                                      {isApprovingTaxId && approvedTaxId === c.tax_identifier ? (
+                                        <>
+                                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                          Guardando...
+                                        </>
+                                      ) : (
+                                        'Usar este NIT'
+                                      )}
+                                    </Button>
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
-                          {c.evidence_text && (
-                            <p className="text-[10px] text-muted-foreground/60 italic line-clamp-2">
-                              {c.evidence_text}
-                            </p>
-                          )}
-                          {c.risks.length > 0 && (
-                            <ul className="space-y-0.5">
-                              {c.risks.map((r, j) => (
-                                <li
-                                  key={j}
-                                  className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1"
-                                >
-                                  <AlertTriangle className="h-2.5 w-2.5 mt-0.5 shrink-0" />
-                                  {r}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
-                            Requiere revisión humana
-                          </Badge>
-                          {/* TODO 16TX.2: Aprobación del identificador fiscal — se implementará en hito posterior. */}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>

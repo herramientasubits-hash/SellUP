@@ -836,10 +836,14 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
 
       {/* Drawer de detalle de candidato */}
       <CandidateDetailSheet
-        candidate={detailCandidate}
+        key={detailCandidate?.id ?? 'empty'}
+        candidate={detailCandidate ? (candidates.find((c) => c.id === detailCandidate.id) ?? detailCandidate) : null}
         open={detailCandidate !== null}
         onOpenChange={(open) => {
           if (!open) setDetailCandidate(null);
+        }}
+        onCandidateUpdated={(updated) => {
+          setDetailCandidate(updated);
         }}
       />
     </>

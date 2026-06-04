@@ -59,6 +59,21 @@ export interface TaxIdentifierCandidate {
   requires_human_review: true;
 }
 
+export interface TaxIdentifierSelectedCandidate {
+  tax_identifier: string;
+  normalized_tax_identifier: string;
+  legal_name: string | null;
+  source_name: string;
+  source_type: TaxIdentifierSourceType;
+  source_url: string | null;
+  evidence_text: string | null;
+  confidence: TaxIdentifierConfidence;
+  approved_at: string;
+  approved_by: string;
+  approval_method: 'human_review';
+  previous_tax_identifier: string | null;
+}
+
 export interface TaxIdentifierLookupMetadata {
   status: TaxIdentifierLookupStatus;
   searched_at: string;
@@ -72,7 +87,7 @@ export interface TaxIdentifierLookupMetadata {
     city: string | null;
   };
   candidates: TaxIdentifierCandidate[];
-  selected_candidate: null;
+  selected_candidate: TaxIdentifierSelectedCandidate | null;
   warnings: string[];
   error: string | null;
   debug?: unknown;
