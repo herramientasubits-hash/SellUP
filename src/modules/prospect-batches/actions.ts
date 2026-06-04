@@ -906,12 +906,42 @@ async function updateAccountHubSpotMeta(
     .eq('id', accountId);
 }
 
-const EMAIL_TO_HUBSPOT_OWNER_ID: Record<string, string> = {
-  'soporte@sellup.co': '12345678',
-  'growth@sellup.co': '87654321',
-  'admin@sellup.co': '11223344',
-  'qa@sellup.co': '44332211',
-};
+/**
+ * Busca en Supabase si existe un mapeo activo entre el email del usuario y un hubspot_owner_id.
+ * Normaliza el email a lowercase y remueve espacios en blanco.
+ * En caso de error o de no encontrar el mapeo, retorna null para aplicar el fallback seguro.
+ */
+export async function getHubSpotOwnerMapping(email: string | null | undefined): Promise<string | null> {
+  if (!email) return null;
+  const cleanEmail = email.toLowerCase().trim();
+  if (!cleanEmail) return null;
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from('hubspot_owner_mappings')
+      .select('hubspot_owner_id')
+      .eq('internal_user_email', cleanEmail)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[getHubSpotOwnerMapping] Error al consultar mapeo en Supabase:', error.message);
+      return null;
+    }
+
+    if (data?.hubspot_owner_id) {
+      console.log(`[getHubSpotOwnerMapping] Mapeo encontrado para ${cleanEmail}: ${data.hubspot_owner_id}`);
+    } else {
+      console.log(`[getHubSpotOwnerMapping] No se encontró mapeo activo para ${cleanEmail}`);
+    }
+
+    return data?.hubspot_owner_id ?? null;
+  } catch (err) {
+    console.warn('[getHubSpotOwnerMapping] Error inesperado resolviendo owner:', err);
+    return null;
+  }
+}
 
 async function attemptHubSpotSync(params: {
   accountId: string;
@@ -1257,6 +1287,34 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
 
   if (updateError) throw new Error(`Error al actualizar candidato: ${updateError.message}`);
 
+  // ── Resolver mapeo de owner antes del audit ──
+  const { data: userRow } = await supabase
+    .from('internal_users')
+    .select('email, full_name')
+    .eq('id', internalUserId)
+    .single();
+  const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
+  const userFullName = userRow?.full_name ?? '';
+
+  let mappedOwnerId: string | null = null;
+  let ownerMappingResolution: 'resolved_supabase' | 'missing_supabase' | 'error_supabase' | 'empty_email' = 'missing_supabase';
+
+  if (!userEmail) {
+    ownerMappingResolution = 'empty_email';
+  } else {
+    try {
+      mappedOwnerId = await getHubSpotOwnerMapping(userEmail);
+      if (mappedOwnerId) {
+        ownerMappingResolution = 'resolved_supabase';
+      } else {
+        ownerMappingResolution = 'missing_supabase';
+      }
+    } catch (err) {
+      console.error('[convertCandidateToAccount] Error resolving owner mapping:', err);
+      ownerMappingResolution = 'error_supabase';
+    }
+  }
+
   await logProspectCandidateAudit({
     batchId: candidate.batch_id,
     candidateId: id,
@@ -1266,6 +1324,11 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       candidate_name: candidate.name,
       account_id: account.id,
       account_source: accountSource,
+      hubspot_owner_mapping: {
+        email: userEmail,
+        resolution: ownerMappingResolution,
+        owner_id: mappedOwnerId,
+      }
     },
   });
 
@@ -1308,15 +1371,6 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       ((candidate.metadata?.ai_evaluation as Record<string, unknown> | null)?.description as string | undefined) ??
       null;
 
-    const { data: userRow } = await supabase
-      .from('internal_users')
-      .select('email, full_name')
-      .eq('id', internalUserId)
-      .single();
-    const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
-    const userFullName = userRow?.full_name ?? '';
-    const mappedOwnerId = EMAIL_TO_HUBSPOT_OWNER_ID[userEmail] ?? 'skipped_missing_mapping';
-
     hubspotSync = await attemptHubSpotSync({
       accountId: account.id,
       accountName: account.name,
@@ -1335,7 +1389,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       hubspotOwnerId: mappedOwnerId,
       linkedinUrl,
       industry: candidate.industry ?? null,
-      approvedByEmail: userEmail,
+      approvedByEmail: mappedOwnerId ? null : userEmail,
       approvedByName: userFullName,
       description,
     });
@@ -1573,6 +1627,7 @@ export async function approveAndConvertCandidateAction(
   let hubspotCompanyName: string | null = null;
   let hubspotError: string | null = null;
   let createResult: CreateHubSpotCompanyResult | null = null;
+  let ownerMappingDetails: Record<string, unknown> | null = null;
 
   // Caso A — match HubSpot confirmado
   if (hsStatus === 'match' || matchedCompanyId) {
@@ -1636,7 +1691,32 @@ export async function approveAndConvertCandidateAction(
         .single();
       const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
       const userFullName = userRow?.full_name ?? '';
-      const mappedOwnerId = EMAIL_TO_HUBSPOT_OWNER_ID[userEmail] ?? 'skipped_missing_mapping';
+
+      // Resolviendo el mapping dinámicamente desde Supabase
+      let mappedOwnerId: string | null = null;
+      let ownerMappingResolution: 'resolved_supabase' | 'missing_supabase' | 'error_supabase' | 'empty_email' = 'missing_supabase';
+
+      if (!userEmail) {
+        ownerMappingResolution = 'empty_email';
+      } else {
+        try {
+          mappedOwnerId = await getHubSpotOwnerMapping(userEmail);
+          if (mappedOwnerId) {
+            ownerMappingResolution = 'resolved_supabase';
+          } else {
+            ownerMappingResolution = 'missing_supabase';
+          }
+        } catch (err) {
+          console.error('[approveAndConvertCandidateAction] Error resolving owner mapping:', err);
+          ownerMappingResolution = 'error_supabase';
+        }
+      }
+
+      ownerMappingDetails = {
+        email: userEmail,
+        resolution: ownerMappingResolution,
+        owner_id: mappedOwnerId,
+      };
 
       createResult = await createHubSpotCompany({
         name: candidate.name,
@@ -1653,7 +1733,7 @@ export async function approveAndConvertCandidateAction(
         linkedinUrl,
         industry: candidate.industry ?? null,
         description,
-        approvedByEmail: userEmail,
+        approvedByEmail: mappedOwnerId ? null : userEmail,
         approvedByName: userFullName,
       });
 
@@ -1825,6 +1905,7 @@ export async function approveAndConvertCandidateAction(
         candidate_name: candidate.name,
         account_id: accountId,
         account_source: accountCreated ? 'manual' : 'linked_existing',
+        ...(ownerMappingDetails ? { hubspot_owner_mapping: ownerMappingDetails } : {}),
       },
     });
   } catch (auditErr) {
