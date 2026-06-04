@@ -365,21 +365,27 @@
   /* ── AI gradient utilities ──────────────────────────────────────────────── */
   /* Importante: !important garantiza que el gradiente IA siempre gane sobre
      bg-primary cuando se aplica como variante sobre Button (shadcn), igualando
-     el comportamiento de la plantilla UBITS (.bg-ai-gradient !important). */
+     el comportamiento de la plantilla UBITS (.bg-ai-gradient !important).
+     Se usa background-image/background-color por separado en lugar del shorthand
+     'background' para máxima robustez contra especificidad. */
 
-  /* Solid fill — for primary AI buttons and strong indicators */
+  /* Solid fill — for primary AI buttons and strong indicators.
+     Gradiente 135deg, colores #2d5cf7 → #e11d48, idénticos a plantilla-proyectos-shadcn. */
   .su-ai-gradient {
-    background: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
     color: oklch(0.99 0 0);
   }
   .su-ai-gradient:hover {
-    background: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
     opacity: 0.9;
   }
 
   /* Animated shimmer variant — living gradient for active AI states */
   .su-ai-gradient-animate {
-    background: linear-gradient(
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(
       135deg,
       var(--su-ai-from) 0%,
       var(--su-ai-to) 50%,
@@ -392,7 +398,7 @@
 
   /* Gradient text — for AI labels, headings, inline mentions */
   .su-ai-gradient-text {
-    background: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to));
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -400,7 +406,7 @@
 
   /* Soft surface — tinted background for AI cards and sections */
   .su-ai-surface {
-    background: var(--su-ai-surface);
+    background-color: var(--su-ai-surface);
   }
 
   /* Gradient border — card or input outline in AI context */
@@ -412,28 +418,27 @@
   }
 
   /* Glow halo — shadow effect for AI buttons and active states.
-     Intensity reducida vs. v0.1 para que el botón se vea más limpio y
-     proporcional cuando es ancho (ej. "Generar empresas candidatas"),
-     alineado con la sutileza de la plantilla UBITS de referencia. */
+     Intensidad alineada con --shadow-ai-premium de plantilla-proyectos-shadcn
+     (0 4px 15px rgba(45,92,247,0.3) + 0 2px 5px rgba(225,29,72,0.2)). */
   .su-ai-glow {
     box-shadow:
-      0 2px 8px rgba(45, 92, 247, 0.18),
-      0 1px 3px rgba(225, 29, 72, 0.12) !important;
+      0 4px 15px rgba(45, 92, 247, 0.3),
+      0 2px 5px rgba(225, 29, 72, 0.2) !important;
   }
   .su-ai-glow:hover {
     box-shadow:
-      0 4px 14px rgba(45, 92, 247, 0.28),
-      0 2px 6px rgba(225, 29, 72, 0.18) !important;
+      0 6px 20px rgba(45, 92, 247, 0.35),
+      0 4px 10px rgba(225, 29, 72, 0.25) !important;
   }
   .dark .su-ai-glow {
     box-shadow:
-      0 2px 10px rgba(45, 92, 247, 0.22),
-      0 1px 4px rgba(225, 29, 72, 0.15) !important;
+      0 4px 20px rgba(45, 92, 247, 0.4),
+      0 2px 8px rgba(225, 29, 72, 0.3) !important;
   }
   .dark .su-ai-glow:hover {
     box-shadow:
-      0 4px 16px rgba(45, 92, 247, 0.32),
-      0 2px 8px rgba(225, 29, 72, 0.20) !important;
+      0 6px 25px rgba(45, 92, 247, 0.45),
+      0 4px 12px rgba(225, 29, 72, 0.35) !important;
   }
 
   /* Badge compound — pill-shaped AI indicator */
@@ -446,7 +451,8 @@
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.03em;
-    background: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) !important;
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) !important;
     color: oklch(0.99 0 0);
   }
 
