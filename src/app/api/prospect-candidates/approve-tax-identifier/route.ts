@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     const countryCode = candidate.country_code ?? 'CO';
-    const metadata = (candidate.metadata ?? {}) as Record<string, any>;
+    const metadata = (candidate.metadata ?? {}) as Record<string, unknown>;
     const lookupMetadata = metadata.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined;
 
     if (!lookupMetadata || !Array.isArray(lookupMetadata.candidates)) {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       tax_identifier_lookup: updatedLookup,
     };
 
-    const updatePayload: Record<string, any> = {
+    const updatePayload: Record<string, unknown> = {
       tax_identifier: matchedCandidate.normalized_tax_identifier,
       metadata: updatedMetadata,
       updated_at: new Date().toISOString(),

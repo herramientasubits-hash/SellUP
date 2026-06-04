@@ -92,6 +92,7 @@ export interface TaxIdentifierLookupMetadata {
   error: string | null;
   debug?: unknown;
   best_candidate?: TaxIdentifierCandidate | null;
+  best_candidate_skip_reason?: string | null;
 }
 
 export interface LookupTaxIdentifierResult {
@@ -520,7 +521,7 @@ export async function lookupTaxIdentifierForCandidate({
   }
 
   // ── 6. Calcular y guardar el mejor candidato sugerido ─────────
-  const bestCandidate = findBestTaxIdentifierCandidate(
+  const { bestCandidate, skipReason } = findBestTaxIdentifierCandidate(
     foundCandidates,
     (candidate.name as string | null) ?? null,
     (candidate.legal_name as string | null) ?? null
@@ -540,6 +541,7 @@ export async function lookupTaxIdentifierForCandidate({
     warnings,
     error: lookupError,
     best_candidate: bestCandidate,
+    best_candidate_skip_reason: skipReason,
   };
 
   if (process.env.NODE_ENV !== 'production' && context.debug) {
@@ -587,11 +589,11 @@ export function findBestTaxIdentifierCandidate(
   candidates: TaxIdentifierCandidate[],
   companyName: string | null,
   legalName: string | null
-): TaxIdentifierCandidate | null {
-  if (!candidates || candidates.length === 0) return null;
+): { bestCandidate: TaxIdentifierCandidate | null; skipReason: string | null } {
+  if (!candidates || candidates.length === 0) {
+    return { bestCandidate: null, skipReason: 'no_candidates' };
+  }
 
-  // Filtrar candidatos sin riesgos críticos (por ej, error de dígito de verificación)
-  // y con confianza alta o media
   const validCandidates = candidates.filter((c) => {
     const hasBadDv = c.risks.some(
       (r) =>
@@ -602,9 +604,31 @@ export function findBestTaxIdentifierCandidate(
     return c.confidence === 'high' || c.confidence === 'medium';
   });
 
-  if (validCandidates.length === 0) return null;
+  if (candidates.length > 0 && validCandidates.length === 0) {
+    const hasBadDv = candidates.some((c) =>
+      c.risks.some(
+        (r) =>
+          r.toLowerCase().includes('dígito de verificación incorrecto') ||
+          r.toLowerCase().includes('dv incorrecto')
+      )
+    );
+    if (hasBadDv) {
+      return { bestCandidate: null, skipReason: 'nit_check_digit_invalid' };
+    }
+    const hasCriticalRisk = candidates.some((c) =>
+      c.risks.some(
+        (r) =>
+          r.toLowerCase().includes('critical') ||
+          r.toLowerCase().includes('crítico') ||
+          r.toLowerCase().includes('riesgo crítico')
+      )
+    );
+    if (hasCriticalRisk) {
+      return { bestCandidate: null, skipReason: 'critical_risk_present' };
+    }
+    return { bestCandidate: null, skipReason: 'no_high_confidence_candidate' };
+  }
 
-  // Preferir alta confianza
   const highConfidence = validCandidates.filter((c) => c.confidence === 'high');
   const listToSelectFrom = highConfidence.length > 0 ? highConfidence : validCandidates;
 
@@ -612,6 +636,8 @@ export function findBestTaxIdentifierCandidate(
     if (!name) return [];
     return name
       .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]/g, ' ')
       .split(/\s+/)
       .filter((w) => w.length > 2);
@@ -623,8 +649,17 @@ export function findBestTaxIdentifierCandidate(
   ]);
 
   if (nameWords.size === 0) {
-    return listToSelectFrom[0];
+    return { bestCandidate: listToSelectFrom[0], skipReason: null };
   }
+
+  const GENERIC_TOKENS = new Set([
+    'corporacion', 'fundacion', 'asociacion', 'cooperativa',
+    'ltda', 'limitada', 'sas', 'sa', 's.a.s.', 's.a.', 'e.u.', 'eu',
+    'grupo', 'group', 'services', 'servicios', 'soluciones',
+    'solutions', 'tecnologia', 'technology', 'social', 'cultural',
+    'colombia', 'colombiana', 'colombianas', 'colombiano', 'colombianos',
+    'de', 'del', 'los', 'las', 'la', 'el', 'en', 'y', 'e', 'o', 'u'
+  ]);
 
   let bestCandidate: TaxIdentifierCandidate | null = null;
   let highestScore = -1;
@@ -646,7 +681,32 @@ export function findBestTaxIdentifierCandidate(
     }
   }
 
-  return bestCandidate;
+  if (bestCandidate) {
+    const isHighConfidence = bestCandidate.confidence === 'high';
+    const inputNonGeneric = Array.from(nameWords).filter((w) => !GENERIC_TOKENS.has(w));
+    const candidateWords = cleanAndSplit(bestCandidate.legal_name);
+    const candidateNonGeneric = candidateWords.filter((w) => !GENERIC_TOKENS.has(w));
+    const nonGenericMatches = candidateNonGeneric.filter((w) => nameWords.has(w));
+    const candidateUnmatchedDistinctive = candidateNonGeneric.filter((w) => !nameWords.has(w));
+
+    if (!isHighConfidence) {
+      if (inputNonGeneric.length > 0) {
+        const ratio = nonGenericMatches.length / inputNonGeneric.length;
+        if (ratio < 0.5) {
+          return { bestCandidate: null, skipReason: 'name_match_too_weak' };
+        }
+      }
+      if (candidateUnmatchedDistinctive.length > 0) {
+        return { bestCandidate: null, skipReason: 'name_match_too_weak' };
+      }
+    }
+  }
+
+  if (!bestCandidate) {
+    return { bestCandidate: null, skipReason: 'no_high_confidence_candidate' };
+  }
+
+  return { bestCandidate, skipReason: null };
 }
 
 function buildInput(candidate: Record<string, unknown>) {

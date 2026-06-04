@@ -389,6 +389,23 @@ export function CandidateDetailSheet({
     confidence?: string;
   } | null>(null);
 
+  // Rationale: resets transient UI state when the selected candidate changes.
+  // Depends on a stable primitive (candidate.id); no cascading render risk.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  React.useEffect(() => {
+    setIsEnriching(false);
+    setEnrichError(null);
+    setEnrichErrorCode(null);
+    setEnrichErrorDetails(null);
+    setIsLookingUpTaxId(false);
+    setTaxIdLookupError(null);
+    setTaxIdLookupResult(null);
+    setIsApprovingTaxId(false);
+    setApproveTaxIdError(null);
+    setConfirmDialogData(null);
+  }, [candidate?.id]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const handleEnrich = async () => {
     if (!candidate) return;
     setIsEnriching(true);
@@ -517,9 +534,6 @@ export function CandidateDetailSheet({
   // 16TX.1: tax identifier lookup result — prefer in-memory state (fresh lookup), fallback to persisted metadata
   const taxIdLookup = (taxIdLookupResult ??
     (candidate.metadata?.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined)) ?? null;
-  const showTaxIdLookupButton =
-    !isChileOfficialCandidate &&
-    (!candidate.tax_identifier || candidate.tax_identifier.trim() === '');
   // 16AK.16C: read from enrichment.ai_evaluation (structured path), fallback to legacy top-level
   const aiEval = (enrichment?.ai_evaluation as Record<string, unknown> | undefined)
     ?? (candidate.metadata?.ai_evaluation as Record<string, unknown> | undefined);
@@ -1111,105 +1125,253 @@ export function CandidateDetailSheet({
                 )}
               </FieldGrid>
 
-              {/* Sugerencia de NIT para revisión */}
-              {!candidate.tax_identifier && taxIdLookup?.best_candidate && (
-                <div className="mt-3 rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-0.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
-                        NIT sugerido para revisión
-                      </p>
-                      <p className="font-mono text-sm font-bold text-foreground">
-                        {taxIdLookup.best_candidate.tax_identifier}
-                      </p>
-                      {taxIdLookup.best_candidate.legal_name && (
-                        <p className="text-xs text-muted-foreground">
-                          Razón social: {taxIdLookup.best_candidate.legal_name}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <Badge className={`border-0 text-[9px] font-semibold ${
-                        taxIdLookup.best_candidate.confidence === 'high'
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                      }`}>
-                        {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
-                      </Badge>
-                      {isCandidateNitMatched && (
-                        <Badge className="border-0 bg-su-brand/10 text-su-brand text-[9px] font-semibold">
-                          Usado como señal de duplicidad
+              {/* Sugerencia de NIT y Búsqueda (16TX.4B) */}
+              {!candidate.tax_identifier && (() => {
+                const isCO = candidate.country_code?.toUpperCase() === 'CO';
+                const lookupStatus = taxIdLookup?.status;
+                const hasBestCandidate = !!taxIdLookup?.best_candidate;
+
+                // Caso A — best_candidate existe
+                if (hasBestCandidate && taxIdLookup?.best_candidate) {
+                  return (
+                    <div className="mt-3 space-y-3">
+                      {/* Warning secundario de NIT faltante */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className="border-0 bg-amber-500/5 text-amber-600/70 dark:text-amber-400/70 text-[9px] font-medium flex items-center gap-1">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          {isCO ? 'NIT faltante (Sugerencia disponible)' : 'Identificador fiscal faltante'}
                         </Badge>
-                      )}
+                      </div>
+
+                      {/* Tarjeta de NIT sugerido */}
+                      <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
+                              NIT sugerido para revisión
+                            </p>
+                            <p className="font-mono text-sm font-bold text-foreground">
+                              {taxIdLookup.best_candidate.tax_identifier}
+                            </p>
+                            {taxIdLookup.best_candidate.legal_name && (
+                              <p className="text-xs text-muted-foreground">
+                                Razón social: {taxIdLookup.best_candidate.legal_name}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <Badge className={`border-0 text-[9px] font-semibold ${
+                              taxIdLookup.best_candidate.confidence === 'high'
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            }`}>
+                              {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
+                            </Badge>
+                            {isCandidateNitMatched && (
+                              <Badge className="border-0 bg-su-brand/10 text-su-brand text-[9px] font-semibold">
+                                Usado como señal de duplicidad
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
+                          <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
+                            <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
+                            {taxIdLookup.best_candidate.source_url && (
+                              <a
+                                href={taxIdLookup.best_candidate.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5"
+                              >
+                                (Ver fuente)
+                              </a>
+                            )}
+                          </div>
+                          <Button
+                            onClick={() =>
+                              setConfirmDialogData({
+                                taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
+                                sourceName: taxIdLookup.best_candidate!.source_name,
+                                sourceUrl: taxIdLookup.best_candidate!.source_url,
+                                legalName: taxIdLookup.best_candidate!.legal_name,
+                                confidence: taxIdLookup.best_candidate!.confidence,
+                              })
+                            }
+                            size="sm"
+                            className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
+                          >
+                            Usar este NIT
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
-                    <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
-                      <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
-                      {taxIdLookup.best_candidate.source_url && (
-                        <a
-                          href={taxIdLookup.best_candidate.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5"
+                  );
+                }
+
+                // Caso B — lookup status no_result
+                if (lookupStatus === 'no_result') {
+                  return (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                        </Badge>
+                      </div>
+
+                      {isLookingUpTaxId ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Buscando...
+                        </div>
+                      ) : (
+                        <Button
+                          onClick={handleLookupTaxIdentifier}
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
                         >
-                          (Ver fuente)
-                        </a>
+                          <FileSearch className="h-3.5 w-3.5" />
+                          Buscar identificador fiscal
+                        </Button>
+                      )}
+
+                      <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                        No se encontró NIT en fuentes disponibles.
+                      </p>
+
+                      {taxIdLookupError && (
+                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
                       )}
                     </div>
-                    <Button
-                      onClick={() =>
-                        setConfirmDialogData({
-                          taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
-                          sourceName: taxIdLookup.best_candidate!.source_name,
-                          sourceUrl: taxIdLookup.best_candidate!.source_url,
-                          legalName: taxIdLookup.best_candidate!.legal_name,
-                          confidence: taxIdLookup.best_candidate!.confidence,
-                        })
-                      }
-                      size="sm"
-                      className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
-                    >
-                      Usar este NIT
-                    </Button>
-                  </div>
-                </div>
-              )}
+                  );
+                }
 
-              {/* 16TX.1: Búsqueda de identificador fiscal faltante */}
-              {showTaxIdLookupButton && (
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                      <AlertTriangle className="h-2.5 w-2.5" />
-                      {candidate.country_code?.toUpperCase() === 'CO'
-                        ? 'NIT faltante'
-                        : 'Identificador fiscal faltante'}
-                    </Badge>
-                  </div>
+                // Caso C — lookup failed
+                if (lookupStatus === 'failed') {
+                  return (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                        </Badge>
+                      </div>
 
-                  {isLookingUpTaxId ? (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Buscando...
+                      {isLookingUpTaxId ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Buscando...
+                        </div>
+                      ) : (
+                        <Button
+                          onClick={handleLookupTaxIdentifier}
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30 text-destructive border-destructive/20 hover:bg-destructive/5"
+                        >
+                          <FileSearch className="h-3.5 w-3.5" />
+                          Reintentar búsqueda de identificador fiscal
+                        </Button>
+                      )}
+
+                      <div className="space-y-1">
+                        <p className="text-xs text-destructive/80 italic leading-relaxed">
+                          Fallo de búsqueda: {taxIdLookup?.error || 'Error técnico desconocido.'}
+                        </p>
+                      </div>
+
+                      {taxIdLookupError && (
+                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                      )}
                     </div>
-                  ) : (
-                    <Button
-                      onClick={handleLookupTaxIdentifier}
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                    >
-                      <FileSearch className="h-3.5 w-3.5" />
-                      Buscar identificador fiscal
-                    </Button>
-                  )}
+                  );
+                }
 
-                  {taxIdLookupError && (
-                    <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                  )}
-                </div>
-              )}
+                // Caso E — lookup completed pero no hay best_candidate (por ejemplo, name match weak)
+                if (lookupStatus === 'completed' && !hasBestCandidate && taxIdLookup) {
+                  const skipReasonLabels: Record<string, string> = {
+                    no_high_confidence_candidate: 'Sin candidato con confianza suficiente.',
+                    nit_check_digit_invalid: 'Dígito de verificación incorrecto en los candidatos encontrados.',
+                    name_match_too_weak: 'La coincidencia de nombre es demasiado débil.',
+                    critical_risk_present: 'Se detectaron riesgos críticos en los candidatos encontrados.',
+                    no_candidates: 'No se encontraron candidatos.',
+                  };
+                  const reasonLabel = taxIdLookup.best_candidate_skip_reason
+                    ? (skipReasonLabels[taxIdLookup.best_candidate_skip_reason] ?? taxIdLookup.best_candidate_skip_reason)
+                    : 'No cumple las reglas de seguridad de coincidencia.';
+
+                  return (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                        </Badge>
+                      </div>
+
+                      {isLookingUpTaxId ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Buscando...
+                        </div>
+                      ) : (
+                        <Button
+                          onClick={handleLookupTaxIdentifier}
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                        >
+                          <FileSearch className="h-3.5 w-3.5" />
+                          Buscar identificador fiscal
+                        </Button>
+                      )}
+
+                      <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                        No se sugirió ningún NIT automático de forma segura. Motivo: {reasonLabel}
+                      </p>
+
+                      {taxIdLookupError && (
+                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Caso D — no metadata (nunca corrió el lookup)
+                return (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                      </Badge>
+                    </div>
+
+                    {isLookingUpTaxId ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Buscando...
+                      </div>
+                    ) : (
+                      <Button
+                        onClick={handleLookupTaxIdentifier}
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                      >
+                        <FileSearch className="h-3.5 w-3.5" />
+                        Buscar identificador fiscal
+                      </Button>
+                    )}
+
+                    {taxIdLookupError && (
+                      <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Resultados de la búsqueda y trazabilidad (disponibles si hay lookup) */}
               {taxIdLookup && (

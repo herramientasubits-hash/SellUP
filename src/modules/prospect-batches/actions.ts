@@ -10,7 +10,7 @@ import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-too
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
-import { lookupTaxIdentifierForCandidate } from '@/server/prospect-batches/tax-identifier-lookup';
+import { lookupTaxIdentifierForCandidate, type TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
 import {
@@ -3070,6 +3070,14 @@ export async function validateImportedCandidatesBatch(
     let failed_count = 0;
     let hubspotStatusForBatch = 'not_configured';
 
+    let lookup_attempted = false;
+    let lookup_reason_skipped: string | null = null;
+    let lookup_success_count = 0;
+    let lookup_fail_count = 0;
+    let lookup_total_candidates_found = 0;
+    let lookup_best_candidate_found = false;
+    let lookup_used_for_duplicate_detection = false;
+
     for (const candidate of candidates) {
       try {
         const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
@@ -3083,9 +3091,16 @@ export async function validateImportedCandidatesBatch(
         const hasNoTaxId = !candidate.tax_identifier || candidate.tax_identifier.trim() === '';
         const isExternalImport = candidate.source_primary === 'external_import';
         const hasCompanyName = !!candidate.name && candidate.name.trim().length > 0;
-        const hasLookup = !!currentMetadata.tax_identifier_lookup;
 
-        if (isCO && hasNoTaxId && isExternalImport && hasCompanyName && !hasLookup) {
+        const lookup = currentMetadata.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined;
+        const hasValidLookup =
+          !!lookup &&
+          lookup.status !== 'failed' &&
+          (lookup.best_candidate !== undefined ||
+           lookup.best_candidate_skip_reason !== undefined);
+
+        if (isCO && hasNoTaxId && isExternalImport && hasCompanyName && !hasValidLookup) {
+          lookup_attempted = true;
           const isProviderConfigured = await checkIsColombiaProviderConfigured();
           if (isProviderConfigured) {
             try {
@@ -3095,22 +3110,34 @@ export async function validateImportedCandidatesBatch(
                 supabase,
               });
               if (lookupResult.success && lookupResult.lookup) {
+                lookup_success_count++;
                 currentMetadata.tax_identifier_lookup = lookupResult.lookup as unknown as Record<string, unknown>;
                 const bestCandidate = lookupResult.lookup.best_candidate;
                 if (bestCandidate) {
                   taxIdentifierCandidate = bestCandidate.normalized_tax_identifier;
+                  lookup_best_candidate_found = true;
                 }
+                const count = lookupResult.lookup.candidates?.length ?? 0;
+                lookup_total_candidates_found += count;
+              } else {
+                lookup_fail_count++;
               }
             } catch (lookupErr) {
+              lookup_fail_count++;
               console.error(`[validateImportedCandidatesBatch] Automated NIT lookup failed for candidate ${candidate.id}:`, lookupErr);
             }
+          } else {
+            lookup_reason_skipped = 'provider_not_configured';
           }
-        } else if (hasLookup) {
-          const lookup = currentMetadata.tax_identifier_lookup;
-          const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
+        } else if (hasValidLookup && lookup) {
+          const bestCandidate = lookup.best_candidate;
           if (bestCandidate) {
             taxIdentifierCandidate = bestCandidate.normalized_tax_identifier as string | null;
           }
+        }
+
+        if (taxIdentifierCandidate) {
+          lookup_used_for_duplicate_detection = true;
         }
 
         // --- Detección universal de duplicados ---
@@ -3259,6 +3286,38 @@ export async function validateImportedCandidatesBatch(
       console.info('[validateImportedCandidatesBatch] hubspot_errors_count:', hubspot_errors_count);
     }
 
+    let autoLookupStatus: "completed" | "no_result" | "failed" | "skipped" = "skipped";
+    if (lookup_attempted) {
+      if (lookup_success_count > 0) {
+        if (lookup_total_candidates_found > 0) {
+          autoLookupStatus = "completed";
+        } else {
+          autoLookupStatus = "no_result";
+        }
+      } else if (lookup_fail_count > 0) {
+        autoLookupStatus = "failed";
+      }
+    } else {
+      if (candidates.length === 0) {
+        lookup_reason_skipped = "no_candidates";
+      } else if (!candidates.some(c => c.country_code?.toUpperCase() === 'CO')) {
+        lookup_reason_skipped = "not_colombia_batch";
+      } else if (!candidates.some(c => !c.tax_identifier || c.tax_identifier.trim() === '')) {
+        lookup_reason_skipped = "all_candidates_have_tax_identifier";
+      } else {
+        lookup_reason_skipped = "already_validated";
+      }
+    }
+
+    const tax_identifier_auto_lookup = {
+      attempted: lookup_attempted,
+      reason_skipped: lookup_reason_skipped,
+      status: autoLookupStatus,
+      candidates_count: lookup_total_candidates_found,
+      best_candidate_found: lookup_best_candidate_found,
+      used_for_duplicate_detection: lookup_used_for_duplicate_detection,
+    };
+
     const import_validation = {
       validated_at: new Date().toISOString(),
       validation_source: 'post_import_auto',
@@ -3274,6 +3333,7 @@ export async function validateImportedCandidatesBatch(
       warnings_count,
       failed_count,
       hubspot_status: hubspotStatusForBatch,
+      tax_identifier_auto_lookup,
     };
 
     const updatedBatchMeta = {
