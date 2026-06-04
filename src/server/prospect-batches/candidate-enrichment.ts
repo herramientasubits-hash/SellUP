@@ -514,6 +514,18 @@ export interface AIExecutionDebugInfo {
     provider_key: string;
     model_key: string;
   } | null;
+  active_config_used: {
+    provider_id: string | null;
+    provider_key: string | null;
+    provider_name: string | null;
+    model_id: string | null;
+    model_name: string | null;
+    model_key: string;
+    is_executable: boolean | null;
+    slot1_included: boolean;
+    slot1_skip_reason: string | null;
+    source: 'getAIActiveConfig';
+  } | null;
   vault_checks: Array<{ alias: string; vault_key: string; found: boolean }>;
   gemini_credential: {
     available: boolean;
@@ -600,33 +612,49 @@ export async function buildAIExecutionCandidates(
   };
 
   // ── SLOT 1: Configuración activa ──────────────────────────────────────────
+  // The admin-configured model is always included in SLOT 1 regardless of
+  // is_executable in DB. is_executable is advisory for automatic fallback
+  // discovery; it does not override an explicit admin selection.
+  // If the model truly cannot execute, the API call will fail and fall through
+  // to SLOT 2/3+ — the error will appear clearly in the attempts history.
+  let slot1ActiveIsExecutable: boolean | null = null;
+  let slot1SkipReason: string | null = null;
+
   if (activeProviderKey && activeModelKey) {
     const isCredAvailable = credentialsMap[activeProviderKey] ?? false;
     if (isCredAvailable) {
-      // Check if active model is explicitly marked non-executable in DB (skip if so)
       const activeModelDbRow = (dbModels ?? []).find((m) => {
         const rawProvider = m.ai_providers as unknown;
         const providerData = (Array.isArray(rawProvider) ? rawProvider[0] : rawProvider) as { key: string } | null;
         const pKey = normalizeAIProviderKey(providerData?.key || '');
         return pKey === activeProviderKey && m.key === activeModelKey;
       });
-      const activeModelKnownNonExecutable = activeModelDbRow
-        ? (activeModelDbRow as unknown as { is_executable: boolean | null }).is_executable === false
-        : false;
+      slot1ActiveIsExecutable = activeModelDbRow
+        ? (activeModelDbRow as unknown as { is_executable: boolean | null }).is_executable ?? null
+        : null;
 
-      if (!activeModelKnownNonExecutable) {
-        candidates.push({
-          provider_key: activeProviderKey,
-          provider_display_name: activeConfig?.provider_name || getProviderDisplayName(activeProviderKey),
-          model_key: activeModelKey,
-          model_display_name: activeConfig?.model_name || activeModelKey,
-          credential_available: true,
-          priority: 1,
-        });
-      } else {
-        console.warn(`[buildAIExecutionCandidates] Active model ${activeProviderKey}/${activeModelKey} is marked non-executable — skipping SLOT 1.`);
+      if (slot1ActiveIsExecutable === false) {
+        console.warn(
+          `[buildAIExecutionCandidates] Active model ${activeProviderKey}/${activeModelKey} is is_executable=false in DB — ` +
+          `including in SLOT 1 anyway (admin-configured). Run "Actualizar modelos disponibles" to re-verify.`
+        );
       }
+
+      candidates.push({
+        provider_key: activeProviderKey,
+        provider_display_name: activeConfig?.provider_name || getProviderDisplayName(activeProviderKey),
+        model_key: activeModelKey,
+        model_display_name: activeConfig?.model_name || activeModelKey,
+        credential_available: true,
+        priority: 1,
+      });
+    } else {
+      slot1SkipReason = `No credential available for provider ${activeProviderKey}`;
+      console.warn(`[buildAIExecutionCandidates] SLOT 1 skipped — ${slot1SkipReason}`);
     }
+  } else {
+    slot1SkipReason = `No active config (provider=${activeProviderKey || 'empty'}, model=${activeModelKey || 'empty'})`;
+    console.warn(`[buildAIExecutionCandidates] SLOT 1 skipped — ${slot1SkipReason}`);
   }
 
   // ── SLOT 2: Gemini como fallback preferente ───────────────────────────────
@@ -770,6 +798,20 @@ export async function buildAIExecutionCandidates(
       active_config_summary: activeProviderKey
         ? { provider_key: activeProviderKey, model_key: activeModelKey }
         : null,
+      active_config_used: activeConfig
+        ? {
+            provider_id: activeConfig.active_provider_id ?? null,
+            provider_key: activeConfig.provider_key ?? null,
+            provider_name: activeConfig.provider_name ?? null,
+            model_id: activeConfig.active_model_id ?? null,
+            model_name: activeConfig.model_name ?? null,
+            model_key: activeModelKey,
+            is_executable: slot1ActiveIsExecutable,
+            slot1_included: !slot1SkipReason && !!activeProviderKey && !!activeModelKey,
+            slot1_skip_reason: slot1SkipReason,
+            source: 'getAIActiveConfig',
+          }
+        : null,
       vault_checks: geminiCheck.checked_aliases,
       gemini_credential: {
         available: geminiCheck.available,
@@ -832,7 +874,10 @@ export async function enrichProspectCandidate({
     const debugOut: { info?: AIExecutionDebugInfo } = {};
     const executionCandidates = await buildAIExecutionCandidates(supabase, activeConfig, debugOut as { info: AIExecutionDebugInfo });
 
-    // Log de diagnóstico seguro (sin API keys)
+    // Log active_config_used seguro (sin API keys) — TAREA 2
+    const activeConfigUsed = debugOut.info?.active_config_used ?? null;
+    console.log('[enrichProspectCandidate] active_config_used:', JSON.stringify(activeConfigUsed ?? 'null'));
+
     if (process.env.NODE_ENV !== 'production') {
       console.log('[enrichProspectCandidate] AI Fallback Debug:', JSON.stringify(debugOut.info ?? {}, null, 2));
     }
@@ -849,7 +894,8 @@ export async function enrichProspectCandidate({
           reasons: eligibility.reasons,
           missing_fields: eligibility.missing_fields,
         },
-        attempts: []
+        attempts: [],
+        active_config_used: activeConfigUsed,
       };
 
       await supabase
@@ -1158,7 +1204,8 @@ export async function enrichProspectCandidate({
           output_tokens: outputTokens,
           estimated_cost: estimatedCostUsd,
         },
-        attempts: attempts
+        attempts: attempts,
+        active_config_used: activeConfigUsed,
       };
 
       const existingMeta = candidate.metadata || {};
@@ -1199,7 +1246,8 @@ export async function enrichProspectCandidate({
           reasons: eligibility.reasons,
           missing_fields: eligibility.missing_fields,
         },
-        attempts: attempts
+        attempts: attempts,
+        active_config_used: activeConfigUsed,
       };
 
       if (agentRunId) {
