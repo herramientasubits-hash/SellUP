@@ -22,11 +22,12 @@ All UI work must consult and respect these authoritative sources:
 
 | Artifact | Location | Purpose |
 |----------|----------|---------|
-| **Design System Foundation v0.1** | `docs/DESIGN_SYSTEM_FOUNDATION.md` | Official specification (8 sections: principles, tokens, typography, radius/shadows, components, Light/Dark rules) |
+| **Design System Foundation v0.1** | `docs/DESIGN_SYSTEM_FOUNDATION.md` | Official specification (14 sections: principles, tokens, typography, radius/shadows, components, Light/Dark, rules, DataTable, Drawer con Tabs, Floating Bar, Lazy Load, Page Recipe) |
 | **CSS Tokens** | `src/app/globals.css` | Implemented custom properties and animations |
-| **Base Components** | `src/components/shared/` | PageHeader, SurfaceCard, ModulePlaceholder, NavLink |
+| **Base Components** | `src/components/shared/` | PageHeader, SurfaceCard, ModulePlaceholder, NavLink, DrawerShell |
 | **UI Library** | `src/components/ui/` | shadcn/ui extensions and custom widgets |
 | **Layout System** | `src/components/layout/` | AppShell, AppHeader, AppSidebar, theme-toggle |
+| **DataTable System** | `src/components/data-table/` | DataTable, DataTableSettingsDrawer, DataTableLoadMore, DataTableBulkActionBar — Foundation § 10 |
 | **Governance Skill** | `.agents/skills/sellup-ui-design-system-guardian/SKILL.md` | Portable reference for any agent |
 
 ---
@@ -37,12 +38,19 @@ All UI work must consult and respect these authoritative sources:
 
 1. **Consult the Design System** before writing code
    - Read relevant sections of `DESIGN_SYSTEM_FOUNDATION.md`
+   - For CRUD pages with list + detail, read **§ 14 Page Recipe** first
+   - For detail views with multiple areas, read **§ 11 Drawer con Tabs**
+   - For floating bars/toasts/portals, read **§ 12 Floating Action Bar**
+   - For infinite scroll lists, read **§ 13 Lazy Load con IntersectionObserver**
+   - For data tables, read **§ 10 DataTable**
    - Check token definitions in `src/app/globals.css`
    - Verify component exists in shared/ before building custom
 
 2. **Reutilize tokens and components**
    - No hardcoded colors in operativa code (`#5b7eff`, `rgba(...)` prohibited)
-   - Reuse PageHeader, SurfaceCard, ModulePlaceholder, NavLink
+   - Reuse PageHeader, SurfaceCard, ModulePlaceholder, NavLink, DrawerShell
+   - For tables: use `DataTable` (nunca `<Table>` shadcn directo)
+   - For detail views: use `DrawerShell` + `Tabs` (§ 11)
    - Extend existing components before creating new ones
 
 3. **Preserve Light/Dark mode**

@@ -408,6 +408,7 @@ Las utilidades `su-ai-gradient`, `su-ai-gradient-animate`, `su-ai-border`, `su-a
 
 *SellUp Design System Foundation v0.1 — Mayo 2026*
 *Actualización § 9 AI Gradient — Mayo 2026*
+*Actualización § 10–14 DataTable, Drawer con Tabs, Floating Bar, Lazy Load, Page Recipe — Junio 2026*
 *Siguiente iteración: v0.2 tras completar Pipeline funcional.*
 
 ---
@@ -420,20 +421,21 @@ Todas las tablas de SellUp (catálogo de fuentes, batches, candidatos, cuentas, 
 
 **No crear tablas nuevas con `useState` + `useMemo` + `<Table>`.** Usar el componente.
 
-### 10.2 Estructura
+### 10.2 Estructura actual
 
 ```
 src/components/data-table/
-├── data-table.tsx                    # Core: TanStack Table v8 + feature flags
-├── data-table-toolbar.tsx            # Search + bulk actions + density + view options
-├── data-table-pagination.tsx         # Paginación + page-size
-├── data-table-faceted-filter.tsx     # Multi-select dropdown con counts
-├── data-table-view-options.tsx       # Visibilidad de columnas
-├── data-table-column-header.tsx      # Header sortable + hideable
-├── data-table-row-actions.tsx        # Slot kebab dropdown
-├── data-table-bulk-actions.tsx       # Toolbar de selección
-├── data-table-context-menu.tsx       # Right-click per-row
-├── data-table-density-toggle.tsx     # Compact / comfortable
+├── data-table.tsx                    # Core: TanStack Table v8 + load mode + settings
+├── data-table-toolbar.tsx            # Title + description + search + settings + actions
+├── data-table-pagination.tsx         # Paginación clásica (page-size + páginas)
+├── data-table-load-more.tsx          # Lazy load: sentinel + IntersectionObserver
+├── data-table-settings-drawer.tsx    # Drawer: visibilidad columnas + modo de carga
+├── data-table-column-header.tsx      # Header clickable (sortable)
+├── data-table-column-popover.tsx     # Per-column popover (sort + filter)
+├── data-table-column-reorder.tsx     # Drag-and-drop column reordering
+├── data-table-row-actions.tsx        # Kebab dropdown por fila
+├── data-table-context-menu.tsx       # Right-click menu
+├── data-table-bulk-action-bar.tsx    # Portal de selección masiva (ver § 12)
 └── index.ts                          # Barrel exports
 ```
 
@@ -444,33 +446,67 @@ src/components/data-table/
 | `columns` | `ColumnDef<T, V>[]` | — | Definición de columnas (TanStack) |
 | `data` | `T[]` | — | Filas a renderizar |
 | `getRowId` | `(row: T) => string` | — | ID estable (clave para selección, context menu) |
-| `enableRowSelection` | `boolean` | `false` | Activa checkboxes + bulk actions |
-| `contextMenu` | `{ items: (row) => DataTableContextMenuItem[] }` | — | Right-click per-row |
-| `density` | `'compact' \| 'comfortable'` | `'comfortable'` | Altura de filas |
-| `stickyHeader` | `boolean` | `false` | Header sticky en scroll vertical |
-| `initialPageSize` | `number` | `10` | Filas por página iniciales |
-| `manualSorting` / `manualFiltering` | `boolean` | `false` | Si `true`, el padre controla sort/filter via `onSortingChange` / `onFilteringChange` |
-| `bulkActions` | `DataTableBulkAction<T>[]` | `[]` | Acciones masivas en la selección |
-| `onRowClick` | `(row: T) => void` | — | Click en fila (no en acciones) |
-| `rowClickable` | `boolean` | `false` | Aplica cursor + hover; false desactiva click |
+| `title` | `ReactNode` | — | Título en el toolbar (p. ej. `"Listado de fuentes"`) |
+| `description` | `ReactNode` | — | Subtítulo debajo del título |
+| `count` | `number` | — | Badge numérico junto al título |
+| `actions` | `ReactNode` | — | Botones alineados a la derecha del toolbar |
+| `enableRowSelection` | `boolean` | `false` | Checkbox column + bulk action bar |
+| `bulkActions` | `DataTableBulkAction<T>[]` | `[]` | Acciones masivas |
+| `contextMenu` | `DataTableContextMenuConfig<T>` | — | Right-click menu items |
+| `stickyHeader` | `boolean` | `false` | `thead` sticky en scroll vertical |
+| `initialPageSize` | `number` | `20` | Filas por página / lote de lazy load |
+| `pageSizeOptions` | `number[]` | `[10, 20, 50, 100]` | Opciones de page-size (modo paginación) |
+| `enableColumnReorder` | `boolean` | `true` | Drag-and-drop en headers |
+| `pinnedColumnIds` | `string[]` | `["select", "actions"]` | Columnas excluidas del reorder |
+| `manualSorting` / `manualFiltering` | `boolean` | `false` | Si `true`, el padre controla sort/filter via estado externo |
+| `onRowClick` | `(row: T) => void` | — | Click handler (no confundir con selección) |
+| `rowClickable` | `boolean` | `false` | Cursor + hover; necesario junto a `onRowClick` |
 | `emptyState` | `ReactNode` | — | Contenido cuando `data.length === 0` |
-| `globalFilter` | `string` | — | Controlled search |
+| `loading` | `boolean` | `false` | Skeleton overlay |
+| `hideToolbar` | `boolean` | `false` | Oculta toolbar completamente |
+| `className` | `string` | — | Wrapper extra classes |
 
-### 10.4 Columnas — meta fields
+### 10.4 Modos de carga — `loadMode`
+
+`DataTableSettings.loadMode` controla cómo se cargan las filas. Configurable desde `<DataTableSettingsDrawer>`:
+
+| Modo | Comportamiento | Cuándo usarlo |
+|------|----------------|---------------|
+| `'pagination'` | Filas paginadas con `<DataTablePagination>`. Default. | Datasets medianos (≤500 filas en memoria). |
+| `'lazy'` | Filas se revelan incrementalmente con `<DataTableLoadMore>` (IntersectionObserver, automático al hacer scroll). Ver § 13. | Datasets grandes cargados en memoria o listas que se benefician de scroll continuo. |
+
+El modo se guarda en estado interno del `<DataTable>`. La transición resetea `lazyVisibleCount` automáticamente y `pageSize` se ajusta a `Number.MAX_SAFE_INTEGER` en lazy para que TanStack no interfiera con el slice client-side.
+
+**Límite práctico:** lazy es client-side slicing. Para >1000 filas, mover a server-side pagination (`manualPagination`).
+
+### 10.5 Ajustes de tabla — `DataTableSettings`
+
+Estado: `{ globalSearch: boolean; loadMode: 'pagination' | 'lazy' }`.
+
+Configurable desde el `<DataTableSettingsDrawer>` que se abre con el ícono `SlidersHorizontal` en el toolbar. El drawer contiene:
+
+- **BUSCADOR GENERAL** (`Switch`) — muestra/oculta el input de búsqueda global.
+- **MODO DE CARGA** (`SegmentedControl`) — paginación vs carga perezosa (ver § 13).
+- **COLUMNAS VISIBLES** (checkboxes) — toggle de visibilidad por columna (vía `meta.label`).
+
+Default: `{ globalSearch: true, loadMode: 'pagination' }`. Sin "Modo de edición" — esa feature fue retirada.
+
+### 10.6 Columnas — meta fields
 
 `ColumnMeta` extiende `ColumnDef<T, V>['meta']` con campos del sistema:
 
 ```ts
 {
-  label: string;                          // Aparece en "View options"
+  label: string;                          // Aparece en "Columnas visibles"
   facetedFilterTitle?: string;            // Título del dropdown
   facetedFilterOptions?: { label, value }[]; // Opciones del multi-select
+  disablePopoverSearch?: boolean;         // Oculta el input de búsqueda en el popover
 }
 ```
 
 Los faceted filters se renderizan automáticamente en el toolbar cuando una columna tiene `facetedFilterOptions` Y `enableColumnFilter: true` (default).
 
-### 10.5 Uso mínimo
+### 10.7 Uso mínimo
 
 ```tsx
 'use client';
@@ -510,6 +546,8 @@ const columns: ColumnDef<Row>[] = [
 export function MyList({ rows }: { rows: Row[] }) {
   return (
     <DataTable
+      title="Listado de elementos"
+      description="Vista operativa de todos los elementos registrados."
       columns={columns}
       data={rows}
       getRowId={(r) => r.id}
@@ -519,7 +557,7 @@ export function MyList({ rows }: { rows: Row[] }) {
 }
 ```
 
-### 10.6 Contexto, bulk actions y right-click
+### 10.8 Contexto, bulk actions y right-click
 
 ```tsx
 <DataTable
@@ -527,7 +565,7 @@ export function MyList({ rows }: { rows: Row[] }) {
   enableRowSelection
   contextMenu={{
     items: (row) => [
-      { id: 'view', label: 'Ver detalle', icon: ArrowRight, onClick: () => router.push(`/x/${row.id}`) },
+      { id: 'view', label: 'Ver detalle', icon: ArrowRight, onClick: () => openDetail(row) },
       { id: 'copy', label: 'Copiar ID', icon: Copy, onClick: () => navigator.clipboard.writeText(row.id) },
     ],
   }}
@@ -540,66 +578,19 @@ export function MyList({ rows }: { rows: Row[] }) {
       confirm: { title: '¿Archivar N fuentes?', description: 'Se moverán al archivo.', destructive: true },
     },
   ]}
-  onRowClick={(row) => router.push(`/x/${row.id}`)}
+  onRowClick={(row) => openDetail(row)}
   rowClickable
   stickyHeader
 />
 ```
 
-### 10.7 CSS utilities
+### 10.9 Anatomía de un DataTable
 
-Unifica las 4 variaciones de estilo de tabla que existían (`border-border/20|30|40|60`, `hover:bg-muted/20|30|50|hover:bg-accent/30`):
-
-| Clase | Uso |
-|-------|-----|
-| `.su-table` | Wrapper base: `w-full caption-bottom text-sm` + filas consistentes |
-| `.su-table-compact` | Filas más densas (overrides row height) |
-| `.su-table-sticky` | `thead` con `sticky top-0 z-10 bg-card/95 backdrop-blur` |
-| `.su-table-wrapper` | `relative w-full overflow-x-auto rounded-xl border border-border/10` |
-
-Aplicar a la tabla manualmente cuando se necesite control granular. `<DataTable>` las usa internamente.
-
-### 10.8 Checklist de migración
-
-- [ ] Reemplazar `useState`+`useMemo`+`Table` por `<DataTable>` con `columns` + `data` + `getRowId`.
-- [ ] Definir `meta.label` en toda columna visible.
-- [ ] Mover filtros `useState` (país, estado, etc.) a faceted filters via `meta.facetedFilterOptions`.
-- [ ] Mover search input a `globalFilter` controlled (si se necesita external control).
-- [ ] Acciones por fila: usar `DataTableRowActions` en slot `cell` con kebab `MoreHorizontal`.
-- [ ] Right-click: declarar `contextMenu.items` con `DataTableContextMenuItem[]`.
-- [ ] Bulk actions: declarar `bulkActions` con `confirm` para acciones destructivas.
-- [ ] Eliminar imports de `Table*`, `Input` (search), `useState`/`useMemo` para filtros.
-- [ ] Verificar: `npm run lint`, `npm run typecheck`, `npm run build` pasan.
-- [ ] Commit con prefijo `refactor:` y mensaje claro.
-
-### 10.9 Prohibiciones
-
-- ❌ Crear tablas nuevas con `<Table>` shadcn directo — usar `<DataTable>`.
-- ❌ Definir `useState` por filtro — usar faceted filters declarativos.
-- ❌ Hardcodear `border-border/40` o `hover:bg-muted/50` ad-hoc — usar `.su-table`.
-- ❌ Reimplementar sorting/paginación con `useMemo` — el core lo hace.
-- ❌ Mezclar `enableRowSelection` con `onRowClick` sin `rowClickable` (la selección necesita click en la fila).
-- ❌ Omitir `getRowId` cuando hay selección (causa re-mounts y bugs de selección).
-
-### 10.10 Primitivos UI nuevos
-
-Para soportar el sistema se agregaron (en `src/components/ui/`):
-
-- `popover.tsx` — wrapper Radix Popover (Radix `asChild` pattern).
-- `context-menu.tsx` — wrapper Radix ContextMenu.
-- `command.tsx` — wrapper `cmdk` para Command palette + CommandInput/List/Item/Group/Separator/Empty.
-- `checkbox.tsx` — wrapper Radix Checkbox (selección de filas).
-- `switch.tsx` — wrapper Radix Switch (toggles en settings dialog).
-
-Estos siguen el patrón shadcn estándar (forwardRef + cn + Radix Slot cuando aplica).
-
-### 10.11 Anatomía de un DataTable (alineada con referencia)
-
-La referencia (`plantilla-proyectos-shadcn` v2) define un sistema con 6 zonas visuales. El `<DataTable>` las implementa así:
+El `<DataTable>` implementa estas zonas visuales (de arriba a abajo):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Title + count   [search icon-btn] [density] [view] [⚙] [actions]│  ← Toolbar
+│ Title + count   [search] [⚙] [actions]                          │  ← Toolbar
 │ Description (subtítulo)                                            │
 ├─────────────────────────────────────────────────────────────────┤
 │ ☐ │ Col 1 ⇅▼ │ Col 2 ⇅▼ │ Col 3 ⇅▼ │ Col 4 ⇅▼ │ Acciones  │  ← Sticky header
@@ -607,92 +598,462 @@ La referencia (`plantilla-proyectos-shadcn` v2) define un sistema con 6 zonas vi
 │ ☐ │ ...        │ ...        │ ...        │ ...        │          │  ← Rows
 │ ☐ │ ...        │ ...        │ ...        │ ...        │          │
 ├───┴────────────┴────────────┴────────────┴────────────┴───────────┤
-│ Mostrando 1 - 4 de 7    [« Anterior] 1 2 [Siguiente »]          │  ← Pagination
+│ [Footer: pagination | load-more sentinel]                       │
 └─────────────────────────────────────────────────────────────────┘
                                                 (when selecting)
                               ┌─────────────────────────────────────┐
-                              │ 4 Seleccionados │ ✓ ✕ 🗑 │ 📌 ×     │  ← Floating
-                              └─────────────────────────────────────┘     bar
+                              │ N seleccionados  [acción1] [acción2] │  ← Floating
+                              └─────────────────────────────────────┘     bar (portal)
 ```
 
-#### 10.11.1 Per-column popover (Sort + Search + Filter)
+#### 10.9.1 Per-column popover (Sort + Filter)
 
-Cada header de columna (que sea `sortable` o `filterable`) tiene un botón
-clickable que abre un popover con tres secciones:
+`<DataTableColumnPopover>` envuelve el header clickable y abre un popover con:
 
-1. **ORDENAR** — dos botones `Asc` / `Desc` que controlan `column.toggleSorting(false|true)`.
-2. **BUSCAR** — input opcional (en columnas con `disablePopoverSearch: true` se omite) que filtra la lista de opciones.
-3. **FILTRAR** — lista de checkboxes con conteos. Los valores vienen de `meta.filterOptions` (estático, preferible para enums conocidos) o de `column.getFacetedUniqueValues()` (derivado de los datos).
+1. **ORDENAR** — botones `Asc` / `Desc` que controlan `column.toggleSorting`.
+2. **FILTRAR** — lista de checkboxes con conteos. Valores de `meta.facetedFilterOptions` (estático) o `column.getFacetedUniqueValues()` (derivado).
 
-Los filtros se almacenan como `string[]` en `column.filterValue` y se aplican
-con `filterFn: 'arrIncludesSome'` (built-in de TanStack v8).
+Filtros se almacenan como `string[]` en `column.filterValue` con `filterFn: 'arrIncludesSome'`.
 
-#### 10.11.2 Column reordering (drag-and-drop)
+#### 10.9.2 Column reordering (drag-and-drop)
 
-`<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` +
-`@dnd-kit/sortable` (estrategia `horizontalListSortingStrategy`). Las
-columnas ancladas (`pinnedColumnIds`, default `["select", "actions"]`) se
-excluyen del sortable context y permanecen en sus extremos.
+`<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` + `@dnd-kit/sortable`. Columnas en `pinnedColumnIds` (default `["select", "actions"]`) no son draggeables. Activado por defecto (`enableColumnReorder: true`).
 
-Para activarlo: `enableColumnReorder` (default `true`). El estado vive en
-`state.columnOrder` (TanStack v8 built-in).
+#### 10.9.3 Floating bulk action bar (portal pattern)
 
-#### 10.11.3 Column pinning (left / right)
+`<DataTableBulkActionBar>` se renderiza via `createPortal` a `document.body` (NO dentro de la tabla). Razón técnica: el `transform` del `animate-su-fade-in` del AppShell crea un containing block que rompe `position: fixed` para descendientes. Ver § 12 para el patrón completo.
 
-Wired via `state.columnPinning: { left, right }` (TanStack v8 built-in).
-El método `column.pin("left" | "right" | false)` está disponible en el
-context menu del column header (TODO: añadir botón Pin en el popover
-cuando el consumer pase `onPin` callback).
+#### 10.9.4 Settings drawer (no dialog)
 
-#### 10.11.4 Floating bulk action bar
+`<DataTableSettingsDrawer>` reemplaza el antiguo settings dialog. Contiene: switch de buscador, segmented control de modo de carga, listado de columnas visibles. Accesible desde el ícono `SlidersHorizontal` en el toolbar.
 
-`<DataTableBulkActionBar>` se renderiza en `position: fixed; bottom-6;
-left-1/2` cuando hay selección. Es dark (`bg-zinc-900`), pill-shaped
-(`rounded-full`), con:
+#### 10.9.5 Search input
 
-- Badge circular con el conteo (`bg-primary text-primary-foreground`).
-- Acciones: iconos + label, separadas por `bg-zinc-700` dividers.
-- Pin button + Close (×) button al final.
-- Acciones con `confirm: { title, description }` abren un `Dialog`
-  inline (no modal separado) antes de ejecutar.
+Input de búsqueda controlado por `state.globalFilter` (TanStack built-in). Aparece/oculta según `settings.globalSearch`.
 
-Para activarlo: `enableRowSelection` + `bulkActions[]`. El bar se cierra
-automáticamente al ejecutar acciones no destructivas; las destructivas
-mantienen el bar abierto hasta que el consumer resuelva la promesa.
+#### 10.9.6 Pagination / Load-more footer
 
-#### 10.11.5 Settings dialog ("Ajustes de Tabla Avanzados")
+El footer cambia según `loadMode`:
 
-`<DataTableSettingsDialog>` envuelve la `<Dialog>` (Base UI) con tres
-controles:
+- **Paginación:** `<DataTablePagination>` con formato `Mostrando {first} - {last} de {total} resultados` + `[« Anterior] 1 2 [Siguiente »]` con elipsis entre páginas no consecutivas. Página actual con `bg-foreground text-background`. Si `totalRows === 0`, solo "0 resultados".
+- **Lazy:** `<DataTableLoadMore>` con sentinel de IntersectionObserver. Ver § 13.
 
-- **MODO DE EDICIÓN** (`row` / `cell`) — `SegmentedControl` con íconos.
-- **CARGA DE DATOS** (`pagination` / `lazy`) — `SegmentedControl`.
-- **BUSCADOR GENERAL** — `Switch` que controla `showGlobalSearch`.
+### 10.10 Checklist de migración
 
-El estado vive en `DataTableSettings` y se aplica al cerrar el modal con
-"Aplicar Ajustes". Se accede desde el ícono `SlidersHorizontal` en el
-toolbar.
+- [ ] Reemplazar `useState`+`useMemo`+`Table` por `<DataTable>` con `columns` + `data` + `getRowId`.
+- [ ] Definir `meta.label` en toda columna visible.
+- [ ] Mover filtros `useState` (país, estado, etc.) a faceted filters via `meta.facetedFilterOptions`.
+- [ ] Acciones por fila: usar `DataTableRowActions` en slot `cell` con kebab `MoreHorizontal`.
+- [ ] Right-click: declarar `contextMenu.items` con `DataTableContextMenuItem[]`.
+- [ ] Bulk actions: declarar `bulkActions` con `confirm` para acciones destructivas.
+- [ ] Eliminar imports de `Table*`, `Input` (search), `useState`/`useMemo` para filtros.
+- [ ] Verificar: `npm run lint`, `npm run typecheck`, `npm run build` pasan.
+- [ ] Commit con prefijo `refactor:` y mensaje claro.
 
-El consumer puede sobrescribir el comportamiento real de `editMode` /
-`loadMode` en su `<DataTable>` padre leyendo `settings.editMode` /
-`settings.loadMode` y reaccionando con `useEffect`. Por defecto la
-implementación no hace nada destructivo — es opt-in.
+### 10.11 Prohibiciones
 
-#### 10.11.6 Search button (icon-only)
+- ❌ Crear tablas nuevas con `<Table>` shadcn directo — usar `<DataTable>`.
+- ❌ Definir `useState` por filtro — usar faceted filters declarativos.
+- ❌ Reimplementar sorting/paginación con `useMemo` — el core lo hace.
+- ❌ Mezclar `enableRowSelection` con `onRowClick` sin `rowClickable` (la selección necesita click en la fila).
+- ❌ Omitir `getRowId` cuando hay selección (causa re-mounts y bugs de selección).
+- ❌ Reintroducir density toggle, view options popover, o edit mode — features retiradas.
+- ❌ Hardcodear estilos de tabla (`border-border/40`, `hover:bg-muted/50` ad-hoc) — el `<DataTable>` los aplica.
 
-En el toolbar, el search input es un **icon button** que se expande a un
-input de 224px (`w-56`) cuando se le hace click. El usuario escribe y
-presiona Enter (o se cierra solo al perder focus si está vacío). El
-resultado se pasa a `state.globalFilter` (TanStack v8 built-in).
+### 10.12 Primitivos UI nuevos
 
-#### 10.11.7 Pagination format
+Para soportar el sistema se agregaron (en `src/components/ui/`):
 
-`<DataTablePagination>` formatea: `Mostrando {first} - {last} de {total} resultados`. A la derecha:
+- `popover.tsx` — wrapper Base UI Popover.
+- `context-menu.tsx` — wrapper Base UI ContextMenu.
+- `checkbox.tsx` — wrapper Base UI Checkbox (selección de filas).
+- `switch.tsx` — wrapper Base UI Switch (toggles en settings drawer).
+- `tabs.tsx` — wrapper Base UI Tabs (drawer con tabs, ver § 11).
+- `segmented-control.tsx` — control segmentado (modo de carga, etc.).
+
+Todos siguen el patrón shadcn estándar (forwardRef + cn + Slot cuando aplica).
+
+---
+
+## 11. Drawer con Tabs — Pattern para detail views
+
+### 11.1 Propósito
+
+Cuando el detalle de una entidad tiene múltiples sub-áreas (información general, actividad, logs, batches relacionados, etc.), el detalle completo debe vivir **dentro del drawer** — no en una página separada. Esto mantiene al usuario dentro del contexto de la lista sin perder el overview.
+
+**Regla:** No incluir un botón "Abrir página completa" en el drawer. El drawer ES el detalle completo.
+
+### 11.2 Anatomía
 
 ```
-[« Anterior] 1 2 3 [Siguiente »]
+┌──────────────────────────────────────────────────────────────┐
+│ [icon] Title                       Key · description · ×  │  ← Header
+├──────────────────────────────────────────────────────────────┤
+│ [Información]  [Actividad 12]  [Lotes 5]                    │  ← TabsList
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  (TabContent: información general, badges, cards)           │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│ [Copiar key]                              [Abrir URL]       │  ← Footer
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Con elipsis (`…`) entre páginas no consecutivas. La página actual se
-resalta con `bg-foreground text-background`. Se omite toda la barra si
-`totalRows === 0` (solo muestra "0 resultados").
+### 11.3 Implementación de referencia
+
+Combinar `DrawerShell` + `Tabs` (Base UI). Ejemplo real en
+`src/app/(sellup)/settings/source-catalog/source-detail-drawer.tsx`:
+
+```tsx
+import { DrawerShell } from '@/components/shared/drawer-shell';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+
+<DrawerShell
+  open={open}
+  onOpenChange={onOpenChange}
+  side="right"
+  className="!w-[80vw] !max-w-[80vw] sm:!max-w-[80vw]"
+  title={source.name}
+  description={source.key}
+  icon={<StatusDot status={source.status} />}
+  footer={
+    <div className="flex items-center justify-between gap-3 w-full">
+      <CopyKeyInline value={source.key} />
+      {source.url && (
+        <Button variant="outline" size="sm" asChild>
+          <a href={source.url} target="_blank" rel="noopener noreferrer">
+            <ExternalLink className="h-3.5 w-3.5" />
+            Abrir URL
+          </a>
+        </Button>
+      )}
+    </div>
+  }
+>
+  <Tabs defaultValue="info" className="w-full">
+    <TabsList variant="line" className="mb-5">
+      <TabsTrigger value="info">Información</TabsTrigger>
+      <TabsTrigger value="batches">
+        Lotes
+        {batchesCount > 0 && (
+          <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+            {batchesCount}
+          </span>
+        )}
+      </TabsTrigger>
+    </TabsList>
+    <TabsContent value="info">{/* cards: info, uso, limitaciones, riesgos */}</TabsContent>
+    <TabsContent value="batches">{/* tabla o lista relacionada */}</TabsContent>
+  </Tabs>
+</DrawerShell>
+```
+
+### 11.4 Reglas
+
+- **Variante de tabs:** siempre `variant="line"` (estilo subrayado) dentro de un drawer. `default` (con fondo `bg-muted`) se reserva para settings y formularios.
+- **Tab por defecto:** el que tenga el contenido más crítico / informativo. Para una entidad con info + relación, `Información` va primero.
+- **Badge de conteo:** incluir en el trigger cuando aplique (`Lotes 5`, `Actividad 12`). Estilo: `rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground`.
+- **Tabs opcionales:** si la entidad solo tiene `Información` (sin datos relacionados), omitir el wrapper `Tabs` y renderizar el contenido directo. No forzar un único tab "decorativo".
+- **Ancho del drawer:** `!w-[80vw] !max-w-[80vw] sm:!max-w-[80vw]` para detail views con tablas; `!w-[480px]` o `!w-[560px]` para detail views simples.
+- **Footer del drawer:** acciones de copia (Copiar key/ID) y enlaces externos (Abrir URL). **Nunca** un "Abrir página completa".
+- **Datos del tab:** pre-cargar server-side y pasar como prop. No `useEffect` ni flash de loading al cambiar de tab.
+
+### 11.5 Prohibiciones
+
+- ❌ Botón "Abrir página completa" o equivalente — el drawer contiene todo.
+- ❌ `Tabs` con `variant="default"` dentro de un drawer (rompe la jerarquía visual).
+- ❌ Drawer con un solo tab — renderizar el contenido directo sin Tabs.
+- ❌ Fetch de datos al cambiar de tab — pre-cargar todo y pasar como prop.
+- ❌ Links a rutas externas para ver "más detalle" de un item del tab — abrir un sub-drawer o un popover.
+
+---
+
+## 12. Floating Action Bar — Portal pattern
+
+### 12.1 Problema
+
+`position: fixed` dentro de un contenedor que tiene un `transform` aplicado **no se posiciona respecto al viewport** — se posiciona respecto al contenedor. Esto se llama **containing block**.
+
+El `<main>` de `AppShell` aplica `animate-su-fade-in` que usa `transform: translateY(...)` durante la animación. Cualquier `position: fixed` dentro de `<main>` queda "atrapado" en ese contenedor.
+
+**Síntoma:** la barra de acciones masivas se renderiza pero no se queda fija al fondo de la pantalla — se queda al final del contenedor scrollable.
+
+### 12.2 Solución: portal a `document.body`
+
+`createPortal(jsx, document.body)` saca el elemento del árbol DOM actual y lo monta en otro contenedor. Como `document.body` no tiene `transform`, `position: fixed` vuelve a funcionar contra el viewport.
+
+### 12.3 Implementación de referencia
+
+`src/components/data-table/data-table-bulk-action-bar.tsx`:
+
+```tsx
+'use client';
+
+import * as React from 'react';
+import { createPortal } from 'react-dom';
+
+export function DataTableBulkActionBar({ count, onClear, children }: Props) {
+  // mount guard: evita hydration mismatch con SSR
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] ...">
+      {children}
+    </div>,
+    document.body,
+  );
+}
+```
+
+### 12.4 Reglas
+
+- **z-index:** `z-[60]` (drawer es `z-50`). Modal/dialog toma precedencia.
+- **Mount guard:** siempre usar `useState(false) + useEffect(setTrue)` para evitar SSR/hydration mismatch.
+- **Single source of truth:** el estado de selección vive en el `<DataTable>`; el bar solo lo lee y dispara callbacks.
+- **Hide cuando count === 0:** el bar no se monta si no hay selección.
+
+### 12.5 Cuándo replicar este patrón
+
+Usar portal a `document.body` para CUALQUIER elemento que necesite:
+- `position: fixed` global (toolbars flotantes, toasts, command palettes).
+- Escapar un `transform` ancestor (AppShell, dialogs anidados, animaciones de slide).
+
+**Regla general:** si algo necesita ser "global al viewport" y vive dentro de un contenedor con `transform`, `filter`, `perspective` o `will-change: transform`, portalizar.
+
+---
+
+## 13. Lazy Load con IntersectionObserver
+
+### 13.1 Propósito
+
+Reemplazar el botón "Cargar más" por scroll automático. Más natural para listas largas — el usuario no tiene que buscar el botón al final de la tabla.
+
+### 13.2 Comportamiento
+
+Cuando `loadMode === 'lazy'`:
+
+1. El padre renderiza `data.slice(0, lazyVisibleCount)`.
+2. `lazyVisibleCount` empieza en `initialPageSize` (default 20).
+3. Un `<div>` invisible (`h-px w-full`) al final del footer es observado por un `IntersectionObserver` con `rootMargin: "120px 0px"`.
+4. Cuando el sentinel entra en el viewport (con 120px de提前), el observer dispara `onLoadMore()`.
+5. El padre incrementa `lazyVisibleCount` por `initialPageSize` (u otro paso).
+6. Si `lazyVisibleCount >= data.length`, se quita el sentinel.
+7. Cambios en `filters`, `globalFilter`, `sort` o `loadMode` resetean `lazyVisibleCount` a `initialPageSize`.
+
+### 13.3 Implementación de referencia
+
+`src/components/data-table/data-table-load-more.tsx`:
+
+```tsx
+'use client';
+
+import * as React from 'react';
+import { Loader2 } from 'lucide-react';
+
+interface DataTableLoadMoreProps {
+  totalRows: number;
+  shownRows: number;
+  onLoadMore: () => void;
+  loading?: boolean;
+}
+
+export function DataTableLoadMore({ totalRows, shownRows, onLoadMore, loading }: Props) {
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const remaining = Math.max(totalRows - shownRows, 0);
+  const canLoadMore = remaining > 0;
+
+  React.useEffect(() => {
+    if (!canLoadMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry?.isIntersecting) onLoadMore();
+      },
+      { rootMargin: '120px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [canLoadMore, onLoadMore]);
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-3 px-5 py-3 text-xs text-muted-foreground border-t border-border/40">
+      {canLoadMore ? (
+        <>
+          <Loader2 className={cn('h-3 w-3', loading ? 'animate-spin' : 'opacity-0')} />
+          <p className="tabular-nums">
+            Mostrando {shownRows} de {totalRows} · {remaining} más disponibles
+          </p>
+        </>
+      ) : (
+        <p className="tabular-nums">Mostrando {shownRows} de {totalRows} resultados</p>
+      )}
+      {canLoadMore && <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />}
+    </div>
+  );
+}
+```
+
+En el `<DataTable>`:
+
+```tsx
+const [lazyVisibleCount, setLazyVisibleCount] = React.useState(initialPageSize);
+const isLazy = settings.loadMode === 'lazy';
+const effectiveData = React.useMemo(
+  () => (isLazy ? data.slice(0, lazyVisibleCount) : data),
+  [data, isLazy, lazyVisibleCount],
+);
+
+React.useEffect(() => {
+  setLazyVisibleCount(initialPageSize);
+}, [isLazy, initialPageSize, globalFilter, columnFilters, sorting]);
+
+// En initialState del useReactTable:
+pagination: { pageSize: isLazy ? Number.MAX_SAFE_INTEGER : initialPageSize }
+
+// En el footer:
+{isLazy ? (
+  <DataTableLoadMore
+    totalRows={data.length}
+    shownRows={effectiveData.length}
+    onLoadMore={() => setLazyVisibleCount((prev) => Math.min(prev + initialPageSize, data.length))}
+  />
+) : (
+  <DataTablePagination table={table} pageSizeOptions={pageSizeOptions} />
+)}
+```
+
+### 13.4 Reglas
+
+- **`rootMargin: "120px 0px"`** — activa carga antes de que el sentinel llegue al borde. 120px es un buen balance entre naturalidad y trigger temprano.
+- **Reset en cambios de filtro/sort** — el `useEffect` con deps `[isLazy, initialPageSize, globalFilter, columnFilters, sorting]` garantiza que el usuario no quede atrapado en un estado lazy inconsistente.
+- **Spinner sutil** — `Loader2` con `opacity-0` cuando idle para reservar espacio y evitar layout shift.
+- **Texto centrado** — `Mostrando X de Y · N más disponibles` o `Mostrando X de Y resultados` cuando se agota.
+- **Sin botón** — el patrón es scroll-only. El botón reintroduce fricción innecesaria.
+
+### 13.5 Trade-offs
+
+| Pro | Con |
+|----|-----|
+| Sin acción manual del usuario | Carga datos en memoria por adelantado |
+| Más natural para listas largas | No apto para >1000 filas (usar server-side pagination) |
+| Reset automático en filtros | Selección masiva puede no persistir entre resets (el padre debe controlar) |
+
+### 13.6 Cuándo NO usar lazy
+
+- Datasets < 50 filas (overhead no compensa).
+- Datasets > 1000 filas (usar server-side pagination con `manualPagination`).
+- Cuando el usuario necesita saber el total de páginas de antemano.
+
+---
+
+## 14. Page Recipe — Construir una página CRUD
+
+Receta para combinar todos los patrones. Aplica a cualquier página operativa de SellUp que liste + detalle entidades (fuentes, cuentas, contactos, prospectos, batches, etc.).
+
+### 14.1 Anatomía objetivo
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ PageHeader                                                        │
+│  Title (text-2xl font-semibold tracking-tight)                    │
+│  Description (max-w-3xl, sin truncate)                            │
+│  Actions: [Nuevo X] [Importar] [Exportar]                         │
+├──────────────────────────────────────────────────────────────────┤
+│ DataTable                                                          │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Title  Description     [search] [⚙ settings] [actions]    │  │
+│  ├────────────────────────────────────────────────────────────┤  │
+│  │ ☐ │ Col1 ⇅▼ │ Col2 ⇅▼ │ Col3 ⇅▼ │ Col4 ⇅▼ │ Acciones     │  │
+│  ├────────────────────────────────────────────────────────────┤  │
+│  │ ☐ │ ... datos ...                                          │  │
+│  ├────────────────────────────────────────────────────────────┤  │
+│  │ Footer (pagination | load-more)                            │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                              (al seleccionar)     │
+│                              ┌──────────────────────────────┐    │
+│                              │ 4 Seleccionados  [act1] [act2]│    │
+│                              └──────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+                              ↓ click fila o context menu
+┌──────────────────────────────────────────────────────────────────┐
+│ DrawerShell (80vw, right)                                         │
+│  Title (entity name) + description (key/ID)                       │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ [Información]  [Actividad N]  [Lotes N]                    │  │
+│  ├────────────────────────────────────────────────────────────┤  │
+│  │ Cards: info, uso, limitaciones, riesgos, ...               │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│  Footer: [Copiar key]                          [Abrir URL]       │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 14.2 Checklist de implementación
+
+**Page layer (`page.tsx` — server component):**
+
+- [ ] Pre-cargar datos del viewmodel server-side (no fetch client-side).
+- [ ] Pre-cargar datos relacionados que se mostrarán en el drawer (ej. batches, actividad).
+- [ ] Pasar todo al client component como props.
+- [ ] Pasar `requireActiveUser()` y verificar auth en el borde.
+
+**Client layer (`-client.tsx` — `'use client'`):**
+
+- [ ] Definir `columns: ColumnDef<T>[]` con `meta.label` en cada columna visible.
+- [ ] Definir `bulkActions[]` con `confirm: {}` para acciones destructivas.
+- [ ] Definir `contextMenu.items` con "Ver detalle" que abra el drawer.
+- [ ] State local: `detailOpen`, `selectedEntity`.
+- [ ] Renderizar `<DataTable>` + `<Drawer>`.
+
+**Drawer (siguiendo § 11):**
+
+- [ ] Usar `DrawerShell` con `className="!w-[80vw] ..."`.
+- [ ] Si el detalle tiene > 1 área, envolver en `<Tabs variant="line">`.
+- [ ] Footer: `Copiar [key]` + `Abrir URL` (si aplica). NUNCA "Abrir página completa".
+
+**Ajustes (auto via § 10.5):**
+
+- [ ] El usuario controla visibilidad de columnas y modo de carga desde el `SlidersHorizontal` del toolbar.
+- [ ] No exponer density toggle, edit mode, ni view options popover (retirados).
+
+### 14.3 Componentes a importar (los reutilizables)
+
+```tsx
+import { DataTable, DataTableRowActions } from '@/components/data-table';
+import { PageHeader } from '@/components/shared/page-header';
+import { DrawerShell } from '@/components/shared/drawer-shell';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+```
+
+### 14.4 Anti-patterns (NO hacer)
+
+- ❌ Dos botones/popovers separados para "ajustes" y "filtros" — todo vive en un solo `DataTableSettingsDrawer`.
+- ❌ CSV export como acción en toolbar sin endpoint real — quitar o implementar primero.
+- ❌ Edit mode, density toggle, o view options popover — features retiradas.
+- ❌ Lazy load con botón "Cargar más" — usar IntersectionObserver (§ 13).
+- ❌ Drawer de detalle que enlaza a "página completa" — el drawer es el detalle completo (§ 11).
+- ❌ Tabla de detalle con múltiples Drawer/Dialog anidados — usar Tabs (§ 11).
+- ❌ Hardcodear colores, fuentes, sombras o radius — usar tokens (§ 3-5).
+
+### 14.5 Validación final
+
+```bash
+npm run lint       # 0 errors
+npm run typecheck  # tsc --noEmit pasa
+npm run build      # Production build exitoso
+```
+
+Verificar en light + dark mode que:
+- `PageHeader` no truncates la descripción.
+- Tabla muestra ~20 filas en paginación, scroll infinito en lazy.
+- Drawer muestra tabs y `Copiar key` funciona.
+- Bulk action bar aparece fija al fondo cuando hay selección.
+- Tabs y bulk bar no se solapan visualmente (z-index correcto).
