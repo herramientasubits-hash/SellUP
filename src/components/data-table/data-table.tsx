@@ -384,7 +384,7 @@ export function DataTable<TData>({
         />
       </div>
 
-      {enableRowSelection && bulkActions.length > 0 && (
+      {enableRowSelection && (selectedCount > 0 || bulkActions.length > 0) && (
         <DataTableBulkActionBar
           selectedCount={selectedCount}
           selectedRows={selectedRows}
