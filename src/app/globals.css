@@ -48,14 +48,15 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Radius — base 0.75rem (12px) → todos los rounded-* heredan */
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.5);
-  --radius-2xl: calc(var(--radius) * 2);
-  --radius-3xl: calc(var(--radius) * 2.5);
-  --radius-4xl: calc(var(--radius) * 3);
+  /* Radius — alineado con plantilla-proyectos-shadcn (UBITS)
+     sm 10px · md 14px (base) · lg 20px · xl 28px · 2xl 32px · 3xl 42px · 4xl 56px */
+  --radius-sm: 0.625rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --radius-2xl: 2rem;
+  --radius-3xl: 2.625rem;
+  --radius-4xl: 3.5rem;
 
   /* SellUp — tokens semánticos de marca */
   --color-su-brand: var(--su-brand);
@@ -362,17 +363,18 @@
   }
 
   /* ── AI gradient utilities ──────────────────────────────────────────────── */
+  /* Importante: !important garantiza que el gradiente IA siempre gane sobre
+     bg-primary cuando se aplica como variante sobre Button (shadcn), igualando
+     el comportamiento de la plantilla UBITS (.bg-ai-gradient !important). */
 
   /* Solid fill — for primary AI buttons and strong indicators */
   .su-ai-gradient {
-    background: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%);
+    background: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
     color: oklch(0.99 0 0);
   }
   .su-ai-gradient:hover {
-    background: linear-gradient(135deg,
-      oklch(from var(--su-ai-from) calc(l + 0.04) c h) 0%,
-      oklch(from var(--su-ai-to) calc(l + 0.04) c h) 100%
-    );
+    background: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
+    opacity: 0.9;
   }
 
   /* Animated shimmer variant — living gradient for active AI states */
@@ -382,7 +384,7 @@
       var(--su-ai-from) 0%,
       var(--su-ai-to) 50%,
       var(--su-ai-from) 100%
-    );
+    ) !important;
     background-size: 200% 200%;
     color: oklch(0.99 0 0);
     animation: su-ai-flow 4s ease-in-out infinite;
@@ -406,21 +408,29 @@
     border: 1px solid transparent;
     background:
       linear-gradient(var(--card), var(--card)) padding-box,
-      linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) border-box;
+      linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) border-box !important;
   }
 
   /* Glow halo — shadow effect for AI buttons and active states */
   .su-ai-glow {
-    box-shadow: 0 4px 15px rgba(45, 92, 247, 0.3), 0 2px 5px rgba(225, 29, 72, 0.2);
+    box-shadow:
+      0 4px 15px rgba(45, 92, 247, 0.3),
+      0 2px 5px rgba(225, 29, 72, 0.2) !important;
   }
   .su-ai-glow:hover {
-    box-shadow: 0 6px 20px rgba(45, 92, 247, 0.35), 0 4px 10px rgba(225, 29, 72, 0.25);
+    box-shadow:
+      0 6px 20px rgba(45, 92, 247, 0.35),
+      0 4px 10px rgba(225, 29, 72, 0.25) !important;
   }
   .dark .su-ai-glow {
-    box-shadow: 0 4px 20px rgba(45, 92, 247, 0.4), 0 2px 8px rgba(225, 29, 72, 0.3);
+    box-shadow:
+      0 4px 20px rgba(45, 92, 247, 0.4),
+      0 2px 8px rgba(225, 29, 72, 0.3) !important;
   }
   .dark .su-ai-glow:hover {
-    box-shadow: 0 6px 25px rgba(45, 92, 247, 0.45), 0 4px 12px rgba(225, 29, 72, 0.35);
+    box-shadow:
+      0 6px 25px rgba(45, 92, 247, 0.45),
+      0 4px 12px rgba(225, 29, 72, 0.35) !important;
   }
 
   /* Badge compound — pill-shaped AI indicator */
@@ -433,7 +443,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.03em;
-    background: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to));
+    background: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) !important;
     color: oklch(0.99 0 0);
   }
 

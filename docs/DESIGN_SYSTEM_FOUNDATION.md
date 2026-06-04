@@ -174,13 +174,16 @@ SellUp aplica `stroke-width: 1.75` a los íconos `lucide-react` y SVGs dentro de
 
 ### Radios
 
-| Uso | Token / clase |
-|---|---|
-| Base (`--radius`) | `0.5rem` = 8px |
-| Componentes pequeños (badges, pills) | `rounded-full` |
-| Inputs, botones | `rounded-md` (≈ 6.4px) |
-| Cards, paneles | `rounded-xl` (≈ 14px) |
-| Modal, sheet | `rounded-2xl` (≈ 18px) |
+Escala alineada con `plantilla-proyectos-shadcn` (UBITS): `sm 10 · md 14 · lg 20 · xl 28 · 2xl 32 · 3xl 42 · 4xl 56`.
+
+| Uso | Token / clase | Valor |
+|---|---|---|
+| Base (`--radius`) | `0.875rem` | 14px |
+| Componentes pequeños (badges, pills) | `rounded-full` | 9999px |
+| Inputs, botones | `rounded-md` | 14px |
+| Botones pill, chips, toggles | `rounded-lg` | 20px |
+| Cards, paneles | `rounded-xl` | 28px |
+| Modal, sheet | `rounded-2xl` | 32px |
 
 ### Sombras
 
@@ -396,6 +399,10 @@ Los tokens se definen en `:root` (light) y `.dark` (dark). En dark mode los extr
 - ❌ No mezclar con `--su-brand` en el mismo elemento
 - ❌ No usar `su-ai-gradient-animate` en elementos sin estado activo de agente (por distracción)
 - ❌ No recrear el gradiente con valores hardcodeados — siempre usar los tokens
+
+### Especificidad CSS
+
+Las utilidades `su-ai-gradient`, `su-ai-gradient-animate`, `su-ai-border`, `su-ai-glow` y `su-ai-badge` usan `!important` en su declaración `background` / `box-shadow`. Esto es intencional y necesario: cuando se aplican sobre un `<Button>` shadcn (que trae `bg-primary` por la variante `default`), el gradiente IA debe ganar la batalla de especificidad. Sin `!important`, el `bg-primary` del Button sobrescribe el gradiente y el botón se ve azul sólido en lugar del gradiente IA. Esta convención está alineada con la plantilla UBITS de referencia (`.bg-ai-gradient !important`).
 
 ---
 
