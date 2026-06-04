@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Bell } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import {
   getMyNotifications,
   markNotificationAsRead,
@@ -63,27 +63,31 @@ export function NotificationBell({ initialUnreadCount }: NotificationBellProps) 
 
   return (
     <>
-      <Button
+      <TooltipIconButton
         variant="ghost"
         size="icon"
-        className="relative h-8 w-8"
-        onClick={handleOpen}
-        aria-label={
+        icon={
+          <>
+            <Bell className="h-4 w-4" />
+            {unreadCount > 0 && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-0.5 text-[10px] font-bold leading-none text-white"
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </>
+        }
+        label={unreadCount > 0 ? `Notificaciones (${unreadCount} sin leer)` : "Notificaciones"}
+        ariaLabel={
           unreadCount > 0
             ? `${unreadCount} notificaciones sin leer`
             : "Notificaciones"
         }
-      >
-        <Bell className="h-4 w-4" />
-        {unreadCount > 0 && (
-          <span
-            aria-hidden
-            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-0.5 text-[10px] font-bold leading-none text-white"
-          >
-            {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
-        )}
-      </Button>
+        onClick={handleOpen}
+        className="relative h-8 w-8"
+      />
 
       <NotificationDrawer
         open={drawerOpen}

@@ -7,12 +7,12 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import {
   Dialog,
   DialogContent,
   DialogTitle,
   DialogDescription,
-  DialogClose,
 } from "@/components/ui/dialog";
 
 export type DataTableEditMode = "row" | "cell";
@@ -62,18 +62,13 @@ export function DataTableSettingsDialog({
               {description}
             </DialogDescription>
           </div>
-          <DialogClose
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="-mt-1 -mr-1 text-muted-foreground"
-                aria-label="Cerrar"
-              />
-            }
-          >
-            <X className="h-3.5 w-3.5" />
-          </DialogClose>
+          <TooltipIconButton
+            variant="ghost"
+            icon={<X className="h-3.5 w-3.5" />}
+            label="Cerrar"
+            className="-mt-1 -mr-1 text-muted-foreground"
+            onClick={() => onOpenChange(false)}
+          />
         </div>
 
         <div className="px-5 pb-5 space-y-4">
@@ -223,14 +218,11 @@ export function DataTableSettingsTrigger({
   label?: string;
 }) {
   return (
-    <Button
+    <TooltipIconButton
       variant="outline"
-      size="icon-sm"
+      icon={<Settings2 className="h-3.5 w-3.5" />}
+      label={label}
       onClick={onClick}
-      title={label}
-      aria-label={label}
-    >
-      <Settings2 className="h-3.5 w-3.5" />
-    </Button>
+    />
   );
 }

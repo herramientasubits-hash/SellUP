@@ -6,6 +6,11 @@ import { useRouter } from "next/navigation";
 import { Menu, LogOut, Settings, Sparkles } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import {
@@ -87,18 +92,25 @@ export function AppHeader({ user, initialUnreadCount = 0 }: AppHeaderProps) {
       <div className="flex items-center gap-1.5">
         {/* Mobile menu */}
         <Sheet>
-          <SheetTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="md:hidden"
-                aria-label="Abrir menú"
-              >
-                <Menu className="h-4 w-4" />
-              </Button>
-            }
-          />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <SheetTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="md:hidden"
+                      aria-label="Abrir menú"
+                    >
+                      <Menu className="h-4 w-4" />
+                    </Button>
+                  }
+                />
+              }
+            />
+            <TooltipContent side="bottom">Abrir menú</TooltipContent>
+          </Tooltip>
           <SheetContent
             side="left"
             className="flex w-72 flex-col gap-0 bg-sidebar p-0 text-sidebar-foreground"

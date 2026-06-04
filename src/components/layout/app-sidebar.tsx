@@ -18,6 +18,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { createClient } from "@/lib/supabase/client";
 
 export { MobileNavLink };
@@ -59,15 +64,22 @@ export function AppSidebar({ className, user }: AppSidebarProps) {
     <div className={cn("flex h-full flex-col", className)}>
       {/* Brand / logo — top, icon-only */}
       <div className="flex h-20 shrink-0 items-center justify-center border-b border-sidebar-border/40">
-        <Link
-          href="/pipeline"
-          aria-label="SellUp"
-          className="group flex items-center justify-center transition-opacity hover:opacity-90"
-        >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-su-brand to-su-accent-cool text-[15px] font-extrabold text-white shadow-sm shadow-su-brand/30 ring-1 ring-white/10">
-            S
-          </span>
-        </Link>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                href="/pipeline"
+                aria-label="SellUp"
+                className="group flex items-center justify-center transition-opacity hover:opacity-90"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-su-brand to-su-accent-cool text-[15px] font-extrabold text-white shadow-sm shadow-su-brand/30 ring-1 ring-white/10">
+                  S
+                </span>
+              </Link>
+            }
+          />
+          <TooltipContent side="right">Inicio</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Nav — middle, icon-rail with hover tooltips */}
@@ -86,21 +98,28 @@ export function AppSidebar({ className, user }: AppSidebarProps) {
       {/* User avatar — bottom, click to open full dropdown */}
       <div className="shrink-0 border-t border-sidebar-border/40 p-2 flex justify-center">
         <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              "group flex items-center justify-center rounded-full p-0.5 transition-all",
-              "hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/50",
-              "data-[popup-open]:bg-white/[0.06]",
-            )}
-            aria-label={`Cuenta de ${displayName}`}
-          >
-            <Avatar className="h-9 w-9 border-2 border-sidebar-border/40 transition-colors group-hover:border-su-brand/40">
-              <AvatarImage src={avatarUrl} alt={displayName} />
-              <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <DropdownMenuTrigger
+                  className={cn(
+                    "group flex items-center justify-center rounded-full p-0.5 transition-all",
+                    "hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/50",
+                    "data-[popup-open]:bg-white/[0.06]",
+                  )}
+                  aria-label={`Cuenta de ${displayName}`}
+                >
+                  <Avatar className="h-9 w-9 border-2 border-sidebar-border/40 transition-colors group-hover:border-su-brand/40">
+                    <AvatarImage src={avatarUrl} alt={displayName} />
+                    <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                </DropdownMenuTrigger>
+              }
+            />
+            <TooltipContent side="right">Mi cuenta</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent
             align="end"
             side="right"

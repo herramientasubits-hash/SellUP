@@ -5,6 +5,12 @@ import Link from 'next/link';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, Check, ExternalLink, ArrowRight, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
 import type { SourceCatalogViewModel, SourceViewModel } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
@@ -54,15 +60,12 @@ function CopyKeyButton({ sourceKey }: { sourceKey: string }) {
     }
   };
   return (
-    <Button
+    <TooltipIconButton
       variant="ghost"
-      size="icon-sm"
+      icon={copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+      label={copied ? "Copiado" : "Copiar key"}
       onClick={handleCopy}
-      title="Copiar key"
-      aria-label="Copiar key"
-    >
-      {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-    </Button>
+    />
   );
 }
 
@@ -279,26 +282,38 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
         ),
         cell: ({ row }) => (
           <div className="flex items-center gap-0.5 justify-end">
-            <Link
-              href={`/settings/source-catalog/${row.original.key}`}
-              aria-label={`Ver detalle de ${row.original.name}`}
-            >
-              <Button variant="ghost" size="icon-sm" title="Ver detalle">
-                <ArrowRight className="h-3 w-3" />
-              </Button>
-            </Link>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Link
+                    href={`/settings/source-catalog/${row.original.key}`}
+                    aria-label={`Ver detalle de ${row.original.name}`}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  >
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                }
+              />
+              <TooltipContent side="left">Ver detalle</TooltipContent>
+            </Tooltip>
             <CopyKeyButton sourceKey={row.original.key} />
             {row.original.url && (
-              <Link href={row.original.url} target="_blank" rel="noopener noreferrer">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  title="Abrir URL"
-                  aria-label={`Abrir URL de ${row.original.name}`}
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </Button>
-              </Link>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Link
+                      href={row.original.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Abrir URL de ${row.original.name}`}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  }
+                />
+                <TooltipContent side="left">Abrir URL</TooltipContent>
+              </Tooltip>
             )}
           </div>
         ),

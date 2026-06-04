@@ -6,6 +6,11 @@ import { Loader2, Pin, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogTitle,
@@ -115,37 +120,49 @@ export function DataTableBulkActionBar<TData>({
         {onPin && (
           <>
             <div className="h-5 w-px bg-zinc-700" />
-            <button
-              type="button"
-              onClick={onPin}
-              title="Fijar barra"
-              aria-label="Fijar barra"
-              className={cn(
-                "inline-flex items-center justify-center h-7 w-7 rounded-full",
-                "hover:bg-zinc-800 transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
-              )}
-            >
-              <Pin className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={onPin}
+                    aria-label="Fijar barra"
+                    className={cn(
+                      "inline-flex items-center justify-center h-7 w-7 rounded-full",
+                      "hover:bg-zinc-800 transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
+                    )}
+                  >
+                    <Pin className="h-3.5 w-3.5" />
+                  </button>
+                }
+              />
+              <TooltipContent side="top">Fijar barra</TooltipContent>
+            </Tooltip>
           </>
         )}
 
         <div className="h-5 w-px bg-zinc-700" />
 
-        <button
-          type="button"
-          onClick={onClear}
-          title="Cerrar"
-          aria-label="Cerrar barra de selección"
-          className={cn(
-            "inline-flex items-center justify-center h-7 w-7 rounded-full",
-            "hover:bg-zinc-800 transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
-          )}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={onClear}
+                aria-label="Cerrar barra de selección"
+                className={cn(
+                  "inline-flex items-center justify-center h-7 w-7 rounded-full",
+                  "hover:bg-zinc-800 transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
+                )}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            }
+          />
+          <TooltipContent side="top">Cerrar</TooltipContent>
+        </Tooltip>
       </div>
 
       <Dialog

@@ -3,8 +3,7 @@
 import * as React from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import type { DataTableDensity } from "./data-table";
 
 interface DataTableDensityToggleProps {
@@ -24,19 +23,18 @@ export function DataTableDensityToggle({
 }: DataTableDensityToggleProps) {
   const isCompact = value === "compact";
   return (
-    <Button
+    <TooltipIconButton
       variant="outline"
-      size="icon-sm"
-      className={className}
+      icon={
+        isCompact ? (
+          <Maximize2 className="h-3.5 w-3.5" />
+        ) : (
+          <Minimize2 className="h-3.5 w-3.5" />
+        )
+      }
+      label={isCompact ? "Vista amplia" : "Vista compacta"}
       onClick={() => onChange(isCompact ? "comfortable" : "compact")}
-      title={isCompact ? "Vista amplia" : "Vista compacta"}
-      aria-label={isCompact ? "Cambiar a vista amplia" : "Cambiar a vista compacta"}
-    >
-      {isCompact ? (
-        <Maximize2 className="h-3.5 w-3.5" />
-      ) : (
-        <Minimize2 className="h-3.5 w-3.5" />
-      )}
-    </Button>
+      className={className}
+    />
   );
 }

@@ -5,8 +5,8 @@ import { Search, SlidersHorizontal } from "lucide-react";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { DataTableDensityToggle } from "./data-table-density-toggle";
 import { DataTableViewOptions } from "./data-table-view-options";
 import type { DataTableDensity } from "./data-table";
@@ -102,15 +102,12 @@ export function DataTableToolbar<TData>({
                   />
                 </div>
               ) : (
-                <Button
+                <TooltipIconButton
                   variant="outline"
-                  size="icon-sm"
+                  icon={<Search className="h-3.5 w-3.5" />}
+                  label="Buscar"
                   onClick={() => setSearchOpen(true)}
-                  title="Buscar"
-                  aria-label="Buscar"
-                >
-                  <Search className="h-3.5 w-3.5" />
-                </Button>
+                />
               )}
             </div>
           )}
@@ -122,15 +119,12 @@ export function DataTableToolbar<TData>({
           {showViewOptions && <DataTableViewOptions table={table} />}
 
           {onOpenSettings && (
-            <Button
+            <TooltipIconButton
               variant="outline"
-              size="icon-sm"
+              icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+              label="Ajustes de tabla"
               onClick={onOpenSettings}
-              title="Ajustes de tabla"
-              aria-label="Ajustes de tabla"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-            </Button>
+            />
           )}
 
           {actions}

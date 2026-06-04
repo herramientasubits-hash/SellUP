@@ -5,13 +5,13 @@ import { SlidersHorizontal } from "lucide-react";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 
 interface DataTableViewOptionsProps<TData> {
   table: Table<TData>;
@@ -29,15 +29,12 @@ export function DataTableViewOptions<TData>({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
+        <TooltipIconButton
           variant="outline"
-          size="icon-sm"
+          icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+          label="Opciones de vista"
           className={className}
-          title="Opciones de vista"
-          aria-label="Opciones de vista"
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-        </Button>
+        />
       </PopoverTrigger>
       <PopoverContent
         align="end"
