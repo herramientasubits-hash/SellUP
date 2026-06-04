@@ -314,6 +314,88 @@ async function searchByName(
   return data.results ?? [];
 }
 
+async function searchByTaxIdentifier(
+  token: string,
+  taxIdentifier: string
+): Promise<HubSpotSearchResult[]> {
+  const cleanedTaxId = taxIdentifier.trim();
+  if (!cleanedTaxId) return [];
+
+  // Propiedades fiscales posibles
+  const possibleProperties = [
+    'nit',
+    'identificacion_fiscal',
+    'rfc',
+    'ruc',
+    'tax_id',
+    'tax_identifier',
+    'identificacion_fiscal_nit_rfc_ruc'
+  ];
+
+  // Cada filtro va en un filterGroup separado (es decir, OR)
+  const filterGroups = possibleProperties.map(prop => ({
+    filters: [
+      {
+        propertyName: prop,
+        operator: 'EQ',
+        value: cleanedTaxId
+      }
+    ]
+  }));
+
+  const body = {
+    filterGroups,
+    properties: HS_PROPERTIES,
+    limit: 5,
+  };
+
+  const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 400) {
+    // Fallback con propiedades confirmadas
+    const fallbackProps = ['nit', 'identificacion_fiscal'];
+    const fallbackFilterGroups = fallbackProps.map(prop => ({
+      filters: [
+        {
+          propertyName: prop,
+          operator: 'EQ',
+          value: cleanedTaxId
+        }
+      ]
+    }));
+
+    const fallbackBody = {
+      filterGroups: fallbackFilterGroups,
+      properties: HS_PROPERTIES,
+      limit: 5,
+    };
+
+    const fallbackRes = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(fallbackBody),
+    });
+
+    if (!fallbackRes.ok) return [];
+    const data = (await fallbackRes.json()) as HubSpotSearchResponse;
+    return data.results ?? [];
+  }
+
+  if (!res.ok) return [];
+  const data = (await res.json()) as HubSpotSearchResponse;
+  return data.results ?? [];
+}
+
 // ============================================================
 // Clasificación de resultados HubSpot
 // ============================================================
@@ -419,7 +501,11 @@ export async function checkHubSpotDuplicates(
   input: DuplicateCheckInput
 ): Promise<HubSpotCheckOutcome> {
   const isInsufficient =
-    !input.name?.trim() && !input.domain && !input.website;
+    !input.name?.trim() &&
+    !input.domain &&
+    !input.website &&
+    !input.taxIdentifier &&
+    !input.taxIdentifierCandidate;
 
   if (isInsufficient) {
     return { connected: true, matches: [] };
@@ -441,21 +527,76 @@ export async function checkHubSpotDuplicates(
   try {
     const matches: DuplicateMatch[] = [];
 
-    // ── Búsqueda por dominio ──────────────────────────────────
-    if (domain) {
-      const results = await searchByDomain(token, domain);
+    // ── Búsqueda por identificador fiscal (oficial o candidato) ──────
+    const taxId = input.taxIdentifier || input.taxIdentifierCandidate;
+    if (taxId && taxId.trim().length >= 4) {
+      const results = await searchByTaxIdentifier(token, taxId);
       for (const r of results) {
-        matches.push(classifyHubSpotResult(r, input, domain));
+        const alreadyFound = matches.some((m) => m.matchedId === r.id);
+        if (!alreadyFound) {
+          if (!input.taxIdentifier && input.taxIdentifierCandidate) {
+            const rDomain = r.properties.domain?.toLowerCase().trim() ?? null;
+            const rName = r.properties.name ?? null;
+            matches.push({
+              source: 'hubspot',
+              status: 'possible_duplicate',
+              confidence: 85,
+              matchedId: r.id,
+              matchedName: rName,
+              matchedDomain: rDomain,
+              matchedWebsite: r.properties.website,
+              matchedTaxIdentifier: r.properties.nit || r.properties.identificacion_fiscal || r.properties.tax_id || r.properties.rfc || r.properties.ruc,
+              reason: `Coincidencia por NIT candidato en HubSpot: ${taxId}`,
+              raw: {
+                ...r.properties,
+                tax_identifier_candidate_used: taxId,
+                source: 'hubspot_tax_identifier_candidate',
+                requires_human_review: true,
+                matched_by: 'tax_identifier_candidate'
+              }
+            });
+          } else {
+            const rDomain = r.properties.domain?.toLowerCase().trim() ?? null;
+            const rName = r.properties.name ?? null;
+            matches.push({
+              source: 'hubspot',
+              status: 'existing_in_hubspot',
+              confidence: 95,
+              matchedId: r.id,
+              matchedName: rName,
+              matchedDomain: rDomain,
+              matchedWebsite: r.properties.website,
+              matchedTaxIdentifier: r.properties.nit || r.properties.identificacion_fiscal || r.properties.tax_id || r.properties.rfc || r.properties.ruc,
+              reason: `Identificador fiscal exacto coincide en HubSpot: ${taxId}`,
+              raw: r.properties,
+            });
+          }
+        }
       }
     }
 
-    // Si encontramos match exacto por dominio, ya no buscamos por nombre
-    const hasExactDomainMatch = matches.some(
+    const hasExactTaxMatch = matches.some(
+      (m) => m.status === 'existing_in_hubspot' && m.confidence >= 90
+    );
+
+    // ── Búsqueda por dominio ──────────────────────────────────
+    if (!hasExactTaxMatch && domain) {
+      const results = await searchByDomain(token, domain);
+      for (const r of results) {
+        const alreadyFound = matches.some((m) => m.matchedId === r.id);
+        if (!alreadyFound) {
+          matches.push(classifyHubSpotResult(r, input, domain));
+        }
+      }
+    }
+
+    // Si encontramos match exacto por dominio o taxId, ya no buscamos por nombre
+    const hasExactMatch = matches.some(
       (m) => m.status === 'existing_in_hubspot' && m.confidence >= 90
     );
 
     // ── Búsqueda por nombre (fallback o complemento) ──────────
-    if (!hasExactDomainMatch && input.name && input.name.trim().length >= 3) {
+    if (!hasExactMatch && input.name && input.name.trim().length >= 3) {
       const results = await searchByName(token, input.name.trim());
       for (const r of results) {
         // Evitar duplicar si ya apareció en búsqueda por dominio

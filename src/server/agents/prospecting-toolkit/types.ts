@@ -23,6 +23,7 @@ export type DuplicateCheckInput = {
   country?: string | null;
   countryCode?: string | null;
   taxIdentifier?: string | null;
+  taxIdentifierCandidate?: string | null;
 };
 
 export type DuplicateMatch = {

@@ -10,6 +10,8 @@ import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-too
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
+import { lookupTaxIdentifierForCandidate } from '@/server/prospect-batches/tax-identifier-lookup';
+import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -3019,6 +3021,7 @@ interface ActionsCandidateMeta {
   import?: ActionsImportMeta;
   source_url?: string;
   confidence?: string;
+  tax_identifier_lookup?: Record<string, unknown>;
 }
 
 export async function validateImportedCandidatesBatch(
@@ -3072,6 +3075,44 @@ export async function validateImportedCandidatesBatch(
         const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
         const linkedinUrl = candidateMeta.linkedin_url || candidateMeta.import?.linkedin_url || null;
 
+        // Búsqueda automática de NIT (Socrata/RUES) si aplica
+        let taxIdentifierCandidate: string | null = null;
+        const currentMetadata = { ...candidateMeta };
+
+        const isCO = candidate.country_code?.toUpperCase() === 'CO';
+        const hasNoTaxId = !candidate.tax_identifier || candidate.tax_identifier.trim() === '';
+        const isExternalImport = candidate.source_primary === 'external_import';
+        const hasCompanyName = !!candidate.name && candidate.name.trim().length > 0;
+        const hasLookup = !!currentMetadata.tax_identifier_lookup;
+
+        if (isCO && hasNoTaxId && isExternalImport && hasCompanyName && !hasLookup) {
+          const isProviderConfigured = await checkIsColombiaProviderConfigured();
+          if (isProviderConfigured) {
+            try {
+              const lookupResult = await lookupTaxIdentifierForCandidate({
+                candidateId: candidate.id,
+                userId,
+                supabase,
+              });
+              if (lookupResult.success && lookupResult.lookup) {
+                currentMetadata.tax_identifier_lookup = lookupResult.lookup as unknown as Record<string, unknown>;
+                const bestCandidate = lookupResult.lookup.best_candidate;
+                if (bestCandidate) {
+                  taxIdentifierCandidate = bestCandidate.normalized_tax_identifier;
+                }
+              }
+            } catch (lookupErr) {
+              console.error(`[validateImportedCandidatesBatch] Automated NIT lookup failed for candidate ${candidate.id}:`, lookupErr);
+            }
+          }
+        } else if (hasLookup) {
+          const lookup = currentMetadata.tax_identifier_lookup;
+          const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
+          if (bestCandidate) {
+            taxIdentifierCandidate = bestCandidate.normalized_tax_identifier as string | null;
+          }
+        }
+
         // --- Detección universal de duplicados ---
         const dupResult = await detectCandidateDuplicates({
           supabase,
@@ -3082,6 +3123,7 @@ export async function validateImportedCandidatesBatch(
             domain: candidate.domain,
             country_code: candidate.country_code,
             tax_identifier: candidate.tax_identifier,
+            tax_identifier_candidate: taxIdentifierCandidate,
             normalized_name: candidate.normalized_name,
             linkedin_url: linkedinUrl,
           },
@@ -3184,7 +3226,7 @@ export async function validateImportedCandidatesBatch(
         };
 
         const updatedMetadata = {
-          ...candidateMeta,
+          ...currentMetadata,
           validation,
         };
 

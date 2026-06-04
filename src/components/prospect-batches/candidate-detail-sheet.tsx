@@ -29,6 +29,14 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import {
   CANDIDATE_STATUS_LABELS,
@@ -371,7 +379,15 @@ export function CandidateDetailSheet({
 
   const [isApprovingTaxId, setIsApprovingTaxId] = React.useState(false);
   const [approveTaxIdError, setApproveTaxIdError] = React.useState<string | null>(null);
-  const [approvedTaxId, setApprovedTaxId] = React.useState<string | null>(null);
+
+
+  const [confirmDialogData, setConfirmDialogData] = React.useState<{
+    taxIdentifier: string;
+    sourceName: string;
+    sourceUrl: string | null;
+    legalName?: string | null;
+    confidence?: string;
+  } | null>(null);
 
   const handleEnrich = async () => {
     if (!candidate) return;
@@ -432,14 +448,9 @@ export function CandidateDetailSheet({
     sourceUrl: string | null
   ) => {
     if (!candidate) return;
-    const confirmed = window.confirm(
-      'Este NIT quedará guardado como identificador fiscal del candidato. No se sincronizará con HubSpot todavía.'
-    );
-    if (!confirmed) return;
 
     setIsApprovingTaxId(true);
     setApproveTaxIdError(null);
-    setApprovedTaxId(taxIdentifier);
     try {
       const response = await fetch('/api/prospect-candidates/approve-tax-identifier', {
         method: 'POST',
@@ -454,17 +465,16 @@ export function CandidateDetailSheet({
       const data = await response.json();
       if (!response.ok || !data.success) {
         setApproveTaxIdError(data.error || 'Error al guardar el identificador fiscal');
-        setApprovedTaxId(null);
       } else {
         const updated = data.candidate as ProspectCandidateWithReviewer;
         if (onCandidateUpdated) {
           onCandidateUpdated(updated);
         }
+        setConfirmDialogData(null);
         router.refresh();
       }
     } catch (err) {
       setApproveTaxIdError(err instanceof Error ? err.message : 'Error de red');
-      setApprovedTaxId(null);
     } finally {
       setIsApprovingTaxId(false);
     }
@@ -529,6 +539,7 @@ export function CandidateDetailSheet({
     ?? (aiEval?.fit_status as string | undefined)
     ?? null;
   const fitScore = candidate.fit_score;
+
   const fitReasons = (aiEval?.fit_reasons as string[] | undefined) ?? [];
   const risks = (aiEval?.risks as string[] | undefined) ?? [];
   const missingFields = (aiEval?.missing_fields as string[] | undefined) ?? [];
@@ -606,6 +617,9 @@ export function CandidateDetailSheet({
 
   // Validation-derived state for external_import candidates
   const validationMetaSheet = importMeta?.validation;
+  const isCandidateNitMatched =
+    validationMetaSheet?.sellup_duplicate_check?.matched_by === 'tax_identifier_candidate' ||
+    validationMetaSheet?.hubspot_duplicate_check?.matched_by === 'tax_identifier_candidate';
   const sellupDupStatus = validationMetaSheet?.sellup_duplicate_check?.status;
   const hsDupStatus = validationMetaSheet?.hubspot_duplicate_check?.status;
   const isAutoValidated = isExternalImport && !!validationMetaSheet;
@@ -1097,6 +1111,71 @@ export function CandidateDetailSheet({
                 )}
               </FieldGrid>
 
+              {/* Sugerencia de NIT para revisión */}
+              {!candidate.tax_identifier && taxIdLookup?.best_candidate && (
+                <div className="mt-3 rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
+                        NIT sugerido para revisión
+                      </p>
+                      <p className="font-mono text-sm font-bold text-foreground">
+                        {taxIdLookup.best_candidate.tax_identifier}
+                      </p>
+                      {taxIdLookup.best_candidate.legal_name && (
+                        <p className="text-xs text-muted-foreground">
+                          Razón social: {taxIdLookup.best_candidate.legal_name}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <Badge className={`border-0 text-[9px] font-semibold ${
+                        taxIdLookup.best_candidate.confidence === 'high'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      }`}>
+                        {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
+                      </Badge>
+                      {isCandidateNitMatched && (
+                        <Badge className="border-0 bg-su-brand/10 text-su-brand text-[9px] font-semibold">
+                          Usado como señal de duplicidad
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
+                    <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
+                      <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
+                      {taxIdLookup.best_candidate.source_url && (
+                        <a
+                          href={taxIdLookup.best_candidate.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5"
+                        >
+                          (Ver fuente)
+                        </a>
+                      )}
+                    </div>
+                    <Button
+                      onClick={() =>
+                        setConfirmDialogData({
+                          taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
+                          sourceName: taxIdLookup.best_candidate!.source_name,
+                          sourceUrl: taxIdLookup.best_candidate!.source_url,
+                          legalName: taxIdLookup.best_candidate!.legal_name,
+                          confidence: taxIdLookup.best_candidate!.confidence,
+                        })
+                      }
+                      size="sm"
+                      className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
+                    >
+                      Usar este NIT
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* 16TX.1: Búsqueda de identificador fiscal faltante */}
               {showTaxIdLookupButton && (
                 <div className="mt-3 space-y-2">
@@ -1345,21 +1424,20 @@ export function CandidateDetailSheet({
                                   <div className="pt-1.5">
                                     <Button
                                       onClick={() =>
-                                        handleApproveTaxIdentifier(c.tax_identifier, c.source_name, c.source_url)
+                                        setConfirmDialogData({
+                                          taxIdentifier: c.tax_identifier,
+                                          sourceName: c.source_name,
+                                          sourceUrl: c.source_url,
+                                          legalName: c.legal_name,
+                                          confidence: c.confidence,
+                                        })
                                       }
                                       disabled={isApprovingTaxId}
                                       variant="outline"
                                       size="sm"
                                       className="h-7 text-[10px] font-semibold border-su-brand/20 bg-white hover:bg-su-brand hover:text-white dark:bg-zinc-900 transition-colors"
                                     >
-                                      {isApprovingTaxId && approvedTaxId === c.tax_identifier ? (
-                                        <>
-                                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                          Guardando...
-                                        </>
-                                      ) : (
-                                        'Usar este NIT'
-                                      )}
+                                      Usar este NIT
                                     </Button>
                                   </div>
                                 )}
@@ -2754,6 +2832,75 @@ export function CandidateDetailSheet({
           </CollapsibleSection>
         </div>
       </SheetContent>
+      <Dialog open={!!confirmDialogData} onOpenChange={(open) => { if (!open) setConfirmDialogData(null); }}>
+        <DialogContent className="rounded-2xl shadow-lg border border-border bg-card text-foreground max-w-md p-6">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Confirmar Identificador Fiscal</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-1">
+              ¿Estás seguro de que deseas aprobar <span className="font-mono text-foreground font-medium">{confirmDialogData?.taxIdentifier}</span> como el identificador fiscal oficial de este candidato?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-3 space-y-2">
+            {confirmDialogData?.legalName && (
+              <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
+                <span className="text-muted-foreground">Razón Social:</span>
+                <span className="font-medium text-foreground">{confirmDialogData.legalName}</span>
+              </div>
+            )}
+            <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
+              <span className="text-muted-foreground">Fuente:</span>
+              <span className="text-foreground">{confirmDialogData?.sourceName}</span>
+            </div>
+            {confirmDialogData?.confidence && (
+              <div className="text-xs flex items-center justify-between pb-2">
+                <span className="text-muted-foreground">Confianza:</span>
+                <span className={`font-semibold capitalize ${
+                  confirmDialogData.confidence === 'high' ? 'text-emerald-500' : 'text-amber-500'
+                }`}>
+                  {confirmDialogData.confidence === 'high' ? 'Alta' : 'Media'}
+                </span>
+              </div>
+            )}
+            <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-md p-2 mt-2 leading-relaxed">
+              * El identificador se guardará localmente en SellUp. No se sincronizará con HubSpot en este momento.
+            </p>
+          </div>
+          <DialogFooter className="flex items-center justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={() => setConfirmDialogData(null)}
+              disabled={isApprovingTaxId}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              className="text-xs bg-su-brand hover:bg-su-brand/90 text-white"
+              onClick={async () => {
+                if (confirmDialogData) {
+                  await handleApproveTaxIdentifier(
+                    confirmDialogData.taxIdentifier,
+                    confirmDialogData.sourceName,
+                    confirmDialogData.sourceUrl
+                  );
+                }
+              }}
+              disabled={isApprovingTaxId}
+            >
+              {isApprovingTaxId ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  Guardando...
+                </>
+              ) : (
+                'Guardar NIT'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }

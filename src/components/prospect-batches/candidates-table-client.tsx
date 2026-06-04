@@ -538,7 +538,18 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                             ? `${c.tax_identifier_type} ${c.tax_identifier}`
                             : c.tax_identifier}
                         </p>
-                      ) : null}
+                      ) : (() => {
+                        const lookup = (c.metadata as Record<string, unknown>)?.tax_identifier_lookup as Record<string, unknown> | undefined;
+                        const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
+                        if (bestCandidate?.tax_identifier) {
+                          return (
+                            <p className="text-[10px] font-mono text-amber-600 dark:text-amber-400 font-medium">
+                              NIT por revisar
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -642,9 +653,22 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                             </Badge>
                           )}
                           {!(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.has_tax_identifier && (
-                            <Badge variant="outline" className="text-[9px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20">
-                              Sin identificador fiscal
-                            </Badge>
+                            (() => {
+                              const lookup = (c.metadata as Record<string, unknown>)?.tax_identifier_lookup as Record<string, unknown> | undefined;
+                              const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
+                              if (bestCandidate?.tax_identifier) {
+                                return (
+                                  <Badge variant="outline" className="text-[9px] font-medium bg-su-brand-soft text-su-brand border-su-brand/20">
+                                    NIT sugerido
+                                  </Badge>
+                                );
+                              }
+                              return (
+                                <Badge variant="outline" className="text-[9px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20">
+                                  Sin identificador fiscal
+                                </Badge>
+                              );
+                            })()
                           )}
                         </div>
                       ) : isChileOfficialCandidate ? (

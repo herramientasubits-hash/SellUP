@@ -91,6 +91,7 @@ export interface TaxIdentifierLookupMetadata {
   warnings: string[];
   error: string | null;
   debug?: unknown;
+  best_candidate?: TaxIdentifierCandidate | null;
 }
 
 export interface LookupTaxIdentifierResult {
@@ -518,7 +519,13 @@ export async function lookupTaxIdentifierForCandidate({
     );
   }
 
-  // ── 6. Construir y guardar resultado ─────────────────────────
+  // ── 6. Calcular y guardar el mejor candidato sugerido ─────────
+  const bestCandidate = findBestTaxIdentifierCandidate(
+    foundCandidates,
+    (candidate.name as string | null) ?? null,
+    (candidate.legal_name as string | null) ?? null
+  );
+
   const lookupStatus: TaxIdentifierLookupStatus =
     foundCandidates.length > 0 ? 'completed' : 'no_result';
 
@@ -532,6 +539,7 @@ export async function lookupTaxIdentifierForCandidate({
     selected_candidate: null,
     warnings,
     error: lookupError,
+    best_candidate: bestCandidate,
   };
 
   if (process.env.NODE_ENV !== 'production' && context.debug) {
@@ -574,6 +582,72 @@ export async function lookupTaxIdentifierForCandidate({
 }
 
 // ── Helpers de construcción ────────────────────────────────────
+
+export function findBestTaxIdentifierCandidate(
+  candidates: TaxIdentifierCandidate[],
+  companyName: string | null,
+  legalName: string | null
+): TaxIdentifierCandidate | null {
+  if (!candidates || candidates.length === 0) return null;
+
+  // Filtrar candidatos sin riesgos críticos (por ej, error de dígito de verificación)
+  // y con confianza alta o media
+  const validCandidates = candidates.filter((c) => {
+    const hasBadDv = c.risks.some(
+      (r) =>
+        r.toLowerCase().includes('dígito de verificación incorrecto') ||
+        r.toLowerCase().includes('dv incorrecto')
+    );
+    if (hasBadDv) return false;
+    return c.confidence === 'high' || c.confidence === 'medium';
+  });
+
+  if (validCandidates.length === 0) return null;
+
+  // Preferir alta confianza
+  const highConfidence = validCandidates.filter((c) => c.confidence === 'high');
+  const listToSelectFrom = highConfidence.length > 0 ? highConfidence : validCandidates;
+
+  const cleanAndSplit = (name: string | null) => {
+    if (!name) return [];
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+  };
+
+  const nameWords = new Set([
+    ...cleanAndSplit(companyName),
+    ...cleanAndSplit(legalName),
+  ]);
+
+  if (nameWords.size === 0) {
+    return listToSelectFrom[0];
+  }
+
+  let bestCandidate: TaxIdentifierCandidate | null = null;
+  let highestScore = -1;
+
+  for (const c of listToSelectFrom) {
+    const candidateWords = cleanAndSplit(c.legal_name);
+    let matches = 0;
+    for (const w of candidateWords) {
+      if (nameWords.has(w)) {
+        matches++;
+      }
+    }
+    const confidenceScore = c.confidence === 'high' ? 5 : 0;
+    const score = matches + confidenceScore;
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestCandidate = c;
+    }
+  }
+
+  return bestCandidate;
+}
 
 function buildInput(candidate: Record<string, unknown>) {
   return {

@@ -35,6 +35,7 @@ export interface CandidateForDetection {
   domain?: string | null;
   country_code?: string | null;
   tax_identifier?: string | null;
+  tax_identifier_candidate?: string | null;
   normalized_name?: string | null;
   linkedin_url?: string | null;
 }
@@ -80,6 +81,9 @@ export interface HubSpotDuplicateCheck {
   matched_by: string | null;
   confidence: number;
   hubspot_url: string | null;
+  tax_identifier_candidate_used?: string | null;
+  source?: string | null;
+  requires_human_review?: boolean;
 }
 
 export interface NormalizedKeys {
@@ -125,7 +129,8 @@ async function checkSellUp(
   supabase: SupabaseClient,
   candidateId: string,
   keys: NormalizedKeys,
-  taxIdentifierRaw: string | null
+  taxIdentifierRaw: string | null,
+  taxIdentifierCandidateRaw: string | null
 ): Promise<SellUpDuplicateCheck> {
   const NO_MATCH: SellUpDuplicateCheck = {
     status: 'no_match',
@@ -198,6 +203,61 @@ async function checkSellUp(
           matched_status: r.status ?? null,
           matched_by: 'tax_identifier',
           confidence: 100,
+        };
+      }
+    }
+
+    // ── 1B. Tax identifier candidato (señal de duplicidad) ───
+    if (taxIdentifierCandidateRaw && taxIdentifierCandidateRaw.trim().length >= 4) {
+      const cleanedCandidateTaxId = taxIdentifierCandidateRaw.trim();
+      const { data: accMatch } = await supabase
+        .from('accounts')
+        .select(ACC_SELECT)
+        .eq('tax_identifier', cleanedCandidateTaxId)
+        .is('archived_at', null)
+        .limit(1);
+
+      if (accMatch && accMatch.length > 0) {
+        const r = accMatch[0] as SellUpRow;
+        return {
+          status: 'possible_duplicate',
+          matched_account_id: r.id,
+          matched_candidate_id: null,
+          matched_name: r.name ?? null,
+          matched_domain: r.domain ?? null,
+          matched_website: r.website ?? null,
+          matched_country_code: r.country_code ?? null,
+          matched_tax_identifier: r.tax_identifier ?? null,
+          matched_source: 'account',
+          matched_status: null,
+          matched_by: 'tax_identifier_candidate',
+          confidence: 85,
+        };
+      }
+
+      const { data: candMatch } = await supabase
+        .from('prospect_candidates')
+        .select(CAND_SELECT)
+        .eq('tax_identifier', cleanedCandidateTaxId)
+        .neq('id', candidateId)
+        .neq('status', 'discarded')
+        .limit(1);
+
+      if (candMatch && candMatch.length > 0) {
+        const r = candMatch[0] as SellUpRow;
+        return {
+          status: 'possible_duplicate',
+          matched_account_id: null,
+          matched_candidate_id: r.id,
+          matched_name: r.name ?? null,
+          matched_domain: r.domain ?? null,
+          matched_website: r.website ?? null,
+          matched_country_code: r.country_code ?? null,
+          matched_tax_identifier: r.tax_identifier ?? null,
+          matched_source: 'prospect_candidate',
+          matched_status: r.status ?? null,
+          matched_by: 'tax_identifier_candidate',
+          confidence: 85,
         };
       }
     }
@@ -483,10 +543,17 @@ export async function detectCandidateDuplicates({
     domain: normalizedDomain ?? undefined,
     countryCode: countryCode ?? undefined,
     taxIdentifier: candidate.tax_identifier ?? undefined,
+    taxIdentifierCandidate: candidate.tax_identifier_candidate ?? undefined,
   };
 
   const [sellupCheck, hubspotResult] = await Promise.all([
-    checkSellUp(supabase, candidate.id, normalizedKeys, candidate.tax_identifier ?? null),
+    checkSellUp(
+      supabase,
+      candidate.id,
+      normalizedKeys,
+      candidate.tax_identifier ?? null,
+      candidate.tax_identifier_candidate ?? null
+    ),
     includeHubSpot
       ? checkHubSpot(hubspotInput)
       : Promise.resolve({
