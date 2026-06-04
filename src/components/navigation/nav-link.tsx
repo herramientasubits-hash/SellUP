@@ -11,19 +11,18 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import { useSidebar } from "@/components/layout/sidebar-context";
 
 interface NavLinkProps {
   item: NavItem;
+  mode?: "full" | "rail";
 }
 
-export function NavLink({ item }: NavLinkProps) {
+export function NavLink({ item, mode = "full" }: NavLinkProps) {
   const pathname = usePathname();
-  const { collapsed } = useSidebar();
   const isActive =
     pathname === item.href || pathname.startsWith(item.href + "/");
 
-  if (collapsed) {
+  if (mode === "rail") {
     return (
       <TooltipProvider delay={0}>
         <Tooltip>

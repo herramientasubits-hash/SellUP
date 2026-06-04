@@ -4,7 +4,7 @@ import type { User } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { SidebarProvider, useSidebar } from "@/components/layout/sidebar-context";
+import { SidebarProvider } from "@/components/layout/sidebar-context";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -14,19 +14,10 @@ interface AppShellProps {
 }
 
 function ShellLayout({ children, className, user, initialUnreadCount = 0 }: AppShellProps) {
-  const { collapsed } = useSidebar();
-
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
-      {/* Sidebar — full-height column, independent of the header */}
-      <aside
-        className={cn(
-          "hidden shrink-0 bg-sidebar md:flex md:flex-col",
-          "border-r border-sidebar-border/40",
-          "transition-[width] duration-300 ease-[var(--ease-spring)] overflow-hidden",
-          collapsed ? "w-[72px]" : "w-[256px]",
-        )}
-      >
+      {/* Sidebar — fixed icon-rail (80px), matching plantilla-proyectos-shadcn */}
+      <aside className="hidden shrink-0 md:flex md:flex-col w-20 bg-sidebar border-r border-sidebar-border/40 overflow-hidden">
         <AppSidebar user={user} />
       </aside>
 
