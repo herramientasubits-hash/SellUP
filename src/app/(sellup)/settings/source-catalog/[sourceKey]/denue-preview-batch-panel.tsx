@@ -35,7 +35,7 @@ export function DenuePreviewBatchPanel({ hasStoredCredential, isAdmin }: Props) 
 
   return (
     <SurfaceCard>
-      <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-4 flex items-center gap-2">
+      <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4 flex items-center gap-2">
         <Database className="h-4 w-4 text-muted-foreground/70" />
         Crear lote preview
       </h2>

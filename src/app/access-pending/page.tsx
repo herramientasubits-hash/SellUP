@@ -19,7 +19,7 @@ export default async function AccessPendingPage() {
         <Clock className="h-8 w-8 text-amber-500" />
       </div>
 
-      <h1 className="mb-3 text-2xl font-semibold tracking-tight text-foreground">
+      <h1 className="mb-3 text-2xl font-extrabold tracking-tight text-foreground">
         Solicitud enviada
       </h1>
 

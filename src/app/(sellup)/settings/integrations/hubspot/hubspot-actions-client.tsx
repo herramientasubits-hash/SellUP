@@ -68,7 +68,7 @@ export function HubSpotConnectModal({ open, onOpenChange }: ConnectModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Conectar HubSpot</DialogTitle>
+          <DialogTitle className="">Conectar HubSpot</DialogTitle>
           <DialogDescription>
             Ingresa el access token de una Private App de HubSpot. Esta credencial
             se almacenará de forma segura y no volverá a mostrarse.
@@ -186,7 +186,7 @@ export function HubSpotUpdateModal({ open, onOpenChange }: UpdateModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Actualizar credencial de HubSpot</DialogTitle>
+          <DialogTitle className="">Actualizar credencial de HubSpot</DialogTitle>
           <DialogDescription>
             La nueva credencial reemplazará a la anterior. Después de actualizarla,
             deberás probar nuevamente la conexión.
@@ -341,7 +341,7 @@ export function HubSpotDisconnectDialog({ open, onOpenChange }: DisconnectDialog
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="font-heading">Desconectar HubSpot</DialogTitle>
+          <DialogTitle className="">Desconectar HubSpot</DialogTitle>
           <DialogDescription>
             SellUp dejará de considerar HubSpot disponible. Podrás volver a conectarlo
             en cualquier momento ingresando una nueva credencial.

@@ -127,27 +127,46 @@ Los estados de éxito, advertencia e info no tienen token CSS propio en v0.1. Se
 
 ### Estrategia
 
-SellUp usa **Inter** como única familia tipográfica (`--font-sans`). Esta decisión es deliberada:
+SellUp usa **Inter** como única familia tipográfica (`--font-sans`), tanto para body como para headings. Esta decisión está alineada con la plantilla de referencia UBITS / shadcn:
 
 - Inter es altamente legible en interfaces de datos.
-- Evita la mezcla de familias que añade complejidad sin beneficio real.
+- Una sola familia evita la mezcla de fuentes que añade complejidad sin beneficio real.
 - El carácter expresivo en login se logra mediante **escala, peso y opacidad**, no cambiando de fuente.
 
-### Jerarquías
+**Anteriormente:** se usaba `Plus Jakarta Sans` para headings e `Inter` para body. Esta mezcla se eliminó en favor de Inter como fuente única (alineado con `plantilla-proyectos-shadcn`).
+
+### Escala de headings (h1–h6)
+
+Definida en `globals.css` (`@layer base`) y aplicada automáticamente a los elementos HTML:
+
+| Elemento | Token | Uso típico |
+|---|---|---|
+| `h1` | `text-2xl font-extrabold tracking-tight` | Título principal de página (vía `PageHeader`) |
+| `h2` | `text-xl font-bold tracking-tight` | Título de sección principal |
+| `h3` | `text-lg font-bold` | Subtítulo de bloque |
+| `h4` | `text-base font-semibold` | Títulos dentro de cards (vía `SurfaceCardHeader`) |
+| `h5` | `text-sm font-semibold` | Sub-encabezados |
+| `h6` | `text-xs font-semibold uppercase tracking-wide text-muted-foreground` | Eyebrow / overline |
+
+### Jerarquía de uso
 
 | Nivel | Clase recomendada | Uso |
 |---|---|---|
-| Page title | `text-2xl font-semibold tracking-tight` | Título principal de cada página (via `PageHeader`) |
-| Section title | `text-base font-semibold` | Títulos dentro de cards (via `SurfaceCardHeader`) |
+| Page title | `text-2xl font-extrabold tracking-tight` | Título principal de cada página (vía `PageHeader`) |
+| Section title | `text-base font-semibold` | Títulos dentro de cards (vía `SurfaceCardHeader`) |
 | Card title | `text-sm font-semibold leading-none` | Encabezados de sub-secciones |
 | Body | `text-sm` | Texto de contenido general |
 | Caption / metadata | `text-xs text-muted-foreground` | Fechas, IDs, labels secundarios |
 | Overline | `text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60` | Labels de sección en sidebar, categorías |
 
+### Iconos
+
+SellUp aplica `stroke-width: 1.75` a los íconos `lucide-react` y SVGs dentro de botones / links. Esto alinea el grosor visual con la identidad UBITS (más fino que el default `2` de lucide) sin necesidad de setearlo manualmente en cada componente.
+
 ### Regla login vs. app interna
 
-- **Login:** puede usar `font-bold`, escalas grandes (`text-[2.4rem]`), `tracking-tight` agresivo y opacidades contrastadas para crear impacto editorial.
-- **App interna:** usa `font-semibold` como máximo en títulos de página. Los headings son más funcionales que expresivos. El foco está en la legibilidad operativa.
+- **Login:** usa la misma fuente Inter. El brand panel del login puede usar `font-extrabold` con escalas grandes (`text-[2.4rem]` a `text-[1.85rem]`) y `tracking-tight` agresivo para crear impacto editorial.
+- **App interna:** mantiene la escala de headings más funcional. h1 = `font-extrabold` (peso fuerte, alineado con referencia), h2/h3 = `font-bold`, h4 en adelante = `font-semibold`. El foco está en la legibilidad operativa.
 
 ---
 

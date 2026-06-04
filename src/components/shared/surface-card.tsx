@@ -54,7 +54,7 @@ export function SurfaceCardHeader({
   return (
     <div className={cn("mb-4 flex items-start justify-between gap-3", className)}>
       <div className="min-w-0 space-y-1">
-        <h2 className="text-[0.8125rem] font-semibold leading-none text-foreground font-heading">
+        <h2 className="text-[0.8125rem] font-semibold leading-none text-foreground">
           {title}
         </h2>
         {description && (

@@ -194,7 +194,7 @@ export function TestConnectionPanel({ sourceKey, sourceName }: Props) {
       <div className="space-y-4">
         {/* Header */}
         <div>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-1">
+          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-1">
             Prueba de conexión
           </h2>
           <p className="text-sm text-muted-foreground">

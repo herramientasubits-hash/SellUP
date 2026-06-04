@@ -43,7 +43,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
     <div className="w-full max-w-[440px] animate-su-fade-in">
       {/* Logo visible solo en mobile */}
       <div className="mb-8 flex items-center justify-center lg:hidden">
-        <h1 className="text-3xl font-bold tracking-tight font-heading">
+        <h1 className="text-3xl font-extrabold tracking-tight">
           <span className="text-foreground">Sell</span>
           <span className="su-gradient-text">Up</span>
         </h1>
@@ -53,7 +53,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
         <CardContent className="space-y-7 px-7 py-7">
           {/* Encabezado */}
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold tracking-tight font-heading">
+            <h2 className="text-2xl font-bold tracking-tight">
               Bienvenido a SellUp
             </h2>
             <p className="text-sm leading-relaxed text-muted-foreground">

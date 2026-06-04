@@ -215,7 +215,7 @@ export function ConnectionTestHistory({ history }: Props) {
     <div className="space-y-4">
       {/* Latest test */}
       <SurfaceCard>
-        <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-4">
+        <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
           Última prueba de conexión
         </h2>
         {latest ? <LatestTestBlock item={latest} /> : <EmptyState />}
@@ -225,7 +225,7 @@ export function ConnectionTestHistory({ history }: Props) {
       {totalShown > 0 && (
         <SurfaceCard>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading">
+            <h2 className="text-[0.8125rem] font-semibold text-foreground ">
               Historial reciente
             </h2>
             <span className="text-xs text-muted-foreground">

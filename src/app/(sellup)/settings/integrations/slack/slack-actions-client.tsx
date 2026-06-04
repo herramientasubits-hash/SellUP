@@ -75,7 +75,7 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-heading">Conectar Slack</DialogTitle>
+          <DialogTitle className="">Conectar Slack</DialogTitle>
           <DialogDescription>
             Introduce los datos de tu Slack App. SellUp los guardará de forma segura y
             abrirá el flujo OAuth para autorizar el acceso al workspace.
@@ -290,7 +290,7 @@ export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelMod
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Crear canal oficial de SellUp</DialogTitle>
+          <DialogTitle className="">Crear canal oficial de SellUp</DialogTitle>
           <DialogDescription>
             Este canal recibirá alertas y comunicaciones operativas generadas por SellUp.
           </DialogDescription>
@@ -425,7 +425,7 @@ export function SlackDisconnectDialog({ open, onOpenChange }: DisconnectDialogPr
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="font-heading">Desconectar Slack</DialogTitle>
+          <DialogTitle className="">Desconectar Slack</DialogTitle>
           <DialogDescription>
             SellUp dejará de tener acceso al workspace. El canal creado en Slack no se eliminará.
             Podrás volver a conectar en cualquier momento.

@@ -58,7 +58,7 @@ export function AppHeader({ user, initialUnreadCount = 0 }: AppHeaderProps) {
           href="/pipeline"
           className="flex items-center gap-2 select-none"
         >
-          <span className="text-lg font-bold tracking-tight font-heading">
+          <span className="text-lg font-bold tracking-tight">
             <span className="text-foreground">Sell</span>
             <span className="su-gradient-text">Up</span>
           </span>
@@ -85,7 +85,7 @@ export function AppHeader({ user, initialUnreadCount = 0 }: AppHeaderProps) {
           />
           <SheetContent side="left" className="w-64 bg-sidebar p-0">
             <div className="flex h-14 items-center border-b border-sidebar-border/40 px-5">
-              <span className="text-lg font-bold tracking-tight font-heading">
+              <span className="text-lg font-bold tracking-tight">
                 <span className="text-foreground">Sell</span>
                 <span className="su-gradient-text">Up</span>
               </span>

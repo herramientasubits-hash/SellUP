@@ -68,7 +68,7 @@ export function TavilyConnectModal({ open, onOpenChange }: ConnectModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Conectar Tavily</DialogTitle>
+          <DialogTitle className="">Conectar Tavily</DialogTitle>
           <DialogDescription>
             La API Key se almacenará de forma segura en Vault y permitirá
             que el Agente 1 realice búsquedas web controladas.
@@ -195,7 +195,7 @@ export function TavilyUpdateModal({ open, onOpenChange }: UpdateModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Actualizar API Key de Tavily</DialogTitle>
+          <DialogTitle className="">Actualizar API Key de Tavily</DialogTitle>
           <DialogDescription>
             La nueva API Key reemplazará a la anterior. Después de actualizarla,
             deberás probar nuevamente la conexión.
@@ -372,7 +372,7 @@ export function TavilyDisconnectDialog({ open, onOpenChange }: DisconnectDialogP
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="font-heading">Desconectar Tavily</DialogTitle>
+          <DialogTitle className="">Desconectar Tavily</DialogTitle>
           <DialogDescription>
             SellUp eliminará la API Key almacenada. El Agente 1 volverá a usar
             el proveedor mock por defecto. Puedes volver a conectar Tavily

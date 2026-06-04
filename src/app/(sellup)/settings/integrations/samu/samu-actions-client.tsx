@@ -68,7 +68,7 @@ export function SamuConnectModal({ open, onOpenChange }: ConnectModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Conectar Samu IA</DialogTitle>
+          <DialogTitle className="">Conectar Samu IA</DialogTitle>
           <DialogDescription>
             La API Key se almacenará de forma segura en Vault y permitirá validar
             la conexión con Samu IA.
@@ -190,7 +190,7 @@ export function SamuUpdateModal({ open, onOpenChange }: UpdateModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Actualizar API Key de Samu IA</DialogTitle>
+          <DialogTitle className="">Actualizar API Key de Samu IA</DialogTitle>
           <DialogDescription>
             La nueva API Key reemplazará a la anterior. Después de actualizarla,
             deberás probar nuevamente la conexión.
@@ -337,7 +337,7 @@ export function SamuDisconnectDialog({ open, onOpenChange }: DisconnectDialogPro
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="font-heading">Desconectar Samu IA</DialogTitle>
+          <DialogTitle className="">Desconectar Samu IA</DialogTitle>
           <DialogDescription>
             SellUp eliminará la API Key almacenada. Podrás volver a conectar Samu IA
             en cualquier momento ingresando una nueva credencial.

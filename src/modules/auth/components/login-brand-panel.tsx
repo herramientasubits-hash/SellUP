@@ -93,7 +93,7 @@ export function LoginBrandPanel() {
 
       {/* ── Logo ─────────────────────────────────────────────────────────── */}
       <div className="relative">
-        <h1 className="text-[1.85rem] font-bold leading-none tracking-tight" style={{ fontFamily: 'var(--font-jakarta), system-ui, sans-serif' }}>
+        <h1 className="text-[1.85rem] font-extrabold leading-none tracking-tight">
           <span className="text-white">Sell</span>
           <span style={{ color: '#5b7eff' }}>Up</span>
         </h1>
@@ -112,11 +112,10 @@ export function LoginBrandPanel() {
       <div className="relative space-y-10">
         {/* Headline grande */}
         <h2
-          className="font-bold tracking-tight text-white"
+          className="font-extrabold tracking-tight text-white"
           style={{
             fontSize: 'clamp(2.4rem, 3.5vw, 3.2rem)',
             lineHeight: 1.06,
-            fontFamily: 'var(--font-jakarta), system-ui, sans-serif',
           }}
         >
           Prepara tus cuentas

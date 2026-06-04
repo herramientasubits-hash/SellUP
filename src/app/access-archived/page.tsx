@@ -30,7 +30,7 @@ export default async function AccessArchivedPage() {
         <Archive className="h-8 w-8 text-slate-500" />
       </div>
 
-      <h1 className="mb-3 text-2xl font-semibold tracking-tight text-foreground">
+      <h1 className="mb-3 text-2xl font-extrabold tracking-tight text-foreground">
         Usuario archivado
       </h1>
 

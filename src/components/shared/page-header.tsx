@@ -30,7 +30,7 @@ export function PageHeader({
               <ArrowLeft className="h-5 w-5" />
             </Link>
           )}
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground font-heading">
+          <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             {title}
           </h1>
         </div>

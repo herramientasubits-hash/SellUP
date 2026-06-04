@@ -99,7 +99,7 @@ export default async function GoogleCSEIntegrationPage() {
         <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-4">
           <Ban className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
           <div>
-            <p className="text-sm font-semibold text-destructive font-heading">
+            <p className="text-sm font-semibold text-destructive ">
               Proveedor no disponible — Google Custom Search JSON API
             </p>
             <p className="mt-1 text-xs text-destructive/80 leading-relaxed">
@@ -212,7 +212,7 @@ export default async function GoogleCSEIntegrationPage() {
         <div className="flex items-start gap-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <div>
-            <p className="text-[0.8125rem] font-semibold text-foreground font-heading">
+            <p className="text-[0.8125rem] font-semibold text-foreground ">
               Google CSE tiene un límite de 100 consultas gratuitas/día
             </p>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
@@ -281,7 +281,7 @@ export default async function GoogleCSEIntegrationPage() {
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
           <div>
-            <p className="text-[0.8125rem] font-semibold text-foreground font-heading">
+            <p className="text-[0.8125rem] font-semibold text-foreground ">
               Almacenamiento seguro de credenciales
             </p>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">

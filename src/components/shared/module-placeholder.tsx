@@ -53,7 +53,7 @@ export function ModulePlaceholder({
 
       {/* Text */}
       <div className="max-w-lg space-y-2.5">
-        <h3 className="text-base font-bold text-foreground font-heading">{module}</h3>
+        <h3 className="text-base font-bold text-foreground">{module}</h3>
         <p className="text-sm leading-relaxed text-muted-foreground">
           {description}
         </p>

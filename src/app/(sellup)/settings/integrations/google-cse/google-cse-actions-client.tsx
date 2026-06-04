@@ -72,7 +72,7 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Conectar Google Custom Search</DialogTitle>
+          <DialogTitle className="">Conectar Google Custom Search</DialogTitle>
           <DialogDescription>
             Las credenciales se almacenarán de forma segura en Vault y permitirán
             que el Agente 1 realice búsquedas web a través de Google CSE.
@@ -224,7 +224,7 @@ export function GoogleCSEUpdateModal({ open, onOpenChange, cx_masked }: UpdateMo
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-heading">Actualizar credenciales de Google CSE</DialogTitle>
+          <DialogTitle className="">Actualizar credenciales de Google CSE</DialogTitle>
           <DialogDescription>
             Las nuevas credenciales reemplazarán a las anteriores. Después de
             actualizar, deberás probar nuevamente la conexión.
@@ -427,7 +427,7 @@ export function GoogleCSEDisconnectDialog({ open, onOpenChange }: DisconnectDial
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="font-heading">Desconectar Google Custom Search</DialogTitle>
+          <DialogTitle className="">Desconectar Google Custom Search</DialogTitle>
           <DialogDescription>
             SellUp eliminará ambas credenciales almacenadas (API Key y Search Engine ID).
             El Agente 1 dejará de usar Google CSE como proveedor de búsqueda.

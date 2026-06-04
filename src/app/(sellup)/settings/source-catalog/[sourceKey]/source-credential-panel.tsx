@@ -368,7 +368,7 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
         {isAdmin ? (
           <div className="space-y-4 border-t border-border/40 pt-4">
             <div className="space-y-1">
-              <p className="text-[0.8125rem] font-semibold text-foreground font-heading flex items-center gap-1.5">
+              <p className="text-[0.8125rem] font-semibold text-foreground  flex items-center gap-1.5">
                 <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
                 {hasCredential ? 'Reemplazar credencial' : 'Configurar credencial'}
               </p>
@@ -385,7 +385,7 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
 
             {hasCredential && (
               <div className="space-y-1">
-                <p className="text-[0.8125rem] font-semibold text-foreground font-heading flex items-center gap-1.5">
+                <p className="text-[0.8125rem] font-semibold text-foreground  flex items-center gap-1.5">
                   <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
                   Probar autenticación
                 </p>

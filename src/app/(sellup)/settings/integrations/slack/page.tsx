@@ -270,7 +270,7 @@ export default async function SlackIntegrationPage({ searchParams }: PageProps) 
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
           <div>
-            <p className="font-heading text-[0.8125rem] font-semibold text-foreground">
+            <p className=" text-[0.8125rem] font-semibold text-foreground">
               Almacenamiento seguro de credenciales
             </p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

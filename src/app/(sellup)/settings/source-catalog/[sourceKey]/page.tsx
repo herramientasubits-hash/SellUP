@@ -104,7 +104,7 @@ export default async function SourceDetailPage({ params }: Props) {
       <div className="grid gap-4 md:grid-cols-2">
         {/* Info general */}
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-4">
+          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
             Información general
           </h2>
           <dl className="space-y-3 text-sm">
@@ -151,7 +151,7 @@ export default async function SourceDetailPage({ params }: Props) {
 
         {/* Uso recomendado */}
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-4">
+          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
             Uso recomendado
           </h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
@@ -162,7 +162,7 @@ export default async function SourceDetailPage({ params }: Props) {
         {/* Limitaciones */}
         {source.limitations.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-4">
+            <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
               Limitaciones
             </h2>
             <ul className="space-y-2">
@@ -179,7 +179,7 @@ export default async function SourceDetailPage({ params }: Props) {
         {/* Riesgos */}
         {source.riskNotes.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-4">
+            <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
               Notas de riesgo
             </h2>
             <ul className="space-y-2">
@@ -203,7 +203,7 @@ export default async function SourceDetailPage({ params }: Props) {
         />
       ) : source.type === 'public_dataset' || source.key === 'co_rues' || (source.operationalStatus === 'operational_verified' && !source.url?.includes('api')) ? (
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-2">
+          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-2">
             Credencial de API
           </h2>
           <div className="space-y-2">
@@ -221,7 +221,7 @@ export default async function SourceDetailPage({ params }: Props) {
         </SurfaceCard>
       ) : (
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground font-heading mb-2">
+          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-2">
             Credencial de API
           </h2>
           <p className="text-sm text-muted-foreground">

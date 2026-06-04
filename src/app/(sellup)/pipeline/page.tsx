@@ -51,7 +51,7 @@ export default function PipelinePage() {
             />
             <div className="relative space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground/70 font-heading">
+                <p className="text-xs font-semibold text-muted-foreground/70">
                   {state.label}
                 </p>
                 <span className="flex h-5 w-5 items-center justify-center rounded-md bg-card/60 text-[10px] font-bold text-muted-foreground/40">
@@ -59,7 +59,7 @@ export default function PipelinePage() {
                 </span>
               </div>
               <div className={`h-1 w-full rounded-full ${state.accent}`} />
-              <p className="text-3xl font-bold tracking-tight text-muted-foreground/25 font-heading">
+              <p className="text-3xl font-bold tracking-tight text-muted-foreground/25">
                 {state.count}
               </p>
               <p className="text-[11px] text-muted-foreground/40">
