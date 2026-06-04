@@ -65,6 +65,7 @@ export function NotificationBell({
   const handleMarkAll = async () => {
     await markAllMyNotificationsAsRead();
     const updated = notifications.map((n) => ({ ...n, is_read: true }));
+    setNotifications(updated);
     setUnreadCount(0);
   };
 
