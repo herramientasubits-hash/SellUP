@@ -95,16 +95,23 @@ interface SortableTableHeadProps
   extends Omit<React.ComponentProps<typeof TableHead>, "ref"> {
   id: string;
   disabled?: boolean;
+  /** Show the grip handle icon on the left of the header content. */
+  showGrip?: boolean;
 }
 
 /**
  * `<th>` that participates in the parent `<DataTableColumnReorder>`
  * dnd-kit context. Drag the cell to reorder; pinned columns pass
  * `disabled` to opt out.
+ *
+ * The grip handle is always rendered (subtle) and becomes more prominent
+ * on hover. Mouse cursor is `grab` by default to signal draggability,
+ * `grabbing` while the drag is active.
  */
 export function SortableTableHead({
   id,
   disabled = false,
+  showGrip = true,
   className,
   style,
   children,
@@ -128,13 +135,23 @@ export function SortableTableHead({
     <th
       ref={disabled ? undefined : setNodeRef}
       style={sortableStyle}
-      className={cn(className, isDragging && "cursor-grabbing")}
+      className={cn(
+        "group/th",
+        !disabled && "cursor-grab select-none",
+        isDragging && "cursor-grabbing",
+        className,
+      )}
       data-column-id={id}
       {...(disabled ? {} : attributes)}
       {...(disabled ? {} : listeners)}
       {...rest}
     >
-      {children}
+      <span className="flex items-center gap-1.5 min-w-0">
+        {showGrip && !disabled && (
+          <DataTableDragHandle className="shrink-0 opacity-30 transition-opacity group-hover/th:opacity-80" />
+        )}
+        <span className="min-w-0 flex-1 truncate">{children}</span>
+      </span>
     </th>
   );
 }

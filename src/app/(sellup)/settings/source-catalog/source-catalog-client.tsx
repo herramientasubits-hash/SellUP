@@ -132,11 +132,13 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="Fuente" />
         ),
         cell: ({ row }) => (
-          <div className="space-y-0.5 min-w-[180px]">
-            <p className="text-sm font-medium text-foreground">{row.original.name}</p>
-            <p className="font-mono text-[10px] text-muted-foreground">{row.original.key}</p>
+          <div className="min-w-0 space-y-0.5">
+            <p className="truncate text-sm font-medium text-foreground">{row.original.name}</p>
+            <p className="truncate font-mono text-[10px] text-muted-foreground">{row.original.key}</p>
           </div>
         ),
+        size: 200,
+        minSize: 160,
         enableHiding: false,
         meta: { label: 'Fuente', popoverTitle: 'Fuente' },
       },
@@ -147,12 +149,14 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="País" />
         ),
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
+          <span className="truncate text-sm text-muted-foreground">
             {row.original.countryCodes.length > 0
               ? row.original.countryCodes.map((c) => COUNTRY_LABELS[c] ?? c).join(', ')
               : 'Global'}
           </span>
         ),
+        size: 110,
+        minSize: 80,
         filterFn: 'arrIncludesSome',
         sortingFn: (a, b, columnId) => {
           const av = (a.getValue<string[]>(columnId) ?? []).join(', ');
@@ -175,6 +179,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="Estado" />
         ),
         cell: ({ row }) => <StatusBadge status={row.original.operationalStatus} />,
+        size: 130,
+        minSize: 110,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'Estado',
@@ -192,6 +198,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="Última prueba" />
         ),
         cell: ({ row }) => <HealthCell latest={row.original.latest} />,
+        size: 120,
+        minSize: 100,
         enableColumnFilter: false,
         meta: { label: 'Última prueba' },
       },
@@ -202,10 +210,12 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="Prioridad" />
         ),
         cell: ({ row }) => (
-          <span className="text-sm font-medium text-foreground">
+          <span className="truncate text-sm font-medium text-foreground">
             {PRIORITY_LABELS[row.original.priority]}
           </span>
         ),
+        size: 90,
+        minSize: 70,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'Prioridad',
@@ -223,8 +233,10 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="Tipo" />
         ),
         cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">{TYPE_LABELS[row.original.type]}</span>
+          <span className="truncate text-xs text-muted-foreground">{TYPE_LABELS[row.original.type]}</span>
         ),
+        size: 90,
+        minSize: 70,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'Tipo',
@@ -242,10 +254,12 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="Automatización" />
         ),
         cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
+          <span className="truncate text-xs text-muted-foreground">
             {AUTOMATION_LEVEL_LABELS[row.original.automationLevel]}
           </span>
         ),
+        size: 130,
+        minSize: 110,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'Automatización',
@@ -263,12 +277,14 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           <DataTableColumnHeader column={column} title="Sectores" />
         ),
         cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground line-clamp-2 max-w-[200px] whitespace-normal">
+          <span className="line-clamp-2 text-xs text-muted-foreground whitespace-normal">
             {row.original.sectors.length > 0
               ? row.original.sectors.slice(0, 3).join(', ')
               : '—'}
           </span>
         ),
+        size: 160,
+        minSize: 120,
         filterFn: 'arrIncludesSome',
         sortingFn: (a, b, columnId) => {
           const av = (a.getValue<string[]>(columnId) ?? []).join(', ');
