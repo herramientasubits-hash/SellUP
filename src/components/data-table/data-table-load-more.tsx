@@ -1,68 +1,84 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 
 interface DataTableLoadMoreProps {
   /** Total rows available in the underlying dataset. */
   totalRows: number;
   /** How many rows are currently rendered. */
   shownRows: number;
-  /** Increment per click. */
-  step: number;
-  /** Callback invoked when the user clicks "Cargar más". */
+  /** Callback invoked when the sentinel scrolls into view. */
   onLoadMore: () => void;
-  /** Show a pending state. */
+  /** Pending state. */
   loading?: boolean;
   className?: string;
 }
 
 /**
- * Lazy-load footer for the data table. Replaces the standard pagination bar
- * when the user has switched the table to "Carga perezosa (Lazy)" mode.
+ * Lazy-load footer for the data table. Renders a status line plus a hidden
+ * sentinel `<div>` that the parent uses as the scroll target.
  *
- * Shows a running counter ("Mostrando X de Y") and a "Cargar más" button that
- * reveals `step` additional rows per click until the full dataset is visible.
+ * Watches the sentinel with an IntersectionObserver; every time it scrolls
+ * into view, the parent is told to reveal more rows automatically — no button
+ * click required. When the full dataset is visible, the sentinel is removed.
  */
 export function DataTableLoadMore({
   totalRows,
   shownRows,
-  step,
   onLoadMore,
   loading = false,
   className,
 }: DataTableLoadMoreProps) {
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
   const remaining = Math.max(totalRows - shownRows, 0);
   const canLoadMore = remaining > 0;
+
+  React.useEffect(() => {
+    if (!canLoadMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry?.isIntersecting) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: "120px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [canLoadMore, onLoadMore]);
 
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-xs text-muted-foreground border-t border-border/40",
+        "flex flex-wrap items-center justify-center gap-3 px-5 py-3 text-xs text-muted-foreground border-t border-border/40",
         className,
       )}
     >
-      <p className="tabular-nums">
-        Mostrando {shownRows} de {totalRows} resultados
-        {canLoadMore ? ` · ${remaining} más disponibles` : ""}
-      </p>
+      {canLoadMore ? (
+        <>
+          <Loader2
+            className={cn(
+              "h-3 w-3",
+              loading ? "animate-spin" : "opacity-0",
+            )}
+          />
+          <p className="tabular-nums">
+            Mostrando {shownRows} de {totalRows} · {remaining} más disponibles
+          </p>
+        </>
+      ) : (
+        <p className="tabular-nums">Mostrando {shownRows} de {totalRows} resultados</p>
+      )}
 
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 px-3 text-xs font-medium rounded-full"
-        onClick={onLoadMore}
-        disabled={!canLoadMore || loading}
-      >
-        {loading ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <ChevronDown className="h-3 w-3" />
-        )}
-        Cargar {Math.min(step, remaining)} más
-      </Button>
+      {canLoadMore && (
+        <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />
+      )}
     </div>
   );
 }

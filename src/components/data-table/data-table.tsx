@@ -178,7 +178,7 @@ export function DataTable<TData>({
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [lazyVisibleCount, setLazyVisibleCount] = React.useState(initialPageSize);
   const isLazy = settings.loadMode === "lazy";
-  const lazyStep = Math.max(initialPageSize, 10);
+  const lazyStep = initialPageSize;
 
   const showGlobalSearch = settings.globalSearch;
 
@@ -383,7 +383,6 @@ export function DataTable<TData>({
           <DataTableLoadMore
             totalRows={data.length}
             shownRows={Math.min(effectiveData.length, data.length)}
-            step={lazyStep}
             onLoadMore={() =>
               setLazyVisibleCount((prev) => Math.min(prev + lazyStep, data.length))
             }
