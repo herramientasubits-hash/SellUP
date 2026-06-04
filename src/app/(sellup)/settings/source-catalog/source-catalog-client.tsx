@@ -142,8 +142,12 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
               : 'Global'}
           </span>
         ),
-        enableSorting: false,
         filterFn: 'arrIncludesSome',
+        sortingFn: (a, b, columnId) => {
+          const av = (a.getValue<string[]>(columnId) ?? []).join(', ');
+          const bv = (b.getValue<string[]>(columnId) ?? []).join(', ');
+          return av.localeCompare(bv, 'es');
+        },
         meta: {
           label: 'País',
           popoverTitle: 'País',
@@ -243,7 +247,7 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       },
       {
         id: 'sectors',
-        accessorFn: (row) => row.sectors.join(', '),
+        accessorFn: (row) => row.sectors,
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Sectores" />
         ),
@@ -254,8 +258,17 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
               : '—'}
           </span>
         ),
-        enableSorting: false,
-        meta: { label: 'Sectores' },
+        filterFn: 'arrIncludesSome',
+        sortingFn: (a, b, columnId) => {
+          const av = (a.getValue<string[]>(columnId) ?? []).join(', ');
+          const bv = (b.getValue<string[]>(columnId) ?? []).join(', ');
+          return av.localeCompare(bv, 'es');
+        },
+        meta: {
+          label: 'Sectores',
+          popoverTitle: 'Sectores',
+          filterOptions: filters.sectors.map((s) => ({ label: s, value: s })),
+        },
       },
       {
         id: 'actions',
