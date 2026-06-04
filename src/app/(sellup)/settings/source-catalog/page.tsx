@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/shared/page-header';
 import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
 import { getLatestConnectionTestsBySource } from '@/modules/source-catalog/history-queries';
+import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import { SourceCatalogClient } from './source-catalog-client';
 
 export const metadata = {
@@ -9,7 +10,10 @@ export const metadata = {
 
 export default async function SourceCatalogPage() {
   const viewModel = getSourceCatalogViewModel();
-  const latestTests = await getLatestConnectionTestsBySource();
+  const [latestTests, socrataBatches] = await Promise.all([
+    getLatestConnectionTestsBySource(),
+    getSocrataPreviewBatches(),
+  ]);
   const { metrics } = viewModel;
 
   const metricCards = [
@@ -24,8 +28,8 @@ export default async function SourceCatalogPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Listado de fuentes"
-        description="Estado, cobertura y prioridad de las fuentes de datos de discovery, inventario, validación y señales."
+        title="Catálogo de fuentes"
+        description="Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp para discovery, inventario, validación y señales comerciales."
         backHref="/settings"
       />
 
@@ -44,7 +48,11 @@ export default async function SourceCatalogPage() {
         ))}
       </div>
 
-      <SourceCatalogClient viewModel={viewModel} latestTests={latestTests} />
+      <SourceCatalogClient
+        viewModel={viewModel}
+        latestTests={latestTests}
+        socrataBatches={socrataBatches}
+      />
     </div>
   );
 }

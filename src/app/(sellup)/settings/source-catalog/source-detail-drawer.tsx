@@ -2,8 +2,9 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowRight, Copy, Check, Database, ExternalLink } from 'lucide-react';
+import { ArrowRight, Copy, Check, Database, ExternalLink, Layers, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import {
@@ -15,18 +16,31 @@ import {
   operationalStatusBadgeClass,
   operationalStatusDotClass,
 } from '@/modules/source-catalog/labels';
+import {
+  BATCH_STATUS_LABELS,
+  batchStatusBadgeClass,
+  formatDatasetLabel,
+  formatShortDate,
+} from '@/modules/source-catalog/socrata-batches-labels';
 import type { SourceViewModel } from '@/modules/source-catalog/queries';
+import type {
+  SocrataPreviewBatchListItem,
+  SocrataPreviewBatchListViewModel,
+} from '@/modules/source-catalog/socrata-batches-queries';
+export type { SocrataPreviewBatchListItem, SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
 
 interface SourceDetailDrawerProps {
   source: SourceViewModel | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  socrataBatches: SocrataPreviewBatchListViewModel;
 }
 
 export function SourceDetailDrawer({
   source,
   open,
   onOpenChange,
+  socrataBatches,
 }: SourceDetailDrawerProps) {
   if (!source) {
     return (
@@ -48,6 +62,8 @@ export function SourceDetailDrawer({
     source.countryCodes.length > 0
       ? source.countryCodes.map((c) => COUNTRY_LABELS[c] ?? c).join(', ')
       : 'Global';
+
+  const isRues = source.key === 'co_rues';
 
   return (
     <DrawerShell
@@ -199,29 +215,158 @@ export function SourceDetailDrawer({
           )}
         </div>
 
-        {source.key === 'co_rues' && (
-          <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/30 px-5 py-3.5">
-            <div className="flex items-center gap-2.5">
-              <Database className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  Lotes Socrata
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Revisión interna de lotes creados desde esta fuente.
+        {isRues && (
+          <SurfaceCard noPadding>
+            <div className="flex items-center justify-between gap-3 border-b border-border/40 px-5 py-3.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Layers className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">
+                    Lotes Socrata
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Revisión interna de lotes creados desde RUES. Solo lectura.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/settings/source-catalog/socrata-batches"
+                className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-su-brand/40 hover:bg-su-brand-soft hover:text-su-brand transition-colors"
+              >
+                Ver página completa
+              </Link>
+            </div>
+
+            <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border/40 bg-muted/30">
+              <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+              <p className="text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground/80">Solo lectura para candidatos.</span>{' '}
+                No permite editar, aprobar, descartar ni sincronizar.
+              </p>
+            </div>
+
+            {socrataBatches.batches.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                <Database className="h-7 w-7 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">
+                  Aún no hay lotes Socrata creados.
                 </p>
               </div>
-            </div>
-            <Link
-              href="/settings/source-catalog/socrata-batches"
-              className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-su-brand/40 hover:bg-su-brand-soft hover:text-su-brand transition-colors"
-            >
-              Ver lotes
-            </Link>
-          </div>
+            ) : (
+              <SocrataBatchesTable batches={socrataBatches.batches} />
+            )}
+          </SurfaceCard>
         )}
       </div>
     </DrawerShell>
+  );
+}
+
+function SocrataBatchesTable({
+  batches,
+}: {
+  batches: SocrataPreviewBatchListItem[];
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/40 text-left">
+            <th className="px-5 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Nombre
+            </th>
+            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Estado
+            </th>
+            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Dataset
+            </th>
+            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Candidatos
+            </th>
+            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Flags
+            </th>
+            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Fecha
+            </th>
+            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              &nbsp;
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/30">
+          {batches.map((batch) => (
+            <tr
+              key={batch.id}
+              className="transition-colors hover:bg-muted/20"
+            >
+              <td className="px-5 py-3">
+                <span className="font-medium text-foreground">{batch.name}</span>
+                {batch.countryCode && (
+                  <span className="ml-2 text-[11px] text-muted-foreground/60">
+                    {batch.countryCode}
+                  </span>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${batchStatusBadgeClass(batch.status)}`}
+                >
+                  {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
+                </span>
+              </td>
+              <td className="px-4 py-3">
+                <span className="font-mono text-xs text-muted-foreground">
+                  {formatDatasetLabel(batch.dataset)}
+                </span>
+              </td>
+              <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                {batch.candidatesCount}
+                {batch.targetCount ? (
+                  <span className="ml-1 text-[11px] text-muted-foreground/50">
+                    / {batch.targetCount}
+                  </span>
+                ) : null}
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex flex-wrap gap-1">
+                  {batch.previewMode && (
+                    <Badge className="border-su-brand/30 bg-su-brand-soft text-su-brand border text-[10px]">
+                      Preview
+                    </Badge>
+                  )}
+                  {batch.smokeTest && (
+                    <Badge className="border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 border text-[10px]">
+                      Smoke
+                    </Badge>
+                  )}
+                  {batch.rollbackLogical && (
+                    <Badge className="border-border/40 bg-muted/60 text-muted-foreground/60 border text-[10px]">
+                      Rollback
+                    </Badge>
+                  )}
+                  {!batch.previewMode && !batch.smokeTest && !batch.rollbackLogical && (
+                    <span className="text-xs text-muted-foreground/40">—</span>
+                  )}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-xs text-muted-foreground">
+                {formatShortDate(batch.createdAt)}
+              </td>
+              <td className="px-4 py-3">
+                <Link
+                  href={`/settings/source-catalog/socrata-batches/${batch.id}`}
+                  className="rounded-md px-2.5 py-1 text-[11px] font-medium text-su-brand hover:bg-su-brand-soft transition-colors"
+                >
+                  Ver detalle
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

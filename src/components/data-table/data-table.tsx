@@ -130,6 +130,7 @@ interface DataTableProps<TData> {
 
 const DEFAULT_SETTINGS: DataTableSettings = {
   globalSearch: true,
+  loadMode: "pagination",
 };
 
 const DEFAULT_PINNED = ["select", "actions"];

@@ -63,7 +63,7 @@ export function DataTableToolbar<TData>({
             </h3>
           )}
           {table.options.meta?.description !== undefined && (
-            <p className="text-sm text-muted-foreground mt-0.5 truncate">
+            <p className="text-sm text-muted-foreground mt-0.5 max-w-2xl">
               {table.options.meta.description as React.ReactNode}
             </p>
           )}

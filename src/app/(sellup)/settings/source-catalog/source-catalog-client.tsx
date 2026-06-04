@@ -12,6 +12,7 @@ import {
 import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
 import type { SourceCatalogViewModel, SourceViewModel } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
+import type { SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -28,6 +29,7 @@ import { SourceDetailDrawer } from './source-detail-drawer';
 type Props = {
   viewModel: SourceCatalogViewModel;
   latestTests: Record<string, SourceConnectionLatestViewModel>;
+  socrataBatches: SocrataPreviewBatchListViewModel;
 };
 
 type Row = SourceViewModel & {
@@ -106,7 +108,7 @@ function HealthCell({ latest }: { latest: SourceConnectionLatestViewModel | unde
   );
 }
 
-export function SourceCatalogClient({ viewModel, latestTests }: Props) {
+export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: Props) {
   const { sources, filters } = viewModel;
   const [detailSource, setDetailSource] = React.useState<SourceViewModel | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
@@ -397,6 +399,7 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
         source={detailSource}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        socrataBatches={socrataBatches}
       />
     </>
   );

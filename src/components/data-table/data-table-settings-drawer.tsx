@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Columns3, Search, X } from "lucide-react";
+import { Columns3, Layers, Search, X } from "lucide-react";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
@@ -17,8 +17,11 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 
+export type DataTableLoadMode = "pagination" | "lazy";
+
 export interface DataTableSettings {
   globalSearch: boolean;
+  loadMode: DataTableLoadMode;
 }
 
 interface DataTableSettingsDrawerProps<TData> {
@@ -81,6 +84,23 @@ export function DataTableSettingsDrawer<TData>({
               />
             }
           />
+
+          <Separator />
+
+          <SettingGroup
+            icon={<Layers className="h-3.5 w-3.5" />}
+            label="Carga de datos"
+            description="Elige cómo se cargan las filas de la tabla."
+          >
+            <SegmentedControl
+              options={[
+                { value: "pagination", label: "Paginación" },
+                { value: "lazy", label: "Carga perezosa (Lazy)" },
+              ]}
+              value={value.loadMode}
+              onChange={(v) => onChange({ ...value, loadMode: v as DataTableLoadMode })}
+            />
+          </SettingGroup>
 
           <Separator />
 
@@ -176,6 +196,47 @@ function SettingGroup({
         {trailing}
       </div>
       {children}
+    </div>
+  );
+}
+
+function SegmentedControl<T extends string,>({
+  options,
+  value,
+  onChange,
+}: {
+  options: Array<{ value: T; label: string; icon?: React.ComponentType<{ className?: string }> }>;
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      className="inline-flex w-full p-0.5 rounded-full bg-muted/60 border border-border/40"
+    >
+      {options.map((opt) => {
+        const selected = opt.value === value;
+        const Icon = opt.icon;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "flex-1 inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              selected
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {Icon && <Icon className="h-3 w-3" />}
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
