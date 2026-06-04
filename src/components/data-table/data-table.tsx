@@ -256,7 +256,7 @@ export function DataTable<TData>({
     manualSorting,
     manualFiltering,
     initialState: {
-      pagination: { pageSize: initialPageSize },
+      pagination: { pageSize: isLazy ? Number.MAX_SAFE_INTEGER : initialPageSize },
     },
     meta: {
       title: title ?? null,
