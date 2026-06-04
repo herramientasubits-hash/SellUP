@@ -159,15 +159,9 @@
   --su-success: oklch(0.571 0.160 142);          /* positive #328e2c */
   --su-warning: oklch(0.749 0.160 71);           /* warning #EC9907 */
 
-  /* AI gradient — 5 stops, alineado con plantilla-proyectos-shadcn (to right)
-     Stop 1: azul #2d5cf7 → Stop 2: violeta → Stop 3: magenta → Stop 4: rosa → Stop 5: naranja */
-  --su-ai-stop-1: #2d5cf7;
-  --su-ai-stop-2: #7c3aed;
-  --su-ai-stop-3: #c026d3;
-  --su-ai-stop-4: #e11d48;
-  --su-ai-stop-5: #f97316;
-  --su-ai-from: var(--su-ai-stop-1);
-  --su-ai-to: var(--su-ai-stop-5);
+  /* AI gradient — 2 stops a 135deg, alineado con plantilla-proyectos-shadcn */
+  --su-ai-from: #2d5cf7;
+  --su-ai-to: #e11d48;
   --su-ai-surface: rgba(45, 92, 247, 0.1);
   --su-ai-glow: rgba(45, 92, 247, 0.3);
 }
@@ -243,14 +237,9 @@
   --su-success: oklch(0.620 0.170 142);
   --su-warning: oklch(0.769 0.165 70);
 
-  /* AI gradient — 5 stops (idéntico en dark para consistencia de marca) */
-  --su-ai-stop-1: #2d5cf7;
-  --su-ai-stop-2: #7c3aed;
-  --su-ai-stop-3: #c026d3;
-  --su-ai-stop-4: #e11d48;
-  --su-ai-stop-5: #f97316;
-  --su-ai-from: var(--su-ai-stop-1);
-  --su-ai-to: var(--su-ai-stop-5);
+  /* AI gradient — 2 stops (idéntico en dark para consistencia de marca) */
+  --su-ai-from: #2d5cf7;
+  --su-ai-to: #e11d48;
   --su-ai-surface: rgba(45, 92, 247, 0.1);
   --su-ai-glow: rgba(45, 92, 247, 0.3);
 }
@@ -381,45 +370,23 @@
      'background' para máxima robustez contra especificidad. */
 
   /* Solid fill — for primary AI buttons and strong indicators.
-     Gradiente 'to right' con 5 stops (azul → violeta → magenta → rosa → naranja),
+     Gradiente 135deg con 2 stops (#2d5cf7 → #e11d48),
      idéntico a plantilla-proyectos-shadcn (.bg-ai-gradient). */
   .su-ai-gradient {
-    background-color: var(--su-ai-stop-1) !important;
-    background-image: linear-gradient(
-      to right,
-      var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
-      var(--su-ai-stop-5)
-    ) !important;
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) !important;
     color: oklch(0.99 0 0);
   }
   .su-ai-gradient:hover {
-    background-color: var(--su-ai-stop-1) !important;
-    background-image: linear-gradient(
-      to right,
-      var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
-      var(--su-ai-stop-5)
-    ) !important;
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) !important;
     opacity: 0.9;
   }
 
   /* Animated shimmer variant — living gradient for active AI states */
   .su-ai-gradient-animate {
-    background-color: var(--su-ai-stop-1) !important;
-    background-image: linear-gradient(
-      to right,
-      var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
-      var(--su-ai-stop-5),
-      var(--su-ai-stop-1)
-    ) !important;
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) !important;
     background-size: 200% 200%;
     color: oklch(0.99 0 0);
     animation: su-ai-flow 4s ease-in-out infinite;
@@ -427,14 +394,7 @@
 
   /* Gradient text — for AI labels, headings, inline mentions */
   .su-ai-gradient-text {
-    background-image: linear-gradient(
-      to right,
-      var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
-      var(--su-ai-stop-5)
-    );
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -450,14 +410,7 @@
     border: 1px solid transparent;
     background:
       linear-gradient(var(--card), var(--card)) padding-box,
-      linear-gradient(
-        to right,
-        var(--su-ai-stop-1),
-        var(--su-ai-stop-2),
-        var(--su-ai-stop-3),
-        var(--su-ai-stop-4),
-        var(--su-ai-stop-5)
-      ) border-box !important;
+      linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) border-box !important;
   }
 
   /* Glow halo — shadow effect for AI buttons and active states.
@@ -494,15 +447,8 @@
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.03em;
-    background-color: var(--su-ai-stop-1) !important;
-    background-image: linear-gradient(
-      to right,
-      var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
-      var(--su-ai-stop-5)
-    ) !important;
+    background-color: var(--su-ai-from) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) !important;
     color: oklch(0.99 0 0);
   }
 
