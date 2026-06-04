@@ -371,26 +371,16 @@
 
   /* Solid fill — for primary AI buttons and strong indicators.
      Gradiente 135deg, colores #2d5cf7 → #e11d48, idénticos a plantilla-proyectos-shadcn.
-     Usa 'in oklch longer hue' para que la interpolación entre azul y rojo NO pase
-     por la zona morada (que es lo que ocurre con la interpolación RGB por defecto).
-     Este es el detalle visual que hace que la referencia se vea "más limpia" —
-     el ojo nunca ve el morado intermedio. */
+     La interpolación por defecto del navegador (sRGB) es la que usa la referencia
+     — no se debe alterar el espacio de color. */
   .su-ai-gradient {
     background-color: var(--su-ai-from) !important;
-    background-image: linear-gradient(
-      135deg in oklch longer hue,
-      var(--su-ai-from) 0%,
-      var(--su-ai-to) 100%
-    ) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
     color: oklch(0.99 0 0);
   }
   .su-ai-gradient:hover {
     background-color: var(--su-ai-from) !important;
-    background-image: linear-gradient(
-      135deg in oklch longer hue,
-      var(--su-ai-from) 0%,
-      var(--su-ai-to) 100%
-    ) !important;
+    background-image: linear-gradient(135deg, var(--su-ai-from) 0%, var(--su-ai-to) 100%) !important;
     opacity: 0.9;
   }
 
@@ -398,7 +388,7 @@
   .su-ai-gradient-animate {
     background-color: var(--su-ai-from) !important;
     background-image: linear-gradient(
-      135deg in oklch longer hue,
+      135deg,
       var(--su-ai-from) 0%,
       var(--su-ai-to) 50%,
       var(--su-ai-from) 100%
@@ -410,11 +400,7 @@
 
   /* Gradient text — for AI labels, headings, inline mentions */
   .su-ai-gradient-text {
-    background-image: linear-gradient(
-      135deg in oklch longer hue,
-      var(--su-ai-from),
-      var(--su-ai-to)
-    );
+    background-image: linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
