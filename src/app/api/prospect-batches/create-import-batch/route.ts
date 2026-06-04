@@ -187,11 +187,15 @@ export async function POST(request: NextRequest) {
           ...(candidate.contact_role ? { contact_role: candidate.contact_role.trim() } : {}),
           ...(candidate.contact_email ? { contact_email: candidate.contact_email.trim() } : {}),
           ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
+          ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
           imported_from: input.import_type,
+          origen: 'external_import',
           import: {
             ...(candidate.source_url ? { source_url: candidate.source_url.trim() } : {}),
             ...(candidate.source_evidence ? { source_evidence: candidate.source_evidence.trim() } : {}),
             ...(candidate.confidence ? { confidence: candidate.confidence.trim() } : {}),
+            ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
+            origen: 'external_import',
           }
         },
       });

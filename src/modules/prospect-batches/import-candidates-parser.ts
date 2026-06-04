@@ -54,113 +54,213 @@ export interface ImportPreview {
   rows: ImportRow[];
 }
 
-const COLUMN_ALIASES: Record<string, string> = {
-  // company_name
-  empresa: 'company_name',
-  'nombre empresa': 'company_name',
-  'nombre de empresa': 'company_name',
-  'razon social': 'company_name',
-  company: 'company_name',
-  'company name': 'company_name',
-  organization: 'company_name',
-  'organization name': 'company_name',
-  nombre: 'company_name',
-  // country
-  pais: 'country',
-  country: 'country',
-  // country_code
-  country_code: 'country_code',
-  'codigo pais': 'country_code',
-  'iso country': 'country_code',
-  // website
-  'sitio web': 'website',
-  web: 'website',
-  website: 'website',
-  url: 'website',
-  dominio: 'website',
-  domain: 'website',
-  // industry
-  sector: 'industry',
-  industria: 'industry',
-  industry: 'industry',
-  vertical: 'industry',
-  rubro: 'industry',
-  giro: 'industry',
-  // tax_identifier
-  nit: 'tax_identifier',
-  rut: 'tax_identifier',
-  rfc: 'tax_identifier',
-  'identificacion fiscal': 'tax_identifier',
-  'tax id': 'tax_identifier',
-  tax_identifier: 'tax_identifier',
-  'tax identifier': 'tax_identifier',
-  'id fiscal': 'tax_identifier',
-  // linkedin_url
-  linkedin: 'linkedin_url',
-  'linkedin url': 'linkedin_url',
-  'linkedin company': 'linkedin_url',
-  'perfil linkedin': 'linkedin_url',
-  linkedin_url: 'linkedin_url',
-  // city
-  ciudad: 'city',
-  city: 'city',
-  // region
-  region: 'region',
-  departamento: 'region',
-  estado: 'region',
-  provincia: 'region',
-  // company_size
-  tamano: 'company_size',
-  'tamano empresa': 'company_size',
-  company_size: 'company_size',
-  empleados: 'company_size',
-  'tamano estimado': 'company_size',
-  employees: 'company_size',
-  'estimated size': 'company_size',
-  'company size': 'company_size',
-  // description
-  descripcion: 'description',
-  description: 'description',
-  'que hace': 'description',
-  // notes
-  notas: 'notes',
-  notes: 'notes',
-  observaciones: 'notes',
-  // source_url
-  'url evidencia principal': 'source_url',
-  'evidencia principal': 'source_url',
-  'evidence url': 'source_url',
-  'source url': 'source_url',
-  'fuente url': 'source_url',
-  source_url: 'source_url',
-  evidence_url: 'source_url',
-  // source_evidence
-  'fuente / evidencia': 'source_evidence',
-  'fuente evidencia': 'source_evidence',
-  fuente: 'source_evidence',
-  evidencia: 'source_evidence',
-  'source evidence': 'source_evidence',
-  source_evidence: 'source_evidence',
-  // confidence
-  confianza: 'confidence',
-  confidence: 'confidence',
-  'nivel de confianza': 'confidence',
-  // contact fields
-  contacto: 'contact_name',
-  contact_name: 'contact_name',
-  'nombre contacto': 'contact_name',
-  'contact name': 'contact_name',
-  cargo: 'contact_role',
-  contact_role: 'contact_role',
-  rol: 'contact_role',
-  'email contacto': 'contact_email',
-  contact_email: 'contact_email',
-  'correo contacto': 'contact_email',
-  // owner
-  owner_email: 'owner_email',
-  responsable: 'owner_email',
-  asignado: 'owner_email',
-};
+function normalizeHeader(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[_\-]/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+export interface ImportColumnDefinition {
+  field: keyof ParsedImportRow;
+  officialHeader: string;
+  aliases: string[];
+  required: boolean;
+  recommended: boolean;
+  description: string;
+  example: string;
+}
+
+export const EXTERNAL_IMPORT_CONTRACT: readonly ImportColumnDefinition[] = [
+  {
+    field: 'company_name',
+    officialHeader: 'Empresa',
+    aliases: ['empresa', 'nombre empresa', 'nombre de empresa', 'razon social', 'company', 'company name', 'organization', 'organization name', 'nombre'],
+    required: true,
+    recommended: true,
+    description: 'Nombre de la empresa o razón social.',
+    example: 'Acme Learning Chile',
+  },
+  {
+    field: 'country',
+    officialHeader: 'País',
+    aliases: ['pais', 'country'],
+    required: false,
+    recommended: true,
+    description: 'País de operación de la empresa.',
+    example: 'Chile',
+  },
+  {
+    field: 'country_code',
+    officialHeader: 'Código País',
+    aliases: ['country_code', 'codigo pais', 'iso country', 'iso'],
+    required: false,
+    recommended: false,
+    description: 'Código ISO de 2 letras del país.',
+    example: 'CL',
+  },
+  {
+    field: 'industry',
+    officialHeader: 'Sector',
+    aliases: ['sector', 'industria', 'industry', 'vertical', 'rubro', 'giro'],
+    required: false,
+    recommended: true,
+    description: 'Sector o industria de la empresa.',
+    example: 'Educación',
+  },
+  {
+    field: 'website',
+    officialHeader: 'Sitio web',
+    aliases: ['sitio web', 'web', 'website', 'url', 'dominio', 'domain'],
+    required: false,
+    recommended: true,
+    description: 'Sitio web oficial de la empresa.',
+    example: 'https://acme.cl',
+  },
+  {
+    field: 'linkedin_url',
+    officialHeader: 'LinkedIn',
+    aliases: ['linkedin', 'linkedin url', 'linkedin company', 'perfil linkedin', 'linkedin_url'],
+    required: false,
+    recommended: false,
+    description: 'URL del perfil de LinkedIn de la empresa.',
+    example: 'https://linkedin.com/company/acme',
+  },
+  {
+    field: 'city',
+    officialHeader: 'Ciudad',
+    aliases: ['ciudad', 'city'],
+    required: false,
+    recommended: false,
+    description: 'Ciudad de la sede principal.',
+    example: 'Santiago',
+  },
+  {
+    field: 'region',
+    officialHeader: 'Región',
+    aliases: ['region', 'departamento', 'estado', 'provincia'],
+    required: false,
+    recommended: false,
+    description: 'Región, estado o departamento.',
+    example: 'Metropolitana',
+  },
+  {
+    field: 'company_size',
+    officialHeader: 'Tamaño estimado',
+    aliases: ['tamano', 'tamano empresa', 'company_size', 'empleados', 'tamano estimado', 'employees', 'estimated size', 'company size'],
+    required: false,
+    recommended: false,
+    description: 'Número aproximado de empleados.',
+    example: '50-100',
+  },
+  {
+    field: 'description',
+    officialHeader: 'Descripción',
+    aliases: ['descripcion', 'description', 'que hace'],
+    required: false,
+    recommended: false,
+    description: 'Resumen o descripción de lo que hace la empresa.',
+    example: 'Proveedor de capacitación corporativa y software educativo.',
+  },
+  {
+    field: 'source_url',
+    officialHeader: 'URL evidencia principal',
+    aliases: ['url evidencia principal', 'evidencia principal', 'evidence url', 'source url', 'fuente url', 'source_url', 'evidence_url'],
+    required: false,
+    recommended: false,
+    description: 'URL del sitio o noticia donde se encontró.',
+    example: 'https://diario.cl/noticia-acme',
+  },
+  {
+    field: 'source_evidence',
+    officialHeader: 'Fuente / evidencia',
+    aliases: ['fuente / evidencia', 'fuente evidencia', 'fuente', 'evidencia', 'source evidence', 'source_evidence'],
+    required: false,
+    recommended: false,
+    description: 'Texto descriptivo de la fuente o evidencia encontrada.',
+    example: 'Aparece en el ranking de EdTech 2026 de Latam.',
+  },
+  {
+    field: 'confidence',
+    officialHeader: 'Confianza',
+    aliases: ['confianza', 'confidence', 'nivel de confianza'],
+    required: false,
+    recommended: false,
+    description: 'Nivel de confianza en los datos (ej: alta, media, baja).',
+    example: 'alta',
+  },
+  {
+    field: 'notes',
+    officialHeader: 'Notas',
+    aliases: ['notas', 'notes', 'observaciones'],
+    required: false,
+    recommended: false,
+    description: 'Notas adicionales sobre la empresa o la investigación.',
+    example: 'Se observa crecimiento reciente en su equipo de ventas.',
+  },
+  {
+    field: 'tax_identifier',
+    officialHeader: 'Identificación Fiscal',
+    aliases: ['nit', 'rut', 'rfc', 'identificacion fiscal', 'tax id', 'tax_identifier', 'tax identifier', 'id fiscal'],
+    required: false,
+    recommended: false,
+    description: 'Identificador fiscal (NIT en Colombia, RUT en Chile, RFC en México).',
+    example: '901234567-8',
+  },
+  {
+    field: 'contact_name',
+    officialHeader: 'Contacto',
+    aliases: ['contacto', 'contact_name', 'nombre contacto', 'contact name'],
+    required: false,
+    recommended: false,
+    description: 'Nombre del contacto principal.',
+    example: 'Juan Pérez',
+  },
+  {
+    field: 'contact_role',
+    officialHeader: 'Cargo',
+    aliases: ['cargo', 'contact_role', 'rol'],
+    required: false,
+    recommended: false,
+    description: 'Cargo o rol del contacto.',
+    example: 'Director de RRHH',
+  },
+  {
+    field: 'contact_email',
+    officialHeader: 'Email contacto',
+    aliases: ['email contacto', 'contact_email', 'correo contacto'],
+    required: false,
+    recommended: false,
+    description: 'Correo electrónico del contacto.',
+    example: 'juan.perez@acme.cl',
+  },
+  {
+    field: 'owner_email',
+    officialHeader: 'Responsable',
+    aliases: ['owner_email', 'responsable', 'asignado'],
+    required: false,
+    recommended: false,
+    description: 'Email del ejecutivo asignado en SellUp.',
+    example: 'ejecutivo@ubits.com',
+  }
+];
+
+// Construir COLUMN_ALIASES a partir de EXTERNAL_IMPORT_CONTRACT
+const COLUMN_ALIASES: Record<string, string> = {};
+for (const col of EXTERNAL_IMPORT_CONTRACT) {
+  // Primero mapear el header oficial
+  const officialKey = normalizeHeader(col.officialHeader);
+  COLUMN_ALIASES[officialKey] = col.field;
+  
+  // Mapear todos los aliases asociados
+  for (const alias of col.aliases) {
+    const aliasKey = normalizeHeader(alias);
+    COLUMN_ALIASES[aliasKey] = col.field;
+  }
+}
 
 // ── Mapeo país → código ISO ────────────────────────────────────
 
@@ -220,16 +320,6 @@ const COUNTRY_TO_CODE: Record<string, string> = {
 
 // ── Helpers de parsing ─────────────────────────────────────────
 
-function normalizeHeader(raw: string): string {
-  return raw
-    .toLowerCase()
-    .trim()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[_\-]/g, ' ')
-    .replace(/\s+/g, ' ');
-}
-
 function resolveHeader(raw: string): { field: string | null; original: string } {
   const normalized = normalizeHeader(raw);
   const field = COLUMN_ALIASES[normalized] ?? null;
@@ -244,22 +334,30 @@ function resolveCountryCode(countryValue: string): string | null {
 
 function detectSeparator(line: string): string {
   const tabCount = (line.match(/\t/g) ?? []).length;
-  const commaCount = (line.match(/,/g) ?? []).length;
+  const pipeCount = (line.match(/\|/g) ?? []).length;
   const semicolonCount = (line.match(/;/g) ?? []).length;
-  if (tabCount >= commaCount && tabCount >= semicolonCount) return '\t';
+  const commaCount = (line.match(/,/g) ?? []).length;
+  
+  if (tabCount >= commaCount && tabCount >= semicolonCount && tabCount >= pipeCount) return '\t';
+  if (pipeCount > tabCount && pipeCount >= commaCount && pipeCount >= semicolonCount) return '|';
   if (semicolonCount >= commaCount) return ';';
   return ',';
 }
 
 function splitCsvLine(line: string, sep: string): string[] {
+  let processedLine = line.trim();
+  if (sep === '|' && processedLine.startsWith('|') && processedLine.endsWith('|')) {
+    processedLine = processedLine.slice(1, -1);
+  }
+
   const cells: string[] = [];
   let current = '';
   let inQuotes = false;
 
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  for (let i = 0; i < processedLine.length; i++) {
+    const ch = processedLine[i];
     if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
+      if (inQuotes && processedLine[i + 1] === '"') {
         current += '"';
         i++;
       } else {
@@ -278,6 +376,13 @@ function splitCsvLine(line: string, sep: string): string[] {
 
 function isBlankRow(cells: string[]): boolean {
   return cells.every((c) => !c.trim());
+}
+
+function isMarkdownSeparatorRow(cells: string[]): boolean {
+  return cells.every(cell => {
+    const trimmed = cell.trim();
+    return trimmed.length > 0 && /^[:\-\s]+$/.test(trimmed);
+  });
 }
 
 function isValidUrl(value: string): boolean {
@@ -308,6 +413,15 @@ export function normalizeImportColumns(headers: string[]): {
 }
 
 // ── Validación de fila con defaults ───────────────────────────
+
+function normalizeConfidence(val?: string): string | undefined {
+  if (!val) return undefined;
+  const clean = val.trim().toLowerCase();
+  if (['alta', 'high', 'alto', 'h'].includes(clean)) return 'alta';
+  if (['media', 'medium', 'medio', 'm'].includes(clean)) return 'media';
+  if (['baja', 'low', 'bajo', 'l'].includes(clean)) return 'baja';
+  return clean;
+}
 
 function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefaults): ImportRow {
   const errors: string[] = [];
@@ -358,6 +472,8 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
     warnings.push(`Email de contacto inválido: "${raw.contact_email}"`);
   }
 
+  const normalizedConfidence = normalizeConfidence(raw.confidence);
+
   const status: RowStatus = errors.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'valid';
 
   // Build raw with defaults applied for downstream use
@@ -366,6 +482,7 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
     country: effectiveCountry || raw.country,
     country_code: effectiveCountryCode || raw.country_code,
     industry: effectiveIndustry || raw.industry,
+    confidence: normalizedConfidence,
   };
 
   return {
@@ -412,6 +529,7 @@ function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
   for (const line of limitedLines) {
     const cells = splitCsvLine(line, sep);
     if (isBlankRow(cells)) continue;
+    if (isMarkdownSeparatorRow(cells)) continue;
 
     const rawObj: Record<string, string> = {};
     for (let i = 0; i < fieldMap.length; i++) {

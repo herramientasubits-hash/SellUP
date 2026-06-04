@@ -14,6 +14,9 @@ import {
   GitMerge,
   ExternalLink,
   Info,
+  ChevronDown,
+  ChevronUp,
+  Copy,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
@@ -34,6 +37,7 @@ import {
   parseXlsxCandidates,
   buildImportPreview,
   getValidRows,
+  EXTERNAL_IMPORT_CONTRACT,
   type ImportPreview,
   type ImportMethod,
   type ImportDefaults,
@@ -94,6 +98,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   const [open, setOpen] = React.useState(false);
   const [step, setStep] = React.useState<Step>('input');
   const [fileMethod, setFileMethod] = React.useState<FileMethod>('paste');
+  const [showGuide, setShowGuide] = React.useState(false);
 
   // Batch defaults
   const [selectedCountryCode, setSelectedCountryCode] = React.useState('');
@@ -118,6 +123,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   function resetState() {
     setStep('input');
     setFileMethod('paste');
+    setShowGuide(false);
     setSelectedCountryCode('');
     setSelectedIndustry('');
     setPasteText('');
@@ -595,16 +601,106 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             </div>
           )}
 
-          {/* Columnas reconocidas */}
-          <div className="rounded-xl border border-border/30 bg-muted/20 px-4 py-3.5 space-y-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-              Columnas reconocidas automáticamente
-            </p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              empresa · nombre empresa · razón social · país · sitio web · sector · industria ·
-              ciudad · región · NIT · RUT · RFC · LinkedIn · tamaño · descripción · notas ·
-              fuente · contacto · email
-            </p>
+          {/* Guía oficial de importación */}
+          <div className="rounded-xl border border-border/30 bg-muted/10 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowGuide(!showGuide)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/20 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-su-brand" />
+                <span className="text-xs font-semibold text-foreground">
+                  Ver guía del contrato oficial de importación
+                </span>
+              </div>
+              {showGuide ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+
+            {showGuide && (
+              <div className="border-t border-border/30 bg-muted/5 px-4 py-3.5 space-y-4">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  SellUp tiene un <strong>contrato oficial de columnas</strong> en español. Puedes copiar tablas desde Excel, Google Sheets, o directamente desde los chats con <strong>Claude, Gemini o ChatGPT</strong>. El parser resolverá automáticamente los siguientes campos:
+                </p>
+
+                {/* Tabla de especificaciones */}
+                <div className="max-h-[220px] overflow-y-auto rounded-lg border border-border/30 bg-card">
+                  <table className="w-full text-[10px] border-collapse">
+                    <thead>
+                      <tr className="border-b border-border/30 bg-muted/30 text-muted-foreground font-semibold">
+                        <th className="px-2 py-1.5 text-left">Columna oficial</th>
+                        <th className="px-2 py-1.5 text-center">Estado</th>
+                        <th className="px-2 py-1.5 text-left">Descripción</th>
+                        <th className="px-2 py-1.5 text-left">Ejemplo / Aliases</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/20">
+                      {EXTERNAL_IMPORT_CONTRACT.map((col) => (
+                        <tr key={col.field} className="hover:bg-muted/10">
+                          <td className="px-2 py-1.5 font-bold text-foreground whitespace-nowrap">
+                            {col.officialHeader}
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            {col.required ? (
+                              <span className="text-[9px] font-semibold text-destructive uppercase">Requerido</span>
+                            ) : col.recommended ? (
+                              <span className="text-[9px] font-semibold text-su-brand uppercase">Recomendado</span>
+                            ) : (
+                              <span className="text-[9px] text-muted-foreground">Opcional</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-muted-foreground leading-normal">
+                            {col.description}
+                          </td>
+                          <td className="px-2 py-1.5 text-muted-foreground leading-normal">
+                            <span className="italic block text-foreground/80 mb-0.5">Ej: {col.example}</span>
+                            <span className="text-[9px] text-muted-foreground/60 block truncate max-w-[150px]" title={col.aliases.join(', ')}>
+                              Aliases: {col.aliases.join(', ')}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Ejemplo interactivo */}
+                <div className="space-y-2 rounded-lg border border-su-brand/20 bg-su-brand-soft/20 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-su-brand">
+                      Ejemplo de tabla copiable
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const headers = EXTERNAL_IMPORT_CONTRACT.map(c => c.officialHeader).join('\t');
+                        const values = EXTERNAL_IMPORT_CONTRACT.map(c => c.example).join('\t');
+                        const exampleText = `${headers}\n${values}`;
+                        navigator.clipboard.writeText(exampleText);
+                        toast.success('Ejemplo copiado en formato TSV al portapapeles');
+                      }}
+                      className="h-6 gap-1 px-2 text-[10px] text-su-brand hover:text-su-brand hover:bg-su-brand-soft"
+                    >
+                      <Copy className="h-3 w-3" />
+                      Copiar ejemplo
+                    </Button>
+                  </div>
+                  <pre className="overflow-x-auto text-[9px] font-mono bg-card p-2 rounded border border-border/30 text-muted-foreground">
+                    {EXTERNAL_IMPORT_CONTRACT.map(c => c.officialHeader).join('\t')}{'\n'}
+                    {EXTERNAL_IMPORT_CONTRACT.map(c => c.example).join('\t')}
+                  </pre>
+                  <p className="text-[9px] text-muted-foreground/80 leading-normal">
+                    💡 <strong>Tip:</strong> Puedes copiar este ejemplo, pegarlo en Google Sheets o Excel, rellenar tus datos y luego copiar la tabla para pegarla en el campo superior.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Nota inferior */}
