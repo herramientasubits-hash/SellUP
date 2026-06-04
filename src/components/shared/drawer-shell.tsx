@@ -95,7 +95,7 @@ export function DrawerShell({
       >
         {/* Header section with optional icon */}
         {(title || description || icon) && (
-          <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
+          <SheetHeader className="shrink-0 border-b border-border/50 bg-muted/20 px-7 pb-5 pt-6">
             <div className="flex items-start gap-3">
               {icon && (
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
@@ -123,7 +123,7 @@ export function DrawerShell({
         {footer ? (
           footer
         ) : actions ? (
-          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/50 px-7 py-4">
+          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-7 py-4">
             {actions}
           </SheetFooter>
         ) : null}

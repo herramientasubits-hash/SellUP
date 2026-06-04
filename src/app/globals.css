@@ -159,10 +159,10 @@
   --su-warning: oklch(0.72 0.18 75);
 
   /* AI gradient — same vibrant values as dark mode for visual consistency */
-  --su-ai-from: oklch(0.66 0.25 258);
-  --su-ai-to: oklch(0.63 0.26 300);
-  --su-ai-surface: oklch(0.64 0.24 278 / 10%);
-  --su-ai-glow: oklch(0.64 0.24 278 / 30%);
+  --su-ai-from: #2d5cf7;
+  --su-ai-to: #e11d48;
+  --su-ai-surface: rgba(45, 92, 247, 0.1);
+  --su-ai-glow: rgba(45, 92, 247, 0.3);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -237,10 +237,10 @@
   --su-warning: oklch(0.75 0.18 75);
 
   /* AI gradient — brighter in dark mode for max contrast on deep surfaces */
-  --su-ai-from: oklch(0.66 0.25 258);
-  --su-ai-to: oklch(0.63 0.26 300);
-  --su-ai-surface: oklch(0.64 0.24 278 / 10%);
-  --su-ai-glow: oklch(0.64 0.24 278 / 30%);
+  --su-ai-from: #2d5cf7;
+  --su-ai-to: #e11d48;
+  --su-ai-surface: rgba(45, 92, 247, 0.1);
+  --su-ai-glow: rgba(45, 92, 247, 0.3);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
