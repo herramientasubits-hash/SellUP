@@ -19,7 +19,9 @@ import {
   Loader2,
   RefreshCw,
   Info,
+  FileSearch,
 } from 'lucide-react';
+import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import {
   Sheet,
   SheetContent,
@@ -360,6 +362,10 @@ export function CandidateDetailSheet({
   const [enrichErrorCode, setEnrichErrorCode] = React.useState<string | null>(null);
   const [enrichErrorDetails, setEnrichErrorDetails] = React.useState<FailedEnrichmentDetails | null>(null);
 
+  const [isLookingUpTaxId, setIsLookingUpTaxId] = React.useState(false);
+  const [taxIdLookupError, setTaxIdLookupError] = React.useState<string | null>(null);
+  const [taxIdLookupResult, setTaxIdLookupResult] = React.useState<TaxIdentifierLookupMetadata | null>(null);
+
   const handleEnrich = async () => {
     if (!candidate) return;
     setIsEnriching(true);
@@ -386,6 +392,30 @@ export function CandidateDetailSheet({
       setEnrichError(err instanceof Error ? err.message : 'Error de red al enriquecer candidato');
     } finally {
       setIsEnriching(false);
+    }
+  };
+
+  const handleLookupTaxIdentifier = async () => {
+    if (!candidate) return;
+    setIsLookingUpTaxId(true);
+    setTaxIdLookupError(null);
+    try {
+      const response = await fetch('/api/prospect-candidates/lookup-tax-identifier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateId: candidate.id }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setTaxIdLookupError(data.message || 'Error al buscar identificador fiscal');
+      } else {
+        setTaxIdLookupResult(data.lookup);
+        router.refresh();
+      }
+    } catch (err) {
+      setTaxIdLookupError(err instanceof Error ? err.message : 'Error de red');
+    } finally {
+      setIsLookingUpTaxId(false);
     }
   };
 
@@ -423,6 +453,12 @@ export function CandidateDetailSheet({
     (candidate.source_primary as string) === 'cl_res';
   const dc = parseDuplicateCheck(candidate.metadata);
   const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
+  // 16TX.1: tax identifier lookup result — prefer in-memory state (fresh lookup), fallback to persisted metadata
+  const taxIdLookup = (taxIdLookupResult ??
+    (candidate.metadata?.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined)) ?? null;
+  const showTaxIdLookupButton =
+    !isChileOfficialCandidate &&
+    (!candidate.tax_identifier || candidate.tax_identifier.trim() === '');
   // 16AK.16C: read from enrichment.ai_evaluation (structured path), fallback to legacy top-level
   const aiEval = (enrichment?.ai_evaluation as Record<string, unknown> | undefined)
     ?? (candidate.metadata?.ai_evaluation as Record<string, unknown> | undefined);
@@ -962,6 +998,7 @@ export function CandidateDetailSheet({
                 <Field label="Fuente oficial" value="Fuente oficial Chile" />
               </FieldGrid>
             ) : (
+              <>
               <FieldGrid>
                 <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
                 <Field
@@ -1008,6 +1045,136 @@ export function CandidateDetailSheet({
                   <Field label="Fuente oficial" value={structuredSourceLabel} />
                 )}
               </FieldGrid>
+
+              {/* 16TX.1: Búsqueda de identificador fiscal faltante */}
+              {showTaxIdLookupButton && (
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                      <AlertTriangle className="h-2.5 w-2.5" />
+                      {candidate.country_code?.toUpperCase() === 'CO'
+                        ? 'NIT faltante'
+                        : 'Identificador fiscal faltante'}
+                    </Badge>
+                  </div>
+
+                  {isLookingUpTaxId ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Buscando...
+                    </div>
+                  ) : (
+                    <Button
+                      onClick={handleLookupTaxIdentifier}
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                    >
+                      <FileSearch className="h-3.5 w-3.5" />
+                      Buscar identificador fiscal
+                    </Button>
+                  )}
+
+                  {taxIdLookupError && (
+                    <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                  )}
+
+                  {!taxIdLookupError &&
+                    taxIdLookup?.status === 'no_result' &&
+                    taxIdLookup.candidates.length === 0 && (
+                      <p className="text-xs text-muted-foreground/60 italic">
+                        No se encontró identificador fiscal con las fuentes disponibles.
+                      </p>
+                    )}
+
+                  {taxIdLookup?.warnings && taxIdLookup.warnings.length > 0 && (
+                    <div className="space-y-0.5">
+                      {taxIdLookup.warnings.map((w, i) => (
+                        <p key={i} className="text-[10px] text-muted-foreground/60 italic">
+                          {w}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                  {taxIdLookup && taxIdLookup.candidates.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                        Posibles identificadores encontrados
+                      </p>
+                      {taxIdLookup.candidates.map((c, i) => (
+                        <div
+                          key={i}
+                          className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-1.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="font-mono text-xs font-semibold text-foreground">
+                              {c.tax_identifier}
+                            </span>
+                            <Badge
+                              className={`border-0 text-[9px] font-semibold shrink-0 ${
+                                c.confidence === 'high'
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  : c.confidence === 'medium'
+                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                  : 'bg-muted text-muted-foreground'
+                              }`}
+                            >
+                              {c.confidence === 'high'
+                                ? 'Alta confianza'
+                                : c.confidence === 'medium'
+                                ? 'Confianza media'
+                                : 'Baja confianza'}
+                            </Badge>
+                          </div>
+                          {c.legal_name && (
+                            <p className="text-xs text-muted-foreground">{c.legal_name}</p>
+                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {c.source_name}
+                            </span>
+                            {c.source_url && (
+                              <a
+                                href={c.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-su-brand hover:underline flex items-center gap-0.5"
+                              >
+                                <Link2 className="h-2.5 w-2.5" />
+                                Ver fuente
+                              </a>
+                            )}
+                          </div>
+                          {c.evidence_text && (
+                            <p className="text-[10px] text-muted-foreground/60 italic line-clamp-2">
+                              {c.evidence_text}
+                            </p>
+                          )}
+                          {c.risks.length > 0 && (
+                            <ul className="space-y-0.5">
+                              {c.risks.map((r, j) => (
+                                <li
+                                  key={j}
+                                  className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1"
+                                >
+                                  <AlertTriangle className="h-2.5 w-2.5 mt-0.5 shrink-0" />
+                                  {r}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
+                            Requiere revisión humana
+                          </Badge>
+                          {/* TODO 16TX.2: Aprobación del identificador fiscal — se implementará en hito posterior. */}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              </>
             )}
           </div>
 
