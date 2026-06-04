@@ -409,3 +409,184 @@ Las utilidades `su-ai-gradient`, `su-ai-gradient-animate`, `su-ai-border`, `su-a
 *SellUp Design System Foundation v0.1 — Mayo 2026*
 *Actualización § 9 AI Gradient — Mayo 2026*
 *Siguiente iteración: v0.2 tras completar Pipeline funcional.*
+
+---
+
+## 10. DataTable — Sistema unificado de tablas
+
+### 10.1 Propósito
+
+Todas las tablas de SellUp (catálogo de fuentes, batches, candidatos, cuentas, contactos, usage, ai-usage) deben construirse sobre `<DataTable<TData>>` definido en `src/components/data-table/`. Esto reemplaza la duplicación de 15+ implementaciones manuales de `Table` con filtros, sorting y acciones ad-hoc.
+
+**No crear tablas nuevas con `useState` + `useMemo` + `<Table>`.** Usar el componente.
+
+### 10.2 Estructura
+
+```
+src/components/data-table/
+├── data-table.tsx                    # Core: TanStack Table v8 + feature flags
+├── data-table-toolbar.tsx            # Search + bulk actions + density + view options
+├── data-table-pagination.tsx         # Paginación + page-size
+├── data-table-faceted-filter.tsx     # Multi-select dropdown con counts
+├── data-table-view-options.tsx       # Visibilidad de columnas
+├── data-table-column-header.tsx      # Header sortable + hideable
+├── data-table-row-actions.tsx        # Slot kebab dropdown
+├── data-table-bulk-actions.tsx       # Toolbar de selección
+├── data-table-context-menu.tsx       # Right-click per-row
+├── data-table-density-toggle.tsx     # Compact / comfortable
+└── index.ts                          # Barrel exports
+```
+
+### 10.3 Props clave
+
+| Prop | Tipo | Default | Descripción |
+|------|------|---------|-------------|
+| `columns` | `ColumnDef<T, V>[]` | — | Definición de columnas (TanStack) |
+| `data` | `T[]` | — | Filas a renderizar |
+| `getRowId` | `(row: T) => string` | — | ID estable (clave para selección, context menu) |
+| `enableRowSelection` | `boolean` | `false` | Activa checkboxes + bulk actions |
+| `contextMenu` | `{ items: (row) => DataTableContextMenuItem[] }` | — | Right-click per-row |
+| `density` | `'compact' \| 'comfortable'` | `'comfortable'` | Altura de filas |
+| `stickyHeader` | `boolean` | `false` | Header sticky en scroll vertical |
+| `initialPageSize` | `number` | `10` | Filas por página iniciales |
+| `manualSorting` / `manualFiltering` | `boolean` | `false` | Si `true`, el padre controla sort/filter via `onSortingChange` / `onFilteringChange` |
+| `bulkActions` | `DataTableBulkAction<T>[]` | `[]` | Acciones masivas en la selección |
+| `onRowClick` | `(row: T) => void` | — | Click en fila (no en acciones) |
+| `rowClickable` | `boolean` | `false` | Aplica cursor + hover; false desactiva click |
+| `emptyState` | `ReactNode` | — | Contenido cuando `data.length === 0` |
+| `globalFilter` | `string` | — | Controlled search |
+
+### 10.4 Columnas — meta fields
+
+`ColumnMeta` extiende `ColumnDef<T, V>['meta']` con campos del sistema:
+
+```ts
+{
+  label: string;                          // Aparece en "View options"
+  facetedFilterTitle?: string;            // Título del dropdown
+  facetedFilterOptions?: { label, value }[]; // Opciones del multi-select
+}
+```
+
+Los faceted filters se renderizan automáticamente en el toolbar cuando una columna tiene `facetedFilterOptions` Y `enableColumnFilter: true` (default).
+
+### 10.5 Uso mínimo
+
+```tsx
+'use client';
+import { type ColumnDef } from '@tanstack/react-table';
+import { DataTable, DataTableColumnHeader } from '@/components/data-table';
+
+type Row = { id: string; name: string; status: 'active' | 'inactive' };
+
+const columns: ColumnDef<Row>[] = [
+  {
+    id: 'name',
+    accessorKey: 'name',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Nombre" />,
+    cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+    enableHiding: false,
+    meta: { label: 'Nombre' },
+  },
+  {
+    id: 'status',
+    accessorKey: 'status',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
+    filterFn: (row, _id, value: string[]) => {
+      if (!value?.length) return true;
+      return value.includes(row.original.status);
+    },
+    meta: {
+      label: 'Estado',
+      facetedFilterTitle: 'Estado',
+      facetedFilterOptions: [
+        { label: 'Activo', value: 'active' },
+        { label: 'Inactivo', value: 'inactive' },
+      ],
+    },
+  },
+];
+
+export function MyList({ rows }: { rows: Row[] }) {
+  return (
+    <DataTable
+      columns={columns}
+      data={rows}
+      getRowId={(r) => r.id}
+      enableRowSelection
+    />
+  );
+}
+```
+
+### 10.6 Contexto, bulk actions y right-click
+
+```tsx
+<DataTable
+  // ...props base
+  enableRowSelection
+  contextMenu={{
+    items: (row) => [
+      { id: 'view', label: 'Ver detalle', icon: ArrowRight, onClick: () => router.push(`/x/${row.id}`) },
+      { id: 'copy', label: 'Copiar ID', icon: Copy, onClick: () => navigator.clipboard.writeText(row.id) },
+    ],
+  }}
+  bulkActions={[
+    {
+      id: 'archive',
+      label: 'Archivar',
+      icon: Archive,
+      onClick: (rows) => archiveBatch(rows.map((r) => r.id)),
+      confirm: { title: '¿Archivar N fuentes?', description: 'Se moverán al archivo.', destructive: true },
+    },
+  ]}
+  onRowClick={(row) => router.push(`/x/${row.id}`)}
+  rowClickable
+  stickyHeader
+/>
+```
+
+### 10.7 CSS utilities
+
+Unifica las 4 variaciones de estilo de tabla que existían (`border-border/20|30|40|60`, `hover:bg-muted/20|30|50|hover:bg-accent/30`):
+
+| Clase | Uso |
+|-------|-----|
+| `.su-table` | Wrapper base: `w-full caption-bottom text-sm` + filas consistentes |
+| `.su-table-compact` | Filas más densas (overrides row height) |
+| `.su-table-sticky` | `thead` con `sticky top-0 z-10 bg-card/95 backdrop-blur` |
+| `.su-table-wrapper` | `relative w-full overflow-x-auto rounded-xl border border-border/10` |
+
+Aplicar a la tabla manualmente cuando se necesite control granular. `<DataTable>` las usa internamente.
+
+### 10.8 Checklist de migración
+
+- [ ] Reemplazar `useState`+`useMemo`+`Table` por `<DataTable>` con `columns` + `data` + `getRowId`.
+- [ ] Definir `meta.label` en toda columna visible.
+- [ ] Mover filtros `useState` (país, estado, etc.) a faceted filters via `meta.facetedFilterOptions`.
+- [ ] Mover search input a `globalFilter` controlled (si se necesita external control).
+- [ ] Acciones por fila: usar `DataTableRowActions` en slot `cell` con kebab `MoreHorizontal`.
+- [ ] Right-click: declarar `contextMenu.items` con `DataTableContextMenuItem[]`.
+- [ ] Bulk actions: declarar `bulkActions` con `confirm` para acciones destructivas.
+- [ ] Eliminar imports de `Table*`, `Input` (search), `useState`/`useMemo` para filtros.
+- [ ] Verificar: `npm run lint`, `npm run typecheck`, `npm run build` pasan.
+- [ ] Commit con prefijo `refactor:` y mensaje claro.
+
+### 10.9 Prohibiciones
+
+- ❌ Crear tablas nuevas con `<Table>` shadcn directo — usar `<DataTable>`.
+- ❌ Definir `useState` por filtro — usar faceted filters declarativos.
+- ❌ Hardcodear `border-border/40` o `hover:bg-muted/50` ad-hoc — usar `.su-table`.
+- ❌ Reimplementar sorting/paginación con `useMemo` — el core lo hace.
+- ❌ Mezclar `enableRowSelection` con `onRowClick` sin `rowClickable` (la selección necesita click en la fila).
+- ❌ Omitir `getRowId` cuando hay selección (causa re-mounts y bugs de selección).
+
+### 10.10 Primitivos UI nuevos
+
+Para soportar el sistema se agregaron (en `src/components/ui/`):
+
+- `popover.tsx` — wrapper Radix Popover (Radix `asChild` pattern).
+- `context-menu.tsx` — wrapper Radix ContextMenu.
+- `command.tsx` — wrapper `cmdk` para Command palette + CommandInput/List/Item/Group/Separator/Empty.
+
+Estos siguen el patrón shadcn estándar (forwardRef + cn + Radix Slot cuando aplica).

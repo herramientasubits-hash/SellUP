@@ -516,6 +516,77 @@
     background-size: 200% 100%;
     animation: su-shimmer 1.8s ease-in-out infinite;
   }
+
+  /* ── DataTable system ──────────────────────────────────────────────────────
+     Tokens canónicos para todas las tablas de la app.
+     Reemplaza las 4 variaciones inconsistentes que teníamos:
+       border-border/20, /30, /40, /60 → border-border/40
+       hover:bg-muted/20, /30, /50, hover:bg-accent/30 → hover:bg-muted/40
+       tracking-widest vs tracking-wide → tracking-wider
+     Variantes por densidad:
+       .su-table      → comfortable (default, py-3, h-10 header)
+       .su-table-compact → compact (py-1.5, h-8 header)
+  */
+  .su-table {
+    width: 100%;
+    caption-bottom: 0;
+    font-size: 0.8125rem;
+    color: var(--card-foreground);
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .su-table thead {
+    background: color-mix(in oklab, var(--muted) 50%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  }
+  .su-table thead th {
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    text-align: left;
+    vertical-align: middle;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .su-table tbody tr {
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 30%, transparent);
+    transition: background-color 0.15s ease;
+  }
+  .su-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .su-table tbody tr:hover {
+    background: color-mix(in oklab, var(--muted) 40%, transparent);
+  }
+  .su-table tbody tr[data-state="selected"] {
+    background: color-mix(in oklab, var(--su-brand) 8%, transparent);
+  }
+  .su-table tbody td {
+    padding: 0.75rem;
+    vertical-align: middle;
+  }
+  .su-table-compact tbody td {
+    padding: 0.375rem 0.75rem;
+  }
+  .su-table-compact thead th {
+    height: 2rem;
+  }
+  .su-table-wrapper {
+    position: relative;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+  .su-table-sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in oklab, var(--card) 95%, transparent);
+    backdrop-filter: blur(8px);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
