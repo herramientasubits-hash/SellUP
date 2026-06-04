@@ -411,26 +411,29 @@
       linear-gradient(135deg, var(--su-ai-from), var(--su-ai-to)) border-box !important;
   }
 
-  /* Glow halo — shadow effect for AI buttons and active states */
+  /* Glow halo — shadow effect for AI buttons and active states.
+     Intensity reducida vs. v0.1 para que el botón se vea más limpio y
+     proporcional cuando es ancho (ej. "Generar empresas candidatas"),
+     alineado con la sutileza de la plantilla UBITS de referencia. */
   .su-ai-glow {
     box-shadow:
-      0 4px 15px rgba(45, 92, 247, 0.3),
-      0 2px 5px rgba(225, 29, 72, 0.2) !important;
+      0 2px 8px rgba(45, 92, 247, 0.18),
+      0 1px 3px rgba(225, 29, 72, 0.12) !important;
   }
   .su-ai-glow:hover {
     box-shadow:
-      0 6px 20px rgba(45, 92, 247, 0.35),
-      0 4px 10px rgba(225, 29, 72, 0.25) !important;
+      0 4px 14px rgba(45, 92, 247, 0.28),
+      0 2px 6px rgba(225, 29, 72, 0.18) !important;
   }
   .dark .su-ai-glow {
     box-shadow:
-      0 4px 20px rgba(45, 92, 247, 0.4),
-      0 2px 8px rgba(225, 29, 72, 0.3) !important;
+      0 2px 10px rgba(45, 92, 247, 0.22),
+      0 1px 4px rgba(225, 29, 72, 0.15) !important;
   }
   .dark .su-ai-glow:hover {
     box-shadow:
-      0 6px 25px rgba(45, 92, 247, 0.45),
-      0 4px 12px rgba(225, 29, 72, 0.35) !important;
+      0 4px 16px rgba(45, 92, 247, 0.32),
+      0 2px 8px rgba(225, 29, 72, 0.20) !important;
   }
 
   /* Badge compound — pill-shaped AI indicator */
