@@ -279,7 +279,7 @@ export function GenerateAIBatchDrawer() {
         <Button
           onClick={() => setOpen(true)}
           size="sm"
-          className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+          className="gap-1.5 rounded-full su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-[0.98] transition-all duration-300"
         >
           <Sparkles className="h-3.5 w-3.5" />
           Generar empresas candidatas
@@ -365,7 +365,7 @@ export function GenerateAIBatchDrawer() {
                         handleClose();
                         if (sId) router.push(`/prospect-batches/${sId}`);
                       }}
-                      className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                      className="gap-1.5 rounded-full su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-[0.98] transition-all duration-300"
                     >
                       Revisar empresas candidatas
                       <ChevronRight className="h-3.5 w-3.5" />
@@ -389,7 +389,7 @@ export function GenerateAIBatchDrawer() {
                           handleClose();
                           if (sId) router.push(`/prospect-batches/${sId}`);
                         }}
-                        className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                        className="gap-1.5 rounded-full su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-[0.98] transition-all duration-300"
                       >
                         Revisar empresas candidatas
                         <ChevronRight className="h-3.5 w-3.5" />
@@ -414,7 +414,7 @@ export function GenerateAIBatchDrawer() {
                           handleClose();
                           if (sId) router.push(`/prospect-batches/${sId}`);
                         }}
-                        className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                        className="gap-1.5 rounded-full su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-[0.98] transition-all duration-300"
                       >
                         Revisar empresas candidatas
                         <ChevronRight className="h-3.5 w-3.5" />
@@ -425,7 +425,7 @@ export function GenerateAIBatchDrawer() {
                     <Button
                       size="sm"
                       onClick={handleGoToBatch}
-                      className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                      className="gap-1.5 rounded-full su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-[0.98] transition-all duration-300"
                     >
                       Revisar empresas candidatas
                       <ChevronRight className="h-3.5 w-3.5" />
@@ -459,7 +459,7 @@ export function GenerateAIBatchDrawer() {
                   type="submit"
                   size="sm"
                   disabled={!canSubmit}
-                  className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent disabled:opacity-40"
+                  className="gap-1.5 rounded-full su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-[0.98] transition-all duration-300 disabled:opacity-40 disabled:pointer-events-none"
                 >
                   {generating ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />

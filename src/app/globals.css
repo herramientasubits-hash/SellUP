@@ -398,10 +398,16 @@
 
   /* Glow halo — shadow effect for AI buttons and active states */
   .su-ai-glow {
-    box-shadow: 0 0 0 0 transparent, 0 4px 16px var(--su-ai-glow);
+    box-shadow: 0 4px 15px rgba(45, 92, 247, 0.3), 0 2px 5px rgba(225, 29, 72, 0.2);
   }
   .su-ai-glow:hover {
-    box-shadow: 0 0 0 0 transparent, 0 6px 24px var(--su-ai-glow);
+    box-shadow: 0 6px 20px rgba(45, 92, 247, 0.35), 0 4px 10px rgba(225, 29, 72, 0.25);
+  }
+  .dark .su-ai-glow {
+    box-shadow: 0 4px 20px rgba(45, 92, 247, 0.4), 0 2px 8px rgba(225, 29, 72, 0.3);
+  }
+  .dark .su-ai-glow:hover {
+    box-shadow: 0 6px 25px rgba(45, 92, 247, 0.45), 0 4px 12px rgba(225, 29, 72, 0.35);
   }
 
   /* Badge compound — pill-shaped AI indicator */
