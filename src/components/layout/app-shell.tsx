@@ -29,7 +29,7 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0 }: AppS
           <AppHeader user={user} initialUnreadCount={initialUnreadCount} />
         </div>
         <main className={cn("flex-1 min-h-0 min-w-0 overflow-y-auto", className)}>
-          <div className="mx-auto h-full max-w-[1600px] px-5 py-8 md:px-8 md:py-12 animate-su-fade-in">
+          <div className="mx-auto max-w-[1600px] px-5 py-8 md:px-8 md:py-12 animate-su-fade-in">
             {children}
           </div>
         </main>
