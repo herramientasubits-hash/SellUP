@@ -24,8 +24,8 @@ export default async function SourceCatalogPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Catálogo de fuentes"
-        description="Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp para discovery, inventario, validación y señales comerciales."
+        title="Listado de fuentes"
+        description="Estado, cobertura y prioridad de las fuentes de datos de discovery, inventario, validación y señales."
         backHref="/settings"
       />
 

@@ -1,10 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Copy, Check, ExternalLink, ArrowRight, Download } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Copy, Check, ExternalLink, ArrowRight } from 'lucide-react';
 import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import {
   Tooltip,
@@ -25,6 +23,7 @@ import {
   operationalStatusDotClass,
   connectionTestStatusBadgeClass,
 } from '@/modules/source-catalog/labels';
+import { SourceDetailDrawer } from './source-detail-drawer';
 
 type Props = {
   viewModel: SourceCatalogViewModel;
@@ -109,6 +108,13 @@ function HealthCell({ latest }: { latest: SourceConnectionLatestViewModel | unde
 
 export function SourceCatalogClient({ viewModel, latestTests }: Props) {
   const { sources, filters } = viewModel;
+  const [detailSource, setDetailSource] = React.useState<SourceViewModel | null>(null);
+  const [detailOpen, setDetailOpen] = React.useState(false);
+
+  const openDetail = React.useCallback((source: SourceViewModel) => {
+    setDetailSource(source);
+    setDetailOpen(true);
+  }, []);
 
   const data: Row[] = React.useMemo(
     () => sources.map((s) => ({ ...s, latest: latestTests[s.key] })),
@@ -285,13 +291,14 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Link
-                    href={`/settings/source-catalog/${row.original.key}`}
+                  <button
+                    type="button"
+                    onClick={() => openDetail(row.original)}
                     aria-label={`Ver detalle de ${row.original.name}`}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                   >
                     <ArrowRight className="h-3 w-3" />
-                  </Link>
+                  </button>
                 }
               />
               <TooltipContent side="left">Ver detalle</TooltipContent>
@@ -301,7 +308,7 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <Link
+                    <a
                       href={row.original.url}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -309,7 +316,7 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
                       className="inline-flex h-8 w-8 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                     >
                       <ExternalLink className="h-3 w-3" />
-                    </Link>
+                    </a>
                   }
                 />
                 <TooltipContent side="left">Abrir URL</TooltipContent>
@@ -323,7 +330,7 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
         meta: { label: 'Acciones' },
       },
     ],
-    [filters],
+    [filters, openDetail],
   );
 
   const contextMenu = React.useMemo(
@@ -334,9 +341,7 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
             id: 'view',
             label: 'Ver detalle',
             icon: ArrowRight,
-            onClick: () => {
-              window.location.href = `/settings/source-catalog/${row.key}`;
-            },
+            onClick: () => openDetail(row),
           },
           {
             id: 'copy-key',
@@ -362,37 +367,37 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
         return items;
       },
     }),
-    [],
+    [openDetail],
   );
 
   return (
-    <DataTable
-      columns={columns}
-      data={data}
-      getRowId={(row) => row.key}
-      title="Catálogo de fuentes"
-      description="Fuentes de prospección operativas, su cobertura, tipo de automatización y estado de salud."
-      count={data.length}
-      actions={
-        <Button size="sm" className="h-8 px-3 text-xs rounded-lg" asChild>
-          <a href="/api/source-catalog/export.csv" download>
-            <Download className="h-3.5 w-3.5" />
-            Exportar CSV
-          </a>
-        </Button>
-      }
-      enableRowSelection
-      contextMenu={contextMenu}
-      enableColumnReorder
-      initialPageSize={20}
-      emptyState={
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <p className="text-sm font-medium text-foreground">Sin resultados</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Ajusta los filtros para ver fuentes.
-          </p>
-        </div>
-      }
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={data}
+        getRowId={(row) => row.key}
+        title="Listado de fuentes"
+        description="Fuentes operativas, cobertura, tipo de automatización y estado de salud."
+        count={data.length}
+        enableRowSelection
+        contextMenu={contextMenu}
+        enableColumnReorder
+        initialPageSize={20}
+        emptyState={
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <p className="text-sm font-medium text-foreground">Sin resultados</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Ajusta los filtros para ver fuentes.
+            </p>
+          </div>
+        }
+      />
+
+      <SourceDetailDrawer
+        source={detailSource}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
+    </>
   );
 }

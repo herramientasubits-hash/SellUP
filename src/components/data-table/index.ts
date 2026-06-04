@@ -1,12 +1,10 @@
-export { DataTable, type DataTableDensity, type DataTableBulkAction, type DataTableContextMenuConfig } from "./data-table";
+export { DataTable, type DataTableBulkAction, type DataTableContextMenuConfig } from "./data-table";
 export { DataTableColumnHeader } from "./data-table-column-header";
 export { DataTableColumnPopover, type DataTableColumnFilterOption, type DataTableColumnMeta } from "./data-table-column-popover";
-export { DataTableViewOptions } from "./data-table-view-options";
-export { DataTableDensityToggle } from "./data-table-density-toggle";
 export { DataTablePagination } from "./data-table-pagination";
 export { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
 export { DataTableContextMenu, type DataTableContextMenuItem } from "./data-table-context-menu";
 export { DataTableRowActions } from "./data-table-row-actions";
 export { DataTableColumnReorder, DataTableDragHandle } from "./data-table-column-reorder";
-export { DataTableSettingsDialog, DataTableSettingsTrigger, type DataTableSettings, type DataTableEditMode, type DataTableLoadMode } from "./data-table-settings";
+export { DataTableSettingsDrawer, DataTableSettingsTrigger, type DataTableSettings } from "./data-table-settings-drawer";
 export { DataTableToolbar } from "./data-table-toolbar";

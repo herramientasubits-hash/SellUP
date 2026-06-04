@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Loader2, Pin, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -29,11 +30,15 @@ interface DataTableBulkActionBarProps<TData> {
 }
 
 /**
- * Floating dark bar at the bottom of the screen showing the current selection
- * and bulk actions. Mirrors the reference template's bulk action UX.
+ * Floating dark bar pinned to the bottom of the viewport showing the current
+ * selection and bulk actions.
  *
- * The bar appears only when `selectedCount > 0`. Renders absolutely
- * positioned at the bottom-center with rounded-full pill shape.
+ * Rendered via a React portal to `document.body` so it escapes any ancestor
+ * `transform`/`filter` containing block (the AppShell applies an entrance
+ * animation that would otherwise anchor the bar to the scrollable content
+ * area instead of the viewport).
+ *
+ * The bar appears only when `selectedCount > 0`. Pill-shaped, centered.
  */
 export function DataTableBulkActionBar<TData>({
   selectedCount,
@@ -44,8 +49,12 @@ export function DataTableBulkActionBar<TData>({
   className,
 }: DataTableBulkActionBarProps<TData>) {
   const [pendingAction, setPendingAction] = React.useState<DataTableBulkAction<TData> | null>(null);
+  const [mounted] = React.useState(
+    () => typeof document !== "undefined",
+  );
 
   if (selectedCount === 0) return null;
+  if (!mounted) return null;
 
   const closeConfirm = () => {
     setPendingAction(null);
@@ -69,13 +78,13 @@ export function DataTableBulkActionBar<TData>({
     }
   };
 
-  return (
+  return createPortal(
     <>
       <div
         role="status"
         aria-live="polite"
         className={cn(
-          "fixed bottom-6 left-1/2 -translate-x-1/2 z-40",
+          "fixed bottom-6 left-1/2 -translate-x-1/2 z-[60]",
           "inline-flex items-center gap-2 pl-2 pr-1 py-1",
           "rounded-full bg-zinc-900 text-zinc-100 shadow-2xl",
           "su-animate-in su-animate-in-fade-up",
@@ -192,6 +201,7 @@ export function DataTableBulkActionBar<TData>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </>,
+    document.body,
   );
 }

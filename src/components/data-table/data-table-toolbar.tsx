@@ -7,24 +7,17 @@ import type { Table } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
-import { DataTableDensityToggle } from "./data-table-density-toggle";
-import { DataTableViewOptions } from "./data-table-view-options";
-import type { DataTableDensity } from "./data-table";
 
 interface DataTableToolbarProps<TData> {
   table: Table<TData>;
   globalFilter: string;
   onGlobalFilterChange: (next: string) => void;
-  density: DataTableDensity;
-  onDensityChange?: (next: DataTableDensity) => void;
-  /** Optional: hide the global search input (controlled by settings dialog). */
+  /** Optional: hide the global search input (controlled by settings drawer). */
   showGlobalSearch?: boolean;
   /** Optional: right-aligned action buttons (e.g. "Descargar Reporte (CSV)"). */
   actions?: React.ReactNode;
-  /** Optional: open the settings dialog from the toolbar. */
+  /** Optional: open the settings drawer from the toolbar. */
   onOpenSettings?: () => void;
-  /** Optional: show the column visibility menu. */
-  showViewOptions?: boolean;
   className?: string;
 }
 
@@ -32,23 +25,20 @@ interface DataTableToolbarProps<TData> {
  * Toolbar sits at the top of the DataTable card. Layout:
  *
  * ┌─────────────────────────────────────────────────────────────┐
- * │ Title + count   [search btn] [view options] [settings] [actions] │
- * │ Description                                                     │
+ * │ Title + count   [search btn] [settings] [actions]           │
+ * │ Description                                                  │
  * └─────────────────────────────────────────────────────────────┘
  *
- * Mirrors the reference template's toolbar (search icon button at top right,
- * settings gear, then action buttons).
+ * Column visibility and other table settings live in a side drawer
+ * (DataTableSettingsDrawer), not a popover.
  */
 export function DataTableToolbar<TData>({
   table,
   globalFilter,
   onGlobalFilterChange,
-  density,
-  onDensityChange,
   showGlobalSearch = true,
   actions,
   onOpenSettings,
-  showViewOptions = true,
   className,
 }: DataTableToolbarProps<TData>) {
   const [searchOpen, setSearchOpen] = React.useState(false);
@@ -73,7 +63,7 @@ export function DataTableToolbar<TData>({
             </h3>
           )}
           {table.options.meta?.description !== undefined && (
-            <p className="text-sm text-muted-foreground mt-0.5">
+            <p className="text-sm text-muted-foreground mt-0.5 truncate">
               {table.options.meta.description as React.ReactNode}
             </p>
           )}
@@ -111,12 +101,6 @@ export function DataTableToolbar<TData>({
               )}
             </div>
           )}
-
-          {onDensityChange && (
-            <DataTableDensityToggle value={density} onChange={onDensityChange} />
-          )}
-
-          {showViewOptions && <DataTableViewOptions table={table} />}
 
           {onOpenSettings && (
             <TooltipIconButton

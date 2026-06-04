@@ -35,7 +35,7 @@ export function PageHeader({
           </h1>
         </div>
         {description && (
-          <p className="text-sm text-muted-foreground leading-relaxed max-w-prose">
+          <p className="text-sm text-muted-foreground leading-snug max-w-prose truncate" title={description}>
             {description}
           </p>
         )}

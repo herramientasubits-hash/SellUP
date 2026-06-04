@@ -49,12 +49,10 @@ import { DataTableToolbar } from "./data-table-toolbar";
 import { DataTablePagination } from "./data-table-pagination";
 import { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
 import {
-  DataTableSettingsDialog,
+  DataTableSettingsDrawer,
   DataTableSettingsTrigger,
   type DataTableSettings,
-} from "./data-table-settings";
-
-export type DataTableDensity = "comfortable" | "compact";
+} from "./data-table-settings-drawer";
 
 export interface DataTableBulkAction<TData> {
   id: string;
@@ -100,10 +98,6 @@ interface DataTableProps<TData> {
   /** Sticky header inside a scrollable container. */
   stickyHeader?: boolean;
 
-  /** Density variant. Default: "comfortable". */
-  density?: DataTableDensity;
-  onDensityChange?: (next: DataTableDensity) => void;
-
   /** Initial pagination size. Default: 20. */
   initialPageSize?: number;
   pageSizeOptions?: number[];
@@ -135,8 +129,6 @@ interface DataTableProps<TData> {
 }
 
 const DEFAULT_SETTINGS: DataTableSettings = {
-  editMode: "row",
-  loadMode: "pagination",
   globalSearch: true,
 };
 
@@ -160,8 +152,6 @@ export function DataTable<TData>({
   bulkActions = [],
   contextMenu,
   stickyHeader = false,
-  density = "comfortable",
-  onDensityChange,
   initialPageSize = 20,
   pageSizeOptions = [10, 20, 50, 100],
   enableColumnReorder = true,
@@ -182,12 +172,9 @@ export function DataTable<TData>({
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [columnPinning, setColumnPinning] = React.useState<ColumnPinningState>({ left: [], right: [] });
   const [columnOrder, setColumnOrder] = React.useState<ColumnOrderState>([]);
-  const [densityState, setDensityState] = React.useState<DataTableDensity>(density);
   const [settings, setSettings] = React.useState<DataTableSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
 
-  const effectiveDensity = onDensityChange ? density : densityState;
-  const setEffectiveDensity = onDensityChange ?? setDensityState;
   const showGlobalSearch = settings.globalSearch;
 
   // Build the effective column set with optional selection column prepended
@@ -274,12 +261,9 @@ export function DataTable<TData>({
             table={table}
             globalFilter={globalFilter}
             onGlobalFilterChange={setGlobalFilter}
-            density={effectiveDensity}
-            onDensityChange={setEffectiveDensity}
             showGlobalSearch={showGlobalSearch}
             actions={actions}
             onOpenSettings={() => setSettingsOpen(true)}
-            showViewOptions
           />
         )}
 
@@ -292,7 +276,6 @@ export function DataTable<TData>({
         <div
           className={cn(
             "su-table-wrapper relative w-full overflow-x-auto",
-            effectiveDensity === "compact" && "su-table-compact",
             stickyHeader && "max-h-[60vh]",
           )}
         >
@@ -393,11 +376,12 @@ export function DataTable<TData>({
         />
       )}
 
-      <DataTableSettingsDialog
+      <DataTableSettingsDrawer
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         value={settings}
         onChange={setSettings}
+        table={table}
       />
     </div>
   );
@@ -456,6 +440,4 @@ export {
   type DataTableColumnFilterOption,
   type DataTableColumnMeta,
 } from "./data-table-column-popover";
-export { DataTableViewOptions } from "./data-table-view-options";
-export { DataTableDensityToggle } from "./data-table-density-toggle";
-export { DataTableSettingsDialog, DataTableSettingsTrigger, type DataTableSettings };
+export { DataTableSettingsDrawer, DataTableSettingsTrigger, type DataTableSettings };
