@@ -21,7 +21,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { colombiaOfficialTaxProvider, checkIsColombiaProviderConfigured } from './tax-identifier-providers/colombia';
+import { colombiaOfficialTaxProvider, checkIsColombiaProviderConfigured, SocrataDebugInfo } from './tax-identifier-providers/colombia';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -75,6 +75,7 @@ export interface TaxIdentifierLookupMetadata {
   selected_candidate: null;
   warnings: string[];
   error: string | null;
+  debug?: unknown;
 }
 
 export interface LookupTaxIdentifierResult {
@@ -441,6 +442,9 @@ export async function lookupTaxIdentifierForCandidate({
     }
   }
 
+  let lookupError: string | null = null;
+  const context: { debug?: SocrataDebugInfo } = {};
+
   // ── 5. Verificar fuente oficial por país ─────────────────────
   if (countryCode.toUpperCase() === 'CO') {
     const isConfigured = await checkIsColombiaProviderConfigured();
@@ -456,7 +460,7 @@ export async function lookupTaxIdentifierForCandidate({
           domain: (candidate.domain as string | null) ?? null,
           city: (candidate.city as string | null) ?? null,
           country_code: countryCode,
-        });
+        }, context);
 
         if (officialCandidates.length > 0) {
           for (const c of officialCandidates) {
@@ -482,8 +486,14 @@ export async function lookupTaxIdentifierForCandidate({
         } else {
           warnings.push('Fuente oficial Colombia consultada sin resultados.');
         }
-      } catch {
-        warnings.push('Fuente oficial Colombia no disponible técnicamente.');
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Error desconocido';
+        if (errMsg === 'DATASET_MISSING_NIT') {
+          warnings.push('Fuente oficial Colombia consultada, pero no expone identificador fiscal.');
+        } else {
+          warnings.push('Fuente oficial Colombia no disponible temporalmente.');
+          lookupError = errMsg;
+        }
       }
     }
   } else if (foundCandidates.length === 0) {
@@ -506,8 +516,12 @@ export async function lookupTaxIdentifierForCandidate({
     candidates: foundCandidates,
     selected_candidate: null,
     warnings,
-    error: null,
+    error: lookupError,
   };
+
+  if (process.env.NODE_ENV !== 'production' && context.debug) {
+    lookup.debug = context.debug;
+  }
 
   // Guardar en metadata — ÚNICAMENTE en tax_identifier_lookup, nunca en tax_identifier
   const existingMetadata = (candidate.metadata as Record<string, unknown>) ?? {};

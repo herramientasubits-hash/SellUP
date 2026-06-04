@@ -1082,15 +1082,70 @@ export function CandidateDetailSheet({
                   {!taxIdLookupError &&
                     taxIdLookup?.status === 'no_result' &&
                     taxIdLookup.candidates.length === 0 && (
-                      <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                        {candidate.country_code?.toUpperCase() === 'CO'
-                          ? taxIdLookup.warnings?.some(
-                              (w) => w.includes('no configurada') || w.includes('No hay fuente fiscal')
-                            )
-                            ? 'No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.'
-                            : 'No encontramos un NIT confirmado en datos internos, HubSpot ni fuente oficial Colombia.'
-                          : 'No se encontró identificador fiscal con las fuentes disponibles.'}
-                      </p>
+                      <div className="space-y-1">
+                        {(() => {
+                          const isCO = candidate.country_code?.toUpperCase() === 'CO';
+                          if (!isCO) {
+                            return (
+                              <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                                No se encontró identificador fiscal con las fuentes disponibles.
+                              </p>
+                            );
+                          }
+
+                          const hasConfigWarning = taxIdLookup.warnings?.some(
+                            (w) => w.includes('no configurada') || w.includes('No hay fuente')
+                          );
+                          const hasTechWarning = taxIdLookup.warnings?.some(
+                            (w) => w.includes('no disponible')
+                          ) || !!taxIdLookup.error;
+                          const hasNoNitWarning = taxIdLookup.warnings?.some(
+                            (w) => w.includes('no expone')
+                          );
+
+                          if (hasConfigWarning) {
+                            return (
+                              <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                                No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.
+                              </p>
+                            );
+                          }
+
+                          if (hasTechWarning) {
+                            return (
+                              <div className="space-y-1">
+                                <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
+                                  No fue posible consultar la fuente oficial Colombia en este momento.
+                                </p>
+                                {taxIdLookup.error && (
+                                  <details className="text-[10px] text-muted-foreground/50 cursor-pointer">
+                                    <summary className="hover:text-muted-foreground transition-colors select-none font-medium">
+                                      Detalles técnicos
+                                    </summary>
+                                    <pre className="mt-1 font-mono bg-muted/40 p-1.5 rounded-md overflow-x-auto text-[9px] border border-border/20 max-w-full whitespace-pre-wrap break-all">
+                                      {taxIdLookup.error}
+                                    </pre>
+                                  </details>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          if (hasNoNitWarning) {
+                            return (
+                              <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
+                                La fuente oficial consultada no expone identificador fiscal en los datos disponibles.
+                              </p>
+                            );
+                          }
+
+                          return (
+                            <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                              No encontramos un NIT confirmado en datos internos, HubSpot ni fuente oficial Colombia.
+                            </p>
+                          );
+                        })()}
+                      </div>
                     )}
 
                   {taxIdLookup?.warnings && taxIdLookup.warnings.length > 0 && (
@@ -1100,7 +1155,11 @@ export function CandidateDetailSheet({
                           (w) =>
                             !(
                               candidate.country_code?.toUpperCase() === 'CO' &&
-                              (w.includes('no configurada') || w.includes('No hay fuente fiscal'))
+                              (w.includes('no configurada') ||
+                                w.includes('No hay fuente') ||
+                                w.includes('no disponible') ||
+                                w.includes('no expone') ||
+                                w.includes('sin resultados'))
                             )
                         )
                         .map((w, i) => (
@@ -1108,6 +1167,14 @@ export function CandidateDetailSheet({
                             {w}
                           </p>
                         ))}
+                      {/* Caso consultado sin resultados - detalle en gris itálica */}
+                      {candidate.country_code?.toUpperCase() === 'CO' &&
+                        taxIdLookup.candidates.length === 0 &&
+                        taxIdLookup.warnings.some((w) => w.includes('sin resultados')) && (
+                          <p className="text-[10px] text-muted-foreground/60 italic">
+                            Fuente oficial Colombia consultada sin resultados.
+                          </p>
+                        )}
                     </div>
                   )}
 

@@ -25,12 +25,38 @@ export interface TaxIdentifierProviderInput {
   country_code: string;
 }
 
+export interface SocrataDebugInfo {
+  socrata_availability: {
+    available: boolean;
+    source_key: string;
+    connection_status: string;
+    enabled_by: 'source_catalog_connections' | 'env' | 'none';
+  };
+  socrata_request: {
+    dataset_id: string;
+    base_url: string;
+    query_mode: string;
+    company_name: string;
+    normalized_company_name: string;
+  };
+  socrata_response: {
+    ok: boolean;
+    status: number | null;
+    records_count: number;
+    error_kind: 'config_missing' | 'empty_query' | 'network_error' | 'http_error' | 'no_records' | 'dataset_missing_nit' | null;
+    safe_error_message: string | null;
+  };
+}
+
 export interface TaxIdentifierProvider {
   key: string;
   country_code: string;
   display_name: string;
   is_configured: boolean;
-  lookup(input: TaxIdentifierProviderInput): Promise<TaxIdentifierProviderResult[]>;
+  lookup(
+    input: TaxIdentifierProviderInput,
+    context?: { debug?: SocrataDebugInfo }
+  ): Promise<TaxIdentifierProviderResult[]>;
 }
 
 /**
@@ -244,36 +270,166 @@ export const colombiaOfficialTaxProvider: TaxIdentifierProvider = {
     return process.env.COLOMBIA_TAX_PROVIDER_ENABLED === 'true';
   },
 
-  async lookup(input: TaxIdentifierProviderInput): Promise<TaxIdentifierProviderResult[]> {
-    const isConfigured = await checkIsColombiaProviderConfigured();
-    if (!isConfigured) {
+  async lookup(
+    input: TaxIdentifierProviderInput,
+    context?: { debug?: SocrataDebugInfo }
+  ): Promise<TaxIdentifierProviderResult[]> {
+    const availability = await checkSocrataColombiaAvailability();
+
+    if (context) {
+      context.debug = {
+        socrata_availability: {
+          available: availability.available,
+          source_key: availability.source_key,
+          connection_status: availability.connection_status,
+          enabled_by: availability.enabled_by,
+        },
+        socrata_request: {
+          dataset_id: 'c82u-588k',
+          base_url: 'https://www.datos.gov.co/resource/c82u-588k.json',
+          query_mode: 'none',
+          company_name: input.company_name || input.legal_name || '',
+          normalized_company_name: '',
+        },
+        socrata_response: {
+          ok: false,
+          status: null,
+          records_count: 0,
+          error_kind: null,
+          safe_error_message: null,
+        },
+      };
+    }
+
+    if (!availability.available) {
+      if (context && context.debug) {
+        context.debug.socrata_response.error_kind = 'config_missing';
+        context.debug.socrata_response.safe_error_message = 'Fuente oficial Colombia no configurada.';
+      }
       return [];
     }
 
     const companyName = input.company_name || input.legal_name || '';
     const cleanName = cleanCompanyNameForLookup(companyName);
+
+    if (context && context.debug) {
+      context.debug.socrata_request.normalized_company_name = cleanName;
+    }
+
     if (cleanName.length < 3) {
+      if (context && context.debug) {
+        context.debug.socrata_response.ok = true;
+        context.debug.socrata_response.status = 200;
+        context.debug.socrata_response.error_kind = 'empty_query';
+        context.debug.socrata_response.safe_error_message = 'Nombre de empresa demasiado corto para búsqueda.';
+      }
       return [];
     }
 
-    // SoQL Query: evitar personas naturales y hacer match case-insensitive de razón social
-    const where = `organizacion_juridica IS NOT NULL AND organizacion_juridica != 'PERSONA NATURAL' AND upper(razon_social) like '%${cleanName}%'`;
+    const baseWhere = `organizacion_juridica IS NOT NULL AND organizacion_juridica != 'PERSONA NATURAL'`;
+    let response: Awaited<ReturnType<typeof fetchSocrataDatasetSample>>;
+    let queryMode = 'q_search';
 
-    const response = await fetchSocrataDatasetSample({
-      dataset: 'rues',
-      limit: 10,
-      where,
-    });
+    if (context && context.debug) {
+      context.debug.socrata_request.query_mode = queryMode;
+    }
+
+    try {
+      response = await fetchSocrataDatasetSample({
+        dataset: 'rues',
+        limit: 10,
+        q: cleanName,
+        where: baseWhere,
+      });
+
+      const GENERIC_WORDS = new Set([
+        'EMPRESA', 'EMPRESAS', 'COMPANIA', 'COMPAÑIA', 'COMPANIAS', 'COMPAÑIAS',
+        'GRUPO', 'HOLDING', 'CORPORACION', 'CORPORACIONES', 'FUNDACION', 'FUNDACIONES',
+        'ASOCIACION', 'ASOCIACIONES', 'COLOMBIA', 'COLOMBIANA', 'COLOMBIANAS', 'COLOMBIANO', 'COLOMBIANOS',
+        'SERVICIOS', 'SERVICIO', 'PRODUCTOS', 'PRODUCTO', 'SISTEMAS', 'SISTEMA',
+        'TECNOLOGIA', 'TECNOLOGIAS', 'INVERSIONES', 'INVERSION', 'NEGOCIOS', 'NEGOCIO',
+        'SOLUCIONES', 'SOLUCION', 'INTERNACIONAL', 'INTERNACIONALES', 'GLOBAL', 'GLOBALES',
+        'AMERICA', 'LATAM', 'ANDINA', 'ANDINO', 'LTDA', 'LIMITADA', 'SAS', 'SA', 'S.A.S.', 'S.A.',
+        'CONSORCIO', 'CONSORCIOS', 'UNION', 'TEMPORAL', 'UNIONES', 'TEMPORALES',
+        'COOPERATIVA', 'COOPERATIVAS', 'COOP', 'PROYECTOS', 'PROYECTO', 'DESARROLLOS', 'DESARROLLO',
+        'DISTRIBUIDORA', 'DISTRIBUIDORAS', 'COMERCIALIZADORA', 'COMERCIALIZADORAS',
+        'REPRESENTACIONES', 'REPRESENTACION', 'IMPORTACIONES', 'IMPORTACION', 'EXPORTACIONES', 'EXPORTACION',
+        'LATINOAMERICA', 'LATINOAMERICANA', 'LATINOAMERICANO', 'IBEROAMERICA', 'IBEROAMERICANA', 'IBEROAMERICANO'
+      ]);
+      const tokens = cleanName.split(' ').filter(t => t.length >= 3 && !GENERIC_WORDS.has(t));
+      if (response.ok && (!response.records || response.records.length === 0) && tokens.length > 0) {
+        queryMode = 'token_fallback';
+        if (context && context.debug) {
+          context.debug.socrata_request.query_mode = queryMode;
+        }
+        const firstToken = tokens[0];
+        response = await fetchSocrataDatasetSample({
+          dataset: 'rues',
+          limit: 10,
+          q: firstToken,
+          where: baseWhere,
+        });
+
+        if (response.ok && (!response.records || response.records.length === 0)) {
+          queryMode = 'like_fallback';
+          if (context && context.debug) {
+            context.debug.socrata_request.query_mode = queryMode;
+          }
+          response = await fetchSocrataDatasetSample({
+            dataset: 'rues',
+            limit: 10,
+            where: `${baseWhere} AND upper(razon_social) like '%${firstToken}%'`,
+          });
+        }
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Error de red';
+      if (context && context.debug) {
+        context.debug.socrata_response.ok = false;
+        context.debug.socrata_response.error_kind = 'network_error';
+        context.debug.socrata_response.safe_error_message = errMsg;
+      }
+      throw err;
+    }
+
+    if (context && context.debug) {
+      context.debug.socrata_response.ok = response.ok;
+      if (!response.ok) {
+        const httpStatusMatch = response.error?.match(/HTTP (\d+)/);
+        context.debug.socrata_response.status = httpStatusMatch ? parseInt(httpStatusMatch[1]) : null;
+        context.debug.socrata_response.error_kind = 'http_error';
+        context.debug.socrata_response.safe_error_message = response.error;
+      } else {
+        context.debug.socrata_response.status = 200;
+        context.debug.socrata_response.records_count = response.records?.length || 0;
+      }
+    }
 
     if (!response.ok) {
       throw new Error(response.error || 'Fallo de conexión técnica con datos.gov.co');
     }
 
-    if (!response.records) {
-      throw new Error('Fallo de conexión técnica con datos.gov.co: no se devolvieron registros');
+    if (!response.records || response.records.length === 0) {
+      if (context && context.debug) {
+        context.debug.socrata_response.error_kind = 'no_records';
+        context.debug.socrata_response.safe_error_message = 'No se encontraron registros.';
+      }
+      return [];
     }
 
     const rawRecords = response.records as Record<string, unknown>[];
+
+    // Verificar si el dataset expone NIT
+    const sampleRecord = rawRecords[0];
+    const hasNitField = sampleRecord && ('numero_identificacion' in sampleRecord || 'nit' in sampleRecord);
+    if (!hasNitField) {
+      if (context && context.debug) {
+        context.debug.socrata_response.error_kind = 'dataset_missing_nit';
+        context.debug.socrata_response.safe_error_message = 'El dataset disponible no expone NIT.';
+      }
+      throw new Error('DATASET_MISSING_NIT');
+    }
+
     const candidates: TaxIdentifierProviderResult[] = [];
 
     for (const record of rawRecords) {
@@ -294,8 +450,16 @@ export const colombiaOfficialTaxProvider: TaxIdentifierProvider = {
         score += 40;
         matchReason = 'Coincidencia parcial de razón social.';
       } else {
-        score += 10;
-        matchReason = 'Coincidencia difusa de razón social.';
+        const cleanTokens = cleanName.split(' ').filter(t => t.length >= 3);
+        const recordTokens = recordNameClean.split(' ').filter(t => t.length >= 3);
+        const hasCommonToken = cleanTokens.some(t => recordTokens.includes(t));
+        if (hasCommonToken) {
+          score += 25;
+          matchReason = 'Coincidencia parcial por tokens de razón social.';
+        } else {
+          score += 5;
+          matchReason = 'Coincidencia difusa de razón social.';
+        }
       }
 
       // Comparar ubicación (Cámara de Comercio / Ciudad)
@@ -329,7 +493,7 @@ export const colombiaOfficialTaxProvider: TaxIdentifierProvider = {
         normalized_tax_identifier: cleanNit,
         legal_name: normalized.companyName,
         source_name: 'RUES / Registro Mercantil Colombia (datos.gov.co)',
-        source_type: 'public_registry',
+        source_type: 'government_dataset',
         source_url: `https://www.datos.gov.co/resource/c82u-588k.json?numero_identificacion=${cleanNit.split('-')[0]}`,
         evidence_text: `Encontrado en RUES de datos.gov.co. Razón Social: ${normalized.companyName}, NIT: ${normalized.taxId}, Estado: ${normalized.legalStatus || 'No registrado'}, Matrícula: ${normalized.rawRecordId || 'No registrada'}, Cámara de Comercio: ${normalized.sourceMetadata?.camara_comercio || 'No registrada'}.`,
         confidence,

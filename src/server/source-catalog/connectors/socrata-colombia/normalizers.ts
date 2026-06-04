@@ -549,12 +549,18 @@ export function normalizeRuesRecord(
   const sectorCode = str(record.cod_ciiu_act_econ_pri);
   const sectorDescription = getCiiuSectorDescription(sectorCode);
 
+  let taxId = str(record.numero_identificacion) || str(record.nit);
+  const dv = str(record.digito_verificacion);
+  if (taxId && dv) {
+    taxId = `${taxId}-${dv}`;
+  }
+
   return {
     source: 'rues',
     sourceKey: meta.sourceKey,
     datasetId: meta.datasetId,
     companyName: str(record.razon_social),
-    taxId: str(record.numero_identificacion),
+    taxId,
     legalStatus: str(record.estado_matricula),
     sectorCode,
     sectorDescription,

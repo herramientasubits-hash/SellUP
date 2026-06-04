@@ -25,6 +25,7 @@ type FetchSocrataParams = {
   where?: string;
   select?: string;
   order?: string;
+  q?: string;
 };
 
 type FetchSocrataResult =
@@ -46,6 +47,7 @@ export async function fetchSocrataDatasetSample(
     $where: params.where,
     $select: params.select,
     $order: params.order,
+    $q: params.q,
   });
 
   const controller = new AbortController();
