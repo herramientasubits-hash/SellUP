@@ -44,7 +44,7 @@ declare module "@tanstack/react-table" {
 import type { RowData } from "@tanstack/react-table";
 
 import { DataTableContextMenu, type DataTableContextMenuItem } from "./data-table-context-menu";
-import { DataTableColumnReorder } from "./data-table-column-reorder";
+import { DataTableColumnReorder, SortableTableHead } from "./data-table-column-reorder";
 import { DataTableToolbar } from "./data-table-toolbar";
 import { DataTablePagination } from "./data-table-pagination";
 import { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
@@ -303,8 +303,8 @@ export function DataTable<TData>({
                   {enableColumnReorder ? (
                     <DataTableColumnReorder
                       columnOrder={
-                        table.getState().columnOrder.length > 0
-                          ? table.getState().columnOrder
+                        table.getState().columnOrder && table.getState().columnOrder.length > 0
+                          ? table.getState().columnOrder!
                           : headerGroup.headers.map((h) => h.column.id)
                       }
                       disabledColumns={pinnedColumnIds}
@@ -314,15 +314,17 @@ export function DataTable<TData>({
                         const header = headerGroup.headers.find((h) => h.column.id === columnId);
                         if (!header) return null;
                         return (
-                          <TableHead
+                          <SortableTableHead
                             key={header.id}
+                            id={columnId}
+                            disabled={pinnedColumnIds.includes(columnId)}
                             style={{ width: header.column.columnDef.size }}
                             data-column-id={columnId}
                           >
                             {header.isPlaceholder
                               ? null
                               : flexRender(header.column.columnDef.header, header.getContext())}
-                          </TableHead>
+                          </SortableTableHead>
                         );
                       }}
                     </DataTableColumnReorder>

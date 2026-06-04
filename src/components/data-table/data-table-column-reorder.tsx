@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { GripVertical } from "lucide-react";
 import {
   DndContext,
   type DragEndEvent,
@@ -19,6 +18,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { TableHead } from "@/components/ui/table";
 
 import { cn } from "@/lib/utils";
 
@@ -32,14 +32,12 @@ interface DataTableColumnReorderProps {
 }
 
 /**
- * Wraps the table header row with @dnd-kit to support column reordering
- * via drag-and-drop. Each child (column header) gets wrapped in a
- * SortableContext item; consumers should call `children(columnId)` for
- * each visible column id in the order they should appear.
+ * Provider for column drag-and-drop. Wrap a `<thead>` (or a fragment
+ * containing one) with this component, and pass a `children` render
+ * function that returns a `<SortableTableHead>` for each column.
  *
- * Disabled columns (e.g. selection checkbox, drag-handle, actions) are
- * excluded from the sortable context so they stay anchored to the left/
- * right edges of the table.
+ * Disabled columns (e.g. selection checkbox, actions) are excluded from
+ * the sortable context so they stay anchored to the left/right edges.
  */
 export function DataTableColumnReorder({
   columnOrder,
@@ -85,61 +83,80 @@ export function DataTableColumnReorder({
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={sortableColumns} strategy={horizontalListSortingStrategy}>
-        <div className="contents">
-          {columnOrder.map((id) => (
-            <SortableColumnItem key={id} id={id} disabled={disabledColumns.includes(id)}>
-              {children(id)}
-            </SortableColumnItem>
-          ))}
-        </div>
+        {columnOrder.map((id) => (
+          <React.Fragment key={id}>{children(id)}</React.Fragment>
+        ))}
       </SortableContext>
     </DndContext>
   );
 }
 
-interface SortableColumnItemProps {
+interface SortableTableHeadProps
+  extends Omit<React.ComponentProps<typeof TableHead>, "ref"> {
   id: string;
-  disabled: boolean;
-  children: React.ReactNode;
+  disabled?: boolean;
 }
 
-function SortableColumnItem({ id, disabled, children }: SortableColumnItemProps) {
+/**
+ * `<th>` that participates in the parent `<DataTableColumnReorder>`
+ * dnd-kit context. Drag the cell to reorder; pinned columns pass
+ * `disabled` to opt out.
+ */
+export function SortableTableHead({
+  id,
+  disabled = false,
+  className,
+  style,
+  children,
+  ...rest
+}: SortableTableHeadProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
     disabled,
   });
 
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
+  const sortableStyle: React.CSSProperties = {
+    ...style,
+    transform: CSS.Translate.toString(transform),
     transition,
-    opacity: isDragging ? 0.6 : 1,
+    opacity: isDragging ? 0.6 : undefined,
+    position: "relative",
+    zIndex: isDragging ? 30 : undefined,
   };
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "contents",
-        isDragging && "z-50",
-      )}
+    <th
+      ref={disabled ? undefined : setNodeRef}
+      style={sortableStyle}
+      className={cn(className, isDragging && "cursor-grabbing")}
+      data-column-id={id}
       {...(disabled ? {} : attributes)}
       {...(disabled ? {} : listeners)}
-      data-column-id={id}
+      {...rest}
     >
       {children}
-    </div>
+    </th>
   );
 }
 
 /** Grip handle icon for column header drag affordance. */
 export function DataTableDragHandle({ className }: { className?: string }) {
   return (
-    <GripVertical
+    <span
+      aria-hidden
       className={cn(
-        "h-3 w-3 text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing",
+        "inline-flex h-3 w-3 text-muted-foreground/40",
         className,
       )}
-    />
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" className="h-full w-full">
+        <circle cx="9" cy="6" r="1.5" />
+        <circle cx="9" cy="12" r="1.5" />
+        <circle cx="9" cy="18" r="1.5" />
+        <circle cx="15" cy="6" r="1.5" />
+        <circle cx="15" cy="12" r="1.5" />
+        <circle cx="15" cy="18" r="1.5" />
+      </svg>
+    </span>
   );
 }
