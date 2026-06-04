@@ -70,7 +70,7 @@ export interface HubSpotSyncResult {
 
 // ── Auth helpers ──────────────────────────────────────────────
 
-async function requireActiveUser(): Promise<{ internalUserId: string }> {
+export async function requireActiveUser(): Promise<{ internalUserId: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
@@ -3678,3 +3678,56 @@ export async function getGlobalCandidatesList(
     total: count ?? 0,
   };
 }
+
+export interface ProspectsKPIs {
+  needsReview: number;
+  readyForApproval: number;
+  possibleDuplicates: number;
+  importedRecently: number;
+}
+
+export async function getGlobalProspectsKPIs(): Promise<ProspectsKPIs> {
+  await requireActiveUser();
+  const supabase = await createClient();
+
+  // Calculate 7 days ago timestamp
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [needsReviewRes, readyForApprovalRes, possibleDuplicatesRes, importedRecentlyRes] = await Promise.all([
+    // 1. Pendientes de revisión (candidates with status needs_review, generated, normalized)
+    supabase
+      .from('prospect_candidates')
+      .select('*', { count: 'exact', head: true })
+      .in('status', ['needs_review', 'generated', 'normalized']),
+
+    // 2. Listos para aprobar (status in needs_review, generated, normalized AND (review_status is null or ready_for_approval) AND not blocked by exact duplicate / unchecked / insufficient data)
+    supabase
+      .from('prospect_candidates')
+      .select('*', { count: 'exact', head: true })
+      .in('status', ['needs_review', 'generated', 'normalized'])
+      .or('review_status.is.null,review_status.eq.ready_for_approval')
+      .in('duplicate_status', ['no_match', 'related_company', 'possible_duplicate']),
+
+    // 3. Posibles duplicados (duplicate_status = possible_duplicate in active review states)
+    supabase
+      .from('prospect_candidates')
+      .select('*', { count: 'exact', head: true })
+      .in('status', ['needs_review', 'generated', 'normalized'])
+      .eq('duplicate_status', 'possible_duplicate'),
+
+    // 4. Importados recientemente (source_primary = external_import in the last 7 days)
+    supabase
+      .from('prospect_candidates')
+      .select('*', { count: 'exact', head: true })
+      .eq('source_primary', 'external_import')
+      .gte('created_at', sevenDaysAgo),
+  ]);
+
+  return {
+    needsReview: needsReviewRes.count ?? 0,
+    readyForApproval: readyForApprovalRes.count ?? 0,
+    possibleDuplicates: possibleDuplicatesRes.count ?? 0,
+    importedRecently: importedRecentlyRes.count ?? 0,
+  };
+}
+

@@ -1,0 +1,350 @@
+'use client';
+
+import * as React from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { 
+  Building2, 
+  Search, 
+  Upload, 
+  Layers, 
+  Filter, 
+  ChevronLeft, 
+  ChevronRight
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
+import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
+import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
+import { LATAM_COUNTRIES, INDUSTRIES } from '@/modules/prospect-batches/types';
+import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
+
+// Origin options corresponding to BatchSource
+const ORIGIN_OPTIONS = [
+  { value: 'manual', label: 'Creación manual' },
+  { value: 'external_import', label: 'Importación externa' },
+  { value: 'agent_1', label: 'Generado por IA' },
+  { value: 'socrata_colombia', label: 'RUES Colombia' },
+  { value: 'datos_gob_cl', label: 'Oficial Chile' },
+  { value: 'denue_mexico', label: 'DENUE México' },
+  { value: 'apollo', label: 'Apollo' },
+];
+
+const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pendientes de revisión' },
+  { value: 'approved', label: 'Aprobados' },
+  { value: 'discarded', label: 'Descartados' },
+  { value: 'duplicate', label: 'Duplicados' },
+  { value: 'converted_to_account', label: 'Convertidos' },
+];
+
+interface ProspectsTrayClientProps {
+  candidates: ProspectCandidateWithReviewer[];
+  total: number;
+  limit: number;
+  page: number;
+}
+
+export function ProspectsTrayClient({
+  candidates,
+  total,
+  limit,
+  page,
+}: ProspectsTrayClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Filter states
+  const [search, setSearch] = React.useState<string>(searchParams.get('search') ?? '');
+  const activeStatus: string = searchParams.get('status') ?? 'pending';
+  const activeCountry: string = searchParams.get('country') ?? 'all';
+  const activeIndustry: string = searchParams.get('industry') ?? 'all';
+  const activeOrigin: string = searchParams.get('source') ?? 'all';
+
+
+
+  const isFilteredOnly = 
+    search.trim() !== '' ||
+    activeStatus !== 'pending' ||
+    activeCountry !== 'all' ||
+    activeIndustry !== 'all' ||
+    activeOrigin !== 'all';
+
+  // Debounce search input to avoid re-rendering RSC on every keystroke
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      const current = new URLSearchParams(Array.from(searchParams.entries()));
+      if (search.trim()) {
+        current.set('search', search.trim());
+      } else {
+        current.delete('search');
+      }
+      current.delete('page'); // Reset page when query changes
+      router.push(`${pathname}?${current.toString()}`);
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [search, pathname, searchParams, router]);
+
+  const updateFilter = (key: string, value: string | null) => {
+    const current = new URLSearchParams(Array.from(searchParams.entries()));
+    if (value && value !== 'all') {
+      current.set(key, value);
+    } else {
+      current.delete(key);
+    }
+    current.delete('page'); // Reset page on filter change
+    router.push(`${pathname}?${current.toString()}`);
+  };
+
+  const clearAllFilters = () => {
+    setSearch('');
+    router.push(pathname); // Navigate to /prospects without params
+  };
+
+  const totalPages = Math.ceil(total / limit);
+  const startRow = (page - 1) * limit + 1;
+  const endRow = Math.min(page * limit, total);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    const current = new URLSearchParams(Array.from(searchParams.entries()));
+    current.set('page', String(newPage));
+    router.push(`${pathname}?${current.toString()}`);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Barra de filtros */}
+      <div className="flex flex-col gap-4 rounded-xl border border-border/40 bg-card p-4 sm:flex-row sm:items-center">
+        {/* Input de búsqueda */}
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground/60" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre de empresa..."
+            className="pl-9 text-xs h-9 bg-muted/40 border-border/50 focus-visible:ring-1 focus-visible:ring-su-brand/50"
+          />
+        </div>
+
+        {/* Contenedor de selects */}
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
+          {/* Select de Estado */}
+          <Select value={activeStatus} onValueChange={(val) => updateFilter('status', val)}>
+            <SelectTrigger className="h-9 w-full sm:w-[155px] text-xs bg-muted/40 border-border/50">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Select de País */}
+          <Select value={activeCountry} onValueChange={(val) => updateFilter('country', val)}>
+            <SelectTrigger className="h-9 w-full sm:w-[130px] text-xs bg-muted/40 border-border/50">
+              <SelectValue placeholder="Todos los países" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los países</SelectItem>
+              {LATAM_COUNTRIES.map((c) => (
+                <SelectItem key={c.code} value={c.code} className="text-xs">
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Select de Sector */}
+          <Select value={activeIndustry} onValueChange={(val) => updateFilter('industry', val)}>
+            <SelectTrigger className="h-9 w-full sm:w-[150px] text-xs bg-muted/40 border-border/50">
+              <SelectValue placeholder="Todos los sectores" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los sectores</SelectItem>
+              {INDUSTRIES.map((ind) => (
+                <SelectItem key={ind} value={ind} className="text-xs">
+                  {ind}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Select de Origen */}
+          <Select value={activeOrigin} onValueChange={(val) => updateFilter('source', val)}>
+            <SelectTrigger className="h-9 w-full sm:w-[145px] text-xs bg-muted/40 border-border/50">
+              <SelectValue placeholder="Todos los orígenes" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los orígenes</SelectItem>
+              {ORIGIN_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Limpiar filtros */}
+        {isFilteredOnly && (
+          <Button
+            variant="ghost"
+            onClick={clearAllFilters}
+            className="h-9 px-3 text-xs text-muted-foreground hover:text-foreground shrink-0 border border-border/30 sm:border-0 hover:bg-muted/40"
+          >
+            Limpiar filtros
+          </Button>
+        )}
+      </div>
+
+      {/* Tabla y estado vacío */}
+      {candidates.length === 0 ? (
+        isFilteredOnly ? (
+          /* Estado vacío por filtros */
+          <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-xl bg-card border-border/40">
+            <div className="mb-3 rounded-full bg-muted/60 p-3">
+              <Filter className="h-6 w-6 text-muted-foreground/50" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">No se encontraron prospectos</p>
+            <p className="mt-1 text-xs text-muted-foreground/60 max-w-xs">
+              Intenta ajustando los filtros o el término de búsqueda para ver más resultados.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearAllFilters}
+              className="mt-4 gap-1.5 text-xs"
+            >
+              Restaurar filtros
+            </Button>
+          </div>
+        ) : (
+          /* Estado vacío total */
+          <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-xl bg-card border-border/40">
+            <div className="mb-4 rounded-full bg-muted/60 p-3">
+              <Building2 className="h-8 w-8 text-muted-foreground/30" />
+            </div>
+            <h3 className="text-sm font-semibold text-foreground">Todavía no hay prospectos por revisar</h3>
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed max-w-sm">
+              Agrega candidatos manualmente o impórtalos de fuentes externas para comenzar a gestionarlos.
+            </p>
+            <div className="mt-6 flex items-center gap-3">
+              <ImportCandidatesDrawer>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Upload className="h-3.5 w-3.5" />
+                  Importar prospectos
+                </Button>
+              </ImportCandidatesDrawer>
+              <CreateCandidateDrawer />
+            </div>
+          </div>
+        )
+      ) : (
+        /* Listado de prospectos */
+        <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5 bg-muted/[0.08]">
+            <p className="text-xs font-semibold text-foreground/80">
+              Mostrando {startRow} - {endRow} de {total} prospectos
+            </p>
+            <div className="flex items-center gap-1">
+              <Layers className="h-3.5 w-3.5 text-muted-foreground/50" />
+              <span className="text-[10px] text-muted-foreground/60 font-mono uppercase">
+                Página {page} de {totalPages || 1}
+              </span>
+            </div>
+          </div>
+
+          <CandidatesTableClient candidates={candidates} />
+
+          {/* Paginación */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-border/40 px-5 py-3.5 bg-muted/[0.04]">
+              <span className="text-xs text-muted-foreground/75">
+                Página {page} de {totalPages}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={page === 1}
+                  className="h-8 gap-1 text-xs px-2.5 hover:bg-muted/40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Anterior
+                </Button>
+                
+                {/* List de páginas simplificado */}
+                <div className="hidden sm:flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    // Mostrar páginas centradas alrededor de la página actual
+                    let pageNum = i + 1;
+                    if (page > 3 && totalPages > 5) {
+                      pageNum = page - 3 + i;
+                      if (pageNum + (4 - i) > totalPages) {
+                        pageNum = totalPages - 4 + i;
+                      }
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={page === pageNum ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`h-8 w-8 text-xs p-0 ${
+                          page === pageNum 
+                            ? 'bg-foreground text-background font-semibold hover:bg-foreground/90' 
+                            : 'hover:bg-muted/40'
+                        }`}
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                  {totalPages > 5 && page + 2 < totalPages && (
+                    <span className="text-xs text-muted-foreground px-1 select-none">…</span>
+                  )}
+                  {totalPages > 5 && page + 2 < totalPages && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(totalPages)}
+                      className="h-8 w-8 text-xs p-0 hover:bg-muted/40"
+                    >
+                      {totalPages}
+                    </Button>
+                  )}
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={page === totalPages}
+                  className="h-8 gap-1 text-xs px-2.5 hover:bg-muted/40"
+                >
+                  Siguiente
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

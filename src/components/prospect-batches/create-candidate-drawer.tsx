@@ -27,7 +27,9 @@ import {
 import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 
 interface CreateCandidateDrawerProps {
-  batchId: string;
+  batchId?: string;
+  triggerText?: string;
+  triggerVariant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
 }
 
 const EMPTY = {
@@ -45,7 +47,11 @@ const EMPTY = {
   review_notes: '',
 };
 
-export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
+export function CreateCandidateDrawer({
+  batchId,
+  triggerText,
+  triggerVariant = 'outline',
+}: CreateCandidateDrawerProps) {
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState({ ...EMPTY });
   const [saving, setSaving] = React.useState(false);
@@ -97,9 +103,9 @@ export function CreateCandidateDrawer({ batchId }: CreateCandidateDrawerProps) {
       open={open}
       onOpenChange={(v) => !v && handleClose()}
       trigger={
-        <Button onClick={() => setOpen(true)} variant="outline" size="sm" className="gap-1.5">
+        <Button onClick={() => setOpen(true)} variant={triggerVariant} size="sm" className="gap-1.5">
           <Plus className="h-3.5 w-3.5" />
-          Agregar empresa candidata
+          {triggerText ?? 'Agregar empresa candidata'}
         </Button>
       }
       title="Nueva empresa candidata"

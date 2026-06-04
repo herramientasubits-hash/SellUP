@@ -387,6 +387,34 @@ function EmptyState() {
   );
 }
 
+interface CandidateWithBatch extends ProspectCandidateWithReviewer {
+  batch?: { name: string; source: string; created_at: string } | null;
+}
+
+function getCandidateOriginLabel(candidate: CandidateWithBatch): string {
+  const batch = candidate.batch;
+  if (!batch) return 'Creación manual';
+  if (batch.source === 'manual') return 'Creación manual';
+  if (batch.source === 'external_import') {
+    if (batch.created_at) {
+      const date = new Date(batch.created_at).toLocaleDateString('es-CO', {
+        day: '2-digit',
+        month: 'short',
+      });
+      return `Importado el ${date}`;
+    }
+    return 'Importación externa';
+  }
+  if (batch.source === 'agent_1') return 'Generado por IA';
+  const sourceLabels: Record<string, string> = {
+    socrata_colombia: 'RUES Colombia',
+    datos_gob_cl: 'Oficial Chile',
+    denue_mexico: 'DENUE México',
+    apollo: 'Apollo',
+  };
+  return sourceLabels[batch.source] ?? batch.name ?? 'Origen desconocido';
+}
+
 interface CandidatesTableClientProps {
   candidates: ProspectCandidateWithReviewer[];
 }
@@ -576,6 +604,11 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           )}
                         </span>
                       ) : null}
+                      {(c as CandidateWithBatch).batch && (
+                        <p className="text-[10px] text-muted-foreground/60 font-medium">
+                          {getCandidateOriginLabel(c as CandidateWithBatch)}
+                        </p>
+                      )}
                       {isChileOfficialCandidate ? (
                         <span className="text-[10px] text-muted-foreground/60 italic">
                           Sector no disponible en fuente oficial
