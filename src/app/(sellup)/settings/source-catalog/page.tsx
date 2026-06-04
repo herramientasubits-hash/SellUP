@@ -1,4 +1,4 @@
-import { PageHeader } from '@/components/shared/page-header';
+import { DataTablePage } from '@/components/shared/data-table-page';
 import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
 import { getLatestConnectionTestsBySource } from '@/modules/source-catalog/history-queries';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
@@ -26,33 +26,31 @@ export default async function SourceCatalogPage() {
   ];
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        title="Catálogo de fuentes"
-        description="Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp para discovery, inventario, validación y señales comerciales."
-        backHref="/settings"
-      />
-
-      {/* Metric cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {metricCards.map((card) => (
-          <div
-            key={card.label}
-            className="rounded-xl border border-border/50 bg-card p-4 space-y-1"
-          >
-            <p className="text-2xl font-semibold tabular-nums text-foreground">
-              {card.value}
-            </p>
-            <p className="text-[11px] text-muted-foreground leading-tight">{card.label}</p>
-          </div>
-        ))}
-      </div>
-
+    <DataTablePage
+      title="Catálogo de fuentes"
+      description="Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp para discovery, inventario, validación y señales comerciales."
+      backHref="/settings"
+      metrics={
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {metricCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-xl border border-border/50 bg-card p-4 space-y-1"
+            >
+              <p className="text-2xl font-semibold tabular-nums text-foreground">
+                {card.value}
+              </p>
+              <p className="text-[11px] text-muted-foreground leading-tight">{card.label}</p>
+            </div>
+          ))}
+        </div>
+      }
+    >
       <SourceCatalogClient
         viewModel={viewModel}
         latestTests={latestTests}
         socrataBatches={socrataBatches}
       />
-    </div>
+    </DataTablePage>
   );
 }

@@ -99,13 +99,13 @@ Then verify:
 When in doubt, consult these files in order:
 
 1. **`docs/DESIGN_SYSTEM_FOUNDATION.md`**  
-   Official Design System specification. Current sections: purpose, principles, tokens, typography, radius/shadows, base components, Light/Dark, rules for future pages (§ 1–9), DataTable system (§ 10), Drawer con Tabs pattern (§ 11), Floating Action Bar portal pattern (§ 12), Lazy Load con IntersectionObserver (§ 13), Page Recipe CRUD (§ 14).
+   Official Design System specification. Current sections: purpose, principles, tokens, typography, radius/shadows, base components, Light/Dark, rules for future pages (§ 1–9), DataTable system (§ 10), Drawer con Tabs pattern (§ 11), Floating Action Bar portal pattern (§ 12), Lazy Load con IntersectionObserver (§ 13), Page Recipe CRUD (§ 14), Scroll interno de tabla + DataTablePage (§ 15).
 
 2. **`src/app/globals.css`**  
    Implemented tokens (CSS custom properties), animations, Light/Dark swaps.
 
 3. **`src/components/shared/`**  
-   PageHeader, SurfaceCard, SurfaceCardHeader, ModulePlaceholder, NavLink, DrawerShell.
+   PageHeader, SurfaceCard, SurfaceCardHeader, ModulePlaceholder, NavLink, DrawerShell, DataTablePage.
 
 4. **`src/components/ui/`**  
    shadcn/ui components and extensions (Tabs, Popover, Checkbox, Switch, SegmentedControl, etc.).
@@ -202,15 +202,17 @@ Before building a custom component, verify:
 4. **ModulePlaceholder** — Use for in-development module states
 5. **NavLink** — Use for sidebar navigation items
 6. **DrawerShell** — Use for all right-side detail panels (combinable con Tabs, ver § 11 del Foundation)
-7. **DataTable** — Use for all data tables (ver § 10 del Foundation); incluye settings drawer, lazy load, bulk action bar
-8. **Tabs** — Use dentro de DrawerShell para detail views con múltiples áreas (ver § 11)
-9. **Button (shadcn)** — Reuse. Variants: primary, secondary, destructive, outline, ghost
-10. **Input (shadcn)** — Reuse for form fields
-11. **Dropdown, Popover, Modal, Sheet** — shadcn/ui defaults are approved
+7. **DataTablePage** — Use for CRUD pages where header + metrics stay fixed and the table scrolls internally (Foundation § 15)
+8. **DataTable** — Use for all data tables (ver § 10 del Foundation); incluye settings drawer, lazy load, bulk action bar; con `fillHeight` para scroll interno
+9. **Tabs** — Use dentro de DrawerShell para detail views con múltiples áreas (ver § 11)
+10. **Button (shadcn)** — Reuse. Variants: primary, secondary, destructive, outline, ghost
+11. **Input (shadcn)** — Reuse for form fields
+12. **Dropdown, Popover, Modal, Sheet** — shadcn/ui defaults are approved
 
-### Pattern Quick Reference (Foundation § 10–14)
+### Pattern Quick Reference (Foundation § 10–15)
 
 - **Página CRUD completa** → § 14 Page Recipe. Combina PageHeader + DataTable + Drawer con Tabs.
+- **Page fijo + tabla con scroll interno** → § 15. Usar `<DataTablePage>` + `<DataTable fillHeight>`.
 - **Drawer de detalle con >1 área** → § 11. Tabs variant="line", sin "Abrir página completa".
 - **Barra flotante (bulk action, toast, command palette)** → § 12. Portal a document.body.
 - **Lista con scroll infinito automático** → § 13. DataTableLoadMode = 'lazy'.
@@ -235,12 +237,13 @@ Before building a custom component, verify:
 **Task:** "Build a 'Cuentas' page with a list of accounts and a detail drawer."
 
 1. Read Design System Foundation § 14 (Page Recipe) — sigue la checklist.
-2. § 10 DataTable: define columns con `meta.label`, habilita `enableRowSelection` + `bulkActions` + `contextMenu`.
-3. § 11 Drawer con Tabs: si el detalle tiene >1 área, envuelve en `Tabs variant="line"`. Sin "Abrir página completa".
-4. § 12 Floating Bar: usa `DataTableBulkActionBar` (ya portaliza internamente).
-5. Pre-carga server-side todos los datos del drawer (no fetch on tab change).
-6. Verifica: `npm run lint && npm run typecheck && npm run build`.
-7. Commit con prefijo `feat:` y mensaje claro.
+2. § 15: usa `<DataTablePage>` para el layout (header + métricas fijas, tabla con scroll interno).
+3. § 10 DataTable: define columns con `meta.label`, habilita `enableRowSelection` + `bulkActions` + `contextMenu`, y pasa `fillHeight` para scroll interno.
+4. § 11 Drawer con Tabs: si el detalle tiene >1 área, envuelve en `Tabs variant="line"`. Sin "Abrir página completa".
+5. § 12 Floating Bar: usa `DataTableBulkActionBar` (ya portaliza internamente).
+6. Pre-carga server-side todos los datos del drawer (no fetch on tab change).
+7. Verifica: `npm run lint && npm run typecheck && npm run build`.
+8. Commit con prefijo `feat:` y mensaje claro.
 
 ### Example 2: New Component (Status Badge)
 **Task:** "Create a status badge for account states (active, inactive, pending)."

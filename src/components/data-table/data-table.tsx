@@ -127,6 +127,16 @@ interface DataTableProps<TData> {
 
   /** Hide the toolbar entirely. */
   hideToolbar?: boolean;
+
+  /**
+   * Fill the parent's height and scroll the table internally (sticky thead
+   * inside the scroll container). The parent must be a flex container with
+   * a defined height (e.g. <DataTablePage>).
+   *
+   * When true, this overrides the default `stickyHeader` max-height with a
+   * flex layout that grows to fill the available space.
+   */
+  fillHeight?: boolean;
 }
 
 const DEFAULT_SETTINGS: DataTableSettings = {
@@ -166,6 +176,7 @@ export function DataTable<TData>({
   emptyState,
   loading = false,
   hideToolbar = false,
+  fillHeight = false,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -271,9 +282,26 @@ export function DataTable<TData>({
   const clearSelection = () => table.resetRowSelection();
 
   // ── Render ─────────────────────────────────────────────────────────────
+  // When fillHeight is true, the card uses h-full + flex-col and the table
+  // wrapper becomes the scroll container with the thead sticky inside it.
+  // This lets the page keep PageHeader + metrics fixed at the top while only
+  // the table rows scroll.
   return (
-    <div className={cn("flex flex-col", className)}>
-      <div className="rounded-xl border border-border/40 bg-card shadow-sm overflow-hidden">
+    <div
+      className={cn(
+        "flex",
+        fillHeight ? "h-full min-h-0 flex-col" : "flex-col",
+        className,
+      )}
+    >
+      <div
+        className={cn(
+          "rounded-xl border border-border/40 bg-card shadow-sm",
+          fillHeight
+            ? "flex h-full min-h-0 flex-col overflow-hidden"
+            : "overflow-hidden",
+        )}
+      >
         {!hideToolbar && (
           <DataTableToolbar
             table={table}
@@ -293,11 +321,20 @@ export function DataTable<TData>({
 
         <div
           className={cn(
-            "su-table-wrapper relative w-full overflow-x-auto",
-            stickyHeader && "max-h-[60vh]",
+            fillHeight
+              ? "su-table-scroll"
+              : cn(
+                  "su-table-wrapper relative w-full",
+                  stickyHeader && "max-h-[60vh]",
+                ),
           )}
         >
-          <Table className={cn("su-table", stickyHeader && "su-table-sticky")}>
+          <Table
+            className={cn(
+              "su-table",
+              (stickyHeader || fillHeight) && "su-table-sticky",
+            )}
+          >
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id} className="hover:bg-transparent border-border/40">

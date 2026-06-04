@@ -409,6 +409,7 @@ Las utilidades `su-ai-gradient`, `su-ai-gradient-animate`, `su-ai-border`, `su-a
 *SellUp Design System Foundation v0.1 — Mayo 2026*
 *Actualización § 9 AI Gradient — Mayo 2026*
 *Actualización § 10–14 DataTable, Drawer con Tabs, Floating Bar, Lazy Load, Page Recipe — Junio 2026*
+*Actualización § 15 Scroll interno de tabla + DataTablePage — Junio 2026*
 *Siguiente iteración: v0.2 tras completar Pipeline funcional.*
 
 ---
@@ -1057,3 +1058,176 @@ Verificar en light + dark mode que:
 - Drawer muestra tabs y `Copiar key` funciona.
 - Bulk action bar aparece fija al fondo cuando hay selección.
 - Tabs y bulk bar no se solapan visualmente (z-index correcto).
+
+---
+
+## 15. Scroll interno de tabla — Page fijo / Tabla scrolleable
+
+### 15.1 Propósito
+
+El usuario espera que en una página CRUD el **título + métricas queden siempre visibles** mientras navega por la lista. Si toda la página scrollea, los KPIs de cabecera desaparecen en cuanto el usuario pasa las primeras 5-10 filas, y el contexto operativo se pierde.
+
+**Regla:** en una página con tabla, **PageHeader + cards de métricas son fijos** (sticky en la parte superior del viewport). **Solo las filas de la tabla** generan scroll interno (con sticky thead dentro del contenedor scrollable).
+
+### 15.2 Anatomía objetivo
+
+```
+┌──────────────────────────────────────────────────────────────────┐  ← fixed
+│ PageHeader                                                        │
+│  Catálogo de fuentes                                              │
+│  Descripción operativa…                                           │
+├──────────────────────────────────────────────────────────────────┤  ← fixed
+│ [Total: 12]  [Verificadas: 8]  [Requieren: 2]  [Pendientes: 1] … │  ← metrics
+├══════════════════════════════════════════════════════════════════┤
+║ ☐ │ Nombre ⇅▼ │ País ⇅▼ │ Estado ⇅▼ │ Tipo ⇅▼ │ …  │ ║  ← sticky
+╟───┼───────────┼─────────┼──────────┼─────────┼─────╢  ← thead
+║ ☐ │ fuente-01 │ CO      │ ● ok     │ api     │     ║
+║ ☐ │ fuente-02 │ MX      │ ● ok     │ api     │     ║  ← scroll
+║ ☐ │ fuente-03 │ …       │ …        │ …       │     ║  ← (filas)
+║ ☐ │ …         │         │          │         │     ║
+║ ☐ │ fuente-12 │ AR      │ ● warn   │ manual  │     ║
+╠═══╧═══════════╧═════════╧══════════╧═════════╧═════╣
+║ Mostrando 20 de 12 · footer pagination / lazy      ║  ← footer
+└─────────────────────────────────────────────────────┘
+```
+
+### 15.3 Componente: `<DataTablePage>`
+
+**Ubicación:** `src/components/shared/data-table-page.tsx`
+
+Encapsula el layout. Recibe título/descripción/acciones para `PageHeader`, métricas opcionales, y el contenido scrollable (típicamente `<DataTable fillHeight />`).
+
+```tsx
+<DataTablePage
+  title="Catálogo de fuentes"
+  description="Vista operativa de las fuentes de datos."
+  backHref="/settings"
+  actions={<Button>Nueva fuente</Button>}
+  metrics={
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <MetricCard label="Total" value={12} />
+      <MetricCard label="Verificadas" value={8} />
+      {/* … */}
+    </div>
+  }
+>
+  <DataTable fillHeight columns={cols} data={rows} ... />
+</DataTablePage>
+```
+
+Internamente:
+
+```tsx
+<div className="flex flex-1 min-h-0 flex-col gap-6">
+  <div className="shrink-0">
+    <PageHeader title={title} description={description} actions={actions} backHref={backHref} />
+  </div>
+  {metrics && <div className="shrink-0">{metrics}</div>}
+  <div className="flex flex-1 min-h-0 flex-col">{children}</div>
+</div>
+```
+
+`gap-6` entre secciones. `shrink-0` en header y métricas para que no se colapsen. `flex-1 min-h-0` en el área de contenido para que ocupe el resto y permita scroll interno.
+
+### 15.4 Prop `fillHeight` en `<DataTable>`
+
+Activa el scroll interno. Cambia tres cosas:
+
+1. **Outer wrapper:** `h-full min-h-0 flex flex-col` (en vez de solo `flex-col`).
+2. **Card:** `flex h-full min-h-0 flex-col overflow-hidden`.
+3. **Table wrapper:** `su-table-scroll` = `flex-1 min-h-0 overflow-auto`. Reemplaza `max-h-[60vh]` del `stickyHeader` prop.
+4. **Table:** `su-table-sticky` se aplica automáticamente → thead sticky dentro del scroll container.
+
+```tsx
+<DataTable fillHeight columns={cols} data={rows} ... />
+```
+
+### 15.5 Requisito: AppShell flex-col
+
+El `<DataTablePage>` requiere un **flex container con altura definida** para que `flex-1 min-h-0` funcione. El `AppShell` ya provee esto: `<main>` es `flex flex-col overflow-hidden` y su inner div es `flex flex-1 min-h-0 flex-col`. Por tanto, basta con que la página retorne `<DataTablePage>` directamente.
+
+**No hace falta** envolver con un `div` extra. La estructura es:
+
+```
+AppShell
+└── main (flex flex-col overflow-hidden)
+    └── div (flex flex-1 min-h-0 flex-col, padding, animate-su-fade-in)
+        └── <DataTablePage>
+            ├── PageHeader (shrink-0, fixed)
+            ├── Metrics (shrink-0, fixed)
+            └── DataTable fillHeight (flex-1, scroll interno)
+```
+
+### 15.6 Reglas
+
+- **El `transform` del `animate-su-fade-in` no rompe el layout.** Solo afecta a `position: fixed` descendientes. Como sheets y bulk action bar ya están portaled a `document.body`, no hay conflicto.
+- **`min-h-0` es obligatorio** en todos los niveles de la cadena flex (main → inner div → DataTablePage → área de contenido). Sin él, los hijos no pueden reducir su altura para scrollear.
+- **Padding va en el inner div del AppShell**, no en el `DataTablePage`. El `DataTablePage` no añade padding propio.
+- **El bulk action bar sigue funcionando** porque está portaled a `document.body` (§ 12). Aparece flotante al fondo del viewport independientemente del scroll de la tabla.
+- **Métricas opcionales.** Si la página no tiene métricas, omitir el prop `metrics`. La tabla se queda con todo el alto disponible.
+- **Drawer de detalle abre encima** sin verse afectado por el scroll interno. El sheet está en `z-50`, el bulk action bar en `z-[60]`.
+
+### 15.7 Cuándo NO usar `<DataTablePage>`
+
+- Páginas sin tabla (forms cortos, settings simples, dashboards) — usar el layout directo dentro del AppShell sin envoltorio extra.
+- Páginas con `<ModulePlaceholder>` — placeholders son cortos, no necesitan fillHeight.
+- Páginas con tablas muy pequeñas (≤5 filas) — el fillHeight no aporta valor.
+
+### 15.8 Anti-patterns
+
+- ❌ **Página completa scrolleable con tabla adentro** — el usuario pierde el contexto de los KPIs al hacer scroll.
+- ❌ **`max-h-[60vh]` hardcodeado en la tabla** — depende del viewport, no se adapta a distintas alturas. Usar `fillHeight`.
+- ❌ **Tabla con `overflow: visible` + `position: sticky` en thead** — sticky solo funciona con un ancestor scrollable. La cadena debe ser explícita: tabla → wrapper con `overflow-auto` → contenedor con altura definida.
+- ❌ **PageHeader en un `<header>` sticky fuera de `<DataTablePage>`** — duplica el wiring del layout. Usar el componente.
+- ❌ **Mover el padding a `<DataTablePage>`** — el padding vive en el inner div del AppShell para ser consistente en toda la app.
+
+### 15.9 Composición: cómo se ve una página completa
+
+```tsx
+// page.tsx (server component)
+import { DataTablePage } from '@/components/shared/data-table-page';
+import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
+import { SourceCatalogClient } from './source-catalog-client';
+
+export default async function SourceCatalogPage() {
+  const viewModel = getSourceCatalogViewModel();
+  const { metrics } = viewModel;
+
+  return (
+    <DataTablePage
+      title="Catálogo de fuentes"
+      description="Vista operativa…"
+      backHref="/settings"
+      metrics={<MetricsRow cards={metricCards} />}
+    >
+      <SourceCatalogClient viewModel={viewModel} />
+    </DataTablePage>
+  );
+}
+```
+
+```tsx
+// source-catalog-client.tsx ('use client')
+export function SourceCatalogClient({ viewModel }: Props) {
+  const [detailOpen, setDetailOpen] = useState(false);
+  return (
+    <>
+      <DataTable
+        fillHeight
+        columns={columns}
+        data={viewModel.sources}
+        getRowId={(row) => row.key}
+        title="Listado de fuentes"
+        enableRowSelection
+        contextMenu={...}
+        onRowClick={(row) => setDetailSource(row)}
+      />
+      <SourceDetailDrawer
+        source={detailSource}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
+    </>
+  );
+}
+```

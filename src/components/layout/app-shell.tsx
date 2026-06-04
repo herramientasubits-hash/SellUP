@@ -23,13 +23,15 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0 }: AppS
       </aside>
 
       {/* Right column — header only on mobile (sidebar is hidden there),
-          main content fills the rest. Extra vertical padding for breathing room. */}
+          main content fills the rest. Main is a flex column that fills the
+          viewport so pages can opt into fill-height layouts via
+          <DataTablePage> (page header + metrics fixed, table scrolls). */}
       <div className="flex min-w-0 min-h-0 flex-1 flex-col">
         <div className="md:hidden">
           <AppHeader user={user} initialUnreadCount={initialUnreadCount} />
         </div>
-        <main className={cn("flex-1 min-h-0 min-w-0 overflow-y-auto", className)}>
-          <div className="mx-auto max-w-[1600px] px-5 py-8 md:px-8 md:py-12 animate-su-fade-in">
+        <main className={cn("flex flex-1 min-h-0 min-w-0 overflow-hidden flex-col", className)}>
+          <div className="flex flex-1 min-h-0 flex-col mx-auto max-w-[1600px] w-full px-5 py-8 md:px-8 md:py-12 animate-su-fade-in">
             {children}
           </div>
         </main>
