@@ -92,6 +92,62 @@ async function getAiProviderCredentialWithAlias(
   return getAIProviderCredentialValue(normalizeAIProviderKey(providerKey));
 }
 
+/**
+ * Allowed values for the prospect_candidates.commercial_fit_status column.
+ * Defined by the CHECK constraint prospect_candidates_commercial_fit_status_check.
+ */
+type CommercialFitStatus =
+  | 'likely_fit'
+  | 'needs_manual_review'
+  | 'likely_not_fit'
+  | 'risky_fit'
+  | 'blocked'
+  | 'duplicate'
+  | 'customer_blocked'
+  | 'recyclable_prospect';
+
+const ALLOWED_COMMERCIAL_FIT_STATUSES: ReadonlySet<string> = new Set<CommercialFitStatus>([
+  'likely_fit',
+  'needs_manual_review',
+  'likely_not_fit',
+  'risky_fit',
+  'blocked',
+  'duplicate',
+  'customer_blocked',
+  'recyclable_prospect',
+]);
+
+/**
+ * Maps LLM output values to allowed DB values for commercial_fit_status.
+ * Returns null for null/undefined inputs.
+ * Falls back to 'needs_manual_review' for unrecognized values.
+ */
+export function normalizeCommercialFitStatus(value: string | null | undefined): CommercialFitStatus | null {
+  if (value === null || value === undefined) return null;
+
+  const v = value.toLowerCase().trim();
+
+  // Already a valid DB value
+  if (ALLOWED_COMMERCIAL_FIT_STATUSES.has(v)) return v as CommercialFitStatus;
+
+  // LLM fit_level aliases → DB values
+  if (v === 'high' || v === 'alto' || v === 'good_fit' || v === 'qualified' || v === 'excellent') {
+    return 'likely_fit';
+  }
+  if (
+    v === 'medium' || v === 'medio' || v === 'partial_fit' ||
+    v === 'needs_review' || v === 'moderate' || v === 'average'
+  ) {
+    return 'needs_manual_review';
+  }
+  if (v === 'low' || v === 'bajo' || v === 'poor_fit' || v === 'not_fit' || v === 'no_fit' || v === 'poor') {
+    return 'likely_not_fit';
+  }
+
+  // Unknown value — safe fallback
+  return 'needs_manual_review';
+}
+
 export interface EnrichProspectCandidateInput {
   candidateId: string;
   userId: string;
@@ -1176,6 +1232,16 @@ export async function enrichProspectCandidate({
       if (candidate.matched_hubspot_company_id) inputSources.push('hubspot_match');
       if (candidate.website) inputSources.push('website');
 
+      // Normalize commercial_fit_status: map LLM fit_level to allowed DB values
+      const rawFitLevel: string | null = parsedJson.sellup_fit?.fit_level ?? null;
+      const normalizedCommercialFitStatus = normalizeCommercialFitStatus(rawFitLevel);
+      const persistenceWarnings: string[] = [];
+      if (rawFitLevel !== null && normalizedCommercialFitStatus !== rawFitLevel) {
+        persistenceWarnings.push(
+          `commercial_fit_status normalized from "${rawFitLevel}" to "${normalizedCommercialFitStatus ?? 'null'}"`
+        );
+      }
+
       const enrichmentBlock = {
         status: 'completed',
         enriched_at: new Date().toISOString(),
@@ -1206,6 +1272,7 @@ export async function enrichProspectCandidate({
         },
         attempts: attempts,
         active_config_used: activeConfigUsed,
+        ...(persistenceWarnings.length > 0 ? { persistence_warnings: persistenceWarnings } : {}),
       };
 
       const existingMeta = candidate.metadata || {};
@@ -1218,8 +1285,8 @@ export async function enrichProspectCandidate({
         .from('prospect_candidates')
         .update({
           metadata: updatedMeta,
-          fit_score: parsedJson.sellup_fit?.fit_score || null,
-          commercial_fit_status: parsedJson.sellup_fit?.fit_level || null,
+          fit_score: parsedJson.sellup_fit?.fit_score ?? null,
+          commercial_fit_status: normalizedCommercialFitStatus,
         })
         .eq('id', candidateId);
 
