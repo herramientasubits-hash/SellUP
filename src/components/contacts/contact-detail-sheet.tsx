@@ -15,8 +15,7 @@ import {
   Building2,
   Globe,
 } from 'lucide-react';
-import { X } from 'lucide-react';
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -118,74 +117,69 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   }, [open, contactId, loadData]);
 
   return (
-    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent showCloseButton={false} className="flex flex-col gap-0 overflow-hidden p-0 sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none">
-        {loading || !contact ? (
-          <div className="flex flex-1 items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+    <DrawerShell
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      side="right"
+      className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
+      icon={<User className="h-5 w-5 text-su-brand" />}
+      title={
+        contact ? (
+          <div className="flex items-center justify-between gap-4 mr-6">
+            <span className="truncate">{contact.full_name}</span>
+            <div className="flex items-center gap-2 shrink-0">
+              {contact.is_primary && (
+                <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                  Primario
+                </div>
+              )}
+              <Badge
+                variant="outline"
+                className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
+              >
+                {CONTACT_STATUS_LABELS[contact.contact_status]}
+              </Badge>
+              {contact.role_in_account && (
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
+                >
+                  {ROLE_LABELS[contact.role_in_account as ContactRole]}
+                </Badge>
+              )}
+              <ContactRowActions
+                contact={contact}
+                onActionComplete={() => loadData(contact.id)}
+              />
+            </div>
           </div>
-        ) : (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Header */}
-            <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground/70">
-                    {contact.full_name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="space-y-0.5">
-                    <SheetTitle className="text-base font-semibold">
-                      {contact.full_name}
-                    </SheetTitle>
-                    {contact.job_title && (
-                      <p className="text-xs text-muted-foreground">{contact.job_title}</p>
-                    )}
-                    {account && (
-                      <Link
-                        href={`/accounts/${account.id}`}
-                        className="text-xs text-su-brand hover:underline"
-                      >
-                        {account.name}
-                      </Link>
-                    )}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {contact.is_primary && (
-                    <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                      <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                      Primario
-                    </div>
-                  )}
-                  <Badge
-                    variant="outline"
-                    className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
-                  >
-                    {CONTACT_STATUS_LABELS[contact.contact_status]}
-                  </Badge>
-                  {contact.role_in_account && (
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-                    >
-                      {ROLE_LABELS[contact.role_in_account as ContactRole]}
-                    </Badge>
-                  )}
-                  <ContactRowActions
-                    contact={contact}
-                    onActionComplete={() => loadData(contact.id)}
-                  />
-                  <SheetClose className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent transition-colors">
-                    <X className="h-4 w-4 text-muted-foreground" />
-                    <span className="sr-only">Cerrar</span>
-                  </SheetClose>
-                </div>
-              </div>
-            </SheetHeader>
-
-            {/* Scrollable body */}
-            <div className="flex-1 overflow-y-auto px-7 py-5">
-              <Tabs defaultValue="resumen">
+        ) : 'Cargando contacto...'
+      }
+      description={
+        contact ? (
+          <div className="space-y-0.5">
+            {contact.job_title && (
+              <p className="text-xs text-muted-foreground">{contact.job_title}</p>
+            )}
+            {account && (
+              <Link
+                href={`/accounts/${account.id}`}
+                className="text-xs text-su-brand hover:underline"
+              >
+                {account.name}
+              </Link>
+            )}
+          </div>
+        ) : undefined
+      }
+    >
+      {loading || !contact ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+        </div>
+      ) : (
+        <Tabs defaultValue="resumen">
                 <TabsList className="mb-4">
                   <TabsTrigger value="resumen">Resumen</TabsTrigger>
                   <TabsTrigger value="actividad">Actividad</TabsTrigger>
@@ -370,11 +364,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                   </SurfaceCard>
                 </TabsContent>
               </Tabs>
-            </div>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
+            )}
+    </DrawerShell>
   );
 }
 

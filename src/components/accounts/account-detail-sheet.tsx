@@ -16,8 +16,7 @@ import {
   User,
   Briefcase,
 } from 'lucide-react';
-import { X } from 'lucide-react';
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -125,53 +124,40 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
 
   return (
     <>
-      <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-        <SheetContent showCloseButton={false} className="flex flex-col gap-0 overflow-hidden p-0 sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none">
-          {loading || !data ? (
-            <div className="flex flex-1 items-center justify-center py-20">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+      <DrawerShell
+        open={open}
+        onOpenChange={(v) => !v && onClose()}
+        side="right"
+        className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
+        icon={<Building2 className="h-5 w-5 text-su-brand" />}
+        title={
+          data ? (
+            <div className="flex items-center justify-between gap-4 mr-6">
+              <span className="truncate">{data.account.name}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
+                >
+                  {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
+                </Badge>
+                <AccountDetailActions
+                  accountId={data.account.id}
+                  currentStatus={data.account.pipeline_status}
+                  users={data.users}
+                />
+              </div>
             </div>
-          ) : (
-            <div className="flex flex-1 flex-col overflow-hidden">
-              {/* Header */}
-              <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
-                      <Building2 className="h-5 w-5 text-su-brand" />
-                    </div>
-                    <div className="space-y-0.5">
-                      <SheetTitle className="text-base font-semibold">
-                        {data.account.name}
-                      </SheetTitle>
-                      {data.account.legal_name && (
-                        <p className="text-xs text-muted-foreground">{data.account.legal_name}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
-                    >
-                      {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
-                    </Badge>
-                    <AccountDetailActions
-                      accountId={data.account.id}
-                      currentStatus={data.account.pipeline_status}
-                      users={data.users}
-                    />
-                    <SheetClose className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent transition-colors">
-                      <X className="h-4 w-4 text-muted-foreground" />
-                      <span className="sr-only">Cerrar</span>
-                    </SheetClose>
-                  </div>
-                </div>
-              </SheetHeader>
-
-              {/* Scrollable body */}
-              <div className="flex-1 overflow-y-auto px-7 py-5">
-                <Tabs defaultValue="resumen">
+          ) : 'Cargando cuenta...'
+        }
+        description={data ? (data.account.legal_name || undefined) : undefined}
+      >
+        {loading || !data ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+          </div>
+        ) : (
+          <Tabs defaultValue="resumen">
                   <TabsList className="mb-4">
                     <TabsTrigger value="resumen">Resumen</TabsTrigger>
                     <TabsTrigger value="contactos">Contactos</TabsTrigger>
@@ -363,11 +349,8 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
                     </SurfaceCard>
                   </TabsContent>
                 </Tabs>
-              </div>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
+              )}
+      </DrawerShell>
 
       {/* Nested contact detail sheet */}
       <ContactDetailSheet

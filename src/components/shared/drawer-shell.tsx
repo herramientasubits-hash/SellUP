@@ -102,7 +102,7 @@ export function DrawerShell({
                   {icon}
                 </div>
               )}
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 flex-1 min-w-0">
                 {title && <SheetTitle className="text-base font-semibold">{title}</SheetTitle>}
                 {description && (
                   <SheetDescription className="text-xs text-muted-foreground/70">
