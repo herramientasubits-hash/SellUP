@@ -13,9 +13,17 @@ import { NotificationDrawer } from "./notification-drawer";
 
 interface NotificationBellProps {
   initialUnreadCount: number;
+  /**
+   * Color scheme context. "default" places the bell in the header (light
+   * background). "sidebar" places it on the dark rail.
+   */
+  variant?: "default" | "sidebar";
 }
 
-export function NotificationBell({ initialUnreadCount }: NotificationBellProps) {
+export function NotificationBell({
+  initialUnreadCount,
+  variant = "default",
+}: NotificationBellProps) {
   const [unreadCount, setUnreadCount] = React.useState(initialUnreadCount);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [notifications, setNotifications] = React.useState<UserNotification[]>([]);
@@ -57,9 +65,11 @@ export function NotificationBell({ initialUnreadCount }: NotificationBellProps) 
   const handleMarkAll = async () => {
     await markAllMyNotificationsAsRead();
     const updated = notifications.map((n) => ({ ...n, is_read: true }));
-    setNotifications(updated);
     setUnreadCount(0);
   };
+
+  const sidebarClasses =
+    "h-8 w-8 text-sidebar-foreground/55 hover:bg-white/[0.06] hover:text-sidebar-foreground";
 
   return (
     <>
@@ -86,7 +96,12 @@ export function NotificationBell({ initialUnreadCount }: NotificationBellProps) 
             : "Notificaciones"
         }
         onClick={handleOpen}
-        className="relative h-8 w-8"
+        side={variant === "sidebar" ? "right" : "bottom"}
+        className={
+          variant === "sidebar"
+            ? `relative ${sidebarClasses}`
+            : "relative h-8 w-8"
+        }
       />
 
       <NotificationDrawer

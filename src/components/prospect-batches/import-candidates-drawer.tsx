@@ -555,7 +555,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 onChange={(e) => setPasteText(e.target.value)}
               />
               <p className="text-[10px] text-muted-foreground">
-                Acepta separadores tab, coma o punto y coma. La primera fila debe ser encabezados.
+                Acepta separadores tab, coma, punto y coma o tablas Markdown (incluso si vienen con texto explicativo alrededor). La primera fila válida será interpretada como encabezados.
                 Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba.
               </p>
             </div>
@@ -696,7 +696,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     {EXTERNAL_IMPORT_CONTRACT.map(c => c.example).join('\t')}
                   </pre>
                   <p className="text-[9px] text-muted-foreground/80 leading-normal">
-                    💡 <strong>Tip:</strong> Puedes copiar este ejemplo, pegarlo en Google Sheets o Excel, rellenar tus datos y luego copiar la tabla para pegarla en el campo superior.
+                    💡 <strong>Tip:</strong> Puedes copiar este ejemplo, pegarlo en Google Sheets o Excel, rellenar tus datos y luego copiar la tabla para pegarla en el campo superior. También puedes pegar directamente una tabla generada por Claude, Gemini o GPT. SellUp intentará reconocer las columnas e ignorar las filas separadoras o el texto introductorio, incluso si viene como tabla Markdown con pipes.
                   </p>
                 </div>
               </div>

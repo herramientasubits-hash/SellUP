@@ -3,13 +3,22 @@
 import * as React from "react";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-export function ThemeToggle() {
+interface ThemeToggleProps {
+  /**
+   * Color scheme context. "default" uses muted-foreground on background
+   * (header/main). "sidebar" uses sidebar-foreground/55 on the dark rail.
+   */
+  variant?: "default" | "sidebar";
+}
+
+export function ThemeToggle({ variant = "default" }: ThemeToggleProps) {
   const { setTheme, theme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
 
@@ -18,10 +27,18 @@ export function ThemeToggle() {
     setMounted(true);
   }, []);
 
+  const baseClass =
+    variant === "sidebar"
+      ? "text-sidebar-foreground/55 hover:bg-white/[0.06] hover:text-sidebar-foreground"
+      : "text-muted-foreground/60 hover:bg-accent hover:text-foreground";
+
   if (!mounted) {
     return (
       <button
-        className="flex h-8 w-8 items-center justify-center rounded-xl"
+        className={cn(
+          "flex h-8 w-8 items-center justify-center rounded-xl",
+          baseClass,
+        )}
         aria-label="Cambiar tema"
       >
         <span className="h-4 w-4" />
@@ -37,7 +54,11 @@ export function ThemeToggle() {
         render={
           <button
             onClick={() => setTheme(isLight ? "dark" : "light")}
-            className="group flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground/60 transition-all duration-200 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className={cn(
+              "group flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              baseClass,
+            )}
             aria-label="Cambiar tema"
           >
             {isLight ? (
@@ -48,7 +69,7 @@ export function ThemeToggle() {
           </button>
         }
       />
-      <TooltipContent side="bottom">
+      <TooltipContent side={variant === "sidebar" ? "right" : "bottom"}>
         {isLight ? "Cambiar a tema oscuro" : "Cambiar a tema claro"}
       </TooltipContent>
     </Tooltip>

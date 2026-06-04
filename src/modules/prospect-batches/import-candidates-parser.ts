@@ -509,7 +509,151 @@ interface ParseResult {
 
 const MAX_IMPORT_ROWS = 500;
 
+function extractAndParseTable(text: string, defaults?: ImportDefaults): ParseResult | null {
+  const allLines = text.split(/\r?\n/);
+  const nonBlankLines = allLines.filter(line => line.trim().length > 0);
+  
+  if (nonBlankLines.length < 2) {
+    return null;
+  }
+  
+  const separators = ['\t', '|', ';', ','];
+  let bestBlock: { sep: string; headers: string[]; dataRows: string[][]; score: number } | null = null;
+  
+  for (const sep of separators) {
+    // Find contiguous blocks of non-blank lines containing the separator
+    const blocks: string[][] = [];
+    let currentBlock: string[] = [];
+    
+    for (const line of allLines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        if (currentBlock.length > 0) {
+          blocks.push(currentBlock);
+          currentBlock = [];
+        }
+        continue;
+      }
+      
+      const sepCount = line.split(sep).length - 1;
+      if (sepCount >= 1) {
+        currentBlock.push(line);
+      } else {
+        if (currentBlock.length > 0) {
+          blocks.push(currentBlock);
+          currentBlock = [];
+        }
+      }
+    }
+    if (currentBlock.length > 0) {
+      blocks.push(currentBlock);
+    }
+    
+    // For each block, parse and score
+    for (const blockLines of blocks) {
+      if (blockLines.length < 2) continue;
+      
+      // For '|', check if it's a valid Markdown table block
+      if (sep === '|') {
+        const hasSeparator = blockLines.some(line => {
+          const trimmed = line.trim();
+          const clean = trimmed.replace(/^\|/, '').replace(/\|$/, '');
+          const cells = clean.split('|').map(c => c.trim());
+          return cells.length > 0 && cells.every(cell => /^[:\-\s]+$/.test(cell) && cell.length > 0);
+        });
+        
+        const allHavePipes = blockLines.every(line => {
+          const trimmed = line.trim();
+          const pipeCount = (trimmed.match(/\|/g) ?? []).length;
+          return (trimmed.startsWith('|') || trimmed.endsWith('|') || pipeCount >= 2);
+        });
+        
+        if (!hasSeparator && !allHavePipes) {
+          continue; // Not a valid Markdown table block
+        }
+      }
+      
+      // Parse rows of cells
+      let rowsOfCells: string[][];
+      if (sep === '|') {
+        rowsOfCells = blockLines.map(line => {
+          const clean = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+          return clean.split('|').map(c => c.trim());
+        });
+        // Filter out Markdown separator rows
+        rowsOfCells = rowsOfCells.filter(cells => !isMarkdownSeparatorRow(cells));
+      } else {
+        rowsOfCells = blockLines.map(line => splitCsvLine(line, sep));
+      }
+      
+      if (rowsOfCells.length < 2) continue;
+      
+      const headers = rowsOfCells[0];
+      const dataRows = rowsOfCells.slice(1);
+      
+      // Calculate score based on recognized columns and line count
+      const { recognized } = normalizeImportColumns(headers);
+      const recognizedCount = recognized.length;
+      
+      if (recognizedCount > 0) {
+        const score = recognizedCount * 1000 + blockLines.length;
+        if (!bestBlock || score > bestBlock.score) {
+          bestBlock = {
+            sep,
+            headers,
+            dataRows,
+            score
+          };
+        }
+      }
+    }
+  }
+  
+  if (bestBlock) {
+    const { headers, dataRows } = bestBlock;
+    const { fieldMap, recognized, unrecognized } = normalizeImportColumns(headers);
+    
+    const truncated = dataRows.length > MAX_IMPORT_ROWS;
+    const limitedRows = truncated ? dataRows.slice(0, MAX_IMPORT_ROWS) : dataRows;
+    
+    const rows: ImportRow[] = [];
+    let rowIndex = 0;
+    
+    for (const cells of limitedRows) {
+      if (isBlankRow(cells)) continue;
+      
+      const rawObj: Record<string, string> = {};
+      for (let i = 0; i < fieldMap.length; i++) {
+        const { field } = fieldMap[i];
+        if (field && cells[i] !== undefined) {
+          rawObj[field] = cells[i]?.trim() ?? '';
+        }
+      }
+      
+      const raw = rawObj as unknown as ParsedImportRow;
+      rows.push(validateRow(raw, rowIndex, defaults));
+      rowIndex++;
+    }
+    
+    return {
+      rows,
+      recognized_columns: recognized,
+      unrecognized_columns: unrecognized,
+      truncated,
+      truncatedAt: MAX_IMPORT_ROWS
+    };
+  }
+  
+  return null;
+}
+
 function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
+  const parsed = extractAndParseTable(text, defaults);
+  if (parsed) {
+    return parsed;
+  }
+
+  // Fallback to previous behavior
   const allLines = text.split(/\r?\n/).filter((l) => l.trim());
   if (allLines.length < 2) {
     return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };

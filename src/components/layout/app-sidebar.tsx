@@ -23,6 +23,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { NotificationBell } from "@/components/notifications/notification-bell";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { createClient } from "@/lib/supabase/client";
 
 export { MobileNavLink };
@@ -30,15 +32,20 @@ export { MobileNavLink };
 interface AppSidebarProps {
   className?: string;
   user: User;
+  initialUnreadCount?: number;
 }
 
 /**
  * Icon-rail sidebar — 80px fixed width.
  * Pattern from plantilla-proyectos-shadcn (SidebarRail.tsx).
  * Only icons visible; labels appear in tooltip on hover (NavLink).
- * Brand and user card collapse to icons.
+ * Layout (top → bottom): brand · nav · notifications · theme · user.
  */
-export function AppSidebar({ className, user }: AppSidebarProps) {
+export function AppSidebar({
+  className,
+  user,
+  initialUnreadCount = 0,
+}: AppSidebarProps) {
   const router = useRouter();
 
   const displayName =
@@ -95,15 +102,23 @@ export function AppSidebar({ className, user }: AppSidebarProps) {
         ))}
       </nav>
 
-      {/* User avatar — bottom, click to open full dropdown */}
-      <div className="shrink-0 border-t border-sidebar-border/40 p-2 flex justify-center">
+      {/* Bottom dock — notifications, theme, user avatar. Each icon button
+          shows a tooltip on hover; user avatar opens a dropdown. */}
+      <div className="shrink-0 border-t border-sidebar-border/40 p-2 flex flex-col items-center gap-1.5">
+        <NotificationBell
+          initialUnreadCount={initialUnreadCount}
+          variant="sidebar"
+        />
+
+        <ThemeToggle variant="sidebar" />
+
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
               render={
                 <DropdownMenuTrigger
                   className={cn(
-                    "group flex items-center justify-center rounded-full p-0.5 transition-all",
+                    "group mt-1 flex items-center justify-center rounded-full p-0.5 transition-all",
                     "hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/50",
                     "data-[popup-open]:bg-white/[0.06]",
                   )}
