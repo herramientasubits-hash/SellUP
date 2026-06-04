@@ -220,7 +220,7 @@ export interface UpdateBatchInput {
 }
 
 export interface CreateCandidateInput {
-  batch_id: string;
+  batch_id?: string;
   name: string;
   legal_name?: string;
   website?: string;

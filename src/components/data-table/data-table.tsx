@@ -47,6 +47,7 @@ import { DataTableContextMenu, type DataTableContextMenuItem } from "./data-tabl
 import { DataTableColumnReorder, SortableTableHead } from "./data-table-column-reorder";
 import { DataTableToolbar } from "./data-table-toolbar";
 import { DataTablePagination } from "./data-table-pagination";
+import { DataTableLoadMore } from "./data-table-load-more";
 import { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
 import {
   DataTableSettingsDrawer,
@@ -175,8 +176,16 @@ export function DataTable<TData>({
   const [columnOrder, setColumnOrder] = React.useState<ColumnOrderState>([]);
   const [settings, setSettings] = React.useState<DataTableSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [lazyVisibleCount, setLazyVisibleCount] = React.useState(initialPageSize);
+  const isLazy = settings.loadMode === "lazy";
+  const lazyStep = Math.max(initialPageSize, 10);
 
   const showGlobalSearch = settings.globalSearch;
+
+  // When switching modes or filters, reset the lazy window to its initial size.
+  React.useEffect(() => {
+    setLazyVisibleCount(initialPageSize);
+  }, [isLazy, initialPageSize, globalFilter, columnFilters, sorting]);
 
   // Build the effective column set with optional selection column prepended
   // and actions column appended (handled by user via meta; here we only add
@@ -208,9 +217,17 @@ export function DataTable<TData>({
     return [selectionColumn, ...columns];
   }, [columns, enableRowSelection]);
 
+  // In lazy mode we slice the data the user can see; pagination is disabled
+  // and a "Cargar más" button is shown instead. In pagination mode the
+  // full dataset is paginated normally.
+  const effectiveData = React.useMemo(
+    () => (isLazy ? data.slice(0, lazyVisibleCount) : data),
+    [data, isLazy, lazyVisibleCount],
+  );
+
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data,
+    data: effectiveData,
     columns: allColumns,
     state: {
       sorting,
@@ -362,10 +379,21 @@ export function DataTable<TData>({
           </Table>
         </div>
 
-        <DataTablePagination
-          table={table}
-          pageSizeOptions={pageSizeOptions}
-        />
+        {isLazy ? (
+          <DataTableLoadMore
+            totalRows={data.length}
+            shownRows={Math.min(effectiveData.length, data.length)}
+            step={lazyStep}
+            onLoadMore={() =>
+              setLazyVisibleCount((prev) => Math.min(prev + lazyStep, data.length))
+            }
+          />
+        ) : (
+          <DataTablePagination
+            table={table}
+            pageSizeOptions={pageSizeOptions}
+          />
+        )}
       </div>
 
       {enableRowSelection && (selectedCount > 0 || bulkActions.length > 0) && (

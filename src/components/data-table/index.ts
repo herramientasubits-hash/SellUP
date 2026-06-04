@@ -2,9 +2,10 @@ export { DataTable, type DataTableBulkAction, type DataTableContextMenuConfig } 
 export { DataTableColumnHeader } from "./data-table-column-header";
 export { DataTableColumnPopover, type DataTableColumnFilterOption, type DataTableColumnMeta } from "./data-table-column-popover";
 export { DataTablePagination } from "./data-table-pagination";
+export { DataTableLoadMore } from "./data-table-load-more";
 export { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
 export { DataTableContextMenu, type DataTableContextMenuItem } from "./data-table-context-menu";
 export { DataTableRowActions } from "./data-table-row-actions";
 export { DataTableColumnReorder, DataTableDragHandle } from "./data-table-column-reorder";
-export { DataTableSettingsDrawer, DataTableSettingsTrigger, type DataTableSettings } from "./data-table-settings-drawer";
+export { DataTableSettingsDrawer, DataTableSettingsTrigger, type DataTableSettings, type DataTableLoadMode } from "./data-table-settings-drawer";
 export { DataTableToolbar } from "./data-table-toolbar";

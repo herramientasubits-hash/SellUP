@@ -34,11 +34,12 @@ export default async function SellUpLayout({
     redirect(accessRedirects[accessStatus] ?? '/access-pending');
   }
 
-  const { count: unreadCount } = await supabase
+  const { count } = await supabase
     .from('user_notifications')
     .select('id', { count: 'exact', head: true })
-    .eq('is_read', false)
-    .then((r) => ({ count: r.count ?? 0 }));
+    .eq('is_read', false);
+
+  const unreadCount = count ?? 0;
 
   return (
     <AppShell user={user} initialUnreadCount={unreadCount}>
