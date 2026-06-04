@@ -59,7 +59,7 @@ function CopyKeyCell({ sourceKey }: { sourceKey: string }) {
   };
 
   return (
-    <Button variant="ghost" size="icon-xs" onClick={handleCopy} title="Copiar key" aria-label="Copiar key">
+    <Button variant="ghost" size="icon-sm" onClick={handleCopy} title="Copiar key" aria-label="Copiar key">
       {copied ? (
         <Check className="h-3 w-3 text-emerald-500" />
       ) : (
@@ -314,14 +314,14 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
                   <TableCell className="pr-5">
                     <div className="flex items-center gap-1">
                       <Link href={`/settings/source-catalog/${source.key}`} aria-label={`Ver detalle de ${source.name}`}>
-                        <Button variant="ghost" size="icon-xs" title="Ver detalle" aria-hidden="true" tabIndex={-1}>
-                          <ArrowRight className="h-3 w-3" />
-                        </Button>
+                          <Button variant="ghost" size="icon-sm" title="Ver detalle" aria-hidden="true" tabIndex={-1}>
+                            <ArrowRight className="h-3 w-3" />
+                          </Button>
                       </Link>
                       <CopyKeyCell sourceKey={source.key} />
                       {source.url && (
                         <Link href={source.url} target="_blank" rel="noopener noreferrer" aria-label={`Abrir URL de ${source.name} en nueva pestaña`}>
-                          <Button variant="ghost" size="icon-xs" title="Abrir URL" aria-hidden="true" tabIndex={-1}>
+                          <Button variant="ghost" size="icon-sm" title="Abrir URL" aria-hidden="true" tabIndex={-1}>
                             <ExternalLink className="h-3 w-3" />
                           </Button>
                         </Link>
