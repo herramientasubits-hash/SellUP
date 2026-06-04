@@ -1,113 +1,104 @@
 "use client";
 
 import * as React from "react";
-import { type Column } from "@tanstack/react-table";
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronsUpDown,
-  EyeOff,
-} from "lucide-react";
+import type { Column } from "@tanstack/react-table";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Pin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  DataTableColumnPopover,
+  type DataTableColumnMeta,
+} from "./data-table-column-popover";
 
 interface DataTableColumnHeaderProps<TData, TValue>
   extends React.HTMLAttributes<HTMLDivElement> {
   column: Column<TData, TValue>;
   title: string;
-  /** Hide the sort trigger entirely. */
-  disableSorting?: boolean;
+  /** Disable sort controls (also removes the popover sort section). */
+  disableSort?: boolean;
+  /** Disable filter controls (also removes the popover filter section). */
+  disableFilter?: boolean;
+  /** Hide the popover entirely and render a plain label. */
+  noPopover?: boolean;
+  /** Callback to pin the column. When provided, adds a pin button to the popover. */
+  onPin?: (side: "left" | "right" | false) => void;
+  /** Whether the column is currently pinned (and to which side). */
+  pinned?: "left" | "right" | false;
 }
 
+/**
+ * Sortable + filterable column header. Renders a clickable button that opens
+ * a popover with sort / search / filter controls (matching the reference
+ * template's per-column popover UX).
+ */
 export function DataTableColumnHeader<TData, TValue>({
   column,
   title,
+  disableSort = false,
+  disableFilter = false,
+  noPopover = false,
+  onPin,
+  pinned = false,
   className,
-  disableSorting = false,
 }: DataTableColumnHeaderProps<TData, TValue>) {
-  if (!column.getCanSort() || disableSorting) {
-    return <span className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">{title}</span>;
+  const meta = (column.columnDef.meta ?? {}) as DataTableColumnMeta;
+  const popoverTitle = meta.popoverTitle ?? title;
+  const canSort = column.getCanSort() && !disableSort;
+  const canFilter = column.getCanFilter() && !disableFilter;
+
+  if (noPopover || (!canSort && !canFilter && !onPin)) {
+    return (
+      <span
+        className={cn(
+          "text-[11px] font-semibold tracking-wider uppercase text-muted-foreground",
+          className,
+        )}
+      >
+        {title}
+      </span>
+    );
   }
 
   const sorted = column.getIsSorted();
-  const sortLabel =
-    sorted === "desc"
-      ? `Ordenado descendente. Click para ordenar ascendente.`
-      : sorted === "asc"
-        ? `Ordenado ascendente. Click para quitar orden.`
-        : `Sin ordenar. Click para ordenar ascendente.`;
 
   return (
-    <div className={cn("flex items-center", className)}>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 -ml-1.5 gap-1 px-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted/50 hover:text-foreground data-[popup-open]:bg-muted/50"
-              aria-label={sortLabel}
-            >
-              <span>{title}</span>
-              {sorted === "desc" ? (
-                <ArrowDown className="h-3 w-3" />
-              ) : sorted === "asc" ? (
-                <ArrowUp className="h-3 w-3" />
-              ) : (
-                <ChevronsUpDown className="h-3 w-3 opacity-50" />
-              )}
-            </Button>
-          }
-        />
-        <DropdownMenuContent align="start">
-          <DropdownMenuItem
-            className="text-xs"
-            onClick={() => column.toggleSorting(false)}
-          >
-            <ArrowUp className="h-3.5 w-3.5 text-muted-foreground/70" />
-            Ascendente
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-xs"
-            onClick={() => column.toggleSorting(true)}
-          >
-            <ArrowDown className="h-3.5 w-3.5 text-muted-foreground/70" />
-            Descendente
-          </DropdownMenuItem>
-          {column.getIsSorted() && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-xs"
-                onClick={() => column.clearSorting()}
-              >
-                <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground/70" />
-                Quitar orden
-              </DropdownMenuItem>
-            </>
-          )}
-          {column.getCanHide() && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-xs"
-                onClick={() => column.toggleVisibility(false)}
-              >
-                <EyeOff className="h-3.5 w-3.5 text-muted-foreground/70" />
-                Ocultar columna
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    <DataTableColumnPopover
+      column={column}
+      sortable={canSort}
+      filterable={canFilter}
+    >
+      <button
+        type="button"
+        className={cn(
+          "group inline-flex items-center gap-1.5 -mx-1.5 px-1.5 py-1 rounded-md",
+          "hover:bg-muted/40 transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+          className,
+        )}
+        aria-label={`Opciones de columna ${popoverTitle}`}
+      >
+        <span className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+          {title}
+        </span>
+        {canSort && sorted === "asc" && (
+          <ArrowUp className="h-3 w-3 text-foreground" strokeWidth={2.5} />
+        )}
+        {canSort && sorted === "desc" && (
+          <ArrowDown className="h-3 w-3 text-foreground" strokeWidth={2.5} />
+        )}
+        {canSort && sorted === false && (
+          <ChevronsUpDown className="h-3 w-3 text-muted-foreground/60 group-hover:text-muted-foreground" />
+        )}
+        {pinned && (
+          <Pin className="h-3 w-3 text-primary" strokeWidth={2.5} aria-label={`Fijada ${pinned === "left" ? "izquierda" : "derecha"}`} />
+        )}
+      </button>
+    </DataTableColumnPopover>
   );
 }
+
+/**
+ * Re-exported as a convenience so consumers can use either name.
+ */
+export { Button as DataTableColumnHeaderButton };

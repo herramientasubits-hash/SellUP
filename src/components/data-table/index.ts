@@ -1,29 +1,12 @@
-/**
- * DataTable system — composable data table built on TanStack Table v8.
- *
- * @see /docs/DESIGN_SYSTEM_FOUNDATION.md § "DataTable system"
- *
- * Barrel exports.
- */
-
-export { DataTable } from "./data-table";
-export type {
-  DataTableDensity,
-  DataTableBulkAction,
-  DataTableContextMenuConfig,
-} from "./data-table";
+export { DataTable, type DataTableDensity, type DataTableBulkAction, type DataTableContextMenuConfig } from "./data-table";
 export { DataTableColumnHeader } from "./data-table-column-header";
-export { DataTableToolbar } from "./data-table-toolbar";
-export { DataTablePagination } from "./data-table-pagination";
-export {
-  DataTableFacetedFilter,
-  type DataTableFacetedFilterOption,
-} from "./data-table-faceted-filter";
+export { DataTableColumnPopover, type DataTableColumnFilterOption, type DataTableColumnMeta } from "./data-table-column-popover";
 export { DataTableViewOptions } from "./data-table-view-options";
-export { DataTableRowActions } from "./data-table-row-actions";
-export { DataTableBulkActions } from "./data-table-bulk-actions";
 export { DataTableDensityToggle } from "./data-table-density-toggle";
-export {
-  DataTableContextMenu,
-  type DataTableContextMenuItem,
-} from "./data-table-context-menu";
+export { DataTablePagination } from "./data-table-pagination";
+export { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
+export { DataTableContextMenu, type DataTableContextMenuItem } from "./data-table-context-menu";
+export { DataTableRowActions } from "./data-table-row-actions";
+export { DataTableColumnReorder, DataTableDragHandle } from "./data-table-column-reorder";
+export { DataTableSettingsDialog, DataTableSettingsTrigger, type DataTableSettings, type DataTableEditMode, type DataTableLoadMode } from "./data-table-settings";
+export { DataTableToolbar } from "./data-table-toolbar";

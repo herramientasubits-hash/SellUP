@@ -1,36 +1,42 @@
 "use client";
 
 import * as React from "react";
-import { Rows3, Rows4 } from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { type DataTableDensity } from "./data-table";
+import type { DataTableDensity } from "./data-table";
 
 interface DataTableDensityToggleProps {
-  density: DataTableDensity;
-  onChange?: (density: DataTableDensity) => void;
+  value: DataTableDensity;
+  onChange: (next: DataTableDensity) => void;
+  className?: string;
 }
 
 /**
- * Two-state density toggle (compact / comfortable).
- * Stateless — the parent owns the density state. If `onChange` is not
- * provided, the toggle just shows the current state.
+ * Compact density toggle. Switches between "comfortable" and "compact"
+ * row height. Renders as a single icon button.
  */
-export function DataTableDensityToggle({ density, onChange }: DataTableDensityToggleProps) {
-  const next: DataTableDensity = density === "comfortable" ? "compact" : "comfortable";
-  const Icon = density === "comfortable" ? Rows4 : Rows3;
-  const label = density === "comfortable" ? "Cómoda" : "Compacta";
-
+export function DataTableDensityToggle({
+  value,
+  onChange,
+  className,
+}: DataTableDensityToggleProps) {
+  const isCompact = value === "compact";
   return (
     <Button
       variant="outline"
       size="icon-sm"
-      onClick={() => onChange?.(next)}
-      aria-label={`Densidad: ${label}. Click para cambiar a ${next === "comfortable" ? "cómoda" : "compacta"}.`}
-      title={`Densidad ${label} — click para ${next === "comfortable" ? "expandir" : "compactar"} filas`}
+      className={className}
+      onClick={() => onChange(isCompact ? "comfortable" : "compact")}
+      title={isCompact ? "Vista amplia" : "Vista compacta"}
+      aria-label={isCompact ? "Cambiar a vista amplia" : "Cambiar a vista compacta"}
     >
-      <Icon className="h-3.5 w-3.5" />
+      {isCompact ? (
+        <Maximize2 className="h-3.5 w-3.5" />
+      ) : (
+        <Minimize2 className="h-3.5 w-3.5" />
+      )}
     </Button>
   );
 }

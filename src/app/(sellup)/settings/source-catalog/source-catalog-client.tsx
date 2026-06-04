@@ -3,13 +3,9 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Copy, Check, ExternalLink, ArrowRight } from 'lucide-react';
+import { Copy, Check, ExternalLink, ArrowRight, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableContextMenuItem,
-} from '@/components/data-table';
+import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
 import type { SourceCatalogViewModel, SourceViewModel } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
 import {
@@ -121,7 +117,9 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       {
         id: 'name',
         accessorKey: 'name',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Fuente" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Fuente" />
+        ),
         cell: ({ row }) => (
           <div className="space-y-0.5 min-w-[180px]">
             <p className="text-sm font-medium text-foreground">{row.original.name}</p>
@@ -129,13 +127,14 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
           </div>
         ),
         enableHiding: false,
-        filterFn: 'includesString',
-        meta: { label: 'Fuente' },
+        meta: { label: 'Fuente', popoverTitle: 'Fuente' },
       },
       {
         id: 'country',
         accessorFn: (row) => row.countryCodes,
-        header: ({ column }) => <DataTableColumnHeader column={column} title="País" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="País" />
+        ),
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground">
             {row.original.countryCodes.length > 0
@@ -144,14 +143,11 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
           </span>
         ),
         enableSorting: false,
-        filterFn: (row, _columnId, filterValue: string[]) => {
-          if (!filterValue || filterValue.length === 0) return true;
-          return row.original.countryCodes.some((c) => filterValue.includes(c));
-        },
+        filterFn: 'arrIncludesSome',
         meta: {
           label: 'País',
-          facetedFilterTitle: 'País',
-          facetedFilterOptions: filters.countries.map((c) => ({
+          popoverTitle: 'País',
+          filterOptions: filters.countries.map((c) => ({
             label: COUNTRY_LABELS[c] ?? c,
             value: c,
           })),
@@ -160,16 +156,15 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       {
         id: 'operationalStatus',
         accessorKey: 'operationalStatus',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Estado" />
+        ),
         cell: ({ row }) => <StatusBadge status={row.original.operationalStatus} />,
-        filterFn: (row, _columnId, filterValue: string[]) => {
-          if (!filterValue || filterValue.length === 0) return true;
-          return filterValue.includes(row.original.operationalStatus);
-        },
+        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Estado',
-          facetedFilterTitle: 'Estado',
-          facetedFilterOptions: filters.operationalStatuses.map((s) => ({
+          popoverTitle: 'Estado',
+          filterOptions: filters.operationalStatuses.map((s) => ({
             label: OPERATIONAL_STATUS_LABELS[s],
             value: s,
           })),
@@ -178,7 +173,9 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       {
         id: 'latest',
         accessorFn: (row) => row.latest?.checkedAt,
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Última prueba" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Última prueba" />
+        ),
         cell: ({ row }) => <HealthCell latest={row.original.latest} />,
         enableColumnFilter: false,
         meta: { label: 'Última prueba' },
@@ -186,20 +183,19 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       {
         id: 'priority',
         accessorKey: 'priority',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Prioridad" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Prioridad" />
+        ),
         cell: ({ row }) => (
           <span className="text-sm font-medium text-foreground">
             {PRIORITY_LABELS[row.original.priority]}
           </span>
         ),
-        filterFn: (row, _columnId, filterValue: string[]) => {
-          if (!filterValue || filterValue.length === 0) return true;
-          return filterValue.includes(row.original.priority);
-        },
+        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Prioridad',
-          facetedFilterTitle: 'Prioridad',
-          facetedFilterOptions: filters.priorities.map((p) => ({
+          popoverTitle: 'Prioridad',
+          filterOptions: filters.priorities.map((p) => ({
             label: PRIORITY_LABELS[p],
             value: p,
           })),
@@ -208,18 +204,17 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       {
         id: 'type',
         accessorKey: 'type',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Tipo" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Tipo" />
+        ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground">{TYPE_LABELS[row.original.type]}</span>
         ),
-        filterFn: (row, _columnId, filterValue: string[]) => {
-          if (!filterValue || filterValue.length === 0) return true;
-          return filterValue.includes(row.original.type);
-        },
+        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Tipo',
-          facetedFilterTitle: 'Tipo',
-          facetedFilterOptions: filters.types.map((t) => ({
+          popoverTitle: 'Tipo',
+          filterOptions: filters.types.map((t) => ({
             label: TYPE_LABELS[t],
             value: t,
           })),
@@ -228,20 +223,19 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       {
         id: 'automationLevel',
         accessorKey: 'automationLevel',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Automatización" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Automatización" />
+        ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground">
             {AUTOMATION_LEVEL_LABELS[row.original.automationLevel]}
           </span>
         ),
-        filterFn: (row, _columnId, filterValue: string[]) => {
-          if (!filterValue || filterValue.length === 0) return true;
-          return filterValue.includes(row.original.automationLevel);
-        },
+        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Automatización',
-          facetedFilterTitle: 'Automatización',
-          facetedFilterOptions: filters.automationLevels.map((a) => ({
+          popoverTitle: 'Automatización',
+          filterOptions: filters.automationLevels.map((a) => ({
             label: AUTOMATION_LEVEL_LABELS[a],
             value: a,
           })),
@@ -250,7 +244,9 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       {
         id: 'sectors',
         accessorFn: (row) => row.sectors.join(', '),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Sectores" />,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Sectores" />
+        ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground line-clamp-2 max-w-[200px] whitespace-normal">
             {row.original.sectors.length > 0
@@ -263,7 +259,11 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       },
       {
         id: 'actions',
-        header: () => <span className="sr-only">Acciones</span>,
+        header: () => (
+          <span className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
+            Acciones
+          </span>
+        ),
         cell: ({ row }) => (
           <div className="flex items-center gap-0.5 justify-end">
             <Link
@@ -291,7 +291,7 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
         ),
         enableSorting: false,
         enableHiding: false,
-        size: 100,
+        size: 120,
         meta: { label: 'Acciones' },
       },
     ],
@@ -342,9 +342,20 @@ export function SourceCatalogClient({ viewModel, latestTests }: Props) {
       columns={columns}
       data={data}
       getRowId={(row) => row.key}
+      title="Catálogo de fuentes"
+      description="Fuentes de prospección operativas, su cobertura, tipo de automatización y estado de salud."
+      count={data.length}
+      actions={
+        <Button size="sm" className="h-8 px-3 text-xs rounded-lg" asChild>
+          <a href="/api/source-catalog/export.csv" download>
+            <Download className="h-3.5 w-3.5" />
+            Exportar CSV
+          </a>
+        </Button>
+      }
       enableRowSelection
       contextMenu={contextMenu}
-      density="comfortable"
+      enableColumnReorder
       initialPageSize={20}
       emptyState={
         <div className="flex flex-col items-center justify-center py-12 text-center">

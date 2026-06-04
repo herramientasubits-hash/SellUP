@@ -588,5 +588,111 @@ Para soportar el sistema se agregaron (en `src/components/ui/`):
 - `popover.tsx` — wrapper Radix Popover (Radix `asChild` pattern).
 - `context-menu.tsx` — wrapper Radix ContextMenu.
 - `command.tsx` — wrapper `cmdk` para Command palette + CommandInput/List/Item/Group/Separator/Empty.
+- `checkbox.tsx` — wrapper Radix Checkbox (selección de filas).
+- `switch.tsx` — wrapper Radix Switch (toggles en settings dialog).
 
 Estos siguen el patrón shadcn estándar (forwardRef + cn + Radix Slot cuando aplica).
+
+### 10.11 Anatomía de un DataTable (alineada con referencia)
+
+La referencia (`plantilla-proyectos-shadcn` v2) define un sistema con 6 zonas visuales. El `<DataTable>` las implementa así:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Title + count   [search icon-btn] [density] [view] [⚙] [actions]│  ← Toolbar
+│ Description (subtítulo)                                            │
+├─────────────────────────────────────────────────────────────────┤
+│ ☐ │ Col 1 ⇅▼ │ Col 2 ⇅▼ │ Col 3 ⇅▼ │ Col 4 ⇅▼ │ Acciones  │  ← Sticky header
+├───┼────────────┼────────────┼────────────┼────────────┼───────────┤
+│ ☐ │ ...        │ ...        │ ...        │ ...        │          │  ← Rows
+│ ☐ │ ...        │ ...        │ ...        │ ...        │          │
+├───┴────────────┴────────────┴────────────┴────────────┴───────────┤
+│ Mostrando 1 - 4 de 7    [« Anterior] 1 2 [Siguiente »]          │  ← Pagination
+└─────────────────────────────────────────────────────────────────┘
+                                                (when selecting)
+                              ┌─────────────────────────────────────┐
+                              │ 4 Seleccionados │ ✓ ✕ 🗑 │ 📌 ×     │  ← Floating
+                              └─────────────────────────────────────┘     bar
+```
+
+#### 10.11.1 Per-column popover (Sort + Search + Filter)
+
+Cada header de columna (que sea `sortable` o `filterable`) tiene un botón
+clickable que abre un popover con tres secciones:
+
+1. **ORDENAR** — dos botones `Asc` / `Desc` que controlan `column.toggleSorting(false|true)`.
+2. **BUSCAR** — input opcional (en columnas con `disablePopoverSearch: true` se omite) que filtra la lista de opciones.
+3. **FILTRAR** — lista de checkboxes con conteos. Los valores vienen de `meta.filterOptions` (estático, preferible para enums conocidos) o de `column.getFacetedUniqueValues()` (derivado de los datos).
+
+Los filtros se almacenan como `string[]` en `column.filterValue` y se aplican
+con `filterFn: 'arrIncludesSome'` (built-in de TanStack v8).
+
+#### 10.11.2 Column reordering (drag-and-drop)
+
+`<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` +
+`@dnd-kit/sortable` (estrategia `horizontalListSortingStrategy`). Las
+columnas ancladas (`pinnedColumnIds`, default `["select", "actions"]`) se
+excluyen del sortable context y permanecen en sus extremos.
+
+Para activarlo: `enableColumnReorder` (default `true`). El estado vive en
+`state.columnOrder` (TanStack v8 built-in).
+
+#### 10.11.3 Column pinning (left / right)
+
+Wired via `state.columnPinning: { left, right }` (TanStack v8 built-in).
+El método `column.pin("left" | "right" | false)` está disponible en el
+context menu del column header (TODO: añadir botón Pin en el popover
+cuando el consumer pase `onPin` callback).
+
+#### 10.11.4 Floating bulk action bar
+
+`<DataTableBulkActionBar>` se renderiza en `position: fixed; bottom-6;
+left-1/2` cuando hay selección. Es dark (`bg-zinc-900`), pill-shaped
+(`rounded-full`), con:
+
+- Badge circular con el conteo (`bg-primary text-primary-foreground`).
+- Acciones: iconos + label, separadas por `bg-zinc-700` dividers.
+- Pin button + Close (×) button al final.
+- Acciones con `confirm: { title, description }` abren un `Dialog`
+  inline (no modal separado) antes de ejecutar.
+
+Para activarlo: `enableRowSelection` + `bulkActions[]`. El bar se cierra
+automáticamente al ejecutar acciones no destructivas; las destructivas
+mantienen el bar abierto hasta que el consumer resuelva la promesa.
+
+#### 10.11.5 Settings dialog ("Ajustes de Tabla Avanzados")
+
+`<DataTableSettingsDialog>` envuelve la `<Dialog>` (Base UI) con tres
+controles:
+
+- **MODO DE EDICIÓN** (`row` / `cell`) — `SegmentedControl` con íconos.
+- **CARGA DE DATOS** (`pagination` / `lazy`) — `SegmentedControl`.
+- **BUSCADOR GENERAL** — `Switch` que controla `showGlobalSearch`.
+
+El estado vive en `DataTableSettings` y se aplica al cerrar el modal con
+"Aplicar Ajustes". Se accede desde el ícono `SlidersHorizontal` en el
+toolbar.
+
+El consumer puede sobrescribir el comportamiento real de `editMode` /
+`loadMode` en su `<DataTable>` padre leyendo `settings.editMode` /
+`settings.loadMode` y reaccionando con `useEffect`. Por defecto la
+implementación no hace nada destructivo — es opt-in.
+
+#### 10.11.6 Search button (icon-only)
+
+En el toolbar, el search input es un **icon button** que se expande a un
+input de 224px (`w-56`) cuando se le hace click. El usuario escribe y
+presiona Enter (o se cierra solo al perder focus si está vacío). El
+resultado se pasa a `state.globalFilter` (TanStack v8 built-in).
+
+#### 10.11.7 Pagination format
+
+`<DataTablePagination>` formatea: `Mostrando {first} - {last} de {total} resultados`. A la derecha:
+
+```
+[« Anterior] 1 2 3 [Siguiente »]
+```
+
+Con elipsis (`…`) entre páginas no consecutivas. La página actual se
+resalta con `bg-foreground text-background`. Se omite toda la barra si
+`totalRows === 0` (solo muestra "0 resultados").

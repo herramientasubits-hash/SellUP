@@ -1,129 +1,140 @@
 "use client";
 
 import * as React from "react";
-import { type Table } from "@tanstack/react-table";
-import { Search, X } from "lucide-react";
+import { Search, SlidersHorizontal } from "lucide-react";
+import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { type DataTableBulkAction, type DataTableDensity } from "./data-table";
-import { DataTableViewOptions } from "./data-table-view-options";
 import { DataTableDensityToggle } from "./data-table-density-toggle";
-import { DataTableFacetedFilter } from "./data-table-faceted-filter";
+import { DataTableViewOptions } from "./data-table-view-options";
+import type { DataTableDensity } from "./data-table";
 
 interface DataTableToolbarProps<TData> {
   table: Table<TData>;
   globalFilter: string;
-  onGlobalFilterChange: (value: string) => void;
-  bulkActions?: DataTableBulkAction<TData>[];
-  selectedCount: number;
-  selectedRows: TData[];
+  onGlobalFilterChange: (next: string) => void;
   density: DataTableDensity;
+  onDensityChange?: (next: DataTableDensity) => void;
+  /** Optional: hide the global search input (controlled by settings dialog). */
+  showGlobalSearch?: boolean;
+  /** Optional: right-aligned action buttons (e.g. "Descargar Reporte (CSV)"). */
+  actions?: React.ReactNode;
+  /** Optional: open the settings dialog from the toolbar. */
+  onOpenSettings?: () => void;
+  /** Optional: show the column visibility menu. */
+  showViewOptions?: boolean;
+  className?: string;
 }
 
+/**
+ * Toolbar sits at the top of the DataTable card. Layout:
+ *
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │ Title + count   [search btn] [view options] [settings] [actions] │
+ * │ Description                                                     │
+ * └─────────────────────────────────────────────────────────────┘
+ *
+ * Mirrors the reference template's toolbar (search icon button at top right,
+ * settings gear, then action buttons).
+ */
 export function DataTableToolbar<TData>({
   table,
   globalFilter,
   onGlobalFilterChange,
-  bulkActions,
-  selectedCount,
-  selectedRows,
   density,
+  onDensityChange,
+  showGlobalSearch = true,
+  actions,
+  onOpenSettings,
+  showViewOptions = true,
+  className,
 }: DataTableToolbarProps<TData>) {
-  const isFiltered = table.getState().columnFilters.length > 0 || globalFilter !== "";
-  const hasFacetedFilters = table
-    .getAllColumns()
-    .some((col) => col.columnDef.enableColumnFilter && (col.columnDef as any).meta?.facetedFilterOptions);
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
 
-  if (selectedCount > 0) {
-    return (
-      <div className="flex items-center justify-between gap-2 rounded-xl border border-su-brand/30 bg-su-brand-soft px-3 py-2 animate-su-fade-in">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-su-brand">
-            {selectedCount} seleccionado{selectedCount > 1 ? "s" : ""}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={() => table.resetRowSelection()}
-          >
-            <X className="h-3 w-3" />
-            Limpiar
-          </Button>
-        </div>
-        {bulkActions && bulkActions.length > 0 && (
-          <div className="flex items-center gap-1.5">
-            {bulkActions.map((action) => (
-              <Button
-                key={action.id}
-                variant={action.variant ?? "outline"}
-                size="sm"
-                disabled={action.loading}
-                onClick={() => action.onClick(selectedRows)}
-                className="h-7 text-xs"
-              >
-                {action.icon && <action.icon className="h-3.5 w-3.5" />}
-                {action.label}
-              </Button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
+  React.useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="flex flex-1 flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar…"
-            value={globalFilter}
-            onChange={(e) => onGlobalFilterChange(e.target.value)}
-            className="h-9 w-[180px] pl-8 lg:w-[260px]"
-          />
+    <div
+      className={cn(
+        "flex flex-col gap-2 px-5 py-4 border-b border-border/40",
+        className,
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {table.options.meta?.title !== undefined && (
+            <h3 className="text-lg font-bold text-foreground leading-tight">
+              {table.options.meta.title as React.ReactNode}
+            </h3>
+          )}
+          {table.options.meta?.description !== undefined && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {table.options.meta.description as React.ReactNode}
+            </p>
+          )}
         </div>
 
-        {table
-          .getAllColumns()
-          .filter((col) => {
-            const meta = (col.columnDef as any).meta;
-            return col.getCanFilter() && meta?.facetedFilterOptions;
-          })
-          .map((column) => {
-            const meta = (column.columnDef as any).meta;
-            return (
-              <DataTableFacetedFilter
-                key={column.id}
-                column={column}
-                title={meta.facetedFilterTitle ?? column.id}
-                options={meta.facetedFilterOptions}
-              />
-            );
-          })}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {showGlobalSearch && (
+            <div
+              className={cn(
+                "flex items-center transition-all",
+                searchOpen ? "w-56" : "w-9",
+              )}
+            >
+              {searchOpen ? (
+                <div className="relative w-full">
+                  <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    ref={searchInputRef}
+                    value={globalFilter}
+                    onChange={(e) => onGlobalFilterChange(e.target.value)}
+                    onBlur={() => {
+                      if (!globalFilter) setSearchOpen(false);
+                    }}
+                    placeholder="Buscar..."
+                    className="h-8 pl-7 pr-2 text-xs"
+                  />
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={() => setSearchOpen(true)}
+                  title="Buscar"
+                  aria-label="Buscar"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          )}
 
-        {isFiltered && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              table.resetColumnFilters();
-              onGlobalFilterChange("");
-            }}
-            className="h-9 px-2 text-xs"
-          >
-            Reiniciar
-            <X className="ml-1 h-3.5 w-3.5" />
-          </Button>
-        )}
-      </div>
+          {onDensityChange && (
+            <DataTableDensityToggle value={density} onChange={onDensityChange} />
+          )}
 
-      <div className="flex items-center gap-2">
-        <DataTableDensityToggle density={density} />
-        <DataTableViewOptions table={table} />
+          {showViewOptions && <DataTableViewOptions table={table} />}
+
+          {onOpenSettings && (
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={onOpenSettings}
+              title="Ajustes de tabla"
+              aria-label="Ajustes de tabla"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
+          {actions}
+        </div>
       </div>
     </div>
   );
