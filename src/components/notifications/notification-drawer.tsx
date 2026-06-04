@@ -3,14 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, ExternalLink } from "lucide-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { DrawerShell } from "@/components/shared/drawer-shell";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { UserNotification, NotificationFilter } from "@/modules/notifications/types";
 
 interface NotificationDrawerProps {
@@ -144,88 +138,63 @@ export function NotificationDrawer({
   const hasUnread = unreadCount > 0;
 
   return (
-    <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <SheetContent
-        side="right"
-        showCloseButton={false}
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-sm"
-      >
-        {/* Header */}
-        <SheetHeader className="border-b border-border/40 px-4 py-3">
-          <div className="flex items-center justify-between">
-            <SheetTitle className="text-base font-semibold text-foreground">
-              Notificaciones
-            </SheetTitle>
-            <Button variant="ghost" size="icon-sm" onClick={onClose}>
-              <span className="sr-only">Cerrar</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
+    <DrawerShell
+      open={open}
+      onOpenChange={(isOpen) => !isOpen && onClose()}
+      title="Notificaciones"
+      icon={<Bell className="h-4 w-4 text-su-brand" />}
+      size="sm"
+    >
+      <div className="flex flex-col gap-4">
+        {/* Tabs + acción */}
+        <div className="flex items-center justify-between pb-3 border-b border-border/40">
+          <div className="flex gap-0.5 rounded-md bg-muted p-0.5">
+            {(["unread", "all"] as NotificationFilter[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => onFilterChange(f)}
+                className={[
+                  "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                  filter === f
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
               >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
+                {f === "unread" ? (
+                  <span className="flex items-center gap-1.5">
+                    No leídas
+                    {hasUnread && (
+                      <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-1 text-[10px] font-bold text-white">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  "Todas"
+                )}
+              </button>
+            ))}
+          </div>
+
+          {hasUnread && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={markingAll}
+              onClick={handleMarkAll}
+              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              Marcar leídas
             </Button>
-          </div>
-
-          {/* Tabs + acción */}
-          <div className="flex items-center justify-between pt-1">
-            <div className="flex gap-0.5 rounded-md bg-muted p-0.5">
-              {(["unread", "all"] as NotificationFilter[]).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => onFilterChange(f)}
-                  className={[
-                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                    filter === f
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  ].join(" ")}
-                >
-                  {f === "unread" ? (
-                    <span className="flex items-center gap-1.5">
-                      No leídas
-                      {hasUnread && (
-                        <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-1 text-[10px] font-bold text-white">
-                          {unreadCount}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    "Todas"
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {hasUnread && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={markingAll}
-                onClick={handleMarkAll}
-                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <CheckCheck className="h-3.5 w-3.5" />
-                Marcar leídas
-              </Button>
-            )}
-          </div>
-        </SheetHeader>
+          )}
+        </div>
 
         {/* Lista */}
-        <ScrollArea className="flex-1">
+        <div>
           {loading ? (
-            <div className="flex flex-col gap-1 p-2">
+            <div className="flex flex-col gap-1">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/60" />
               ))}
@@ -233,14 +202,14 @@ export function NotificationDrawer({
           ) : displayed.length === 0 ? (
             <EmptyState filter={filter} />
           ) : (
-            <div className="flex flex-col gap-0.5 p-2">
+            <div className="flex flex-col gap-0.5">
               {displayed.map((n) => (
                 <NotificationItem key={n.id} notification={n} onRead={handleRead} />
               ))}
             </div>
           )}
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
+        </div>
+      </div>
+    </DrawerShell>
   );
 }

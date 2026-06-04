@@ -22,21 +22,8 @@ import {
   FileSearch,
 } from 'lucide-react';
 import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from '@/components/ui/sheet';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { DrawerShell } from '@/components/shared/drawer-shell';
+import { ModalShell } from '@/components/shared/modal-shell';
 import { Badge } from '@/components/ui/badge';
 import {
   CANDIDATE_STATUS_LABELS,
@@ -742,39 +729,34 @@ export function CandidateDetailSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:w-[50vw] sm:min-w-[600px] sm:max-w-none overflow-y-auto flex flex-col gap-0 px-0">
-        {/* Header */}
-        <SheetHeader className="px-5 pt-5 pb-3 border-b border-border/30">
-          <div className="flex items-start gap-2">
-            <div className="mt-0.5 rounded-md bg-muted p-1.5 shrink-0">
-              <Building2 className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="min-w-0">
-              <SheetTitle className="text-base font-semibold leading-snug truncate">
-                {candidate.name}
-              </SheetTitle>
-              <SheetDescription className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                {candidate.country_code && (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />
-                    {candidate.country ?? candidate.country_code}
-                  </span>
-                )}
-                {structuredSourceLabel ? (
-                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 h-4">
-                    <ShieldCheck className="h-2.5 w-2.5" />
-                    {structuredSourceLabel}
-                  </Badge>
-                ) : sourcePrimaryLabel ? (
-                  <span className="text-[10px] text-muted-foreground/60">{sourcePrimaryLabel}</span>
-                ) : null}
-              </SheetDescription>
-            </div>
-          </div>
-        </SheetHeader>
-
-        <div className="px-5 py-4 space-y-5 flex-1">
+    <>
+      <DrawerShell
+        open={open}
+        onOpenChange={onOpenChange}
+      side="right"
+      className="w-full sm:w-[50vw] sm:min-w-[600px] sm:max-w-none"
+      icon={<Building2 className="h-4 w-4 text-muted-foreground" />}
+      title={candidate.name}
+      description={
+        <div className="flex items-center gap-2 flex-wrap">
+          {candidate.country_code && (
+            <span className="flex items-center gap-1">
+              <MapPin className="h-3 w-3" />
+              {candidate.country ?? candidate.country_code}
+            </span>
+          )}
+          {structuredSourceLabel ? (
+            <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 h-4">
+              <ShieldCheck className="h-2.5 w-2.5" />
+              {structuredSourceLabel}
+            </Badge>
+          ) : sourcePrimaryLabel ? (
+            <span className="text-[10px] text-muted-foreground/60">{sourcePrimaryLabel}</span>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="space-y-5">
           {/* limited_public_data banner */}
           {flags.includes('limited_public_data') && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-600 dark:text-blue-400">
@@ -2993,41 +2975,20 @@ export function CandidateDetailSheet({
             </div>
           </CollapsibleSection>
         </div>
-      </SheetContent>
-      <Dialog open={!!confirmDialogData} onOpenChange={(open) => { if (!open) setConfirmDialogData(null); }}>
-        <DialogContent className="rounded-2xl shadow-lg border border-border bg-card text-foreground max-w-md p-6">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold">Confirmar Identificador Fiscal</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-1">
-              ¿Estás seguro de que deseas aprobar <span className="font-mono text-foreground font-medium">{confirmDialogData?.taxIdentifier}</span> como el identificador fiscal oficial de este candidato?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-3 space-y-2">
-            {confirmDialogData?.legalName && (
-              <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
-                <span className="text-muted-foreground">Razón Social:</span>
-                <span className="font-medium text-foreground">{confirmDialogData.legalName}</span>
-              </div>
-            )}
-            <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
-              <span className="text-muted-foreground">Fuente:</span>
-              <span className="text-foreground">{confirmDialogData?.sourceName}</span>
-            </div>
-            {confirmDialogData?.confidence && (
-              <div className="text-xs flex items-center justify-between pb-2">
-                <span className="text-muted-foreground">Confianza:</span>
-                <span className={`font-semibold capitalize ${
-                  confirmDialogData.confidence === 'high' ? 'text-emerald-500' : 'text-amber-500'
-                }`}>
-                  {confirmDialogData.confidence === 'high' ? 'Alta' : 'Media'}
-                </span>
-              </div>
-            )}
-            <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-md p-2 mt-2 leading-relaxed">
-              * El identificador se guardará localmente en SellUp. No se sincronizará con HubSpot en este momento.
-            </p>
-          </div>
-          <DialogFooter className="flex items-center justify-end gap-2 mt-4">
+      </DrawerShell>
+      <ModalShell
+        open={!!confirmDialogData}
+        onOpenChange={(open) => { if (!open) setConfirmDialogData(null); }}
+        title="Confirmar Identificador Fiscal"
+        description={
+          <span>
+            ¿Estás seguro de que deseas aprobar <span className="font-mono text-foreground font-medium">{confirmDialogData?.taxIdentifier}</span> como el identificador fiscal oficial de este candidato?
+          </span>
+        }
+        showCloseButton={false}
+        className="max-w-md"
+        actions={
+          <>
             <Button
               variant="outline"
               size="sm"
@@ -3060,9 +3021,35 @@ export function CandidateDetailSheet({
                 'Guardar NIT'
               )}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Sheet>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          {confirmDialogData?.legalName && (
+            <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
+              <span className="text-muted-foreground">Razón Social:</span>
+              <span className="font-medium text-foreground">{confirmDialogData.legalName}</span>
+            </div>
+          )}
+          <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
+            <span className="text-muted-foreground">Fuente:</span>
+            <span className="text-foreground">{confirmDialogData?.sourceName}</span>
+          </div>
+          {confirmDialogData?.confidence && (
+            <div className="text-xs flex items-center justify-between pb-2">
+              <span className="text-muted-foreground">Confianza:</span>
+              <span className={`font-semibold capitalize ${
+                confirmDialogData.confidence === 'high' ? 'text-emerald-500' : 'text-amber-500'
+              }`}>
+                {confirmDialogData.confidence === 'high' ? 'Alta' : 'Media'}
+              </span>
+            </div>
+          )}
+          <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-md p-2 mt-2 leading-relaxed">
+            * El identificador se guardará localmente en SellUp. No se sincronizará con HubSpot en este momento.
+          </p>
+        </div>
+      </ModalShell>
+    </>
   );
 }

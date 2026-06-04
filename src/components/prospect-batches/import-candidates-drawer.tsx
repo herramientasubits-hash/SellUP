@@ -15,14 +15,7 @@ import {
   ExternalLink,
   Info,
 } from 'lucide-react';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
+import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -355,202 +348,50 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   const possibleDuplicateCount = duplicates.filter((d) => d.duplicate_status === 'possible_duplicate').length;
 
   return (
-    <>
-      <span onClick={() => setOpen(true)}>{children}</span>
-
-      <Sheet open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
-        <SheetContent
-          className={cn(
-            "flex w-full flex-col gap-0 overflow-hidden p-0 transition-all duration-300",
-            step === 'preview'
-              ? "data-[side=right]:sm:max-w-[80vw] sm:w-[80vw] w-full"
-              : "data-[side=right]:sm:max-w-[500px] sm:w-[500px] w-full"
-          )}
-        >
-
-          {/* ── Step: input ───────────────────────────────────── */}
-          {step === 'input' && (
-            <>
-              <SheetHeader className="border-b border-border/40 px-6 py-5">
-                <SheetTitle className="text-base font-semibold">
-                  Importar candidatos externos
-                </SheetTitle>
-                <SheetDescription className="text-xs text-muted-foreground">
-                  Carga empresas encontradas en Gemini, hojas de cálculo, eventos o investigación
-                  externa. SellUp validará duplicidad y las dejará listas para revisión antes de
-                  crear cuentas.
-                </SheetDescription>
-              </SheetHeader>
-
-              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-
-                {/* ── Configuración del lote ─────────────────── */}
-                <div className="space-y-3 rounded-xl border border-border/40 bg-muted/20 px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                    Configuración del lote
-                  </p>
-
-                  {/* País del lote */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-foreground">
-                      País del lote <span className="text-destructive">*</span>
-                    </label>
-                    <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Selecciona el país de estos candidatos" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {LATAM_COUNTRIES.map((c) => (
-                          <SelectItem key={c.code} value={c.code} className="text-xs">
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[10px] text-muted-foreground">
-                      Se usará para las filas que no tengan país en el archivo.
-                    </p>
-                  </div>
-
-                  {/* Industria del lote */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-foreground">
-                      Industria / criterio del lote
-                    </label>
-                    <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Selecciona o escribe una industria" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {INDUSTRIES.map((ind) => (
-                          <SelectItem key={ind} value={ind} className="text-xs">
-                            {ind}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[10px] text-muted-foreground">
-                      Se usará para las filas que no tengan sector o industria.
-                    </p>
-                  </div>
-                </div>
-
-                {/* ── Selector de método ─────────────────────── */}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFileMethod('paste')}
-                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
-                      fileMethod === 'paste'
-                        ? 'border-su-brand bg-su-brand-soft text-su-brand'
-                        : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
-                    }`}
-                  >
-                    <ClipboardPaste className="h-4 w-4" />
-                    Pegar tabla
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFileMethod('file')}
-                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
-                      fileMethod === 'file'
-                        ? 'border-su-brand bg-su-brand-soft text-su-brand'
-                        : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
-                    }`}
-                  >
-                    <FileText className="h-4 w-4" />
-                    Subir archivo
-                  </button>
-                </div>
-
-                {/* Input: pegar tabla */}
-                {fileMethod === 'paste' && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-foreground">
-                      Pega el contenido copiado desde Google Sheets o Excel
-                    </p>
-                    <Textarea
-                      placeholder={`Empresa\tPaís\tSector\tSitio web\nAcme Learning Chile\tChile\tEducación\thttps://acme.cl`}
-                      className="min-h-[180px] font-mono text-xs resize-none"
-                      value={pasteText}
-                      onChange={(e) => setPasteText(e.target.value)}
-                    />
-                    <p className="text-[10px] text-muted-foreground">
-                      Acepta separadores tab, coma o punto y coma. La primera fila debe ser encabezados.
-                      Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba.
-                    </p>
-                  </div>
-                )}
-
-                {/* Input: subir archivo */}
-                {fileMethod === 'file' && (
-                  <div className="space-y-3">
-                    <p className="text-xs font-medium text-foreground">
-                      Sube un archivo CSV o Excel (.xlsx)
-                    </p>
-                    <div
-                      className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/40 bg-muted/20 px-6 py-10 text-center cursor-pointer hover:border-border hover:bg-muted/40 transition-colors"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <div className="rounded-full bg-su-brand-soft p-2.5">
-                        <Upload className="h-5 w-5 text-su-brand" />
-                      </div>
-                      {fileName ? (
-                        <>
-                          <p className="text-sm font-semibold text-foreground">{fileName}</p>
-                          <p className="text-xs text-muted-foreground">Clic para cambiar archivo</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-sm font-semibold text-foreground">Clic para seleccionar</p>
-                          <p className="text-xs text-muted-foreground">
-                            Archivos .csv o .xlsx · máx. 2 MB · 500 filas
-                          </p>
-                        </>
-                      )}
-                    </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                      className="hidden"
-                      onChange={handleFileChange}
-                    />
-                    <p className="text-[10px] text-muted-foreground">
-                      La primera fila debe contener los encabezados. Los archivos .xlsm no son soportados.
-                    </p>
-                  </div>
-                )}
-
-                {/* Columnas reconocidas */}
-                <div className="rounded-xl border border-border/30 bg-muted/20 px-4 py-3.5 space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                    Columnas reconocidas automáticamente
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    empresa · nombre empresa · razón social · país · sitio web · sector · industria ·
-                    ciudad · región · NIT · RUT · RFC · LinkedIn · tamaño · descripción · notas ·
-                    fuente · contacto · email
-                  </p>
-                </div>
-
-                {/* Nota inferior */}
-                <div className="flex items-start gap-2.5 rounded-xl border border-border/30 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    Puedes copiar desde Google Sheets/Excel o subir un archivo CSV/XLSX.
-                  </span>
-                </div>
-              </div>
-
-              <SheetFooter className="border-t border-border/40 px-6 py-4">
-                <Button type="button" variant="ghost" onClick={handleClose} className="text-xs">
+    <DrawerShell
+      open={open}
+      onOpenChange={(v) => { if (!v) handleClose(); }}
+      trigger={children}
+      title={
+        step === 'input'
+          ? "Importar candidatos externos"
+          : step === 'preview'
+          ? "Vista previa de importación"
+          : "Candidatos importados para revisión"
+      }
+      description={
+        step === 'input'
+          ? "Carga empresas encontradas en Gemini, hojas de cálculo, eventos o investigación externa. SellUp validará duplicidad y las dejará listas para revisión antes de crear cuentas."
+          : step === 'preview'
+          ? "Revisa los datos antes de crear el lote. Solo se importarán filas válidas y con advertencias."
+          : `SellUp creó un lote con ${resultCount} candidato${resultCount !== 1 ? 's' : ''} externos. Revísalos antes de aprobarlos como cuentas.`
+      }
+      icon={
+        step === 'success'
+          ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          : step === 'preview'
+          ? <FileText className="h-4 w-4 text-su-brand" />
+          : <Upload className="h-4 w-4 text-su-brand" />
+      }
+      className={cn(
+        "transition-all duration-300",
+        step === 'preview'
+          ? "sm:!max-w-[80vw] sm:w-[80vw] w-full"
+          : "sm:!max-w-[500px] sm:w-[500px] w-full"
+      )}
+      footer={
+        step === 'success' ? null : (
+          <div className="shrink-0 border-t border-border/50 px-7 py-4">
+            {step === 'input' && (
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleClose} className="text-xs">
                   Cancelar
                 </Button>
                 <Button
                   type="button"
                   onClick={handleBuildPreview}
                   disabled={!hasInput || loadingPreview}
+                  size="sm"
                   className="gap-2 text-xs"
                 >
                   {loadingPreview ? (
@@ -562,320 +403,11 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     'Previsualizar'
                   )}
                 </Button>
-              </SheetFooter>
-            </>
-          )}
-
-          {/* ── Step: preview ─────────────────────────────────── */}
-          {step === 'preview' && preview && (
-            <>
-              <SheetHeader className="border-b border-border/40 px-6 py-5">
-                <button
-                  type="button"
-                  onClick={() => setStep('input')}
-                  className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ArrowLeft className="h-3 w-3" />
-                  Volver
-                </button>
-                <SheetTitle className="text-base font-semibold">
-                  Vista previa de importación
-                </SheetTitle>
-                <SheetDescription className="text-xs text-muted-foreground">
-                  Revisa los datos antes de crear el lote. Solo se importarán filas válidas y con advertencias.
-                </SheetDescription>
-              </SheetHeader>
-
-              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-
-                {/* Defaults del lote */}
-                {(selectedCountryCode || selectedIndustry) && (
-                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand/70 mr-1">
-                      Defaults del lote:
-                    </p>
-                    {selectedCountryCode && (
-                      <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
-                        🌍 {selectedCountry?.name ?? selectedCountryCode}
-                      </Badge>
-                    )}
-                    {selectedIndustry && (
-                      <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
-                        🏭 {selectedIndustry}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-
-                {/* Resumen estadístico */}
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { label: 'Filas detectadas', value: preview.total, color: 'text-foreground', bg: 'bg-muted/60' },
-                    { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-su-brand font-bold', bg: 'bg-su-brand-soft' },
-                    { label: 'Sin observaciones', value: preview.valid, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-                    { label: 'Con advertencias', value: preview.warnings_only, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-                    { label: 'Con errores', value: preview.errors, color: 'text-destructive', bg: 'bg-destructive/10' },
-                  ].map((card) => (
-                    <div key={card.label} className={`rounded-xl ${card.bg} px-3 py-2.5 flex-1 min-w-[100px] sm:min-w-[120px]`}>
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                        {card.label}
-                      </p>
-                      <p className={`mt-1 text-xl font-semibold tabular-nums ${card.color}`}>
-                        {card.value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Duplicados encontrados */}
-                {(exactDuplicateCount > 0 || possibleDuplicateCount > 0) && (
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-2.5">
-                    <GitMerge className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                    <div className="text-xs text-muted-foreground space-y-0.5">
-                      {exactDuplicateCount > 0 && (
-                        <p>
-                          <span className="font-semibold text-orange-600 dark:text-orange-400">
-                            {exactDuplicateCount} duplicado{exactDuplicateCount !== 1 ? 's' : ''} exacto{exactDuplicateCount !== 1 ? 's' : ''}
-                          </span>{' '}
-                          encontrado{exactDuplicateCount !== 1 ? 's' : ''} en SellUp — se importarán igualmente para revisión.
-                        </p>
-                      )}
-                      {possibleDuplicateCount > 0 && (
-                        <p>
-                          <span className="font-semibold text-amber-600 dark:text-amber-400">
-                            {possibleDuplicateCount} posible{possibleDuplicateCount !== 1 ? 's' : ''} duplicado{possibleDuplicateCount !== 1 ? 's' : ''}
-                          </span>{' '}
-                          — verifica manualmente antes de aprobar.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Columnas reconocidas / no reconocidas */}
-                {(preview.recognized_columns.length > 0 || preview.unrecognized_columns.length > 0) && (
-                  <div className="rounded-xl border border-border/30 bg-muted/20 px-4 py-3 space-y-2">
-                    {preview.recognized_columns.length > 0 && (
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">
-                          Columnas reconocidas
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {preview.recognized_columns.map((col) => (
-                            <Badge key={col} variant="secondary" className="text-[10px] font-normal">
-                              {col}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {preview.unrecognized_columns.length > 0 && (
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">
-                          Columnas no reconocidas (se ignorarán)
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {preview.unrecognized_columns.map((col) => (
-                            <Badge key={col} variant="outline" className="text-[10px] font-normal text-muted-foreground">
-                              {col}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Tabla de filas */}
-                <div className="rounded-xl border border-border/40 overflow-hidden bg-card">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-[1000px] w-full text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-border/40 bg-muted/30">
-                          <th className="px-3 py-2 text-center font-semibold text-muted-foreground w-12">#</th>
-                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[180px]">Empresa</th>
-                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground w-24">País</th>
-                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[120px]">Sector</th>
-                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[140px]">Website</th>
-                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[140px]">LinkedIn</th>
-                          <th className="px-3 py-2 text-center font-semibold text-muted-foreground w-28">Confianza</th>
-                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground w-40">Estado</th>
-                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[200px] max-w-[300px]">Notas / advertencias</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {preview.rows.map((row) => {
-                          const dup = duplicateMap.get(row.index);
-                          
-                          // Display Url
-                          const displayUrl = row.raw.website ? row.raw.website.replace(/^(https?:\/\/)?(www\.)?/, '') : '';
-                          const hrefUrl = row.raw.website ? (row.raw.website.startsWith('http') ? row.raw.website : `https://${row.raw.website}`) : '';
-                          
-                          return (
-                            <tr key={row.index} className="border-b border-border/20 last:border-0 hover:bg-muted/20 transition-colors">
-                              {/* 1. Index */}
-                              <td className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
-                                {row.index + 1}
-                              </td>
-                              
-                              {/* 2. Empresa */}
-                              <td className="px-3 py-2.5">
-                                <div className="flex flex-col gap-0.5">
-                                  <p className="font-semibold text-foreground truncate max-w-[200px]" title={row.raw.company_name}>
-                                    {row.raw.company_name || <span className="text-muted-foreground/60 italic">Sin nombre</span>}
-                                  </p>
-                                  {row.raw.description && (
-                                    <p className="text-[10px] text-muted-foreground/80 truncate max-w-[200px]" title={row.raw.description}>
-                                      {row.raw.description}
-                                    </p>
-                                  )}
-                                </div>
-                              </td>
-                              
-                              {/* 3. País */}
-                              <td className="px-3 py-2.5">
-                                <div className="flex flex-col gap-0.5">
-                                  <p className="text-foreground font-medium">
-                                    {row.resolved_country_code ?? row.raw.country_code ?? row.raw.country ?? (
-                                      <span className="text-muted-foreground/60 italic">—</span>
-                                    )}
-                                  </p>
-                                  {row.country_from_default && (
-                                    <DefaultBadge label="desde lote" />
-                                  )}
-                                </div>
-                              </td>
-                              
-                              {/* 4. Sector */}
-                              <td className="px-3 py-2.5">
-                                <div className="flex flex-col gap-0.5">
-                                  <p className="text-foreground truncate max-w-[120px]" title={row.raw.industry}>
-                                    {row.raw.industry ?? <span className="text-muted-foreground/60 italic">—</span>}
-                                  </p>
-                                  {row.industry_from_default && (
-                                    <DefaultBadge label="lote" />
-                                  )}
-                                </div>
-                              </td>
-                              
-                              {/* 5. Website */}
-                              <td className="px-3 py-2.5">
-                                {row.raw.website ? (
-                                  <a
-                                    href={hrefUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
-                                    title={row.raw.website}
-                                  >
-                                    {displayUrl}
-                                    <ExternalLink className="h-3 w-3 shrink-0" />
-                                  </a>
-                                ) : (
-                                  <span className="text-muted-foreground/60 italic">—</span>
-                                )}
-                              </td>
-                              
-                              {/* 6. LinkedIn */}
-                              <td className="px-3 py-2.5">
-                                {row.raw.linkedin_url && row.raw.linkedin_url.toLowerCase() !== 'no encontrado' ? (
-                                  <a
-                                    href={row.raw.linkedin_url.startsWith('http') ? row.raw.linkedin_url : `https://${row.raw.linkedin_url}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
-                                    title={row.raw.linkedin_url}
-                                  >
-                                    {row.raw.linkedin_url.replace(/^(https?:\/\/)?(www\.)?linkedin\.com\//, '')}
-                                    <ExternalLink className="h-3 w-3 shrink-0" />
-                                  </a>
-                                ) : (
-                                  <span className="text-muted-foreground/60 italic">No encontrado</span>
-                                )}
-                              </td>
-                              
-                              {/* 7. Confianza */}
-                              <td className="px-3 py-2.5 text-center">
-                                {row.raw.confidence ? (
-                                  <span className={cn(
-                                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                                    row.raw.confidence.toLowerCase() === 'alta' && "bg-emerald-500/10 text-emerald-500",
-                                    row.raw.confidence.toLowerCase() === 'media' && "bg-amber-500/10 text-amber-500",
-                                    row.raw.confidence.toLowerCase() === 'baja' && "bg-destructive/10 text-destructive",
-                                    !['alta', 'media', 'baja'].includes(row.raw.confidence.toLowerCase()) && "bg-muted text-muted-foreground"
-                                  )}>
-                                    {row.raw.confidence}
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground/60 italic">—</span>
-                                )}
-                              </td>
-                              
-                              {/* 8. Estado */}
-                              <td className="px-3 py-2.5 whitespace-nowrap">
-                                <div className="flex flex-col gap-1 items-start">
-                                  {row.status === 'error' && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
-                                      <XCircle className="h-2.5 w-2.5" />
-                                      Error
-                                    </span>
-                                  )}
-                                  {row.status === 'warning' && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                                      <AlertTriangle className="h-2.5 w-2.5" />
-                                      Importable con advertencias
-                                    </span>
-                                  )}
-                                  {row.status === 'valid' && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                      <CheckCircle2 className="h-2.5 w-2.5" />
-                                      Importable
-                                    </span>
-                                  )}
-                                  {dup && dup.duplicate_status !== 'no_match' && (
-                                    <DuplicateBadge status={dup.duplicate_status} />
-                                  )}
-                                </div>
-                              </td>
-                              
-                              {/* 9. Notas / advertencias */}
-                              <td className="px-3 py-2.5 max-w-[300px]">
-                                <div className="space-y-1 text-[11px] leading-relaxed">
-                                  {row.errors.map((e) => (
-                                    <div key={e} className="flex items-start gap-1 text-destructive font-medium">
-                                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-destructive" />
-                                      <span>{e}</span>
-                                    </div>
-                                  ))}
-                                  {row.warnings.map((w) => (
-                                    <div key={w} className="flex items-start gap-1 text-amber-600 dark:text-amber-400">
-                                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-500" />
-                                      <span className="truncate max-w-[240px]" title={w}>{w}</span>
-                                    </div>
-                                  ))}
-                                  {row.raw.notes && (
-                                    <div className="text-muted-foreground/80 truncate max-w-[260px]" title={row.raw.notes}>
-                                      <span className="font-semibold">Notas:</span> {row.raw.notes}
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {preview.errors === preview.total && (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs text-destructive">
-                    Todas las filas tienen errores bloqueantes. Corrige los datos y vuelve a intentarlo.
-                  </div>
-                )}
               </div>
+            )}
 
-              <SheetFooter className="border-t border-border/40 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            {step === 'preview' && preview && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
                   {preview.errors > 0 && (
                     <p className="text-[11px] text-destructive font-medium">
@@ -887,7 +419,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </p>
                 </div>
                 <div className="flex items-center gap-2 justify-end shrink-0">
-                  <Button type="button" variant="ghost" onClick={() => setStep('input')} className="text-xs">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setStep('input')} className="text-xs">
                     <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
                     Volver
                   </Button>
@@ -898,6 +430,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                       confirming ||
                       (preview.valid + preview.warnings_only === 0)
                     }
+                    size="sm"
                     className="gap-2 text-xs font-semibold"
                   >
                     {confirming ? (
@@ -907,79 +440,517 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                       </>
                     ) : (
                       preview.errors > 0
-                        ? `Importar y validar ${preview.valid + preview.warnings_only} candidato${preview.valid + preview.warnings_only !== 1 ? 's' : ''} válido${preview.valid + preview.warnings_only !== 1 ? 's' : ''}`
-                        : `Importar y validar ${preview.valid + preview.warnings_only} candidato${preview.valid + preview.warnings_only !== 1 ? 's' : ''}`
+                        ? `Importar y validar ${preview.valid + preview.warnings_only} candidatos`
+                        : `Importar y validar ${preview.valid + preview.warnings_only} candidatos`
                     )}
                   </Button>
                 </div>
-              </SheetFooter>
-            </>
-          )}
-
-          {/* ── Step: success ─────────────────────────────────── */}
-          {step === 'success' && (
-            <>
-              <SheetHeader className="border-b border-border/40 px-6 py-5">
-                <SheetTitle className="text-base font-semibold">
-                  Candidatos importados para revisión
-                </SheetTitle>
-                <SheetDescription className="text-xs text-muted-foreground">
-                  SellUp creó un lote con {resultCount} candidato{resultCount !== 1 ? 's' : ''} externos.
-                  Revísalos antes de aprobarlos como cuentas.
-                </SheetDescription>
-              </SheetHeader>
-
-              <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6 py-10">
-                <div className="rounded-full bg-emerald-500/10 p-5">
-                  <CheckCircle2 className="h-10 w-10 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <div className="text-center space-y-1.5">
-                  <p className="text-sm font-semibold text-foreground">
-                    {resultCount} candidato{resultCount !== 1 ? 's' : ''} importado{resultCount !== 1 ? 's' : ''}
-                  </p>
-                  <p className="text-xs text-muted-foreground max-w-xs">
-                    El lote quedó listo para revisión. Ningún candidato será convertido en cuenta ni
-                    sincronizado con HubSpot hasta que lo apruebes manualmente.
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-2 w-full max-w-xs">
-                  {/* Revisar lote: cierre explícito por el usuario */}
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      handleClose();
-                      if (resultBatchId) router.push(`/prospect-batches/${resultBatchId}`);
-                    }}
-                    className="w-full gap-2 text-xs"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Revisar lote
-                  </Button>
-                  {/* Importar otro: resetea sin cerrar */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={resetState}
-                    className="w-full text-xs"
-                  >
-                    Importar otro archivo
-                  </Button>
-                  {/* Cerrar manual */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={handleClose}
-                    className="w-full text-xs text-muted-foreground"
-                  >
-                    Cerrar
-                  </Button>
-                </div>
               </div>
-            </>
+            )}
+          </div>
+        )
+      }
+    >
+      {/* ── Step: input ───────────────────────────────────── */}
+      {step === 'input' && (
+        <div className="space-y-5">
+          {/* Configuración del lote */}
+          <div className="space-y-3 rounded-xl border border-border/40 bg-muted/20 px-4 py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              Configuración del lote
+            </p>
+
+            {/* País del lote */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">
+                País del lote <span className="text-destructive">*</span>
+              </label>
+              <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Selecciona el país de estos candidatos" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LATAM_COUNTRIES.map((c) => (
+                    <SelectItem key={c.code} value={c.code} className="text-xs">
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                Se usará para las filas que no tengan país en el archivo.
+              </p>
+            </div>
+
+            {/* Industria del lote */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">
+                Industria / criterio del lote
+              </label>
+              <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Selecciona o escribe una industria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {INDUSTRIES.map((ind) => (
+                    <SelectItem key={ind} value={ind} className="text-xs">
+                      {ind}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                Se usará para las filas que no tengan sector o industria.
+              </p>
+            </div>
+          </div>
+
+          {/* Selector de método */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setFileMethod('paste')}
+              className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
+                fileMethod === 'paste'
+                  ? 'border-su-brand bg-su-brand-soft text-su-brand'
+                  : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
+              }`}
+            >
+              <ClipboardPaste className="h-4 w-4" />
+              Pegar tabla
+            </button>
+            <button
+              type="button"
+              onClick={() => setFileMethod('file')}
+              className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
+                fileMethod === 'file'
+                  ? 'border-su-brand bg-su-brand-soft text-su-brand'
+                  : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
+              }`}
+            >
+              <FileText className="h-4 w-4" />
+              Subir archivo
+            </button>
+          </div>
+
+          {/* Input: pegar tabla */}
+          {fileMethod === 'paste' && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground">
+                Pega el contenido copiado desde Google Sheets o Excel
+              </p>
+              <Textarea
+                placeholder={`Empresa\tPaís\tSector\tSitio web\nAcme Learning Chile\tChile\tEducación\thttps://acme.cl`}
+                className="min-h-[180px] font-mono text-xs resize-none"
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Acepta separadores tab, coma o punto y coma. La primera fila debe ser encabezados.
+                Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba.
+              </p>
+            </div>
           )}
-        </SheetContent>
-      </Sheet>
-    </>
+
+          {/* Input: subir archivo */}
+          {fileMethod === 'file' && (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-foreground">
+                Sube un archivo CSV o Excel (.xlsx)
+              </p>
+              <div
+                className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/40 bg-muted/20 px-6 py-10 text-center cursor-pointer hover:border-border hover:bg-muted/40 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <div className="rounded-full bg-su-brand-soft p-2.5">
+                  <Upload className="h-5 w-5 text-su-brand" />
+                </div>
+                {fileName ? (
+                  <>
+                    <p className="text-sm font-semibold text-foreground">{fileName}</p>
+                    <p className="text-xs text-muted-foreground">Clic para cambiar archivo</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-foreground">Clic para seleccionar</p>
+                    <p className="text-xs text-muted-foreground">
+                      Archivos .csv o .xlsx · máx. 2 MB · 500 filas
+                    </p>
+                  </>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                La primera fila debe contener los encabezados. Los archivos .xlsm no son soportados.
+              </p>
+            </div>
+          )}
+
+          {/* Columnas reconocidas */}
+          <div className="rounded-xl border border-border/30 bg-muted/20 px-4 py-3.5 space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              Columnas reconocidas automáticamente
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              empresa · nombre empresa · razón social · país · sitio web · sector · industria ·
+              ciudad · región · NIT · RUT · RFC · LinkedIn · tamaño · descripción · notas ·
+              fuente · contacto · email
+            </p>
+          </div>
+
+          {/* Nota inferior */}
+          <div className="flex items-start gap-2.5 rounded-xl border border-border/30 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Puedes copiar desde Google Sheets/Excel o subir un archivo CSV/XLSX.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step: preview ─────────────────────────────────── */}
+      {step === 'preview' && preview && (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setStep('input')}
+            className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Volver a la configuración
+          </button>
+
+          {/* Defaults del lote */}
+          {(selectedCountryCode || selectedIndustry) && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand/70 mr-1">
+                Defaults del lote:
+              </p>
+              {selectedCountryCode && (
+                <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                  🌍 {selectedCountry?.name ?? selectedCountryCode}
+                </Badge>
+              )}
+              {selectedIndustry && (
+                <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                  🏭 {selectedIndustry}
+                </Badge>
+              )}
+            </div>
+          )}
+
+          {/* Resumen estadístico */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: 'Filas detectadas', value: preview.total, color: 'text-foreground', bg: 'bg-muted/60' },
+              { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-su-brand font-bold', bg: 'bg-su-brand-soft' },
+              { label: 'Sin observaciones', value: preview.valid, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+              { label: 'Con advertencias', value: preview.warnings_only, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+              { label: 'Con errores', value: preview.errors, color: 'text-destructive', bg: 'bg-destructive/10' },
+            ].map((card) => (
+              <div key={card.label} className={`rounded-xl ${card.bg} px-3 py-2.5 flex-1 min-w-[100px] sm:min-w-[120px]`}>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  {card.label}
+                </p>
+                <p className={`mt-1 text-xl font-semibold tabular-nums ${card.color}`}>
+                  {card.value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Duplicados encontrados */}
+          {(exactDuplicateCount > 0 || possibleDuplicateCount > 0) && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-2.5">
+              <GitMerge className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                {exactDuplicateCount > 0 && (
+                  <p>
+                    <span className="font-semibold text-orange-600 dark:text-orange-400">
+                      {exactDuplicateCount} duplicado{exactDuplicateCount !== 1 ? 's' : ''} exacto{exactDuplicateCount !== 1 ? 's' : ''}
+                    </span>{' '}
+                    encontrado{exactDuplicateCount !== 1 ? 's' : ''} en SellUp — se importarán igualmente para revisión.
+                  </p>
+                )}
+                {possibleDuplicateCount > 0 && (
+                  <p>
+                    <span className="font-semibold text-amber-600 dark:text-amber-400">
+                      {possibleDuplicateCount} posible{possibleDuplicateCount !== 1 ? 's' : ''} duplicado{possibleDuplicateCount !== 1 ? 's' : ''}
+                    </span>{' '}
+                    — verifica manualmente antes de aprobar.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Columnas reconocidas / no reconocidas */}
+          {(preview.recognized_columns.length > 0 || preview.unrecognized_columns.length > 0) && (
+            <div className="rounded-xl border border-border/30 bg-muted/20 px-4 py-3 space-y-2">
+              {preview.recognized_columns.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">
+                    Columnas reconocidas
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {preview.recognized_columns.map((col) => (
+                      <Badge key={col} variant="secondary" className="text-[10px] font-normal">
+                        {col}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {preview.unrecognized_columns.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">
+                    Columnas no reconocidas (se ignorarán)
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {preview.unrecognized_columns.map((col) => (
+                      <Badge key={col} variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                        {col}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tabla de filas */}
+          <div className="rounded-xl border border-border/40 overflow-hidden bg-card">
+            <div className="overflow-x-auto">
+              <table className="min-w-[1000px] w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/30">
+                    <th className="px-3 py-2 text-center font-semibold text-muted-foreground w-12">#</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[180px]">Empresa</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground w-24">País</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[120px]">Sector</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[140px]">Website</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[140px]">LinkedIn</th>
+                    <th className="px-3 py-2 text-center font-semibold text-muted-foreground w-28">Confianza</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground w-40">Estado</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[200px] max-w-[300px]">Notas / advertencias</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.map((row) => {
+                    const dup = duplicateMap.get(row.index);
+                    
+                    const displayUrl = row.raw.website ? row.raw.website.replace(/^(https?:\/\/)?(www\.)?/, '') : '';
+                    const hrefUrl = row.raw.website ? (row.raw.website.startsWith('http') ? row.raw.website : `https://${row.raw.website}`) : '';
+                    
+                    return (
+                      <tr key={row.index} className="border-b border-border/20 last:border-0 hover:bg-muted/20 transition-colors">
+                        <td className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
+                          {row.index + 1}
+                        </td>
+                        
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="font-semibold text-foreground truncate max-w-[200px]" title={row.raw.company_name}>
+                              {row.raw.company_name || <span className="text-muted-foreground/60 italic">Sin nombre</span>}
+                            </p>
+                            {row.raw.description && (
+                              <p className="text-[10px] text-muted-foreground/80 truncate max-w-[200px]" title={row.raw.description}>
+                                {row.raw.description}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="text-foreground font-medium">
+                              {row.resolved_country_code ?? row.raw.country_code ?? row.raw.country ?? (
+                                <span className="text-muted-foreground/60 italic">—</span>
+                              )}
+                            </p>
+                            {row.country_from_default && (
+                              <DefaultBadge label="desde lote" />
+                            )}
+                          </div>
+                        </td>
+                        
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="text-foreground truncate max-w-[120px]" title={row.raw.industry}>
+                              {row.raw.industry ?? <span className="text-muted-foreground/60 italic">—</span>}
+                            </p>
+                            {row.industry_from_default && (
+                              <DefaultBadge label="lote" />
+                            )}
+                          </div>
+                        </td>
+                        
+                        <td className="px-3 py-2.5">
+                          {row.raw.website ? (
+                            <a
+                              href={hrefUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
+                              title={row.raw.website}
+                            >
+                              {displayUrl}
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground/60 italic">—</span>
+                          )}
+                        </td>
+                        
+                        <td className="px-3 py-2.5">
+                          {row.raw.linkedin_url && row.raw.linkedin_url.toLowerCase() !== 'no encontrado' ? (
+                            <a
+                              href={row.raw.linkedin_url.startsWith('http') ? row.raw.linkedin_url : `https://${row.raw.linkedin_url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
+                              title={row.raw.linkedin_url}
+                            >
+                              {row.raw.linkedin_url.replace(/^(https?:\/\/)?(www\.)?linkedin\.com\//, '')}
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground/60 italic">No encontrado</span>
+                          )}
+                        </td>
+                        
+                        <td className="px-3 py-2.5 text-center">
+                          {row.raw.confidence ? (
+                            <span className={cn(
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              row.raw.confidence.toLowerCase() === 'alta' && "bg-emerald-500/10 text-emerald-500",
+                              row.raw.confidence.toLowerCase() === 'media' && "bg-amber-500/10 text-amber-500",
+                              row.raw.confidence.toLowerCase() === 'baja' && "bg-destructive/10 text-destructive",
+                              !['alta', 'media', 'baja'].includes(row.raw.confidence.toLowerCase()) && "bg-muted text-muted-foreground"
+                            )}>
+                              {row.raw.confidence}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground/60 italic">—</span>
+                          )}
+                        </td>
+                        
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <div className="flex flex-col gap-1 items-start">
+                            {row.status === 'error' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
+                                <XCircle className="h-2.5 w-2.5" />
+                                Error
+                              </span>
+                            )}
+                            {row.status === 'warning' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                Importable con advertencias
+                              </span>
+                            )}
+                            {row.status === 'valid' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                <CheckCircle2 className="h-2.5 w-2.5" />
+                                Importable
+                              </span>
+                            )}
+                            {dup && dup.duplicate_status !== 'no_match' && (
+                              <DuplicateBadge status={dup.duplicate_status} />
+                            )}
+                          </div>
+                        </td>
+                        
+                        <td className="px-3 py-2.5 max-w-[300px]">
+                          <div className="space-y-1 text-[11px] leading-relaxed">
+                            {row.errors.map((e) => (
+                              <div key={e} className="flex items-start gap-1 text-destructive font-medium">
+                                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-destructive" />
+                                <span>{e}</span>
+                              </div>
+                            ))}
+                            {row.warnings.map((w) => (
+                              <div key={w} className="flex items-start gap-1 text-amber-600 dark:text-amber-400">
+                                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-500" />
+                                <span className="truncate max-w-[240px]" title={w}>{w}</span>
+                              </div>
+                            ))}
+                            {row.raw.notes && (
+                              <div className="text-muted-foreground/80 truncate max-w-[260px]" title={row.raw.notes}>
+                                <span className="font-semibold">Notas:</span> {row.raw.notes}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {preview.errors === preview.total && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs text-destructive">
+              Todas las filas tienen errores bloqueantes. Corrige los datos y vuelve a intentarlo.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step: success ─────────────────────────────────── */}
+      {step === 'success' && (
+        <div className="flex flex-col items-center justify-center gap-6 py-6 text-center">
+          <div className="rounded-full bg-emerald-500/10 p-5">
+            <CheckCircle2 className="h-10 w-10 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-sm font-semibold text-foreground">
+              {resultCount} candidato{resultCount !== 1 ? 's' : ''} importado{resultCount !== 1 ? 's' : ''}
+            </p>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              El lote quedó listo para revisión. Ningún candidato será convertido en cuenta ni
+              sincronizado con HubSpot hasta que lo apruebes manualmente.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2 w-full max-w-xs">
+            <Button
+              type="button"
+              onClick={() => {
+                handleClose();
+                if (resultBatchId) router.push(`/prospect-batches/${resultBatchId}`);
+              }}
+              className="w-full gap-2 text-xs"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Revisar lote
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={resetState}
+              className="w-full text-xs"
+            >
+              Importar otro archivo
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleClose}
+              className="w-full text-xs text-muted-foreground"
+            >
+              Cerrar
+            </Button>
+          </div>
+        </div>
+      )}
+    </DrawerShell>
   );
 }

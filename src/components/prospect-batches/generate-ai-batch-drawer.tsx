@@ -18,14 +18,7 @@ import {
   ChevronDown,
   Settings2,
 } from 'lucide-react';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
+import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -279,418 +272,120 @@ export function GenerateAIBatchDrawer() {
   const showPreflightResult = generationAttempted && (!!preflightResult || !!structuredBatchResult || usefulCandidatesCount === 0);
 
   return (
-    <>
-      <Button
-        onClick={() => setOpen(true)}
-        size="sm"
-        className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
-      >
-        <Sparkles className="h-3.5 w-3.5" />
-        Generar empresas candidatas
-      </Button>
+    <DrawerShell
+      open={open}
+      onOpenChange={(v) => !v && handleClose()}
+      trigger={
+        <Button
+          onClick={() => setOpen(true)}
+          size="sm"
+          className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          Generar empresas candidatas
+        </Button>
+      }
+      title="Generar empresas candidatas con IA"
+      description="El agente consulta las fuentes configuradas para el país y usa HubSpot para detectar duplicados."
+      icon={<Sparkles className="h-4 w-4 text-su-brand" />}
+      size="xl"
+      footer={
+        <div className="shrink-0 border-t border-border/50 px-7 py-4">
+          {showPreflightResult ? (
+            <div className="flex w-full flex-col gap-3">
+              {/* Mensaje contextual según estrategia de fuentes */}
+              {usefulCandidatesCount === 0 ? (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
+                  No se encontraron empresas útiles para revisión. SellUp omitió registros por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
+                </p>
+              ) : sourceStrategy === 'official_source_satisfied' ? (
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                  SellUp encontró {structuredBatchResult?.candidatesWritten ?? 10} empresas útiles en fuente oficial. Se omitieron {structuredBatchResult?.candidatesSkipped ?? 0} registros no viables.
+                </p>
+              ) : sourceStrategy === 'official_plus_commercial' ? (
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                  SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles en fuente oficial y completó con fuente comercial.
+                </p>
+              ) : sourceStrategy === 'commercial_fallback' ? (
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                  No se encontraron empresas útiles con los criterios actuales. Intenta otra industria o país.
+                </p>
+              ) : structuredBatchResult && !structuredBatchResult.ok && isAutoModeAllPagesScanned(structuredBatchResult) ? (
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                  SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles. Se detuvo después de 2 intentos para controlar costos.
+                </p>
+              ) : structuredBatchResult?.ok && structuredBatchResult.batchId ? (
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                  SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado.
+                </p>
+              ) : null}
 
-      <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
-        <SheetContent className="flex flex-col gap-0 overflow-hidden sm:w-[40vw] sm:min-w-[520px] sm:max-w-none">
-          {/* Header */}
-          <SheetHeader className="shrink-0 border-b border-border/50 px-7 pb-5 pt-6">
-            <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-su-ai-from to-su-ai-to">
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
-              <div className="space-y-0.5">
-                <SheetTitle className="text-base font-semibold">
-                  Generar empresas candidatas con IA
-                </SheetTitle>
-                <SheetDescription className="text-xs text-muted-foreground/70">
-                  El agente consulta las fuentes configuradas para el país y usa HubSpot para detectar duplicados.
-                </SheetDescription>
-              </div>
-            </div>
-          </SheetHeader>
-
-          {/* Body */}
-          <div className="flex-1 overflow-y-auto">
-            {showPreflightResult ? (
-              /* ── Resultado de generación ── */
-              <GenerationResultPanel
-                result={preflightResult}
-                structuredBatch={structuredBatchResult}
-                apolloBatchId={generatedBatchId}
-                structuredSourcePage={form.advStructuredSourcePage}
-                sourceStrategy={sourceStrategy}
-                advancedOpen={advancedOpen}
-                usefulCandidatesCount={usefulCandidatesCount}
-                omittedCandidatesCount={omittedCandidatesCount}
-                countryCode={form.countryCode}
-              />
-            ) : (
-              /* ── Formulario principal ── */
-              <form
-                id="generate-ai-batch-form"
-                onSubmit={handleSubmit}
-                className="space-y-8 px-7 py-6"
-              >
-                {/* Segmentación */}
-                <Section icon={Globe} label="Segmentación">
-                  <Row>
-                    <Field label="País" required>
-                      <Select
-                        value={form.countryCode}
-                        onValueChange={(v) => set('countryCode', v ?? '')}
-                        disabled={generating}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Seleccionar país" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {LATAM_COUNTRIES.map((c) => (
-                            <SelectItem key={c.code} value={c.code}>
-                              {getFlagEmoji(c.code)} {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Industria" required>
-                      <Select
-                        value={form.industry}
-                        onValueChange={(v) => set('industry', v ?? '')}
-                        disabled={generating}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Seleccionar industria" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {INDUSTRIES.map((ind) => (
-                            <SelectItem key={ind} value={ind}>
-                              {ind}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </Row>
-                </Section>
-
-                {/* Cantidad */}
-                {advancedOpen ? (
-                  <Section icon={Target} label="Cantidad">
-                    <Field label="Cantidad de empresas">
-                      <Select
-                        value={form.targetCount}
-                        onValueChange={(v) => set('targetCount', v ?? '10')}
-                        disabled={generating}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[10, 15, 20, 25].map((n) => (
-                            <SelectItem key={n} value={String(n)}>
-                              {n} empresas
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                        La cantidad debe estar entre 10 y 25. SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
-                      </p>
-                    </Field>
-                  </Section>
-                ) : (
-                  <Section icon={Target} label="Cantidad">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {form.countryCode === 'CO' ? (
-                        "SellUp buscará hasta 5 empresas útiles para revisión. Si encuentra registros duplicados, liquidados, inactivos o sin datos mínimos, los omitirá automáticamente."
-                      ) : form.countryCode === 'CL' ? (
-                        "SellUp buscará hasta 5 empresas registradas en fuente oficial chilena. El sector no viene disponible en la fuente oficial, por lo que puede requerir enriquecimiento externo o revisión humana."
-                      ) : (
-                        "SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda."
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Button type="button" variant="outline" size="sm" onClick={handleClose}>
+                  Cerrar
+                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  {usefulCandidatesCount === 0 ? (
+                    <>
+                      {generatedBatchId && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            handleClose();
+                            router.push(`/prospect-batches/${generatedBatchId}`);
+                          }}
+                          className="gap-1.5 text-muted-foreground"
+                        >
+                          Ver lote para auditoría
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
                       )}
-                    </p>
-                  </Section>
-                )}
-
-                {/* Fuentes automáticas */}
-                <section className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-3.5 w-3.5 text-muted-foreground/60" />
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                      Fuentes que usará el agente
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    {autoSources.map((src) => (
-                      <div
-                        key={src.label}
-                        className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-card px-3 py-2"
+                      {structuredBatchResult?.batchId && structuredBatchResult.batchId !== generatedBatchId && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            handleClose();
+                            router.push(`/prospect-batches/${structuredBatchResult.batchId}`);
+                          }}
+                          className="gap-1.5 text-muted-foreground"
+                        >
+                          Ver lote oficial para auditoría
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </>
+                  ) : sourceStrategy === 'official_source_satisfied' ? (
+                    /* Solo fuente oficial — sin botón Apollo */
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const sId = structuredBatchResult?.batchId;
+                        handleClose();
+                        if (sId) router.push(`/prospect-batches/${sId}`);
+                      }}
+                      className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                    >
+                      Revisar empresas candidatas
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : sourceStrategy === 'official_plus_commercial' && structuredBatchResult?.ok && structuredBatchResult.batchId ? (
+                    /* RUES como principal, Apollo como complemento */
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleGoToBatch}
+                        className="gap-1.5 text-muted-foreground"
                       >
-                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                        <span className="text-xs font-medium text-foreground">{src.label}</span>
-                        <span className="text-xs text-muted-foreground">·</span>
-                        <span className="text-xs text-muted-foreground">{src.desc}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {!form.countryCode && (
-                    <p className="text-[11px] text-muted-foreground/70 pl-1">
-                      Las fuentes se configuran automáticamente al seleccionar el país.
-                    </p>
-                  )}
-                </section>
-
-                {/* Nota MVP */}
-                <div className="rounded-xl border border-border/40 bg-muted/40 px-4 py-3">
-                  <div className="flex gap-2.5">
-                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                    <p className="text-xs text-muted-foreground">
-                      Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana para validar su información comercial y legal.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Opciones avanzadas */}
-                <section className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => setAdvancedOpen((v) => !v)}
-                    className="flex w-full items-center gap-2 text-left"
-                    disabled={generating}
-                  >
-                    <Settings2 className="h-3.5 w-3.5 text-muted-foreground/50" />
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                      Opciones avanzadas
-                    </span>
-                    <ChevronDown
-                      className={`ml-auto h-3.5 w-3.5 text-muted-foreground/40 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-
-                  {advancedOpen && (
-                    <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-4 space-y-4">
-                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-                        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500/80" />
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          Estas opciones son para diagnóstico y QA. En uso normal SellUp selecciona las fuentes automáticamente.
-                        </p>
-                      </div>
-
-                      {/* Cantidad override */}
-                      <div className="space-y-1.5">
-                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                          Cantidad (Override QA)
-                        </Label>
-                        <Select
-                          value={form.targetCount}
-                          onValueChange={(v) => set('targetCount', v ?? '10')}
-                          disabled={generating}
-                        >
-                          <SelectTrigger className="w-full h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {[10, 15, 20, 25].map((n) => (
-                              <SelectItem key={n} value={String(n)} className="text-xs">
-                                {n} empresas
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Profundidad de búsqueda */}
-                      <div className="space-y-1.5">
-                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                          Profundidad de búsqueda
-                        </Label>
-                        <Select
-                          value={form.advSearchDepth}
-                          onValueChange={(v) => set('advSearchDepth', (v ?? 'standard') as BatchSearchDepth)}
-                          disabled={generating}
-                        >
-                          <SelectTrigger className="w-full h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(['basic', 'standard'] as BatchSearchDepth[]).map((key) => (
-                              <SelectItem key={key} value={key} className="text-xs">
-                                {BATCH_SEARCH_DEPTH_LABELS[key]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Preflight estructurado */}
-                      <div className="flex items-start gap-3">
-                        <input
-                          id="adv-structured-source-preflight"
-                          type="checkbox"
-                          checked={isColombiaAuto || isChilePreview || form.advStructuredSourcePreflight}
-                          onChange={(e) => {
-                            if (!isColombiaAuto && !isChilePreview) set('advStructuredSourcePreflight', e.target.checked);
-                          }}
-                          disabled={generating || isColombiaAuto || isChilePreview}
-                          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
-                        />
-                        <Label htmlFor="adv-structured-source-preflight" className="cursor-pointer space-y-0.5">
-                          <span className="text-xs font-medium text-foreground">
-                            Ejecutar preflight estructurado
-                          </span>
-                          {(isColombiaAuto || isChilePreview) && (
-                            <p className="text-[10px] text-muted-foreground">
-                              Activado automáticamente para {isColombiaAuto ? 'Colombia' : 'Chile'}.
-                            </p>
-                          )}
-                          {!isColombiaAuto && !isChilePreview && suggestedSource && (
-                            <p className="text-[11px] text-muted-foreground">
-                              Fuente: {STRUCTURED_SOURCE_LABELS[suggestedSource] ?? suggestedSource}
-                            </p>
-                          )}
-                          {!isColombiaAuto && !suggestedSource && form.countryCode && (
-                            <p className="text-[11px] text-muted-foreground">
-                              Sin fuente estructurada para este país.
-                            </p>
-                          )}
-                        </Label>
-                      </div>
-
-                      {/* Crear lote fuente oficial */}
-                      <div className="flex items-start gap-3">
-                        <input
-                          id="adv-create-structured-source-batch"
-                          type="checkbox"
-                          checked={isColombiaAuto || isChilePreview || form.advCreateStructuredSourceBatch}
-                          onChange={(e) => {
-                            if (!isColombiaAuto && !isChilePreview) set('advCreateStructuredSourceBatch', e.target.checked);
-                          }}
-                          disabled={generating || isColombiaAuto || isChilePreview}
-                          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
-                        />
-                        <Label htmlFor="adv-create-structured-source-batch" className="cursor-pointer space-y-0.5">
-                          <span className="text-xs font-medium text-foreground">
-                            Crear también lote desde fuente oficial
-                          </span>
-                          {(isColombiaAuto || isChilePreview) && (
-                            <p className="text-[10px] text-muted-foreground">
-                              Activado automáticamente para {isColombiaAuto ? 'Colombia (RUES/co_rues)' : 'Chile (RES/cl_res)'}.
-                            </p>
-                          )}
-                          {!isColombiaAuto && !isChilePreview && (
-                            <p className="text-[11px] text-muted-foreground">
-                              Crea lote separado con candidatos de la fuente oficial. Requieren revisión humana.
-                            </p>
-                          )}
-                        </Label>
-                      </div>
-
-                      {/* Página RUES — solo diagnóstico/QA */}
-                      <div className="space-y-1.5">
-                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                          Usar página específica de fuente oficial
-                        </Label>
-                        <Select
-                          value={String(form.advStructuredSourcePage)}
-                          onValueChange={(v) =>
-                            set('advStructuredSourcePage', Math.max(1, Math.min(STRUCTURED_PAGE_MAX, parseInt(v ?? '1') || 1)))
-                          }
-                          disabled={generating}
-                        >
-                          <SelectTrigger className="w-full h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: STRUCTURED_PAGE_MAX }, (_, i) => i + 1).map((p) => (
-                              <SelectItem key={p} value={String(p)} className="text-xs">
-                                Página {p}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-[10px] text-muted-foreground leading-relaxed">
-                          Solo diagnóstico / QA. En uso normal SellUp selecciona la página automáticamente.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </section>
-              </form>
-            )}
-          </div>
-
-          {/* Footer */}
-          <SheetFooter className="shrink-0 border-t border-border/50 px-7 py-4">
-            {showPreflightResult ? (
-              <div className="flex w-full flex-col gap-3">
-                {/* Mensaje contextual según estrategia de fuentes */}
-                {usefulCandidatesCount === 0 ? (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
-                    No se encontraron empresas útiles para revisión. SellUp omitió registros por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
-                  </p>
-                ) : sourceStrategy === 'official_source_satisfied' ? (
-                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp encontró {structuredBatchResult?.candidatesWritten ?? 10} empresas útiles en fuente oficial. Se omitieron {structuredBatchResult?.candidatesSkipped ?? 0} registros no viables.
-                  </p>
-                ) : sourceStrategy === 'official_plus_commercial' ? (
-                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles en fuente oficial y completó con fuente comercial.
-                  </p>
-                ) : sourceStrategy === 'commercial_fallback' ? (
-                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    No se encontraron empresas útiles con los criterios actuales. Intenta otra industria o país.
-                  </p>
-                ) : structuredBatchResult && !structuredBatchResult.ok && isAutoModeAllPagesScanned(structuredBatchResult) ? (
-                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles. Se detuvo después de 2 intentos para controlar costos.
-                  </p>
-                ) : structuredBatchResult?.ok && structuredBatchResult.batchId ? (
-                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                    SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado.
-                  </p>
-                ) : null}
-
-                <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <Button type="button" variant="outline" size="sm" onClick={handleClose}>
-                    Cerrar
-                  </Button>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    {usefulCandidatesCount === 0 ? (
-                      <>
-                        {generatedBatchId && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              handleClose();
-                              router.push(`/prospect-batches/${generatedBatchId}`);
-                            }}
-                            className="gap-1.5 text-muted-foreground"
-                          >
-                            Ver lote para auditoría
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        {structuredBatchResult?.batchId && structuredBatchResult.batchId !== generatedBatchId && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              handleClose();
-                              router.push(`/prospect-batches/${structuredBatchResult.batchId}`);
-                            }}
-                            className="gap-1.5 text-muted-foreground"
-                          >
-                            Ver lote oficial para auditoría
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </>
-                    ) : sourceStrategy === 'official_source_satisfied' ? (
-                      /* Solo fuente oficial — sin botón Apollo */
+                        Ver complemento comercial
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         size="sm"
                         onClick={() => {
-                          const sId = structuredBatchResult?.batchId;
+                          const sId = structuredBatchResult.batchId;
                           handleClose();
                           if (sId) router.push(`/prospect-batches/${sId}`);
                         }}
@@ -699,109 +394,393 @@ export function GenerateAIBatchDrawer() {
                         Revisar empresas candidatas
                         <ChevronRight className="h-3.5 w-3.5" />
                       </Button>
-                    ) : sourceStrategy === 'official_plus_commercial' && structuredBatchResult?.ok && structuredBatchResult.batchId ? (
-                      /* RUES como principal, Apollo como complemento */
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleGoToBatch}
-                          className="gap-1.5 text-muted-foreground"
-                        >
-                          Ver complemento comercial
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            const sId = structuredBatchResult.batchId;
-                            handleClose();
-                            if (sId) router.push(`/prospect-batches/${sId}`);
-                          }}
-                          className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
-                        >
-                          Revisar empresas candidatas
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </Button>
-                      </>
-                    ) : structuredBatchResult?.ok && structuredBatchResult.batchId ? (
-                      /* Legacy: dos botones (modo manual / QA) */
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleGoToBatch}
-                          className="gap-1.5 text-muted-foreground"
-                        >
-                          Ver también desde Apollo
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            const sId = structuredBatchResult.batchId;
-                            handleClose();
-                            if (sId) router.push(`/prospect-batches/${sId}`);
-                          }}
-                          className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
-                        >
-                          Revisar empresas candidatas
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </Button>
-                      </>
-                    ) : (
-                      /* Solo Apollo (fallback o non-CO) */
+                    </>
+                  ) : structuredBatchResult?.ok && structuredBatchResult.batchId ? (
+                    /* Legacy: dos botones (modo manual / QA) */
+                    <>
                       <Button
                         size="sm"
+                        variant="outline"
                         onClick={handleGoToBatch}
+                        className="gap-1.5 text-muted-foreground"
+                      >
+                        Ver también desde Apollo
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const sId = structuredBatchResult.batchId;
+                          handleClose();
+                          if (sId) router.push(`/prospect-batches/${sId}`);
+                        }}
                         className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
                       >
                         Revisar empresas candidatas
                         <ChevronRight className="h-3.5 w-3.5" />
                       </Button>
-                    )}
-                  </div>
+                    </>
+                  ) : (
+                    /* Solo Apollo (fallback o non-CO) */
+                    <Button
+                      size="sm"
+                      onClick={handleGoToBatch}
+                      className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent"
+                    >
+                      Revisar empresas candidatas
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </div>
-            ) : (
-              <>
-                {generating && progressMsg && (
-                  <p className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {progressMsg}
-                  </p>
+            </div>
+          ) : (
+            <div className="flex w-full items-center justify-between gap-3">
+              {generating && progressMsg ? (
+                <p className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {progressMsg}
+                </p>
+              ) : (
+                <div />
+              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClose}
+                  disabled={generating}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  form="generate-ai-batch-form"
+                  type="submit"
+                  size="sm"
+                  disabled={!canSubmit}
+                  className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent disabled:opacity-40"
+                >
+                  {generating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5" />
+                  )}
+                  {generating ? 'Generando…' : 'Generar empresas candidatas'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      }
+    >
+      {showPreflightResult ? (
+        /* ── Resultado de generación ── */
+        <GenerationResultPanel
+          result={preflightResult}
+          structuredBatch={structuredBatchResult}
+          apolloBatchId={generatedBatchId}
+          structuredSourcePage={form.advStructuredSourcePage}
+          sourceStrategy={sourceStrategy}
+          advancedOpen={advancedOpen}
+          usefulCandidatesCount={usefulCandidatesCount}
+          omittedCandidatesCount={omittedCandidatesCount}
+          countryCode={form.countryCode}
+        />
+      ) : (
+        /* ── Formulario principal ── */
+        <form
+          id="generate-ai-batch-form"
+          onSubmit={handleSubmit}
+          className="space-y-8"
+        >
+          {/* Segmentación */}
+          <Section icon={Globe} label="Segmentación">
+            <Row>
+              <Field label="País" required>
+                <Select
+                  value={form.countryCode}
+                  onValueChange={(v) => set('countryCode', v ?? '')}
+                  disabled={generating}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar país" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LATAM_COUNTRIES.map((c) => (
+                      <SelectItem key={c.code} value={c.code}>
+                        {getFlagEmoji(c.code)} {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Industria" required>
+                <Select
+                  value={form.industry}
+                  onValueChange={(v) => set('industry', v ?? '')}
+                  disabled={generating}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar industria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INDUSTRIES.map((ind) => (
+                      <SelectItem key={ind} value={ind}>
+                        {ind}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </Row>
+          </Section>
+
+          {/* Cantidad */}
+          {advancedOpen ? (
+            <Section icon={Target} label="Cantidad">
+              <Field label="Cantidad de empresas">
+                <Select
+                  value={form.targetCount}
+                  onValueChange={(v) => set('targetCount', v ?? '10')}
+                  disabled={generating}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 15, 20, 25].map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n} empresas
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                  La cantidad debe estar entre 10 y 25. SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
+                </p>
+              </Field>
+            </Section>
+          ) : (
+            <Section icon={Target} label="Cantidad">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {form.countryCode === 'CO' ? (
+                  "SellUp buscará hasta 5 empresas útiles para revisión. Si encuentra registros duplicados, liquidados, inactivos o sin datos mínimos, los omitirá automáticamente."
+                ) : form.countryCode === 'CL' ? (
+                  "SellUp buscará hasta 5 empresas registradas en fuente oficial chilena. El sector no viene disponible en la fuente oficial, por lo que puede requerir enriquecimiento externo o revisión humana."
+                ) : (
+                  "SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda."
                 )}
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleClose}
+              </p>
+            </Section>
+          )}
+
+          {/* Fuentes automáticas */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Database className="h-3.5 w-3.5 text-muted-foreground/60" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Fuentes que usará el agente
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {autoSources.map((src) => (
+                <div
+                  key={src.label}
+                  className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-card px-3 py-2"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  <span className="text-xs font-medium text-foreground">{src.label}</span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <span className="text-xs text-muted-foreground">{src.desc}</span>
+                </div>
+              ))}
+            </div>
+            {!form.countryCode && (
+              <p className="text-[11px] text-muted-foreground/70 pl-1">
+                Las fuentes se configuran automáticamente al seleccionar el país.
+              </p>
+            )}
+          </section>
+
+          {/* Nota MVP */}
+          <div className="rounded-xl border border-border/40 bg-muted/40 px-4 py-3">
+            <div className="flex gap-2.5">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <p className="text-xs text-muted-foreground">
+                Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana para validar su información comercial y legal.
+              </p>
+            </div>
+          </div>
+
+          {/* Opciones avanzadas */}
+          <section className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className="flex w-full items-center gap-2 text-left"
+              disabled={generating}
+            >
+              <Settings2 className="h-3.5 w-3.5 text-muted-foreground/50" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                Opciones avanzadas
+              </span>
+              <ChevronDown
+                className={`ml-auto h-3.5 w-3.5 text-muted-foreground/40 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {advancedOpen && (
+              <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-4 space-y-4">
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500/80" />
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Estas opciones son para diagnóstico y QA. En uso normal SellUp selecciona las fuentes automáticamente.
+                  </p>
+                </div>
+
+                {/* Cantidad override */}
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Cantidad (Override QA)
+                  </Label>
+                  <Select
+                    value={form.targetCount}
+                    onValueChange={(v) => set('targetCount', v ?? '10')}
                     disabled={generating}
                   >
-                    Cancelar
-                  </Button>
-                  <Button
-                    form="generate-ai-batch-form"
-                    type="submit"
-                    size="sm"
-                    disabled={!canSubmit}
-                    className="gap-1.5 bg-gradient-to-br from-su-ai-from to-su-ai-to text-white hover:opacity-90 shadow-[0_4px_16px_var(--su-ai-glow)] border-transparent disabled:opacity-40"
-                  >
-                    {generating ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Zap className="h-3.5 w-3.5" />
-                    )}
-                    {generating ? 'Generando…' : 'Generar empresas candidatas'}
-                  </Button>
+                    <SelectTrigger className="w-full h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[10, 15, 20, 25].map((n) => (
+                        <SelectItem key={n} value={String(n)} className="text-xs">
+                          {n} empresas
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </>
+
+                {/* Profundidad de búsqueda */}
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Profundidad de búsqueda
+                  </Label>
+                  <Select
+                    value={form.advSearchDepth}
+                    onValueChange={(v) => set('advSearchDepth', (v ?? 'standard') as BatchSearchDepth)}
+                    disabled={generating}
+                  >
+                    <SelectTrigger className="w-full h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(['basic', 'standard'] as BatchSearchDepth[]).map((key) => (
+                        <SelectItem key={key} value={key} className="text-xs">
+                          {BATCH_SEARCH_DEPTH_LABELS[key]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Preflight estructurado */}
+                <div className="flex items-start gap-3">
+                  <input
+                    id="adv-structured-source-preflight"
+                    type="checkbox"
+                    checked={isColombiaAuto || isChilePreview || form.advStructuredSourcePreflight}
+                    onChange={(e) => {
+                      if (!isColombiaAuto && !isChilePreview) set('advStructuredSourcePreflight', e.target.checked);
+                    }}
+                    disabled={generating || isColombiaAuto || isChilePreview}
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
+                  />
+                  <Label htmlFor="adv-structured-source-preflight" className="cursor-pointer space-y-0.5">
+                    <span className="text-xs font-medium text-foreground">
+                      Ejecutar preflight estructurado
+                    </span>
+                    {(isColombiaAuto || isChilePreview) && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Activado automáticamente para {isColombiaAuto ? 'Colombia' : 'Chile'}.
+                      </p>
+                    )}
+                    {!isColombiaAuto && !isChilePreview && suggestedSource && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Fuente: {STRUCTURED_SOURCE_LABELS[suggestedSource] ?? suggestedSource}
+                      </p>
+                    )}
+                    {!isColombiaAuto && !suggestedSource && form.countryCode && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Sin fuente estructurada para este país.
+                      </p>
+                    )}
+                  </Label>
+                </div>
+
+                {/* Crear lote fuente oficial */}
+                <div className="flex items-start gap-3">
+                  <input
+                    id="adv-create-structured-source-batch"
+                    type="checkbox"
+                    checked={isColombiaAuto || isChilePreview || form.advCreateStructuredSourceBatch}
+                    onChange={(e) => {
+                      if (!isColombiaAuto && !isChilePreview) set('advCreateStructuredSourceBatch', e.target.checked);
+                    }}
+                    disabled={generating || isColombiaAuto || isChilePreview}
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
+                  />
+                  <Label htmlFor="adv-create-structured-source-batch" className="cursor-pointer space-y-0.5">
+                    <span className="text-xs font-medium text-foreground">
+                      Crear también lote desde fuente oficial
+                    </span>
+                    {(isColombiaAuto || isChilePreview) && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Activado automáticamente para {isColombiaAuto ? 'Colombia (RUES/co_rues)' : 'Chile (RES/cl_res)'}.
+                      </p>
+                    )}
+                    {!isColombiaAuto && !isChilePreview && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Crea lote separado con candidatos de la fuente oficial. Requieren revisión humana.
+                      </p>
+                    )}
+                  </Label>
+                </div>
+
+                {/* Página RUES — solo diagnóstico/QA */}
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Usar página específica de fuente oficial
+                  </Label>
+                  <Select
+                    value={String(form.advStructuredSourcePage)}
+                    onValueChange={(v) =>
+                      set('advStructuredSourcePage', Math.max(1, Math.min(STRUCTURED_PAGE_MAX, parseInt(v ?? '1') || 1)))
+                    }
+                    disabled={generating}
+                  >
+                    <SelectTrigger className="w-full h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: STRUCTURED_PAGE_MAX }, (_, i) => i + 1).map((p) => (
+                        <SelectItem key={p} value={String(p)} className="text-xs">
+                          Página {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Solo diagnóstico / QA. En uso normal SellUp selecciona la página automáticamente.
+                  </p>
+                </div>
+              </div>
             )}
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    </>
+          </section>
+        </form>
+      )}
+    </DrawerShell>
   );
 }
 
@@ -856,7 +835,7 @@ function GenerationResultPanel({
   const statusLabel = result ? PREFLIGHT_STATUS_LABELS[result.status] ?? result.status : '';
 
   return (
-    <div className="space-y-6 px-7 py-6">
+    <div className="space-y-6">
       {/* Título */}
       <div className="space-y-1">
         <div className="flex items-center gap-2">
