@@ -225,7 +225,7 @@ export async function getAIConfigSummary(): Promise<AICongifSummary> {
       `)
       .eq('id', configId)
       .single(),
-    admin.from('ai_models').select('id, status'),
+    admin.from('ai_models').select('id, is_executable'),
     admin
       .from('ai_model_pricing')
       .select('created_at')
@@ -235,7 +235,7 @@ export async function getAIConfigSummary(): Promise<AICongifSummary> {
   ]);
 
   const config = configResult.data;
-  const activeCount = (modelsResult.data ?? []).filter((m: any) => m.status === 'active').length;
+  const activeCount = (modelsResult.data ?? []).filter((m: any) => m.is_executable === true).length;
   const totalCount = modelsResult.data?.length ?? 0;
   const lastPricing = pricingResult.data?.[0]?.created_at ?? null;
 
@@ -1004,6 +1004,7 @@ export async function syncAnthropicModels(): Promise<SyncAnthropicModelsResult> 
     if (!isAvailable) {
       modelsMarkedUnavailable.push(key);
       await admin.from('ai_models').update({
+        status: 'inactive',
         is_available: false,
         is_executable: false,
         deprecation_status: 'unavailable_or_deprecated',
@@ -1026,6 +1027,7 @@ export async function syncAnthropicModels(): Promise<SyncAnthropicModelsResult> 
     const errMsg = execResult.ok ? null : (execResult.error_message ?? execResult.error_code ?? 'Execution failed');
 
     await admin.from('ai_models').update({
+      status: isExecutable ? 'active' : 'inactive',
       is_available: true,
       is_executable: isExecutable,
       deprecation_status: isExecutable ? 'available' : 'unavailable_or_deprecated',
@@ -1063,7 +1065,7 @@ export async function syncAnthropicModels(): Promise<SyncAnthropicModelsResult> 
       key: apiModel.id,
       name: displayName,
       description: `Modelo Anthropic descubierto en sincronización (${now})`,
-      status: 'inactive',
+      status: isExecutable ? 'active' : 'inactive',
       is_selectable: true,
       is_available: true,
       is_executable: isExecutable,

@@ -65,10 +65,8 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
           onValueChange={(value) => {
             if (value) {
               setSelectedProvider(value);
-              const firstModelOfProvider = models.find(m => m.provider_id === value);
-              if (firstModelOfProvider) {
-                setSelectedModel(firstModelOfProvider.id);
-              }
+              const firstModelOfProvider = models.find(m => m.provider_id === value && m.is_executable !== false);
+              setSelectedModel(firstModelOfProvider?.id ?? '');
             }
           }}
         >
@@ -106,11 +104,17 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
             )}
           </SelectTrigger>
           <SelectContent>
-            {filteredModels.map(m => (
-              <SelectItem key={m.id} value={m.id}>
-                {m.name}
-              </SelectItem>
-            ))}
+            {filteredModels.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                No hay modelos ejecutables. Actualiza modelos disponibles o revisa la API key.
+              </div>
+            ) : (
+              filteredModels.map(m => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.name}
+                </SelectItem>
+              ))
+            )}
           </SelectContent>
         </Select>
       </div>

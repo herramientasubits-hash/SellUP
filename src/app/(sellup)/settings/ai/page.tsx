@@ -117,7 +117,7 @@ export default async function AIConfigPage() {
             </div>
             <div>
               <p className="text-2xl font-semibold text-foreground">{summary.activeModels}/{summary.totalModels}</p>
-              <p className="text-sm text-muted-foreground">Modelos activos</p>
+              <p className="text-sm text-muted-foreground">Modelos ejecutables</p>
             </div>
           </div>
         </SurfaceCard>
