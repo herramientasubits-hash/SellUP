@@ -350,7 +350,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   return (
     <DrawerShell
       open={open}
-      onOpenChange={(v) => { if (!v) handleClose(); }}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) handleClose();
+      }}
       trigger={children}
       title={
         step === 'input'
