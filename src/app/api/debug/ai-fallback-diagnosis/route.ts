@@ -16,6 +16,7 @@ import {
   hasGeminiCredential,
   normalizeAIProviderKey,
 } from '@/server/prospect-batches/candidate-enrichment';
+import { resolveAIProviderCredential } from '@/server/services/ai-credentials';
 import { createClient } from '@/lib/supabase/server';
 
 function getAdmin() {
@@ -112,6 +113,13 @@ export async function GET() {
   // ── 4b. Detailed Gemini check via hasGeminiCredential ────────────────────
   const geminiDetailedCheck = await hasGeminiCredential();
 
+  // ── 4c. Unified credential resolution per provider ───────────────────────
+  const [geminiResolution, anthropicResolution, openaiResolution] = await Promise.all([
+    resolveAIProviderCredential('google'),
+    resolveAIProviderCredential('anthropic'),
+    resolveAIProviderCredential('openai'),
+  ]);
+
   // ── 5. Build execution candidates (full logic) ────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const executionCandidates = await buildAIExecutionCandidates(supabase as any, activeConfig);
@@ -180,6 +188,26 @@ export async function GET() {
       legacyVaultChecks.find((v) => v.vault_key === 'ai_provider_google_api_key')?.found ||
       legacyVaultChecks.find((v) => v.vault_key === 'ai_provider_gemini_api_key')?.found ||
       false,
+    unified_credential_resolution: {
+      google: {
+        available: geminiResolution.available,
+        source: geminiResolution.source,
+        secret_name: geminiResolution.secret_name ?? null,
+        checked_aliases: geminiResolution.checked_aliases,
+      },
+      anthropic: {
+        available: anthropicResolution.available,
+        source: anthropicResolution.source,
+        secret_name: anthropicResolution.secret_name ?? null,
+        checked_aliases: anthropicResolution.checked_aliases,
+      },
+      openai: {
+        available: openaiResolution.available,
+        source: openaiResolution.source,
+        secret_name: openaiResolution.secret_name ?? null,
+        checked_aliases: openaiResolution.checked_aliases,
+      },
+    },
     normalization_samples: normalizationSamples,
     execution_candidates_final: executionCandidates.map((c) => ({
       provider_key: c.provider_key,

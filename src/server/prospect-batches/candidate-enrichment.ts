@@ -1,10 +1,8 @@
 import { SupabaseClient, createClient } from '@supabase/supabase-js';
 import {
-  getAiProviderCredential,
-  hasAiProviderCredential,
-  hasVaultSecretByRawName,
-  getVaultSecretByRawName,
-} from '../services/ai-connection';
+  resolveAIProviderCredential,
+  getAIProviderCredentialValue,
+} from '../services/ai-credentials';
 import { getAIActiveConfig } from '@/modules/ai-config/actions';
 import type { AIActiveConfig } from '@/modules/ai-config/types';
 import { evaluateCandidateEnrichmentNeed } from './candidate-enrichment-eligibility';
@@ -32,11 +30,8 @@ export function normalizeAIProviderKey(value: string): string {
 }
 
 /**
- * Aliases de Vault para credenciales de Google/Gemini.
- * Formato nuevo (migración 017): sellup_ai_{key}
- * Formato viejo (migración 012): ai_provider_{key}_api_key
- * El formato nuevo se intenta primero; el viejo sirve de fallback para credenciales
- * guardadas antes de la migración al nuevo esquema de nombres.
+ * Aliases canónicos de Vault para Google/Gemini.
+ * Usados para construir la respuesta de diagnóstico de hasGeminiCredential.
  */
 const GEMINI_VAULT_ALIASES: Array<{ alias: string; vault_key: string }> = [
   { alias: 'google',        vault_key: 'sellup_ai_google' },
@@ -46,82 +41,55 @@ const GEMINI_VAULT_ALIASES: Array<{ alias: string; vault_key: string }> = [
 ];
 
 /**
- * Verifica credencial en Vault probando todos los aliases conocidos para Google/Gemini.
- * Incluye formato nuevo (sellup_ai_*) y formato viejo (ai_provider_*_api_key).
- * Devuelve info de diagnóstico segura (sin exponer keys).
+ * Verifica credencial Google/Gemini usando el helper unificado.
+ * Devuelve diagnóstico seguro con aliases revisados (sin exponer keys).
  */
 export async function hasGeminiCredential(): Promise<{
   available: boolean;
   resolved_provider_key: string | null;
   checked_aliases: Array<{ alias: string; vault_key: string; found: boolean }>;
 }> {
+  const resolution = await resolveAIProviderCredential('google');
+
+  // Construir el array de checks con el formato esperado por buildAIExecutionCandidates
   const checks: Array<{ alias: string; vault_key: string; found: boolean }> = [];
-
-  for (const { alias, vault_key } of GEMINI_VAULT_ALIASES) {
-    const found = await hasVaultSecretByRawName(vault_key);
-    checks.push({ alias, vault_key, found });
-    if (found) {
-      return { available: true, resolved_provider_key: alias, checked_aliases: checks };
+  for (const entry of GEMINI_VAULT_ALIASES) {
+    const wasChecked = resolution.checked_aliases.includes(entry.vault_key);
+    const isFound = entry.vault_key === resolution.secret_name;
+    if (wasChecked || isFound) {
+      checks.push({ ...entry, found: isFound });
     }
+    if (isFound) break; // La búsqueda se detuvo aquí
   }
 
-  // Fallback a variable de entorno (solo desarrollo)
-  if (process.env.NODE_ENV !== 'production') {
-    const envKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (envKey) {
-      const envAlias = { alias: 'env_var', vault_key: 'GEMINI_API_KEY/GOOGLE_API_KEY' };
-      checks.push({ ...envAlias, found: true });
-      return { available: true, resolved_provider_key: 'env_var', checked_aliases: checks };
-    }
+  // Si se resolvió desde env var, agregar ese alias al diagnóstico
+  if (resolution.source === 'env_dev' && resolution.secret_name) {
+    checks.push({ alias: 'env_var', vault_key: resolution.secret_name, found: true });
   }
 
-  return { available: false, resolved_provider_key: null, checked_aliases: checks };
+  return {
+    available: resolution.available,
+    resolved_provider_key: resolution.secret_name ?? null,
+    checked_aliases: checks,
+  };
 }
 
 /**
- * Verifica si existe credencial en Vault probando el key canónico,
- * aliases alternativos (google ↔ gemini) y formato legacy.
+ * Verifica disponibilidad de credencial usando el helper unificado.
  */
 async function hasAiProviderCredentialWithAlias(providerKey: string): Promise<boolean> {
-  const canonical = normalizeAIProviderKey(providerKey);
-  if (canonical === 'google') {
-    const result = await hasGeminiCredential();
-    return result.available;
-  }
-  return hasAiProviderCredential(canonical);
+  const resolution = await resolveAIProviderCredential(normalizeAIProviderKey(providerKey));
+  return resolution.available;
 }
 
 /**
- * Recupera credencial desde Vault probando key canónico, alias alternativo y formato legacy.
- * Para Google/Gemini: sellup_ai_google → sellup_ai_gemini → ai_provider_google_api_key
- *                     → ai_provider_gemini_api_key → env var (solo dev).
+ * Recupera credencial desde Vault usando el helper unificado.
+ * Prueba todos los aliases conocidos (nuevo + legacy + env dev).
  */
 async function getAiProviderCredentialWithAlias(
   providerKey: string
 ): Promise<{ success: boolean; apiKey?: string; error?: string; resolved_alias?: string }> {
-  const canonical = normalizeAIProviderKey(providerKey);
-
-  if (canonical === 'google') {
-    // Intentar todos los aliases de Vault en orden
-    for (const { alias, vault_key } of GEMINI_VAULT_ALIASES) {
-      const result = await getVaultSecretByRawName(vault_key);
-      if (result.success && result.apiKey) {
-        return { success: true, apiKey: result.apiKey, resolved_alias: alias };
-      }
-    }
-    // Fallback a env var en desarrollo
-    if (process.env.NODE_ENV !== 'production') {
-      const envKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-      if (envKey) {
-        return { success: true, apiKey: envKey, resolved_alias: 'env_var' };
-      }
-    }
-    return { success: false, error: 'CREDENTIAL_NOT_FOUND' };
-  }
-
-  const direct = await getAiProviderCredential(canonical);
-  if (direct.success && direct.apiKey) return { ...direct, resolved_alias: canonical };
-  return direct;
+  return getAIProviderCredentialValue(normalizeAIProviderKey(providerKey));
 }
 
 export interface EnrichProspectCandidateInput {

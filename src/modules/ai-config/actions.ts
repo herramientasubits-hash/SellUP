@@ -3,21 +3,20 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import {
-  testGeminiConnection,
   testGeminiWithKey,
   testOpenAIConnection,
   testClaudeConnection,
   listAnthropicModels,
   testAnthropicModelExecution,
-  hasAiProviderCredential,
-  getAiProviderCredential,
-  hasVaultSecretByRawName,
-  getVaultSecretByRawName,
   storeAiProviderCredential,
   removeAiProviderCredential,
   type ConnectionTestResult,
   type AnthropicExecutionTestResult,
 } from '@/server/services/ai-connection';
+import {
+  resolveAIProviderCredential,
+  getAIProviderCredentialValue,
+} from '@/server/services/ai-credentials';
 import type { 
   AIProvider, 
   AIModel, 
@@ -65,7 +64,7 @@ export async function getAllAIProviders(): Promise<AIProvider[]> {
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
   const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
   const adminSupabase = createAdminClient(supabaseUrl, supabaseServiceKey);
-  
+
   const { data: providers, error } = await (adminSupabase as any)
     .from('ai_providers')
     .select('*')
@@ -85,7 +84,33 @@ export async function getAllAIProviders(): Promise<AIProvider[]> {
     countMap.set(m.provider_id, (countMap.get(m.provider_id) ?? 0) + 1);
   });
 
-  return (providers ?? []).map((p: any) => ({
+  // Verify vault credentials for providers that claim to be 'connected'.
+  // If the credential no longer exists, repair the DB and return the corrected state.
+  // This prevents a stale 'connected' badge from appearing when Vault has no secret.
+  const verifiedProviders = await Promise.all(
+    (providers ?? []).map(async (p: any) => {
+      const claimsConnected =
+        p.connection_status === 'connected' || p.credentials_status === 'configured';
+      if (!claimsConnected) return p;
+
+      const resolution = await resolveAIProviderCredential(p.key);
+      if (!resolution.available) {
+        // Repair stale DB state — the credential is gone from Vault.
+        await (adminSupabase as any)
+          .from('ai_providers')
+          .update({
+            credentials_status: 'missing',
+            connection_status: 'not_configured',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', p.id);
+        return { ...p, credentials_status: 'missing', connection_status: 'not_configured' };
+      }
+      return p;
+    })
+  );
+
+  return verifiedProviders.map((p: any) => ({
     ...p,
     model_count: countMap.get(p.id) ?? 0,
   })) as AIProvider[];
@@ -412,7 +437,8 @@ export async function getProviderConnectionStatus(providerKey: string): Promise<
   last_tested_at: string | null;
   last_connection_error: string | null;
 }> {
-  const hasKey = await hasAiProviderCredential(providerKey);
+  const resolution = await resolveAIProviderCredential(providerKey);
+  const hasKey = resolution.available;
   const credentialsStatus = hasKey ? 'configured' : 'missing';
 
   const supabase = await createClient();
@@ -461,37 +487,8 @@ export async function testAIProviderConnection(
     return { success: false, error: 'Proveedor no encontrado' };
   }
 
-  let result;
-  if (providerKey === 'google' || providerKey === 'gemini') {
-    result = await testGeminiConnection();
-  } else {
-    return { 
-      success: false, 
-      error: 'NOT_IMPLEMENTED',
-      message: `Prueba de conexión para ${provider.name} no implementada todavía` 
-    };
-  }
-
-  const connectionStatus = result.success ? 'connected' : 'error';
-  const errorMessage = result.error === 'MISSING_API_KEY' ? null : result.message;
-
-  await supabase
-    .from('ai_providers')
-    .update({
-      credentials_status: 'configured',
-      connection_status: connectionStatus,
-      last_tested_at: new Date().toISOString(),
-      last_tested_by: adminUser.id,
-      last_connection_error: errorMessage,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', provider.id);
-
-  return {
-    success: result.success,
-    error: result.error,
-    message: result.message
-  };
+  // Delegate to the vault-based test — single source of truth for credential resolution.
+  return testAiProviderConnectionWithVault(providerKey);
 }
 
 export async function connectAiProvider(
@@ -816,49 +813,42 @@ export async function testAiProviderConnectionWithVault(
     return { success: false, error: 'Proveedor no encontrado', debugLogs: logs };
   }
 
-  // Para Google/Gemini: probar formato nuevo (sellup_ai_*) y formato legacy (ai_provider_*_api_key)
-  const googleVaultAliases = [
-    'sellup_ai_google',
-    'sellup_ai_gemini',
-    'ai_provider_google_api_key',
-    'ai_provider_gemini_api_key',
-  ];
+  // Resolver credencial usando el helper unificado — mismo código que usa el enrichment.
+  const resolution = await resolveAIProviderCredential(providerKey);
+  log('[testVault] resolution: available=' + resolution.available + ' source=' + resolution.source + ' secret_name=' + (resolution.secret_name ?? 'none'));
+  log('[testVault] checked_aliases: ' + resolution.checked_aliases.join(', '));
 
-  let hasCredential = false;
-  let credentialResult: { success: boolean; apiKey?: string; error?: string } = { success: false, error: 'CREDENTIAL_NOT_FOUND' };
+  if (!resolution.available) {
+    // Reparar estado stale en DB: si la credencial ya no existe en Vault,
+    // el badge debe dejar de mostrar "Conectado".
+    const supabaseUrlAdm = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
+    const supabaseServiceKeyAdm = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
+    const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
+    const adminRepair = createAdminClient(supabaseUrlAdm, supabaseServiceKeyAdm);
+    await (adminRepair as any)
+      .from('ai_providers')
+      .update({
+        credentials_status: 'missing',
+        connection_status: 'not_configured',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', provider.id);
+    log('[testVault] DB reparado a not_configured (credencial ausente en Vault)');
 
-  if (providerKey === 'google' || providerKey === 'gemini') {
-    for (const rawName of googleVaultAliases) {
-      const found = await hasVaultSecretByRawName(rawName);
-      if (found) {
-        hasCredential = true;
-        credentialResult = await getVaultSecretByRawName(rawName);
-        log('[testVault] Credencial encontrada en: ' + rawName);
-        break;
-      }
-    }
-  } else {
-    hasCredential = await hasAiProviderCredential(providerKey);
-    if (hasCredential) {
-      credentialResult = await getAiProviderCredential(providerKey);
-    }
-  }
-
-  log('[testVault] hasCredential: ' + hasCredential);
-
-  if (!hasCredential) {
+    const checkedMsg = resolution.checked_aliases.join(', ') || '(ningún alias)';
     return {
       success: false,
       error: 'NO_CREDENTIAL',
-      message: 'No hay credencial almacenada para este proveedor. Agrega la API key en Configuración > Proveedores de IA.',
-      debugLogs: logs
+      message: `No hay credencial guardada para ${provider.name}. Aliases revisados: ${checkedMsg}. Agrega la API key en Configuración > Proveedores de IA.`,
+      debugLogs: logs,
     };
   }
 
+  const credentialResult = await getAIProviderCredentialValue(providerKey);
   log('[testVault] credentialResult.success: ' + credentialResult.success + ' hasKey: ' + !!credentialResult.apiKey);
 
   if (!credentialResult.success || !credentialResult.apiKey) {
-    return { success: false, error: 'CREDENTIAL_ERROR', message: 'No se pudo recuperar la credencial', debugLogs: logs };
+    return { success: false, error: 'CREDENTIAL_ERROR', message: 'No se pudo recuperar la credencial desde Vault', debugLogs: logs };
   }
 
   let testResult: ConnectionTestResult;
@@ -971,8 +961,8 @@ export async function syncAnthropicModels(): Promise<SyncAnthropicModelsResult> 
   const { data: role } = await supabase.from('roles').select('key').eq('id', adminUser.role_id).single();
   if (role?.key !== 'admin') return { success: false, error: 'No autorizado', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
 
-  // Get Anthropic API key from Vault
-  const credResult = await (await import('@/server/services/ai-connection')).getAiProviderCredential('anthropic');
+  // Get Anthropic API key from Vault via unified helper
+  const credResult = await getAIProviderCredentialValue('anthropic');
   if (!credResult.success || !credResult.apiKey) {
     return { success: false, error: 'No hay credencial de Anthropic en Vault. Conecta el proveedor primero.', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
   }
@@ -1122,8 +1112,9 @@ export async function getAiProviderConnectionStatus(
   last_connection_error: string | null;
   can_activate: boolean;
 }> {
-  const hasCredential = await hasAiProviderCredential(providerKey);
-  
+  const resolution = await resolveAIProviderCredential(providerKey);
+  const hasCredential = resolution.available;
+
   const supabase = await createClient();
   const { data: provider } = await supabase
     .from('ai_providers')
