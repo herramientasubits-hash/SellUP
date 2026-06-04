@@ -21,6 +21,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { colombiaOfficialTaxProvider, checkIsColombiaProviderConfigured } from './tax-identifier-providers/colombia';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ export type TaxIdentifierSourceType =
   | 'hubspot'
   | 'official'
   | 'public_directory'
+  | 'public_registry'
+  | 'government_dataset'
   | 'company_website'
   | 'manual'
   | 'ai_assisted';
@@ -439,12 +442,50 @@ export async function lookupTaxIdentifierForCandidate({
   }
 
   // ── 5. Verificar fuente oficial por país ─────────────────────
-  // Colombia: RUES — no hay integración implementada en este hito
-  if (foundCandidates.length === 0 && countryCode.toUpperCase() === 'CO') {
-    warnings.push(
-      'No hay fuente fiscal oficial configurada para Colombia (RUES) en este hito. ' +
-      'La búsqueda se limitó a datos internos y HubSpot.'
-    );
+  if (countryCode.toUpperCase() === 'CO') {
+    const isConfigured = await checkIsColombiaProviderConfigured();
+    if (!isConfigured) {
+      warnings.push('No hay fuente fiscal oficial de Colombia configurada.');
+      warnings.push('Fuente oficial Colombia no configurada.');
+    } else {
+      try {
+        const officialCandidates = await colombiaOfficialTaxProvider.lookup({
+          company_name: (candidate.name as string | null) ?? null,
+          legal_name: (candidate.legal_name as string | null) ?? null,
+          website: (candidate.website as string | null) ?? null,
+          domain: (candidate.domain as string | null) ?? null,
+          city: (candidate.city as string | null) ?? null,
+          country_code: countryCode,
+        });
+
+        if (officialCandidates.length > 0) {
+          for (const c of officialCandidates) {
+            const alreadyFound = foundCandidates.some(
+              (f) => f.normalized_tax_identifier === c.normalized_tax_identifier
+            );
+            if (!alreadyFound) {
+              foundCandidates.push({
+                tax_identifier: c.tax_identifier,
+                normalized_tax_identifier: c.normalized_tax_identifier,
+                legal_name: c.legal_name ?? null,
+                source_name: c.source_name,
+                source_type: c.source_type,
+                source_url: c.source_url ?? null,
+                evidence_text: c.evidence_text ?? null,
+                confidence: c.confidence,
+                match_reason: c.match_reason,
+                risks: c.risks,
+                requires_human_review: true,
+              });
+            }
+          }
+        } else {
+          warnings.push('Fuente oficial Colombia consultada sin resultados.');
+        }
+      } catch {
+        warnings.push('Fuente oficial Colombia no disponible técnicamente.');
+      }
+    }
   } else if (foundCandidates.length === 0) {
     warnings.push(
       `No hay fuente fiscal oficial configurada para el país ${countryCode}. ` +

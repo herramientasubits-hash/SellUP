@@ -1082,26 +1082,48 @@ export function CandidateDetailSheet({
                   {!taxIdLookupError &&
                     taxIdLookup?.status === 'no_result' &&
                     taxIdLookup.candidates.length === 0 && (
-                      <p className="text-xs text-muted-foreground/60 italic">
-                        No se encontró identificador fiscal con las fuentes disponibles.
+                      <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                        {candidate.country_code?.toUpperCase() === 'CO' &&
+                        taxIdLookup.warnings?.some(
+                          (w) => w.includes('no configurada') || w.includes('No hay fuente fiscal')
+                        )
+                          ? 'No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.'
+                          : 'No se encontró identificador fiscal con las fuentes disponibles.'}
                       </p>
                     )}
 
                   {taxIdLookup?.warnings && taxIdLookup.warnings.length > 0 && (
                     <div className="space-y-0.5">
-                      {taxIdLookup.warnings.map((w, i) => (
-                        <p key={i} className="text-[10px] text-muted-foreground/60 italic">
-                          {w}
-                        </p>
-                      ))}
+                      {taxIdLookup.warnings
+                        .filter(
+                          (w) =>
+                            !(
+                              candidate.country_code?.toUpperCase() === 'CO' &&
+                              (w.includes('no configurada') || w.includes('No hay fuente fiscal'))
+                            )
+                        )
+                        .map((w, i) => (
+                          <p key={i} className="text-[10px] text-muted-foreground/60 italic">
+                            {w}
+                          </p>
+                        ))}
                     </div>
                   )}
 
                   {taxIdLookup && taxIdLookup.candidates.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                        Posibles identificadores encontrados
-                      </p>
+                      <div className="flex flex-col gap-0.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                          {candidate.country_code?.toUpperCase() === 'CO'
+                            ? 'Posibles NIT encontrados'
+                            : 'Posibles identificadores encontrados'}
+                        </p>
+                        {candidate.country_code?.toUpperCase() === 'CO' && (
+                          <p className="text-[10px] text-muted-foreground/60 italic">
+                            Fuente oficial Colombia consultada
+                          </p>
+                        )}
+                      </div>
                       {taxIdLookup.candidates.map((c, i) => (
                         <div
                           key={i}
