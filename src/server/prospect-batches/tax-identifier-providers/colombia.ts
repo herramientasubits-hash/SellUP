@@ -1,6 +1,6 @@
 import { fetchSocrataDatasetSample } from '@/server/source-catalog/connectors/socrata-colombia/socrata-client';
 import { normalizeRuesRecord } from '@/server/source-catalog/connectors/socrata-colombia/normalizers';
-import { getSourceConnectionRecord } from '@/modules/source-catalog/queries';
+import { getSourceConnectionRecord, SourceConnectionRecord } from '@/modules/source-catalog/queries';
 
 export interface TaxIdentifierProviderResult {
   tax_identifier: string;
@@ -122,19 +122,115 @@ export function validateColombianNit(value: string): {
   };
 }
 
+export interface SocrataAvailabilityResult {
+  available: boolean;
+  source_key: string;
+  connection_status: string;
+  enabled_by: 'source_catalog_connections' | 'env' | 'none';
+}
+
+/**
+ * Helper unificado para determinar si Socrata Colombia (datos.gov.co) está disponible.
+ * Sigue reglas estrictas de prioridad y estados válidos.
+ */
+export async function checkSocrataColombiaAvailability(): Promise<SocrataAvailabilityResult> {
+  const aliases = [
+    'socrata_colombia',
+    'colombia_socrata',
+    'datos_gov_colombia',
+    'datos_gov_co',
+    'rues_colombia',
+    'co_rues'
+  ];
+
+  let dbConnection: SourceConnectionRecord | null = null;
+  let resolvedKey = 'socrata_colombia';
+
+  // 1. Intentar buscar en DB primero
+  for (const key of aliases) {
+    try {
+      const connection = await getSourceConnectionRecord(key);
+      if (connection) {
+        dbConnection = connection;
+        resolvedKey = connection.source_key || key;
+        break;
+      }
+    } catch (err) {
+      console.error(`Error querying availability for alias ${key}:`, err);
+    }
+  }
+
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // Si se encontró en la DB:
+  if (dbConnection) {
+    const status = dbConnection.connection_status;
+    const isAvailableStatus = status === 'connected' || status === 'not_applicable';
+
+    // Prioridad en producción: DB manda sobre ENV
+    if (isProd) {
+      if (isAvailableStatus) {
+        return {
+          available: true,
+          source_key: resolvedKey,
+          connection_status: status,
+          enabled_by: 'source_catalog_connections',
+        };
+      } else {
+        // En producción: si el estado no es válido (ej: error, disconnected, not_tested), no está disponible
+        return {
+          available: false,
+          source_key: resolvedKey,
+          connection_status: status,
+          enabled_by: 'source_catalog_connections',
+        };
+      }
+    } else {
+      // Fuera de producción (desarrollo/test): la variable de entorno puede forzar disponibilidad
+      if (process.env.COLOMBIA_TAX_PROVIDER_ENABLED === 'true') {
+        return {
+          available: true,
+          source_key: resolvedKey,
+          connection_status: status === 'connected' || status === 'not_applicable' ? status : `${status} (env_forced)`,
+          enabled_by: 'env',
+        };
+      }
+
+      if (isAvailableStatus) {
+        return {
+          available: true,
+          source_key: resolvedKey,
+          connection_status: status,
+          enabled_by: 'source_catalog_connections',
+        };
+      }
+    }
+  }
+
+  // 2. Si no se encontró en la DB (o si estamos fuera de producción), verificar la env var como fallback
+  if (process.env.COLOMBIA_TAX_PROVIDER_ENABLED === 'true') {
+    return {
+      available: true,
+      source_key: 'socrata_colombia',
+      connection_status: 'env_forced',
+      enabled_by: 'env',
+    };
+  }
+
+  return {
+    available: false,
+    source_key: 'socrata_colombia',
+    connection_status: dbConnection ? dbConnection.connection_status : 'none',
+    enabled_by: 'none',
+  };
+}
+
 /**
  * Verifica si el proveedor oficial de Colombia está configurado y habilitado.
  */
 export async function checkIsColombiaProviderConfigured(): Promise<boolean> {
-  if (process.env.COLOMBIA_TAX_PROVIDER_ENABLED === 'true') {
-    return true;
-  }
-  try {
-    const connection = await getSourceConnectionRecord('socrata_colombia');
-    return connection?.connection_status === 'connected';
-  } catch {
-    return false;
-  }
+  const result = await checkSocrataColombiaAvailability();
+  return result.available;
 }
 
 /**

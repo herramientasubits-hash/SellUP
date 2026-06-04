@@ -1083,11 +1083,12 @@ export function CandidateDetailSheet({
                     taxIdLookup?.status === 'no_result' &&
                     taxIdLookup.candidates.length === 0 && (
                       <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                        {candidate.country_code?.toUpperCase() === 'CO' &&
-                        taxIdLookup.warnings?.some(
-                          (w) => w.includes('no configurada') || w.includes('No hay fuente fiscal')
-                        )
-                          ? 'No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.'
+                        {candidate.country_code?.toUpperCase() === 'CO'
+                          ? taxIdLookup.warnings?.some(
+                              (w) => w.includes('no configurada') || w.includes('No hay fuente fiscal')
+                            )
+                            ? 'No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.'
+                            : 'No encontramos un NIT confirmado en datos internos, HubSpot ni fuente oficial Colombia.'
                           : 'No se encontró identificador fiscal con las fuentes disponibles.'}
                       </p>
                     )}
