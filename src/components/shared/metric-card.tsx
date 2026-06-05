@@ -24,12 +24,12 @@ function MetricCardSkeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border/40 bg-card p-5 shadow-sm",
+        "rounded-2xl bg-card p-5 shadow-[0_1px_2px_0_rgb(0_0_0/0.04)] dark:shadow-[0_1px_2px_0_rgb(255_255_255/0.04)]",
         className,
       )}
     >
       <div className="space-y-2">
-        <div className="h-3 w-1/2 rounded-md bg-muted/60" />
+        <div className="h-3.5 w-1/2 rounded-md bg-muted/60" />
         <div className="h-3 w-3/4 rounded-md bg-muted/40" />
       </div>
       <div className="mt-5 flex items-baseline gap-2">
@@ -63,13 +63,14 @@ export function MetricCard({
     return (
       <div
         className={cn(
-          "flex h-full flex-col rounded-2xl border border-border/40 bg-card p-5 shadow-sm",
+          "flex h-full flex-col rounded-2xl bg-card p-5 shadow-[0_1px_2px_0_rgb(0_0_0/0.04)] dark:shadow-[0_1px_2px_0_rgb(255_255_255/0.04)]",
           className,
         )}
       >
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">
-          {title}
-        </p>
+        <p className="text-sm font-semibold text-foreground/80">{title}</p>
+        {description && (
+          <p className="mt-0.5 text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
+        )}
         <p className="mt-4 text-xs text-destructive">{error}</p>
       </div>
     );
@@ -80,17 +81,15 @@ export function MetricCard({
   return (
     <div
       className={cn(
-        "flex h-full flex-col overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm",
+        "flex h-full flex-col overflow-hidden rounded-2xl bg-card shadow-[0_1px_2px_0_rgb(0_0_0/0.04)] dark:shadow-[0_1px_2px_0_rgb(255_255_255/0.04)]",
         className,
       )}
     >
       <div className="flex items-start justify-between gap-3 px-5 pt-5">
-        <div className="min-w-0 space-y-1">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">
-            {title}
-          </p>
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm font-semibold text-foreground/80">{title}</p>
           {description && (
-            <p className="text-xs text-muted-foreground line-clamp-1">{description}</p>
+            <p className="text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -100,7 +99,7 @@ export function MetricCard({
       </div>
 
       <div className="flex-1 px-5 pb-5 pt-4">
-        <div className="flex items-baseline flex-wrap gap-x-3 gap-y-1">
+        <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1">
           <span
             className={cn(
               "text-3xl font-bold tracking-tight text-foreground tabular-nums",
@@ -110,7 +109,7 @@ export function MetricCard({
             {value}
           </span>
           {subtitle && (
-            <span className="text-xs font-medium text-muted-foreground">{subtitle}</span>
+            <span className="text-sm font-medium text-muted-foreground/70">{subtitle}</span>
           )}
           {hasDelta && (
             <DeltaPill

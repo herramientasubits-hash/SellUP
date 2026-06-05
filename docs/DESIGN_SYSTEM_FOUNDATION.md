@@ -271,7 +271,7 @@ Usado temporalmente en todas las páginas placeholder. Debe reemplazarse por el 
 
 **Ubicación:** `src/components/shared/metric-card.tsx`
 
-Card especializada para KPIs / métricas operativas. Replica visual del `SurveyMetricCard` de la plantilla UBITS, alineada a tokens SellUp.
+Card especializada para KPIs / métricas operativas. Sin borde visible — la separación contra el fondo se logra con un shadow muy sutil (`0 1px 2px 0 rgb(0 0 0 / 0.04)` en light, mismo peso invertido en dark). Esto replica el estilo "elevación sin contorno" del template UBITS para survey analytics.
 
 ```tsx
 <MetricCard
@@ -288,19 +288,22 @@ Card especializada para KPIs / métricas operativas. Replica visual del `SurveyM
 
 Anatomía:
 
-- **Título** — `text-xs font-bold uppercase tracking-widest text-muted-foreground/80` (igual que en la plantilla)
-- **Value** — `text-3xl font-bold tracking-tight tabular-nums`
-- **Subtitle** — unidad o nota corta al lado del value (`text-xs text-muted-foreground`)
+- **Contenedor** — `rounded-2xl bg-card` + shadow sutil de 1px. Sin `border` (la sombra hace la separación).
+- **Título** — `text-sm font-semibold text-foreground/80` (title-case, no uppercase)
+- **Descripción** — `text-xs text-muted-foreground/70 line-clamp-1` (gris más claro que el título, indica "qué mide")
+- **Value** — `text-3xl font-bold tracking-tight tabular-nums` (lo dominante visualmente)
+- **Subtitle** — unidad o nota al lado del value (`text-sm font-medium text-muted-foreground/70`)
 - **DeltaPill** opcional — variación porcentual con icono TrendingUp/Down/Minus
 - **Icon** — chip de icono a la derecha (8×8, `rounded-lg`, fondo tinted)
-- **Footer** opcional — banda inferior con borde superior `border-border/40` y `bg-muted/20`
+- **Footer** opcional — banda inferior con `border-t border-border/40` y `bg-muted/20`
 
 Variantes soportadas: `loading` (skeleton interno), `error` (mensaje + título).
 
 Reglas:
 - Usar `MetricCard` en lugar de `<SurfaceCard>` con markup manual para KPIs.
 - En grillas grandes (`grid-cols-6`, `grid-cols-5`) el gap debe ser `gap-3` o `gap-4`.
-- `valueClassName` permite tintar el value (ej. `text-emerald-600` para métricas positivas).
+- `valueClassName` permite tintar el value (ej. `text-emerald-600` para métricas positivas) y agregar `font-mono` cuando aplique.
+- El título debe llegar en title-case desde la página (no transformarlo dentro del componente).
 
 ---
 

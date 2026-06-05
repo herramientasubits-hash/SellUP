@@ -1,9 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Globe, ShieldCheck, Eye } from 'lucide-react';
+import { Building2, Globe, ShieldCheck, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -12,19 +11,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from '@/components/ui/tooltip';
+import {
   CANDIDATE_STATUS_LABELS,
-  DUPLICATE_STATUS_LABELS,
-  REVIEW_STATUS_LABELS,
-  REVIEW_STATUS_STYLES,
-  CRITICAL_REVIEW_FLAG_LABELS,
   VENDOR_STRUCTURED_SOURCE_LABELS,
   isStructuredCandidate,
   parseDuplicateCheck,
   type ProspectCandidateWithReviewer,
   type CandidateStatus,
-  type DuplicateStatus,
   type DuplicateMatch,
-  type ReviewStatus,
 } from '@/modules/prospect-batches/types';
 import { CandidateRowActions } from './candidate-row-actions';
 import { CandidateDetailSheet } from './candidate-detail-sheet';
@@ -35,6 +34,7 @@ interface TableQualityCheck {
   import_confidence?: string;
   has_tax_identifier?: boolean;
   warnings?: string[];
+  missing_fields?: string[];
 }
 
 interface TableValidationMetadata {
@@ -58,25 +58,21 @@ const STATUS_STYLES: Record<CandidateStatus, string> = {
   converted_to_account: 'bg-su-brand-soft text-su-brand',
 };
 
-const DUPLICATE_STYLES: Record<DuplicateStatus, string> = {
-  unchecked: 'bg-muted text-muted-foreground/60',
-  no_match: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  possible_duplicate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  exact_duplicate: 'bg-destructive/10 text-destructive',
-  related_company: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-  insufficient_data: 'bg-muted/60 text-muted-foreground/60',
-};
-
 const SOURCE_LABELS: Record<string, string> = {
   sellup: 'SellUp',
   hubspot: 'HubSpot',
 };
 
-const KNOWN_SOURCES = ['sellup', 'hubspot'];
-
-function getFlagEmoji(code: string) {
-  const offset = 0x1f1e6 - 'A'.charCodeAt(0);
-  return [...code.toUpperCase()].map((c) => String.fromCodePoint(c.charCodeAt(0) + offset)).join('');
+function getNestedValue(obj: unknown, path: string[]): unknown {
+  let current: unknown = obj;
+  for (const key of path) {
+    if (current && typeof current === 'object' && !Array.isArray(current)) {
+      current = (current as Record<string, unknown>)[key];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
 }
 
 function extractDomainFromUrl(url: string | null | undefined): string | null {
@@ -89,51 +85,6 @@ function extractDomainFromUrl(url: string | null | undefined): string | null {
     return null;
   }
 }
-
-const DIRECTORY_DOMAINS = new Set([
-  'registronit.com',
-  'informacolombia.com',
-  'datacreditoempresas.com.co',
-  'einforma.co',
-  'empresite.eleconomistaamerica.co',
-  'empresite.com',
-  'paginasamarillas.com.co',
-  'procolombia.co',
-  'linkedin.com',
-  'facebook.com',
-  'instagram.com',
-  'x.com',
-  'twitter.com',
-  'google.com',
-  'gmail.com',
-  'youtube.com',
-  'wikipedia.org',
-]);
-
-const DIRECTORY_KEYWORDS = [
-  'paginasamarillas',
-  'paginas-amarillas',
-  'kompass',
-  'opencorporates',
-  'zoominfo',
-  'clutch.co',
-  'crunchbase',
-  'emis.com',
-  'empresite',
-  'registronit',
-  'informacolombia',
-  'datacreditoempresas',
-  'einforma',
-  'datospymes',
-  'directorioempresas',
-  'buscaempresas',
-  'rues.gov',
-  'rues.org',
-  'colombiacompra',
-  'secop',
-  'procolombia',
-  'b2bmarketplace',
-];
 
 const FIT_STATUS_LABELS: Record<string, string> = {
   high: 'Encaje alto',
@@ -148,32 +99,6 @@ const FIT_STATUS_LABELS: Record<string, string> = {
   insufficient_evidence: 'Evaluación no disponible por falta de evidencia pública confiable',
   tax_identifier_conflict: 'Evaluación pausada por NIT inconsistente',
 };
-
-function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
-  const domain = extractDomainFromUrl(url);
-  if (!domain) return false;
-  if (DIRECTORY_DOMAINS.has(domain)) return true;
-  if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
-  // Government institutional domains — never a commercial company website
-  if (/\.gov\.co$/.test(domain) || domain === 'gov.co') return true;
-  if (/\.gov\.cl$/.test(domain) || domain === 'gov.cl') return true;
-  return false;
-}
-
-function ScoreBadge({ score, label }: { score: number | null; label: string }) {
-  if (score === null) return <span className="text-muted-foreground/40">—</span>;
-  const color =
-    score >= 75
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : score >= 50
-      ? 'text-amber-600 dark:text-amber-400'
-      : 'text-muted-foreground';
-  return (
-    <span className={`tabular-nums text-xs font-medium ${color}`} title={label}>
-      {score.toFixed(0)}
-    </span>
-  );
-}
 
 function MatchDetail({ match }: { match: DuplicateMatch }) {
   return (
@@ -219,112 +144,81 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
   const [detailOpen, setDetailOpen] = React.useState(false);
 
   const dc = parseDuplicateCheck(candidate.metadata);
-  const sources = dc?.sources_checked ?? [];
   const matches = dc?.matches ?? [];
+  const valObj = (candidate.metadata as unknown as TableCandidateMetadata)?.validation;
 
-  // Mostrar validación homologada para cualquier origen que tenga metadata.validation
-  if ((candidate.metadata as unknown as TableCandidateMetadata)?.validation) {
-    const valObj = (candidate.metadata as unknown as TableCandidateMetadata).validation;
-    const sellupStatus = valObj?.sellup_duplicate_check?.status;
-    const hsStatus = valObj?.hubspot_duplicate_check?.status;
+  let sellupStatus = valObj?.sellup_duplicate_check?.status;
+  let hsStatus = valObj?.hubspot_duplicate_check?.status;
 
-    // Estado primario: SellUp
-    let primaryLabel = 'Sin coincidencia en SellUp';
-    let primaryStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+  // Fallback to legacy structure
+  if (!valObj && dc) {
+    const sources = dc.sources_checked ?? [];
+    sellupStatus = sources.includes('sellup') ? 'no_match' : undefined;
+    hsStatus = sources.includes('hubspot') ? 'no_match' : undefined;
 
-    if (sellupStatus === 'duplicate') {
-      primaryLabel = 'Duplicado SellUp';
-      primaryStyle = 'bg-destructive/10 text-destructive';
-    } else if (sellupStatus === 'possible_duplicate') {
-      primaryLabel = 'Posible duplicado SellUp';
-      primaryStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    for (const m of matches) {
+      if (m.source === 'sellup') {
+        sellupStatus = m.status === 'exact_duplicate' || m.status === 'duplicate' ? 'duplicate' : 'possible_duplicate';
+      } else if (m.source === 'hubspot') {
+        hsStatus = m.status === 'match' || m.status === 'exact_duplicate' || m.status === 'duplicate' ? 'match' : 'possible_match';
+      }
     }
-
-    // Estado secundario: HubSpot (solo mostrar si es relevante)
-    let hsLabel: string | null = null;
-    let hsStyle = '';
-
-    if (hsStatus === 'match') {
-      hsLabel = 'Coincidencia HubSpot';
-      hsStyle = 'bg-orange-500/10 text-orange-600 dark:text-orange-400';
-    } else if (hsStatus === 'possible_match') {
-      hsLabel = 'Posible HubSpot';
-      hsStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
-    } else if (hsStatus === 'no_match' && sellupStatus !== 'duplicate') {
-      hsLabel = 'Sin coincidencia HubSpot';
-      hsStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-    } else if (hsStatus === 'error') {
-      hsLabel = 'Error HubSpot';
-      hsStyle = 'bg-destructive/10 text-destructive';
-    } else if (hsStatus === 'not_configured' && sellupStatus !== 'duplicate') {
-      hsLabel = 'HubSpot no config.';
-      hsStyle = 'bg-muted text-muted-foreground/50';
-    }
-
-    const sellupMatchName =
-      (sellupStatus === 'duplicate' || sellupStatus === 'possible_duplicate')
-        ? (valObj?.sellup_duplicate_check?.matched_name ?? null)
-        : null;
-
-    const hsMatchName =
-      (hsStatus === 'match' || hsStatus === 'possible_match')
-        ? (valObj?.hubspot_duplicate_check?.matched_company_name ?? null)
-        : null;
-
-    return (
-      <div className="flex flex-col gap-1 min-w-[120px]">
-        <Badge className={`${primaryStyle} border-0 text-[10px] font-semibold w-fit`}>
-          {primaryLabel}
-        </Badge>
-        {sellupMatchName && (
-          <span className="text-[9px] text-muted-foreground/60 truncate max-w-[130px]" title={sellupMatchName}>
-            ↳ {sellupMatchName}
-          </span>
-        )}
-        {hsLabel && (
-          <Badge className={`${hsStyle} border-0 text-[10px] font-medium w-fit`}>
-            {hsLabel}
-          </Badge>
-        )}
-        {hsMatchName && (
-          <span className="text-[9px] text-muted-foreground/60 truncate max-w-[130px]" title={hsMatchName}>
-            ↳ {hsMatchName}
-          </span>
-        )}
-      </div>
-    );
   }
 
+  // Fallback to candidate fields
+  if (!sellupStatus && !hsStatus) {
+    if (candidate.duplicate_status === 'exact_duplicate') {
+      sellupStatus = 'duplicate';
+    } else if (candidate.duplicate_status === 'possible_duplicate' || candidate.duplicate_status === 'related_company') {
+      sellupStatus = 'possible_duplicate';
+    } else if (candidate.duplicate_status === 'no_match') {
+      sellupStatus = 'no_match';
+      hsStatus = 'no_match';
+    }
+  }
+
+  let primaryDupLabel = 'Sin verificar';
+  let primaryDupStyle = 'bg-muted text-muted-foreground/60';
+
+  if (sellupStatus === 'duplicate' || hsStatus === 'match') {
+    primaryDupLabel = 'Duplicado confirmado';
+    primaryDupStyle = 'bg-destructive/10 text-destructive';
+  } else if (sellupStatus === 'possible_duplicate' || hsStatus === 'possible_match') {
+    primaryDupLabel = 'Posible duplicado';
+    primaryDupStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+  } else if (sellupStatus === 'no_match' || hsStatus === 'no_match') {
+    primaryDupLabel = 'Sin coincidencias';
+    primaryDupStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+  }
+
+  let sellupTooltipLabel = 'SellUp: sin verificar';
+  if (sellupStatus === 'duplicate') sellupTooltipLabel = 'SellUp: duplicado confirmado';
+  else if (sellupStatus === 'possible_duplicate') sellupTooltipLabel = 'SellUp: posible duplicado';
+  else if (sellupStatus === 'no_match') sellupTooltipLabel = 'SellUp: sin coincidencias';
+
+  let hsTooltipLabel = 'HubSpot: sin verificar';
+  if (hsStatus === 'match') hsTooltipLabel = 'HubSpot: duplicado confirmado';
+  else if (hsStatus === 'possible_match') hsTooltipLabel = 'HubSpot: posible duplicado';
+  else if (hsStatus === 'no_match') hsTooltipLabel = 'HubSpot: sin coincidencias';
+  else if (hsStatus === 'error') hsTooltipLabel = 'HubSpot: error de verificación';
+  else if (hsStatus === 'not_configured') hsTooltipLabel = 'HubSpot: no configurado';
+
   return (
-    <div className="flex flex-col gap-1 min-w-[120px]">
-      <Badge
-        className={`${DUPLICATE_STYLES[candidate.duplicate_status]} border-0 text-[10px] font-semibold w-fit`}
-      >
-        {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
-      </Badge>
+    <div className="flex flex-col gap-1 w-fit">
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger render={
+            <Badge className={`${primaryDupStyle} border-0 text-[10px] font-semibold w-fit py-0.5 cursor-help`}>
+              {primaryDupLabel}
+            </Badge>
+          } />          <TooltipContent className="text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2.5 rounded-xl shadow-md z-[70] space-y-1">
+            <p className="font-semibold text-xs border-b border-border/40 pb-1 mb-1">Detalle de Duplicidad</p>
+            <p>{sellupTooltipLabel}</p>
+            <p>{hsTooltipLabel}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
-      {/* Sources checked */}
-      {sources.length > 0 && (
-        <div className="flex gap-2">
-          {KNOWN_SOURCES.map((src) => {
-            const checked = sources.includes(src);
-            return (
-              <span
-                key={src}
-                className={`text-[9px] font-medium ${
-                  checked
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-muted-foreground/40'
-                }`}
-              >
-                {SOURCE_LABELS[src]} {checked ? '✓' : '—'}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Match count — opens dialog */}
       {matches.length > 0 && (
         <button
           onClick={() => setDetailOpen(true)}
@@ -334,20 +228,12 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
         </button>
       )}
 
-      {/* Fallback */}
-      {!dc && sources.length === 0 && (
-        <p className="text-[9px] text-muted-foreground/40 leading-tight">
-          Sin detalle disponible
-        </p>
-      )}
-
-      {/* Match detail dialog */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Coincidencias de duplicidad</DialogTitle>
             <DialogDescription>
-              {candidate.name} · {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
+              {candidate.name} · {primaryDupLabel}
             </DialogDescription>
           </DialogHeader>
 
@@ -425,39 +311,47 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
 
   if (candidates.length === 0) return <EmptyState />;
 
-  const hasStructured = candidates.some((c) => isStructuredCandidate(c));
-  // Show Evaluación column only if at least one candidate has a fit score or fit status
-  const hasFit = candidates.some(
-    (c) =>
-      c.fit_score !== null ||
-      c.commercial_fit_status !== null ||
-      (c.metadata?.ai_evaluation as Record<string, unknown> | undefined)?.fit_status !== undefined,
-  );
-
   return (
     <>
-      {hasStructured && (
-        <div className="shrink-0 px-5 py-2.5 border-b border-border/30 bg-amber-500/5">
-          <p className="text-[10px] text-amber-700 dark:text-amber-400">
-            <span className="font-semibold">Guía de revisión:</span>{' '}
-            Valida nombre, NIT, actividad/sector, duplicidad y señales de empresa activa. Usa{' '}
-            <span className="font-semibold">Ver detalle</span> para información completa.
-          </p>
-        </div>
-      )}
       <div className="su-table-scroll">
         <table className="su-table su-table-sticky">
           <thead>
             <tr className="border-b border-border/40">
-              {['Empresa', 'Perfil', 'Señales', 'Duplicidad', ...(hasFit ? ['Evaluación'] : []), 'Estado', ''].map(
-                (col) => (
-                  <th
-                    key={col}
-                    className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60"
-                  >
-                    {col}
-                  </th>
-                ),
+              {['Empresa', 'Perfil', 'Calidad', 'Duplicidad', 'Estado', ''].map(
+                (col) => {
+                  let tooltipContent = '';
+                  if (col === 'Calidad') {
+                    tooltipContent = 'Nivel de completitud, confianza de importación y estado del identificador fiscal.';
+                  } else if (col === 'Duplicidad') {
+                    tooltipContent = 'Posibles registros duplicados encontrados en SellUp o HubSpot.';
+                  } else if (col === 'Estado') {
+                    tooltipContent = 'Estado de revisión del prospecto y evaluación automática por IA.';
+                  }
+
+                  return (
+                    <th
+                      key={col}
+                      className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60"
+                    >
+                      {tooltipContent ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger render={
+                              <span className="cursor-help border-b border-dotted border-muted-foreground/30 pb-0.5 hover:text-foreground transition-colors">
+                                {col}
+                              </span>
+                            } />
+                            <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                              {tooltipContent}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        col
+                      )}
+                    </th>
+                  );
+                }
               )}
             </tr>
           </thead>
@@ -472,63 +366,72 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                 ((c.metadata?.enrichment as Record<string, unknown> | undefined)
                   ?.sector_description as string | undefined) ??
                 null;
-              const flags = (c.review_flags as string[] | null) ?? [];
-              const fitStatus =
-                c.commercial_fit_status ??
-                ((c.metadata?.ai_evaluation as Record<string, unknown> | undefined)
-                  ?.fit_status as string | undefined) ??
-                null;
-
-              const enrichment = c.metadata?.enrichment as Record<string, unknown> | undefined;
-              const webEnrichment = enrichment?.web as Record<string, unknown> | undefined;
-              const publicEvidence = webEnrichment?.public_evidence as unknown[] | undefined;
-              const hasPublicEvidence = !!(publicEvidence && publicEvidence.length > 0);
-
-              const officialWebsiteStatus = webEnrichment?.official_website_status as string | undefined;
-              const visibleWebsiteAllowed = webEnrichment?.visible_website_allowed as boolean | undefined;
-
-              const isOfficialWebsiteConfirmed =
-                officialWebsiteStatus === 'confirmed' &&
-                visibleWebsiteAllowed === true;
-
               const domain = c.website ? extractDomainFromUrl(c.website) : null;
+              const location = [c.country ?? c.country_code, c.city].filter(Boolean).join(' · ');
+
+              // 1. Completeness Status & style
+              const missingFields: string[] = [];
+              const validationMeta = (c.metadata as unknown as TableCandidateMetadata)?.validation;
               
-              let isValidChileWebsite = false;
-              if (c.website && domain) {
-                const isNotDir = !isDirectoryOrThirdPartyDomain(c.website);
-                const isNotCol = !(
-                  domain.includes('procolombia.co') ||
-                  domain.includes('b2bmarketplace') ||
-                  domain.endsWith('.co') ||
-                  domain.includes('.com.co') ||
-                  domain.includes('.org.co') ||
-                  domain.includes('.gov.co')
-                );
-                
-                let hasDistinctiveMatch = true;
-                const nameWords = (c.name || '').toLowerCase()
-                  .replace(/[^a-z0-9]/g, ' ')
-                  .split(/\s+/)
-                  .filter(w => w.length > 3 && !['chile', 'limitada', 'sociedad', 'holding', 'grupo', 'spa', 'eirl'].includes(w));
-                
-                if (nameWords.length > 0) {
-                  const domainLower = domain.toLowerCase();
-                  hasDistinctiveMatch = nameWords.some(w => domainLower.includes(w));
-                }
-                
-                isValidChileWebsite = isNotDir && isNotCol && hasDistinctiveMatch;
+              if (validationMeta?.quality_check?.missing_fields) {
+                missingFields.push(...validationMeta.quality_check.missing_fields);
+              } else {
+                if (!c.website) missingFields.push('website');
+                const linkedinUrl = getNestedValue(c.metadata, ['enrichment', 'web', 'linkedin_company', 'url']) 
+                  || getNestedValue(c.metadata, ['enrichment', 'linkedin_url']) 
+                  || getNestedValue(c.metadata, ['enrichment', 'linkedin']) 
+                  || getNestedValue(c.metadata, ['external', 'linkedin_url'])
+                  || getNestedValue(c.metadata, ['import', 'linkedin_url']);
+                if (!linkedinUrl) missingFields.push('linkedin_url');
+                if (!c.tax_identifier) missingFields.push('tax_identifier');
+                if (!c.industry && !(c.metadata?.enrichment as Record<string, unknown> | undefined)?.sector_description) missingFields.push('industry');
               }
 
-              const isOfficialWebsite =
-                !!c.website &&
-                !isDirectoryOrThirdPartyDomain(c.website) &&
-                (!isChileOfficialCandidate || (isOfficialWebsiteConfirmed && isValidChileWebsite));
+              let completenessText = 'Información completa';
+              let completenessStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+              if (missingFields.length > 0) {
+                if (missingFields.length >= 3 && !c.website && !c.tax_identifier) {
+                  completenessText = 'Sin evidencia';
+                  completenessStyle = 'bg-muted text-muted-foreground';
+                } else {
+                  completenessText = `${missingFields.length} ${missingFields.length === 1 ? 'dato pendiente' : 'datos pendientes'}`;
+                  completenessStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+                }
+              }
 
-              const linkedinStatus = webEnrichment?.linkedin_status as string | undefined;
-              const hasStrongEvidenceChile =
-                !isChileOfficialCandidate ||
-                (isOfficialWebsiteConfirmed && isValidChileWebsite) ||
-                (linkedinStatus === 'confirmed');
+              // 2. Confidence Status
+              let confidenceText = 'Confianza media';
+              const rawConfidence = validationMeta?.quality_check?.import_confidence 
+                || getNestedValue(c.metadata, ['import', 'confidence'])
+                || getNestedValue(c.metadata, ['validation', 'quality_check', 'confidence']);
+              
+              if (rawConfidence) {
+                const confLower = String(rawConfidence).toLowerCase();
+                if (confLower === 'alta' || confLower === 'high') {
+                  confidenceText = 'Confianza alta';
+                } else if (confLower === 'media' || confLower === 'medium') {
+                  confidenceText = 'Confianza media';
+                } else if (confLower === 'baja' || confLower === 'low') {
+                  confidenceText = 'Confianza baja';
+                }
+              } else if (isChileOfficialCandidate || isStructuredCandidate(c)) {
+                confidenceText = 'Confianza alta';
+              }
+
+              // 3. Fiscal identifier status
+              let fiscalText = 'Sin identificador';
+              let fiscalStatusKey: 'validated' | 'to_review' | 'none' = 'none';
+              if (c.tax_identifier) {
+                fiscalText = 'Fiscal validado';
+                fiscalStatusKey = 'validated';
+              } else {
+                const lookup = (c.metadata as Record<string, unknown>)?.tax_identifier_lookup as Record<string, unknown> | undefined;
+                const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
+                if (bestCandidate?.tax_identifier) {
+                  fiscalText = 'Fiscal por revisar';
+                  fiscalStatusKey = 'to_review';
+                }
+              }
 
               return (
                 <tr
@@ -536,12 +439,17 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   className="group border-b border-border/30 transition-colors last:border-0 hover:bg-muted/30"
                 >
                   {/* ── Empresa ── */}
-                  <td className="px-4 py-3 max-w-[220px]">
+                  <td className="px-4 py-2.5 max-w-[220px]">
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="font-medium text-foreground leading-snug line-clamp-2">
+                        <button
+                          id={`candidate-trigger-${c.id}`}
+                          type="button"
+                          onClick={() => setDetailCandidate(c)}
+                          className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded focus:text-su-brand transition-colors text-sm line-clamp-2"
+                        >
                           {c.name}
-                        </p>
+                        </button>
                         {isChileOfficialCandidate ? (
                           <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                             <ShieldCheck className="h-2.5 w-2.5" />
@@ -554,334 +462,175 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           </Badge>
                         ) : null}
                       </div>
-                      {isChileOfficialCandidate ? (
-                        c.tax_identifier && (
-                          <p className="text-[10px] font-mono text-muted-foreground/80">
-                            RUT {c.tax_identifier}
-                          </p>
-                        )
-                      ) : c.tax_identifier ? (
-                        <p className="text-[10px] font-mono text-muted-foreground/80">
-                          {c.tax_identifier_type
-                            ? `${c.tax_identifier_type} ${c.tax_identifier}`
-                            : c.tax_identifier}
+
+                      {location && (
+                        <p className="text-[10px] text-muted-foreground/75 leading-tight">
+                          {location}
                         </p>
-                      ) : (() => {
-                        const lookup = (c.metadata as Record<string, unknown>)?.tax_identifier_lookup as Record<string, unknown> | undefined;
-                        const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
-                        if (bestCandidate?.tax_identifier) {
-                          return (
-                            <p className="text-[10px] font-mono text-amber-600 dark:text-amber-400 font-medium">
-                              NIT por revisar
-                            </p>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDetailCandidate(c)}
-                        className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1 -ml-1.5"
-                      >
-                        <Eye className="h-2.5 w-2.5" />
-                        Ver detalle
-                      </Button>
+                      )}
+
+                      {c.website && (
+                        <a
+                          href={c.website.startsWith('http') ? c.website : `https://${c.website}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Globe className="h-2.5 w-2.5" />
+                          <span className="truncate max-w-[150px]">{domain ?? c.website}</span>
+                          <ExternalLink className="h-2 w-2 opacity-60" />
+                        </a>
+                      )}
                     </div>
                   </td>
 
                   {/* ── Perfil ── */}
-                  <td className="px-4 py-3 max-w-[180px]">
-                    <div className="space-y-1">
-                      {c.country_code ? (
-                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <span>{getFlagEmoji(c.country_code)}</span>
-                          <span>{c.country ?? c.country_code}</span>
-                          {(c.city || c.region) && (
-                            <span className="text-muted-foreground/50 text-[10px]">
-                              · {[c.city, c.region].filter(Boolean).join(', ')}
-                            </span>
-                          )}
-                        </span>
-                      ) : null}
-                      {(c as CandidateWithBatch).batch && (
-                        <p className="text-[10px] text-muted-foreground/60 font-medium">
-                          {getCandidateOriginLabel(c as CandidateWithBatch)}
+                  <td className="px-4 py-2.5 max-w-[180px]">
+                    <div className="space-y-0.5 text-xs text-muted-foreground/85">
+                      <p className="font-medium text-foreground/90 truncate">
+                        {sectorDescription ?? 'Sin sector'}
+                      </p>
+                      {c.company_size && (
+                        <p className="truncate">
+                          {c.company_size}
                         </p>
                       )}
-                      {isChileOfficialCandidate ? (
-                        <span className="text-[10px] text-muted-foreground/60 italic">
-                          Sector no disponible en fuente oficial
-                        </span>
-                      ) : sectorDescription ? (
-                        <p className="text-xs text-muted-foreground leading-snug line-clamp-2 max-w-[160px]">
-                          {sectorDescription}
-                        </p>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground/40">Sin sector</span>
-                      )}
-                      {isOfficialWebsite ? (
-                        <a
-                          href={c.website!.startsWith('http') ? c.website! : `https://${c.website!}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
-                        >
-                          <Globe className="h-2.5 w-2.5" />
-                          {c.domain ?? c.website}
-                        </a>
-                      ) : (!isChileOfficialCandidate && ((c.website && isDirectoryOrThirdPartyDomain(c.website)) || hasPublicEvidence)) ? (
-                        <span className="text-[9px] text-muted-foreground/60 italic">
-                          Evidencia pública disponible
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground/40">Sin web</span>
-                      )}
+                      <p className="text-[10px] text-muted-foreground/60">
+                        {getCandidateOriginLabel(c as CandidateWithBatch)}
+                      </p>
                     </div>
                   </td>
 
-                  {/* ── Señales ── */}
-                  <td className="px-4 py-3 min-w-[130px]">
-                    <div className="space-y-1">
-                      {c.source_primary === 'external_import' && (c.metadata as unknown as TableCandidateMetadata)?.validation ? (
-                        <div className="flex flex-wrap gap-1 max-w-[160px]">
-                          {(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.has_website && (
-                            <Badge variant="outline" className="text-[9px] font-medium bg-su-brand-soft text-su-brand border-su-brand/20">
-                              Website presente
+                  {/* ── Calidad ── */}
+                  <td className="px-4 py-2.5">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger render={
+                          <div className="flex flex-col gap-1 w-fit cursor-help">
+                            <Badge className={`${completenessStyle} border-0 text-[10px] font-semibold w-fit py-0.5`}>
+                              {completenessText}
                             </Badge>
-                          )}
-                          {(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.has_linkedin && (
-                            <Badge variant="outline" className="text-[9px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
-                              LinkedIn presente
-                            </Badge>
-                          )}
-                          {(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.import_confidence && (() => {
-                            const conf = String((c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.import_confidence).toLowerCase();
-                            if (conf === 'alta' || conf === 'high') {
-                              return (
-                                <Badge variant="outline" className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
-                                  Confianza Alta
-                                </Badge>
-                              );
-                            }
-                            if (conf === 'media' || conf === 'medium') {
-                              return (
-                                <Badge variant="outline" className="text-[9px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
-                                  Confianza Media
-                                </Badge>
-                              );
-                            }
-                            if (conf === 'baja' || conf === 'low') {
-                              return (
-                                <Badge variant="outline" className="text-[9px] font-semibold bg-destructive/10 text-destructive border-destructive/20">
-                                  Confianza Baja
-                                </Badge>
-                              );
-                            }
-                            return null;
-                          })()}
-                          {c.company_size && (
-                            <Badge variant="outline" className="text-[9px] font-medium bg-muted text-muted-foreground border-transparent">
-                              T: {c.company_size}
-                            </Badge>
-                          )}
-                          {!(c.metadata as unknown as TableCandidateMetadata).validation?.quality_check?.has_tax_identifier && (
-                            (() => {
-                              const lookup = (c.metadata as Record<string, unknown>)?.tax_identifier_lookup as Record<string, unknown> | undefined;
-                              const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
-                              if (bestCandidate?.tax_identifier) {
-                                return (
-                                  <Badge variant="outline" className="text-[9px] font-medium bg-su-brand-soft text-su-brand border-su-brand/20">
-                                    NIT sugerido
-                                  </Badge>
-                                );
-                              }
-                              return (
-                                <Badge variant="outline" className="text-[9px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20">
-                                  Sin identificador fiscal
-                                </Badge>
-                              );
-                            })()
-                          )}
-                        </div>
-                      ) : isChileOfficialCandidate ? (
-                        <div className="flex flex-col gap-1">
-                          {(() => {
-                            const chileSourceParams = c.source_trace?.queryParams as Record<string, unknown> | undefined;
-                            const chileCapital = chileSourceParams?.capitalAmount as number | null | undefined;
-                            const chileIncorporationDate = chileSourceParams?.incorporationDate as string | null | undefined;
-                            
-                            const capitalFormatted = typeof chileCapital === 'number'
-                              ? `$${chileCapital.toLocaleString('es-CL')} CLP`
-                              : null;
-
-                            return (
-                              <>
-                                {capitalFormatted && (
-                                  <span className="inline-block rounded px-1.5 py-0.5 text-[9px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 w-fit">
-                                    Cap: {capitalFormatted}
-                                  </span>
-                                )}
-                                {chileIncorporationDate && (
-                                  <span className="inline-block rounded px-1.5 py-0.5 text-[9px] font-medium bg-su-brand-soft text-su-brand w-fit">
-                                    Const: {chileIncorporationDate}
-                                  </span>
-                                )}
-                                {!capitalFormatted && !chileIncorporationDate && (
-                                  <span className="text-[10px] text-muted-foreground/40">Sin señales</span>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      ) : flags.length === 0 ? (
-                        typeof c.data_completeness_score === 'number' ? (
-                          <span
-                            className={`text-[10px] font-medium ${
-                              c.data_completeness_score >= 70
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : c.data_completeness_score >= 40
-                                ? 'text-amber-600 dark:text-amber-400'
-                                : 'text-muted-foreground'
-                            }`}
-                          >
-                            {c.data_completeness_score}% completo
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground/40">Sin señales</span>
-                        )
-                      ) : (
-                        <div className="flex flex-wrap gap-0.5 max-w-[150px]">
-                          {flags.includes('liquidation_signal') && (
-                            <span className="inline-block rounded px-1 py-0.5 text-[8px] font-semibold bg-destructive/10 text-destructive">
-                              En liquidación
+                            <span className="text-[10px] text-muted-foreground/70 flex items-center gap-1 font-medium leading-none">
+                              {confidenceText}
                             </span>
-                          )}
-                          {flags
-                            .filter(
-                              (f) =>
-                                f !== 'liquidation_signal' && CRITICAL_REVIEW_FLAG_LABELS[f],
-                            )
-                            .slice(0, 3)
-                            .map((flag) => (
-                              <span
-                                key={flag}
-                                className="inline-block rounded px-1 py-0.5 text-[8px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                              >
-                                {CRITICAL_REVIEW_FLAG_LABELS[flag]}
+                            <span className={`text-[10px] flex items-center gap-1 font-medium leading-none ${
+                              fiscalStatusKey === 'validated' 
+                                ? 'text-emerald-600/80 dark:text-emerald-400/80' 
+                                : fiscalStatusKey === 'to_review' 
+                                ? 'text-amber-600/80 dark:text-amber-400/80' 
+                                : 'text-muted-foreground/60'
+                            }`}>
+                              {fiscalText}
+                            </span>
+                          </div>
+                        } />
+                        <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-3 rounded-xl shadow-md z-[70] space-y-1.5">
+                          <p className="font-semibold text-xs border-b border-border/40 pb-1 mb-1">Detalle de Calidad</p>
+                          <ul className="space-y-1 text-muted-foreground">
+                            <li className="flex items-center gap-1.5">
+                              <span className={c.website ? 'text-emerald-500' : 'text-amber-500'}>
+                                {c.website ? '✓' : '✗'}
                               </span>
-                            ))}
-                          {flags.filter(
-                            (f) =>
-                              f !== 'liquidation_signal' && CRITICAL_REVIEW_FLAG_LABELS[f],
-                          ).length > 3 && (
-                            <span className="inline-block rounded px-1 py-0.5 text-[8px] text-muted-foreground/60">
-                              +{flags.filter((f) => f !== 'liquidation_signal' && CRITICAL_REVIEW_FLAG_LABELS[f]).length - 3}
-                            </span>
-                          )}
-                          {typeof c.data_completeness_score === 'number' && (
-                            <span className="text-[9px] text-muted-foreground/50 w-full mt-0.5">
-                              {c.data_completeness_score}% completo
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                              <span>Sitio web: {c.website ? 'Presente' : 'Pendiente'}</span>
+                            </li>
+                            <li className="flex items-center gap-1.5">
+                              <span className={!missingFields.includes('linkedin_url') ? 'text-emerald-500' : 'text-amber-500'}>
+                                {!missingFields.includes('linkedin_url') ? '✓' : '✗'}
+                              </span>
+                              <span>LinkedIn: {!missingFields.includes('linkedin_url') ? 'Presente' : 'Pendiente'}</span>
+                            </li>
+                            <li className="flex items-center gap-1.5">
+                              <span className={c.tax_identifier ? 'text-emerald-500' : fiscalStatusKey === 'to_review' ? 'text-amber-500' : 'text-muted-foreground/60'}>
+                                {c.tax_identifier ? '✓' : fiscalStatusKey === 'to_review' ? '?' : '✗'}
+                              </span>
+                              <span>Identificador fiscal: {c.tax_identifier ? `Presente (${c.tax_identifier_type || 'NIT'})` : fiscalStatusKey === 'to_review' ? 'Sugerido por revisar' : 'No disponible'}</span>
+                            </li>
+                            <li className="flex items-center gap-1.5 border-t border-border/20 pt-1 mt-1">
+                              <span className="font-medium">Nivel de confianza:</span>
+                              <span className="text-foreground capitalize">{confidenceText.split(' ')[1]}</span>
+                            </li>
+                          </ul>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </td>
 
                   {/* ── Duplicidad ── */}
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2.5">
                     <DuplicateCheckCell candidate={c} />
                   </td>
 
-                  {/* ── Evaluación IA (condicional) ── */}
-                  {hasFit && (
-                    <td className="px-4 py-3 min-w-[100px]">
-                      {!hasStrongEvidenceChile ? (
-                        <span className="text-[10px] text-muted-foreground/60 italic" title="Falta de evidencia pública confiable">
-                          Evaluación no disponible
-                        </span>
-                      ) : fitStatus || c.fit_score !== null ? (
-                        <div className="space-y-1">
-                          {fitStatus && (
-                            <Badge
-                              className={`border-0 text-[9px] font-semibold w-fit ${
-                                fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
-                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : fitStatus === 'medium' || fitStatus === 'medium_fit'
-                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                  : 'bg-muted text-muted-foreground'
-                              }`}
-                            >
-                              {FIT_STATUS_LABELS[fitStatus] ?? fitStatus.replace(/_/g, ' ')}
-                            </Badge>
-                          )}
-                          {c.fit_score !== null && (
-                            <ScoreBadge score={c.fit_score} label="Fit" />
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground/40">—</span>
-                      )}
-                    </td>
-                  )}
-
                   {/* ── Estado ── */}
-                  <td className="px-4 py-3 min-w-[120px]">
+                  <td className="px-4 py-2.5 min-w-[120px]">
                     <div className="space-y-1">
                       {(() => {
                         const validationMeta = (c.metadata as unknown as TableCandidateMetadata)?.validation;
                         const hasDuplicate =
                           c.duplicate_status === 'possible_duplicate' ||
                           c.duplicate_status === 'exact_duplicate';
-                        // Auto-validated, no duplicate issues → "Validado para revisión" as primary
+
+                        let statusLabel = CANDIDATE_STATUS_LABELS[c.status];
+                        let statusStyle = STATUS_STYLES[c.status];
+
                         if (validationMeta && !hasDuplicate) {
-                          return (
-                            <>
-                              <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-0 text-[10px] font-semibold">
-                                Validado para revisión
-                              </Badge>
-                              <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-0 text-[9px] font-semibold block w-fit">
-                                Requiere revisión manual
-                              </Badge>
-                            </>
-                          );
+                          statusLabel = 'Validado para revisión';
+                          statusStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+                        } else if (c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized') {
+                          statusLabel = 'Necesita revisión';
+                          statusStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
                         }
+
+                        // Build IA evaluation label
+                        const fitStatusValue = c.commercial_fit_status 
+                          || getNestedValue(c.metadata, ['enrichment', 'ai_evaluation', 'fit_status'])
+                          || getNestedValue(c.metadata, ['ai_evaluation', 'fit_status'])
+                          || null;
+                        const fitStatus = typeof fitStatusValue === 'string' ? fitStatusValue : null;
+                        const fitScore = c.fit_score ?? null;
+
+                        const hasEvaluation = fitScore !== null || (fitStatus && ['high', 'medium', 'low', 'high_fit', 'good_fit', 'medium_fit', 'low_fit'].includes(fitStatus));
+
+                        let evalText = 'Sin evaluación IA';
+                        if (hasEvaluation) {
+                          const fitLabel = fitStatus ? (FIT_STATUS_LABELS[fitStatus] ?? fitStatus) : '';
+                          if (fitScore !== null) {
+                            evalText = `IA ${fitScore}/100${fitLabel ? ` · ${fitLabel}` : ''}`;
+                          } else {
+                            evalText = `IA · ${fitLabel}`;
+                          }
+                        } else if (fitStatus === 'insufficient_evidence') {
+                          evalText = 'Evidencia insuficiente';
+                        } else if (fitStatus === 'tax_identifier_conflict') {
+                          evalText = 'Evaluación pausada';
+                        }
+
                         return (
-                          <>
-                            <Badge className={`${STATUS_STYLES[c.status]} border-0 text-[10px] font-semibold`}>
-                              {CANDIDATE_STATUS_LABELS[c.status]}
+                          <div className="flex flex-col gap-1 w-fit">
+                            <Badge className={`${statusStyle} border-0 text-[10px] font-semibold py-0.5 w-fit`}>
+                              {statusLabel}
                             </Badge>
-                            {c.status === 'approved' &&
-                              (c.commercial_trace as Record<string, unknown> | null)
-                                ?.conversionRollback === true && (
-                                <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold block w-fit">
-                                  Conv. revertida
-                                </Badge>
-                              )}
-                            {validationMeta ? (
-                              <Badge className="bg-orange-500/10 text-orange-600 dark:text-orange-400 border-0 text-[9px] font-semibold block w-fit">
-                                Posible duplicado
-                              </Badge>
-                            ) : c.review_status ? (
-                              <Badge
-                                className={`${
-                                  REVIEW_STATUS_STYLES[c.review_status as ReviewStatus] ??
-                                  'bg-muted text-muted-foreground'
-                                } border-0 text-[9px] font-semibold block w-fit`}
-                              >
-                                {REVIEW_STATUS_LABELS[c.review_status as ReviewStatus] ??
-                                  c.review_status}
-                              </Badge>
-                            ) : null}
-                          </>
+                            
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger render={
+                                  <span className="text-[10px] text-muted-foreground/70 cursor-help hover:text-foreground font-medium transition-colors">
+                                    {evalText}
+                                  </span>
+                                } />
+                                <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                                  Evaluación automática basada en la información pública disponible. No reemplaza la revisión comercial.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
                         );
                       })()}
                     </div>
                   </td>
 
                   {/* ── Acciones ── */}
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-2.5">
                     <CandidateRowActions candidate={c} />
                   </td>
                 </tr>
@@ -897,7 +646,16 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
         candidate={detailCandidate ? (candidates.find((c) => c.id === detailCandidate.id) ?? detailCandidate) : null}
         open={detailCandidate !== null}
         onOpenChange={(open) => {
-          if (!open) setDetailCandidate(null);
+          if (!open) {
+            const lastActiveId = detailCandidate?.id;
+            setDetailCandidate(null);
+            if (lastActiveId) {
+              setTimeout(() => {
+                const element = document.getElementById(`candidate-trigger-${lastActiveId}`);
+                element?.focus();
+              }, 50);
+            }
+          }
         }}
         onCandidateUpdated={(updated) => {
           setDetailCandidate(updated);

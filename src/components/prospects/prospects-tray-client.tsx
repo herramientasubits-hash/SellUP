@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Sparkles,
   X,
+  Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
@@ -299,11 +301,38 @@ export function ProspectsTrayClient({
             <p className="text-xs font-semibold text-foreground/80">
               Mostrando {startRow} - {endRow} de {total} prospectos
             </p>
-            <div className="flex items-center gap-1">
-              <Search className="h-3.5 w-3.5 text-muted-foreground/50" />
-              <span className="text-[10px] text-muted-foreground/60 font-mono uppercase">
-                Página {page} de {totalPages || 1}
-              </span>
+            <div className="flex items-center gap-3">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                    aria-label="Guía de revisión"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Guía de revisión</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-4" align="end">
+                  <div className="space-y-2 text-xs text-foreground/90">
+                    <p className="font-semibold text-sm border-b pb-1.5 mb-1.5">Antes de aprobar revisa:</p>
+                    <ul className="list-disc pl-4 space-y-1.5 leading-relaxed text-muted-foreground">
+                      <li>Identidad y actividad de la empresa</li>
+                      <li>Identificador fiscal, cuando esté disponible</li>
+                      <li>Evidencia y nivel de confianza</li>
+                      <li>Posibles coincidencias en SellUp y HubSpot</li>
+                    </ul>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <div className="flex items-center gap-1 border-l pl-3 border-border/40">
+                <Search className="h-3.5 w-3.5 text-muted-foreground/50" />
+                <span className="text-[10px] text-muted-foreground/60 font-mono uppercase">
+                  Página {page} de {totalPages || 1}
+                </span>
+              </div>
             </div>
           </div>
 
