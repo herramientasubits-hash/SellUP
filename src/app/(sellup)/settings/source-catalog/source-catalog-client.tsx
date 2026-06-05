@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
+import { Copy, ExternalLink, ArrowRight, RotateCcw } from 'lucide-react';
 import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem, type DataTableBulkAction } from '@/components/data-table';
 import type { SourceCatalogViewModel, SourceViewModel } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
@@ -84,15 +84,35 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
   const [detailSource, setDetailSource] = React.useState<SourceViewModel | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
 
+  // Local copy of the table data so the user can drag-reorder rows
+  // without affecting the server-side list. Resets when the underlying
+  // `sources` change (e.g. after a revalidation).
+  const serverData = React.useMemo(
+    () => sources.map((s) => ({ ...s, latest: latestTests[s.key] })),
+    [sources, latestTests],
+  );
+  const [data, setData] = React.useState<Row[]>(serverData);
+  const [hasManualOrder, setHasManualOrder] = React.useState(false);
+  React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setData(serverData);
+    setHasManualOrder(false);
+  }, [serverData]);
+
   const openDetail = React.useCallback((source: SourceViewModel) => {
     setDetailSource(source);
     setDetailOpen(true);
   }, []);
 
-  const data: Row[] = React.useMemo(
-    () => sources.map((s) => ({ ...s, latest: latestTests[s.key] })),
-    [sources, latestTests],
-  );
+  const handleRowReorder = React.useCallback((next: Row[]) => {
+    setData(next);
+    setHasManualOrder(true);
+  }, []);
+
+  const resetOrder = React.useCallback(() => {
+    setData(serverData);
+    setHasManualOrder(false);
+  }, [serverData]);
 
   const columns: ColumnDef<Row, unknown>[] = React.useMemo(
     () => [
@@ -343,8 +363,16 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           });
         },
       },
+      {
+        id: 'reset-order',
+        label: 'Restablecer orden',
+        icon: RotateCcw,
+        // Only meaningful when the user has manually reordered rows.
+        disabled: () => !hasManualOrder,
+        onClick: () => resetOrder(),
+      },
     ],
-    [openDetail],
+    [openDetail, hasManualOrder, resetOrder],
   );
 
   return (
@@ -360,6 +388,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
         contextMenu={contextMenu}
         bulkActions={bulkActions}
         enableColumnReorder
+        enableRowReorder
+        onRowReorder={handleRowReorder}
         initialPageSize={20}
         fillHeight
         emptyState={

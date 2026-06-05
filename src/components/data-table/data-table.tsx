@@ -49,6 +49,7 @@ import { DataTableToolbar } from "./data-table-toolbar";
 import { DataTablePagination } from "./data-table-pagination";
 import { DataTableLoadMore } from "./data-table-load-more";
 import { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
+import { DataTableRowReorder, RowDragHandle } from "./data-table-row-reorder";
 import {
   DataTableSettingsDrawer,
   DataTableSettingsTrigger,
@@ -114,6 +115,17 @@ interface DataTableProps<TData> {
   /** Column ids that cannot be reordered (e.g. selection, actions). */
   pinnedColumnIds?: string[];
 
+  /**
+   * Enable row drag-and-drop. Adds a pinned "reorder" column on the left
+   * with a grip handle; drag rows to reorder them. When enabled, the
+   * table's internal sort is bypassed and the data is rendered in the
+   * exact order provided — the parent is responsible for reordering the
+   * data via `onRowReorder`.
+   */
+  enableRowReorder?: boolean;
+  /** Called with the new data array after a successful row drop. */
+  onRowReorder?: (newData: TData[]) => void;
+
   /** Server-side or external state control for sorting. */
   manualSorting?: boolean;
   manualFiltering?: boolean;
@@ -150,7 +162,7 @@ const DEFAULT_SETTINGS: DataTableSettings = {
   loadMode: "pagination",
 };
 
-const DEFAULT_PINNED = ["select", "actions"];
+const DEFAULT_PINNED = ["select", "reorder", "actions"];
 
 /**
  * DataTable<T> — composable data table built on TanStack Table v8.
@@ -174,6 +186,8 @@ export function DataTable<TData>({
   pageSizeOptions = [10, 20, 50, 100],
   enableColumnReorder = true,
   pinnedColumnIds = DEFAULT_PINNED,
+  enableRowReorder = false,
+  onRowReorder,
   manualSorting = false,
   manualFiltering = false,
   onRowClick,
@@ -209,31 +223,49 @@ export function DataTable<TData>({
   // and actions column appended (handled by user via meta; here we only add
   // the selection column).
   const allColumns: ColumnDef<TData, unknown>[] = React.useMemo(() => {
-    if (!enableRowSelection) return columns;
-    const selectionColumn: ColumnDef<TData, unknown> = {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Seleccionar todas las filas"
-          className="translate-y-[1px]"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Seleccionar fila"
-          className="translate-y-[1px]"
-        />
-      ),
-      size: 36,
-      enableSorting: false,
-      enableHiding: false,
-    };
-    return [selectionColumn, ...columns];
-  }, [columns, enableRowSelection]);
+    const extras: ColumnDef<TData, unknown>[] = [];
+    if (enableRowReorder) {
+      extras.push({
+        id: "reorder",
+        header: () => <span className="sr-only">Reordenar</span>,
+        cell: () => null,
+        size: 32,
+        enableSorting: false,
+        enableHiding: false,
+        enableColumnFilter: false,
+      });
+    }
+    if (enableRowSelection) {
+      extras.push({
+        id: "select",
+        header: ({ table }) => (
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected()}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Seleccionar todas las filas"
+            className="translate-y-[1px]"
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Seleccionar fila"
+            className="translate-y-[1px]"
+          />
+        ),
+        size: 36,
+        enableSorting: false,
+        enableHiding: false,
+      });
+    }
+    return [...extras, ...columns];
+  }, [columns, enableRowSelection, enableRowReorder]);
+
+  // Row reorder implies manual order: the parent owns the data array and
+  // the table must not re-sort it. Sort headers are still rendered for
+  // visual consistency, but their state has no effect on the rendered order.
+  const effectiveManualSorting = manualSorting || enableRowReorder;
 
   // In lazy mode we slice the data the user can see; pagination is disabled
   // and a "Cargar más" button is shown instead. In pagination mode the
@@ -271,7 +303,7 @@ export function DataTable<TData>({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
     getPaginationRowModel: getPaginationRowModel(),
-    manualSorting,
+    manualSorting: effectiveManualSorting,
     manualFiltering,
     initialState: {
       pagination: { pageSize: isLazy ? Number.MAX_SAFE_INTEGER : initialPageSize },
@@ -450,15 +482,38 @@ export function DataTable<TData>({
                   </TableRow>
                 ))
               ) : table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <DataTableRow
-                    key={row.id}
-                    row={row}
-                    rowClickable={rowClickable}
-                    onRowClick={onRowClick}
-                    contextMenu={contextMenu}
-                  />
-                ))
+                enableRowReorder && onRowReorder ? (
+                  <DataTableRowReorder<TData>
+                    data={effectiveData}
+                    getRowId={(row, i) => getRowId(row) || String(i)}
+                    onRowReorder={onRowReorder}
+                  >
+                    {(row, index, handleProps) => {
+                      const tableRow = table.getRowModel().rows[index];
+                      if (!tableRow) return null;
+                      return (
+                        <DataTableRow
+                          key={tableRow.id}
+                          row={tableRow}
+                          rowClickable={rowClickable}
+                          onRowClick={onRowClick}
+                          contextMenu={contextMenu}
+                          reorderHandleProps={handleProps}
+                        />
+                      );
+                    }}
+                  </DataTableRowReorder>
+                ) : (
+                  table.getRowModel().rows.map((row) => (
+                    <DataTableRow
+                      key={row.id}
+                      row={row}
+                      rowClickable={rowClickable}
+                      onRowClick={onRowClick}
+                      contextMenu={contextMenu}
+                    />
+                  ))
+                )
               ) : (
                 <TableRow className="hover:bg-transparent">
                   <TableCell
@@ -514,6 +569,15 @@ interface DataTableRowProps<TData> {
   rowClickable: boolean;
   onRowClick?: (row: TData) => void;
   contextMenu?: DataTableContextMenuConfig<TData>;
+  /**
+   * When row reorder is enabled, the parent `DataTableRowReorder` passes
+   * the dnd-kit handle props here so the grip cell is rendered as the
+   * first cell. The row is already wrapped in a `<SortableTableRow>` in
+   * that case, so we don't render the `<TableRow>` ourselves.
+   */
+  reorderHandleProps?: React.HTMLAttributes<HTMLButtonElement> & {
+    isDragging: boolean;
+  };
 }
 
 function DataTableRow<TData>({
@@ -521,11 +585,30 @@ function DataTableRow<TData>({
   rowClickable,
   onRowClick,
   contextMenu,
+  reorderHandleProps,
 }: DataTableRowProps<TData>) {
   const isSelected = row.getIsSelected();
   const handleClick = rowClickable && onRowClick ? () => onRowClick(row.original) : undefined;
 
-  const cellContent = (
+  const cells = (
+    <>
+      {reorderHandleProps && (
+        <RowDragHandle {...reorderHandleProps} />
+      )}
+      {row.getVisibleCells().map((cell) => (
+        <TableCell
+          key={cell.id}
+          style={{ width: cell.column.columnDef.size }}
+        >
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </TableCell>
+      ))}
+    </>
+  );
+
+  const cellContent = reorderHandleProps ? (
+    cells
+  ) : (
     <TableRow
       data-state={isSelected ? "selected" : undefined}
       className={cn(
@@ -535,14 +618,7 @@ function DataTableRow<TData>({
       )}
       onClick={handleClick}
     >
-      {row.getVisibleCells().map((cell) => (
-        <TableCell
-          key={cell.id}
-          style={{ width: cell.column.columnDef.size }}
-        >
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-        </TableCell>
-      ))}
+      {cells}
     </TableRow>
   );
 

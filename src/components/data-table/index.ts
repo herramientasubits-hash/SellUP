@@ -7,5 +7,6 @@ export { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
 export { DataTableContextMenu, type DataTableContextMenuItem } from "./data-table-context-menu";
 export { DataTableRowActions } from "./data-table-row-actions";
 export { DataTableColumnReorder, DataTableDragHandle } from "./data-table-column-reorder";
+export { DataTableRowReorder, RowDragHandle } from "./data-table-row-reorder";
 export { DataTableSettingsDrawer, DataTableSettingsTrigger, type DataTableSettings, type DataTableLoadMode } from "./data-table-settings-drawer";
 export { DataTableToolbar } from "./data-table-toolbar";
