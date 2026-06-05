@@ -595,14 +595,22 @@ function DataTableRow<TData>({
       {reorderHandleProps && (
         <RowDragHandle {...reorderHandleProps} />
       )}
-      {row.getVisibleCells().map((cell) => (
-        <TableCell
-          key={cell.id}
-          style={{ width: cell.column.columnDef.size }}
-        >
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-        </TableCell>
-      ))}
+      {row
+        .getVisibleCells()
+        // The `reorder` column lives in `allColumns` so the thead has a
+        // matching header (and the auto-fit effect can size it), but its
+        // cell renders `null`. When row reorder is enabled we replace it
+        // with the grip handle above, so filter it out here to avoid a
+        // phantom empty cell next to the grip.
+        .filter((cell) => (reorderHandleProps ? cell.column.id !== "reorder" : true))
+        .map((cell) => (
+          <TableCell
+            key={cell.id}
+            style={{ width: cell.column.columnDef.size }}
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
     </>
   );
 

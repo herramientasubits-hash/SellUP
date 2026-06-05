@@ -590,6 +590,7 @@
     position: relative;
     flex: 1 1 0%;
     min-height: 0;
+    min-width: 0;
     overflow: auto;
   }
   .su-table-sticky thead th {

@@ -161,12 +161,14 @@ interface RowDragHandleProps
 export function RowDragHandle({
   isDragging,
   className,
+  style,
   ...rest
 }: RowDragHandleProps) {
   return (
     <TableCell
+      style={{ width: 32, ...style }}
       className={cn(
-        "w-8 p-0 text-center",
+        "p-0 text-center",
         !isDragging && "cursor-grab",
         isDragging && "cursor-grabbing",
         className,
