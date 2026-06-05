@@ -122,20 +122,20 @@ export function DataTableColumnPopover<TData, TValue>({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-64 p-0 rounded-xl border border-border/40 shadow-lg"
+        className="w-72 p-0 rounded-xl border border-border/40 shadow-lg"
       >
         {title && (
-          <div className="px-4 pt-3 pb-1.5 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+          <div className="px-5 pt-3.5 pb-1.5 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
             {title}
           </div>
         )}
 
         {sortable && !disableSort && (
           <>
-            <div className="px-4 pt-2 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+            <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
               Ordenar
             </div>
-            <div className="px-3 pb-2 flex items-center gap-1.5">
+            <div className="px-4 pb-2.5 flex items-center gap-1.5">
               <Button
                 variant={sortDirection === "asc" ? "default" : "outline"}
                 size="sm"
@@ -162,13 +162,13 @@ export function DataTableColumnPopover<TData, TValue>({
 
         {filterable && !disableFilter && allOptions.length > 0 && (
           <>
-            {sortable && !disableSort && <Separator className="mx-3" />}
-            <div className="px-4 pt-2 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+            {sortable && !disableSort && <Separator className="mx-4" />}
+            <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
               Buscar
             </div>
             {!disableSearch && (
-              <div className="px-3 pb-2 relative">
-                <Search className="absolute left-5.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <div className="px-4 pb-2.5 relative">
+                <Search className="absolute left-6 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -177,21 +177,21 @@ export function DataTableColumnPopover<TData, TValue>({
                 />
               </div>
             )}
-            <div className="px-4 pt-1 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+            <div className="px-5 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
               Filtrar
             </div>
-            <div className="max-h-56 overflow-y-auto px-3 pb-3">
+            <div className="max-h-56 overflow-y-auto px-4 pb-3">
               {filteredOptions.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground py-2 px-1">Sin opciones.</p>
               ) : (
-                <ul className="space-y-1">
+                <ul className="space-y-0.5">
                   {filteredOptions.map((opt) => {
                     const checked = currentFilter.includes(opt.value);
                     return (
                       <li key={opt.value}>
                         <label
                           className={cn(
-                            "flex items-center gap-2 px-1.5 py-1 rounded-md text-xs cursor-pointer",
+                            "flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs cursor-pointer",
                             "hover:bg-muted/60",
                           )}
                         >
@@ -217,8 +217,8 @@ export function DataTableColumnPopover<TData, TValue>({
 
         {(hasActiveFilter || hasActiveSort) && (
           <>
-            <Separator className="mx-3" />
-            <div className="px-3 py-2">
+            <Separator className="mx-4" />
+            <div className="px-4 py-2.5">
               <Button
                 variant="ghost"
                 size="sm"

@@ -37,7 +37,7 @@ export function DataTableContextMenu({ items, children }: DataTableContextMenuPr
       <ContextMenuTrigger asChild>
         <div className="contents">{children}</div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-[200px]">
+      <ContextMenuContent className="min-w-[220px]">
         {items.map((item, i) => (
           <React.Fragment key={item.id}>
             {item.separator && i > 0 && <ContextMenuSeparator />}
@@ -47,7 +47,7 @@ export function DataTableContextMenu({ items, children }: DataTableContextMenuPr
               onClick={item.onClick}
               className="text-xs"
             >
-              {item.icon && <item.icon className="h-3.5 w-3.5" />}
+              {item.icon && <item.icon className="h-4 w-4" />}
               {item.label}
             </ContextMenuItem>
           </React.Fragment>

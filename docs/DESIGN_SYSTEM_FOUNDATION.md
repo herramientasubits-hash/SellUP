@@ -682,23 +682,33 @@ El `ListFilter` aparece aunque la columna no esté ordenada, de modo que el oper
 
 **Coexistencia row reorder + sort:** cuando `enableRowReorder` está activo y el usuario aún no ha hecho click en un sort header, el orden de filas es el que provee el padre (drag-and-drop). Al primer click en un sort header, TanStack toma el control (`manualSorting` pasa a `false`) y reordena la vista. Al limpiar el sort desde el popover (`Limpiar filtros`), el control vuelve al padre y reaparece el orden manual.
 
-#### 10.9.2 Column reordering (drag-and-drop)
+**Anatomía del popover** — `w-72` (288px), `p-0`, `rounded-xl border border-border/40`. Cada sección (Título, Ordenar, Buscar, Filtrar) lleva `px-5` en el header de sección y `px-4` en el cuerpo para que el contenido (botones, input, checkboxes) respire ~16px del borde. Los items de filtro van con `px-2 py-1.5` y `gap-2.5` entre checkbox y label. Separadores entre secciones con `<Separator className="mx-4" />`.
+
+#### 10.9.2 Row right-click context menu
+
+`<DataTableContextMenu>` envuelve cada fila cuando el `DataTable` recibe `contextMenu`. Anatomía:
+
+- `min-w-[220px]`, container `p-1.5`, `rounded-xl border border-border/30`.
+- Items con `px-2.5 py-2`, `gap-2.5` y icono `h-4 w-4` — el icono agrandado y el padding mayor dan aire al texto (evita que se vea "circular" / pegado al borde).
+- `<ContextMenuSeparator>` con `-mx-1 my-1` para mantener el padding del container.
+
+#### 10.9.3 Column reordering (drag-and-drop)
 
 `<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` + `@dnd-kit/sortable`. Columnas en `pinnedColumnIds` (default `["select", "actions"]`) no son draggeables. Activado por defecto (`enableColumnReorder: true`).
 
-#### 10.9.3 Floating bulk action bar (portal pattern)
+#### 10.9.4 Floating bulk action bar (portal pattern)
 
 `<DataTableBulkActionBar>` se renderiza via `createPortal` a `document.body` (NO dentro de la tabla). Razón técnica: el `transform` del `animate-su-fade-in` del AppShell crea un containing block que rompe `position: fixed` para descendientes. Ver § 12 para el patrón completo.
 
-#### 10.9.4 Settings drawer (no dialog)
+#### 10.9.5 Settings drawer (no dialog)
 
 `<DataTableSettingsDrawer>` reemplaza el antiguo settings dialog. Contiene: switch de buscador, segmented control de modo de carga, listado de columnas visibles. Accesible desde el ícono `SlidersHorizontal` en el toolbar.
 
-#### 10.9.5 Search input
+#### 10.9.6 Search input
 
 Input de búsqueda controlado por `state.globalFilter` (TanStack built-in). Aparece/oculta según `settings.globalSearch`.
 
-#### 10.9.6 Pagination / Load-more footer
+#### 10.9.7 Pagination / Load-more footer
 
 El footer cambia según `loadMode`:
 
