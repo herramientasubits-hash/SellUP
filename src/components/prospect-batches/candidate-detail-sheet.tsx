@@ -602,37 +602,38 @@ export function CandidateDetailSheet({
     return true;
   }, [candidate?.website, candidate?.name]);
 
-  if (!candidate) return null;
-
-  const isStructured = isStructuredCandidate(candidate);
-  const isChileOfficialCandidate =
+  const isStructured = candidate ? isStructuredCandidate(candidate) : false;
+  const isChileOfficialCandidate = candidate ? (
     candidate.source_primary === 'datos_gob_cl' ||
     candidate.country_code === 'CL' ||
-    (candidate.source_primary as string) === 'cl_res';
-  const dc = parseDuplicateCheck(candidate.metadata);
-  const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
+    (candidate.source_primary as string) === 'cl_res'
+  ) : false;
+  const dc = candidate ? parseDuplicateCheck(candidate.metadata) : null;
+  const enrichment = candidate?.metadata?.enrichment as Record<string, unknown> | undefined;
   // 16TX.1: tax identifier lookup result — prefer in-memory state (fresh lookup), fallback to persisted metadata
-  const taxIdLookup = (taxIdLookupResult ??
-    (candidate.metadata?.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined)) ?? null;
+  const taxIdLookup = candidate ? ((taxIdLookupResult ??
+    (candidate.metadata?.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined)) ?? null) : null;
   // 16AK.16C: read from enrichment.ai_evaluation (structured path), fallback to legacy top-level
-  const aiEval = (enrichment?.ai_evaluation as Record<string, unknown> | undefined)
-    ?? (candidate.metadata?.ai_evaluation as Record<string, unknown> | undefined);
-  const sourcePrimaryLabel = candidate.source_primary
+  const aiEval = candidate ? ((enrichment?.ai_evaluation as Record<string, unknown> | undefined)
+    ?? (candidate.metadata?.ai_evaluation as Record<string, unknown> | undefined)) : undefined;
+  const sourcePrimaryLabel = candidate?.source_primary
     ? (VENDOR_CANDIDATE_SOURCE_LABELS[candidate.source_primary] ?? candidate.source_primary)
     : null;
-  const structuredSourceLabel = (isStructured && candidate.source_primary
+  const structuredSourceLabel = (isStructured && candidate?.source_primary
     ? (STRUCTURED_SOURCE_LABELS[candidate.source_primary] ?? sourcePrimaryLabel)
     : null) as React.ReactNode;
 
-  const flags = (candidate.review_flags as string[] | null) ?? [];
+  const flags = candidate ? ((candidate.review_flags as string[] | null) ?? []) : [];
   const dcSources = dc?.sources_checked ?? [];
   const dcMatches = dc?.matches ?? [];
 
   // AI eval fields
-  const fitStatus = candidate.commercial_fit_status
+  const fitStatus = candidate ? (
+    candidate.commercial_fit_status
     ?? (aiEval?.fit_status as string | undefined)
-    ?? null;
-  const fitScore = candidate.fit_score;
+    ?? null
+  ) : null;
+  const fitScore = candidate?.fit_score ?? null;
 
   const fitReasons = (aiEval?.fit_reasons as string[] | undefined) ?? [];
   const risks = (aiEval?.risks as string[] | undefined) ?? [];
@@ -645,9 +646,12 @@ export function CandidateDetailSheet({
     if (!risks) return [];
     const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
     return [...risks].sort((a, b) => {
-      return severityOrder[classifyRisk(a)] - severityOrder[classifyRisk(b)];
+      const severityOrderMap: Record<string, number> = severityOrder;
+      return severityOrderMap[classifyRisk(a)] - severityOrderMap[classifyRisk(b)];
     });
   }, [risks]);
+
+  if (!candidate) return null;
 
   // AI eval skip reason (16AK.16C)
   const aiEvalStatus = (aiEval?.status as string | undefined) ?? null;
@@ -1060,7 +1064,7 @@ export function CandidateDetailSheet({
                     const hsSync = candidate.metadata?.hubspot_sync as HubSpotSyncAudit | undefined;
                     if (!hsSync) return null;
 
-                    const statusStyles = {
+                    const statusStyles: Record<string, string> = {
                       synced: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
                       blocked_duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
                       blocked_inactive_or_liquidation: 'bg-destructive/10 text-destructive border-destructive/20',
@@ -1070,7 +1074,7 @@ export function CandidateDetailSheet({
                       failed_create: 'bg-destructive/10 text-destructive border-destructive/20',
                     };
 
-                    const statusLabels = {
+                    const statusLabels: Record<string, string> = {
                       synced: 'Sincronizado',
                       blocked_duplicate: 'Bloqueado (Duplicado)',
                       blocked_inactive_or_liquidation: 'Bloqueado (Inactivo)',
@@ -1382,7 +1386,7 @@ export function CandidateDetailSheet({
                   }
 
                   if (lookupStatus === 'completed' && !hasBestCandidate && taxIdLookup) {
-                    const skipReasonLabels = {
+                    const skipReasonLabels: Record<string, string> = {
                       no_high_confidence_candidate: 'Sin candidato con confianza suficiente.',
                       nit_check_digit_invalid: 'Dígito de verificación incorrecto en los candidatos encontrados.',
                       name_match_too_weak: 'La coincidencia de nombre es demasiado débil.',
@@ -2393,7 +2397,7 @@ export function CandidateDetailSheet({
                       value={(() => {
                         const missing = validationMetaSheet.quality_check?.missing_fields;
                         if (!missing || missing.length === 0) return 'Ninguno';
-                        const labels = {
+                        const labels: Record<string, string> = {
                           tax_identifier: 'Identificador fiscal',
                           linkedin_url: 'LinkedIn',
                           website: 'Sitio web',
@@ -2407,7 +2411,7 @@ export function CandidateDetailSheet({
                       value={(() => {
                         const conf = validationMetaSheet.quality_check?.import_confidence || (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.confidence;
                         if (!conf) return 'No disponible';
-                        const confMap = {
+                        const confMap: Record<string, string> = {
                           alta: 'Alta', media: 'Media', baja: 'Baja',
                           high: 'Alta', medium: 'Media', low: 'Baja',
                         };

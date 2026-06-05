@@ -39,6 +39,8 @@ export interface DrawerShellProps {
   className?: string;
   /** Whether to show the close button (default: true) */
   showCloseButton?: boolean;
+  /** Whether the body content is scrollable as a whole (default: true) */
+  scrollable?: boolean;
 }
 
 const sideSizeClasses = {
@@ -82,6 +84,7 @@ export function DrawerShell({
   size = 'md',
   className,
   showCloseButton = true,
+  scrollable = true,
 }: DrawerShellProps) {
   const sizeClass = sideSizeClasses[side][size];
 
@@ -115,7 +118,10 @@ export function DrawerShell({
         )}
 
         {/* Scrollable body content */}
-        <div className="flex-1 overflow-y-auto px-7 py-6">
+        <div className={cn(
+          'flex-1 min-h-0 flex flex-col',
+          scrollable ? 'overflow-y-auto px-7 py-6' : 'overflow-hidden'
+        )}>
           {children}
         </div>
 
