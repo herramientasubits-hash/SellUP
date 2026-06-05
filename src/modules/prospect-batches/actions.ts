@@ -13,6 +13,7 @@ import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
 import { lookupTaxIdentifierForCandidate, type TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
+import { evaluateAutoEnrichmentEligibility } from '@/server/prospect-batches/candidate-enrichment-eligibility';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -3404,6 +3405,26 @@ export async function validateImportedCandidatesBatch(
           validation,
         };
 
+        const tempCandidateForElig = {
+          ...candidate,
+          duplicate_status: dupResult.db_duplicate_status,
+          matched_account_id: dupResult.db_matched_account_id,
+          matched_hubspot_company_id: dupResult.db_matched_hubspot_company_id,
+          confidence_score: dupResult.db_confidence_score,
+          metadata: updatedMetadata,
+        };
+
+        const eligibility = evaluateAutoEnrichmentEligibility(tempCandidateForElig);
+
+        const updatedMetadataWithEnrichment = {
+          ...updatedMetadata,
+          enrichment: {
+            status: eligibility.status,
+            ...(eligibility.reason ? { skip_reason: eligibility.reason } : {}),
+            updated_at: new Date().toISOString(),
+          },
+        };
+
         // Actualizar candidato
         await supabase
           .from('prospect_candidates')
@@ -3412,7 +3433,7 @@ export async function validateImportedCandidatesBatch(
             matched_account_id: dupResult.db_matched_account_id,
             matched_hubspot_company_id: dupResult.db_matched_hubspot_company_id,
             confidence_score: dupResult.db_confidence_score,
-            metadata: updatedMetadata,
+            metadata: updatedMetadataWithEnrichment,
           })
           .eq('id', candidate.id);
 

@@ -119,6 +119,15 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   const [confirming, setConfirming] = React.useState(false);
   const [resultBatchId, setResultBatchId] = React.useState<string | null>(null);
   const [resultCount, setResultCount] = React.useState(0);
+  const [importStats, setImportStats] = React.useState<{
+    totalProcessed: number;
+    importedCount: number;
+    errorsCount: number;
+    alreadyCompleteCount: number;
+    autoEnrichPendingCount: number;
+    duplicateCount: number;
+    possibleDuplicateCount: number;
+  } | null>(null);
 
   function resetState() {
     setStep('input');
@@ -137,6 +146,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     setConfirming(false);
     setResultBatchId(null);
     setResultCount(0);
+    setImportStats(null);
   }
 
   function handleClose() {
@@ -322,14 +332,22 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         }),
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(errData.error ?? 'Error al importar prospectos');
-      }
-
-      const result = await res.json() as { batchId: string; candidatesCreated: number };
+      const result = await res.json() as { 
+        batchId: string; 
+        candidatesCreated: number; 
+        stats: {
+          totalProcessed: number;
+          importedCount: number;
+          errorsCount: number;
+          alreadyCompleteCount: number;
+          autoEnrichPendingCount: number;
+          duplicateCount: number;
+          possibleDuplicateCount: number;
+        };
+      };
       setResultBatchId(result.batchId);
       setResultCount(result.candidatesCreated);
+      setImportStats(result.stats || null);
       setStep('success');
       // Refresh manual en background: el estado del drawer se preserva
       router.refresh();
@@ -1005,19 +1023,77 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
       {/* ── Step: success ─────────────────────────────────── */}
       {step === 'success' && (
-        <div className="flex flex-col items-center justify-center gap-6 py-6 text-center">
-          <div className="rounded-full bg-emerald-500/10 p-5">
-            <CheckCircle2 className="h-10 w-10 text-emerald-600 dark:text-emerald-400" />
+        <div className="flex flex-col items-center justify-center gap-5 py-4 text-center">
+          <div className="rounded-full bg-emerald-500/10 p-4">
+            <CheckCircle2 className="h-9 w-9 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <p className="text-sm font-semibold text-foreground">
-              {resultCount} prospecto{resultCount !== 1 ? 's' : ''} importado{resultCount !== 1 ? 's' : ''}
+              ¡Importación completada!
             </p>
-            <p className="text-xs text-muted-foreground max-w-xs">
-              Los prospectos importados están listos para revisión. Ningún candidato será convertido en cuenta ni
-              sincronizado con HubSpot hasta que lo apruebes manualmente.
+            <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+              Se han cargado y validado los prospectos en el lote. Ninguno se enviará a HubSpot hasta que sea aprobado.
             </p>
           </div>
+
+          {/* Estadísticas detalladas de importación */}
+          {importStats && (
+            <div className="w-full max-w-sm rounded-xl border border-border/40 bg-muted/10 p-3.5 text-left space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2 border-b border-border/30 pb-1.5">
+                Resumen de Lote
+              </p>
+              
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-card border border-border/30 p-2">
+                  <span className="text-[10px] text-muted-foreground block">Filas procesadas</span>
+                  <span className="font-semibold text-foreground text-sm tabular-nums">{importStats.totalProcessed}</span>
+                </div>
+                
+                <div className="rounded-lg bg-card border border-border/30 p-2">
+                  <span className="text-[10px] text-muted-foreground block">Guardados con éxito</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400 text-sm tabular-nums">{importStats.importedCount}</span>
+                </div>
+
+                <div className="rounded-lg bg-card border border-border/30 p-2 col-span-2 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">Enriquecimiento automático</span>
+                    <span className="text-[11px] font-medium text-su-brand">Incremental (Campos vacíos)</span>
+                  </div>
+                  <Badge className="bg-su-brand-soft text-su-brand font-semibold hover:bg-su-brand-soft/80 border-0">
+                    {importStats.autoEnrichPendingCount} pendiente{importStats.autoEnrichPendingCount !== 1 ? 's' : ''}
+                  </Badge>
+                </div>
+
+                {importStats.alreadyCompleteCount > 0 && (
+                  <div className="rounded-lg bg-card border border-border/30 p-2 col-span-2 flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">Listos para revisión (Completos)</span>
+                    <span className="font-semibold text-foreground tabular-nums">{importStats.alreadyCompleteCount}</span>
+                  </div>
+                )}
+
+                {importStats.duplicateCount > 0 && (
+                  <div className="rounded-lg bg-card border border-border/30 p-2 flex flex-col justify-between">
+                    <span className="text-[10px] text-muted-foreground block">Duplicados exactos</span>
+                    <span className="font-semibold text-orange-600 dark:text-orange-400 text-sm tabular-nums">{importStats.duplicateCount}</span>
+                  </div>
+                )}
+
+                {importStats.possibleDuplicateCount > 0 && (
+                  <div className="rounded-lg bg-card border border-border/30 p-2 flex flex-col justify-between">
+                    <span className="text-[10px] text-muted-foreground block">Posibles duplicados</span>
+                    <span className="font-semibold text-amber-600 dark:text-amber-400 text-sm tabular-nums">{importStats.possibleDuplicateCount}</span>
+                  </div>
+                )}
+
+                {importStats.errorsCount > 0 && (
+                  <div className="rounded-lg bg-card border border-border/30 p-2 flex flex-col justify-between border-destructive/20 bg-destructive/5">
+                    <span className="text-[10px] text-destructive block">Omitidos con error</span>
+                    <span className="font-semibold text-destructive text-sm tabular-nums">{importStats.errorsCount}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-2 w-full max-w-xs">
             <Button

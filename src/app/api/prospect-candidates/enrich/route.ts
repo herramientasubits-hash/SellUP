@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { candidateId } = body;
+    const { candidateId, executionType } = body;
 
     if (!candidateId) {
       return NextResponse.json({ error: 'Falta candidateId' }, { status: 400 });
@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
       candidateId,
       userId: user.id,
       supabase,
+      executionType,
     });
 
     if (!result.success) {
