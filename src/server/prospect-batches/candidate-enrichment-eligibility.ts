@@ -268,3 +268,114 @@ export function evaluateCandidateEnrichmentNeed(candidate: any): EnrichmentEligi
     reasons,
   };
 }
+
+export function isCandidateIncomplete(candidate: Record<string, unknown>): boolean {
+  const metadata = (candidate.metadata as Record<string, unknown>) || {};
+  const enrichment = (metadata.enrichment as Record<string, unknown>) || {};
+  const validation = (metadata.validation as Record<string, unknown>) || {};
+
+  const hasWebsite = !!(candidate.website || candidate.domain) && !isDirectoryOrSocialUrl((candidate.website || candidate.domain) as string);
+  
+  const hasLinkedin = !!(
+    (metadata.import as Record<string, unknown>)?.linkedin_url ||
+    metadata.linkedin_url ||
+    (validation.normalized_keys as Record<string, unknown>)?.normalized_linkedin_url ||
+    (candidate.website && (candidate.website as string).includes('linkedin.com/company/'))
+  );
+
+  const hasDescription = !!(
+    (enrichment.company_profile as Record<string, unknown>)?.business_description ||
+    enrichment.summary ||
+    (metadata.ai_evaluation as Record<string, unknown>)?.description ||
+    candidate.review_notes
+  );
+
+  const hasCityOrRegion = !!(candidate.city || candidate.region);
+  
+  const hasCompanySize = !!(
+    candidate.company_size &&
+    !['unknown', 'size_unknown'].includes((candidate.company_size as string).toLowerCase())
+  );
+
+  const hasIndustry = !!(
+    candidate.industry &&
+    !['Otro', 'No especificado', 'unknown', 'sector_unknown'].includes(candidate.industry as string)
+  );
+
+  const hasSourceEvidence = !!(
+    (metadata.import as Record<string, unknown>)?.source_url ||
+    (metadata.import as Record<string, unknown>)?.source_evidence ||
+    candidate.source_primary
+  );
+
+  const hasConfidence = !!(
+    (metadata.import as Record<string, unknown>)?.confidence ||
+    (validation.quality_check as Record<string, unknown>)?.import_confidence ||
+    candidate.confidence_score
+  );
+
+  return !(
+    hasWebsite &&
+    hasLinkedin &&
+    hasDescription &&
+    hasCityOrRegion &&
+    hasCompanySize &&
+    hasIndustry &&
+    hasSourceEvidence &&
+    hasConfidence
+  );
+}
+
+export function evaluateAutoEnrichmentEligibility(candidate: Record<string, unknown>): {
+  eligible: boolean;
+  status: 'pending' | 'skipped_duplicate' | 'skipped_already_complete' | 'no_required';
+  reason?: string;
+} {
+  const status = candidate.status as string;
+  const duplicate_status = candidate.duplicate_status as string;
+  const metadata = (candidate.metadata as Record<string, unknown>) || {};
+  const enrichment = (metadata.enrichment as Record<string, unknown>) || {};
+  const flags = (candidate.review_flags as string[]) || [];
+
+  // Exclude final statuses
+  const blockedStatuses = ['approved', 'discarded', 'converted_to_account', 'duplicate'];
+  if (blockedStatuses.includes(status)) {
+    return { eligible: false, status: 'no_required', reason: 'Candidato en estado final.' };
+  }
+
+  // Exclude exact duplicates or duplicate status
+  if (duplicate_status === 'exact_duplicate' || status === 'duplicate') {
+    return { eligible: false, status: 'skipped_duplicate', reason: 'Duplicado exacto.' };
+  }
+  
+  // Exclude possible duplicates or ambiguous match
+  if (duplicate_status === 'possible_duplicate') {
+    return { eligible: false, status: 'skipped_duplicate', reason: 'Posible duplicado o coincidencia ambigua.' };
+  }
+
+  // Exclude confirmed matches in SellUp or HubSpot
+  if (candidate.matched_account_id || candidate.matched_hubspot_company_id) {
+    return { eligible: false, status: 'skipped_duplicate', reason: 'Coincidencia confirmada en SellUp o CRM.' };
+  }
+
+  // Blocked by validation
+  if (flags.includes('liquidation_signal') || flags.includes('inactive_company')) {
+    return { eligible: false, status: 'no_required', reason: 'Bloqueado por validación (inactiva / liquidación).' };
+  }
+
+  // Already enriched or enriching
+  if (enrichment.status === 'completed' || enrichment.status === 'completed_partially') {
+    return { eligible: false, status: 'no_required', reason: 'Ya enriquecido.' };
+  }
+  if (enrichment.status === 'enriching') {
+    return { eligible: false, status: 'no_required', reason: 'Enriquecimiento en curso.' };
+  }
+
+  // Check if it is incomplete
+  if (!isCandidateIncomplete(candidate)) {
+    return { eligible: false, status: 'skipped_already_complete', reason: 'El candidato ya cuenta con información suficiente.' };
+  }
+
+  return { eligible: true, status: 'pending' };
+}
+

@@ -12,6 +12,7 @@ import {
   Sparkles,
   X,
   Info,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,7 @@ import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-can
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { LATAM_COUNTRIES, INDUSTRIES } from '@/modules/prospect-batches/types';
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
+import { createClient } from '@/lib/supabase/client';
 
 // Origin options corresponding to BatchSource
 const ORIGIN_OPTIONS = [
@@ -97,6 +99,147 @@ export function ProspectsTrayClient({
     activeIndustry !== 'all' ||
     activeOrigin !== 'all';
 
+  // Orchestrator state
+  const [batchStats, setBatchStats] = React.useState<{
+    total: number;
+    pending: number;
+    enriching: number;
+    completed: number;
+    failed: number;
+    skipped: number;
+    possibleDuplicates: number;
+  } | null>(null);
+  
+  const inFlightRef = React.useRef<Set<string>>(new Set());
+
+  const syncBatchStatus = React.useCallback(async () => {
+    if (!sourceId) return;
+    const supabase = createClient();
+    const { data: batchCandidates, error } = await supabase
+      .from('prospect_candidates')
+      .select('id, metadata, duplicate_status, status')
+      .eq('batch_id', sourceId);
+
+    if (error || !batchCandidates) return;
+
+    let pendingCount = 0;
+    let enrichingCount = 0;
+    let completedCount = 0;
+    let failedCount = 0;
+    let skippedCount = 0;
+    let possibleDuplicateCount = 0;
+
+    const pendingIds: string[] = [];
+
+    for (const cand of batchCandidates) {
+      const enrichment = cand.metadata?.enrichment || {};
+      const estatus = enrichment.status;
+      
+      if (estatus === 'pending') {
+        pendingCount++;
+        pendingIds.push(cand.id);
+      } else if (estatus === 'enriching') {
+        enrichingCount++;
+      } else if (estatus === 'completed') {
+        completedCount++;
+      } else if (estatus === 'failed') {
+        failedCount++;
+      } else if (
+        estatus === 'skipped_duplicate' || 
+        estatus === 'skipped_already_complete' || 
+        estatus === 'no_required'
+      ) {
+        skippedCount++;
+      }
+
+      if (cand.duplicate_status === 'possible_duplicate') {
+        possibleDuplicateCount++;
+      }
+    }
+
+    setBatchStats({
+      total: batchCandidates.length,
+      pending: pendingCount,
+      enriching: enrichingCount,
+      completed: completedCount,
+      failed: failedCount,
+      skipped: skippedCount,
+      possibleDuplicates: possibleDuplicateCount,
+    });
+
+    return { pendingIds, enrichingCount };
+  }, [sourceId]);
+
+  const processEnrichmentQueue = React.useCallback(async () => {
+    if (!sourceId) return;
+
+    // Sincronizar estado actual
+    const syncRes = await syncBatchStatus();
+    if (!syncRes) return;
+
+    const { pendingIds, enrichingCount } = syncRes;
+
+    // Límite de concurrencia de 2
+    const maxConcurrency = 2;
+    // Peticiones activas totales = peticiones del cliente en vuelo + peticiones registradas como enriching en BD
+    const currentActive = inFlightRef.current.size + enrichingCount;
+    const spotsAvailable = maxConcurrency - currentActive;
+
+    if (spotsAvailable > 0 && pendingIds.length > 0) {
+      // Tomar los primeros candidatos elegibles que no estén ya en vuelo
+      const toStart = pendingIds
+        .filter(id => !inFlightRef.current.has(id))
+        .slice(0, spotsAvailable);
+
+      for (const candidateId of toStart) {
+        inFlightRef.current.add(candidateId);
+
+        // Lanzar llamada al endpoint de enriquecimiento asíncronamente
+        fetch('/api/prospect-candidates/enrich', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            candidateId,
+            executionType: 'automatic_post_import_enrichment',
+          }),
+        })
+          .then(async (res) => {
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              console.warn(`Error enriqueciendo candidato ${candidateId}:`, errData.error);
+            }
+          })
+          .catch((err) => {
+            console.error(`Error de red enriqueciendo candidato ${candidateId}:`, err);
+          })
+          .finally(() => {
+            inFlightRef.current.delete(candidateId);
+            router.refresh();
+            syncBatchStatus();
+          });
+      }
+    }
+  }, [sourceId, syncBatchStatus, router]);
+
+  // Intervalo de sincronización y procesamiento de la cola
+  React.useEffect(() => {
+    if (!sourceId) return;
+
+    // Diferir la primera ejecución un tick para evitar setState síncrono dentro del efecto
+    const initialTimer = setTimeout(() => {
+      processEnrichmentQueue();
+    }, 0);
+
+    const interval = setInterval(() => {
+      processEnrichmentQueue();
+    }, 4000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [sourceId, processEnrichmentQueue]);
+
   // Debounce search input to avoid re-rendering RSC on every keystroke
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -146,9 +289,21 @@ export function ProspectsTrayClient({
       {isSourceFiltered && (
         <div className="shrink-0 flex items-center justify-between gap-3 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
+            {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
+              <Loader2 className="h-4 w-4 shrink-0 text-su-brand animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
+            )}
             <p className="text-xs font-medium text-su-brand">
-              {getSourceBanner(sourceBatchType)}
+              {batchStats ? (
+                (batchStats.pending > 0 || batchStats.enriching > 0) ? (
+                  `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}...`
+                ) : (
+                  `Importación completada. Se enriquecieron ${batchStats.completed} prospecto${batchStats.completed !== 1 ? 's' : ''} y ${batchStats.failed + batchStats.possibleDuplicates} requiere${batchStats.failed + batchStats.possibleDuplicates !== 1 ? 'n' : ''} revisión.`
+                )
+              ) : (
+                getSourceBanner(sourceBatchType)
+              )}
             </p>
           </div>
           <Button

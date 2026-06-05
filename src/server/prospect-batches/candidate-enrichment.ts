@@ -6,6 +6,7 @@ import {
 import { getAIActiveConfig } from '@/modules/ai-config/actions';
 import type { AIActiveConfig } from '@/modules/ai-config/types';
 import { evaluateCandidateEnrichmentNeed } from './candidate-enrichment-eligibility';
+import type { EnrichmentEligibilityResult } from './candidate-enrichment-eligibility';
 import {
   createAgentRun,
   updateAgentRun,
@@ -152,6 +153,7 @@ export interface EnrichProspectCandidateInput {
   candidateId: string;
   userId: string;
   supabase: SupabaseClient;
+  executionType?: 'manual_re_enrichment' | 'automatic_post_import_enrichment';
 }
 
 export interface EnrichProspectCandidateResult {
@@ -431,9 +433,104 @@ async function callAiProviderAPI(
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildEnrichmentPrompt(candidate: any, eligibility: any): string {
-  return `Eres un analista de datos B2B y Sales Ops Architect experto. Tu objetivo es enriquecer los datos comerciales de un candidato (empresa) utilizando ÚNICAMENTE la información interna provista.
+interface PromptCandidateData {
+  name?: string | null;
+  legal_name?: string | null;
+  website?: string | null;
+  domain?: string | null;
+  country?: string | null;
+  country_code?: string | null;
+  city?: string | null;
+  region?: string | null;
+  industry?: string | null;
+  company_size?: string | null;
+  source_primary?: string | null;
+  review_notes?: string | null;
+  confidence_score?: number | null;
+  metadata?: {
+    import?: {
+      linkedin_url?: string | null;
+      source_url?: string | null;
+      source_evidence?: string | null;
+      confidence?: string | null;
+    };
+    validation?: {
+      normalized_keys?: {
+        normalized_linkedin_url?: string | null;
+      };
+      sellup_duplicate_check?: Record<string, unknown>;
+      hubspot_duplicate_check?: Record<string, unknown>;
+    };
+    ai_evaluation?: {
+      description?: string | null;
+    };
+    enrichment?: Record<string, unknown>;
+  };
+}
+
+function buildEnrichmentPrompt(
+  candidate: PromptCandidateData,
+  eligibility: EnrichmentEligibilityResult,
+  mode: 'full' | 'incremental_missing_fields' = 'full'
+): string {
+  const isIncremental = mode === 'incremental_missing_fields';
+
+  // Identify which fields are present vs missing
+  const presentFields: string[] = [];
+  const missingFields: string[] = [];
+
+  const fieldMapping = {
+    website: candidate.website || candidate.domain,
+    linkedin_url: candidate.metadata?.import?.linkedin_url || candidate.metadata?.validation?.normalized_keys?.normalized_linkedin_url,
+    description: candidate.metadata?.ai_evaluation?.description || candidate.review_notes,
+    city: candidate.city || candidate.region,
+    company_size: candidate.company_size,
+    industry: candidate.industry,
+    source_evidence: candidate.metadata?.import?.source_evidence || candidate.metadata?.import?.source_url || candidate.source_primary,
+    confidence: candidate.metadata?.import?.confidence || candidate.confidence_score,
+  };
+
+  for (const [key, value] of Object.entries(fieldMapping)) {
+    if (value) {
+      presentFields.push(key);
+    } else {
+      missingFields.push(key);
+    }
+  }
+
+  const modeInstructions = isIncremental
+    ? `MODO DE OPERACIÓN: INCREMENTAL (incremental_missing_fields)
+Tus instrucciones de enriquecimiento son incrementales:
+1. Los siguientes campos ya están presentes y son correctos. NO debes buscar información para cambiarlos ni modificarlos:
+${presentFields.map(f => `- ${f}: ${fieldMapping[f as keyof typeof fieldMapping]}`).join('\n')}
+
+2. Los siguientes campos están FALTANTES o INCOMPLETOS. Tu tarea principal es investigar y completar únicamente estos campos:
+${missingFields.map(f => `- ${f}`).join('\n')}
+
+3. Si en tu investigación encuentras un valor que contradice o entra en conflicto con un campo que ya tiene valor:
+   - CONSERVA el valor original en el campo correspondiente del JSON de respuesta (no lo sobrescribas).
+   - Registra el conflicto en la sección "enrichment_audit.conflicts" detallando el campo, el valor encontrado y la evidencia.
+
+4. Debes completar la clave "enrichment_audit" en la raíz del JSON con el siguiente formato:
+  "enrichment_audit": {
+    "attempted_fields": ${JSON.stringify(missingFields)},
+    "completed_fields": ["Lista de campos que lograste completar con éxito"],
+    "no_result_fields": ["Lista de campos que intentaste completar pero no encontraste evidencia confiable"],
+    "conflicts": [
+      {
+        "field": "Nombre del campo en conflicto",
+        "existing_value": "Valor existente proporcionado",
+        "found_value": "Nuevo valor contradictorio encontrado",
+        "evidence": "Evidencia/fuente del conflicto"
+      }
+    ]
+  }`
+    : `MODO DE OPERACIÓN: COMPLETO (full_enrichment)
+Completa toda la información y realiza la evaluación completa de la empresa.`;
+
+  return `Eres un analista de datos B2B y Sales Ops Architect experto. Tu objetivo es enriquecer los datos comerciales de un candidato (empresa) utilizando la información proporcionada.
+
+${modeInstructions}
 
 INFORMACIÓN DEL CANDIDATO DISPONIBLE EN EL SISTEMA:
 - Nombre: ${candidate.name || 'No disponible'}
@@ -466,6 +563,14 @@ INSTRUCCIONES CRÍTICAS:
 ESTRUCTURA DE RESPUESTA JSON REQUERIDA:
 {
   "summary": "Resumen ejecutivo en una frase del perfil comercial",
+  "website": "Sitio web corporativo oficial de la empresa (solo si lo investigaste o completaste)",
+  "linkedin_url": "URL del LinkedIn corporativo de la empresa (solo si lo investigaste o completaste)",
+  "city": "Ciudad de la empresa (solo si la investigaste o completaste)",
+  "region": "Región o estado de la empresa (solo si la investigaste o completaste)",
+  "industry": "Sector o industria principal (solo si lo investigaste o completaste)",
+  "company_size": "Tamaño estimado en empleados (solo si lo investigaste o completaste, ej. '51-200 empleados')",
+  "tax_identifier": "NIT, RFC o RUT de la empresa sin puntos ni guiones (solo si lo investigaste o completaste y encontraste evidencia confiable)",
+  "tax_identifier_type": "Tipo de ID fiscal ('NIT' | 'RFC' | 'RUT' | 'RUC' | 'CUIT' | 'CNPJ' | 'RNC' | 'RTN' | 'cedula_juridica' | 'other')",
   "company_profile": {
     "business_description": "Explicación detallada de qué hace la empresa según los datos",
     "business_model": "B2B | B2C | B2B2C | Híbrido | Desconocido",
@@ -487,8 +592,15 @@ ESTRUCTURA DE RESPUESTA JSON REQUERIDA:
   "risks_or_uncertainties": ["Riesgos de identidad, posible duplicado, rebrand o falta de claridad en los datos"],
   "missing_data": ["Campos de información críticos que faltan y deben ser investigados por un humano"],
   "confidence": "high" | "medium" | "low",
-  "requires_human_review": true
-}`;
+  "requires_human_review": true${isIncremental ? `,
+  "enrichment_audit": {
+    "attempted_fields": ["lista de campos intentados"],
+    "completed_fields": ["lista de campos completados"],
+    "no_result_fields": ["lista de campos sin resultado"],
+    "conflicts": []
+  }` : ''}
+}
+`;
 }
 
 export interface AIExecutionCandidate {
@@ -892,7 +1004,33 @@ export async function enrichProspectCandidate({
   candidateId,
   userId,
   supabase,
+  executionType = 'manual_re_enrichment',
 }: EnrichProspectCandidateInput): Promise<EnrichProspectCandidateResult> {
+  const localExtractDomain = (url: string | null | undefined): string | null => {
+    if (!url) return null;
+    try {
+      const normalized = url.startsWith('http') ? url : `https://${url}`;
+      const { hostname } = new URL(normalized);
+      return hostname.replace(/^www\./, '').toLowerCase();
+    } catch {
+      return null;
+    }
+  };
+
+  let initialEnrichmentBlock: Record<string, unknown> | null = null;
+  let eligibility: EnrichmentEligibilityResult | null = null;
+  let activeConfigUsed: AIExecutionDebugInfo['active_config_used'] = null;
+  const attempts: Array<{
+    provider: string;
+    provider_display_name: string;
+    model: string;
+    model_display_name: string;
+    status: 'failed' | 'completed' | 'skipped';
+    error_code?: string;
+    error_message?: string;
+  }> = [];
+  let agentRunId: string | undefined;
+
   try {
     const { data: candidate, error: loadErr } = await supabase
       .from('prospect_candidates')
@@ -904,7 +1042,7 @@ export async function enrichProspectCandidate({
       return { success: false, error: `Candidato no encontrado: ${loadErr?.message ?? 'sin datos'}` };
     }
 
-    const eligibility = evaluateCandidateEnrichmentNeed(candidate);
+    eligibility = evaluateCandidateEnrichmentNeed(candidate);
 
     if (eligibility.blocking_reason) {
       return {
@@ -924,14 +1062,59 @@ export async function enrichProspectCandidate({
       };
     }
 
+    const existingMeta = candidate.metadata || {};
+    const currentStatus = existingMeta.enrichment?.status;
+    const currentStartedAt = existingMeta.enrichment?.started_at;
+    
+    // Si ya se está enriqueciendo y el inicio fue hace menos de 5 minutos, omitimos para evitar llamadas duplicadas (lock prevent)
+    if (currentStatus === 'enriching' && currentStartedAt) {
+      const startedTime = new Date(currentStartedAt).getTime();
+      const elapsedMs = Date.now() - startedTime;
+      if (elapsedMs < 5 * 60 * 1000) {
+        return {
+          success: false,
+          skipped: true,
+          reason: 'already_enriching',
+          error: 'El candidato ya se está enriqueciendo actualmente.'
+        };
+      }
+    }
+
+    // Establecer el bloqueo de enriquecimiento antes de iniciar
+    initialEnrichmentBlock = {
+      ...(existingMeta.enrichment || {}),
+      status: 'enriching',
+      started_at: new Date().toISOString(),
+      execution_type: executionType,
+    };
+
+    const { error: lockErr } = await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...existingMeta,
+          enrichment: initialEnrichmentBlock
+        }
+      })
+      .eq('id', candidateId);
+
+    if (lockErr) {
+      return { success: false, error: `No se pudo establecer el bloqueo de enriquecimiento: ${lockErr.message}` };
+    }
+
+    candidate.metadata = {
+      ...existingMeta,
+      enrichment: initialEnrichmentBlock
+    };
+
     const activeConfig = await getAIActiveConfig();
 
     // debugOut captura diagnóstico seguro sin exponer API keys
     const debugOut: { info?: AIExecutionDebugInfo } = {};
     const executionCandidates = await buildAIExecutionCandidates(supabase, activeConfig, debugOut as { info: AIExecutionDebugInfo });
 
-    // Log active_config_used seguro (sin API keys) — TAREA 2
-    const activeConfigUsed = debugOut.info?.active_config_used ?? null;
+    // Log active_config_used seguro (sin API keys)
+    activeConfigUsed = debugOut.info?.active_config_used ?? null;
     console.log('[enrichProspectCandidate] active_config_used:', JSON.stringify(activeConfigUsed ?? 'null'));
 
     if (process.env.NODE_ENV !== 'production') {
@@ -972,13 +1155,14 @@ export async function enrichProspectCandidate({
       };
     }
 
-    let agentRunId: string | undefined;
     try {
       const run = await createAgentRun({
         agent_key: 'candidate_enrichment',
-        agent_name: 'Enriquecimiento manual de candidato',
+        agent_name: executionType === 'automatic_post_import_enrichment'
+          ? 'Enriquecimiento incremental automático post-importación'
+          : 'Enriquecimiento manual de candidato',
         triggered_by: userId,
-        input_params: { candidateId },
+        input_params: { candidateId, executionType },
       });
       if (run) {
         agentRunId = run.id;
@@ -987,16 +1171,8 @@ export async function enrichProspectCandidate({
       console.warn('[enrichProspectCandidate] Error creating agent run:', logErr);
     }
 
-    const prompt = buildEnrichmentPrompt(candidate, eligibility);
-    const attempts: Array<{
-      provider: string;
-      provider_display_name: string;
-      model: string;
-      model_display_name: string;
-      status: 'failed' | 'completed' | 'skipped';
-      error_code?: string;
-      error_message?: string;
-    }> = [];
+    const mode = executionType === 'automatic_post_import_enrichment' ? 'incremental_missing_fields' : 'full';
+    const prompt = buildEnrichmentPrompt(candidate, eligibility, mode);
 
     let successfulResult: {
       text: string;
@@ -1007,11 +1183,9 @@ export async function enrichProspectCandidate({
 
     // maxAttempts cubre todos los candidatos disponibles.
     // Con Gemini en posición 2, siempre se intenta si tiene credencial.
-    // El límite se aumenta a 8 para garantizar cobertura completa de fallbacks.
     const maxAttempts = Math.min(8, executionCandidates.length);
 
     // Si Gemini no tiene credencial, registrar un marker de skipped antes de los intentos
-    // para que la UI pueda mostrar claramente que Gemini fue evaluado pero omitido.
     if (debugOut.info?.skipped_gemini_reason) {
       attempts.push({
         provider: 'google',
@@ -1272,6 +1446,16 @@ export async function enrichProspectCandidate({
         },
         attempts: attempts,
         active_config_used: activeConfigUsed,
+        execution_type: executionType,
+        enrichment_audit: parsedJson.enrichment_audit || {
+          attempted_fields: eligibility.missing_fields,
+          completed_fields: [],
+          no_result_fields: [],
+          conflicts: [],
+        },
+        suggested_tax_identifier: parsedJson.tax_identifier || null,
+        suggested_tax_identifier_type: parsedJson.tax_identifier_type || null,
+        linkedin_url: parsedJson.linkedin_url || null,
         ...(persistenceWarnings.length > 0 ? { persistence_warnings: persistenceWarnings } : {}),
       };
 
@@ -1281,13 +1465,60 @@ export async function enrichProspectCandidate({
         enrichment: enrichmentBlock,
       };
 
+      // Si linkedin_url se completó, lo guardamos en metadata.import.linkedin_url para consistencia
+      if (parsedJson.linkedin_url) {
+        const existingImport = existingMeta.import || {};
+        if (!existingImport.linkedin_url) {
+          updatedMeta.import = {
+            ...existingImport,
+            linkedin_url: parsedJson.linkedin_url,
+          };
+        }
+      }
+
+      // Preparar payload de actualización con campos físicos sólo si están vacíos
+      const candidateUpdates: Record<string, unknown> = {
+        metadata: updatedMeta,
+        fit_score: parsedJson.sellup_fit?.fit_score ?? null,
+        commercial_fit_status: normalizedCommercialFitStatus,
+      };
+
+      const setIfEmpty = (dbVal: unknown, llmVal: unknown) => {
+        if (dbVal === null || dbVal === undefined || String(dbVal).trim() === '') {
+          if (llmVal !== null && llmVal !== undefined && String(llmVal).trim() !== '') {
+            return llmVal;
+          }
+        }
+        return undefined;
+      };
+
+      const fieldsToUpdate = [
+        { dbKey: 'website', llmKey: 'website' },
+        { dbKey: 'domain', llmKey: 'domain' },
+        { dbKey: 'city', llmKey: 'city' },
+        { dbKey: 'region', llmKey: 'region' },
+        { dbKey: 'industry', llmKey: 'industry' },
+        { dbKey: 'company_size', llmKey: 'company_size' },
+      ];
+
+      for (const { dbKey, llmKey } of fieldsToUpdate) {
+        const val = setIfEmpty(candidate[dbKey], parsedJson[llmKey]);
+        if (val !== undefined) {
+          candidateUpdates[dbKey] = val;
+        }
+      }
+
+      // Caso especial: si el dominio está vacío pero se encontró sitio web, lo extraemos y guardamos
+      if (!candidate.domain && candidateUpdates.website) {
+        const extracted = localExtractDomain(candidateUpdates.website as string);
+        if (extracted) {
+          candidateUpdates.domain = extracted;
+        }
+      }
+
       const { error: saveErr } = await supabase
         .from('prospect_candidates')
-        .update({
-          metadata: updatedMeta,
-          fit_score: parsedJson.sellup_fit?.fit_score ?? null,
-          commercial_fit_status: normalizedCommercialFitStatus,
-        })
+        .update(candidateUpdates)
         .eq('id', candidateId);
 
       if (saveErr) {
@@ -1315,6 +1546,7 @@ export async function enrichProspectCandidate({
         },
         attempts: attempts,
         active_config_used: activeConfigUsed,
+        execution_type: executionType,
       };
 
       if (agentRunId) {
@@ -1347,6 +1579,37 @@ export async function enrichProspectCandidate({
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error('[enrichProspectCandidate] Unexpected error:', err);
+
+    // En caso de error inesperado, liberar el bloqueo de enriquecimiento si se había establecido
+    try {
+      const failedMetadata = {
+        status: 'failed',
+        failed_at: new Date().toISOString(),
+        error_code: 'unexpected_error',
+        error_message: errMsg,
+        eligibility: eligibility ? {
+          completeness_score: eligibility.completeness_score,
+          reasons: eligibility.reasons,
+          missing_fields: eligibility.missing_fields,
+        } : null,
+        attempts: attempts,
+        active_config_used: activeConfigUsed,
+        execution_type: executionType,
+      };
+
+      await supabase
+        .from('prospect_candidates')
+        .update({
+          metadata: {
+            ...(initialEnrichmentBlock ? initialEnrichmentBlock : {}),
+            enrichment: failedMetadata
+          }
+        })
+        .eq('id', candidateId);
+    } catch (dbReleaseErr) {
+      console.error('[enrichProspectCandidate] Error releasing block on unexpected error:', dbReleaseErr);
+    }
+
     return {
       success: false,
       error: `Error inesperado durante el enriquecimiento: ${errMsg}`,

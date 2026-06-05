@@ -2035,14 +2035,21 @@ export function CandidateDetailSheet({
                 const eligibility = evaluateCandidateEnrichmentNeed(candidate);
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const enrichmentData = candidate.metadata?.enrichment as any;
+                const isAutoEnriching = enrichmentData?.status === 'enriching' || enrichmentData?.status === 'pending';
 
-                if (isEnriching) {
+                if (isEnriching || isAutoEnriching) {
                   return (
                     <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-4 flex flex-col items-center justify-center gap-3 text-center animate-pulse">
                       <Loader2 className="h-6 w-6 text-su-brand animate-spin" />
                       <div className="space-y-1">
-                        <p className="text-xs font-semibold text-su-brand">Enriqueciendo candidato...</p>
-                        <p className="text-[10px] text-muted-foreground/80">Evaluando perfil comercial, propuesta de encaje y señales con IA.</p>
+                        <p className="text-xs font-semibold text-su-brand">
+                          {enrichmentData?.status === 'pending' ? 'Enriquecimiento pendiente...' : 'Enriqueciendo candidato...'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/80">
+                          {enrichmentData?.status === 'pending'
+                            ? 'Este candidato está en la cola para enriquecimiento automático incremental.'
+                            : 'Evaluando perfil comercial, propuesta de encaje y señales con IA.'}
+                        </p>
                       </div>
                     </div>
                   );
@@ -2051,7 +2058,6 @@ export function CandidateDetailSheet({
                 const hasEnrichError = !!enrichError || (enrichmentData && enrichmentData.status === 'failed');
                 const activeErrorCode = enrichErrorCode || enrichmentData?.error_code || null;
                 const activeErrorMessage = enrichError || enrichmentData?.error_message || null;
-                const activeErrorDetails = enrichErrorDetails || enrichmentData || null;
 
                 if (hasEnrichError) {
                   const isModelError = activeErrorCode === 'provider_model_not_found' || activeErrorCode === 'all_ai_providers_failed' || activeErrorCode === 'no_ai_providers_configured';

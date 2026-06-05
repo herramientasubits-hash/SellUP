@@ -208,7 +208,54 @@ export async function POST(request: NextRequest) {
     // Ejecutar validación post-importación automáticamente
     await validateImportedCandidatesBatch(batch.id, internalUserId);
 
-    return NextResponse.json({ batchId: batch.id, candidatesCreated });
+    // Cargar los candidatos insertados para calcular estadísticas detalladas
+    const { data: candidates } = await supabase
+      .from('prospect_candidates')
+      .select('id, duplicate_status, metadata, status')
+      .eq('batch_id', batch.id);
+
+    const totalProcessed = input.candidates.length;
+    const importedCount = candidatesCreated;
+    const errorsCount = Math.max(0, input.candidates.length - candidatesCreated);
+
+    let alreadyCompleteCount = 0;
+    let autoEnrichPendingCount = 0;
+    let duplicateCount = 0;
+    let possibleDuplicateCount = 0;
+
+    if (candidates) {
+      for (const cand of candidates) {
+        const enrichment = (cand.metadata as Record<string, unknown>)?.enrichment as Record<string, unknown> || {};
+        const enrichmentStatus = (enrichment.status as string) ?? null;
+        if (enrichmentStatus === 'skipped_already_complete') {
+          alreadyCompleteCount++;
+        } else if (enrichmentStatus === 'pending') {
+          autoEnrichPendingCount++;
+        }
+
+        if (cand.duplicate_status === 'exact_duplicate' || cand.status === 'duplicate') {
+          duplicateCount++;
+        } else if (cand.duplicate_status === 'possible_duplicate') {
+          possibleDuplicateCount++;
+        }
+      }
+    }
+
+    const stats = {
+      totalProcessed,
+      importedCount,
+      errorsCount,
+      alreadyCompleteCount,
+      autoEnrichPendingCount,
+      duplicateCount,
+      possibleDuplicateCount,
+    };
+
+    return NextResponse.json({ 
+      batchId: batch.id, 
+      candidatesCreated,
+      stats 
+    });
   } catch (err) {
     console.error('[create-import-batch] Error:', err);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });

@@ -570,16 +570,55 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           c.duplicate_status === 'possible_duplicate' ||
                           c.duplicate_status === 'exact_duplicate';
 
+                        const enrichment = (c.metadata?.enrichment as Record<string, unknown>) || {};
+                        const enrichmentStatus = enrichment.status as string | undefined;
+                        const enrichmentError = enrichment.error_message as string | undefined;
+
                         let statusLabel = CANDIDATE_STATUS_LABELS[c.status];
                         let statusStyle = STATUS_STYLES[c.status];
+                        let showEnrichmentOverride = false;
 
-                        if (validationMeta && !hasDuplicate) {
-                          statusLabel = 'Validado para revisión';
-                          statusStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-                        } else if (c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized') {
-                          statusLabel = 'Necesita revisión';
-                          statusStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+                        if (enrichmentStatus === 'pending') {
+                          statusLabel = 'Enriquecimiento pendiente';
+                          statusStyle = 'bg-muted text-muted-foreground/80';
+                          showEnrichmentOverride = true;
+                        } else if (enrichmentStatus === 'enriching') {
+                          statusLabel = 'Enriqueciendo...';
+                          statusStyle = 'bg-su-brand-soft text-su-brand';
+                          showEnrichmentOverride = true;
+                        } else if (enrichmentStatus === 'failed') {
+                          statusLabel = 'Enriquecimiento fallido';
+                          statusStyle = 'bg-destructive/10 text-destructive';
+                          showEnrichmentOverride = true;
                         }
+
+                        if (!showEnrichmentOverride) {
+                          if (validationMeta && !hasDuplicate) {
+                            statusLabel = 'Validado para revisión';
+                            statusStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+                          } else if (c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized') {
+                            statusLabel = 'Necesita revisión';
+                            statusStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+                          }
+                        }
+
+                        const badgeNode = (
+                          <Badge className={`${statusStyle} border-0 text-[10px] font-semibold py-0.5 w-fit ${enrichmentStatus === 'enriching' ? 'animate-pulse' : ''}`}>
+                            {statusLabel}
+                          </Badge>
+                        );
+
+                        const statusBadgeWithTooltip = enrichmentStatus === 'failed' ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger render={badgeNode} />
+                              <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-destructive text-destructive-foreground border-0 p-2.5 rounded-xl shadow-md z-[70]">
+                                <p className="font-semibold text-xs border-b border-white/20 pb-1 mb-1">Detalle del Error</p>
+                                <p>{enrichmentError || 'Error desconocido durante el enriquecimiento con IA.'}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : badgeNode;
 
                         // Build IA evaluation label
                         const fitStatusValue = c.commercial_fit_status 
@@ -607,9 +646,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
 
                         return (
                           <div className="flex flex-col gap-1 w-fit">
-                            <Badge className={`${statusStyle} border-0 text-[10px] font-semibold py-0.5 w-fit`}>
-                              {statusLabel}
-                            </Badge>
+                            {statusBadgeWithTooltip}
                             
                             <TooltipProvider>
                               <Tooltip>
