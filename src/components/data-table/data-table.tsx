@@ -288,6 +288,10 @@ export function DataTable<TData>({
   // less than the wrapper. This effect distributes that extra space
   // proportionally across visible columns so the table always fills its
   // container, and re-runs when the wrapper resizes or columns toggle.
+  //
+  // We defer the first measurement with `requestAnimationFrame` because the
+  // wrapper sits inside a flex column that may not have laid out yet when
+  // useLayoutEffect runs synchronously, so `clientWidth` would be 0/wrong.
   React.useLayoutEffect(() => {
     const wrapper = tableWrapperRef.current;
     if (!wrapper) return;
@@ -318,10 +322,13 @@ export function DataTable<TData>({
       });
     };
 
-    apply();
+    const rafId = requestAnimationFrame(apply);
     const ro = new ResizeObserver(apply);
     ro.observe(wrapper);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   }, [table, columnVisibility, columnOrder]);
 
   // ── Render ─────────────────────────────────────────────────────────────
