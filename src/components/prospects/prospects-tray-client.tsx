@@ -110,8 +110,6 @@ export function ProspectsTrayClient({
     possibleDuplicates: number;
   } | null>(null);
   
-  const inFlightRef = React.useRef<Set<string>>(new Set());
-
   const syncBatchStatus = React.useCallback(async () => {
     if (!sourceId) return;
     const supabase = createClient();
@@ -138,13 +136,14 @@ export function ProspectsTrayClient({
       if (estatus === 'pending') {
         pendingCount++;
         pendingIds.push(cand.id);
-      } else if (estatus === 'enriching') {
+      } else if (estatus === 'enriching' || estatus === 'processing') {
         enrichingCount++;
       } else if (estatus === 'completed') {
         completedCount++;
       } else if (estatus === 'failed') {
         failedCount++;
       } else if (
+        estatus === 'skipped' ||
         estatus === 'skipped_duplicate' || 
         estatus === 'skipped_already_complete' || 
         estatus === 'no_required'
@@ -170,75 +169,34 @@ export function ProspectsTrayClient({
     return { pendingIds, enrichingCount };
   }, [sourceId]);
 
-  const processEnrichmentQueue = React.useCallback(async () => {
-    if (!sourceId) return;
-
-    // Sincronizar estado actual
-    const syncRes = await syncBatchStatus();
-    if (!syncRes) return;
-
-    const { pendingIds, enrichingCount } = syncRes;
-
-    // Límite de concurrencia de 2
-    const maxConcurrency = 2;
-    // Peticiones activas totales = peticiones del cliente en vuelo + peticiones registradas como enriching en BD
-    const currentActive = inFlightRef.current.size + enrichingCount;
-    const spotsAvailable = maxConcurrency - currentActive;
-
-    if (spotsAvailable > 0 && pendingIds.length > 0) {
-      // Tomar los primeros candidatos elegibles que no estén ya en vuelo
-      const toStart = pendingIds
-        .filter(id => !inFlightRef.current.has(id))
-        .slice(0, spotsAvailable);
-
-      for (const candidateId of toStart) {
-        inFlightRef.current.add(candidateId);
-
-        // Lanzar llamada al endpoint de enriquecimiento asíncronamente
-        fetch('/api/prospect-candidates/enrich', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            candidateId,
-            executionType: 'automatic_post_import_enrichment',
-          }),
-        })
-          .then(async (res) => {
-            if (!res.ok) {
-              const errData = await res.json().catch(() => ({}));
-              console.warn(`Error enriqueciendo candidato ${candidateId}:`, errData.error);
-            }
-          })
-          .catch((err) => {
-            console.error(`Error de red enriqueciendo candidato ${candidateId}:`, err);
-          })
-          .finally(() => {
-            inFlightRef.current.delete(candidateId);
-            router.refresh();
-            syncBatchStatus();
-          });
-      }
-    }
-  }, [sourceId, syncBatchStatus, router]);
-
-  // Intervalo de sincronización y procesamiento de la cola
+  // Intervalo de sincronización de solo lectura y refresco visual
   React.useEffect(() => {
     if (!sourceId) return;
 
-    // Diferir la primera ejecución un tick para evitar setState síncrono dentro del efecto
+    // Diferir la primera sincronización un tick para evitar setState síncrono dentro del efecto
     const initialTimer = setTimeout(() => {
-      processEnrichmentQueue();
+      syncBatchStatus();
     }, 0);
 
-    const interval = setInterval(() => {
-      processEnrichmentQueue();
-    }, 4000);
+    // Configurar polling de lectura cada 5 segundos
+    const interval = setInterval(async () => {
+      const stats = await syncBatchStatus();
+      if (!stats) return;
+
+      // Actualizar la lista en el servidor para refrescar las filas de la tabla
+      router.refresh();
+
+      // Si ya no hay trabajos activos (pending o enriching/processing), detener el polling
+      if (stats.pendingIds.length === 0 && stats.enrichingCount === 0) {
+        clearInterval(interval);
+      }
+    }, 5000);
 
     return () => {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, [sourceId, processEnrichmentQueue]);
+  }, [sourceId, syncBatchStatus, router]);
 
   // Debounce search input to avoid re-rendering RSC on every keystroke
   React.useEffect(() => {
@@ -458,17 +416,19 @@ export function ProspectsTrayClient({
             </p>
             <div className="flex items-center gap-3">
               <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                    aria-label="Guía de revisión"
-                  >
-                    <Info className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Guía de revisión</span>
-                  </Button>
-                </PopoverTrigger>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                      aria-label="Guía de revisión"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Guía de revisión</span>
+                    </Button>
+                  }
+                />
                 <PopoverContent className="w-80 p-4" align="end">
                   <div className="space-y-2 text-xs text-foreground/90">
                     <p className="font-semibold text-sm border-b pb-1.5 mb-1.5">Antes de aprobar revisa:</p>

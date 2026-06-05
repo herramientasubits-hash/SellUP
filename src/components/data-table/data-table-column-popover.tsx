@@ -118,7 +118,7 @@ export function DataTableColumnPopover<TData, TValue>({
 
   return (
     <Popover>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverTrigger render={children as React.ReactElement} />
       <PopoverContent
         align="start"
         sideOffset={6}

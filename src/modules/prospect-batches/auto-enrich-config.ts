@@ -22,4 +22,12 @@ export const AUTO_ENRICH_CONFIG = {
 
   // proveedor o estrategia actual
   strategy: 'default_ai_fallback',
+
+  // Configuración del worker asíncrono backend
+  workerBatchSize: 3,          // tamaño del batch del worker
+  workerConcurrency: 2,        // concurrencia del procesamiento interno
+  lockDurationMinutes: 5,      // duración del lock en minutos
+  maxAttempts: 3,              // máximo de intentos por trabajo
+  backoffSeconds: 30,          // backoff en segundos para reintentos progresivos
+  cronInterval: '*/2 * * * *', // intervalo sugerido para el cron (cada 2 minutos)
 };

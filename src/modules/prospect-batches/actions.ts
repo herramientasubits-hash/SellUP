@@ -3437,6 +3437,63 @@ export async function validateImportedCandidatesBatch(
           })
           .eq('id', candidate.id);
 
+        // Registrar o actualizar el trabajo de enriquecimiento automático de forma duradera en la base de datos
+        if (eligibility.status === 'pending') {
+          const { error: jobErr } = await supabase
+            .from('prospect_enrichment_jobs')
+            .upsert({
+              candidate_id: candidate.id,
+              import_source: candidate.source_primary || 'external_import',
+              user_id: userId,
+              execution_type: 'automatic_post_import_enrichment',
+              status: 'pending',
+              attempts: 0,
+              locked_at: null,
+              locked_by: null,
+              started_at: null,
+              completed_at: null,
+              next_retry_at: new Date().toISOString(),
+              error_code: null,
+              metadata: {
+                batch_id: batchId,
+              },
+            }, {
+              onConflict: 'candidate_id'
+            });
+
+          if (jobErr) {
+            console.error(`[validateImportedCandidatesBatch] Error creating enrichment job for candidate ${candidate.id}:`, jobErr);
+          }
+        } else {
+          // Si el candidato no es elegible, registramos el trabajo como omitido (skipped) para tener trazabilidad duradera
+          const { error: jobErr } = await supabase
+            .from('prospect_enrichment_jobs')
+            .upsert({
+              candidate_id: candidate.id,
+              import_source: candidate.source_primary || 'external_import',
+              user_id: userId,
+              execution_type: 'automatic_post_import_enrichment',
+              status: 'skipped',
+              attempts: 0,
+              locked_at: null,
+              locked_by: null,
+              started_at: null,
+              completed_at: new Date().toISOString(),
+              next_retry_at: new Date().toISOString(),
+              error_code: null,
+              metadata: {
+                batch_id: batchId,
+                skip_reason: eligibility.reason || 'No elegible',
+              },
+            }, {
+              onConflict: 'candidate_id'
+            });
+
+          if (jobErr) {
+            console.error(`[validateImportedCandidatesBatch] Error skipping enrichment job for candidate ${candidate.id}:`, jobErr);
+          }
+        }
+
         validated_candidates++;
       } catch (candErr) {
         console.error(`Error validando candidato ${candidate.id}:`, candErr);
