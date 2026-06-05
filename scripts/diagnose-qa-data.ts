@@ -114,7 +114,7 @@ async function main() {
   // ── C. accounts QA ────────────────────────────────────────────
   console.log('\n▶ C. accounts — QA candidatas a limpiar\n');
 
-  let qaAccounts: Record<string, unknown>[] = [];
+  const qaAccounts: Record<string, unknown>[] = [];
 
   // Por converted_account_id de candidatos
   if (convertedAccountIds.length > 0) {
