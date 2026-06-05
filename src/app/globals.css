@@ -345,6 +345,21 @@
   100% { background-position: 0% 50%; }
 }
 
+/* ── Accordion height transitions ───────────────────────────────────────────
+   Base UI's Panel sets `--accordion-panel-height` (px) on the panel.
+   We animate height from 0 → var(--accordion-panel-height) (open) and
+   reverse on close. tw-animate-css ships --animate-accordion-down/up but
+   their keyframes read --radix-accordion-content-height (Radix-only), so
+   we define our own variants. */
+@keyframes su-accordion-down {
+  from { height: 0; }
+  to   { height: var(--accordion-panel-height); }
+}
+@keyframes su-accordion-up {
+  from { height: var(--accordion-panel-height); }
+  to   { height: 0; }
+}
+
 @layer utilities {
   .animate-su-fade-in {
     animation: su-fade-in 0.4s var(--ease-spring) both;
@@ -370,6 +385,12 @@
   }
   .animate-su-glow {
     animation: su-glow 3s ease-in-out infinite;
+  }
+  .animate-su-accordion-down {
+    animation: su-accordion-down 0.2s var(--ease-out-expo);
+  }
+  .animate-su-accordion-up {
+    animation: su-accordion-up 0.2s var(--ease-out-expo);
   }
 
   /* Glass surface utility */
