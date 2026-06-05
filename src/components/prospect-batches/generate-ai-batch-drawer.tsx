@@ -174,7 +174,7 @@ export function GenerateAIBatchDrawer() {
     if (!generatedBatchId) return;
     const id = generatedBatchId;
     handleClose();
-    router.push(`/prospect-batches/${id}`);
+    router.push(`/prospects?sourceId=${id}`);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -257,7 +257,7 @@ export function GenerateAIBatchDrawer() {
         setForm({ ...EMPTY });
         setProgressMsg('');
         if (result.batchId) {
-          router.push(`/prospect-batches/${result.batchId}`);
+          router.push(`/prospects?sourceId=${result.batchId}`);
         }
       }
     } catch (err) {
@@ -282,7 +282,7 @@ export function GenerateAIBatchDrawer() {
           className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
         >
           <Sparkles className="h-3.5 w-3.5" />
-          Generar empresas candidatas
+          Generar con IA
         </Button>
       }
       title="Generar empresas candidatas con IA"
@@ -333,11 +333,11 @@ export function GenerateAIBatchDrawer() {
                           variant="outline"
                           onClick={() => {
                             handleClose();
-                            router.push(`/prospect-batches/${generatedBatchId}`);
+                            router.push(`/prospects?sourceId=${generatedBatchId}`);
                           }}
                           className="gap-1.5 text-muted-foreground"
                         >
-                          Ver lote para auditoría
+                          Ver prospectos para auditoría
                           <ChevronRight className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -347,11 +347,11 @@ export function GenerateAIBatchDrawer() {
                           variant="outline"
                           onClick={() => {
                             handleClose();
-                            router.push(`/prospect-batches/${structuredBatchResult.batchId}`);
+                            router.push(`/prospects?sourceId=${structuredBatchResult.batchId}`);
                           }}
                           className="gap-1.5 text-muted-foreground"
                         >
-                          Ver lote oficial para auditoría
+                          Ver prospectos oficiales
                           <ChevronRight className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -363,11 +363,11 @@ export function GenerateAIBatchDrawer() {
                       onClick={() => {
                         const sId = structuredBatchResult?.batchId;
                         handleClose();
-                        if (sId) router.push(`/prospect-batches/${sId}`);
+                        if (sId) router.push(`/prospects?sourceId=${sId}`);
                       }}
                       className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
                     >
-                      Revisar empresas candidatas
+                      Ver prospectos generados
                       <ChevronRight className="h-3.5 w-3.5" />
                     </Button>
                   ) : sourceStrategy === 'official_plus_commercial' && structuredBatchResult?.ok && structuredBatchResult.batchId ? (
@@ -387,11 +387,11 @@ export function GenerateAIBatchDrawer() {
                         onClick={() => {
                           const sId = structuredBatchResult.batchId;
                           handleClose();
-                          if (sId) router.push(`/prospect-batches/${sId}`);
+                          if (sId) router.push(`/prospects?sourceId=${sId}`);
                         }}
                         className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
                       >
-                        Revisar empresas candidatas
+                        Ver prospectos generados
                         <ChevronRight className="h-3.5 w-3.5" />
                       </Button>
                     </>
@@ -412,11 +412,11 @@ export function GenerateAIBatchDrawer() {
                         onClick={() => {
                           const sId = structuredBatchResult.batchId;
                           handleClose();
-                          if (sId) router.push(`/prospect-batches/${sId}`);
+                          if (sId) router.push(`/prospects?sourceId=${sId}`);
                         }}
                         className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
                       >
-                        Revisar empresas candidatas
+                        Ver prospectos generados
                         <ChevronRight className="h-3.5 w-3.5" />
                       </Button>
                     </>
@@ -427,7 +427,7 @@ export function GenerateAIBatchDrawer() {
                       onClick={handleGoToBatch}
                       className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
                     >
-                      Revisar empresas candidatas
+                      Ver prospectos generados
                       <ChevronRight className="h-3.5 w-3.5" />
                     </Button>
                   )}
@@ -466,7 +466,7 @@ export function GenerateAIBatchDrawer() {
                   ) : (
                     <Zap className="h-3.5 w-3.5" />
                   )}
-                  {generating ? 'Generando…' : 'Generar empresas candidatas'}
+                  {generating ? 'Generando…' : 'Generar con IA'}
                 </Button>
               </div>
             </div>

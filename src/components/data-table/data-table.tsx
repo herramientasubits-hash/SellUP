@@ -178,6 +178,7 @@ export function DataTable<TData>({
   hideToolbar = false,
   fillHeight = false,
 }: DataTableProps<TData>) {
+  const tableWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
@@ -281,6 +282,48 @@ export function DataTable<TData>({
 
   const clearSelection = () => table.resetRowSelection();
 
+  // ── Auto-fit columns to wrapper width ──────────────────────────────────
+  // `table-layout: fixed` + explicit pixel widths leaves the extra space as
+  // a blank gap on the right when the sum of visible column `size` values is
+  // less than the wrapper. This effect distributes that extra space
+  // proportionally across visible columns so the table always fills its
+  // container, and re-runs when the wrapper resizes or columns toggle.
+  React.useLayoutEffect(() => {
+    const wrapper = tableWrapperRef.current;
+    if (!wrapper) return;
+
+    const apply = () => {
+      const visible = table.getVisibleLeafColumns();
+      if (visible.length === 0) return;
+
+      // Use the rendered wrapper width (excluding scrollbar).
+      const wrapperWidth = wrapper.clientWidth;
+      if (wrapperWidth <= 0) return;
+
+      // Sum the requested min widths; fall back to 150 per missing value.
+      const sizes = visible.map((c) => {
+        const s = c.columnDef.size;
+        return typeof s === "number" && s > 0 ? s : 150;
+      });
+      const totalRequested = sizes.reduce((a, b) => a + b, 0);
+      const extra = Math.max(0, wrapperWidth - totalRequested);
+
+      visible.forEach((col, i) => {
+        const proportion = sizes[i] / totalRequested;
+        const width = sizes[i] + extra * proportion;
+        const th = wrapper.querySelector<HTMLElement>(
+          `[data-column-id="${col.id}"]`,
+        );
+        if (th) th.style.width = `${width}px`;
+      });
+    };
+
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(wrapper);
+    return () => ro.disconnect();
+  }, [table, columnVisibility, columnOrder]);
+
   // ── Render ─────────────────────────────────────────────────────────────
   // When fillHeight is true, the card uses h-full + flex-col and the table
   // wrapper becomes the scroll container with the thead sticky inside it.
@@ -320,6 +363,7 @@ export function DataTable<TData>({
         )}
 
         <div
+          ref={tableWrapperRef}
           className={cn(
             fillHeight
               ? "su-table-scroll"
@@ -356,7 +400,7 @@ export function DataTable<TData>({
                             key={header.id}
                             id={columnId}
                             disabled={pinnedColumnIds.includes(columnId)}
-                            style={{ minWidth: header.column.columnDef.size }}
+                            style={{ width: header.column.columnDef.size }}
                             data-column-id={columnId}
                           >
                             {header.isPlaceholder
@@ -370,7 +414,7 @@ export function DataTable<TData>({
                     headerGroup.headers.map((header) => (
                       <TableHead
                         key={header.id}
-                        style={{ minWidth: header.column.columnDef.size }}
+                        style={{ width: header.column.columnDef.size }}
                       >
                         {header.isPlaceholder
                           ? null
@@ -481,7 +525,7 @@ function DataTableRow<TData>({
       {row.getVisibleCells().map((cell) => (
         <TableCell
           key={cell.id}
-          style={{ minWidth: cell.column.columnDef.size }}
+          style={{ width: cell.column.columnDef.size }}
         >
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </TableCell>

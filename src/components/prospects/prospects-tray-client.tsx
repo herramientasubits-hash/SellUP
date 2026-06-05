@@ -6,10 +6,11 @@ import {
   Building2, 
   Search, 
   Upload, 
-  Layers, 
   Filter, 
   ChevronLeft, 
-  ChevronRight
+  ChevronRight,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,11 +47,25 @@ const STATUS_OPTIONS = [
   { value: 'converted_to_account', label: 'Convertidos' },
 ];
 
+// Etiqueta semántica según el source del batch de origen
+function getSourceBanner(sourceBatchType: string | undefined): string {
+  if (!sourceBatchType) return 'Mostrando prospectos de la operación reciente';
+  if (sourceBatchType === 'external_import') return 'Mostrando prospectos de la importación reciente';
+  if (sourceBatchType === 'agent_1' || sourceBatchType === 'apollo') return 'Mostrando prospectos generados con IA';
+  if (sourceBatchType === 'socrata_colombia') return 'Mostrando prospectos encontrados en RUES Colombia';
+  if (sourceBatchType === 'datos_gob_cl') return 'Mostrando prospectos encontrados en fuente oficial Chile';
+  if (sourceBatchType === 'denue_mexico') return 'Mostrando prospectos encontrados en DENUE México';
+  if (sourceBatchType === 'manual') return 'Mostrando prospectos creados recientemente';
+  return 'Mostrando prospectos de la operación reciente';
+}
+
 interface ProspectsTrayClientProps {
   candidates: ProspectCandidateWithReviewer[];
   total: number;
   limit: number;
   page: number;
+  sourceId?: string;
+  sourceBatchType?: string;
 }
 
 export function ProspectsTrayClient({
@@ -58,6 +73,8 @@ export function ProspectsTrayClient({
   total,
   limit,
   page,
+  sourceId,
+  sourceBatchType,
 }: ProspectsTrayClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -70,8 +87,7 @@ export function ProspectsTrayClient({
   const activeIndustry: string = searchParams.get('industry') ?? 'all';
   const activeOrigin: string = searchParams.get('source') ?? 'all';
 
-
-
+  const isSourceFiltered = !!sourceId;
   const isFilteredOnly = 
     search.trim() !== '' ||
     activeStatus !== 'pending' ||
@@ -108,7 +124,7 @@ export function ProspectsTrayClient({
 
   const clearAllFilters = () => {
     setSearch('');
-    router.push(pathname); // Navigate to /prospects without params
+    router.push(pathname); // Navigate to /prospects without params (also removes sourceId)
   };
 
   const totalPages = Math.ceil(total / limit);
@@ -124,6 +140,27 @@ export function ProspectsTrayClient({
 
   return (
     <div className="space-y-6">
+      {/* Banner de operación reciente (sourceId activo) */}
+      {isSourceFiltered && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
+            <p className="text-xs font-medium text-su-brand">
+              {getSourceBanner(sourceBatchType)}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearAllFilters}
+            className="h-7 shrink-0 gap-1.5 px-2.5 text-xs text-su-brand hover:bg-su-brand-soft hover:text-su-brand"
+          >
+            <X className="h-3 w-3" />
+            Ver todos los prospectos
+          </Button>
+        </div>
+      )}
+
       {/* Barra de filtros */}
       <div className="flex flex-col gap-4 rounded-xl border border-border/40 bg-card p-4 sm:flex-row sm:items-center">
         {/* Input de búsqueda */}
@@ -200,7 +237,7 @@ export function ProspectsTrayClient({
         </div>
 
         {/* Limpiar filtros */}
-        {isFilteredOnly && (
+        {(isFilteredOnly || isSourceFiltered) && (
           <Button
             variant="ghost"
             onClick={clearAllFilters}
@@ -213,7 +250,7 @@ export function ProspectsTrayClient({
 
       {/* Tabla y estado vacío */}
       {candidates.length === 0 ? (
-        isFilteredOnly ? (
+        isFilteredOnly || isSourceFiltered ? (
           /* Estado vacío por filtros */
           <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-xl bg-card border-border/40">
             <div className="mb-3 rounded-full bg-muted/60 p-3">
@@ -221,7 +258,9 @@ export function ProspectsTrayClient({
             </div>
             <p className="text-sm font-semibold text-foreground">No se encontraron prospectos</p>
             <p className="mt-1 text-xs text-muted-foreground/60 max-w-xs">
-              Intenta ajustando los filtros o el término de búsqueda para ver más resultados.
+              {isSourceFiltered
+                ? 'No se encontraron prospectos nuevos en esta operación. Puede que todos fueran omitidos por duplicidad, calidad o datos insuficientes.'
+                : 'Intenta ajustando los filtros o el término de búsqueda para ver más resultados.'}
             </p>
             <Button
               variant="outline"
@@ -229,20 +268,20 @@ export function ProspectsTrayClient({
               onClick={clearAllFilters}
               className="mt-4 gap-1.5 text-xs"
             >
-              Restaurar filtros
+              Ver todos los prospectos
             </Button>
           </div>
         ) : (
-          /* Estado vacío total */
+          /* Estado vacío total — sin prospectos en el sistema */
           <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-xl bg-card border-border/40">
             <div className="mb-4 rounded-full bg-muted/60 p-3">
               <Building2 className="h-8 w-8 text-muted-foreground/30" />
             </div>
-            <h3 className="text-sm font-semibold text-foreground">Todavía no hay prospectos por revisar</h3>
+            <h3 className="text-sm font-semibold text-foreground">Todavía no hay prospectos para revisar</h3>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed max-w-sm">
-              Agrega candidatos manualmente o impórtalos de fuentes externas para comenzar a gestionarlos.
+              Genera empresas con IA, importa una lista o crea un prospecto manualmente.
             </p>
-            <div className="mt-6 flex items-center gap-3">
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
               <ImportCandidatesDrawer>
                 <Button variant="outline" size="sm" className="gap-1.5">
                   <Upload className="h-3.5 w-3.5" />
@@ -261,7 +300,7 @@ export function ProspectsTrayClient({
               Mostrando {startRow} - {endRow} de {total} prospectos
             </p>
             <div className="flex items-center gap-1">
-              <Layers className="h-3.5 w-3.5 text-muted-foreground/50" />
+              <Search className="h-3.5 w-3.5 text-muted-foreground/50" />
               <span className="text-[10px] text-muted-foreground/60 font-mono uppercase">
                 Página {page} de {totalPages || 1}
               </span>
@@ -288,10 +327,9 @@ export function ProspectsTrayClient({
                   Anterior
                 </Button>
                 
-                {/* List de páginas simplificado */}
+                {/* Lista de páginas simplificada */}
                 <div className="hidden sm:flex items-center gap-1">
                   {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    // Mostrar páginas centradas alrededor de la página actual
                     let pageNum = i + 1;
                     if (page > 3 && totalPages > 5) {
                       pageNum = page - 3 + i;
@@ -348,3 +386,4 @@ export function ProspectsTrayClient({
     </div>
   );
 }
+

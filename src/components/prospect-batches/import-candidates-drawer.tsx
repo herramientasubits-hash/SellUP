@@ -372,8 +372,8 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         step === 'input'
           ? "Carga empresas encontradas en Gemini, hojas de cálculo, eventos o investigación externa. SellUp validará duplicidad y las dejará listas para revisión antes de crear cuentas."
           : step === 'preview'
-          ? "Revisa los datos antes de crear el lote. Solo se importarán filas válidas y con advertencias."
-          : `SellUp creó un lote con ${resultCount} candidato${resultCount !== 1 ? 's' : ''} externos. Revísalos antes de aprobarlos como cuentas.`
+          ? "Revisa los datos antes de importar. Solo se importarán filas válidas y con advertencias."
+          : `SellUp importó ${resultCount} prospecto${resultCount !== 1 ? 's' : ''} externo${resultCount !== 1 ? 's' : ''}. Revísalos antes de aprobarlos como cuentas.`
       }
       icon={
         step === 'success'
@@ -463,16 +463,16 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       {/* ── Step: input ───────────────────────────────────── */}
       {step === 'input' && (
         <div className="space-y-5">
-          {/* Configuración del lote */}
+          {/* Configuración de importación */}
           <div className="space-y-3 rounded-xl border border-border/40 bg-muted/20 px-4 py-4">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-              Configuración del lote
+              Configuración de importación
             </p>
 
-            {/* País del lote */}
+            {/* País de referencia */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">
-                País del lote <span className="text-destructive">*</span>
+                País de referencia <span className="text-destructive">*</span>
               </label>
               <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
                 <SelectTrigger className="h-8 text-xs">
@@ -491,10 +491,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </p>
             </div>
 
-            {/* Industria del lote */}
+            {/* Industria de referencia */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">
-                Industria / criterio del lote
+                Industria / criterio
               </label>
               <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
                 <SelectTrigger className="h-8 text-xs">
@@ -729,7 +729,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           {(selectedCountryCode || selectedIndustry) && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-2.5">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand/70 mr-1">
-                Defaults del lote:
+                Criterios de importación:
               </p>
               {selectedCountryCode && (
                 <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
@@ -874,7 +874,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                               )}
                             </p>
                             {row.country_from_default && (
-                              <DefaultBadge label="desde lote" />
+                              <DefaultBadge label="por defecto" />
                             )}
                           </div>
                         </td>
@@ -885,7 +885,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                               {row.raw.industry ?? <span className="text-muted-foreground/60 italic">—</span>}
                             </p>
                             {row.industry_from_default && (
-                              <DefaultBadge label="lote" />
+                              <DefaultBadge label="por defecto" />
                             )}
                           </div>
                         </td>
@@ -1011,10 +1011,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           </div>
           <div className="space-y-1.5">
             <p className="text-sm font-semibold text-foreground">
-              {resultCount} candidato{resultCount !== 1 ? 's' : ''} importado{resultCount !== 1 ? 's' : ''}
+              {resultCount} prospecto{resultCount !== 1 ? 's' : ''} importado{resultCount !== 1 ? 's' : ''}
             </p>
             <p className="text-xs text-muted-foreground max-w-xs">
-              El lote quedó listo para revisión. Ningún candidato será convertido en cuenta ni
+              Los prospectos importados están listos para revisión. Ningún candidato será convertido en cuenta ni
               sincronizado con HubSpot hasta que lo apruebes manualmente.
             </p>
           </div>
@@ -1024,12 +1024,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               type="button"
               onClick={() => {
                 handleClose();
-                if (resultBatchId) router.push(`/prospect-batches/${resultBatchId}`);
+                if (resultBatchId) router.push(`/prospects?sourceId=${resultBatchId}`);
               }}
               className="w-full gap-2 text-xs"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              Revisar lote
+              Ver prospectos importados
             </Button>
             <Button
               type="button"

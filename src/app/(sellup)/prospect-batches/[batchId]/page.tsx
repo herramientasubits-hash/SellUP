@@ -173,11 +173,11 @@ export default async function BatchDetailPage({ params }: Props) {
       {/* Breadcrumb */}
       <div>
         <Link
-          href="/prospect-batches"
+          href="/prospects"
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Prospección
+          Prospectos
         </Link>
       </div>
 

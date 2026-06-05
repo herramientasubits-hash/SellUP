@@ -1,14 +1,16 @@
-import { Building2, CheckCircle2, GitMerge, Upload, AlertTriangle } from 'lucide-react';
+import { Building2, CheckCircle2, GitMerge, Upload, Sparkles, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
+import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
 import { ProspectsTrayClient } from '@/components/prospects/prospects-tray-client';
 import {
   getGlobalCandidatesList,
   getGlobalProspectsKPIs,
   requireActiveUser,
+  getProspectBatchById,
 } from '@/modules/prospect-batches/actions';
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
 
@@ -20,6 +22,7 @@ interface PageProps {
     source?: string;
     status?: string;
     page?: string;
+    sourceId?: string;
   }>;
 }
 
@@ -31,6 +34,21 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
   const limit = 50;
   const page = Number(params.page ?? '1');
   const offset = (page - 1) * limit;
+
+  // Soporte para ?sourceId= — filtra la bandeja por operación reciente
+  const sourceId = params.sourceId ?? null;
+
+  // Obtener metadata del batch de origen para mostrar banner semántico
+  let sourceBatchType: string | null = null;
+  if (sourceId) {
+    try {
+      const sourceBatch = await getProspectBatchById(sourceId);
+      sourceBatchType = sourceBatch?.source ?? null;
+    } catch {
+      // No bloqueante: si falla, solo no se muestra el banner semántico
+      sourceBatchType = null;
+    }
+  }
 
   // Map status filter
   let statuses = ['needs_review', 'generated', 'normalized'];
@@ -53,6 +71,8 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
       statuses,
       limit,
       offset,
+      // Cuando sourceId está presente, filtrar por batchId
+      ...(sourceId ? { batchId: sourceId } : {}),
     }),
   ]);
 
@@ -93,19 +113,23 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       {/* Header */}
       <PageHeader
-        title="Bandeja de Prospectos"
-        description="Revisa empresas candidatas antes de convertirlas en cuentas operativas."
+        title="Prospectos"
+        description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* CTA principal — Generar con IA */}
+            <GenerateAIBatchDrawer />
+            {/* CTA secundario — Importar */}
             <ImportCandidatesDrawer>
               <Button variant="outline" size="sm" className="gap-2 text-xs">
                 <Upload className="h-3.5 w-3.5" />
                 Importar prospectos
               </Button>
             </ImportCandidatesDrawer>
-            <CreateCandidateDrawer 
-              triggerText="Crear prospecto" 
-              triggerVariant="default" 
+            {/* CTA terciario — Crear manual */}
+            <CreateCandidateDrawer
+              triggerText="Crear prospecto"
+              triggerVariant="outline"
             />
           </div>
         }
@@ -132,17 +156,14 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
         ))}
       </div>
 
-      {/* Info note */}
-      <div className="rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5 text-xs text-muted-foreground">
-        Esta bandeja reúne todos los candidatos de prospección. Utiliza el menú de acciones para aprobar (convertir en cuenta operativa), marcar como duplicado o descartar candidatos según corresponda.
-      </div>
-
       {/* Prospects Tray with table, filters and pagination */}
       <ProspectsTrayClient
         candidates={candidates as ProspectCandidateWithReviewer[]}
         total={total}
         limit={limit}
         page={page}
+        sourceId={sourceId ?? undefined}
+        sourceBatchType={sourceBatchType ?? undefined}
       />
     </div>
   );

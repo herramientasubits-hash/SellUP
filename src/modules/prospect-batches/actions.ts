@@ -508,6 +508,7 @@ export async function createProspectCandidate(
   });
 
   revalidatePath(`/prospect-batches/${batchId}`);
+  revalidatePath('/prospects');
   return data as ProspectCandidate;
 }
 
@@ -608,6 +609,7 @@ export async function approveCandidate(id: string): Promise<ProspectCandidate> {
   });
 
   revalidatePath(`/prospect-batches/${data.batch_id}`);
+  revalidatePath('/prospects');
   return data as ProspectCandidate;
 }
 
@@ -650,6 +652,7 @@ export async function discardCandidate(id: string, reason?: string): Promise<Pro
   });
 
   revalidatePath(`/prospect-batches/${data.batch_id}`);
+  revalidatePath('/prospects');
   return data as ProspectCandidate;
 }
 
@@ -2133,6 +2136,7 @@ export async function generateAIProspectBatch(
   }
 
   revalidatePath('/prospect-batches');
+  revalidatePath('/prospects');
   if (result.batchId) {
     revalidatePath(`/prospect-batches/${result.batchId}`);
   }
@@ -3124,6 +3128,7 @@ export async function createExternalCandidatesBatch(
   }
 
   revalidatePath('/prospect-batches');
+  revalidatePath('/prospects');
   revalidatePath(`/prospect-batches/${batch.id}`);
 
   return { batchId: batch.id, candidatesCreated };
@@ -3471,6 +3476,7 @@ export async function validateImportedCandidatesBatch(
 
     try {
       revalidatePath('/prospect-batches');
+      revalidatePath('/prospects');
       revalidatePath(`/prospect-batches/${batchId}`);
     } catch (revalErr) {
       console.warn('[validateImportedCandidatesBatch] revalidatePath skipped/failed:', revalErr);

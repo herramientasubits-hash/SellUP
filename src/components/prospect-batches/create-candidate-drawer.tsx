@@ -89,7 +89,7 @@ export function CreateCandidateDrawer({
         source_primary: form.source_primary,
         review_notes: form.review_notes.trim() || undefined,
       });
-      toast.success('Empresa candidata agregada');
+      toast.success('Prospecto creado correctamente');
       handleClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al agregar empresa candidata');

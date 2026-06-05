@@ -5,7 +5,7 @@ import {
   Users,
   BrainCircuit,
   Settings,
-  Layers,
+  Search,
 } from "lucide-react";
 
 export interface NavItem {
@@ -31,9 +31,9 @@ export const mainNavItems: NavItem[] = [
     icon: Users,
   },
   {
-    title: "Prospección",
-    href: "/prospect-batches",
-    icon: Layers,
+    title: "Prospectos",
+    href: "/prospects",
+    icon: Search,
   },
   {
     title: "Uso de IA y costos",
