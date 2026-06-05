@@ -356,7 +356,7 @@ export function DataTable<TData>({
                             key={header.id}
                             id={columnId}
                             disabled={pinnedColumnIds.includes(columnId)}
-                            style={{ width: header.column.columnDef.size }}
+                            style={{ minWidth: header.column.columnDef.size }}
                             data-column-id={columnId}
                           >
                             {header.isPlaceholder
@@ -370,7 +370,7 @@ export function DataTable<TData>({
                     headerGroup.headers.map((header) => (
                       <TableHead
                         key={header.id}
-                        style={{ width: header.column.columnDef.size }}
+                        style={{ minWidth: header.column.columnDef.size }}
                       >
                         {header.isPlaceholder
                           ? null
@@ -481,7 +481,7 @@ function DataTableRow<TData>({
       {row.getVisibleCells().map((cell) => (
         <TableCell
           key={cell.id}
-          style={{ width: cell.column.columnDef.size }}
+          style={{ minWidth: cell.column.columnDef.size }}
         >
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </TableCell>
