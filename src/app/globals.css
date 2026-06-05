@@ -35,6 +35,9 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-info: var(--info);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -118,6 +121,12 @@
 
   /* Destructive — UBITS negative (#e9343c) */
   --destructive: oklch(0.612 0.216 24);
+
+  /* Semantic status colors — used by Alert and status indicators.
+     Mapped to Tailwind utilities via --color-* tokens in @theme inline. */
+  --info: oklch(0.595 0.190 266);
+  --warning: oklch(0.749 0.160 71);
+  --success: oklch(0.571 0.160 142);
 
   /* Borders — UBITS #d0d2d5 */
   --border: oklch(0.863 0.005 258);
@@ -204,6 +213,11 @@
 
   /* Destructive — lighter red for dark visibility */
   --destructive: oklch(0.626 0.193 23);
+
+  /* Semantic status colors — dark-mode tuned for legibility */
+  --info: oklch(0.700 0.165 260);
+  --warning: oklch(0.808 0.158 72);
+  --success: oklch(0.720 0.165 142);
 
   /* Borders — UBITS #3d4555 */
   --border: oklch(0.390 0.029 264);
