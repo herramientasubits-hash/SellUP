@@ -2,6 +2,7 @@ import { Building2, CheckCircle2, GitMerge, Upload } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';
+import { MetricCard } from '@/components/shared/metric-card';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
@@ -90,37 +91,6 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
 
   const { candidates, total } = listResult;
 
-  const summaryCards = [
-    {
-      label: 'Pendientes de revisión',
-      value: kpis.needsReview,
-      icon: Building2,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
-    },
-    {
-      label: 'Listos para aprobar',
-      value: kpis.readyForApproval,
-      icon: CheckCircle2,
-      color: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-500/10',
-    },
-    {
-      label: 'Posibles duplicados',
-      value: kpis.possibleDuplicates,
-      icon: GitMerge,
-      color: 'text-orange-600 dark:text-orange-400',
-      bg: 'bg-orange-500/10',
-    },
-    {
-      label: 'Importados recientemente',
-      value: kpis.importedRecently,
-      icon: Upload,
-      color: 'text-blue-600 dark:text-blue-400',
-      bg: 'bg-blue-500/10',
-    },
-  ];
-
   return (
     <DataTablePage
       title="Prospectos"
@@ -146,23 +116,46 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
       metrics={
         !sourceId ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {summaryCards.map((card) => (
-              <SurfaceCard key={card.label} className="py-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                      {card.label}
-                    </p>
-                    <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">
-                      {card.value}
-                    </p>
-                  </div>
-                  <div className={`rounded-lg p-1.5 ${card.bg}`}>
-                    <card.icon className={`h-4 w-4 ${card.color}`} />
-                  </div>
+            <MetricCard
+              title="Pendientes de revisión"
+              description="Esperando primera evaluación"
+              value={kpis.needsReview}
+              icon={
+                <div className="rounded-lg p-1.5 bg-su-brand-soft">
+                  <Building2 className="h-4 w-4 text-su-brand" />
                 </div>
-              </SurfaceCard>
-            ))}
+              }
+            />
+            <MetricCard
+              title="Listos para aprobar"
+              description="Candidatos validados"
+              value={kpis.readyForApproval}
+              icon={
+                <div className="rounded-lg p-1.5 bg-emerald-500/10">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                </div>
+              }
+            />
+            <MetricCard
+              title="Posibles duplicados"
+              description="Coincidencias detectadas"
+              value={kpis.possibleDuplicates}
+              icon={
+                <div className="rounded-lg p-1.5 bg-orange-500/10">
+                  <GitMerge className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                </div>
+              }
+            />
+            <MetricCard
+              title="Importados recientemente"
+              description="Últimos 7 días"
+              value={kpis.importedRecently}
+              icon={
+                <div className="rounded-lg p-1.5 bg-blue-500/10">
+                  <Upload className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                </div>
+              }
+            />
           </div>
         ) : null
       }

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Bot, Zap, MousePointerClick, Lightbulb, Brain } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAllAutomations, getAutomationsSummary } from '@/modules/automations/actions';
 import {
@@ -23,6 +24,7 @@ export default async function AutomationsPage() {
   const summaryCards = [
     {
       label: 'Configuradas',
+      description: 'Total de automatizaciones',
       value: summary.total,
       icon: Bot,
       color: 'text-su-brand',
@@ -30,6 +32,7 @@ export default async function AutomationsPage() {
     },
     {
       label: 'Automáticas',
+      description: 'Ejecutadas sin intervención',
       value: summary.automatic,
       icon: Zap,
       color: 'text-emerald-500',
@@ -37,6 +40,7 @@ export default async function AutomationsPage() {
     },
     {
       label: 'Sugeridas',
+      description: 'Con sugerencia de IA',
       value: summary.suggested,
       icon: Lightbulb,
       color: 'text-su-brand',
@@ -44,6 +48,7 @@ export default async function AutomationsPage() {
     },
     {
       label: 'Manuales',
+      description: 'Requieren acción humana',
       value: summary.manual,
       icon: MousePointerClick,
       color: 'text-muted-foreground',
@@ -62,19 +67,18 @@ export default async function AutomationsPage() {
       {/* Resumen */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {summaryCards.map((card) => (
-          <SurfaceCard key={card.label} className="py-4">
-            <div className="flex flex-col gap-3">
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-xl ${card.bg}`}
-              >
+          <MetricCard
+            key={card.label}
+            title={card.label}
+            description={card.description}
+            value={card.value}
+            iconPosition="top"
+            icon={
+              <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${card.bg}`}>
                 <card.icon className={`h-4 w-4 ${card.color}`} />
               </div>
-              <div>
-                <p className="text-2xl font-semibold text-foreground">{card.value}</p>
-                <p className="text-[11px] text-muted-foreground">{card.label}</p>
-              </div>
-            </div>
-          </SurfaceCard>
+            }
+          />
         ))}
       </div>
 

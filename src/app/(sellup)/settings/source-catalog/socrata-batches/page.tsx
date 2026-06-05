@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Database, XCircle, CheckCircle2, FlaskConical, Layers, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import {
@@ -78,23 +79,46 @@ export default async function SocrataBatchesPage() {
 
       {/* Metrics */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {metricCards.map((card) => (
-          <SurfaceCard key={card.label} className="py-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                  {card.label}
-                </p>
-                <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">
-                  {card.value}
-                </p>
-              </div>
-              <div className={`rounded-lg p-1.5 ${card.bg}`}>
-                <card.icon className={`h-4 w-4 ${card.color}`} />
-              </div>
+        <MetricCard
+          title="Total lotes"
+          description="Lotes creados en el sistema"
+          value={totalCount}
+          icon={
+            <div className="rounded-lg p-1.5 bg-su-brand-soft">
+              <Layers className="h-4 w-4 text-su-brand" />
             </div>
-          </SurfaceCard>
-        ))}
+          }
+        />
+        <MetricCard
+          title="Listos para revisión"
+          description="Esperando aprobación"
+          value={readyForReview}
+          icon={
+            <div className="rounded-lg p-1.5 bg-amber-500/10">
+              <CheckCircle2 className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            </div>
+          }
+        />
+        <MetricCard
+          title="Cancelados"
+          description="Lotes descartados"
+          value={cancelled}
+          icon={
+            <div className="rounded-lg p-1.5 bg-muted/60">
+              <XCircle className="h-4 w-4 text-muted-foreground" />
+            </div>
+          }
+        />
+        <MetricCard
+          title="Smoke tests"
+          description="Pruebas automáticas ejecutadas"
+          value={smokeTests}
+          icon={
+            <div className="rounded-lg p-1.5 bg-blue-500/10">
+              <FlaskConical className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            </div>
+          }
+        />
       </div>
 
       {/* Batches table */}

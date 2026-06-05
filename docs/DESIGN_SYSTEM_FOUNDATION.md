@@ -294,16 +294,65 @@ Anatomía:
 - **Value** — `text-3xl font-bold tracking-tight tabular-nums` (lo dominante visualmente)
 - **Subtitle** — unidad o nota al lado del value (`text-sm font-medium text-muted-foreground/70`)
 - **DeltaPill** opcional — variación porcentual con icono TrendingUp/Down/Minus
-- **Icon** — chip de icono a la derecha (8×8, `rounded-lg`, fondo tinted)
+- **Icon** — chip de icono configurable (8×8 en variantes estándar, 12×12 en `left-large`); fondo tinted viene del consumidor
 - **Footer** opcional — banda inferior con `border-t border-border/40` y `bg-muted/20`
+
+Posición del icono (`iconPosition`):
+
+| Valor | Layout | Uso típico |
+|-------|--------|------------|
+| `right` (default) | Icono en la esquina superior derecha | Cards tipo resumen, KPIs estándar |
+| `top` | Icono sobre el título, en su propia línea | Resúmenes operativos (`usage`, `ai-usage`, `automations`) |
+| `left-large` | Icono grande a la izquierda, value+label apilados a la derecha | Resaltar proveedor/modelo activo (`settings/ai`) |
+
+```tsx
+// iconPosition="right" (default)
+<MetricCard
+  title="Verificadas"
+  description="Con conexión operativa confirmada"
+  value={12}
+  icon={
+    <div className="rounded-lg p-1.5 bg-emerald-500/10">
+      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+    </div>
+  }
+/>
+
+// iconPosition="top"
+<MetricCard
+  title="Ejecuciones"
+  description="de agentes"
+  value={420}
+  iconPosition="top"
+  icon={
+    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+      <Bot className="h-4 w-4" />
+    </div>
+  }
+/>
+
+// iconPosition="left-large"
+<MetricCard
+  title="Proveedor activo"
+  description="Proveedor configurado"
+  value="Anthropic"
+  iconPosition="left-large"
+  icon={
+    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-su-brand-soft">
+      <BrainCircuit className="h-6 w-6 text-su-brand" />
+    </div>
+  }
+/>
+```
 
 Variantes soportadas: `loading` (skeleton interno), `error` (mensaje + título).
 
 Reglas:
-- Usar `MetricCard` en lugar de `<SurfaceCard>` con markup manual para KPIs.
+- Usar `MetricCard` en lugar de `<SurfaceCard>` con markup manual para KPIs. Toda card de métricas de la plataforma debe pasar por este componente.
 - En grillas grandes (`grid-cols-6`, `grid-cols-5`) el gap debe ser `gap-3` o `gap-4`.
 - `valueClassName` permite tintar el value (ej. `text-emerald-600` para métricas positivas) y agregar `font-mono` cuando aplique.
 - El título debe llegar en title-case desde la página (no transformarlo dentro del componente).
+- El estilo del `icon` (tamaño, color, fondo) viene desde el consumidor — el componente solo define el slot.
 
 ---
 

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Bot, Plug, Star, Info, FlaskConical, DollarSign, Zap, CheckCircle2, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getUsageSummary, getRecentUsageActivity } from '@/modules/usage-tracking/actions';
 import type { AgentRun, ProviderUsageLog, ResultQualityEvent } from '@/modules/usage-tracking/types';
@@ -331,16 +332,21 @@ export default async function UsagePage() {
       </div>
 
       {/* ── Summary cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         {summaryCards.map((card) => (
-          <SurfaceCard key={card.label}>
-            <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-lg ${card.bg}`}>
-              <card.icon className={`h-4 w-4 ${card.accent}`} />
-            </div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{card.label}</p>
-            <p className={`mt-1.5 text-2xl font-semibold tracking-tight font-mono ${card.accent}`}>{card.value}</p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">{card.sub}</p>
-          </SurfaceCard>
+          <MetricCard
+            key={card.label}
+            title={card.label}
+            description={card.sub}
+            value={card.value}
+            valueClassName={`font-mono ${card.accent}`}
+            iconPosition="top"
+            icon={
+              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.bg}`}>
+                <card.icon className={`h-4 w-4 ${card.accent}`} />
+              </div>
+            }
+          />
         ))}
       </div>
 

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Search, Sparkles, Database, CircleDashed, CheckCircle2, Clock } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   getAllProspectingProviders,
@@ -57,34 +58,6 @@ function lifecycleLabel(status: LifecycleStatus): { label: string; className: st
 // ============================================================
 // Subcomponentes
 // ============================================================
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  valueClassName,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ComponentType<{ className?: string }>;
-  valueClassName?: string;
-}) {
-  return (
-    <SurfaceCard>
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className={`text-2xl font-semibold tracking-tight ${valueClassName ?? 'text-foreground'}`}>
-            {value}
-          </p>
-        </div>
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand">
-          <Icon className="h-4 w-4" />
-        </div>
-      </div>
-    </SurfaceCard>
-  );
-}
 
 function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
   const lifecycle = lifecycleLabel(provider.lifecycle_status);
@@ -170,28 +143,58 @@ export default async function ProspectingPage() {
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3">
           Resumen
         </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="Proveedores contemplados"
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            title="Proveedores contemplados"
+            description="Fuentes identificadas para discovery"
             value={stats.total}
-            icon={Database}
+            icon={
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand">
+                <Database className="h-4 w-4" />
+              </div>
+            }
           />
-          <StatCard
-            label="Preparados para conexión"
+          <MetricCard
+            title="Preparados para conexión"
+            description="Listos para habilitar"
             value={stats.prepared}
-            icon={CheckCircle2}
             valueClassName="text-su-brand"
+            icon={
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand">
+                <CheckCircle2 className="h-4 w-4" />
+              </div>
+            }
           />
-          <StatCard
-            label="Aún sin evaluar"
+          <MetricCard
+            title="Aún sin evaluar"
+            description="Pendientes de evaluación"
             value={stats.total - stats.prepared}
-            icon={Clock}
+            icon={
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Clock className="h-4 w-4" />
+              </div>
+            }
           />
-          <StatCard
-            label={activeProviderLabel}
+          <MetricCard
+            title={activeProviderLabel}
+            description="Proveedor activo actual"
             value={activeProviderValue}
-            icon={CircleDashed}
-            valueClassName={activeProviderNames.length > 0 ? 'text-emerald-500 text-lg' : 'text-muted-foreground/60 text-base'}
+            valueClassName={
+              activeProviderNames.length > 0
+                ? 'text-emerald-500 text-lg'
+                : 'text-muted-foreground/60 text-base'
+            }
+            icon={
+              <div
+                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                  activeProviderNames.length > 0
+                    ? 'bg-emerald-500/10 text-emerald-500'
+                    : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                <CircleDashed className="h-4 w-4" />
+              </div>
+            }
           />
         </div>
       </div>

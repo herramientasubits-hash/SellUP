@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { BrainCircuit, CheckCircle, Settings, DollarSign, Clock } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -85,54 +86,54 @@ export default async function AIConfigPage() {
       />
 
       {/* Summary Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SurfaceCard>
-          <div className="flex items-center gap-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          title="Proveedor activo"
+          description="Proveedor configurado"
+          value={summary.activeProvider ?? '-'}
+          iconPosition="left-large"
+          icon={
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-su-brand-soft">
               <BrainCircuit className="h-6 w-6 text-su-brand" />
             </div>
-            <div>
-              <p className="text-2xl font-semibold text-foreground">{summary.activeProvider ?? '-'}</p>
-              <p className="text-sm text-muted-foreground">Proveedor activo</p>
-            </div>
-          </div>
-        </SurfaceCard>
+          }
+        />
 
-        <SurfaceCard>
-          <div className="flex items-center gap-4">
+        <MetricCard
+          title="Modelo base"
+          description="Modelo por defecto"
+          value={summary.activeModel ?? '-'}
+          iconPosition="left-large"
+          icon={
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10">
               <CheckCircle className="h-6 w-6 text-emerald-500" />
             </div>
-            <div>
-              <p className="text-2xl font-semibold text-foreground">{summary.activeModel ?? '-'}</p>
-              <p className="text-sm text-muted-foreground">Modelo base</p>
-            </div>
-          </div>
-        </SurfaceCard>
+          }
+        />
 
-        <SurfaceCard>
-          <div className="flex items-center gap-4">
+        <MetricCard
+          title="Modelos ejecutables"
+          description="Disponibles para invocar"
+          value={`${summary.activeModels}/${summary.totalModels}`}
+          iconPosition="left-large"
+          icon={
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
               <Settings className="h-6 w-6 text-blue-500" />
             </div>
-            <div>
-              <p className="text-2xl font-semibold text-foreground">{summary.activeModels}/{summary.totalModels}</p>
-              <p className="text-sm text-muted-foreground">Modelos ejecutables</p>
-            </div>
-          </div>
-        </SurfaceCard>
+          }
+        />
 
-        <SurfaceCard>
-          <div className="flex items-center gap-4">
+        <MetricCard
+          title="Última tarifa"
+          description="Fecha de actualización"
+          value={formatDate(summary.lastPricingUpdate)}
+          iconPosition="left-large"
+          icon={
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10">
               <Clock className="h-6 w-6 text-amber-500" />
             </div>
-            <div>
-              <p className="text-2xl font-semibold text-foreground">{formatDate(summary.lastPricingUpdate)}</p>
-              <p className="text-sm text-muted-foreground">Última tarifa</p>
-            </div>
-          </div>
-        </SurfaceCard>
+          }
+        />
       </div>
 
       {/* Active Configuration */}
