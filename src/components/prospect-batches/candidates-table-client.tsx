@@ -436,17 +436,17 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
 
   return (
     <>
-      <div className="overflow-x-auto">
-        {hasStructured && (
-          <div className="px-5 py-2.5 border-b border-border/30 bg-amber-500/5">
-            <p className="text-[10px] text-amber-700 dark:text-amber-400">
-              <span className="font-semibold">Guía de revisión:</span>{' '}
-              Valida nombre, NIT, actividad/sector, duplicidad y señales de empresa activa. Usa{' '}
-              <span className="font-semibold">Ver detalle</span> para información completa.
-            </p>
-          </div>
-        )}
-        <table className="w-full text-sm">
+      {hasStructured && (
+        <div className="shrink-0 px-5 py-2.5 border-b border-border/30 bg-amber-500/5">
+          <p className="text-[10px] text-amber-700 dark:text-amber-400">
+            <span className="font-semibold">Guía de revisión:</span>{' '}
+            Valida nombre, NIT, actividad/sector, duplicidad y señales de empresa activa. Usa{' '}
+            <span className="font-semibold">Ver detalle</span> para información completa.
+          </p>
+        </div>
+      )}
+      <div className="su-table-scroll">
+        <table className="su-table su-table-sticky">
           <thead>
             <tr className="border-b border-border/40">
               {['Empresa', 'Perfil', 'Señales', 'Duplicidad', ...(hasFit ? ['Evaluación'] : []), 'Estado', ''].map(

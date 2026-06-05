@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { validateTaxIdentifier } from './tax-identifier-rules';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
 import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
@@ -468,6 +469,15 @@ export async function createProspectCandidate(
   const domain = input.website ? extractDomain(input.website) : null;
   const normalizedName = normalizeName(input.name);
 
+  // Validate tax identifier server-side
+  if (input.tax_identifier && input.tax_identifier.trim().length > 0) {
+    const validation = validateTaxIdentifier(input.tax_identifier, input.country_code);
+    if (!validation.valid) {
+      throw new Error(validation.error);
+    }
+    input.tax_identifier = validation.normalized;
+  }
+
   let batchId = input.batch_id;
   if (!batchId) {
     batchId = await getOrCreateTechnicalManualBatch(internalUserId);
@@ -521,13 +531,22 @@ export async function updateProspectCandidate(
 
   const { data: existing } = await supabase
     .from('prospect_candidates')
-    .select('batch_id, name')
+    .select('batch_id, name, country_code, tax_identifier')
     .eq('id', id)
     .single();
 
   const updates: Record<string, unknown> = { ...input };
   if (input.name) updates.normalized_name = normalizeName(input.name);
   if (input.website) updates.domain = extractDomain(input.website);
+
+  const effectiveCountryCode = input.country_code ?? existing?.country_code;
+  if (updates.tax_identifier && typeof updates.tax_identifier === 'string' && updates.tax_identifier.trim().length > 0) {
+    const validation = validateTaxIdentifier(updates.tax_identifier, effectiveCountryCode);
+    if (!validation.valid) {
+      throw new Error(validation.error);
+    }
+    updates.tax_identifier = validation.normalized;
+  }
 
   const { data, error } = await supabase
     .from('prospect_candidates')

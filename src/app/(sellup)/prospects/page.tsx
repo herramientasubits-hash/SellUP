@@ -1,7 +1,7 @@
 import { Building2, CheckCircle2, GitMerge, Upload } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { PageHeader } from '@/components/shared/page-header';
+import { DataTablePage } from '@/components/shared/data-table-page';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
@@ -122,55 +122,51 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <PageHeader
-        title="Prospectos"
-        description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {/* CTA principal — Generar con IA */}
-            <GenerateAIBatchDrawer />
-            {/* CTA secundario — Importar */}
-            <ImportCandidatesDrawer>
-              <Button variant="outline" size="sm" className="gap-2 text-xs">
-                <Upload className="h-3.5 w-3.5" />
-                Importar prospectos
-              </Button>
-            </ImportCandidatesDrawer>
-            {/* CTA terciario — Crear manual */}
-            <CreateCandidateDrawer
-              triggerText="Crear prospecto"
-              triggerVariant="outline"
-            />
-          </div>
-        }
-      />
-
-      {/* KPIs Summary cards */}
-      {!sourceId && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {summaryCards.map((card) => (
-            <SurfaceCard key={card.label} className="py-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                    {card.label}
-                  </p>
-                  <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">
-                    {card.value}
-                  </p>
-                </div>
-                <div className={`rounded-lg p-1.5 ${card.bg}`}>
-                  <card.icon className={`h-4 w-4 ${card.color}`} />
-                </div>
-              </div>
-            </SurfaceCard>
-          ))}
+    <DataTablePage
+      title="Prospectos"
+      description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          {/* CTA principal — Generar con IA */}
+          <GenerateAIBatchDrawer />
+          {/* CTA secundario — Importar */}
+          <ImportCandidatesDrawer>
+            <Button variant="outline" size="sm" className="gap-2 text-xs">
+              <Upload className="h-3.5 w-3.5" />
+              Importar prospectos
+            </Button>
+          </ImportCandidatesDrawer>
+          {/* CTA terciario — Crear manual */}
+          <CreateCandidateDrawer
+            triggerText="Crear prospecto"
+            triggerVariant="outline"
+          />
         </div>
-      )}
-
-      {/* Prospects Tray with table, filters and pagination */}
+      }
+      metrics={
+        !sourceId ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {summaryCards.map((card) => (
+              <SurfaceCard key={card.label} className="py-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                      {card.label}
+                    </p>
+                    <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">
+                      {card.value}
+                    </p>
+                  </div>
+                  <div className={`rounded-lg p-1.5 ${card.bg}`}>
+                    <card.icon className={`h-4 w-4 ${card.color}`} />
+                  </div>
+                </div>
+              </SurfaceCard>
+            ))}
+          </div>
+        ) : null
+      }
+    >
       <ProspectsTrayClient
         candidates={candidates as ProspectCandidateWithReviewer[]}
         total={total}
@@ -179,6 +175,6 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
         sourceId={sourceId ?? undefined}
         sourceBatchType={sourceBatchType ?? undefined}
       />
-    </div>
+    </DataTablePage>
   );
 }

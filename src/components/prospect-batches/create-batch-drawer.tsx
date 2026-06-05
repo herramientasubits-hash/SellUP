@@ -97,7 +97,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
   return (
     <DrawerShell
       open={open}
-      onOpenChange={(v) => !v && handleClose()}
+      onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
       trigger={
         <Button onClick={() => setOpen(true)} size="sm" className="gap-1.5">
           <Plus className="h-3.5 w-3.5" />

@@ -139,10 +139,10 @@ export function ProspectsTrayClient({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-1 min-h-0 flex-col gap-6">
       {/* Banner de operación reciente (sourceId activo) */}
       {isSourceFiltered && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
+        <div className="shrink-0 flex items-center justify-between gap-3 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
           <div className="flex items-center gap-2.5">
             <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
             <p className="text-xs font-medium text-su-brand">
@@ -162,7 +162,7 @@ export function ProspectsTrayClient({
       )}
 
       {/* Barra de filtros */}
-      <div className="flex flex-col gap-4 rounded-xl border border-border/40 bg-card p-4 sm:flex-row sm:items-center">
+      <div className="shrink-0 flex flex-col gap-4 rounded-xl border border-border/40 bg-card p-4 sm:flex-row sm:items-center">
         {/* Input de búsqueda */}
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground/60" />
@@ -294,8 +294,8 @@ export function ProspectsTrayClient({
         )
       ) : (
         /* Listado de prospectos */
-        <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5 bg-muted/[0.08]">
+        <div className="flex-1 min-h-0 flex flex-col rounded-2xl border border-border/50 bg-card overflow-hidden">
+          <div className="shrink-0 flex items-center justify-between border-b border-border/40 px-5 py-3.5 bg-muted/[0.08]">
             <p className="text-xs font-semibold text-foreground/80">
               Mostrando {startRow} - {endRow} de {total} prospectos
             </p>
@@ -311,7 +311,7 @@ export function ProspectsTrayClient({
 
           {/* Paginación */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-border/40 px-5 py-3.5 bg-muted/[0.04]">
+            <div className="shrink-0 flex items-center justify-between border-t border-border/40 px-5 py-3.5 bg-muted/[0.04]">
               <span className="text-xs text-muted-foreground/75">
                 Página {page} de {totalPages}
               </span>

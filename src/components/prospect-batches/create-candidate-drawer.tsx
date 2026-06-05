@@ -25,6 +25,10 @@ import {
   type CandidateSourcePrimary,
 } from '@/modules/prospect-batches/types';
 import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import {
+  getTaxIdentifierRule,
+  validateTaxIdentifier,
+} from '@/modules/prospect-batches/tax-identifier-rules';
 
 interface CreateCandidateDrawerProps {
   batchId?: string;
@@ -55,6 +59,7 @@ export function CreateCandidateDrawer({
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState({ ...EMPTY });
   const [saving, setSaving] = React.useState(false);
+  const [taxIdError, setTaxIdError] = React.useState<string | null>(null);
 
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -62,7 +67,57 @@ export function CreateCandidateDrawer({
   function handleClose() {
     setOpen(false);
     setForm({ ...EMPTY });
+    setTaxIdError(null);
   }
+
+  const handleCountryChange = (v: string | null | undefined) => {
+    const code = v ?? '';
+    set('country_code', code);
+    
+    // Auto-select type based on country rule
+    const rule = getTaxIdentifierRule(code || undefined);
+    if (rule) {
+      set('tax_identifier_type', rule.label as TaxIdentifierType);
+    } else {
+      set('tax_identifier_type', '');
+    }
+
+    // Validate existing tax identifier under the new country rules
+    if (form.tax_identifier.trim()) {
+      const res = validateTaxIdentifier(form.tax_identifier, code);
+      if (!res.valid) {
+        setTaxIdError(res.error ?? 'Identificador fiscal inválido');
+      } else {
+        setTaxIdError(null);
+      }
+    } else {
+      setTaxIdError(null);
+    }
+  };
+
+  const handleTaxIdChange = (val: string) => {
+    set('tax_identifier', val);
+    
+    if (!val.trim()) {
+      setTaxIdError(null);
+      return;
+    }
+    
+    const res = validateTaxIdentifier(val, form.country_code);
+    if (!res.valid) {
+      setTaxIdError(res.error ?? 'Identificador fiscal inválido');
+    } else {
+      setTaxIdError(null);
+    }
+  };
+
+  const handleTaxIdBlur = () => {
+    if (!form.tax_identifier.trim()) return;
+    const res = validateTaxIdentifier(form.tax_identifier, form.country_code);
+    if (res.valid && res.normalized) {
+      set('tax_identifier', res.normalized);
+    }
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,9 +125,23 @@ export function CreateCandidateDrawer({
       toast.error('El nombre de la empresa es obligatorio');
       return;
     }
+
+    if (form.tax_identifier.trim()) {
+      const res = validateTaxIdentifier(form.tax_identifier, form.country_code);
+      if (!res.valid) {
+        toast.error(res.error ?? 'Identificador fiscal inválido');
+        setTaxIdError(res.error ?? 'Identificador fiscal inválido');
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const country = LATAM_COUNTRIES.find((c) => c.code === form.country_code);
+      const normalizedTaxId = form.tax_identifier.trim()
+        ? (validateTaxIdentifier(form.tax_identifier, form.country_code).normalized ?? form.tax_identifier.trim())
+        : undefined;
+
       await createProspectCandidate({
         batch_id: batchId,
         name: form.name.trim(),
@@ -84,7 +153,7 @@ export function CreateCandidateDrawer({
         region: form.region.trim() || undefined,
         industry: form.industry || undefined,
         company_size: form.company_size || undefined,
-        tax_identifier: form.tax_identifier.trim() || undefined,
+        tax_identifier: normalizedTaxId,
         tax_identifier_type: (form.tax_identifier_type as TaxIdentifierType) || undefined,
         source_primary: form.source_primary,
         review_notes: form.review_notes.trim() || undefined,
@@ -101,7 +170,7 @@ export function CreateCandidateDrawer({
   return (
     <DrawerShell
       open={open}
-      onOpenChange={(v) => !v && handleClose()}
+      onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
       trigger={
         <Button onClick={() => setOpen(true)} variant={triggerVariant} size="sm" className="gap-1.5">
           <Plus className="h-3.5 w-3.5" />
@@ -180,7 +249,7 @@ export function CreateCandidateDrawer({
             <Field label="País">
               <Select
                 value={form.country_code}
-                onValueChange={(v) => set('country_code', v ?? '')}
+                onValueChange={(v) => handleCountryChange(v)}
                 disabled={saving}
               >
                 <SelectTrigger className="w-full">
@@ -253,36 +322,65 @@ export function CreateCandidateDrawer({
         </Section>
 
         {/* Identificador fiscal */}
-        <Section icon={Hash} label="Identificador fiscal">
-          <Row>
-            <Field label="Tipo">
-              <Select
-                value={form.tax_identifier_type}
-                onValueChange={(v) => set('tax_identifier_type', (v ?? '') as TaxIdentifierType)}
-                disabled={saving}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.entries(TAX_IDENTIFIER_TYPE_LABELS) as [TaxIdentifierType, string][]).map(
-                    ([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    )
-                  )}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Número">
-              <Input
-                value={form.tax_identifier}
-                onChange={(e) => set('tax_identifier', e.target.value)}
-                placeholder="Ej. 900123456-1"
-                disabled={saving}
-              />
-            </Field>
-          </Row>
-        </Section>
+        {(() => {
+          const rule = getTaxIdentifierRule(form.country_code);
+          const hasCountry = !!form.country_code;
+          const isDisabled = !hasCountry || !rule;
+
+          let helpText = '';
+          if (!hasCountry) {
+            helpText = 'Seleccione un país para habilitar la identificación fiscal.';
+          } else if (!rule) {
+            helpText = 'La validación del identificador fiscal aún no está configurada para este país.';
+          } else {
+            helpText = rule.helpText;
+          }
+
+          return (
+            <Section icon={Hash} label="Identificador fiscal">
+              <Row>
+                <Field label="Tipo">
+                  <Select
+                    value={form.tax_identifier_type}
+                    onValueChange={(v) => set('tax_identifier_type', (v ?? '') as TaxIdentifierType)}
+                    disabled={isDisabled || saving}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.entries(TAX_IDENTIFIER_TYPE_LABELS) as [TaxIdentifierType, string][]).map(
+                        ([key, label]) => (
+                          <SelectItem key={key} value={key}>{label}</SelectItem>
+                        )
+                      )}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Número">
+                  <Input
+                    value={form.tax_identifier}
+                    onChange={(e) => handleTaxIdChange(e.target.value)}
+                    onBlur={handleTaxIdBlur}
+                    placeholder={rule?.placeholder ?? 'Seleccione un país'}
+                    disabled={isDisabled || saving}
+                    className={taxIdError ? 'border-destructive focus-visible:ring-destructive' : ''}
+                  />
+                </Field>
+              </Row>
+              <div className="mt-1.5 space-y-1">
+                <p className={`text-xs ${!rule ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground'}`}>
+                  {helpText}
+                </p>
+                {taxIdError && (
+                  <p className="text-xs text-destructive font-medium animate-su-fade-in">
+                    {taxIdError}
+                  </p>
+                )}
+              </div>
+            </Section>
+          );
+        })()}
 
         {/* Fuente y notas */}
         <Section icon={FileText} label="Fuente y notas">
