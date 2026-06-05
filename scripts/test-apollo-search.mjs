@@ -9,8 +9,11 @@
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://lrdruowtadwbdulndlph.supabase.co';
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!SERVICE_KEY) {
+  console.error('ERROR: SUPABASE_SERVICE_ROLE_KEY environment variable is required.');
+  process.exit(1);
+}
 const VAULT_SECRET_NAME = 'sellup_prospecting_apollo_api_key';
 
 // ── 1. Recuperar API Key desde Vault (mismo patrón que getApolloApiKey()) ──

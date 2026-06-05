@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import {
   testGeminiWithKey,
@@ -60,10 +62,7 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
 }
 
 export async function getAllAIProviders(): Promise<AIProvider[]> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
-  const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
-  const adminSupabase = createAdminClient(supabaseUrl, supabaseServiceKey);
+  const adminSupabase = getAdminSupabaseClient();
 
   const { data: providers, error } = await (adminSupabase as any)
     .from('ai_providers')
@@ -174,10 +173,12 @@ export async function getAllAIModels(): Promise<AIModel[]> {
   })) as AIModel[];
 }
 
-function getAdminSupabaseClient() {
+function getAdminSupabaseClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
-  const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseServiceKey) {
+    throw new Error('enrichment_configuration_unavailable');
+  }
   return createAdminClient(supabaseUrl, supabaseServiceKey);
 }
 
@@ -348,10 +349,7 @@ export async function setActiveConfig(
 
   const configId = '00000000-0000-0000-0000-000000000001';
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
-  const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
-  const adminSupabase = createAdminClient(supabaseUrl, supabaseServiceKey);
+  const adminSupabase = getAdminSupabaseClient();
 
   const { data: upsertData, error: upsertError } = await (adminSupabase as any)
     .from('ai_active_config')
@@ -570,10 +568,7 @@ export async function connectAiProvider(
   }
 
   // Usar admin client para actualizar el proveedor
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
-  const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
-  const adminSupabase = createAdminClient(supabaseUrl, supabaseServiceKey);
+  const adminSupabase = getAdminSupabaseClient();
 
   debugLogs.push('Activando proveedor...');
   const { data: updateResult, error: updateError } = await (adminSupabase as any)
@@ -716,10 +711,7 @@ export async function disconnectAiProvider(
 
   await removeAiProviderCredential(providerKey);
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
-  const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
-  const adminSupabase = createAdminClient(supabaseUrl, supabaseServiceKey);
+  const adminSupabase = getAdminSupabaseClient();
 
   await (adminSupabase as any)
     .from('ai_providers')
@@ -821,10 +813,7 @@ export async function testAiProviderConnectionWithVault(
   if (!resolution.available) {
     // Reparar estado stale en DB: si la credencial ya no existe en Vault,
     // el badge debe dejar de mostrar "Conectado".
-    const supabaseUrlAdm = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-    const supabaseServiceKeyAdm = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
-    const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
-    const adminRepair = createAdminClient(supabaseUrlAdm, supabaseServiceKeyAdm);
+    const adminRepair = getAdminSupabaseClient();
     await (adminRepair as any)
       .from('ai_providers')
       .update({
@@ -883,10 +872,7 @@ export async function testAiProviderConnectionWithVault(
   const errorMessage = testResult.success ? null : (testResult.message ?? testResult.error ?? null);
   log('[testVault] connectionStatus: ' + connectionStatus + ' provider.id: ' + provider.id);
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
-  const { createClient: createAdminClient } = require('@supabase/supabase-js') as any;
-  const adminSupabase = createAdminClient(supabaseUrl, supabaseServiceKey);
+  const adminSupabase = getAdminSupabaseClient();
 
   const { data: updateData, error: updateError } = await (adminSupabase as any)
     .from('ai_providers')

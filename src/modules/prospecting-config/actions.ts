@@ -26,11 +26,12 @@ import type {
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZHJ1b3d0YWR3YmR1bG5kbHBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODgzODY2NCwiZXhwIjoyMDk0NDE0NjY0fQ.0fnp65rmdJxklJvVkaWuA3J9dtBpf0Jg2zB2kSyyg0E';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 function getAdminSupabase() {
+  if (!supabaseServiceKey) {
+    throw new Error('enrichment_configuration_unavailable');
+  }
   return createAdminClient(supabaseUrl, supabaseServiceKey);
 }
 
