@@ -616,6 +616,20 @@ El `<DataTable>` implementa estas zonas visuales (de arriba a abajo):
 
 Filtros se almacenan como `string[]` en `column.filterValue` con `filterFn: 'arrIncludesSome'`.
 
+**Indicadores en el header clickable** (en `<DataTableColumnHeader>`):
+
+| Estado | Indicador |
+|---|---|
+| Sin sort ni filtro | `ChevronsUpDown` tenue (sólo en hover) |
+| Sort ascendente | `ArrowUp` sólido en `text-foreground` |
+| Sort descendente | `ArrowDown` sólido en `text-foreground` |
+| Filtro activo (cualquier valor en `column.filterValue`) | `ListFilter` sólido en `text-primary` (reemplaza el `ChevronsUpDown` por defecto) |
+| Columna pineada | `Pin` en `text-primary` |
+
+El `ListFilter` aparece aunque la columna no esté ordenada, de modo que el operador ve de un vistazo qué columnas están filtradas sin tener que abrir el popover.
+
+**Coexistencia row reorder + sort:** cuando `enableRowReorder` está activo y el usuario aún no ha hecho click en un sort header, el orden de filas es el que provee el padre (drag-and-drop). Al primer click en un sort header, TanStack toma el control (`manualSorting` pasa a `false`) y reordena la vista. Al limpiar el sort desde el popover (`Limpiar filtros`), el control vuelve al padre y reaparece el orden manual.
+
 #### 10.9.2 Column reordering (drag-and-drop)
 
 `<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` + `@dnd-kit/sortable`. Columnas en `pinnedColumnIds` (default `["select", "actions"]`) no son draggeables. Activado por defecto (`enableColumnReorder: true`).

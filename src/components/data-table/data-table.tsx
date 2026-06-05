@@ -263,9 +263,12 @@ export function DataTable<TData>({
   }, [columns, enableRowSelection, enableRowReorder]);
 
   // Row reorder implies manual order: the parent owns the data array and
-  // the table must not re-sort it. Sort headers are still rendered for
-  // visual consistency, but their state has no effect on the rendered order.
-  const effectiveManualSorting = manualSorting || enableRowReorder;
+  // the table must not re-sort it WHILE the user has not expressed an
+  // explicit sort preference. As soon as the user clicks a sort header we
+  // release control and let TanStack sort, so the column sort actually
+  // re-orders rows instead of only toggling the arrow icon.
+  const effectiveManualSorting =
+    manualSorting || (enableRowReorder && sorting.length === 0);
 
   // In lazy mode we slice the data the user can see; pagination is disabled
   // and a "Cargar más" button is shown instead. In pagination mode the

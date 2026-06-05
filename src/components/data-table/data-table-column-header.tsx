@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import type { Column } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Pin } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, ListFilter, Pin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ export function DataTableColumnHeader<TData, TValue>({
   const popoverTitle = meta.popoverTitle ?? title;
   const canSort = column.getCanSort() && !disableSort;
   const canFilter = column.getCanFilter() && !disableFilter;
+  const isFiltered = canFilter && column.getIsFiltered();
 
   if (noPopover || (!canSort && !canFilter && !onPin)) {
     return (
@@ -87,8 +88,15 @@ export function DataTableColumnHeader<TData, TValue>({
         {canSort && sorted === "desc" && (
           <ArrowDown className="h-3 w-3 text-foreground" strokeWidth={2.5} />
         )}
-        {canSort && sorted === false && (
+        {canSort && sorted === false && !isFiltered && (
           <ChevronsUpDown className="h-3 w-3 text-muted-foreground/60 group-hover:text-muted-foreground" />
+        )}
+        {isFiltered && (
+          <ListFilter
+            className="h-3 w-3 text-primary"
+            strokeWidth={2.5}
+            aria-label={`Filtros activos en ${popoverTitle}`}
+          />
         )}
         {pinned && (
           <Pin className="h-3 w-3 text-primary" strokeWidth={2.5} aria-label={`Fijada ${pinned === "left" ? "izquierda" : "derecha"}`} />
