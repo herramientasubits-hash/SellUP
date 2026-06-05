@@ -7,7 +7,6 @@ import {
   Loader2,
   Globe,
   Target,
-  Zap,
   AlertCircle,
   CheckCircle2,
   Database,
@@ -20,6 +19,7 @@ import {
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
+import { AIButton } from '@/components/ai/ai-button';
 import {
   Select,
   SelectTrigger,
@@ -276,14 +276,9 @@ export function GenerateAIBatchDrawer() {
       open={open}
       onOpenChange={(v) => !v && handleClose()}
       trigger={
-        <Button
-          onClick={() => setOpen(true)}
-          size="sm"
-          className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
-        >
-          <Sparkles className="h-3.5 w-3.5" />
+        <AIButton size="sm" onClick={() => setOpen(true)}>
           Generar con IA
-        </Button>
+        </AIButton>
       }
       title="Generar empresas candidatas con IA"
       description="El agente consulta las fuentes configuradas para el país y usa HubSpot para detectar duplicados."
@@ -454,20 +449,15 @@ export function GenerateAIBatchDrawer() {
                 >
                   Cancelar
                 </Button>
-                <Button
+                <AIButton
                   form="generate-ai-batch-form"
                   type="submit"
                   size="sm"
                   disabled={!canSubmit}
-                  className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300 disabled:opacity-40 disabled:pointer-events-none"
+                  loading={generating}
                 >
-                  {generating ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Zap className="h-3.5 w-3.5" />
-                  )}
                   {generating ? 'Generando…' : 'Generar con IA'}
-                </Button>
+                </AIButton>
               </div>
             </div>
           )}

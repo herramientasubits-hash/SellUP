@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Sparkles, Loader2, Globe, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
+import { AIButton } from '@/components/ai/ai-button';
 import {
   Select,
   SelectTrigger,
@@ -89,14 +90,9 @@ export function GenerateTavilyBatchDrawer() {
       open={open}
       onOpenChange={(v) => !v && handleClose()}
       trigger={
-        <Button
-          onClick={() => setOpen(true)}
-          size="sm"
-          className="gap-1.5 bg-su-brand text-white hover:bg-su-brand/90 transition-colors"
-        >
-          <Sparkles className="h-3.5 w-3.5" />
+        <AIButton size="sm" onClick={() => setOpen(true)}>
           Buscar empresas con IA
-        </Button>
+        </AIButton>
       }
       title="Buscar empresas con IA"
       description="SellUp buscará empresas en la web, evaluará los resultados con IA y dejará los mejores candidatos encontrados en revisión."
@@ -120,20 +116,15 @@ export function GenerateTavilyBatchDrawer() {
             >
               Cancelar
             </Button>
-            <Button
+            <AIButton
               form="generate-tavily-batch-form"
               type="submit"
               size="sm"
               disabled={!canSubmit}
-              className="gap-1.5 bg-su-brand text-white hover:bg-su-brand/90 disabled:opacity-40"
+              loading={generating}
             >
-              {generating ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
               {generating ? 'Buscando…' : 'Buscar empresas'}
-            </Button>
+            </AIButton>
           </div>
         </>
       }

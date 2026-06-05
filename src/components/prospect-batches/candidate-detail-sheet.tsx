@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { AIButton } from '@/components/ai/ai-button';
 import {
   Globe,
   Link2,
@@ -2116,16 +2117,17 @@ export function CandidateDetailSheet({
                         )}
                       </div>
 
-                      <Button
+                      <AIButton
                         onClick={handleEnrich}
                         variant="outline"
                         size="sm"
-                        className="w-full gap-1.5 hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                        loading={isEnriching}
+                        leftIcon={RefreshCw}
                         type="button"
+                        className="w-full"
                       >
-                        <RefreshCw className="h-3.5 w-3.5" />
                         Re-enriquecer candidato
-                      </Button>
+                      </AIButton>
                     </div>
                   );
                 }
@@ -2140,15 +2142,15 @@ export function CandidateDetailSheet({
                           <p className="text-[11px] text-muted-foreground">Este candidato tiene información inicial insuficiente para su revisión comercial.</p>
                         </div>
                       </div>
-                      <Button
+                      <AIButton
                         onClick={handleEnrich}
                         size="sm"
-                        className="w-full bg-su-brand text-white hover:bg-su-brand/90 gap-1.5 font-medium"
+                        loading={isEnriching}
                         type="button"
+                        className="w-full"
                       >
-                        <Sparkles className="h-3.5 w-3.5" />
                         Enriquecer candidato
-                      </Button>
+                      </AIButton>
                     </div>
                   );
                 }
