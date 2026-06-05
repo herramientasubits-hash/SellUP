@@ -102,12 +102,13 @@ export function DataTableBulkActionBar<TData>({
 
         {actions.map((action) => {
           const Icon = action.icon;
+          const isDisabled = action.loading || (action.disabled?.(selectedRows) ?? false);
           return (
             <button
               key={action.id}
               type="button"
               onClick={() => handleActionClick(action)}
-              disabled={action.loading}
+              disabled={isDisabled}
               className={cn(
                 "inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium",
                 "hover:bg-zinc-800 transition-colors",

@@ -62,6 +62,12 @@ export interface DataTableBulkAction<TData> {
   variant?: "default" | "destructive";
   onClick: (rows: TData[]) => void | Promise<void>;
   loading?: boolean;
+  /**
+   * Optional predicate evaluated with the currently selected rows. Return
+   * `true` to disable the button (e.g. "Ver detalle" only valid with exactly
+   * one selected row, "Abrir URLs" only when at least one row has a URL).
+   */
+  disabled?: (rows: TData[]) => boolean;
   confirm?: {
     title: string;
     description: (rows: TData[]) => string;

@@ -2,14 +2,8 @@
 
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Copy, Check, ExternalLink, ArrowRight } from 'lucide-react';
-import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
+import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
+import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem, type DataTableBulkAction } from '@/components/data-table';
 import type { SourceCatalogViewModel, SourceViewModel } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
 import type { SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
@@ -44,29 +38,6 @@ function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] 
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalStatusDotClass(status)}`} />
       {OPERATIONAL_STATUS_LABELS[status]}
     </span>
-  );
-}
-
-function CopyKeyButton({ sourceKey }: { sourceKey: string }) {
-  const [copied, setCopied] = React.useState(false);
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(sourceKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard not available
-    }
-  };
-  return (
-    <TooltipIconButton
-      variant="ghost"
-      icon={copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-      label={copied ? "Copiado" : "Copiar key"}
-      onClick={handleCopy}
-    />
   );
 }
 
@@ -297,58 +268,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           filterOptions: filters.sectors.map((s) => ({ label: s, value: s })),
         },
       },
-      {
-        id: 'actions',
-        header: () => (
-          <span className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
-            Acciones
-          </span>
-        ),
-        cell: ({ row }) => (
-          <div className="flex items-center gap-0.5 justify-end">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={() => openDetail(row.original)}
-                    aria-label={`Ver detalle de ${row.original.name}`}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                  >
-                    <ArrowRight className="h-3 w-3" />
-                  </button>
-                }
-              />
-              <TooltipContent side="left">Ver detalle</TooltipContent>
-            </Tooltip>
-            <CopyKeyButton sourceKey={row.original.key} />
-            {row.original.url && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <a
-                      href={row.original.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`Abrir URL de ${row.original.name}`}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  }
-                />
-                <TooltipContent side="left">Abrir URL</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        ),
-        enableSorting: false,
-        enableHiding: false,
-        size: 120,
-        meta: { label: 'Acciones' },
-      },
     ],
-    [filters, openDetail],
+    [filters],
   );
 
   const contextMenu = React.useMemo(
@@ -388,6 +309,44 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
     [openDetail],
   );
 
+  const bulkActions = React.useMemo<DataTableBulkAction<Row>[]>(
+    () => [
+      {
+        id: 'view-detail',
+        label: 'Ver detalle',
+        icon: ArrowRight,
+        // Only meaningful when exactly one row is selected.
+        disabled: (rows) => rows.length !== 1,
+        onClick: (rows) => openDetail(rows[0]),
+      },
+      {
+        id: 'copy-keys',
+        label: 'Copiar keys',
+        icon: Copy,
+        onClick: async (rows) => {
+          try {
+            await navigator.clipboard.writeText(rows.map((r) => r.key).join(', '));
+          } catch {
+            // clipboard not available
+          }
+        },
+      },
+      {
+        id: 'open-urls',
+        label: 'Abrir URLs',
+        icon: ExternalLink,
+        // Disabled when none of the selected rows has a URL.
+        disabled: (rows) => !rows.some((r) => r.url),
+        onClick: (rows) => {
+          rows.forEach((r) => {
+            if (r.url) window.open(r.url, '_blank', 'noopener,noreferrer');
+          });
+        },
+      },
+    ],
+    [openDetail],
+  );
+
   return (
     <>
       <DataTable
@@ -399,6 +358,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
         count={data.length}
         enableRowSelection
         contextMenu={contextMenu}
+        bulkActions={bulkActions}
         enableColumnReorder
         initialPageSize={20}
         fillHeight
