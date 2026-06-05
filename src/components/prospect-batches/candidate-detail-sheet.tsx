@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Info,
   FileSearch,
+  Copy,
 } from 'lucide-react';
 import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -40,6 +41,8 @@ import {
   type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
 import { evaluateCandidateEnrichmentNeed } from '@/server/prospect-batches/candidate-enrichment-eligibility';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 
 interface HubSpotSyncAudit {
   status: string;
@@ -267,6 +270,89 @@ function MissingText({ text }: { text: string }) {
   return <span className="text-muted-foreground/40 italic">{text}</span>;
 }
 
+function InfoTooltip({ content }: { content: string | React.ReactNode }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-help p-0.5 ml-1 inline-flex items-center align-middle shrink-0"
+            >
+              <Info className="h-3.5 w-3.5" />
+            </button>
+          }
+        />
+        <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+          {content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-5 px-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground ml-1.5 gap-1 shrink-0 inline-flex items-center"
+      onClick={handleCopy}
+      type="button"
+    >
+      {copied ? (
+        <span className="text-emerald-500 font-medium">¡Copiado!</span>
+      ) : (
+        <>
+          <Copy className="h-2.5 w-2.5" />
+          <span>Copiar</span>
+        </>
+      )}
+    </Button>
+  );
+}
+
+function classifyRisk(riskText: string): 'critical' | 'high' | 'medium' | 'low' {
+  const text = riskText.toLowerCase();
+  if (
+    text.includes('liquidación') ||
+    text.includes('liquidation') ||
+    text.includes('quiebra') ||
+    text.includes('inactivo') ||
+    text.includes('demanda') ||
+    text.includes('fraude') ||
+    text.includes('embargo')
+  ) {
+    return 'critical';
+  }
+  if (
+    text.includes('alto') ||
+    text.includes('high') ||
+    text.includes('conflicto') ||
+    text.includes('inconsistencia') ||
+    text.includes('deuda')
+  ) {
+    return 'high';
+  }
+  if (
+    text.includes('medio') ||
+    text.includes('medium') ||
+    text.includes('riesgo') ||
+    text.includes('advertencia') ||
+    text.includes('warning')
+  ) {
+    return 'medium';
+  }
+  return 'low';
+}
+
 function CollapsibleSection({
   title,
   children,
@@ -376,6 +462,10 @@ export function CandidateDetailSheet({
     confidence?: string;
   } | null>(null);
 
+  const [activeTab, setActiveTab] = React.useState<string>('resumen');
+  const [showAllNeeds, setShowAllNeeds] = React.useState(false);
+  const [showAllAngles, setShowAllAngles] = React.useState(false);
+
   // Rationale: resets transient UI state when the selected candidate changes.
   // Depends on a stable primitive (candidate.id); no cascading render risk.
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -390,6 +480,9 @@ export function CandidateDetailSheet({
     setIsApprovingTaxId(false);
     setApproveTaxIdError(null);
     setConfirmDialogData(null);
+    setActiveTab('resumen');
+    setShowAllNeeds(false);
+    setShowAllAngles(false);
   }, [candidate?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -547,6 +640,14 @@ export function CandidateDetailSheet({
   const aiSummary = (aiEval?.summary as string | undefined) ?? null;
   const evidenceUsed = (aiEval?.evidence_used as string[] | undefined) ?? [];
   const hasAiEval = fitStatus !== null || fitScore !== null || aiSummary !== null;
+
+  const sortedRisks = React.useMemo(() => {
+    if (!risks) return [];
+    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    return [...risks].sort((a, b) => {
+      return severityOrder[classifyRisk(a)] - severityOrder[classifyRisk(b)];
+    });
+  }, [risks]);
 
   // AI eval skip reason (16AK.16C)
   const aiEvalStatus = (aiEval?.status as string | undefined) ?? null;
@@ -733,129 +834,233 @@ export function CandidateDetailSheet({
       <DrawerShell
         open={open}
         onOpenChange={onOpenChange}
-      side="right"
-      className="w-full sm:w-[50vw] sm:min-w-[600px] sm:max-w-none"
-      icon={<Building2 className="h-4 w-4 text-muted-foreground" />}
-      title={candidate.name}
-      description={
-        <div className="flex items-center gap-2 flex-wrap">
-          {candidate.country_code && (
-            <span className="flex items-center gap-1">
-              <MapPin className="h-3 w-3" />
-              {candidate.country ?? candidate.country_code}
-            </span>
-          )}
-          {structuredSourceLabel ? (
-            <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 h-4">
-              <ShieldCheck className="h-2.5 w-2.5" />
-              {structuredSourceLabel}
-            </Badge>
-          ) : sourcePrimaryLabel ? (
-            <span className="text-[10px] text-muted-foreground/60">{sourcePrimaryLabel}</span>
-          ) : null}
-        </div>
-      }
-    >
-      <div className="space-y-5">
-          {/* limited_public_data banner */}
-          {flags.includes('limited_public_data') && (
-            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-600 dark:text-blue-400">
-              Datos comerciales públicos limitados. Puedes revisarlo con la información oficial disponible.
-            </div>
-          )}
+        side="right"
+        className="w-full md:w-[70vw] lg:w-[50vw] lg:min-w-[720px] lg:max-w-[960px]"
+        scrollable={false}
+        icon={<Building2 className="h-4 w-4 text-muted-foreground" />}
+        title={candidate.name}
+        description={
+          <div className="flex items-center gap-2 flex-wrap">
+            {candidate.country_code && (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3 w-3" />
+                {candidate.country ?? candidate.country_code}
+              </span>
+            )}
+            {structuredSourceLabel ? (
+              <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 h-4">
+                <ShieldCheck className="h-2.5 w-2.5" />
+                {structuredSourceLabel}
+              </Badge>
+            ) : sourcePrimaryLabel ? (
+              <span className="text-[10px] text-muted-foreground/60">{sourcePrimaryLabel}</span>
+            ) : null}
+          </div>
+        }
+      >
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <TabsList variant="line" className="shrink-0 border-b border-border/40 px-7 pb-px w-full justify-start gap-6 bg-transparent">
+            <TabsTrigger value="resumen" className="pb-3 rounded-none">Resumen</TabsTrigger>
+            <TabsTrigger value="empresa" className="pb-3 rounded-none">Empresa</TabsTrigger>
+            <TabsTrigger value="inteligencia" className="pb-3 rounded-none">Inteligencia</TabsTrigger>
+            <TabsTrigger value="validacion" className="pb-3 rounded-none">Validación</TabsTrigger>
+            <TabsTrigger value="tecnico" className="pb-3 rounded-none">Técnico</TabsTrigger>
+          </TabsList>
 
-          {/* NIT conflict warning (16AK.16C) */}
-          {hasNitConflict && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2">
-              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>NIT inconsistente detectado en evidencia web. Verificar datos antes de aprobar.</span>
-            </div>
-          )}
+          {/* Tab 1: Resumen */}
+          <TabsContent value="resumen" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+            {/* limited_public_data banner */}
+            {flags.includes('limited_public_data') && (
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-600 dark:text-blue-400">
+                Datos comerciales públicos limitados. Puedes revisarlo con la información oficial disponible.
+              </div>
+            )}
 
-          {/* A. Resumen */}
-          <div>
-            <SectionHeader>Resumen</SectionHeader>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                {isAutoValidated ? (
-                  <>
-                    <Badge
-                      className={`border-0 text-[10px] font-semibold ${
-                        hasDuplicateSignalInValidation
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                      }`}
-                    >
-                      {hasDuplicateSignalInValidation ? 'Posible duplicado' : 'Validado para revisión'}
-                    </Badge>
-                    <Badge className="border-0 text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                      Requiere revisión manual
-                    </Badge>
-                  </>
-                ) : (
-                  <>
-                    <Badge
-                      className={`border-0 text-[10px] font-semibold ${
-                        {
-                          generated: 'bg-muted text-muted-foreground',
-                          normalized: 'bg-muted text-muted-foreground',
-                          needs_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                          approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                          discarded: 'bg-muted/60 text-muted-foreground/60',
-                          duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-                          converted_to_account: 'bg-su-brand-soft text-su-brand',
-                        }[candidate.status]
-                      }`}
-                    >
-                      {CANDIDATE_STATUS_LABELS[candidate.status]}
-                    </Badge>
-                    {candidate.review_status && (
+            {/* NIT conflict warning */}
+            {hasNitConflict && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>NIT inconsistente detectado en evidencia web. Verificar datos antes de aprobar.</span>
+              </div>
+            )}
+
+            {/* Faltantes críticos en liquidación */}
+            {flags.includes('liquidation_signal') && (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive flex items-start gap-2">
+                <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>Esta empresa presenta una señal crítica de liquidación o cese de operaciones.</span>
+              </div>
+            )}
+
+            {/* Cards Grid de Resumen */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Card 1: Evaluación y Estado */}
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+                <div>
+                  <div className="flex items-center gap-1">
+                    <SectionHeader>Evaluación de Encaje</SectionHeader>
+                    <InfoTooltip content="Clasificación automática del nivel de encaje comercial de la empresa con UBITS." />
+                  </div>
+                  <div className="flex items-center gap-3 mt-1">
+                    {fitStatus ? (
                       <Badge
-                        className={`border-0 text-[10px] font-semibold ${
-                          REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
+                        className={`border-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                            : fitStatus === 'medium' || fitStatus === 'medium_fit'
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            : 'bg-muted text-muted-foreground'
                         }`}
                       >
-                        {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
+                        {FIT_STATUS_LABELS[fitStatus] ?? fitStatus.replace(/_/g, ' ')}
                       </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">Sin evaluación</span>
                     )}
-                  </>
-                )}
-                {typeof candidate.data_completeness_score === 'number' && (
-                  <span className="text-[10px] text-muted-foreground/60">
-                    Completitud: {candidate.data_completeness_score}%
-                  </span>
-                )}
-              </div>
-              {aiSummary && (
-                <p className="text-xs text-muted-foreground leading-relaxed">{aiSummary}</p>
-              )}
-            </div>
-          </div>
 
-          {/* Conversión — visible when candidate was converted to account */}
-          {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
-            <>
-              <Divider />
-              <div>
-                <SectionHeader>Empresa creada</SectionHeader>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft/30 px-3 py-2.5 space-y-1.5 flex flex-col justify-between">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <ArrowRightCircle className="h-3.5 w-3.5 text-su-brand shrink-0" />
-                        <span className="text-xs font-medium text-su-brand">Creada en SellUp</span>
+                    {fitScore !== null && (
+                      <span
+                        className={`text-sm font-semibold tabular-nums ${
+                          fitScore >= 75
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : fitScore >= 50
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-muted-foreground'
+                        }`}
+                      >
+                        {fitScore.toFixed(0)} / 100
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-border/20">
+                  <div className="flex items-center gap-1">
+                    <SectionHeader>Estado en SellUp</SectionHeader>
+                    <InfoTooltip content="Estado del prospecto en la plataforma y el flujo de revisión." />
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    {isAutoValidated ? (
+                      <>
+                        <Badge
+                          className={`border-0 text-[10px] font-semibold ${
+                            hasDuplicateSignalInValidation
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          {hasDuplicateSignalInValidation ? 'Posible duplicado' : 'Validado para revisión'}
+                        </Badge>
+                        <Badge className="border-0 text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                          Revisión manual
+                        </Badge>
+                      </>
+                    ) : (
+                      <>
+                        <Badge
+                          className={`border-0 text-[10px] font-semibold ${
+                            {
+                              generated: 'bg-muted text-muted-foreground',
+                              normalized: 'bg-muted text-muted-foreground',
+                              needs_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                              approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                              discarded: 'bg-muted/60 text-muted-foreground/60',
+                              duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                              converted_to_account: 'bg-su-brand-soft text-su-brand',
+                            }[candidate.status]
+                          }`}
+                        >
+                          {CANDIDATE_STATUS_LABELS[candidate.status]}
+                        </Badge>
+                        {candidate.review_status && (
+                          <Badge
+                            className={`border-0 text-[10px] font-semibold ${
+                              REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
+                          </Badge>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2: Resumen del Negocio / Completitud */}
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+                <div>
+                  <div className="flex items-center gap-1">
+                    <SectionHeader>Completitud de Datos</SectionHeader>
+                    <InfoTooltip content="Puntaje de completitud de datos esenciales de contacto y negocio." />
+                  </div>
+                  {typeof candidate.data_completeness_score === 'number' && (
+                    <div className="space-y-1.5 mt-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Completitud:</span>
+                        <span className="font-semibold text-foreground">{candidate.data_completeness_score}%</span>
                       </div>
-                      <p className="text-[10px] text-muted-foreground/70 font-mono break-all">
-                        ID: {candidate.converted_account_id}
-                      </p>
+                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-su-brand rounded-full transition-all duration-300"
+                          style={{ width: candidate.data_completeness_score + '%' }}
+                        />
+                      </div>
                     </div>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-border/20">
+                  <SectionHeader>Actividad y CIIU</SectionHeader>
+                  <FieldGrid>
+                    {ciiu && <Field label="Código CIIU" value={ciiu} mono />}
+                    <Field
+                      label="Industria"
+                      value={
+                        isChileOfficialCandidate ? (
+                          <span className="text-xs text-muted-foreground/60 italic">
+                            No disponible
+                          </span>
+                        ) : (
+                          val(sectorDescription ?? candidate.industry, 'Sin sector')
+                        )
+                      }
+                    />
+                  </FieldGrid>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Summary Section */}
+            {aiSummary && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-2">
+                <SectionHeader>Resumen del Negocio (IA)</SectionHeader>
+                <p className="text-xs text-muted-foreground leading-relaxed italic">
+                  &ldquo;{isChileOfficialCandidate ? sanitizeTextForChile(aiSummary) : aiSummary}&rdquo;
+                </p>
+              </div>
+            )}
+
+            {/* Conversión y HubSpot Sync */}
+            {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <SectionHeader>Conversión a Cuenta</SectionHeader>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft/30 px-3 py-2.5 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <ArrowRightCircle className="h-3.5 w-3.5 text-su-brand shrink-0" />
+                      <span className="text-xs font-semibold text-su-brand">Creada en SellUp</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/70 font-mono break-all pt-1">
+                      ID Cuenta: {candidate.converted_account_id}
+                    </p>
                   </div>
 
                   {(() => {
                     const hsSync = candidate.metadata?.hubspot_sync as HubSpotSyncAudit | undefined;
                     if (!hsSync) return null;
 
-                    const statusStyles: Record<string, string> = {
+                    const statusStyles = {
                       synced: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
                       blocked_duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
                       blocked_inactive_or_liquidation: 'bg-destructive/10 text-destructive border-destructive/20',
@@ -865,707 +1070,596 @@ export function CandidateDetailSheet({
                       failed_create: 'bg-destructive/10 text-destructive border-destructive/20',
                     };
 
-                    const statusLabels: Record<string, string> = {
+                    const statusLabels = {
                       synced: 'Sincronizado',
                       blocked_duplicate: 'Bloqueado (Duplicado)',
-                      blocked_inactive_or_liquidation: 'Bloqueado (Inactivo/Liquidación)',
-                      skipped_flag_off: 'Omitido (Feature Flag Off)',
+                      blocked_inactive_or_liquidation: 'Bloqueado (Inactivo)',
+                      skipped_flag_off: 'Omitido (Feature Flag)',
                       skipped_rollback: 'Omitido (Rollback)',
-                      failed_lookup: 'Fallo de búsqueda',
-                      failed_create: 'Fallo de creación',
+                      failed_lookup: 'Fallo búsqueda',
+                      failed_create: 'Fallo creación',
                     };
 
-                    const style = statusStyles[hsSync.status] ?? 'bg-muted text-muted-foreground border-transparent';
-                    const label = statusLabels[hsSync.status] ?? hsSync.status;
+                    const style = statusStyles[hsSync.status] || 'bg-muted text-muted-foreground border-transparent';
+                    const label = statusLabels[hsSync.status] || hsSync.status;
 
                     return (
-                      <div className="rounded-lg border border-border/40 bg-card p-3 space-y-2 flex flex-col justify-between">
-                        <div className="space-y-2">
+                      <div className="rounded-lg border border-border/40 bg-card px-3 py-2.5 space-y-1 flex flex-col justify-between">
+                        <div className="space-y-1.5">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                               HubSpot Sync
                             </span>
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold transition-colors ${style}`}>
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold ${style}`}>
                               {label}
                             </span>
                           </div>
 
                           {hsSync.status === 'synced' && hsSync.company_id && (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
+                            <div className="space-y-1 text-xs pt-1">
+                              <div className="flex items-center justify-between">
                                 <span className="text-muted-foreground">ID HubSpot:</span>
                                 <span className="font-mono font-medium text-foreground">{hsSync.company_id}</span>
                               </div>
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Owner asignado:</span>
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">Owner:</span>
                                 <span className="font-medium text-foreground text-[10px]">
-                                  {hsSync.owner_assigned === true || hsSync.owner_mapping_status === 'mapped'
-                                    ? `Asignado (${hsSync.owner_email || hsSync.owner_id || 'Mapeado'})`
-                                    : 'No asignado'}
+                                  {hsSync.owner_assigned || hsSync.owner_mapping_status === 'mapped' ? 'Asignado' : 'No asignado'}
                                 </span>
                               </div>
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Account Executive:</span>
-                                <span className="font-medium text-foreground text-[10px]">
-                                  {hsSync.account_executive_assigned === true
-                                    ? `Asignado (${hsSync.account_executive_value || 'Mapeado'})`
-                                    : 'No asignado'}
-                                </span>
-                              </div>
-                              {(() => {
-                                const linkedinProp = hsSync.properties_sent && Object.keys(hsSync.properties_sent).find(k => k.includes('linkedin'));
-                                return (
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted-foreground">LinkedIn enviado:</span>
-                                    <span className="font-medium text-foreground text-[10px]">
-                                      {linkedinProp ? `Sí (${linkedinProp})` : 'No'}
-                                    </span>
-                                  </div>
-                                );
-                              })()}
-                              {hsSync.lifecyclestage_sent && (
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-muted-foreground">Lifecycle Stage:</span>
-                                  <span className="font-medium text-foreground text-[10px]">
-                                    {hsSync.lifecyclestage_sent}
-                                  </span>
-                                </div>
-                              )}
-                              {hsSync.warnings && hsSync.warnings.length > 0 && (
-                                <div className="pt-1 border-t border-border/20 mt-1">
-                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold uppercase">Advertencias:</p>
-                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-mono">
-                                    {hsSync.warnings.join(', ')}
-                                  </p>
-                                </div>
-                              )}
-                              {hsSync.properties_sent && Object.keys(hsSync.properties_sent).length > 0 && (
-                                <div className="pt-1 border-t border-border/20 mt-1">
-                                  <p className="text-[9px] text-muted-foreground/60 uppercase">Campos Enviados:</p>
-                                  <p className="text-[9px] text-muted-foreground/50 font-mono line-clamp-3 overflow-y-auto max-h-[80px]">
-                                    {Object.keys(hsSync.properties_sent).join(', ')}
-                                  </p>
-                                </div>
-                              )}
-                              {((hsSync.properties_skipped && hsSync.properties_skipped.length > 0) || (hsSync.skipped_properties && hsSync.skipped_properties.length > 0)) && (
-                                <div className="pt-1 border-t border-border/20 mt-1">
-                                  <p className="text-[9px] text-muted-foreground/60 uppercase">Campos Omitidos:</p>
-                                  <p className="text-[9px] text-muted-foreground/50 font-mono line-clamp-2 overflow-y-auto max-h-[50px]">
-                                    {((hsSync.properties_skipped && hsSync.properties_skipped.length > 0) ? hsSync.properties_skipped : hsSync.skipped_properties)!.join(', ')}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {hsSync.status !== 'synced' && (
-                            <div className="space-y-1 text-xs">
-                              {hsSync.blocked_reason && (
-                                <p className="text-muted-foreground italic leading-relaxed text-[11px]">
-                                  Motivo: {hsSync.blocked_reason}
-                                </p>
-                              )}
-                              {hsSync.warnings && hsSync.warnings.length > 0 && (
-                                <div className="pt-1 border-t border-border/20 mt-1">
-                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold uppercase">Advertencias:</p>
-                                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-mono">
-                                    {hsSync.warnings.join(', ')}
-                                  </p>
-                                </div>
-                              )}
-                              {hsSync.skipped_properties && hsSync.skipped_properties.length > 0 && (
-                                <div className="pt-1 border-t border-border/20 mt-1">
-                                  <p className="text-[9px] text-muted-foreground/60 uppercase">Campos Omitidos:</p>
-                                  <p className="text-[9px] text-muted-foreground/50 font-mono">
-                                    {hsSync.skipped_properties.join(', ')}
-                                  </p>
-                                </div>
-                              )}
                             </div>
                           )}
                         </div>
-
-                        {hsSync.synced_at && (
-                          <p className="text-[9px] text-muted-foreground/50 text-right mt-1">
-                            Sincronizado: {new Date(hsSync.synced_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        )}
                       </div>
                     );
                   })()}
                 </div>
               </div>
-            </>
-          )}
+            )}
+          </TabsContent>
 
-          <Divider />
-
-          {/* B. Datos oficiales / legales */}
-          <div>
-            <SectionHeader>Datos oficiales / legales</SectionHeader>
-            {isChileOfficialCandidate ? (
-              <FieldGrid>
-                <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
-                <Field
-                  label="RUT"
-                  value={candidate.tax_identifier ? (
-                    <span className="font-mono">{candidate.tax_identifier}</span>
-                  ) : (
-                    <MissingText text="Sin dato" />
-                  )}
-                />
-                <Field
-                  label="País"
-                  value={
-                    candidate.country_code ? (
-                      <span className="flex items-center gap-1">
-                        {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
-                      </span>
-                    ) : (
-                      <MissingText text="Sin dato" />
-                    )
-                  }
-                />
-                <Field
-                  label="Ciudad / Región"
-                  value={val(
-                    [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
-                    'Sin dato'
-                  )}
-                />
-                {chileCompanyType && (
-                  <Field label="Tipo societario" value={chileCompanyType} />
-                )}
-                {chileIncorporationDate && (
+          {/* Tab 2: Empresa */}
+          <TabsContent value="empresa" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+            {/* Datos Oficiales y Legales */}
+            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+              <SectionHeader>Datos Oficiales y Legales</SectionHeader>
+              {isChileOfficialCandidate ? (
+                <FieldGrid>
+                  <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
+                  <div className="space-y-0.5 min-w-0">
+                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">RUT</p>
+                    <div className="text-xs text-foreground/90 font-mono leading-snug flex items-center">
+                      {candidate.tax_identifier ? (
+                        <>
+                          <span>{candidate.tax_identifier}</span>
+                          <CopyButton value={candidate.tax_identifier} />
+                        </>
+                      ) : (
+                        <MissingText text="Sin dato" />
+                      )}
+                    </div>
+                  </div>
                   <Field
-                    label="Fecha de constitución"
-                    value={new Date(chileIncorporationDate).toLocaleDateString('es-CL', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  />
-                )}
-                {chileCapital !== null && chileCapital !== undefined && (
-                  <Field
-                    label="Capital CLP"
+                    label="País"
                     value={
-                      <span className="font-mono">
-                        ${chileCapital.toLocaleString('es-CL')} {chileCapitalCurrency}
-                      </span>
+                      candidate.country_code ? (
+                        <span className="flex items-center gap-1">
+                          {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
+                        </span>
+                      ) : (
+                        <MissingText text="Sin dato" />
+                      )
                     }
                   />
-                )}
-                <Field label="Fuente oficial" value="Fuente oficial Chile" />
-              </FieldGrid>
-            ) : (
-              <>
-              <FieldGrid>
-                <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
-                <Field
-                  label={candidate.tax_identifier_type ?? 'Identificador fiscal'}
-                  value={candidate.tax_identifier ? (
-                    <span className="font-mono">{candidate.tax_identifier}</span>
-                  ) : (
-                    <MissingText text="Sin dato" />
+                  <Field
+                    label="Ciudad / Región"
+                    value={val(
+                      [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
+                      'Sin dato'
+                    )}
+                  />
+                  {chileCompanyType && (
+                    <Field label="Tipo societario" value={chileCompanyType} />
                   )}
-                />
-                <Field
-                  label="País"
-                  value={
-                    candidate.country_code ? (
-                      <span className="flex items-center gap-1">
-                        {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
-                      </span>
-                    ) : (
-                      <MissingText text="Sin dato" />
-                    )
-                  }
-                />
-                <Field
-                  label="Ciudad / Región"
-                  value={val(
-                    [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
-                    'Sin dato'
+                  {chileIncorporationDate && (
+                    <Field
+                      label="Fecha de constitución"
+                      value={new Date(chileIncorporationDate).toLocaleDateString('es-CL', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    />
                   )}
-                />
-                {ciiu && <Field label="CIIU / Código sector" value={ciiu} mono />}
-                <Field
-                  label="Actividad económica"
-                  value={
-                    isChileOfficialCandidate ? (
-                      <span className="text-xs text-muted-foreground/60 italic">
-                        Sector no disponible en fuente oficial
-                      </span>
-                    ) : (
-                      val(sectorDescription, 'Sin sector')
-                    )
-                  }
-                />
-                {structuredSourceLabel && (
-                  <Field label="Fuente oficial" value={structuredSourceLabel} />
-                )}
-              </FieldGrid>
-
-              {/* Sugerencia de NIT y Búsqueda (16TX.4B) */}
-              {!candidate.tax_identifier && (() => {
-                const isCO = candidate.country_code?.toUpperCase() === 'CO';
-                const lookupStatus = taxIdLookup?.status;
-                const hasBestCandidate = !!taxIdLookup?.best_candidate;
-
-                // Caso A — best_candidate existe
-                if (hasBestCandidate && taxIdLookup?.best_candidate) {
-                  return (
-                    <div className="mt-3 space-y-3">
-                      {/* Warning secundario de NIT faltante */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className="border-0 bg-amber-500/5 text-amber-600/70 dark:text-amber-400/70 text-[9px] font-medium flex items-center gap-1">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          {isCO ? 'NIT faltante (Sugerencia disponible)' : 'Identificador fiscal faltante'}
-                        </Badge>
-                      </div>
-
-                      {/* Tarjeta de NIT sugerido */}
-                      <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="space-y-0.5">
-                            <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
-                              NIT sugerido para revisión
-                            </p>
-                            <p className="font-mono text-sm font-bold text-foreground">
-                              {taxIdLookup.best_candidate.tax_identifier}
-                            </p>
-                            {taxIdLookup.best_candidate.legal_name && (
-                              <p className="text-xs text-muted-foreground">
-                                Razón social: {taxIdLookup.best_candidate.legal_name}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1.5 shrink-0">
-                            <Badge className={`border-0 text-[9px] font-semibold ${
-                              taxIdLookup.best_candidate.confidence === 'high'
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                            }`}>
-                              {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
-                            </Badge>
-                            {isCandidateNitMatched && (
-                              <Badge className="border-0 bg-su-brand/10 text-su-brand text-[9px] font-semibold">
-                                Usado como señal de duplicidad
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
-                          <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
-                            <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
-                            {taxIdLookup.best_candidate.source_url && (
-                              <a
-                                href={taxIdLookup.best_candidate.source_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5"
-                              >
-                                (Ver fuente)
-                              </a>
-                            )}
-                          </div>
-                          <Button
-                            onClick={() =>
-                              setConfirmDialogData({
-                                taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
-                                sourceName: taxIdLookup.best_candidate!.source_name,
-                                sourceUrl: taxIdLookup.best_candidate!.source_url,
-                                legalName: taxIdLookup.best_candidate!.legal_name,
-                                confidence: taxIdLookup.best_candidate!.confidence,
-                              })
-                            }
-                            size="sm"
-                            className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
-                          >
-                            Usar este NIT
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Caso B — lookup status no_result
-                if (lookupStatus === 'no_result') {
-                  return (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                        </Badge>
-                      </div>
-
-                      {isLookingUpTaxId ? (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Buscando...
-                        </div>
-                      ) : (
-                        <Button
-                          onClick={handleLookupTaxIdentifier}
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                        >
-                          <FileSearch className="h-3.5 w-3.5" />
-                          Buscar identificador fiscal
-                        </Button>
-                      )}
-
-                      <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                        No se encontró NIT en fuentes disponibles.
+                  {chileCapital !== null && chileCapital !== undefined && (
+                    <Field
+                      label="Capital CLP"
+                      value={
+                        <span className="font-mono">
+                          ${chileCapital.toLocaleString('es-CL')} {chileCapitalCurrency}
+                        </span>
+                      }
+                    />
+                  )}
+                  <Field label="Fuente oficial" value="Fuente oficial Chile" />
+                </FieldGrid>
+              ) : (
+                <>
+                  <FieldGrid>
+                    <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                        {candidate.tax_identifier_type ?? 'Identificador fiscal'}
                       </p>
-
-                      {taxIdLookupError && (
-                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                      )}
+                      <div className="text-xs text-foreground/90 font-mono leading-snug flex items-center">
+                        {candidate.tax_identifier ? (
+                          <>
+                            <span>{candidate.tax_identifier}</span>
+                            <CopyButton value={candidate.tax_identifier} />
+                          </>
+                        ) : (
+                          <MissingText text="Sin dato" />
+                        )}
+                      </div>
                     </div>
-                  );
-                }
-
-                // Caso C — lookup failed
-                if (lookupStatus === 'failed') {
-                  return (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                        </Badge>
-                      </div>
-
-                      {isLookingUpTaxId ? (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Buscando...
-                        </div>
-                      ) : (
-                        <Button
-                          onClick={handleLookupTaxIdentifier}
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30 text-destructive border-destructive/20 hover:bg-destructive/5"
-                        >
-                          <FileSearch className="h-3.5 w-3.5" />
-                          Reintentar búsqueda de identificador fiscal
-                        </Button>
-                      )}
-
-                      <div className="space-y-1">
-                        <p className="text-xs text-destructive/80 italic leading-relaxed">
-                          Fallo de búsqueda: {taxIdLookup?.error || 'Error técnico desconocido.'}
-                        </p>
-                      </div>
-
-                      {taxIdLookupError && (
-                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                      )}
-                    </div>
-                  );
-                }
-
-                // Caso E — lookup completed pero no hay best_candidate (por ejemplo, name match weak)
-                if (lookupStatus === 'completed' && !hasBestCandidate && taxIdLookup) {
-                  const skipReasonLabels: Record<string, string> = {
-                    no_high_confidence_candidate: 'Sin candidato con confianza suficiente.',
-                    nit_check_digit_invalid: 'Dígito de verificación incorrecto en los candidatos encontrados.',
-                    name_match_too_weak: 'La coincidencia de nombre es demasiado débil.',
-                    critical_risk_present: 'Se detectaron riesgos críticos en los candidatos encontrados.',
-                    no_candidates: 'No se encontraron candidatos.',
-                  };
-                  const reasonLabel = taxIdLookup.best_candidate_skip_reason
-                    ? (skipReasonLabels[taxIdLookup.best_candidate_skip_reason] ?? taxIdLookup.best_candidate_skip_reason)
-                    : 'No cumple las reglas de seguridad de coincidencia.';
-
-                  return (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                        </Badge>
-                      </div>
-
-                      {isLookingUpTaxId ? (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Buscando...
-                        </div>
-                      ) : (
-                        <Button
-                          onClick={handleLookupTaxIdentifier}
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                        >
-                          <FileSearch className="h-3.5 w-3.5" />
-                          Buscar identificador fiscal
-                        </Button>
-                      )}
-
-                      <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                        No se sugirió ningún NIT automático de forma segura. Motivo: {reasonLabel}
-                      </p>
-
-                      {taxIdLookupError && (
-                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                      )}
-                    </div>
-                  );
-                }
-
-                // Caso D — no metadata (nunca corrió el lookup)
-                return (
-                  <div className="mt-3 space-y-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                        <AlertTriangle className="h-2.5 w-2.5" />
-                        {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                      </Badge>
-                    </div>
-
-                    {isLookingUpTaxId ? (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Buscando...
-                      </div>
-                    ) : (
-                      <Button
-                        onClick={handleLookupTaxIdentifier}
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                      >
-                        <FileSearch className="h-3.5 w-3.5" />
-                        Buscar identificador fiscal
-                      </Button>
-                    )}
-
-                    {taxIdLookupError && (
-                      <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Resultados de la búsqueda y trazabilidad (disponibles si hay lookup) */}
-              {taxIdLookup && (
-                <div className="mt-3 space-y-2">
-                  {approveTaxIdError && (
-                    <p className="text-xs text-destructive">{approveTaxIdError}</p>
-                  )}
-
-                  {!taxIdLookupError &&
-                    taxIdLookup.status === 'no_result' &&
-                    taxIdLookup.candidates.length === 0 && (
-                      <div className="space-y-1">
-                        {(() => {
-                          const isCO = candidate.country_code?.toUpperCase() === 'CO';
-                          if (!isCO) {
-                            return (
-                              <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                                No se encontró identificador fiscal con las fuentes disponibles.
-                              </p>
-                            );
-                          }
-
-                          const hasConfigWarning = taxIdLookup.warnings?.some(
-                            (w) => w.includes('no configurada') || w.includes('No hay fuente')
-                          );
-                          const hasTechWarning = taxIdLookup.warnings?.some(
-                            (w) => w.includes('no disponible')
-                          ) || !!taxIdLookup.error;
-                          const hasNoNitWarning = taxIdLookup.warnings?.some(
-                            (w) => w.includes('no expone')
-                          );
-
-                          if (hasConfigWarning) {
-                            return (
-                              <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                                No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.
-                              </p>
-                            );
-                          }
-
-                          if (hasTechWarning) {
-                            return (
-                              <div className="space-y-1">
-                                <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
-                                  No fue posible consultar la fuente oficial Colombia en este momento.
-                                </p>
-                                {taxIdLookup.error && (
-                                  <details className="text-[10px] text-muted-foreground/50 cursor-pointer">
-                                    <summary className="hover:text-muted-foreground transition-colors select-none font-medium">
-                                      Detalles técnicos
-                                    </summary>
-                                    <pre className="mt-1 font-mono bg-muted/40 p-1.5 rounded-md overflow-x-auto text-[9px] border border-border/20 max-w-full whitespace-pre-wrap break-all">
-                                      {taxIdLookup.error}
-                                    </pre>
-                                  </details>
-                                )}
-                              </div>
-                            );
-                          }
-
-                          if (hasNoNitWarning) {
-                            return (
-                              <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
-                                La fuente oficial consultada no expone identificador fiscal en los datos disponibles.
-                              </p>
-                            );
-                          }
-
-                          return (
-                            <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                              No encontramos un NIT confirmado en datos internos, HubSpot ni fuente oficial Colombia.
-                            </p>
-                          );
-                        })()}
-                      </div>
-                    )}
-
-                  {taxIdLookup.warnings && taxIdLookup.warnings.length > 0 && (
-                    <div className="space-y-0.5">
-                      {taxIdLookup.warnings
-                        .filter(
-                          (w) =>
-                            !(
-                              candidate.country_code?.toUpperCase() === 'CO' &&
-                              (w.includes('no configurada') ||
-                                w.includes('No hay fuente') ||
-                                w.includes('no disponible') ||
-                                w.includes('no expone') ||
-                                w.includes('sin resultados'))
-                            )
+                    <Field
+                      label="País"
+                      value={
+                        candidate.country_code ? (
+                          <span className="flex items-center gap-1">
+                            {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
+                          </span>
+                        ) : (
+                          <MissingText text="Sin dato" />
                         )
-                        .map((w, i) => (
-                          <p key={i} className="text-[10px] text-muted-foreground/60 italic">
-                            {w}
-                          </p>
-                        ))}
-                      {/* Caso consultado sin resultados - detalle en gris itálica */}
-                      {candidate.country_code?.toUpperCase() === 'CO' &&
-                        taxIdLookup.candidates.length === 0 &&
-                        taxIdLookup.warnings.some((w) => w.includes('sin resultados')) && (
-                          <p className="text-[10px] text-muted-foreground/60 italic">
-                            Fuente oficial Colombia consultada sin resultados.
-                          </p>
-                        )}
-                    </div>
+                      }
+                    />
+                    <Field
+                      label="Ciudad / Región"
+                      value={val(
+                        [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
+                        'Sin dato'
+                    )}
+                  />
+                  {ciiu && <Field label="CIIU / Código sector" value={ciiu} mono />}
+                  {structuredSourceLabel && (
+                    <Field label="Fuente oficial" value={structuredSourceLabel} />
                   )}
+                </FieldGrid>
 
-                  {taxIdLookup.candidates.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex flex-col gap-0.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                          {candidate.country_code?.toUpperCase() === 'CO'
-                            ? 'Posibles NIT encontrados'
-                            : 'Posibles identificadores encontrados'}
-                        </p>
-                        {candidate.country_code?.toUpperCase() === 'CO' && (
-                          <p className="text-[10px] text-muted-foreground/60 italic">
-                            Fuente oficial Colombia consultada
-                          </p>
-                        )}
-                      </div>
-                      {taxIdLookup.candidates.map((c, i) => {
-                        const isApprovedCandidate =
-                          candidate.tax_identifier &&
-                          (candidate.tax_identifier === c.normalized_tax_identifier ||
-                            candidate.tax_identifier === c.tax_identifier);
+                {/* Sugerencia de NIT y Búsqueda */}
+                {!candidate.tax_identifier && (() => {
+                  const isCO = candidate.country_code?.toUpperCase() === 'CO';
+                  const lookupStatus = taxIdLookup?.status;
+                  const hasBestCandidate = !!taxIdLookup?.best_candidate;
 
-                        return (
-                          <div
-                            key={i}
-                            className={`rounded-xl border p-3 space-y-1.5 ${
-                              isApprovedCandidate
-                                ? 'border-emerald-500/30 bg-emerald-500/5'
-                                : 'border-amber-500/20 bg-amber-500/5'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="font-mono text-xs font-semibold text-foreground">
-                                {c.tax_identifier}
-                              </span>
-                              <div className="flex items-center gap-1.5">
-                                <Badge
-                                  className={`border-0 text-[9px] font-semibold shrink-0 ${
-                                    c.confidence === 'high'
-                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                      : c.confidence === 'medium'
-                                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                      : 'bg-muted text-muted-foreground'
-                                  }`}
-                                >
-                                  {c.confidence === 'high'
-                                    ? 'Alta confianza'
-                                    : c.confidence === 'medium'
-                                    ? 'Confianza media'
-                                    : 'Baja confianza'}
-                                </Badge>
-                                {isApprovedCandidate && (
-                                  <Badge className="border-0 bg-emerald-500 text-white dark:bg-emerald-600 text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5">
-                                    <CheckCircle2 className="h-2.5 w-2.5" />
-                                    Seleccionado
-                                  </Badge>
-                                )}
-                              </div>
+                  if (hasBestCandidate && taxIdLookup?.best_candidate) {
+                    return (
+                      <div className="mt-3 border-t border-border/20 pt-3 space-y-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="border-0 bg-amber-500/5 text-amber-600/70 dark:text-amber-400/70 text-[9px] font-medium flex items-center gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {isCO ? 'NIT sugerido disponible' : 'Identificador sugerido disponible'}
+                          </Badge>
+                        </div>
+
+                        <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
+                                NIT sugerido para revisión
+                              </p>
+                              <p className="font-mono text-sm font-bold text-foreground">
+                                {taxIdLookup.best_candidate.tax_identifier}
+                              </p>
+                              {taxIdLookup.best_candidate.legal_name && (
+                                <p className="text-xs text-muted-foreground">
+                                  Razón social: {taxIdLookup.best_candidate.legal_name}
+                                </p>
+                              )}
                             </div>
-                            {c.legal_name && (
-                              <p className="text-xs text-muted-foreground">{c.legal_name}</p>
-                            )}
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[10px] text-muted-foreground/60">
-                                {c.source_name}
-                              </span>
-                              {c.source_url && (
+                            <div className="flex flex-col items-end gap-1.5 shrink-0">
+                              <Badge className={`border-0 text-[9px] font-semibold ${
+                                taxIdLookup.best_candidate.confidence === 'high'
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              }`}>
+                                {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
+                              </Badge>
+                              {isCandidateNitMatched && (
+                                <Badge className="border-0 bg-su-brand/10 text-su-brand text-[9px] font-semibold">
+                                  Usado como señal
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
+                            <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
+                              <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
+                              {taxIdLookup.best_candidate.source_url && (
                                 <a
-                                  href={c.source_url}
+                                  href={taxIdLookup.best_candidate.source_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-[10px] text-su-brand hover:underline flex items-center gap-0.5"
+                                  className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5"
                                 >
-                                  <Link2 className="h-2.5 w-2.5" />
-                                  Ver fuente
+                                  (Ver fuente)
                                 </a>
                               )}
                             </div>
-                            {c.evidence_text && (
-                              <p className="text-[10px] text-muted-foreground/60 italic line-clamp-2">
-                                {c.evidence_text}
+                            <Button
+                              onClick={() =>
+                                setConfirmDialogData({
+                                  taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
+                                  sourceName: taxIdLookup.best_candidate!.source_name,
+                                  sourceUrl: taxIdLookup.best_candidate!.source_url,
+                                  legalName: taxIdLookup.best_candidate!.legal_name,
+                                  confidence: taxIdLookup.best_candidate!.confidence,
+                                })
+                              }
+                              size="sm"
+                              className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
+                              type="button"
+                            >
+                              Usar este NIT
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (lookupStatus === 'no_result') {
+                    return (
+                      <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                          </Badge>
+                        </div>
+                        {isLookingUpTaxId ? (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Buscando...
+                          </div>
+                        ) : (
+                          <Button
+                            onClick={handleLookupTaxIdentifier}
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                            type="button"
+                          >
+                            <FileSearch className="h-3.5 w-3.5" />
+                            Buscar identificador fiscal
+                          </Button>
+                        )}
+                        <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                          No se encontró NIT en fuentes disponibles.
+                        </p>
+                        {taxIdLookupError && (
+                          <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (lookupStatus === 'failed') {
+                    return (
+                      <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                          </Badge>
+                        </div>
+                        {isLookingUpTaxId ? (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Buscando...
+                          </div>
+                        ) : (
+                          <Button
+                            onClick={handleLookupTaxIdentifier}
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30 text-destructive border-destructive/20 hover:bg-destructive/5"
+                            type="button"
+                          >
+                            <FileSearch className="h-3.5 w-3.5" />
+                            Reintentar búsqueda de identificador fiscal
+                          </Button>
+                        )}
+                        <p className="text-xs text-destructive/80 italic leading-relaxed">
+                          Fallo de búsqueda: {taxIdLookup?.error || 'Error técnico desconocido.'}
+                        </p>
+                        {taxIdLookupError && (
+                          <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (lookupStatus === 'completed' && !hasBestCandidate && taxIdLookup) {
+                    const skipReasonLabels = {
+                      no_high_confidence_candidate: 'Sin candidato con confianza suficiente.',
+                      nit_check_digit_invalid: 'Dígito de verificación incorrecto en los candidatos encontrados.',
+                      name_match_too_weak: 'La coincidencia de nombre es demasiado débil.',
+                      critical_risk_present: 'Se detectaron riesgos críticos en los candidatos encontrados.',
+                      no_candidates: 'No se encontraron candidatos.',
+                    };
+                    const reasonLabel = taxIdLookup.best_candidate_skip_reason
+                      ? (skipReasonLabels[taxIdLookup.best_candidate_skip_reason] || taxIdLookup.best_candidate_skip_reason)
+                      : 'No cumple las reglas de seguridad de coincidencia.';
+
+                    return (
+                      <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                          </Badge>
+                        </div>
+                        {isLookingUpTaxId ? (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Buscando...
+                          </div>
+                        ) : (
+                          <Button
+                            onClick={handleLookupTaxIdentifier}
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                            type="button"
+                          >
+                            <FileSearch className="h-3.5 w-3.5" />
+                            Buscar identificador fiscal
+                          </Button>
+                        )}
+                        <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                          No se sugirió ningún NIT automático de forma segura. Motivo: {reasonLabel}
+                        </p>
+                        {taxIdLookupError && (
+                          <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
+                        </Badge>
+                      </div>
+                      {isLookingUpTaxId ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Buscando...
+                        </div>
+                      ) : (
+                        <Button
+                          onClick={handleLookupTaxIdentifier}
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                          type="button"
+                        >
+                          <FileSearch className="h-3.5 w-3.5" />
+                          Buscar identificador fiscal
+                        </Button>
+                      )}
+                      {taxIdLookupError && (
+                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Resultados de la búsqueda */}
+                {taxIdLookup && (
+                  <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
+                    {approveTaxIdError && (
+                      <p className="text-xs text-destructive">{approveTaxIdError}</p>
+                    )}
+
+                    {!taxIdLookupError &&
+                      taxIdLookup.status === 'no_result' &&
+                      taxIdLookup.candidates.length === 0 && (
+                        <div className="space-y-1">
+                          {(() => {
+                            const isCO = candidate.country_code?.toUpperCase() === 'CO';
+                            if (!isCO) {
+                              return (
+                                <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                                  No se encontró identificador fiscal con las fuentes disponibles.
+                                </p>
+                              );
+                            }
+
+                            const hasConfigWarning = taxIdLookup.warnings?.some(
+                              (w) => w.includes('no configurada') || w.includes('No hay fuente')
+                            );
+                            const hasTechWarning = taxIdLookup.warnings?.some(
+                              (w) => w.includes('no disponible')
+                            ) || !!taxIdLookup.error;
+                            const hasNoNitWarning = taxIdLookup.warnings?.some(
+                              (w) => w.includes('no expone')
+                            );
+
+                            if (hasConfigWarning) {
+                              return (
+                                <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                                  No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.
+                                </p>
+                              );
+                            }
+
+                            if (hasTechWarning) {
+                              return (
+                                <div className="space-y-1">
+                                  <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
+                                    No fue posible consultar la fuente oficial Colombia en este momento.
+                                  </p>
+                                  {taxIdLookup.error && (
+                                    <details className="text-[10px] text-muted-foreground/50 cursor-pointer">
+                                      <summary className="hover:text-muted-foreground transition-colors select-none font-medium">
+                                        Detalles técnicos
+                                      </summary>
+                                      <pre className="mt-1 font-mono bg-muted/40 p-1.5 rounded-md overflow-x-auto text-[9px] border border-border/20 max-w-full whitespace-pre-wrap break-all">
+                                        {taxIdLookup.error}
+                                      </pre>
+                                    </details>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            if (hasNoNitWarning) {
+                              return (
+                                <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
+                                  La fuente oficial consultada no expone identificador fiscal en los datos disponibles.
+                                </p>
+                              );
+                            }
+
+                            return (
+                              <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                                No encontramos un NIT confirmado en datos internos, HubSpot ni fuente oficial Colombia.
                               </p>
-                            )}
-                            {c.risks.length > 0 && (
-                              <ul className="space-y-0.5">
-                                {c.risks.map((r, j) => (
-                                  <li
-                                    key={j}
-                                    className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1"
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                    {taxIdLookup.warnings && taxIdLookup.warnings.length > 0 && (
+                      <div className="space-y-0.5">
+                        {taxIdLookup.warnings
+                          .filter(
+                            (w) =>
+                              !(
+                                candidate.country_code?.toUpperCase() === 'CO' &&
+                                (w.includes('no configurada') ||
+                                  w.includes('No hay fuente') ||
+                                  w.includes('no disponible') ||
+                                  w.includes('no expone') ||
+                                  w.includes('sin resultados'))
+                              )
+                          )
+                          .map((w, i) => (
+                            <p key={i} className="text-[10px] text-muted-foreground/60 italic">
+                              {w}
+                            </p>
+                          ))}
+                        {candidate.country_code?.toUpperCase() === 'CO' &&
+                          taxIdLookup.candidates.length === 0 &&
+                          taxIdLookup.warnings.some((w) => w.includes('sin resultados')) && (
+                            <p className="text-[10px] text-muted-foreground/60 italic">
+                              Fuente oficial Colombia consultada sin resultados.
+                            </p>
+                          )}
+                      </div>
+                    )}
+
+                    {taxIdLookup.candidates.length > 0 && (
+                      <div className="space-y-2 mt-2">
+                        <div className="flex flex-col gap-0.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            {candidate.country_code?.toUpperCase() === 'CO'
+                              ? 'Posibles NIT encontrados'
+                              : 'Posibles identificadores encontrados'}
+                          </p>
+                        </div>
+                        {taxIdLookup.candidates.map((c, i) => {
+                          const isApprovedCandidate =
+                            candidate.tax_identifier &&
+                            (candidate.tax_identifier === c.normalized_tax_identifier ||
+                              candidate.tax_identifier === c.tax_identifier);
+
+                          return (
+                            <div
+                              key={i}
+                              className={`rounded-xl border p-3 space-y-1.5 ${
+                                isApprovedCandidate
+                                  ? 'border-emerald-500/30 bg-emerald-500/5'
+                                  : 'border-amber-500/20 bg-amber-500/5'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="font-mono text-xs font-semibold text-foreground">
+                                  {c.tax_identifier}
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <Badge
+                                    className={`border-0 text-[9px] font-semibold shrink-0 ${
+                                      c.confidence === 'high'
+                                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                        : c.confidence === 'medium'
+                                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                        : 'bg-muted text-muted-foreground'
+                                    }`}
                                   >
-                                    <AlertTriangle className="h-2.5 w-2.5 mt-0.5 shrink-0" />
-                                    {r}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                            {isApprovedCandidate ? (
-                              <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold">
-                                Aprobado por revisión humana
-                              </Badge>
-                            ) : (
-                              <>
-                                <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
-                                  Requiere revisión humana
+                                    {c.confidence === 'high' ? 'Alta' : c.confidence === 'medium' ? 'Media' : 'Baja'}
+                                  </Badge>
+                                  {isApprovedCandidate && (
+                                    <Badge className="border-0 bg-emerald-500 text-white dark:bg-emerald-600 text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5">
+                                      <CheckCircle2 className="h-2.5 w-2.5" />
+                                      Seleccionado
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                              {c.legal_name && (
+                                <p className="text-xs text-muted-foreground">{c.legal_name}</p>
+                              )}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] text-muted-foreground/60">
+                                  {c.source_name}
+                                </span>
+                                {c.source_url && (
+                                  <a
+                                    href={c.source_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-su-brand hover:underline flex items-center gap-0.5"
+                                  >
+                                    <Link2 className="h-2.5 w-2.5" />
+                                    Ver fuente
+                                  </a>
+                                )}
+                              </div>
+                              {c.evidence_text && (
+                                <p className="text-[10px] text-muted-foreground/60 italic line-clamp-2">
+                                  {c.evidence_text}
+                                </p>
+                              )}
+                              {c.risks.length > 0 && (
+                                <ul className="space-y-0.5 mt-1">
+                                  {c.risks.map((r, j) => (
+                                    <li
+                                      key={j}
+                                      className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1"
+                                    >
+                                      <AlertTriangle className="h-2.5 w-2.5 mt-0.5 shrink-0" />
+                                      {r}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {isApprovedCandidate ? (
+                                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold mt-1">
+                                  Aprobado por revisión humana
                                 </Badge>
-                                {!candidate.tax_identifier && (
-                                  <div className="pt-1.5">
+                              ) : (
+                                <div className="flex items-center justify-between pt-1">
+                                  <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
+                                    Requiere revisión humana
+                                  </Badge>
+                                  {!candidate.tax_identifier && (
                                     <Button
                                       onClick={() =>
                                         setConfirmDialogData({
@@ -1580,761 +1674,504 @@ export function CandidateDetailSheet({
                                       variant="outline"
                                       size="sm"
                                       className="h-7 text-[10px] font-semibold border-su-brand/20 bg-white hover:bg-su-brand hover:text-white dark:bg-zinc-900 transition-colors"
+                                      type="button"
                                     >
                                       Usar este NIT
                                     </Button>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-              </>
-            )}
-          </div>
-
-          <Divider />
-
-          {/* C. Datos comerciales / web */}
-          <div>
-            <SectionHeader>Datos comerciales / web</SectionHeader>
-            <div className="space-y-2.5">
-              <FieldGrid>
-                <Field
-                  label="Sitio web oficial"
-                  value={
-                    hasOfficialWebsite && candidate.website ? (
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <a
-                          href={candidate.website.startsWith('http') ? candidate.website : `https://${candidate.website}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-su-brand hover:underline font-medium"
-                        >
-                          <Globe className="h-3 w-3 shrink-0" />
-                          {candidate.domain ?? candidate.website}
-                        </a>
-                        {websiteConfidence && (
-                          <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
-                            websiteConfidence === 'high'
-                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                              : websiteConfidence === 'medium'
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-muted text-muted-foreground/60'
-                          }`}>
-                            {websiteConfidence}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <MissingText text="Sin sitio web oficial encontrado" />
-                    )
-                  }
-                />
-                <Field
-                  label={
-                    effectiveLinkedinUrl
-                      ? "LinkedIn corporativo"
-                      : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl))
-                      ? "Posibles coincidencias no confirmadas"
-                      : (!isChileOfficialCandidate && !hasNitConflict && possibleLinkedInMatches.length > 0)
-                      ? "Posibles coincidencias de LinkedIn"
-                      : "LinkedIn corporativo"
-                  }
-                  value={
-                    effectiveLinkedinUrl ? (
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <a
-                          href={effectiveLinkedinUrl.startsWith('http') ? effectiveLinkedinUrl : `https://${effectiveLinkedinUrl}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-su-brand hover:underline font-medium"
-                        >
-                          <Link2 className="h-3 w-3 shrink-0" />
-                          Ver perfil
-                        </a>
-                        {linkedinConfidence && (
-                          <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
-                            linkedinConfidence === 'high'
-                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                              : linkedinConfidence === 'medium'
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-muted text-muted-foreground/60'
-                          }`}>
-                            {linkedinConfidence}
-                          </span>
-                        )}
-                      </div>
-                    ) : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl)) ? (
-                      <div className="space-y-1.5">
-                        <p className="text-[9px] text-muted-foreground/50 italic">No confirmado — requiere revisión</p>
-                        {linkedinConfirmedUrl && (
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <a
-                              href={linkedinConfirmedUrl.startsWith('http') ? linkedinConfirmedUrl : `https://${linkedinConfirmedUrl}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
-                            >
-                              <Link2 className="h-3 w-3 shrink-0" />
-                              Posible perfil corporativo
-                            </a>
-                            <span className="text-[9px] text-muted-foreground/50">(no confirmado)</span>
-                          </div>
-                        )}
-                        {possibleLinkedInMatches.slice(0, 2).map((match, idx) => (
-                          <div key={idx} className="flex items-center gap-1.5 flex-wrap">
-                            <a
-                              href={(match.url as string).startsWith('http') ? (match.url as string) : `https://${match.url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
-                            >
-                              <Link2 className="h-3 w-3 shrink-0" />
-                              {match.title ? (match.title as string) : `Posible perfil ${idx + 1}`}
-                            </a>
-                            <span className="text-[9px] text-muted-foreground/50">
-                              ({(match.match_quality as string) === 'partial' ? 'parcial' : 'débil'})
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (!isChileOfficialCandidate && !hasNitConflict && possibleLinkedInMatches.length > 0) ? (
-                      <div className="space-y-1.5">
-                        <p className="text-[9px] text-muted-foreground/50 italic">No confirmado — requiere revisión</p>
-                        {possibleLinkedInMatches.slice(0, 2).map((match, idx) => (
-                          <div key={idx} className="flex items-center gap-1.5 flex-wrap">
-                            <a
-                              href={(match.url as string).startsWith('http') ? (match.url as string) : `https://${match.url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
-                            >
-                              <Link2 className="h-3 w-3 shrink-0" />
-                              {match.title ? (match.title as string) : `Posible perfil ${idx + 1}`}
-                            </a>
-                            <span className="text-[9px] text-muted-foreground/50">
-                              ({(match.match_quality as string) === 'partial' ? 'parcial' : 'débil'})
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : hasLinkedinSignal ? (
-                      <span className="text-xs text-muted-foreground/60 italic">No confirmado — revisar fuente importada</span>
-                    ) : (
-                      <MissingText text="Sin LinkedIn encontrado" />
-                    )
-                  }
-                />
-                <Field
-                  label="Tamaño / Empleados"
-                  value={val(employeeCount ? String(employeeCount) : null, 'Sin dato de tamaño')}
-                />
-                {!isStructured && sourcePrimaryLabel && (
-                  <Field label="Fuente" value={sourcePrimaryLabel} />
-                )}
-              </FieldGrid>
-
-              {displayedPublicEvidence.length > 0 && (
-                <div className="space-y-1.5 mt-3 pt-2">
-                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Evidencia pública encontrada</p>
-                  <div className="space-y-1.5">
-                    {displayedPublicEvidence.map((item, idx) => {
-                      const label = SOURCE_TYPE_LABELS[item.source_type as string] ?? item.source_type;
-                      return (
-                        <div key={idx} className="flex items-center justify-between text-xs rounded-xl border border-border/40 p-2.5 bg-card">
-                          <div className="min-w-0 flex-1 pr-2">
-                            <p className="font-medium text-foreground truncate" title={item.title as string}>
-                              {item.title as string}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                              {label as string} · {item.domain as string}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {item.confidence ? (
-                              <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
-                                item.confidence === 'high'
-                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : item.confidence === 'medium'
-                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                  : 'bg-muted text-muted-foreground/60'
-                              }`}>
-                                {item.confidence as string}
-                              </span>
-                            ) : null}
-                            <a
-                              href={item.url as string}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-su-brand hover:underline p-1"
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                            </a>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {!hasNitConflict && publicDescription && (!isChileOfficialCandidate || isDescriptionConfiable) ? (
-                <div className="space-y-0.5 pt-2">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción pública</p>
-                    {publicDescriptionConfidence && (publicDescriptionConfidence === 'low' || publicDescriptionConfidence === 'unknown') && (
-                      <span className="text-[9px] text-muted-foreground/50 italic bg-muted px-1.5 py-0.5 rounded font-normal">
-                        Evidencia preliminar
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{publicDescription}</p>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground/40 italic pt-2">
-                  {isChileOfficialCandidate
-                    ? 'Sin descripción pública confiable.'
-                    : hasNitConflict
-                    ? 'Sin descripción pública confiable.'
-                    : 'No encontrado en evidencia pública'}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <Divider />
-
-          {/* Enriquecimiento manual condicionado */}
-          <div>
-            <SectionHeader>Enriquecimiento comercial</SectionHeader>
-            {(() => {
-              const eligibility = evaluateCandidateEnrichmentNeed(candidate);
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const enrichmentData = candidate.metadata?.enrichment as any;
-              
-              if (isEnriching) {
-                return (
-                  <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-4 flex flex-col items-center justify-center gap-3 text-center animate-pulse">
-                    <Loader2 className="h-6 w-6 text-su-brand animate-spin" />
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold text-su-brand">Enriqueciendo candidato...</p>
-                      <p className="text-[10px] text-muted-foreground/80">Evaluando perfil comercial, propuesta de encaje y señales con IA.</p>
-                    </div>
-                  </div>
-                );
-              }
-
-              const hasEnrichError = !!enrichError || (enrichmentData && enrichmentData.status === 'failed');
-              const activeErrorCode = enrichErrorCode || enrichmentData?.error_code || null;
-              const activeErrorMessage = enrichError || enrichmentData?.error_message || null;
-              const activeErrorDetails = enrichErrorDetails || enrichmentData || null;
-
-              if (hasEnrichError) {
-                const isModelError = activeErrorCode === 'provider_model_not_found' || activeErrorCode === 'all_ai_providers_failed' || activeErrorCode === 'no_ai_providers_configured';
-                const friendlyMessage = isModelError
-                  ? 'No fue posible ejecutar el enriquecimiento con los proveedores de IA configurados. Revisa Configuración > Proveedores de IA.'
-                  : (activeErrorMessage || 'Fallo en enriquecimiento');
-
-                const showDetails = !!activeErrorDetails && (
-                  activeErrorDetails.provider ||
-                  activeErrorDetails.display_name ||
-                  activeErrorDetails.provider_model_id ||
-                  activeErrorDetails.raw_error_safe ||
-                  (activeErrorDetails.attempts && activeErrorDetails.attempts.length > 0)
-                );
-
-                return (
-                  <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-                      <div className="space-y-1 flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-destructive">Fallo en enriquecimiento</p>
-                        <p className="text-xs text-muted-foreground leading-normal">{friendlyMessage}</p>
-                      </div>
-                    </div>
-
-                    {showDetails && (
-                      <CollapsibleSection title="Detalle técnico del error" defaultOpen={false}>
-                        <div className="mt-2 rounded-lg border border-border/40 bg-card p-2.5 space-y-1.5 font-mono text-[10px] text-muted-foreground">
-                          {activeErrorDetails.provider && (
-                            <div>
-                              <span className="font-semibold text-foreground/80">Proveedor principal:</span>{' '}
-                              {activeErrorDetails.provider}
-                            </div>
-                          )}
-                          {activeErrorDetails.display_name && (
-                            <div>
-                              <span className="font-semibold text-foreground/80">Modelo (display):</span>{' '}
-                              {activeErrorDetails.display_name}
-                            </div>
-                          )}
-                          {activeErrorDetails.provider_model_id !== undefined && (
-                            <div>
-                              <span className="font-semibold text-foreground/80">ID técnico intentado:</span>{' '}
-                              {activeErrorDetails.provider_model_id || '(vacío)'}
-                            </div>
-                          )}
-                          {activeErrorDetails.raw_error_safe && (
-                            <div className="pt-1.5 border-t border-border/20 mt-1.5">
-                              <span className="font-semibold text-foreground/80 block mb-1">Detalle del error:</span>
-                              <pre className="overflow-x-auto whitespace-pre-wrap max-h-[150px] text-[9px] bg-muted/30 p-1.5 rounded">
-                                {JSON.stringify(activeErrorDetails.raw_error_safe, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                          {activeErrorDetails.attempts && activeErrorDetails.attempts.length > 0 && (
-                            <div className="pt-1.5 border-t border-border/20 mt-1.5 space-y-1 font-sans">
-                              <span className="font-semibold text-foreground/80 block mb-1">Historial de intentos:</span>
-                              {activeErrorDetails.attempts.map((att: { provider: string; provider_display_name?: string; model: string; model_display_name?: string; status: string; error_message?: string; error_code?: string }, idx: number) => (
-                                <div key={idx} className="flex flex-col pl-1 border-l-2 border-muted/50 py-0.5">
-                                  <div className="flex items-center gap-1.5 text-[9px]">
-                                    <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : att.status === 'skipped' ? 'text-amber-500 font-bold' : 'text-red-500 font-bold'}>
-                                      {att.status === 'completed' ? '✓' : att.status === 'skipped' ? '⚠' : '✗'}
-                                    </span>
-                                    <span className="font-semibold text-foreground/70">
-                                      {att.provider_display_name || (att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider)}{' '}
-                                      ({att.model_display_name || att.model})
-                                    </span>
-                                  </div>
-                                  {att.error_message && (
-                                    <span className="text-[8px] text-muted-foreground/80">{att.error_message}</span>
                                   )}
                                 </div>
-                              ))}
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+                </>
+              )}
+            </div>
+
+            {/* Datos Comerciales y Web */}
+            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+              <SectionHeader>Datos Comerciales y Web</SectionHeader>
+              <div className="space-y-3">
+                <FieldGrid>
+                  <Field
+                    label="Sitio web oficial"
+                    value={
+                      hasOfficialWebsite && candidate.website ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <a
+                            href={candidate.website.startsWith('http') ? candidate.website : `https://${candidate.website}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-su-brand hover:underline font-medium"
+                          >
+                            <Globe className="h-3 w-3 shrink-0" />
+                            {candidate.domain ?? candidate.website}
+                          </a>
+                          {websiteConfidence && (
+                            <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
+                              websiteConfidence === 'high'
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                : websiteConfidence === 'medium'
+                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                : 'bg-muted text-muted-foreground/60'
+                            }`}>
+                              {websiteConfidence}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <MissingText text="Sin sitio web oficial" />
+                      )
+                    }
+                  />
+                  <Field
+                    label={
+                      effectiveLinkedinUrl
+                        ? "LinkedIn corporativo"
+                        : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl))
+                        ? "Coincidencias no confirmadas"
+                        : "LinkedIn corporativo"
+                    }
+                    value={
+                      effectiveLinkedinUrl ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <a
+                            href={effectiveLinkedinUrl.startsWith('http') ? effectiveLinkedinUrl : `https://${effectiveLinkedinUrl}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-su-brand hover:underline font-medium"
+                          >
+                            <Link2 className="h-3 w-3 shrink-0" />
+                            Ver perfil
+                          </a>
+                          {linkedinConfidence && (
+                            <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
+                              linkedinConfidence === 'high'
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                : linkedinConfidence === 'medium'
+                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                : 'bg-muted text-muted-foreground/60'
+                            }`}>
+                              {linkedinConfidence}
+                            </span>
+                          )}
+                        </div>
+                      ) : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl)) ? (
+                        <div className="space-y-1.5">
+                          <p className="text-[9px] text-muted-foreground/50 italic">No confirmado — requiere revisión</p>
+                          {linkedinConfirmedUrl && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <a
+                                href={linkedinConfirmedUrl.startsWith('http') ? linkedinConfirmedUrl : `https://${linkedinConfirmedUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
+                              >
+                                <Link2 className="h-3 w-3 shrink-0" />
+                                Posible perfil
+                              </a>
                             </div>
                           )}
                         </div>
-                      </CollapsibleSection>
-                    )}
+                      ) : (
+                        <MissingText text="Sin LinkedIn" />
+                      )
+                    }
+                  />
+                  <Field
+                    label="Tamaño / Empleados"
+                    value={val(employeeCount ? String(employeeCount) : null, 'Sin dato')}
+                  />
+                  {!isStructured && sourcePrimaryLabel && (
+                    <Field label="Fuente" value={sourcePrimaryLabel} />
+                  )}
+                </FieldGrid>
 
-                    <Button 
-                      onClick={handleEnrich} 
-                      size="sm" 
-                      className="w-full bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      Reintentar enriquecimiento
-                    </Button>
+                {/* Descripción pública */}
+                {!hasNitConflict && publicDescription && (!isChileOfficialCandidate || isDescriptionConfiable) ? (
+                  <div className="space-y-0.5 pt-2 border-t border-border/10">
+                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción pública</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{publicDescription}</p>
                   </div>
-                );
-              }
+                ) : null}
+              </div>
+            </div>
 
-              if (enrichmentData && enrichmentData.status === 'completed') {
-                const profile = enrichmentData.company_profile || {};
-                const fit = enrichmentData.sellup_fit || {};
-                const usage = enrichmentData.usage || {};
-                const providerDisplay = enrichmentData.provider === 'anthropic' ? 'Claude' : enrichmentData.provider === 'google' ? 'Google Gemini' : enrichmentData.provider === 'openai' ? 'OpenAI' : enrichmentData.provider;
-                const modelDisplay = enrichmentData.display_name || enrichmentData.model;
-                
-                return (
-                  <div className="space-y-4">
-                    {enrichmentData.fallback_used && (
-                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10 p-3 flex items-start gap-2 text-xs text-emerald-800 dark:text-emerald-300 leading-normal">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                        <div className="space-y-0.5">
-                          <p className="font-semibold">Enriquecimiento completado con {providerDisplay} / {modelDisplay}.</p>
-                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                            El proveedor principal no estaba disponible y se activó el respaldo de contingencia de forma exitosa.
+            {/* Evidencia Pública Encontrada */}
+            {displayedPublicEvidence.length > 0 && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <SectionHeader>Evidencia pública encontrada</SectionHeader>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {displayedPublicEvidence.map((item, idx) => {
+                    const label = SOURCE_TYPE_LABELS[item.source_type as string] || item.source_type;
+                    return (
+                      <div key={idx} className="flex items-center justify-between text-xs rounded-xl border border-border/40 p-2.5 bg-muted/10">
+                        <div className="min-w-0 flex-1 pr-2">
+                          <p className="font-semibold text-foreground truncate" title={item.title as string}>
+                            {item.title as string}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                            {label as string} · {item.domain as string}
                           </p>
                         </div>
-                      </div>
-                    )}
-                    {/* Summary callout */}
-                    {enrichmentData.summary && (
-                      <div className="rounded-xl border border-border/40 bg-card p-3 text-xs italic text-foreground/80 leading-relaxed">
-                        &ldquo;{enrichmentData.summary}&rdquo;
-                      </div>
-                    )}
-
-                    {/* Fit level & score */}
-                    <div className="rounded-xl border border-border/40 bg-card p-3 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Encaje comercial</span>
-                        <div className="flex items-center gap-2">
-                          <Badge 
-                            className={`border-0 text-[10px] font-semibold ${
-                              fit.fit_level === 'high' 
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' 
-                                : fit.fit_level === 'medium'
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {item.confidence ? (
+                            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                              item.confidence === 'high'
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                : item.confidence === 'medium'
                                 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                : 'bg-destructive/10 text-destructive'
-                            }`}
+                                : 'bg-muted text-muted-foreground/60'
+                            }`}>
+                              {item.confidence as string}
+                            </span>
+                          ) : null}
+                          <a
+                            href={item.url as string}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-su-brand hover:underline p-1"
                           >
-                            {fit.fit_level === 'high' ? 'Encaje alto' : fit.fit_level === 'medium' ? 'Encaje medio' : 'Encaje bajo'}
-                          </Badge>
-                          {fit.fit_score !== undefined && (
-                            <span className="text-xs font-semibold">{fit.fit_score} / 100</span>
-                          )}
+                            <Link2 className="h-3.5 w-3.5" />
+                          </a>
                         </div>
                       </div>
-                      
-                      {fit.why_fit && (
-                        <p className="text-xs text-muted-foreground leading-normal">{fit.why_fit}</p>
-                      )}
-
-                      {fit.recommended_next_step && (
-                        <div className="pt-2 border-t border-border/20 space-y-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">Siguiente paso recomendado</p>
-                          <p className="text-xs text-foreground/80 font-medium">{fit.recommended_next_step}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Company Profile detailed */}
-                    <CollapsibleSection title="Perfil de la empresa" defaultOpen={true}>
-                      <div className="rounded-lg border border-border/30 bg-muted/20 p-3 space-y-3">
-                        <FieldGrid>
-                          <Field label="Descripción de negocio" value={profile.business_description || <MissingText text="No disponible" />} />
-                          <Field label="Modelo de negocio" value={profile.business_model || <MissingText text="No disponible" />} />
-                          <Field label="Clientes objetivo" value={profile.target_customers || <MissingText text="No disponible" />} />
-                          <Field label="Tamaño estimado" value={profile.estimated_size || <MissingText text="No disponible" />} />
-                        </FieldGrid>
-                        
-                        {profile.products_or_services && profile.products_or_services.length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Productos o servicios</p>
-                            <div className="flex flex-wrap gap-1">
-                              {profile.products_or_services.map((p: string, i: number) => (
-                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{p}</Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {profile.industries_served && profile.industries_served.length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Sectores atendidos</p>
-                            <div className="flex flex-wrap gap-1">
-                              {profile.industries_served.map((ind: string, i: number) => (
-                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{ind}</Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {profile.geographic_presence && profile.geographic_presence.length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Presencia geográfica</p>
-                            <div className="flex flex-wrap gap-1">
-                              {profile.geographic_presence.map((geo: string, i: number) => (
-                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{geo}</Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {profile.technology_signals && profile.technology_signals.length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Señales tecnológicas</p>
-                            <div className="flex flex-wrap gap-1">
-                              {profile.technology_signals.map((tech: string, i: number) => (
-                                <Badge key={i} variant="outline" className="text-[9px] font-normal">{tech}</Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </CollapsibleSection>
-
-                    {/* Needs and angles */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {fit.possible_needs && fit.possible_needs.length > 0 && (
-                        <div className="rounded-xl border border-border/40 bg-card p-3 space-y-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Necesidades UBITS</p>
-                          <ul className="space-y-1">
-                            {fit.possible_needs.map((n: string, i: number) => (
-                              <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                                <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                                {n}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {enrichmentData.commercial_angles && enrichmentData.commercial_angles.length > 0 && (
-                        <div className="rounded-xl border border-border/40 bg-card p-3 space-y-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Ángulos comerciales</p>
-                          <ul className="space-y-1">
-                            {enrichmentData.commercial_angles.map((ang: string, i: number) => (
-                              <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80 font-medium">
-                                <Sparkles className="h-3 w-3 text-su-brand mt-0.5 shrink-0" />
-                                {ang}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Risks and Uncertainties */}
-                    {enrichmentData.risks_or_uncertainties && enrichmentData.risks_or_uncertainties.length > 0 && (
-                      <div className="rounded-xl border border-amber-500/10 bg-amber-500/5 p-3 space-y-1.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">Riesgos o incertidumbres</p>
-                        <ul className="space-y-1">
-                          {enrichmentData.risks_or_uncertainties.map((r: string, i: number) => (
-                            <li key={i} className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
-                              {r}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Missing Data */}
-                    {enrichmentData.missing_data && enrichmentData.missing_data.length > 0 && (
-                      <div className="rounded-xl border border-red-500/10 bg-red-500/5 p-3 space-y-1.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-400">Datos faltantes</p>
-                        <ul className="space-y-1">
-                          {enrichmentData.missing_data.map((m: string, i: number) => (
-                            <li key={i} className="flex items-start gap-1.5 text-xs text-red-800 dark:text-red-300">
-                              <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
-                              {m}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* AI Info details banner */}
-                    <div className="flex flex-col gap-1.5 text-[9px] text-muted-foreground/60 pt-2 border-t border-border/20">
-                      <div className="flex items-center justify-between">
-                        <span>Proveedor: {providerDisplay} ({enrichmentData.model})</span>
-                        <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
-                        {usage && usage.estimated_cost !== undefined && (
-                          <span>Costo: ${Number(usage.estimated_cost).toFixed(5)} USD</span>
-                        )}
-                      </div>
-                      {enrichmentData.attempts && enrichmentData.attempts.length > 0 && (
-                        <div className="mt-1 rounded-lg border border-border/40 bg-card p-2 space-y-1">
-                          <span className="font-semibold text-foreground/80 block">Historial de fallback:</span>
-                          {enrichmentData.attempts.map((att: { provider: string; provider_display_name?: string; model: string; model_display_name?: string; status: string; error_message?: string; error_code?: string }, idx: number) => (
-                            <div key={idx} className="flex items-start gap-1 font-sans">
-                              <span className={att.status === 'completed' ? 'text-emerald-500 font-bold' : att.status === 'skipped' ? 'text-amber-500 font-bold' : 'text-red-500 font-bold'}>
-                                {att.status === 'completed' ? '✓' : att.status === 'skipped' ? '⚠' : '✗'}
-                              </span>
-                              <span className="text-[8px] text-muted-foreground">
-                                {att.provider_display_name || (att.provider === 'anthropic' ? 'Claude' : att.provider === 'google' ? 'Google Gemini' : att.provider === 'openai' ? 'OpenAI' : att.provider)}{' '}
-                                ({att.model_display_name || att.model}):{' '}
-                                {att.status === 'completed' ? 'Exitoso' : att.status === 'skipped' ? `Omitido (${att.error_code || 'sin credencial'})` : `Fallido (${att.error_message || 'Desconocido'})`}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Re-enriquecer button */}
-                    <Button 
-                      onClick={handleEnrich} 
-                      variant="outline" 
-                      size="sm" 
-                      className="w-full gap-1.5 hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      Re-enriquecer candidato
-                    </Button>
-                  </div>
-                );
-              }
-
-              if (eligibility.needs_enrichment) {
-                return (
-                  <div className="rounded-xl border border-border/40 bg-card p-4 space-y-4">
-                    <div className="flex items-start gap-2.5">
-                      <AlertTriangle className="h-4.5 w-4.5 text-amber-500 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-foreground/90">Faltan datos para completar el perfil comercial.</p>
-                        <p className="text-[11px] text-muted-foreground">Este candidato tiene información inicial insuficiente para su revisión comercial.</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 bg-muted/30 rounded-lg p-3">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-muted-foreground">Completitud del perfil:</span>
-                        <span className="font-semibold text-foreground">{eligibility.completeness_score}%</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full ${
-                            eligibility.completeness_score >= 50 
-                              ? 'bg-amber-500' 
-                              : 'bg-destructive'
-                          }`}
-                          style={{ width: `${eligibility.completeness_score}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {eligibility.missing_fields.length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Campos faltantes recomendados</p>
-                        <div className="flex flex-wrap gap-1">
-                          {eligibility.missing_fields.map((f, i) => (
-                            <Badge key={i} className="border-0 bg-muted text-muted-foreground text-[9px] font-normal">
-                              {f === 'website' ? 'Sitio Web/Dominio' :
-                               f === 'linkedin_url' ? 'LinkedIn Corporativo' :
-                               f === 'industry' ? 'Sector/Industria' :
-                               f === 'company_size' ? 'Tamaño de empleados' :
-                               f === 'description' ? 'Descripción de negocio' :
-                               f === 'city' ? 'Ciudad/Región' : f}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <Button 
-                      onClick={handleEnrich} 
-                      size="sm" 
-                      className="w-full bg-su-brand text-su-brand-foreground hover:bg-su-brand/90 gap-1.5 font-medium"
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Enriquecer candidato
-                    </Button>
-                  </div>
-                );
-              }
-
-              // Default: has enough data
-              return (
-                <div className="rounded-xl border border-border/30 bg-muted/10 p-3.5 text-center flex items-center justify-center gap-2">
-                  <Info className="h-4 w-4 text-muted-foreground/60 shrink-0" />
-                  <p className="text-xs text-muted-foreground/80 leading-normal">
-                    Este candidato ya tiene información inicial suficiente para revisión.
-                  </p>
+                    );
+                  })}
                 </div>
-              );
-            })()}
-          </div>
+              </div>
+            )}
+          </TabsContent>
 
-          <Divider />
-
-          {/* D. Evaluación IA */}
-          <div>
-            <SectionHeader>Evaluación IA</SectionHeader>
-            {showAiEvaluation ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3 flex-wrap">
-                  {fitStatus && (
-                    <Badge
-                      className={`border-0 text-[10px] font-semibold ${
-                        fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : fitStatus === 'medium' || fitStatus === 'medium_fit'
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                          : 'bg-muted text-muted-foreground'
-                      }`}
-                    >
-                      {FIT_STATUS_LABELS[fitStatus] ?? fitStatus.replace(/_/g, ' ')}
-                    </Badge>
-                  )}
-                  {fitScore !== null && (
-                    <span
-                      className={`text-sm font-semibold tabular-nums ${
-                        fitScore >= 75
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : fitScore >= 50
-                          ? 'text-amber-600 dark:text-amber-400'
-                          : 'text-muted-foreground'
-                      }`}
-                    >
-                      {fitScore.toFixed(0)} / 100
-                    </span>
-                  )}
+          {/* Tab 3: Inteligencia */}
+          <TabsContent value="inteligencia" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+            {/* Análisis de Encaje */}
+            {hasAiEval ? (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <SectionHeader>Análisis de Encaje IA</SectionHeader>
+                    <InfoTooltip content="Evaluación de encaje comercial generada por el agente de IA corporativo." />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {fitStatus && (
+                      <Badge
+                        className={`border-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                            : fitStatus === 'medium' || fitStatus === 'medium_fit'
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            : 'bg-destructive/10 text-destructive'
+                        }`}
+                      >
+                        {FIT_STATUS_LABELS[fitStatus] || fitStatus.replace(/_/g, ' ')}
+                      </Badge>
+                    )}
+                    {fitScore !== null && (
+                      <span className="text-xs font-semibold">{fitScore} / 100</span>
+                    )}
+                  </div>
                 </div>
+
                 {fitReasons.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Razones</p>
-                    <ul className="space-y-0.5">
+                  <div className="space-y-1.5 pt-2 border-t border-border/10">
+                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Razones del Encaje</p>
+                    <ul className="space-y-1">
                       {fitReasons.map((r, i) => (
                         <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                          {isChileOfficialCandidate ? sanitizeTextForChile(r) : r}
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                          <span>{isChileOfficialCandidate ? sanitizeTextForChile(r) : r}</span>
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
-                {risks.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Riesgos</p>
-                    <ul className="space-y-0.5">
-                      {risks.map((r, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                          <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
-                          {isChileOfficialCandidate ? sanitizeTextForChile(r) : r}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {missingFields.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Campos faltantes</p>
-                    <div className="flex flex-wrap gap-1">
-                      {missingFields.map((f, i) => (
-                        <Badge key={i} className="border-0 bg-muted text-muted-foreground text-[9px]">
-                          {f}
-                        </Badge>
-                      ))}
+
+                {/* Siguiente paso recomendado */}
+                {(() => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const enrichmentData = candidate.metadata?.enrichment as any;
+                  const recommended = enrichmentData?.sellup_fit?.recommended_next_step;
+                  if (!recommended) return null;
+                  return (
+                    <div className="pt-3 border-t border-border/10 space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">Siguiente paso recomendado</p>
+                      <p className="text-xs text-foreground/90 font-medium leading-relaxed">{recommended}</p>
                     </div>
-                  </div>
-                )}
-                {evidenceUsed.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Evidencias usadas</p>
-                    <ul className="space-y-0.5">
-                      {evidenceUsed.map((e, i) => (
-                        <li key={i} className="text-xs text-muted-foreground truncate">{e}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
-            ) : isChileOfficialCandidate ? (
-              <p className="text-xs text-muted-foreground/60 italic">
-                Evaluación no disponible por falta de evidencia pública confiable.
-              </p>
-            ) : aiEvalStatus === 'skipped' && aiEvalSkipReason ? (
-              <p className="text-xs text-muted-foreground/60 italic">
-                {({
-                  insufficient_evidence: 'Evaluación no disponible por falta de evidencia pública confiable.',
-                  tax_identifier_conflict: 'Evaluación pausada: se detectó un NIT distinto en la evidencia web.',
-                  weak_entity_match: 'Evaluación no disponible: solo se encontraron empresas similares, sin coincidencia exacta.',
-                  no_anthropic_key: 'Evaluación IA no configurada en esta instancia.',
-                } as Record<string, string>)[aiEvalSkipReason] ?? 'Evaluación no disponible.'}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground/40 italic">Sin evaluación IA todavía</p>
+            ) : null}
+
+            {/* Necesidades UBITS y Ángulos Comerciales */}
+            {hasAiEval && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Necesidades */}
+                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                  <SectionHeader>Necesidades Detectadas</SectionHeader>
+                  {(() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const enrichmentData = candidate.metadata?.enrichment as any;
+                    const needs = enrichmentData?.sellup_fit?.possible_needs as string[] | undefined;
+                    if (!needs || needs.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguna detectada</p>;
+                    
+                    const visibleNeeds = showAllNeeds ? needs : needs.slice(0, 3);
+                    return (
+                      <div className="space-y-2">
+                        <ul className="space-y-1.5">
+                          {visibleNeeds.map((n, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                              <span>{n}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {needs.length > 3 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1"
+                            onClick={() => setShowAllNeeds(!showAllNeeds)}
+                            type="button"
+                          >
+                            {showAllNeeds ? 'Ver menos' : `Ver todas (${needs.length})`}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Ángulos comerciales */}
+                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                  <SectionHeader>Ángulos Comerciales</SectionHeader>
+                  {(() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const enrichmentData = candidate.metadata?.enrichment as any;
+                    const angles = enrichmentData?.commercial_angles as string[] | undefined;
+                    if (!angles || angles.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguno disponible</p>;
+
+                    const visibleAngles = showAllAngles ? angles : angles.slice(0, 3);
+                    return (
+                      <div className="space-y-2">
+                        <ul className="space-y-1.5">
+                          {visibleAngles.map((ang, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80 font-medium">
+                              <Sparkles className="h-3.5 w-3.5 text-su-brand mt-0.5 shrink-0" />
+                              <span>{ang}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {angles.length > 3 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1"
+                            onClick={() => setShowAllAngles(!showAllAngles)}
+                            type="button"
+                          >
+                            {showAllAngles ? 'Ver menos' : `Ver todos (${angles.length})`}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
             )}
-          </div>
 
-          <Divider />
+            {/* Riesgos de Negocio (Dynamic severity sorted list) */}
+            {sortedRisks.length > 0 && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <SectionHeader>Riesgos e Incertidumbres</SectionHeader>
+                <div className="space-y-2">
+                  {sortedRisks.map((risk, i) => {
+                    const severity = classifyRisk(risk);
+                    const styleMap = {
+                      critical: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
+                      high: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
+                      medium: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+                      low: 'bg-muted/50 text-muted-foreground border-border/30',
+                    };
+                    const badgeMap = {
+                      critical: 'Crítico',
+                      high: 'Alto',
+                      medium: 'Medio',
+                      low: 'Bajo',
+                    };
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-start justify-between gap-3 text-xs rounded-lg border p-2.5 ${styleMap[severity]}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span className="leading-relaxed">
+                            {isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}
+                          </span>
+                        </div>
+                        <Badge className="border-0 text-[8px] font-bold uppercase py-0.5 px-1.5 shrink-0 select-none bg-black/5 dark:bg-white/5 text-inherit">
+                          {badgeMap[severity]}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-          {/* E. Duplicidad */}
-          <div>
-            <SectionHeader>Duplicidad</SectionHeader>
-            <div className="space-y-2">
-              {isAutoValidated ? (
-                <>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* SellUp — estado principal */}
+            {/* Enriquecimiento Comercial Control */}
+            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+              <SectionHeader>Enriquecimiento Comercial</SectionHeader>
+              {(() => {
+                const eligibility = evaluateCandidateEnrichmentNeed(candidate);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const enrichmentData = candidate.metadata?.enrichment as any;
+
+                if (isEnriching) {
+                  return (
+                    <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-4 flex flex-col items-center justify-center gap-3 text-center animate-pulse">
+                      <Loader2 className="h-6 w-6 text-su-brand animate-spin" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-su-brand">Enriqueciendo candidato...</p>
+                        <p className="text-[10px] text-muted-foreground/80">Evaluando perfil comercial, propuesta de encaje y señales con IA.</p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const hasEnrichError = !!enrichError || (enrichmentData && enrichmentData.status === 'failed');
+                const activeErrorCode = enrichErrorCode || enrichmentData?.error_code || null;
+                const activeErrorMessage = enrichError || enrichmentData?.error_message || null;
+                const activeErrorDetails = enrichErrorDetails || enrichmentData || null;
+
+                if (hasEnrichError) {
+                  const isModelError = activeErrorCode === 'provider_model_not_found' || activeErrorCode === 'all_ai_providers_failed' || activeErrorCode === 'no_ai_providers_configured';
+                  const friendlyMessage = isModelError
+                    ? 'No fue posible ejecutar el enriquecimiento con los proveedores de IA configurados. Revisa Configuración > Proveedores de IA.'
+                    : (activeErrorMessage || 'Fallo en enriquecimiento');
+
+                  return (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-destructive">Fallo en enriquecimiento</p>
+                          <p className="text-xs text-muted-foreground leading-normal">{friendlyMessage}</p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={handleEnrich}
+                        size="sm"
+                        className="w-full bg-destructive text-white hover:bg-destructive/90 gap-1.5"
+                        type="button"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Reintentar enriquecimiento
+                      </Button>
+                    </div>
+                  );
+                }
+
+                if (enrichmentData && enrichmentData.status === 'completed') {
+                  const providerDisplay = enrichmentData.provider === 'anthropic' ? 'Claude' : enrichmentData.provider === 'google' ? 'Google Gemini' : enrichmentData.provider === 'openai' ? 'OpenAI' : enrichmentData.provider;
+                  const modelDisplay = enrichmentData.display_name || enrichmentData.model;
+                  const usage = enrichmentData.usage || {};
+
+                  return (
+                    <div className="space-y-3">
+                      {enrichmentData.fallback_used && (
+                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-start gap-2 text-xs text-emerald-800 dark:text-emerald-300">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <p className="font-semibold">Enriquecido con fallback ({providerDisplay}).</p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* AI Info details banner */}
+                      <div className="flex flex-col gap-1.5 text-[9px] text-muted-foreground/60 bg-muted/20 p-2.5 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span>Proveedor: {providerDisplay} ({modelDisplay})</span>
+                          <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
+                        </div>
+                        {usage && usage.estimated_cost !== undefined && (
+                          <div className="text-right">
+                            Coste estimado: <span className="font-mono">${Number(usage.estimated_cost).toFixed(5)} USD</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <Button
+                        onClick={handleEnrich}
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-1.5 hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                        type="button"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Re-enriquecer candidato
+                      </Button>
+                    </div>
+                  );
+                }
+
+                if (eligibility.needs_enrichment) {
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="h-4.5 w-4.5 text-amber-500 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold text-foreground/90">Faltan datos comerciales.</p>
+                          <p className="text-[11px] text-muted-foreground">Este candidato tiene información inicial insuficiente para su revisión comercial.</p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={handleEnrich}
+                        size="sm"
+                        className="w-full bg-su-brand text-white hover:bg-su-brand/90 gap-1.5 font-medium"
+                        type="button"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Enriquecer candidato
+                      </Button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="rounded-xl border border-border/30 bg-muted/10 p-3.5 text-center flex items-center justify-center gap-2">
+                    <Info className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+                    <p className="text-xs text-muted-foreground/80">
+                      Este candidato ya cuenta con información comercial suficiente.
+                    </p>
+                  </div>
+                );
+              })()}
+            </div>
+          </TabsContent>
+
+          {/* Tab 4: Validación */}
+          <TabsContent value="validacion" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+            {/* Estado de Duplicidad */}
+            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+              <div className="flex items-center gap-1">
+                <SectionHeader>Verificación de Duplicidad</SectionHeader>
+                <InfoTooltip content="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM." />
+              </div>
+              <div className="flex items-center gap-2 flex-wrap mt-1">
+                {isAutoValidated ? (
+                  <>
                     <Badge
                       className={`border-0 text-[10px] font-semibold ${
                         sellupDupStatus === 'duplicate'
                           ? 'bg-destructive/10 text-destructive'
                           : sellupDupStatus === 'possible_duplicate'
                           ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                          : sellupDupStatus === 'error'
-                          ? 'bg-muted text-muted-foreground'
                           : sellupDupStatus === 'no_match'
                           ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                           : 'bg-muted text-muted-foreground/60'
@@ -2344,584 +2181,270 @@ export function CandidateDetailSheet({
                         ? 'Duplicado SellUp'
                         : sellupDupStatus === 'possible_duplicate'
                         ? 'Posible duplicado SellUp'
-                        : sellupDupStatus === 'error'
-                        ? 'Error validando SellUp'
                         : sellupDupStatus === 'no_match'
-                        ? 'Sin coincidencia en SellUp'
-                        : 'Sin validar en SellUp'}
+                        ? 'Sin duplicados SellUp'
+                        : 'SellUp sin validar'}
                     </Badge>
-                    {/* HubSpot — estado secundario */}
-                    {hsDupStatus && (
-                      <Badge
-                        className={`border-0 text-[10px] font-medium ${
-                          hsDupStatus === 'match'
-                            ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
-                            : hsDupStatus === 'possible_match'
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                            : hsDupStatus === 'error'
-                            ? 'bg-destructive/10 text-destructive'
-                            : hsDupStatus === 'not_configured'
-                            ? 'bg-muted text-muted-foreground/50'
-                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                        }`}
-                      >
-                        {hsDupStatus === 'match'
-                          ? 'Coincidencia HubSpot'
-                          : hsDupStatus === 'possible_match'
-                          ? 'Posible HubSpot'
-                          : hsDupStatus === 'error'
-                          ? 'Error HubSpot'
-                          : hsDupStatus === 'not_configured'
-                          ? 'HubSpot no config.'
-                          : 'Sin coincidencia HubSpot'}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {sellupDupStatus === 'duplicate'
-                      ? 'Este candidato coincide con un registro existente en SellUp.'
-                      : sellupDupStatus === 'possible_duplicate'
-                      ? 'SellUp encontró una posible coincidencia. Revisa antes de aprobar.'
-                      : hsDupStatus === 'match'
-                      ? 'Sin coincidencia en SellUp. Este candidato coincide con una empresa existente en HubSpot. Revisa antes de aprobar o sincronizar.'
-                      : hsDupStatus === 'possible_match'
-                      ? 'Sin coincidencia en SellUp. HubSpot encontró una posible coincidencia. Revisa antes de aprobar.'
-                      : hsDupStatus === 'not_configured'
-                      ? 'Sin coincidencia en SellUp. La validación contra HubSpot queda pendiente hasta configurar la integración.'
-                      : hsDupStatus === 'no_match'
-                      ? 'Sin coincidencia en SellUp ni HubSpot.'
-                      : 'Sin coincidencia en SellUp.'}
-                  </p>
-
-                  {/* Bloque SellUp detail */}
-                  {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate') &&
-                    validationMetaSheet?.sellup_duplicate_check?.matched_name && (
-                    <div className="rounded-lg border border-border/40 bg-card p-3 space-y-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                        Coincidencia en SellUp
-                      </p>
-                      <FieldGrid>
-                        <Field label="Empresa encontrada" value={val(validationMetaSheet.sellup_duplicate_check.matched_name)} />
-                        <Field
-                          label="Tipo de registro"
-                          value={
-                            validationMetaSheet.sellup_duplicate_check.matched_source === 'account'
-                              ? 'Cuenta (Account)'
-                              : validationMetaSheet.sellup_duplicate_check.matched_source === 'prospect_candidate'
-                              ? 'Candidato'
-                              : '—'
-                          }
-                        />
-                        <Field
-                          label="ID interno"
-                          value={val(validationMetaSheet.sellup_duplicate_check.matched_account_id ?? validationMetaSheet.sellup_duplicate_check.matched_candidate_id)}
-                          mono
-                        />
-                        <Field
-                          label="Dominio / web"
-                          value={val(validationMetaSheet.sellup_duplicate_check.matched_domain ?? validationMetaSheet.sellup_duplicate_check.matched_website)}
-                        />
-                        <Field label="País" value={val(validationMetaSheet.sellup_duplicate_check.matched_country_code)} />
-                        <Field label="Identificador fiscal" value={val(validationMetaSheet.sellup_duplicate_check.matched_tax_identifier)} mono />
-                        <Field
-                          label="Coincidió por"
-                          value={({
-                            tax_identifier: 'NIT/RFC/RUT',
-                            domain: 'Dominio web',
-                            normalized_name_country: 'Nombre + país',
-                            company_name: 'Nombre de empresa',
-                          } as Record<string, string>)[validationMetaSheet.sellup_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.sellup_duplicate_check.matched_by)}
-                        />
-                        <Field
-                          label="Confianza"
-                          value={(validationMetaSheet.sellup_duplicate_check.confidence ?? 0) > 0
-                            ? `${validationMetaSheet.sellup_duplicate_check.confidence}%`
-                            : '—'
-                          }
-                        />
-                        <Field label="Estado del registro" value={val(validationMetaSheet.sellup_duplicate_check.matched_status)} />
-                      </FieldGrid>
-                    </div>
-                  )}
-
-                  {/* Bloque HubSpot detail */}
-                  {(hsDupStatus === 'match' || hsDupStatus === 'possible_match') && (
-                    <div className="rounded-lg border border-border/40 bg-card p-3 space-y-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                        Coincidencia en HubSpot
-                      </p>
-                      {(validationMetaSheet?.hubspot_duplicate_check?.matched_company_name ||
-                        validationMetaSheet?.hubspot_duplicate_check?.matched_company_id) ? (
-                        <FieldGrid>
-                          <Field label="Empresa encontrada" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_name)} />
-                          <Field label="HubSpot Company ID" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_id)} mono />
-                          {(validationMetaSheet.hubspot_duplicate_check.matched_domain || validationMetaSheet.hubspot_duplicate_check.matched_website) && (
-                            <Field
-                              label="Dominio / web"
-                              value={val(validationMetaSheet.hubspot_duplicate_check.matched_domain ?? validationMetaSheet.hubspot_duplicate_check.matched_website)}
-                            />
-                          )}
-                          {(validationMetaSheet.hubspot_duplicate_check.matched_country || validationMetaSheet.hubspot_duplicate_check.matched_city) && (
-                            <Field
-                              label="País / ciudad"
-                              value={[validationMetaSheet.hubspot_duplicate_check.matched_country, validationMetaSheet.hubspot_duplicate_check.matched_city].filter(Boolean).join(' / ')}
-                            />
-                          )}
-                          {(validationMetaSheet.hubspot_duplicate_check.matched_address || validationMetaSheet.hubspot_duplicate_check.matched_state) && (
-                            <Field
-                              label="Dirección"
-                              value={[validationMetaSheet.hubspot_duplicate_check.matched_address, validationMetaSheet.hubspot_duplicate_check.matched_state].filter(Boolean).join(', ')}
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_phone && (
-                            <Field
-                              label="Teléfono"
-                              value={validationMetaSheet.hubspot_duplicate_check.matched_phone}
-                            />
-                          )}
-                          {(validationMetaSheet.hubspot_duplicate_check.matched_industry || validationMetaSheet.hubspot_duplicate_check.matched_macro_industry) && (
-                            <Field
-                              label="Industria / macro industria"
-                              value={[validationMetaSheet.hubspot_duplicate_check.matched_industry, validationMetaSheet.hubspot_duplicate_check.matched_macro_industry].filter(Boolean).join(' / ')}
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_number_of_employees && (
-                            <Field
-                              label="Número de empleados"
-                              value={validationMetaSheet.hubspot_duplicate_check.matched_number_of_employees}
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage && (
-                            <Field
-                              label="Lifecycle stage"
-                              value={({
-                                subscriber: 'Suscriptor', lead: 'Lead', marketingqualifiedlead: 'MQL',
-                                salesqualifiedlead: 'SQL', opportunity: 'Oportunidad', customer: 'Cliente',
-                                evangelist: 'Evangelizador', other: 'Otro',
-                              } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage)}
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_lead_status && (
-                            <Field
-                              label="Lead status"
-                              value={validationMetaSheet.hubspot_duplicate_check.matched_lead_status}
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_owner_id && (
-                            <Field
-                              label="Owner ID"
-                              value={validationMetaSheet.hubspot_duplicate_check.matched_owner_id}
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier && (
-                            <Field
-                              label="Identificación fiscal / tax id"
-                              value={validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier}
-                              mono
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url && (
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">LinkedIn</p>
-                              <a
-                                href={validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url.startsWith('http') ? validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url : `https://${validationMetaSheet.hubspot_duplicate_check.matched_linkedin_url}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-su-brand hover:underline font-medium break-all"
-                              >
-                                Ver perfil de empresa
-                              </a>
-                            </div>
-                          )}
-                          {(validationMetaSheet.hubspot_duplicate_check.matched_description || validationMetaSheet.hubspot_duplicate_check.matched_linkedin_bio) && (
-                            <div className="col-span-2 space-y-0.5">
-                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción / Bio</p>
-                              <p className="text-xs text-foreground/90 leading-relaxed italic">
-                                {validationMetaSheet.hubspot_duplicate_check.matched_description ?? validationMetaSheet.hubspot_duplicate_check.matched_linkedin_bio}
-                              </p>
-                            </div>
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.matched_by && (
-                            <Field
-                              label="Coincidió por"
-                              value={({
-                                tax_identifier: 'NIT/RFC/RUT/Tax ID',
-                                domain: 'Dominio web',
-                                normalized_name_country: 'Nombre + país',
-                                company_name: 'Nombre de empresa',
-                              } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_by)}
-                            />
-                          )}
-                          {(validationMetaSheet.hubspot_duplicate_check.confidence ?? 0) > 0 && (
-                            <Field
-                              label="Confianza"
-                              value={`${validationMetaSheet.hubspot_duplicate_check.confidence}%`}
-                            />
-                          )}
-                          {validationMetaSheet.hubspot_duplicate_check.hubspot_url && (
-                            <div className="col-span-2 pt-1.5 border-t border-border/10 mt-1 flex">
-                              <a
-                                href={validationMetaSheet.hubspot_duplicate_check.hubspot_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 text-xs font-semibold text-su-brand hover:underline"
-                              >
-                                <Link2 className="h-3.5 w-3.5" />
-                                Ver empresa en HubSpot CRM
-                              </a>
-                            </div>
-                          )}
-                        </FieldGrid>
-                      ) : (
-                        <p className="text-xs text-muted-foreground/60 italic">
-                          Coincidencia detectada pero sin detalle adicional. Revalida el lote para obtener más datos.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Comparación rápida */}
-                  {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate' ||
-                    hsDupStatus === 'match' || hsDupStatus === 'possible_match') && (() => {
-                    const su = validationMetaSheet?.sellup_duplicate_check;
-                    const hs = validationMetaSheet?.hubspot_duplicate_check;
-                    const hasSellupDetail = !!(su?.matched_name);
-
-                    const matchName = hasSellupDetail ? su?.matched_name : hs?.matched_company_name;
-                    const matchDomain = hasSellupDetail
-                      ? (su?.matched_domain ?? su?.matched_website)
-                      : (hs?.matched_domain ?? hs?.matched_website);
-                    const matchCountry = hasSellupDetail ? su?.matched_country_code : hs?.matched_country;
-                    const matchCity = hasSellupDetail ? null : hs?.matched_city;
-                    const matchAddress = hasSellupDetail ? null : (hs?.matched_address || hs?.matched_state);
-                    const matchPhone = hasSellupDetail ? null : hs?.matched_phone;
-                    const matchTaxId = hasSellupDetail ? su?.matched_tax_identifier : hs?.matched_tax_identifier;
-                    const matchIndustry = hasSellupDetail ? null : (hs?.matched_industry || hs?.matched_macro_industry);
-                    const matchSize = hasSellupDetail ? null : hs?.matched_number_of_employees;
-                    const matchLinkedin = hasSellupDetail ? null : hs?.matched_linkedin_url;
-
-                    if (!matchName && !matchDomain) return null;
-
-                    const rows = [
-                      { label: 'Nombre', cv: candidate.name, mv: matchName },
-                      { label: 'Sitio web / dominio', cv: candidate.domain ?? candidate.website, mv: matchDomain },
-                      { label: 'País', cv: candidate.country ?? candidate.country_code, mv: matchCountry },
-                      { label: 'Ciudad', cv: candidate.city, mv: matchCity },
-                      { label: 'Dirección', cv: null, mv: matchAddress },
-                      { label: 'Teléfono', cv: null, mv: matchPhone },
-                      { label: 'Identificador fiscal', cv: candidate.tax_identifier, mv: matchTaxId },
-                      { label: 'Industria', cv: candidate.industry, mv: matchIndustry },
-                      { label: 'Tamaño / empleados', cv: candidate.company_size, mv: matchSize },
-                      { label: 'LinkedIn', cv: effectiveLinkedinUrl, mv: matchLinkedin },
-                    ].filter(r => (r.cv !== null && r.cv !== undefined && r.cv !== '') || (r.mv !== null && r.mv !== undefined && r.mv !== ''));
-
-                    if (rows.length === 0) return null;
-                    return (
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Comparación rápida</p>
-                        <div className="overflow-x-auto rounded-lg border border-border/40">
-                          <table className="w-full text-xs">
-                            <thead className="bg-muted/30">
-                              <tr>
-                                <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Campo</th>
-                                <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Candidato</th>
-                                <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Coincidencia</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border/20">
-                              {rows.map(({ label: rl, cv, mv }) => (
-                                <tr key={rl}>
-                                  <td className="py-2 px-3 text-muted-foreground/70 font-medium">{rl}</td>
-                                  <td className="py-2 px-3 text-foreground/90">{cv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
-                                  <td className="py-2 px-3 text-foreground/90">{mv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge
                       className={`border-0 text-[10px] font-semibold ${
-                        {
-                          unchecked: 'bg-muted text-muted-foreground/60',
-                          no_match: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                          possible_duplicate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                          exact_duplicate: 'bg-destructive/10 text-destructive',
-                          related_company: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-                          insufficient_data: 'bg-muted/60 text-muted-foreground/60',
-                        }[candidate.duplicate_status]
+                        hsDupStatus === 'match'
+                          ? 'bg-destructive/10 text-destructive'
+                          : hsDupStatus === 'possible_match'
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          : hsDupStatus === 'no_match'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-muted text-muted-foreground/60'
                       }`}
                     >
-                      {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
+                      {hsDupStatus === 'match'
+                        ? 'Duplicado HubSpot'
+                        : hsDupStatus === 'possible_match'
+                        ? 'Posible coincidencia HubSpot'
+                        : hsDupStatus === 'no_match'
+                        ? 'Sin duplicados HubSpot'
+                        : 'HubSpot sin validar'}
                     </Badge>
-                    {dcSources.length > 0 && (
-                      <div className="flex gap-2">
-                        {['sellup', 'hubspot'].map((src) => {
-                          const checked = dcSources.includes(src);
-                          return (
-                            <span
-                              key={src}
-                              className={`text-[10px] font-medium ${
-                                checked
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-muted-foreground/40'
-                              }`}
-                            >
-                              {SOURCE_LABELS[src]} {checked ? '✓' : '—'}
-                            </span>
-                          );
-                        })}
+                  </>
+                ) : (
+                  <Badge
+                    className={`border-0 text-[10px] font-semibold ${
+                      {
+                        unchecked: 'bg-muted text-muted-foreground/60',
+                        no_match: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                        possible_duplicate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                        exact_duplicate: 'bg-destructive/10 text-destructive',
+                        related_company: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                        insufficient_data: 'bg-muted/60 text-muted-foreground/60',
+                      }[candidate.duplicate_status]
+                    }`}
+                  >
+                    {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
+                  </Badge>
+                )}
+              </div>
+            </div>
+
+            {/* Coincidencias de Duplicidad */}
+            {isAutoValidated ? (
+              <div className="space-y-4">
+                {/* Bloque SellUp detail */}
+                {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate') &&
+                  validationMetaSheet?.sellup_duplicate_check?.matched_name && (
+                  <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                      Coincidencia interna en SellUp
+                    </p>
+                    <FieldGrid>
+                      <Field label="Empresa encontrada" value={val(validationMetaSheet.sellup_duplicate_check.matched_name)} />
+                      <Field
+                        label="Tipo de registro"
+                        value={
+                          validationMetaSheet.sellup_duplicate_check.matched_source === 'account'
+                            ? 'Cuenta (Account)'
+                            : 'Candidato'
+                        }
+                      />
+                      <Field
+                        label="ID interno"
+                        value={val(validationMetaSheet.sellup_duplicate_check.matched_account_id ?? validationMetaSheet.sellup_duplicate_check.matched_candidate_id)}
+                        mono
+                      />
+                      <Field
+                        label="Dominio / web"
+                        value={val(validationMetaSheet.sellup_duplicate_check.matched_domain ?? validationMetaSheet.sellup_duplicate_check.matched_website)}
+                      />
+                      <Field label="Identificador fiscal" value={val(validationMetaSheet.sellup_duplicate_check.matched_tax_identifier)} mono />
+                      <Field
+                        label="Coincidió por"
+                        value={({
+                          tax_identifier: 'NIT/RFC/RUT',
+                          domain: 'Dominio web',
+                          normalized_name_country: 'Nombre + país',
+                          company_name: 'Nombre de empresa',
+                        } as Record<string, string>)[validationMetaSheet.sellup_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.sellup_duplicate_check.matched_by)}
+                      />
+                    </FieldGrid>
+                  </div>
+                )}
+
+                {/* Bloque HubSpot detail */}
+                {(hsDupStatus === 'match' || hsDupStatus === 'possible_match') &&
+                  validationMetaSheet?.hubspot_duplicate_check?.matched_company_name && (
+                  <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                      Coincidencia en HubSpot CRM
+                    </p>
+                    <FieldGrid>
+                      <Field label="Empresa encontrada" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_name)} />
+                      <Field label="HubSpot Company ID" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_id)} mono />
+                      <Field
+                        label="Dominio / web"
+                        value={val(validationMetaSheet.hubspot_duplicate_check.matched_domain ?? validationMetaSheet.hubspot_duplicate_check.matched_website)}
+                      />
+                      {validationMetaSheet.hubspot_duplicate_check.matched_phone && (
+                        <Field label="Teléfono" value={validationMetaSheet.hubspot_duplicate_check.matched_phone} />
+                      )}
+                      {validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage && (
+                        <Field
+                          label="Lifecycle stage"
+                          value={({
+                            subscriber: 'Suscriptor', lead: 'Lead', marketingqualifiedlead: 'MQL',
+                            salesqualifiedlead: 'SQL', opportunity: 'Oportunidad', customer: 'Cliente',
+                            evangelist: 'Evangelizador', other: 'Otro',
+                          } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage)}
+                        />
+                      )}
+                      {validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier && (
+                        <Field label="NIT / Tax ID" value={validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier} mono />
+                      )}
+                    </FieldGrid>
+                    {validationMetaSheet.hubspot_duplicate_check.hubspot_url && (
+                      <div className="pt-2.5 border-t border-border/20 mt-1 flex">
+                        <a
+                          href={validationMetaSheet.hubspot_duplicate_check.hubspot_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-su-brand hover:underline"
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                          Ver empresa en HubSpot CRM
+                        </a>
                       </div>
                     )}
                   </div>
-                  {dc?.summary && (
-                    <p className="text-xs text-muted-foreground">{dc.summary}</p>
-                  )}
-                  {dcMatches.length > 0 && (
-                    <div className="space-y-1.5">
+                )}
+
+                {/* Comparación rápida */}
+                {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate' ||
+                  hsDupStatus === 'match' || hsDupStatus === 'possible_match') && (() => {
+                  const su = validationMetaSheet?.sellup_duplicate_check;
+                  const hs = validationMetaSheet?.hubspot_duplicate_check;
+                  const hasSellupDetail = !!(su?.matched_name);
+
+                  const matchName = hasSellupDetail ? su?.matched_name : hs?.matched_company_name;
+                  const matchDomain = hasSellupDetail
+                    ? (su?.matched_domain ?? su?.matched_website)
+                    : (hs?.matched_domain ?? hs?.matched_website);
+                  const matchCountry = hasSellupDetail ? su?.matched_country_code : hs?.matched_country;
+                  const matchTaxId = hasSellupDetail ? su?.matched_tax_identifier : hs?.matched_tax_identifier;
+
+                  if (!matchName && !matchDomain) return null;
+
+                  const rows = [
+                    { label: 'Nombre', cv: candidate.name, mv: matchName },
+                    { label: 'Sitio web', cv: candidate.domain ?? candidate.website, mv: matchDomain },
+                    { label: 'País', cv: candidate.country ?? candidate.country_code, mv: matchCountry },
+                    { label: 'Identificador fiscal', cv: candidate.tax_identifier, mv: matchTaxId },
+                  ].filter(r => r.cv || r.mv);
+
+                  if (rows.length === 0) return null;
+                  return (
+                    <div className="rounded-xl border border-border/30 bg-card p-4 space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Comparación rápida</p>
+                      <div className="overflow-x-auto rounded-lg border border-border/40">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted/30">
+                            <tr>
+                              <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Campo</th>
+                              <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Candidato</th>
+                              <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Coincidencia</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/20">
+                            {rows.map(({ label: rl, cv, mv }) => (
+                              <tr key={rl}>
+                                <td className="py-2 px-3 text-muted-foreground/70 font-medium">{rl}</td>
+                                <td className="py-2 px-3 text-foreground/90">{cv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
+                                <td className="py-2 px-3 text-foreground/90">{mv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {dcMatches.length > 0 && (
+                  <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                      Coincidencias encontradas
+                    </p>
+                    <div className="space-y-2">
                       {dcMatches.map((match, i) => (
                         <DuplicateMatchCard key={i} match={match} />
                       ))}
                     </div>
-                  )}
-                  {!dc && dcSources.length === 0 && (
-                    <p className="text-xs text-muted-foreground/40 italic">Sin detalle de duplicidad disponible</p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+                  </div>
+                )}
+              </div>
+            )}
 
-          {/* Sección de Validación */}
-          {(candidate.metadata as unknown as SheetCandidateMetadata)?.validation && (
-            <>
-              <Divider />
-              <div>
-                <SectionHeader>Validación</SectionHeader>
-                <div className="rounded-lg border border-border/40 bg-card p-3 space-y-3">
-                  {(() => {
-                    const src = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.validation_source;
-                    const srcLabels: Record<string, string> = {
-                      post_import_auto: 'Validado automáticamente al importar',
-                      manual: 'Validado manualmente',
-                    };
-                    const srcLabel = src ? (srcLabels[src] ?? `Fuente: ${src}`) : null;
-                    return srcLabel ? (
-                      <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                        {srcLabel}
-                      </p>
-                    ) : null;
-                  })()}
-
-                  <FieldGrid>
-                    {/* SellUp — estado principal */}
-                    <Field
-                      label="Estado SellUp"
-                      value={(() => {
-                        const status = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.sellup_duplicate_check?.status;
-                        if (!status) return 'Sin verificar';
-                        const labelMap: Record<string, string> = {
-                          no_match: 'Sin coincidencia en SellUp',
-                          possible_duplicate: 'Posible duplicado',
-                          duplicate: 'Duplicado SellUp',
-                          error: 'Error de verificación',
-                        };
-                        return labelMap[status] ?? status;
-                      })()}
-                    />
-                    <Field
-                      label="Señal SellUp"
-                      value={(() => {
-                        const check = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.sellup_duplicate_check;
-                        const parts: string[] = [];
-                        if (check?.matched_by) {
-                          const byMap: Record<string, string> = {
-                            tax_identifier: 'NIT/RFC/RUT',
-                            domain: 'Dominio web',
-                            normalized_name_country: 'Nombre + país',
-                            name_and_country: 'Nombre + país',
-                            domain_exact: 'Dominio exacto',
-                          };
-                          parts.push(byMap[check.matched_by] ?? check.matched_by);
-                        }
-                        if (check?.confidence && check.confidence > 0) parts.push(`conf. ${check.confidence}%`);
-                        return parts.length > 0 ? parts.join(' · ') : '—';
-                      })()}
-                    />
-
-                    {/* HubSpot — estado secundario */}
-                    <Field
-                      label="Estado HubSpot"
-                      value={(() => {
-                        const status = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check?.status;
-                        if (!status) return 'Sin verificar';
-                        const labelMap: Record<string, string> = {
-                          no_match: 'Sin coincidencia HubSpot',
-                          possible_match: 'Posible coincidencia',
-                          match: 'Coincidencia confirmada',
-                          not_configured: 'HubSpot no configurado',
-                          error: 'Error de verificación',
-                        };
-                        return labelMap[status] ?? status;
-                      })()}
-                    />
-                    <Field
-                      label="Empresa HubSpot"
-                      value={(() => {
-                        const check = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check;
-                        if (!check?.matched_company_name && !check?.matched_company_id) return '—';
-                        return check.matched_company_name ?? check.matched_company_id ?? '—';
-                      })()}
-                    />
-                  </FieldGrid>
-
-                  {/* Claves normalizadas */}
-                  {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys && (
-                    <div className="pt-1 space-y-1">
-                      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/50">Claves normalizadas</p>
-                      <FieldGrid>
-                        {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_name && (
-                          <Field
-                            label="Nombre norm."
-                            value={(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_name ?? '—'}
-                            mono
-                          />
-                        )}
-                        {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_domain && (
-                          <Field
-                            label="Dominio norm."
-                            value={(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_domain ?? '—'}
-                            mono
-                          />
-                        )}
-                        {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_tax_identifier && (
-                          <Field
-                            label="Tax ID norm."
-                            value={(candidate.metadata as unknown as SheetCandidateMetadata).validation?.normalized_keys?.normalized_tax_identifier ?? '—'}
-                            mono
-                          />
-                        )}
-                      </FieldGrid>
-                    </div>
-                  )}
-
+            {/* Datos de Validación (Claves normalizadas) */}
+            {validationMetaSheet && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+                <SectionHeader>Datos de la Validación</SectionHeader>
+                <div className="space-y-3">
                   <FieldGrid>
                     <Field
                       label="Campos faltantes"
                       value={(() => {
-                        const missing = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.quality_check?.missing_fields;
+                        const missing = validationMetaSheet.quality_check?.missing_fields;
                         if (!missing || missing.length === 0) return 'Ninguno';
-                        const labels: Record<string, string> = {
+                        const labels = {
                           tax_identifier: 'Identificador fiscal',
                           linkedin_url: 'LinkedIn',
                           website: 'Sitio web',
                           industry: 'Sector/Industria',
                         };
-                        return missing.map((f: string) => labels[f] ?? f).join(', ');
+                        return missing.map((f) => labels[f] || f).join(', ');
                       })()}
                     />
                     <Field
                       label="Confianza importada"
                       value={(() => {
-                        const conf = (candidate.metadata as unknown as SheetCandidateMetadata).validation?.quality_check?.import_confidence ?? (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.confidence;
+                        const conf = validationMetaSheet.quality_check?.import_confidence || (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.confidence;
                         if (!conf) return 'No disponible';
-                        const confMap: Record<string, string> = {
+                        const confMap = {
                           alta: 'Alta', media: 'Media', baja: 'Baja',
                           high: 'Alta', medium: 'Media', low: 'Baja',
                         };
-                        return confMap[String(conf).toLowerCase()] ?? String(conf);
-                      })()}
-                    />
-                    <Field
-                      label="Tamaño importado"
-                      value={(candidate.metadata as unknown as SheetCandidateMetadata)?.import?.company_size ?? candidate.company_size ?? 'No disponible'}
-                    />
-                    <Field
-                      label="Fuente / Evidencia"
-                      value={(() => {
-                        const sourceUrl = (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.source_url ?? (candidate.metadata as unknown as SheetCandidateMetadata)?.source_url;
-                        const evidence = (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.source_evidence;
-                        if (!sourceUrl && !evidence) return 'No disponible';
-                        return (
-                          <div className="space-y-1">
-                            {evidence && <p className="text-xs text-foreground/90">{evidence}</p>}
-                            {sourceUrl && (
-                              <a
-                                href={sourceUrl.startsWith('http') ? sourceUrl : `https://${sourceUrl}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-su-brand hover:underline font-medium break-all block"
-                              >
-                                {sourceUrl}
-                              </a>
-                            )}
-                          </div>
-                        );
+                        return confMap[String(conf).toLowerCase()] || String(conf);
                       })()}
                     />
                     <Field
                       label="Última validación"
-                      value={(() => {
-                        const valMeta = (candidate.metadata as unknown as SheetCandidateMetadata).validation;
-                        if (!valMeta?.validated_at) return 'No disponible';
-                        return new Date(valMeta.validated_at).toLocaleString('es-CO', {
-                          day: '2-digit', month: 'short', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit',
-                        });
-                      })()}
+                      value={new Date(validationMetaSheet.validated_at || candidate.updated_at).toLocaleString('es-CO')}
                     />
                   </FieldGrid>
 
-                  {(candidate.metadata as unknown as SheetCandidateMetadata).validation?.hubspot_duplicate_check?.status === 'not_configured' && (
-                    <p className="text-[10px] text-muted-foreground/60 italic pt-1">
-                      Validación contra CRM pendiente hasta configurar HubSpot.
-                    </p>
+                  {validationMetaSheet.normalized_keys && (
+                    <div className="pt-3 border-t border-border/10">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-2">Claves normalizadas</p>
+                      <FieldGrid>
+                        {validationMetaSheet.normalized_keys.normalized_name && (
+                          <Field label="Nombre norm." value={validationMetaSheet.normalized_keys.normalized_name} mono />
+                        )}
+                        {validationMetaSheet.normalized_keys.normalized_domain && (
+                          <Field label="Dominio norm." value={validationMetaSheet.normalized_keys.normalized_domain} mono />
+                        )}
+                        {validationMetaSheet.normalized_keys.normalized_tax_identifier && (
+                          <Field label="Tax ID norm." value={validationMetaSheet.normalized_keys.normalized_tax_identifier} mono />
+                        )}
+                      </FieldGrid>
+                    </div>
                   )}
                 </div>
               </div>
-            </>
-          )}
+            )}
+          </TabsContent>
 
-          <Divider />
-
-          {/* F. Faltantes y riesgos */}
-          {flags.length > 0 && (
-            <>
-              <div>
-                <SectionHeader>Faltantes y riesgos</SectionHeader>
-                <div className="flex flex-wrap gap-1.5">
-                  {flags.includes('liquidation_signal') && (
-                    <Badge className="border-0 bg-destructive/10 text-destructive text-[9px] font-semibold flex items-center gap-0.5">
-                      <XCircle className="h-2.5 w-2.5" />
-                      En liquidación
-                    </Badge>
-                  )}
-                  {flags
-                    .filter((f) => f !== 'liquidation_signal')
-                    .map((flag) => {
-                      const label = CRITICAL_REVIEW_FLAG_LABELS[flag];
-                      if (!label) return null;
-                      return (
-                        <Badge key={flag} className="border-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[9px] font-medium">
-                          {label}
-                        </Badge>
-                      );
-                    })}
-                </div>
-              </div>
-              <Divider />
-            </>
-          )}
-
-          {/* G. Detalle técnico (colapsado) */}
-          <CollapsibleSection title="Detalle técnico">
-            <div className="rounded-lg border border-border/40 bg-muted/30 p-3 space-y-3">
+          {/* Tab 5: Técnico */}
+          <TabsContent value="tecnico" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+              <SectionHeader>Detalle Técnico del Sistema</SectionHeader>
               <FieldGrid>
                 <Field label="Candidate ID" value={candidate.id} mono />
                 <Field label="Batch ID" value={candidate.batch_id} mono />
@@ -2929,53 +2452,36 @@ export function CandidateDetailSheet({
                 <Field label="Creado" value={new Date(candidate.created_at).toLocaleString('es-CO')} />
                 <Field label="Actualizado" value={new Date(candidate.updated_at).toLocaleString('es-CO')} />
                 {candidate.reviewed_at && (
-                  <Field
-                    label="Revisado"
-                    value={new Date(candidate.reviewed_at).toLocaleString('es-CO')}
-                  />
+                  <Field label="Revisado" value={new Date(candidate.reviewed_at).toLocaleString('es-CO')} />
                 )}
                 {candidate.confidence_score !== null && (
-                  <Field
-                    label="Confianza"
-                    value={`${candidate.confidence_score?.toFixed(0)}%`}
-                  />
+                  <Field label="Puntaje Confianza" value={`${candidate.confidence_score?.toFixed(0)}%`} />
                 )}
-                {candidate.estimated_cost_usd !== null &&
-                  Number(candidate.estimated_cost_usd) > 0 && (
-                  <Field
-                    label="Costo estimado"
-                    value={`$${Number(candidate.estimated_cost_usd).toFixed(4)}`}
-                    mono
-                  />
+                {candidate.estimated_cost_usd !== null && Number(candidate.estimated_cost_usd) > 0 && (
+                  <Field label="Costo estimado" value={`$${Number(candidate.estimated_cost_usd).toFixed(4)} USD`} mono />
                 )}
               </FieldGrid>
-              {candidate.source_trace && (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Source trace</p>
-                  <pre className="text-[9px] text-muted-foreground overflow-auto max-h-32 leading-relaxed">
-                    {JSON.stringify(candidate.source_trace, null, 2)}
-                  </pre>
-                </div>
-              )}
+
               {candidate.review_notes && (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Notas de revisión</p>
-                  <p className="text-xs text-muted-foreground">{candidate.review_notes}</p>
+                <div className="pt-3 border-t border-border/10">
+                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">Notas de revisión</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{candidate.review_notes}</p>
                 </div>
-              )}
-              {candidate.reviewer && (
-                <Field
-                  label="Revisado por"
-                  value={candidate.reviewer.full_name ?? candidate.reviewer.email}
-                />
-              )}
-              {candidate.converted_account_id && (
-                <Field label="Account ID convertida" value={candidate.converted_account_id} mono />
               )}
             </div>
-          </CollapsibleSection>
-        </div>
+
+            {candidate.source_trace && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-2">
+                <SectionHeader>Source Trace Raw JSON</SectionHeader>
+                <pre className="text-[9px] text-muted-foreground/80 overflow-auto max-h-48 leading-relaxed font-mono bg-muted/40 p-2.5 rounded-lg border border-border/20">
+                  {JSON.stringify(candidate.source_trace, null, 2)}
+                </pre>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </DrawerShell>
+
       <ModalShell
         open={!!confirmDialogData}
         onOpenChange={(open) => { if (!open) setConfirmDialogData(null); }}

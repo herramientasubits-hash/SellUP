@@ -267,6 +267,58 @@ Usado temporalmente en todas las páginas placeholder. Debe reemplazarse por el 
 
 ---
 
+### MetricCard
+
+**Ubicación:** `src/components/shared/metric-card.tsx`
+
+Card especializada para KPIs / métricas operativas. Replica visual del `SurveyMetricCard` de la plantilla UBITS, alineada a tokens SellUp.
+
+```tsx
+<MetricCard
+  title="NPS"
+  description="Indicador clave de desempeño"
+  value={81}
+  subtitle="%"
+  delta={37.3}
+  deltaTone="positive"
+  trendDirection="up"
+  icon={<BrandIconChip />}
+/>
+```
+
+Anatomía:
+
+- **Título** — `text-xs font-bold uppercase tracking-widest text-muted-foreground/80` (igual que en la plantilla)
+- **Value** — `text-3xl font-bold tracking-tight tabular-nums`
+- **Subtitle** — unidad o nota corta al lado del value (`text-xs text-muted-foreground`)
+- **DeltaPill** opcional — variación porcentual con icono TrendingUp/Down/Minus
+- **Icon** — chip de icono a la derecha (8×8, `rounded-lg`, fondo tinted)
+- **Footer** opcional — banda inferior con borde superior `border-border/40` y `bg-muted/20`
+
+Variantes soportadas: `loading` (skeleton interno), `error` (mensaje + título).
+
+Reglas:
+- Usar `MetricCard` en lugar de `<SurfaceCard>` con markup manual para KPIs.
+- En grillas grandes (`grid-cols-6`, `grid-cols-5`) el gap debe ser `gap-3` o `gap-4`.
+- `valueClassName` permite tintar el value (ej. `text-emerald-600` para métricas positivas).
+
+---
+
+### DeltaPill
+
+**Ubicación:** `src/components/shared/delta-pill.tsx`
+
+Pill de variación con icono. Tonos: `positive` (verde) / `negative` (rojo) / `neutral` (gris). Direcciones: `up` / `down` / `flat`. Resuelve tono y dirección automáticamente a partir del `value` si no se pasan.
+
+```tsx
+<DeltaPill value={37.3} tone="positive" direction="up" />
+<DeltaPill label="—" direction="flat" />
+```
+
+No usar DeltaPill fuera de `MetricCard` (es su slot nativo).
+
+---
+
 ## 7. Light / Dark
 
 ### Cómo funciona
