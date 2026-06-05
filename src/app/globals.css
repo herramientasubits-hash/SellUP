@@ -82,6 +82,11 @@
   --color-su-ai-surface: var(--su-ai-surface);
   --color-su-ai-glow: var(--su-ai-glow);
 
+  /* AI soft accent — for borders and low-opacity tints.
+     Uses the first gradient stop (#2d5cf7, UBITS blue) so opacity
+     utilities (border-ai-soft/30, bg-ai-soft/10) work consistently. */
+  --color-ai-soft: var(--su-ai-stop-1);
+
   /* Animation tokens */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
