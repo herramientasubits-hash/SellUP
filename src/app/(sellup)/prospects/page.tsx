@@ -1,4 +1,6 @@
-import { Building2, CheckCircle2, GitMerge, Upload, Sparkles, Plus } from 'lucide-react';
+import { Building2, CheckCircle2, GitMerge, Upload } from 'lucide-react';
+import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -38,15 +40,22 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
   // Soporte para ?sourceId= — filtra la bandeja por operación reciente
   const sourceId = params.sourceId ?? null;
 
-  // Obtener metadata del batch de origen para mostrar banner semántico
+  // Validar sourceId con Zod y verificar si existe y es accesible
   let sourceBatchType: string | null = null;
   if (sourceId) {
+    const parsed = z.string().uuid().safeParse(sourceId);
+    if (!parsed.success) {
+      redirect('/prospects');
+    }
     try {
       const sourceBatch = await getProspectBatchById(sourceId);
-      sourceBatchType = sourceBatch?.source ?? null;
+      if (!sourceBatch) {
+        // UUID inexistente o no accesible por RLS
+        redirect('/prospects');
+      }
+      sourceBatchType = sourceBatch.source ?? null;
     } catch {
-      // No bloqueante: si falla, solo no se muestra el banner semántico
-      sourceBatchType = null;
+      redirect('/prospects');
     }
   }
 
@@ -61,8 +70,11 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
   }
 
   // Fetch both the KPIs and candidate lists in parallel
+  // Si sourceId está activo, evitamos consultar KPIs globales para ahorrar carga
   const [kpis, listResult] = await Promise.all([
-    getGlobalProspectsKPIs(),
+    sourceId
+      ? Promise.resolve({ needsReview: 0, readyForApproval: 0, possibleDuplicates: 0, importedRecently: 0 })
+      : getGlobalProspectsKPIs(),
     getGlobalCandidatesList({
       search: params.search,
       country: params.country,
@@ -136,25 +148,27 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
       />
 
       {/* KPIs Summary cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {summaryCards.map((card) => (
-          <SurfaceCard key={card.label} className="py-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                  {card.label}
-                </p>
-                <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">
-                  {card.value}
-                </p>
+      {!sourceId && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {summaryCards.map((card) => (
+            <SurfaceCard key={card.label} className="py-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                    {card.label}
+                  </p>
+                  <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">
+                    {card.value}
+                  </p>
+                </div>
+                <div className={`rounded-lg p-1.5 ${card.bg}`}>
+                  <card.icon className={`h-4 w-4 ${card.color}`} />
+                </div>
               </div>
-              <div className={`rounded-lg p-1.5 ${card.bg}`}>
-                <card.icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-          </SurfaceCard>
-        ))}
-      </div>
+            </SurfaceCard>
+          ))}
+        </div>
+      )}
 
       {/* Prospects Tray with table, filters and pagination */}
       <ProspectsTrayClient

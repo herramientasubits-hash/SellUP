@@ -261,7 +261,7 @@ export function GenerateAIBatchDrawer() {
         }
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al generar el lote');
+      toast.error(err instanceof Error ? err.message : 'Error al generar prospectos');
       setProgressMsg('');
     } finally {
       setGenerating(false);
@@ -733,7 +733,7 @@ export function GenerateAIBatchDrawer() {
                   />
                   <Label htmlFor="adv-create-structured-source-batch" className="cursor-pointer space-y-0.5">
                     <span className="text-xs font-medium text-foreground">
-                      Crear también lote desde fuente oficial
+                      Incluir también prospectos desde fuente oficial
                     </span>
                     {(isColombiaAuto || isChilePreview) && (
                       <p className="text-[10px] text-muted-foreground">

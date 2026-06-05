@@ -324,7 +324,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(errData.error ?? 'Error al crear el lote');
+        throw new Error(errData.error ?? 'Error al importar prospectos');
       }
 
       const result = await res.json() as { batchId: string; candidatesCreated: number };
@@ -334,7 +334,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       // Refresh manual en background: el estado del drawer se preserva
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al crear el lote');
+      toast.error(err instanceof Error ? err.message : 'Error al importar prospectos');
     } finally {
       setConfirming(false);
     }

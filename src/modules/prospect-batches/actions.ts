@@ -735,6 +735,7 @@ export async function markCandidateReadyForApprovalAction(
     }
 
     revalidatePath(`/prospect-batches/${data.batch_id}`);
+    revalidatePath('/prospects');
     return { ok: true, candidateId: data.id, reviewStatus: 'ready_for_approval' };
   } catch (err) {
     console.error('[markCandidateReadyForApprovalAction] Unexpected error:', err);
@@ -880,6 +881,7 @@ export async function markCandidateDuplicate(
   });
 
   revalidatePath(`/prospect-batches/${data.batch_id}`);
+  revalidatePath('/prospects');
   return data as ProspectCandidate;
 }
 
