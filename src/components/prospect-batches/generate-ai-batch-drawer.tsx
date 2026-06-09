@@ -691,7 +691,7 @@ function ResultFooterActions({
       <Button
         size="sm"
         onClick={() => onNavigate(structuredBatchResult.batchId!)}
-        className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
+        className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
       >
         Ver prospectos generados
         <ChevronRight className="h-3.5 w-3.5" />
@@ -714,7 +714,7 @@ function ResultFooterActions({
         <Button
           size="sm"
           onClick={() => onNavigate(structuredBatchResult.batchId!)}
-          className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
+          className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
         >
           Ver prospectos generados
           <ChevronRight className="h-3.5 w-3.5" />
@@ -738,7 +738,7 @@ function ResultFooterActions({
         <Button
           size="sm"
           onClick={() => onNavigate(structuredBatchResult.batchId!)}
-          className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient su-ai-glow font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
+          className="relative overflow-hidden gap-1.5 rounded-full px-4 su-ai-gradient font-bold text-white border-transparent hover:opacity-90 active:scale-95 transition-all duration-300"
         >
           Ver prospectos generados
           <ChevronRight className="h-3.5 w-3.5" />

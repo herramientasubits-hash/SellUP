@@ -1,54 +1,11 @@
-import { Loader2, Sparkles } from "lucide-react";
-import * as React from "react";
+"use client";
 
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Sparkles, Loader2 } from "lucide-react";
+import type { AILoaderProps } from "./aiInteractionTypes";
 
-/**
- * AILoader — loading affordance for AI flows.
- *
- * Three variants:
- *  - inline: spinner + label, single-line (for buttons, headers, inline status)
- *  - block : full-width panel with animated skeleton lines (default, for empty AI areas)
- *  - card  : bordered card with gradient icon + optional progress bar
- *
- * Five statuses map to Spanish default labels (override via `label` prop):
- *  - thinking   → "Procesando información..."
- *  - generating → "Generando respuesta..."
- *  - analyzing  → "Analizando datos..."
- *  - complete   → "Proceso finalizado"
- *  - error      → "Error en la generación"
- *
- * Accessibility: role="status" + aria-live="polite" on all variants so screen
- * readers announce state changes.
- */
-export type AILoaderVariant = "inline" | "block" | "card";
-export type AILoaderStatus =
-  | "thinking"
-  | "generating"
-  | "analyzing"
-  | "complete"
-  | "error";
-
-interface AILoaderProps {
-  variant?: AILoaderVariant;
-  label?: string;
-  description?: string;
-  /** 0-100 — when provided, shows a progress bar (card variant) */
-  progress?: number;
-  status?: AILoaderStatus;
-  className?: string;
-}
-
-const STATUS_LABELS: Record<AILoaderStatus, string> = {
-  thinking: "Procesando información...",
-  generating: "Generando respuesta...",
-  analyzing: "Analizando datos...",
-  complete: "Proceso finalizado",
-  error: "Error en la generación",
-};
-
-function AILoader({
+export function AILoader({
   variant = "block",
   label,
   description,
@@ -56,47 +13,46 @@ function AILoader({
   status = "thinking",
   className,
 }: AILoaderProps) {
-  const currentLabel = label ?? STATUS_LABELS[status];
+  const statusLabels: Record<string, string> = {
+    thinking: "Procesando información...",
+    generating: "Generando respuesta...",
+    analyzing: "Analizando datos...",
+    complete: "Proceso finalizado",
+    error: "Error en la generación",
+  };
+
+  const currentLabel = label || statusLabels[status];
 
   if (variant === "inline") {
     return (
-      <div
-        className={cn("inline-flex items-center gap-2 text-sm", className)}
-        role="status"
-        aria-live="polite"
-      >
-        <Loader2 className="su-ai-gradient-text size-4 animate-spin" />
-        <span className="text-muted-foreground font-medium">
-          {currentLabel}
-        </span>
+      <div className={cn("inline-flex items-center gap-2 text-sm", className)} role="status" aria-live="polite">
+        <svg className="animate-spin h-4 w-4 su-ai-gradient-text" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+        <span className="text-muted-foreground font-medium">{currentLabel}</span>
       </div>
     );
   }
 
   if (variant === "card") {
     return (
-      <div
-        className={cn(
-          "flex flex-col gap-4 rounded-2xl su-ai-border bg-card/50 p-6",
-          className,
-        )}
-        role="status"
-        aria-live="polite"
-      >
+      <div className={cn("flex flex-col gap-4 rounded-2xl border su-ai-border bg-card/50 p-6 su-ai-glow", className)} role="status" aria-live="polite">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="su-ai-glow flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-primary-foreground shadow-lg">
-              <Sparkles className="size-4" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-su-brand-foreground shadow-lg">
+              <Sparkles className="h-5 w-5" />
             </div>
             <div>
               <p className="text-sm font-bold">{currentLabel}</p>
-              {description && (
-                <p className="text-xs text-muted-foreground">{description}</p>
-              )}
+              {description && <p className="text-xs text-muted-foreground">{description}</p>}
             </div>
           </div>
           {status === "thinking" && (
-            <Loader2 className="su-ai-gradient-text size-4 animate-spin" />
+            <svg className="animate-spin h-4 w-4 su-ai-gradient-text" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
           )}
         </div>
 
@@ -124,27 +80,16 @@ function AILoader({
 
   // Default: block
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-4 p-4 rounded-xl border border-dashed border-ai-soft su-ai-surface",
-        className,
-      )}
-      role="status"
-      aria-live="polite"
-    >
+    <div className={cn("flex flex-col gap-4 p-4 rounded-xl border border-dashed border-ai-soft/30 bg-su-ai-surface", className)} role="status" aria-live="polite">
       <div className="flex items-center gap-2">
-        <Sparkles className="su-ai-gradient-text size-4 animate-su-pulse" />
-        <span className="text-sm font-bold su-ai-gradient-text uppercase tracking-tight">
-          {currentLabel}
-        </span>
+        <Sparkles className="h-4 w-4 animate-pulse su-ai-gradient-text" />
+        <span className="text-sm font-bold su-ai-gradient-text uppercase tracking-tight">{currentLabel}</span>
       </div>
       <div className="space-y-2.5">
-        <Skeleton className="h-2 w-full rounded-full bg-ai-soft" />
-        <Skeleton className="h-2 w-11/12 rounded-full bg-ai-soft/50" />
-        <Skeleton className="h-2 w-4/5 rounded-full bg-ai-soft/50 opacity-50" />
+        <Skeleton className="h-2 w-full rounded-full bg-su-ai-surface" />
+        <Skeleton className="h-2 w-11/12 rounded-full bg-su-ai-surface" />
+        <Skeleton className="h-2 w-4/5 rounded-full bg-su-ai-surface opacity-50" />
       </div>
     </div>
   );
 }
-
-export { AILoader };
