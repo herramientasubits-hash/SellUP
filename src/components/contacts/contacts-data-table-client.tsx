@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Star, Mail, Phone, ExternalLink, Info } from 'lucide-react';
+import { Mail, Phone, ExternalLink, Info } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import {
@@ -15,9 +15,7 @@ import {
 import {
   ROLE_LABELS,
   CONTACT_STATUS_LABELS,
-  CONTACT_SOURCE_LABELS,
   SENIORITY_LABELS,
-  DEPARTMENTS,
   type ContactStatus,
   type ContactRole,
 } from '@/modules/contacts/types';
@@ -54,17 +52,10 @@ const ROLE_FILTER_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => 
   label,
 }));
 
-const SOURCE_FILTER_OPTIONS = Object.entries(CONTACT_SOURCE_LABELS).map(([value, label]) => ({
-  value,
-  label,
-}));
-
 const SENIORITY_FILTER_OPTIONS = Object.entries(SENIORITY_LABELS).map(([value, label]) => ({
   value,
   label,
 }));
-
-const DEPARTMENT_FILTER_OPTIONS = DEPARTMENTS.map((d) => ({ value: d, label: d }));
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -263,50 +254,6 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
         },
       },
       {
-        id: 'is_primary',
-        accessorKey: 'is_primary',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Primario" />
-        ),
-        cell: ({ row }) =>
-          row.original.is_primary ? (
-            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-          ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
-          ),
-        size: 80,
-        minSize: 60,
-        filterFn: 'equals',
-        meta: {
-          label: 'Primario',
-          popoverTitle: 'Primario',
-          filterOptions: [
-            { value: 'true', label: 'Sí' },
-            { value: 'false', label: 'No' },
-          ],
-        },
-      },
-      {
-        id: 'source',
-        accessorKey: 'source',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Fuente" />
-        ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground truncate block max-w-[120px]">
-            {CONTACT_SOURCE_LABELS[row.original.source] ?? row.original.source}
-          </span>
-        ),
-        size: 110,
-        minSize: 90,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Fuente',
-          popoverTitle: 'Fuente',
-          filterOptions: SOURCE_FILTER_OPTIONS,
-        },
-      },
-      {
         id: 'seniority',
         accessorKey: 'seniority',
         header: ({ column }) => (
@@ -324,26 +271,6 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
           label: 'Seniority',
           popoverTitle: 'Seniority',
           filterOptions: SENIORITY_FILTER_OPTIONS,
-        },
-      },
-      {
-        id: 'department',
-        accessorKey: 'department',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Departamento" />
-        ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground truncate block max-w-[140px]">
-            {row.original.department ?? '—'}
-          </span>
-        ),
-        size: 140,
-        minSize: 110,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Departamento',
-          popoverTitle: 'Departamento',
-          filterOptions: DEPARTMENT_FILTER_OPTIONS,
         },
       },
       {
@@ -433,7 +360,7 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Star className="h-6 w-6 text-muted-foreground/40" />
+              <Info className="h-6 w-6 text-muted-foreground/40" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin contactos todavía</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-xs">
