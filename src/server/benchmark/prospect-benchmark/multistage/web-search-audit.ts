@@ -22,6 +22,9 @@
  */
 export const SEARCH_AUDIT_VERSION = 1 as const;
 
+export { EVIDENCE_PROVENANCE_VERSION } from '../url-canonicalizer';
+import { areEvidenceUrlsEquivalent } from '../url-canonicalizer';
+
 // ─── Anthropic response block types ──────────────────────────────────────────
 
 export type AnthropicServerToolUseBlock = {
@@ -301,9 +304,10 @@ export function extractAnthropicWebSearchAudit(response: AuditableResponse): Ant
  * from both search results and citations cannot be considered evidence that was
  * actually searched — it is classified as model_generated_url.
  *
- * URL comparison is case-insensitive and trims leading/trailing whitespace.
- * Query strings and fragments are preserved; normalization is intentionally minimal
- * to avoid false positives.
+ * URL comparison uses canonical normalization (see url-canonicalizer.ts) so
+ * that semantically equivalent URLs — trailing slash, www prefix, tracking
+ * parameters, http/https, LinkedIn regional subdomains — are recognized as
+ * the same resource.
  */
 export function classifyUrlOrigin(
   url: string | null | undefined,
@@ -312,9 +316,8 @@ export function classifyUrlOrigin(
   if (!url) return 'unknown_origin';
   if (!audit) return 'unknown_origin';
 
-  const normalized = url.toLowerCase().trim();
-  const inResults = audit.results.some((r) => r.url.toLowerCase().trim() === normalized);
-  const inCitations = audit.citations.some((c) => c.url.toLowerCase().trim() === normalized);
+  const inResults = audit.results.some((r) => areEvidenceUrlsEquivalent(url, r.url));
+  const inCitations = audit.citations.some((c) => areEvidenceUrlsEquivalent(url, c.url));
 
   if (inResults && inCitations) return 'tool_result_and_citation';
   if (inResults) return 'tool_result_url';

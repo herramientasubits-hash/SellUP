@@ -14,6 +14,7 @@
 
 import { createHash } from 'crypto';
 import { SEARCH_AUDIT_VERSION } from './web-search-audit';
+import { EVIDENCE_PROVENANCE_VERSION } from '../url-canonicalizer';
 import type { DiscoveryCandidate, VerifiedCandidateResult } from './ms-types';
 
 export const CURRENT_ARTIFACT_VERSION = 1;
@@ -139,6 +140,7 @@ export function computeVerificationCandidateInputHash(
     stage: 'stage5_verification',
     country,
     anthropicSearchAuditVersion: SEARCH_AUDIT_VERSION,
+    evidenceProvenanceVersion: EVIDENCE_PROVENANCE_VERSION,
     candidateKey: computeCandidateKey(c),
     name: normalizeName(c.name),
     domain: normalizeDomain(c.website),

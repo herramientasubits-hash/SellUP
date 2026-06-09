@@ -8,6 +8,7 @@
  */
 
 import type { EvidenceClassification, EvidenceLevel } from './types';
+import { canonicalizeEvidenceUrl } from './url-canonicalizer';
 
 // ─── Dominios Nivel A — Primaria ─────────────────────────────────────────────
 // Sitio oficial de la empresa, LinkedIn corporativo, documentos corporativos,
@@ -211,11 +212,13 @@ export function classifyEvidenceUrl(
 export function classifyPoolEvidence(
   candidates: Array<{ name: string; evidence_url: string | null; website: string | null }>,
 ): Map<string, EvidenceClassification> {
-  // Primero: contar frecuencia de cada URL de evidencia
+  // Primero: contar frecuencia usando URLs canónicas para detectar variantes equivalentes
+  // (slash final, www, tracking params) como una misma URL repetida.
   const urlFrequency = new Map<string, number>();
   for (const c of candidates) {
     if (c.evidence_url) {
-      urlFrequency.set(c.evidence_url, (urlFrequency.get(c.evidence_url) ?? 0) + 1);
+      const key = canonicalizeEvidenceUrl(c.evidence_url) ?? c.evidence_url;
+      urlFrequency.set(key, (urlFrequency.get(key) ?? 0) + 1);
     }
   }
 
@@ -223,7 +226,10 @@ export function classifyPoolEvidence(
 
   for (const c of candidates) {
     const { level, is_circular, reason } = classifyEvidenceUrl(c.evidence_url, c.website);
-    const is_repeated = !!c.evidence_url && (urlFrequency.get(c.evidence_url) ?? 0) > 1;
+    const canonicalKey = c.evidence_url
+      ? (canonicalizeEvidenceUrl(c.evidence_url) ?? c.evidence_url)
+      : null;
+    const is_repeated = !!canonicalKey && (urlFrequency.get(canonicalKey) ?? 0) > 1;
 
     result.set(c.name, {
       level,
