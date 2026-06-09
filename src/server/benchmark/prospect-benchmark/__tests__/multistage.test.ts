@@ -302,7 +302,7 @@ describe('Test 7 — budget stops safely', () => {
 
       // Simulate max API calls exhausted
       for (let i = 0; i < 16; i++) {
-        checkpoint.addUsage({ input_tokens: 1000, output_tokens: 500, search_calls: 0, cost_usd: 0.01 });
+        checkpoint.addUsage({ input_tokens: 1000, output_tokens: 500, search_calls: 0, search_count_status: 'unavailable', token_cost_usd: 0.01, web_search_cost_usd: null, cost_usd: 0.01 });
       }
 
       assert.ok(!checkpoint.withinBudget(), 'withinBudget must return false after max_total_api_calls');
@@ -316,7 +316,7 @@ describe('Test 7 — budget stops safely', () => {
     try {
       const checkpoint = CheckpointManager.create(dir, 'run-test7b', 'hash-7b');
 
-      checkpoint.addUsage({ input_tokens: 100_000, output_tokens: 150_000, search_calls: 0, cost_usd: 3.0 });
+      checkpoint.addUsage({ input_tokens: 100_000, output_tokens: 150_000, search_calls: 0, search_count_status: 'unavailable', token_cost_usd: 3.0, web_search_cost_usd: null, cost_usd: 3.0 });
 
       assert.ok(!checkpoint.withinBudget(), 'withinBudget must return false after max_cost_usd');
     } finally {
@@ -341,7 +341,7 @@ describe('Test 8 — resume does not duplicate costs', () => {
       };
       checkpoint.saveFile(checkpoint.discoveryFile(0), batchData);
       checkpoint.markDiscoveryBatchCompleted(0);
-      checkpoint.addUsage({ input_tokens: 500, output_tokens: 200, search_calls: 2, cost_usd: 0.05 });
+      checkpoint.addUsage({ input_tokens: 500, output_tokens: 200, search_calls: 2, search_count_status: 'reported_by_provider', token_cost_usd: 0.03, web_search_cost_usd: 0.02, cost_usd: 0.05 });
 
       const usageAfterFirstRun = checkpoint.getState().usage.estimated_cost_usd;
 
@@ -745,7 +745,7 @@ describe('Case 9 — repeated resume does not duplicate costs or verifications',
       // First run: verify Simetrik and save to per-candidate cache
       const simetrikVerified = makeVerified('Simetrik', 'https://simetrik.com');
       checkpoint.saveVerificationCandidate(key, simetrikVerified, inputHash);
-      checkpoint.addUsage({ input_tokens: 500, output_tokens: 200, search_calls: 2, cost_usd: 0.05 });
+      checkpoint.addUsage({ input_tokens: 500, output_tokens: 200, search_calls: 2, search_count_status: 'reported_by_provider', token_cost_usd: 0.03, web_search_cost_usd: 0.02, cost_usd: 0.05 });
 
       const costAfterFirstRun = checkpoint.getState().usage.estimated_cost_usd;
 

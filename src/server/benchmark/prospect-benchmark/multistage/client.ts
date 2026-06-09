@@ -1,35 +1,60 @@
 /**
- * Multistage Orchestrator — Anthropic API Client (16AB.23.3)
+ * Multistage Orchestrator — Anthropic API Client (16AB.23.3 / 16AB.23.5)
  *
  * Wraps fetch with:
  *   - Per-call AbortController timeout (no single connection > 90s)
  *   - Exponential backoff on 429
  *   - Error classification (rate_limit / timeout / connection_terminated / etc.)
- *   - Agentic loop (model may make multiple web_search tool uses within one call)
+ *   - Agentic loop (model may make multiple tool_use iterations within one call)
+ *
+ * 16AB.23.5 — Web Search Observability:
+ *   - AContent extended with server_tool_use and web_search_tool_result blocks
+ *   - AResponse.usage extended with server_tool_use.web_search_requests
+ *   - extractAnthropicWebSearchAudit called per response turn; audits merged
+ *   - Search count sourced from usage.server_tool_use.web_search_requests (primary)
+ *     or inferred from server_tool_use blocks (secondary); never silently zero
+ *   - Cost breakdown: token_cost_usd and web_search_cost_usd tracked separately
+ *   - webSearchAudit returned in ApiCallResult for callers to persist
  *
  * Injectable fetch for tests — never use real timers in tests.
  */
 
 import { MULTISTAGE_CONFIG, COST_RATES } from './config';
+import {
+  extractAnthropicWebSearchAudit,
+  mergeWebSearchAudits,
+} from './web-search-audit';
+import type {
+  AnthropicResponseContent,
+  AnthropicWebSearchAudit,
+  SearchCountStatus,
+} from './web-search-audit';
 import type { ApiCallResult, BatchUsage, MultistageErrorCode } from './ms-types';
 
-// ─── Internal Anthropic types ─────────────────────────────────────────────────
+// ─── Anthropic request/response types ────────────────────────────────────────
 
-type AContent =
+/** Content that can appear in outgoing request messages. */
+type ARequestContent =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string };
 
-type AMessage = { role: 'user' | 'assistant'; content: AContent[] | string };
+type AMessage = { role: 'user' | 'assistant'; content: ARequestContent[] | AnthropicResponseContent[] | string };
 
 type AResponse = {
   id: string;
   type: string;
   role: string;
-  content: AContent[];
+  content: AnthropicResponseContent[];
   model: string;
   stop_reason: string | null;
-  usage?: { input_tokens: number; output_tokens: number };
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    server_tool_use?: {
+      web_search_requests?: number;
+    };
+  };
 };
 
 export type FetchFn = typeof fetch;
@@ -61,28 +86,67 @@ export function classifyError(err: unknown): MultistageErrorCode {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function extractText(content: AContent[]): string {
+/** Extract concatenated text from response content, handling both plain and citation-bearing text blocks. */
+function extractText(content: AnthropicResponseContent[]): string {
   return content
-    .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+    .filter((c): c is { type: 'text'; text: string; [key: string]: unknown } => c.type === 'text')
     .map((c) => c.text)
     .join('\n');
 }
 
-function countToolUses(messages: AMessage[]): number {
-  let n = 0;
-  for (const m of messages) {
-    if (m.role === 'assistant' && Array.isArray(m.content)) {
-      n += (m.content as AContent[]).filter((c) => c.type === 'tool_use').length;
-    }
-  }
-  return n;
-}
-
-export function estimateCost(inputTokens: number, outputTokens: number, searches: number): number {
+/**
+ * Compute token-only cost (excludes web search).
+ * Web search cost is computed separately from the official search count.
+ */
+function computeTokenCost(inputTokens: number, outputTokens: number): number {
   return (
     (inputTokens / 1_000_000) * COST_RATES.input_per_million +
-    (outputTokens / 1_000_000) * COST_RATES.output_per_million +
-    (searches / 1_000) * COST_RATES.search_per_thousand
+    (outputTokens / 1_000_000) * COST_RATES.output_per_million
+  );
+}
+
+/**
+ * Compute web search cost from a confirmed request count.
+ * Returns null when searchRequests is null (unavailable).
+ */
+function computeWebSearchCost(searchRequests: number | null): number | null {
+  if (searchRequests === null) return null;
+  return (searchRequests / 1_000) * COST_RATES.web_search_per_thousand;
+}
+
+/**
+ * Build a BatchUsage from the accumulated per-call data.
+ * Never silently uses 0 for search count when it is actually unknown.
+ */
+function buildBatchUsage(
+  inputTokens: number,
+  outputTokens: number,
+  audit: AnthropicWebSearchAudit | null
+): BatchUsage {
+  const searchRequests = audit?.searchRequests ?? null;
+  const searchCountStatus: SearchCountStatus = audit?.searchCountStatus ?? 'unavailable';
+  const tokenCostUsd = computeTokenCost(inputTokens, outputTokens);
+  const webSearchCostUsd = computeWebSearchCost(searchRequests);
+
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    search_calls: searchRequests ?? 0,
+    search_count_status: searchCountStatus,
+    token_cost_usd: tokenCostUsd,
+    web_search_cost_usd: webSearchCostUsd,
+    cost_usd: tokenCostUsd + (webSearchCostUsd ?? 0),
+  };
+}
+
+/**
+ * @deprecated Use buildBatchUsage instead. Kept for tests that call estimateCost directly.
+ * Returns combined token + web search cost only when searches is a non-null known count.
+ */
+export function estimateCost(inputTokens: number, outputTokens: number, searches: number): number {
+  return (
+    computeTokenCost(inputTokens, outputTokens) +
+    (searches / 1_000) * COST_RATES.web_search_per_thousand
   );
 }
 
@@ -126,7 +190,7 @@ async function rawCall(
   return res.json() as Promise<AResponse>;
 }
 
-// ─── One agentic turn (may span multiple messages for tool use) ───────────────
+// ─── One agentic turn (may span multiple messages for client-side tool use) ───
 
 export async function callAgentic(
   apiKey: string,
@@ -151,6 +215,8 @@ export async function callAgentic(
   let iterations = 0;
   const MAX_ITER = 12;
 
+  const turnAudits: AnthropicWebSearchAudit[] = [];
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -162,19 +228,30 @@ export async function callAgentic(
 
       totalInput += resp.usage?.input_tokens ?? 0;
       totalOutput += resp.usage?.output_tokens ?? 0;
+
+      // Extract audit for this response turn (includes server_tool_use and citations)
+      if (maxSearchUses > 0) {
+        turnAudits.push(extractAnthropicWebSearchAudit(resp));
+      }
+
       messages.push({ role: 'assistant', content: resp.content });
 
+      // stop_reason 'tool_use' signals client-side tool execution needed.
+      // Server-side web_search returns 'end_turn' with results already in content.
+      // 'pause_turn' (extended thinking) also exits here — not expected for web search.
       if (resp.stop_reason !== 'tool_use') {
         finalText = extractText(resp.content);
         break;
       }
 
-      // Acknowledge tool uses (web_search_20250305 handles results server-side)
-      const acks: AContent[] = resp.content
-        .filter((c) => c.type === 'tool_use')
+      // Acknowledge client-side tool uses (web_search_20250305 is server-side; no ack needed)
+      const acks: ARequestContent[] = (resp.content as AnthropicResponseContent[])
+        .filter((c): c is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } =>
+          c.type === 'tool_use'
+        )
         .map((c) => ({
           type: 'tool_result' as const,
-          tool_use_id: (c as { type: 'tool_use'; id: string }).id,
+          tool_use_id: c.id,
           content: 'Search completed.',
         }));
       if (acks.length > 0) {
@@ -184,30 +261,21 @@ export async function callAgentic(
   } catch (err) {
     clearTimeout(timer);
     const errorCode = classifyError(err);
-    const searches = countToolUses(messages);
-    const usage: BatchUsage = {
-      input_tokens: totalInput,
-      output_tokens: totalOutput,
-      search_calls: searches,
-      cost_usd: estimateCost(totalInput, totalOutput, searches),
-    };
+    const mergedAudit = turnAudits.length > 0 ? mergeWebSearchAudits(turnAudits) : null;
+    const usage = buildBatchUsage(totalInput, totalOutput, mergedAudit);
     return {
       data: null,
       usage,
       errorCode,
       errorMessage: err instanceof Error ? err.message : String(err),
       durationMs: Date.now() - startMs,
+      ...(mergedAudit ? { webSearchAudit: mergedAudit } : {}),
     };
   }
 
   clearTimeout(timer);
-  const searches = countToolUses(messages);
-  const usage: BatchUsage = {
-    input_tokens: totalInput,
-    output_tokens: totalOutput,
-    search_calls: searches,
-    cost_usd: estimateCost(totalInput, totalOutput, searches),
-  };
+  const mergedAudit = turnAudits.length > 0 ? mergeWebSearchAudits(turnAudits) : null;
+  const usage = buildBatchUsage(totalInput, totalOutput, mergedAudit);
 
   return {
     data: finalText || null,
@@ -215,6 +283,7 @@ export async function callAgentic(
     errorCode: finalText ? null : 'invalid_response',
     errorMessage: finalText ? null : 'No text content in response',
     durationMs: Date.now() - startMs,
+    ...(mergedAudit ? { webSearchAudit: mergedAudit } : {}),
   };
 }
 

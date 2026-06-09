@@ -1,9 +1,12 @@
 /**
- * Prospect Generation Benchmark — Types (Hito 16AB.23)
+ * Prospect Generation Benchmark — Types (Hito 16AB.23 / 16AB.23.5)
  *
  * Contratos de entrada/salida del benchmark aislado.
  * No escribe en DB. No escribe en HubSpot. Solo lectura y generación.
  */
+
+import type { SearchCountStatus, EvidenceUrlOrigin } from './multistage/web-search-audit';
+export type { SearchCountStatus, EvidenceUrlOrigin };
 
 // ─── Solicitud canónica ───────────────────────────────────────────────────────
 
@@ -151,9 +154,22 @@ export type DiversificationMetrics = {
 export type BenchmarkUsage = {
   input_tokens: number | null;
   output_tokens: number | null;
+  /** Kept for compat. Use web_search_requests_reported for authoritative count. */
   searches_executed: number;
   estimated_cost_usd: number | null;
-  cost_status: 'calculated' | 'estimated' | 'unavailable';
+  cost_status: 'calculated' | 'estimated' | 'unavailable' | 'partial_search_usage_unavailable';
+  // ─── Web search observability (16AB.23.5) ────────────────────────────────
+  /** Sum of web searches confirmed by usage.server_tool_use.web_search_requests. */
+  web_search_requests_reported: number;
+  /** Sum of web searches inferred from server_tool_use blocks (less authoritative). */
+  web_search_requests_inferred: number;
+  web_search_count_status: SearchCountStatus;
+  token_cost_usd: number | null;
+  /** Null when any call had search_count_status 'unavailable'. */
+  web_search_cost_usd: number | null;
+  web_search_results_count: number;
+  web_search_citations_count: number;
+  web_search_errors_count: number;
 };
 
 // ─── Tiempos ─────────────────────────────────────────────────────────────────
@@ -286,6 +302,21 @@ export type BenchmarkMetrics = {
 
   // Métricas de pool (16AB.23.2) — opcionales para compatibilidad con otros proveedores
   pool_metrics?: PoolMetrics;
+
+  // Métricas de búsqueda web Anthropic (16AB.23.5)
+  web_search_requests_reported: number;
+  web_search_requests_inferred: number;
+  web_search_count_status: SearchCountStatus;
+  web_search_results_count: number;
+  web_search_citations_count: number;
+  web_search_errors_count: number;
+  unique_search_result_urls: number;
+  unique_cited_urls: number;
+  model_generated_urls_count: number;
+  auditable_candidates_count: number;
+  partially_auditable_candidates_count: number;
+  not_auditable_candidates_count: number;
+  web_search_cost_usd: number | null;
 };
 
 export type ScoreBreakdown = {

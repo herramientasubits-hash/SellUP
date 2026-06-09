@@ -523,6 +523,21 @@ export function computeMetrics(
     estimated_cost_usd: usage.estimated_cost_usd,
     errors_count: result.errors.length,
 
+    // Web search observability (16AB.23.5)
+    web_search_requests_reported: usage.web_search_requests_reported ?? 0,
+    web_search_requests_inferred: usage.web_search_requests_inferred ?? 0,
+    web_search_count_status: usage.web_search_count_status ?? 'unavailable',
+    web_search_results_count: usage.web_search_results_count ?? 0,
+    web_search_citations_count: usage.web_search_citations_count ?? 0,
+    web_search_errors_count: usage.web_search_errors_count ?? 0,
+    unique_search_result_urls: 0,         // populated by run if audits are loaded
+    unique_cited_urls: 0,                 // populated by run if audits are loaded
+    model_generated_urls_count: 0,        // populated by run if audits are loaded
+    auditable_candidates_count: 0,        // populated by run if audits are loaded
+    partially_auditable_candidates_count: 0,
+    not_auditable_candidates_count: n,    // conservative default — updated when audits available
+    web_search_cost_usd: usage.web_search_cost_usd ?? null,
+
     score,
     score_breakdown: breakdown,
 

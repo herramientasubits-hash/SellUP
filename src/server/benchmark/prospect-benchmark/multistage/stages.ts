@@ -191,6 +191,13 @@ export async function runStage2DiscoveryBatch(
   checkpoint.addUsage(result.usage);
   if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
 
+  // Persist and accumulate web search audit (16AB.23.5)
+  if (result.webSearchAudit) {
+    const auditName = `discovery-${String(batchIndex + 1).padStart(2, '0')}`;
+    checkpoint.saveSearchAudit(auditName, 'stage2_discovery', `discovery-${batchIndex}`, result.webSearchAudit);
+    checkpoint.addWebSearchAuditCounts(result.webSearchAudit);
+  }
+
   if (result.errorCode) {
     if (result.errorCode === 'connection_terminated') metrics.terminated_connections++;
     checkpoint.recordFailure();
@@ -488,6 +495,14 @@ export async function runStage5VerificationCandidates(
     checkpoint.addUsage(result.usage);
     if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
 
+    // Persist and accumulate web search audit (16AB.23.5)
+    if (result.webSearchAudit) {
+      const batchSlot = Math.floor(i / MULTISTAGE_CONFIG.verification_batch_size);
+      const auditName = `verification-batch-${String(batchSlot + 1).padStart(2, '0')}`;
+      checkpoint.saveSearchAudit(auditName, 'stage5_verification', `verification-batch-${batchSlot}`, result.webSearchAudit);
+      checkpoint.addWebSearchAuditCounts(result.webSearchAudit);
+    }
+
     if (result.errorCode) {
       if (result.errorCode === 'connection_terminated') metrics.terminated_connections++;
       checkpoint.recordFailure();
@@ -560,6 +575,12 @@ export async function runReplacementDiscovery(
 
   checkpoint.addUsage(result.usage);
   if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
+
+  // Persist and accumulate web search audit (16AB.23.5)
+  if (result.webSearchAudit) {
+    checkpoint.saveSearchAudit(`replacement-${round}`, 'stage7_replacement', `replacement-${round}`, result.webSearchAudit);
+    checkpoint.addWebSearchAuditCounts(result.webSearchAudit);
+  }
 
   if (result.errorCode) {
     if (result.errorCode === 'connection_terminated') metrics.terminated_connections++;

@@ -23,6 +23,7 @@ import type {
   BenchmarkRequest,
 } from '../types';
 import type { ProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/types';
+import { noWebSearchUsageFields } from './shared';
 
 const PROVIDER_ID = 'current_sellup' as const;
 const MODEL_ID = 'claude-haiku-4-5-20251001 + tavily';
@@ -159,6 +160,7 @@ export async function runCurrentSellUpProvider(
       searches_executed: totalSearches || output.metadata.rounds_executed * 5,
       estimated_cost_usd: null,
       cost_status: 'unavailable',
+      ...noWebSearchUsageFields(),
     };
 
     return {
@@ -195,7 +197,7 @@ export async function runCurrentSellUpProvider(
       candidates: [],
       duplicate_results: [],
       diversification: null,
-      usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable' },
+      usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable', ...noWebSearchUsageFields() },
       timings: { started_at: startedAt, finished_at: new Date().toISOString(), duration_ms: Date.now() - startMs },
       errors,
     };
@@ -219,7 +221,7 @@ function buildSkippedResult(
     candidates: [],
     duplicate_results: [],
     diversification: null,
-    usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable' },
+    usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable', ...noWebSearchUsageFields() },
     timings: { started_at: startedAt, finished_at: startedAt, duration_ms: 0 },
     errors: [],
   };

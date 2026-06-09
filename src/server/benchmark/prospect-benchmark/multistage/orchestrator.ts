@@ -541,10 +541,27 @@ async function executeStages(
   const state = checkpoint.getState();
   const usage = state.usage;
 
-  const estimatedCost =
-    (usage.input_tokens / 1_000_000) * COST_RATES.input_per_million +
-    (usage.output_tokens / 1_000_000) * COST_RATES.output_per_million +
-    (usage.searches_executed / 1_000) * COST_RATES.search_per_thousand;
+  // ── Cost calculation (16AB.23.5) ────────────────────────────────────────────
+  // Token cost is always known when input_tokens > 0.
+  // Web search cost is known only when web_search_count_status != 'unavailable'.
+  const tokenCostUsd = usage.token_cost_usd > 0
+    ? usage.token_cost_usd
+    : usage.input_tokens > 0
+      ? (usage.input_tokens / 1_000_000) * COST_RATES.input_per_million +
+        (usage.output_tokens / 1_000_000) * COST_RATES.output_per_million
+      : null;
+
+  const webSearchCostUsd = usage.web_search_cost_usd;  // already null when unavailable
+
+  const totalCostUsd = tokenCostUsd !== null
+    ? tokenCostUsd + (webSearchCostUsd ?? 0)
+    : null;
+
+  const costStatus = !usage.input_tokens
+    ? 'unavailable' as const
+    : webSearchCostUsd === null
+      ? 'partial_search_usage_unavailable' as const
+      : 'estimated' as const;
 
   const status = !checkpoint.withinBudget() && benchmarkCandidates.length === 0
     ? 'error'
@@ -583,8 +600,16 @@ async function executeStages(
       input_tokens: usage.input_tokens || null,
       output_tokens: usage.output_tokens || null,
       searches_executed: usage.searches_executed,
-      estimated_cost_usd: usage.input_tokens > 0 ? estimatedCost : null,
-      cost_status: usage.input_tokens > 0 ? 'estimated' : 'unavailable',
+      estimated_cost_usd: totalCostUsd,
+      cost_status: costStatus,
+      web_search_requests_reported: usage.web_search_requests_reported,
+      web_search_requests_inferred: usage.web_search_requests_inferred,
+      web_search_count_status: usage.web_search_count_status,
+      token_cost_usd: tokenCostUsd,
+      web_search_cost_usd: webSearchCostUsd,
+      web_search_results_count: usage.web_search_results_count,
+      web_search_citations_count: usage.web_search_citations_count,
+      web_search_errors_count: usage.web_search_errors_count,
     },
     timings: {
       started_at: startedAt,

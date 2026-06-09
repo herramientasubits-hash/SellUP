@@ -12,7 +12,7 @@
     "format:check": "prettier --check .",
     "benchmark:prospects": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/benchmark-prospect-generation.ts",
     "benchmark:reassess-a": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/benchmark-reassess-result-a.ts",
-    "test:benchmark": "node --import tsx --test src/server/benchmark/prospect-benchmark/__tests__/candidate-validator.test.ts src/server/benchmark/prospect-benchmark/__tests__/entity-verifier.test.ts src/server/benchmark/prospect-benchmark/__tests__/scoring-caps.test.ts src/server/benchmark/prospect-benchmark/__tests__/selection-pipeline.test.ts src/server/benchmark/prospect-benchmark/__tests__/multistage.test.ts"
+    "test:benchmark": "node --import tsx --test src/server/benchmark/prospect-benchmark/__tests__/candidate-validator.test.ts src/server/benchmark/prospect-benchmark/__tests__/entity-verifier.test.ts src/server/benchmark/prospect-benchmark/__tests__/scoring-caps.test.ts src/server/benchmark/prospect-benchmark/__tests__/selection-pipeline.test.ts src/server/benchmark/prospect-benchmark/__tests__/multistage.test.ts src/server/benchmark/prospect-benchmark/multistage/__tests__/web-search-audit.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

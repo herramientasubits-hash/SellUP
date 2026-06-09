@@ -1,13 +1,19 @@
 /**
- * Artifact input hashing utilities — Hotfix 16AB.23.4
+ * Artifact input hashing utilities — Hotfix 16AB.23.4 / 16AB.23.5
  *
  * Deterministic SHA-256 fingerprints for each pipeline stage's inputs.
  * An artifact is only reusable when its stored inputHash matches the one
  * computed from the current inputs. Order-independent: candidate arrays
  * are sorted by stable key before hashing.
+ *
+ * 16AB.23.5: computeVerificationCandidateInputHash now includes
+ * anthropicSearchAuditVersion so all pre-audit verification artifacts are
+ * invalidated and must be re-verified with the new audit trail.
+ * Discovery, prefilter, and dedup artifacts are NOT affected.
  */
 
 import { createHash } from 'crypto';
+import { SEARCH_AUDIT_VERSION } from './web-search-audit';
 import type { DiscoveryCandidate, VerifiedCandidateResult } from './ms-types';
 
 export const CURRENT_ARTIFACT_VERSION = 1;
@@ -112,7 +118,13 @@ export function computeDedupInputHash(
 
 /**
  * Stage 5 per-candidate verification.
- * Changes when: candidate data changes, model changes, or pipeline version changes.
+ * Changes when: candidate data changes, model changes, pipeline version changes,
+ * or the search audit schema version changes (16AB.23.5: SEARCH_AUDIT_VERSION).
+ *
+ * Adding anthropicSearchAuditVersion invalidates all pre-audit verification
+ * artifacts (Simetrik, Truora, B-Secure, etc.) so they must be re-verified
+ * with the new audit trail. Discovery/prefilter/dedup are NOT affected.
+ *
  * Excludes evidence_url (unstable deep links) and notes (metadata only).
  */
 export function computeVerificationCandidateInputHash(
@@ -126,6 +138,7 @@ export function computeVerificationCandidateInputHash(
     model,
     stage: 'stage5_verification',
     country,
+    anthropicSearchAuditVersion: SEARCH_AUDIT_VERSION,
     candidateKey: computeCandidateKey(c),
     name: normalizeName(c.name),
     domain: normalizeDomain(c.website),

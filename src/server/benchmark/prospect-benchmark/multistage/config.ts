@@ -45,9 +45,12 @@ export const MULTISTAGE_CONFIG = {
   initial_verification_pool_size: 16,
 } as const;
 
-// Sonnet pricing as of mid-2025
+// Sonnet pricing as of mid-2025. Update here — not in individual functions.
 export const COST_RATES = {
   input_per_million: 3.0,
   output_per_million: 15.0,
-  search_per_thousand: 10.0,
+  /** Anthropic Web Search: $10 per 1,000 requests = $0.01 per request. */
+  web_search_per_thousand: 10.0,
+  /** Derived convenience constant: web_search_per_thousand / 1000. */
+  web_search_per_request: 0.01,
 } as const;

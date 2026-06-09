@@ -15,7 +15,7 @@ import {
   buildProviderUserPrompt,
   parseProviderResponse,
 } from '../prompt-builder';
-import { normalizeBenchmarkCandidate } from './shared';
+import { normalizeBenchmarkCandidate, noWebSearchUsageFields } from './shared';
 import type { BenchmarkCandidate, BenchmarkError, BenchmarkUsage, ProviderRunResult, SearchPlan } from '../types';
 import type { BenchmarkRequest } from '../types';
 import { BENCHMARK_LIMITS } from '../canonical-request';
@@ -172,7 +172,7 @@ export async function runGeminiSearchProvider(
       candidates: [],
       duplicate_results: [],
       diversification: null,
-      usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable' },
+      usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable', ...noWebSearchUsageFields() },
       timings: { started_at: startedAt, finished_at: new Date().toISOString(), duration_ms: Date.now() - startMs },
       errors,
     };
@@ -236,6 +236,7 @@ export async function runGeminiSearchProvider(
     searches_executed: searchesExecuted,
     estimated_cost_usd: estimatedCost,
     cost_status: inputTokens > 0 ? 'estimated' : 'unavailable',
+    ...noWebSearchUsageFields(),
   };
 
   return {
@@ -272,7 +273,7 @@ function buildSkippedResult(
     candidates: [],
     duplicate_results: [],
     diversification: null,
-    usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable' },
+    usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable', ...noWebSearchUsageFields() },
     timings: { started_at: startedAt, finished_at: startedAt, duration_ms: 0 },
     errors: [],
   };
@@ -295,7 +296,7 @@ function buildErrorResult(
     candidates: [],
     duplicate_results: [],
     diversification: null,
-    usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable' },
+    usage: { input_tokens: null, output_tokens: null, searches_executed: 0, estimated_cost_usd: null, cost_status: 'unavailable', ...noWebSearchUsageFields() },
     timings: { started_at: startedAt, finished_at: new Date().toISOString(), duration_ms: durationMs },
     errors,
   };

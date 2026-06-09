@@ -5,7 +5,34 @@
  * Sin llamadas externas. Sin efectos secundarios.
  */
 
-import type { BenchmarkCandidate } from '../types';
+import type { BenchmarkCandidate, BenchmarkUsage } from '../types';
+
+/**
+ * Zero-fill the web search observability fields added in 16AB.23.5.
+ * Use this in non-Anthropic providers that don't produce Anthropic Web Search audits.
+ */
+export function noWebSearchUsageFields(): Pick<
+  BenchmarkUsage,
+  | 'web_search_requests_reported'
+  | 'web_search_requests_inferred'
+  | 'web_search_count_status'
+  | 'token_cost_usd'
+  | 'web_search_cost_usd'
+  | 'web_search_results_count'
+  | 'web_search_citations_count'
+  | 'web_search_errors_count'
+> {
+  return {
+    web_search_requests_reported: 0,
+    web_search_requests_inferred: 0,
+    web_search_count_status: 'unavailable',
+    token_cost_usd: null,
+    web_search_cost_usd: null,
+    web_search_results_count: 0,
+    web_search_citations_count: 0,
+    web_search_errors_count: 0,
+  };
+}
 
 function normalizeConfidence(raw: unknown): 'Alta' | 'Media' | 'Baja' {
   const val = String(raw ?? '').toLowerCase().trim();

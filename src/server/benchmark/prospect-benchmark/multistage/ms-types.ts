@@ -1,6 +1,9 @@
 /**
- * Multistage Orchestrator — Types (16AB.23.3 / 16AB.23.4)
+ * Multistage Orchestrator — Types (16AB.23.3 / 16AB.23.4 / 16AB.23.5)
  */
+
+import type { SearchCountStatus } from './web-search-audit';
+export type { SearchCountStatus };
 
 export type MultistageErrorCode =
   | 'rate_limit'
@@ -63,7 +66,13 @@ export type VerifiedCandidateResult = {
 export type BatchUsage = {
   input_tokens: number;
   output_tokens: number;
+  /** Kept for backward compat. Equals web_search_requests when reported_by_provider. */
   search_calls: number;
+  search_count_status: SearchCountStatus;
+  token_cost_usd: number;
+  /** Null when searchCountStatus is 'unavailable'. */
+  web_search_cost_usd: number | null;
+  /** = token_cost_usd + (web_search_cost_usd ?? 0). Kept for backward compat. */
   cost_usd: number;
 };
 
@@ -73,6 +82,8 @@ export type ApiCallResult<T> = {
   errorCode: MultistageErrorCode | null;
   errorMessage: string | null;
   durationMs: number;
+  /** Audit trail for Anthropic Web Search. Present when search was enabled for this call. */
+  webSearchAudit?: import('./web-search-audit').AnthropicWebSearchAudit;
 };
 
 // ─── Usage ────────────────────────────────────────────────────────────────────
@@ -80,6 +91,7 @@ export type ApiCallResult<T> = {
 export type RunUsage = {
   input_tokens: number;
   output_tokens: number;
+  /** Kept for compat. Sum of search_calls across all BatchUsage records. */
   searches_executed: number;
   total_api_calls: number;
   successful_api_calls: number;
@@ -87,6 +99,24 @@ export type RunUsage = {
   retried_api_calls: number;
   rate_limit_wait_ms: number;
   estimated_cost_usd: number;
+  // ─── Web search stats (16AB.23.5) ──────────────────────────────────────
+  /** Sum of web_search_requests from calls with status reported_by_provider. */
+  web_search_requests_reported: number;
+  /** Sum of search counts from calls with status inferred_from_blocks. */
+  web_search_requests_inferred: number;
+  /** Worst-case status across all API calls in this run. */
+  web_search_count_status: SearchCountStatus;
+  /** Sum of token costs across all calls. */
+  token_cost_usd: number;
+  /**
+   * Sum of web search costs across all calls.
+   * Null if any call had status 'unavailable' (partial search cost unknown).
+   */
+  web_search_cost_usd: number | null;
+  /** Result counts across calls with search enabled. */
+  web_search_results_count: number;
+  web_search_citations_count: number;
+  web_search_errors_count: number;
 };
 
 // ─── Artifact envelope (16AB.23.4) ────────────────────────────────────────────

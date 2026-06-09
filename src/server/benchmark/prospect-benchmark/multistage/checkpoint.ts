@@ -15,7 +15,9 @@
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'fs';
 import { join } from 'path';
-import type { CheckpointArtifact, RunState, StageArtifactMeta } from './ms-types';
+import type { BatchUsage, CheckpointArtifact, RunState, StageArtifactMeta } from './ms-types';
+import type { AnthropicWebSearchAudit, SearchCountStatus } from './web-search-audit';
+import { degradeSearchCountStatus } from './web-search-audit';
 import { MULTISTAGE_CONFIG } from './config';
 import { CURRENT_ARTIFACT_VERSION } from './artifact-hash';
 
@@ -70,6 +72,14 @@ export class CheckpointManager {
         retried_api_calls: 0,
         rate_limit_wait_ms: 0,
         estimated_cost_usd: 0,
+        web_search_requests_reported: 0,
+        web_search_requests_inferred: 0,
+        web_search_count_status: 'unavailable',
+        token_cost_usd: 0,
+        web_search_cost_usd: 0,
+        web_search_results_count: 0,
+        web_search_citations_count: 0,
+        web_search_errors_count: 0,
       },
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -87,6 +97,16 @@ export class CheckpointManager {
       const state = JSON.parse(readFileSync(path, 'utf-8')) as RunState;
       // Ensure stageArtifacts exists on legacy run states
       if (!state.stageArtifacts) state.stageArtifacts = {};
+      // Back-fill 16AB.23.5 web search fields for run states persisted before this hotfix
+      const u = state.usage;
+      if (u.web_search_requests_reported === undefined) u.web_search_requests_reported = 0;
+      if (u.web_search_requests_inferred === undefined) u.web_search_requests_inferred = 0;
+      if (u.web_search_count_status === undefined) u.web_search_count_status = 'unavailable';
+      if (u.token_cost_usd === undefined) u.token_cost_usd = 0;
+      if (u.web_search_cost_usd === undefined) u.web_search_cost_usd = null;
+      if (u.web_search_results_count === undefined) u.web_search_results_count = 0;
+      if (u.web_search_citations_count === undefined) u.web_search_citations_count = 0;
+      if (u.web_search_errors_count === undefined) u.web_search_errors_count = 0;
       return new CheckpointManager(stateDir, state);
     } catch {
       return null;
@@ -152,12 +172,37 @@ export class CheckpointManager {
     this.persist();
   }
 
-  addUsage(u: { input_tokens: number; output_tokens: number; search_calls: number; cost_usd: number }): void {
-    this.state.usage.input_tokens += u.input_tokens;
-    this.state.usage.output_tokens += u.output_tokens;
-    this.state.usage.searches_executed += u.search_calls;
-    this.state.usage.total_api_calls += 1;
-    this.state.usage.estimated_cost_usd += u.cost_usd;
+  addUsage(u: BatchUsage): void {
+    const usage = this.state.usage;
+    usage.input_tokens += u.input_tokens;
+    usage.output_tokens += u.output_tokens;
+    usage.searches_executed += u.search_calls;
+    usage.total_api_calls += 1;
+    usage.estimated_cost_usd += u.cost_usd;
+    usage.token_cost_usd += u.token_cost_usd;
+
+    // Accumulate web search counts by status
+    if (u.search_count_status === 'reported_by_provider') {
+      usage.web_search_requests_reported += u.search_calls;
+    } else if (u.search_count_status === 'inferred_from_blocks') {
+      usage.web_search_requests_inferred += u.search_calls;
+    }
+
+    // Degrade web_search_count_status to worst seen
+    const statuses: SearchCountStatus[] = [usage.web_search_count_status, u.search_count_status];
+    usage.web_search_count_status = degradeSearchCountStatus(
+      statuses.filter((s): s is SearchCountStatus => s !== undefined)
+    );
+
+    // Web search cost: null if any call was unavailable
+    if (usage.web_search_cost_usd !== null) {
+      if (u.web_search_cost_usd !== null) {
+        usage.web_search_cost_usd = (usage.web_search_cost_usd ?? 0) + u.web_search_cost_usd;
+      } else {
+        usage.web_search_cost_usd = null;
+      }
+    }
+
     this.persist();
   }
 
@@ -275,6 +320,34 @@ export class CheckpointManager {
       try { renameSync(path, `${path}.corrupt`); } catch { /* ignore */ }
       return null;
     }
+  }
+
+  // ─── Web search audit persistence (16AB.23.5) ─────────────────────────────
+
+  /**
+   * Persist a sanitized AnthropicWebSearchAudit for one stage call.
+   * Stored under state/search-audit/<name>.json using the artifact envelope.
+   * Never stores encrypted_content, encrypted_index, or raw API responses.
+   */
+  saveSearchAudit(name: string, stage: string, inputHash: string, audit: AnthropicWebSearchAudit): void {
+    const subdir = join(this.stateDir, 'search-audit');
+    mkdirSync(subdir, { recursive: true });
+    const artifact: CheckpointArtifact<AnthropicWebSearchAudit> = {
+      artifactVersion: CURRENT_ARTIFACT_VERSION,
+      stage,
+      inputHash,
+      createdAt: new Date().toISOString(),
+      data: audit,
+    };
+    writeFileSync(join(subdir, `${name}.json`), JSON.stringify(artifact, null, 2), 'utf-8');
+  }
+
+  /** Accumulate web search result/citation/error counts from an audit into RunUsage. */
+  addWebSearchAuditCounts(audit: AnthropicWebSearchAudit): void {
+    this.state.usage.web_search_results_count += audit.results.length;
+    this.state.usage.web_search_citations_count += audit.citations.length;
+    this.state.usage.web_search_errors_count += audit.errors.length;
+    this.persist();
   }
 
   // ─── Raw file I/O (discovery batches, plan, etc.) ─────────────────────────

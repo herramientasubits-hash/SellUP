@@ -10,6 +10,7 @@
 
 import { getAIProviderCredentialValue } from '@/server/services/ai-credentials';
 import { runMultistageProvider } from '../multistage/orchestrator';
+import { noWebSearchUsageFields } from './shared';
 import type { BenchmarkRequest, BenchmarkRunOptions, ProviderRunResult } from '../types';
 
 const PROVIDER_ID = 'anthropic_native_search' as const;
@@ -60,6 +61,7 @@ function buildSkippedResult(
       searches_executed: 0,
       estimated_cost_usd: null,
       cost_status: 'unavailable',
+      ...noWebSearchUsageFields(),
     },
     timings: { started_at: startedAt, finished_at: startedAt, duration_ms: 0 },
     errors: [],
