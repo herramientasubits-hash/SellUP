@@ -20,6 +20,9 @@
 # production
 /build
 
+# benchmark results — temporal, never versioned
+/scratch/
+
 # misc
 .DS_Store
 *.pem

@@ -35,6 +35,46 @@ export type SearchPlan = {
   diversification_strategy: string;
 };
 
+// ─── Clasificación de entidad ─────────────────────────────────────────────────
+
+export type EntityType =
+  | 'company'
+  | 'association'
+  | 'directory'
+  | 'article'
+  | 'blog_post'
+  | 'social_post'
+  | 'forum_post'
+  | 'event'
+  | 'product'
+  | 'brand_without_legal_entity'
+  | 'government_entity'
+  | 'unknown';
+
+// ─── Estado de LinkedIn ───────────────────────────────────────────────────────
+
+export type LinkedInStatus = 'found' | 'searched_not_found' | 'not_searched' | 'invalid';
+
+// ─── Resolución de identidad empresarial ──────────────────────────────────────
+
+export type IdentityResolution = {
+  original_title: string;
+  resolved_company_name: string | null;
+  resolved_official_domain: string | null;
+  evidence: string | null;
+  confidence: 'high' | 'medium' | 'low';
+};
+
+// ─── Candidato rechazado ──────────────────────────────────────────────────────
+
+export type RejectedCandidate = {
+  rejection_code: string;
+  rejection_reason: string;
+  original_name: string;
+  original_url: string | null;
+  entity_type?: EntityType;
+};
+
 // ─── Candidato del benchmark (contrato oficial de salida) ─────────────────────
 
 export type BenchmarkCandidate = {
@@ -56,6 +96,28 @@ export type BenchmarkCandidate = {
   _duplicate_status?: string;
   _rejection_reason?: string;
   _queries_used?: string[];
+};
+
+// ─── Candidato verificado (post-pipeline de verificación) ────────────────────
+
+export type VerifiedBenchmarkCandidate = BenchmarkCandidate & {
+  entity_type: EntityType;
+  identity_resolution: IdentityResolution | null;
+  official_website_url: string | null;
+  discovery_url: string | null;
+  linkedin_status: LinkedInStatus;
+  colombia_evidence: string | null;
+  sector_evidence: string | null;
+  is_verified_company: boolean;
+};
+
+// ─── Cap aplicado ─────────────────────────────────────────────────────────────
+
+export type CapApplication = {
+  cap_name: string;
+  cap_value: number;
+  reason: string;
+  metric_value: number | string;
 };
 
 // ─── Resultado de duplicados (Fase D) ────────────────────────────────────────
@@ -163,6 +225,24 @@ export type BenchmarkMetrics = {
   // Score técnico 0-100
   score: number;
   score_breakdown: ScoreBreakdown;
+
+  // Métricas extendidas (16AB.23.1)
+  raw_discovered_count: number;
+  verified_company_count: number;
+  rejected_non_company_count: number;
+  rejected_article_count: number;
+  identity_resolution_attempted: number;
+  identity_resolution_successful: number;
+  official_domain_verified_count: number;
+  linkedin_found_count: number;
+  linkedin_searched_not_found_count: number;
+  missing_description_count: number;
+  invalid_final_rows: number;
+  score_before_caps: number;
+  score_after_caps: number;
+  caps_applied: CapApplication[];
+  automatically_verified_companies: number;
+  human_review_status: 'pending';
 };
 
 export type ScoreBreakdown = {
@@ -172,6 +252,15 @@ export type ScoreBreakdown = {
   completitud: number;                // max 15
   novedad_sin_duplicados: number;     // max 10
   diversificacion: number;            // max 10
+};
+
+// ─── Fases del candidato (nuevas en 16AB.23.1) ───────────────────────────────
+
+export type CandidatePhaseResult = {
+  raw_discovered_candidates: BenchmarkCandidate[];
+  verified_candidates: VerifiedBenchmarkCandidate[];
+  rejected_candidates: RejectedCandidate[];
+  final_candidates: VerifiedBenchmarkCandidate[];
 };
 
 // ─── Reporte completo del benchmark ──────────────────────────────────────────

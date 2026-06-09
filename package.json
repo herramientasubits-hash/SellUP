@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "benchmark:prospects": "NODE_ENV=development npx tsx --tsconfig tsconfig.json scripts/benchmark-prospect-generation.ts"
+    "benchmark:prospects": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/benchmark-prospect-generation.ts",
+    "benchmark:reassess-a": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/benchmark-reassess-result-a.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

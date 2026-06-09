@@ -8,11 +8,13 @@
 
 import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit/duplicate-checker';
 import { computeDiversification, computeMetrics } from './scoring';
+import { runCandidateValidationPipeline } from './candidate-validator';
 import { ALL_MODES, PROVIDER_RUNNERS } from './providers/index';
 import type {
   BenchmarkCandidate,
   BenchmarkMetrics,
   BenchmarkProviderMode,
+  CandidatePhaseResult,
   DuplicatePhaseResult,
   ProviderRunResult,
 } from './types';
@@ -97,6 +99,7 @@ export async function runBenchmark(
   console.log('  Iniciando benchmark...\n');
 
   const results: ProviderRunResult[] = [];
+  const phaseResults = new Map<BenchmarkProviderMode, CandidatePhaseResult>();
 
   for (const mode of modes) {
     const runner = PROVIDER_RUNNERS[mode];
@@ -115,7 +118,31 @@ export async function runBenchmark(
       console.log(`  [${mode}] ${result.candidates.length} candidatos en ${duration}s`);
     }
 
-    // Fase D: duplicados (solo si hay candidatos)
+    // Fase B: Verificación de entidad e identidad (16AB.23.1)
+    if (result.candidates.length > 0) {
+      console.log(`  [${mode}] Verificando identidad y tipo de entidad...`);
+      const phase = runCandidateValidationPipeline(result.candidates);
+      phaseResults.set(mode, phase);
+
+      const rejected = phase.rejected_candidates.length;
+      const verified = phase.verified_candidates.filter((c) => c.is_verified_company).length;
+      console.log(`  [${mode}] Verificadas: ${verified} empresas | Rechazadas: ${rejected} entidades no válidas`);
+
+      if (rejected > 0) {
+        const byCode: Record<string, number> = {};
+        for (const r of phase.rejected_candidates) {
+          byCode[r.rejection_code] = (byCode[r.rejection_code] ?? 0) + 1;
+        }
+        for (const [code, count] of Object.entries(byCode)) {
+          console.log(`    [${mode}]   ${code}: ${count}`);
+        }
+      }
+
+      // Use final_candidates (post-validation) as the result candidates
+      result.candidates = phase.final_candidates;
+    }
+
+    // Fase D: duplicados (solo si hay candidatos finales)
     if (result.candidates.length > 0) {
       console.log(`  [${mode}] Verificando duplicados (read-only)...`);
       result.duplicate_results = await runDuplicatePhase(result.candidates);
@@ -133,8 +160,10 @@ export async function runBenchmark(
     results.push(result);
   }
 
-  // Calcular métricas para todos los proveedores
-  const metrics: BenchmarkMetrics[] = results.map((r) => computeMetrics(r));
+  // Calcular métricas para todos los proveedores (con datos de fases si disponibles)
+  const metrics: BenchmarkMetrics[] = results.map((r) =>
+    computeMetrics(r, phaseResults.get(r.provider)),
+  );
 
   return { results, metrics };
 }

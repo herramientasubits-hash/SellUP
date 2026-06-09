@@ -1,16 +1,21 @@
 /**
- * Prospect Generation Benchmark — Scoring & Métricas (Hito 16AB.23)
+ * Prospect Generation Benchmark — Scoring & Métricas (Hito 16AB.23.1)
  *
- * Calcula el score técnico 0-100 y métricas automáticas por proveedor.
+ * Calcula el score técnico 0-100 basado en candidatos VERIFICADOS, no en strings no vacíos.
+ * Aplica caps duros para evitar scores falsos positivos.
  * Sin llamadas externas. Completamente determinístico.
  */
 
 import type {
   BenchmarkCandidate,
   BenchmarkMetrics,
+  CapApplication,
+  CandidatePhaseResult,
   DiversificationMetrics,
   ProviderRunResult,
+  RejectedCandidate,
   ScoreBreakdown,
+  VerifiedBenchmarkCandidate,
 } from './types';
 
 // ─── URL validation ───────────────────────────────────────────────────────────
@@ -25,7 +30,32 @@ function isValidUrl(value: string | null | undefined): boolean {
   }
 }
 
-// ─── Completeness por candidato (14 campos del contrato) ─────────────────────
+// ─── Hosts que no cuentan como sitio oficial ──────────────────────────────────
+
+const NON_OFFICIAL_HOSTS = new Set([
+  'reddit.com', 'www.reddit.com',
+  'google.com', 'www.google.com',
+  'wikipedia.org', 'es.wikipedia.org',
+  'linkedin.com', 'www.linkedin.com',
+  'twitter.com', 'x.com',
+  'facebook.com', 'www.facebook.com',
+  'instagram.com', 'www.instagram.com',
+  'youtube.com', 'www.youtube.com',
+  'latamfintech.co', 'www.latamfintech.co',
+  'colombiafintech.co', 'www.colombiafintech.co',
+]);
+
+function isOfficialSiteUrl(url: string | null): boolean {
+  if (!isValidUrl(url)) return false;
+  try {
+    const host = new URL(url!).hostname.toLowerCase();
+    return !NON_OFFICIAL_HOSTS.has(host);
+  } catch {
+    return false;
+  }
+}
+
+// ─── Completeness por candidato ───────────────────────────────────────────────
 
 const CONTRACT_FIELDS: Array<keyof BenchmarkCandidate> = [
   'name', 'country', 'sector', 'website', 'linkedin',
@@ -41,40 +71,50 @@ function candidateCompleteness(c: BenchmarkCandidate): number {
   return filled.length / CONTRACT_FIELDS.length;
 }
 
-// ─── Fortaleza de evidencia ───────────────────────────────────────────────────
+// ─── Fortaleza de evidencia (basada en URLs realmente verificadas) ────────────
 
-const STRONG_EVIDENCE_PATTERNS = [
-  /linkedin\.com\/company\//i,
-  /\.com\.co\//i,
-  /camara.*comercio/i,
-  /fedesoft/i,
-  /rues/i,
-  /superfinanciera/i,
-];
+const STRONG_EVIDENCE_HOSTS = new Set([
+  'rues.gov.co',
+  'superfinanciera.gov.co',
+  'supersociedades.gov.co',
+  'confecamaras.co',
+  'camara.ccb.org.co',
+  'fedesoft.com.co',
+]);
 
-const WEAK_EVIDENCE_PATTERNS = [
-  /google\.com\/search/i,
-  /wikipedia/i,
-  /yellow.*pages/i,
-  /paginas.*amarillas/i,
-];
+function evidenceStrength(
+  c: VerifiedBenchmarkCandidate | BenchmarkCandidate,
+): 'official' | 'strong' | 'weak' | 'none' {
+  const hasVerifiedSite = 'official_website_url' in c
+    ? isOfficialSiteUrl((c as VerifiedBenchmarkCandidate).official_website_url)
+    : isOfficialSiteUrl(c.website);
 
-function evidenceStrength(c: BenchmarkCandidate): 'strong' | 'official' | 'weak' | 'none' {
-  const urls = [c.evidence_url, c.website].filter(Boolean);
-  if (!urls.length) return 'none';
+  const evidenceUrl = c.evidence_url;
+  if (!hasVerifiedSite && !isValidUrl(evidenceUrl)) return 'none';
 
-  const allUrls = urls.join(' ');
+  // Official registry
+  try {
+    const evHost = evidenceUrl ? new URL(evidenceUrl).hostname.toLowerCase() : '';
+    if (STRONG_EVIDENCE_HOSTS.has(evHost)) return 'official';
+  } catch { /* ignore */ }
 
-  if (STRONG_EVIDENCE_PATTERNS.some((p) => p.test(allUrls))) return 'official';
-  if (WEAK_EVIDENCE_PATTERNS.some((p) => p.test(allUrls))) return 'weak';
-  if (isValidUrl(c.evidence_url)) return 'strong';
+  // LinkedIn corporate (verified)
+  if ('linkedin_status' in c && (c as VerifiedBenchmarkCandidate).linkedin_status === 'found') return 'official';
+  if (isValidUrl(c.linkedin) && c.linkedin?.includes('linkedin.com/company/')) return 'official';
+
+  // Official site confirmed
+  if (hasVerifiedSite) return 'strong';
+
+  // Has evidence URL at all
+  if (isValidUrl(evidenceUrl)) return 'strong';
+
   return 'weak';
 }
 
 // ─── Diversificación ─────────────────────────────────────────────────────────
 
 export function computeDiversification(
-  candidates: BenchmarkCandidate[]
+  candidates: (BenchmarkCandidate | VerifiedBenchmarkCandidate)[],
 ): DiversificationMetrics {
   const cityCount: Record<string, number> = {};
   const subsectorCount: Record<string, number> = {};
@@ -84,7 +124,11 @@ export function computeDiversification(
     const city = (c.city ?? 'Desconocida').trim();
     cityCount[city] = (cityCount[city] ?? 0) + 1;
 
-    const subsector = (c.sector ?? 'Tecnología').split('/')[0].trim();
+    // Don't count bare "Tecnología" as a distinct subsector
+    const rawSector = (c.sector ?? '').split('/')[0].trim();
+    const subsector = rawSector === 'Tecnología' || rawSector === 'Tecnologia' || rawSector === 'Technology'
+      ? 'Tecnología (genérico)'
+      : rawSector;
     subsectorCount[subsector] = (subsectorCount[subsector] ?? 0) + 1;
 
     const size = c.estimated_size ?? 'No disponible';
@@ -95,32 +139,170 @@ export function computeDiversification(
   const maxSub = Object.entries(subsectorCount).sort((a, b) => b[1] - a[1])[0] ?? ['?', 0];
 
   return {
-    cities_distinct: Object.keys(cityCount).length,
-    subsectors_distinct: Object.keys(subsectorCount).length,
+    cities_distinct: Object.keys(cityCount).filter((k) => k !== 'Desconocida').length,
+    subsectors_distinct: Object.keys(subsectorCount).filter((k) => k !== 'Tecnología (genérico)').length,
     max_concentration_city: { city: maxCity[0], count: maxCity[1] },
     max_concentration_subsector: { subsector: maxSub[0], count: maxSub[1] },
     size_distribution: sizeCount,
   };
 }
 
-// ─── Score 0-100 ──────────────────────────────────────────────────────────────
+// ─── Score hardened — calculado sobre candidatos verificados ─────────────────
+
+export function computeHardenedScore(
+  verifiedCandidates: VerifiedBenchmarkCandidate[],
+  allRejected: RejectedCandidate[],
+  rawCount: number,
+  duplicatesFound: number,
+  diversification: DiversificationMetrics,
+): {
+  score_before_caps: number;
+  score_after_caps: number;
+  breakdown: ScoreBreakdown;
+  caps_applied: CapApplication[];
+} {
+  const n = verifiedCandidates.length;
+  const empty = { veracidad_identidad: 0, ajuste_pais_sector: 0, calidad_evidencia: 0, completitud: 0, novedad_sin_duplicados: 0, diversificacion: 0 };
+
+  if (n === 0) {
+    return { score_before_caps: 0, score_after_caps: 0, breakdown: empty, caps_applied: [] };
+  }
+
+  const trulyVerified = verifiedCandidates.filter((c) => c.is_verified_company);
+  const tv = trulyVerified.length;
+
+  // 25 pts — Veracidad e identidad
+  // Only award if: entity=company, name verified, domain official, correspondence confirmed, activity confirmed
+  const withOfficialSite = verifiedCandidates.filter((c) => isOfficialSiteUrl(c.official_website_url)).length;
+  const withResolvedIdentity = verifiedCandidates.filter((c) => c.identity_resolution?.resolved_company_name || c.is_verified_company).length;
+  const veracidad = Math.round(
+    (withOfficialSite / n) * 12 +
+    (withResolvedIdentity / n) * 8 +
+    (tv / n) * 5,
+  );
+
+  // 20 pts — Ajuste país-sector
+  // Requires evidence field, not just model-declared country
+  const withColombiaEvidence = verifiedCandidates.filter((c) => c.colombia_evidence).length;
+  const withTechSector = verifiedCandidates.filter((c) => {
+    const s = (c.sector ?? '').toLowerCase();
+    return s.includes('tecnol') || s.includes('tech') || s.includes('software') || s.includes('digital') ||
+      s.includes('fintech') || s.includes('saas') || s.includes('datos') || s.includes('ciberseg');
+  }).length;
+  const ajuste = Math.round(
+    (withColombiaEvidence / n) * 10 +
+    (withTechSector / n) * 10,
+  );
+
+  // 20 pts — Calidad de evidencia
+  const strengths = verifiedCandidates.map(evidenceStrength);
+  const officialCount = strengths.filter((s) => s === 'official').length;
+  const strongCount = strengths.filter((s) => s === 'strong').length;
+  const evidencia = Math.min(20, Math.round(
+    (officialCount / n) * 20 +
+    (strongCount / n) * 10,
+  ));
+
+  // 15 pts — Completitud (based on verified fields only)
+  const avgCompleteness = verifiedCandidates.reduce((sum, c) => sum + candidateCompleteness(c), 0) / n;
+  const completitud = Math.round(avgCompleteness * 15);
+
+  // 10 pts — Novedad y ausencia de duplicados
+  const duplicatePenalty = Math.min(duplicatesFound * 2, 10);
+  const novedad = Math.max(0, 10 - duplicatePenalty);
+
+  // 10 pts — Diversificación (only verified cities/subsectors)
+  const verifiedWithCity = verifiedCandidates.filter((c) => c.city).length;
+  const citiesScore = Math.min(diversification.cities_distinct * 2, 6);
+  const subScore = Math.min(diversification.subsectors_distinct * 2, 4);
+  const diversificacion = verifiedWithCity === 0 ? 0 : Math.round(citiesScore + subScore);
+
+  const rawScore = veracidad + ajuste + evidencia + completitud + novedad + diversificacion;
+
+  // ─── Apply caps ─────────────────────────────────────────────────────────────
+  const caps: CapApplication[] = [];
+  let maxAllowed = 100;
+
+  const rejectedArticles = allRejected.filter((r) =>
+    r.rejection_code === 'ARTICLE_AS_COMPANY' || r.entity_type === 'article' || r.entity_type === 'blog_post',
+  ).length;
+
+  const invalidPct = rawCount > 0 ? ((rawCount - tv) / rawCount) * 100 : 0;
+
+  // Cap 1: Less than 8 verified companies
+  if (tv < 5) {
+    caps.push({ cap_name: 'verified_lt_5', cap_value: 40, reason: 'Less than 5 verified companies', metric_value: tv });
+    maxAllowed = Math.min(maxAllowed, 40);
+  } else if (tv < 8) {
+    caps.push({ cap_name: 'verified_lt_8', cap_value: 60, reason: 'Less than 8 verified companies', metric_value: tv });
+    maxAllowed = Math.min(maxAllowed, 60);
+  }
+
+  // Cap 2: More than 20% invalid identities
+  if (invalidPct > 20) {
+    caps.push({ cap_name: 'invalid_identity_pct', cap_value: 35, reason: `More than 20% invalid identities (${invalidPct.toFixed(0)}%)`, metric_value: `${invalidPct.toFixed(0)}%` });
+    maxAllowed = Math.min(maxAllowed, 35);
+  }
+
+  // Cap 3: 0 LinkedIn and 0 verified cities
+  if (verifiedCandidates.filter((c) => c.linkedin_status === 'found').length === 0 &&
+    diversification.cities_distinct === 0) {
+    caps.push({ cap_name: 'no_linkedin_no_cities', cap_value: 45, reason: '0 LinkedIn found and 0 verified cities', metric_value: '0 / 0' });
+    maxAllowed = Math.min(maxAllowed, 45);
+  }
+
+  // Cap 4: Less than 8 official sites
+  if (withOfficialSite < 8) {
+    caps.push({ cap_name: 'official_sites_lt_8', cap_value: 70, reason: `Less than 8 official sites verified (${withOfficialSite})`, metric_value: withOfficialSite });
+    maxAllowed = Math.min(maxAllowed, 70);
+  }
+
+  // Cap 5: Less than 8 strong/official evidence
+  const strongOrOfficial = officialCount + strongCount;
+  if (strongOrOfficial < 8) {
+    caps.push({ cap_name: 'strong_evidence_lt_8', cap_value: 75, reason: `Less than 8 candidates with strong/official evidence (${strongOrOfficial})`, metric_value: strongOrOfficial });
+    maxAllowed = Math.min(maxAllowed, 75);
+  }
+
+  // Cap 6 (hard): Article or publication in final results → benchmark invalid
+  // This is signaled by a very low cap, effectively invalidating the run
+  if (rejectedArticles > 0 && verifiedCandidates.some((c) => c.entity_type === 'article' || c.entity_type === 'blog_post')) {
+    caps.push({ cap_name: 'article_in_final_results', cap_value: 0, reason: `Article or publication passed through to final results — benchmark invalid`, metric_value: 'INVALID' });
+    maxAllowed = Math.min(maxAllowed, 0);
+  }
+
+  const finalScore = Math.min(rawScore, maxAllowed);
+
+  return {
+    score_before_caps: Math.min(100, rawScore),
+    score_after_caps: Math.max(0, finalScore),
+    breakdown: {
+      veracidad_identidad: Math.min(25, veracidad),
+      ajuste_pais_sector: Math.min(20, ajuste),
+      calidad_evidencia: Math.min(20, evidencia),
+      completitud: Math.min(15, completitud),
+      novedad_sin_duplicados: Math.min(10, novedad),
+      diversificacion: Math.min(10, diversificacion),
+    },
+    caps_applied: caps,
+  };
+}
+
+// ─── Legacy score (kept for backward compat — uses BenchmarkCandidate) ────────
+// Used by current-sellup provider before validation pipeline is applied.
 
 export function computeScore(
   candidates: BenchmarkCandidate[],
   duplicatesFound: number,
-  diversification: DiversificationMetrics
+  diversification: DiversificationMetrics,
 ): { score: number; breakdown: ScoreBreakdown } {
   const n = candidates.length;
   if (n === 0) return { score: 0, breakdown: { veracidad_identidad: 0, ajuste_pais_sector: 0, calidad_evidencia: 0, completitud: 0, novedad_sin_duplicados: 0, diversificacion: 0 } };
 
-  // 25 pts — Veracidad e identidad
-  const withWebsite = candidates.filter((c) => isValidUrl(c.website)).length;
+  const withWebsite = candidates.filter((c) => isOfficialSiteUrl(c.website)).length;
   const withEvidence = candidates.filter((c) => isValidUrl(c.evidence_url)).length;
-  const veracidad = Math.round(
-    ((withWebsite / n) * 15 + (withEvidence / n) * 10)
-  );
+  const veracidad = Math.round(((withWebsite / n) * 15 + (withEvidence / n) * 10));
 
-  // 20 pts — Ajuste Colombia / Tecnología
   const coFit = candidates.filter((c) => {
     const country = (c.country ?? '').toLowerCase();
     return country.includes('colombia') || country.includes('co');
@@ -131,30 +313,23 @@ export function computeScore(
   }).length;
   const ajuste = Math.round(((coFit / n) * 10 + (secFit / n) * 10));
 
-  // 20 pts — Calidad de evidencia
-  const strengths = candidates.map(evidenceStrength);
+  const strengths = candidates.map((c) => evidenceStrength(c));
   const officialCount = strengths.filter((s) => s === 'official').length;
   const strongCount = strengths.filter((s) => s === 'strong').length;
   const weakCount = strengths.filter((s) => s === 'weak').length;
   const evidencia = Math.round(
     (officialCount / n) * 20 +
     (strongCount / n) * 12 +
-    (weakCount / n) * 4
+    (weakCount / n) * 4,
   );
 
-  // 15 pts — Completitud
   const avgCompleteness = candidates.reduce((sum, c) => sum + candidateCompleteness(c), 0) / n;
   const completitud = Math.round(avgCompleteness * 15);
-
-  // 10 pts — Novedad y ausencia de duplicados
   const duplicatePenalty = Math.min(duplicatesFound * 2, 10);
   const novedad = Math.max(0, 10 - duplicatePenalty);
-
-  // 10 pts — Diversificación
   const citiesScore = Math.min(diversification.cities_distinct * 2, 6);
   const subScore = Math.min(diversification.subsectors_distinct * 1.5, 4);
   const diversificacion = Math.round(citiesScore + subScore);
-
   const total = veracidad + ajuste + evidencia + completitud + novedad + diversificacion;
 
   return {
@@ -163,30 +338,33 @@ export function computeScore(
       veracidad_identidad: veracidad,
       ajuste_pais_sector: ajuste,
       calidad_evidencia: Math.min(20, evidencia),
-      completitud: completitud,
+      completitud,
       novedad_sin_duplicados: novedad,
-      diversificacion: diversificacion,
+      diversificacion,
     },
   };
 }
 
-// ─── Métricas completas ───────────────────────────────────────────────────────
+// ─── Métricas completas (hardened) ────────────────────────────────────────────
 
-export function computeMetrics(result: ProviderRunResult): BenchmarkMetrics {
+export function computeMetrics(
+  result: ProviderRunResult,
+  phaseResult?: CandidatePhaseResult,
+): BenchmarkMetrics {
   const { candidates, duplicate_results, diversification, usage, timings } = result;
   const n = candidates.length;
 
   const uniqueDomains = new Set(
     candidates.map((c) => {
       try { return new URL(c.website ?? '').hostname; } catch { return c.name; }
-    })
+    }),
   );
 
-  const withWebsite = candidates.filter((c) => isValidUrl(c.website)).length;
+  const withWebsite = candidates.filter((c) => isOfficialSiteUrl(c.website)).length;
   const withLinkedin = candidates.filter((c) => isValidUrl(c.linkedin)).length;
   const withEvidence = candidates.filter((c) => isValidUrl(c.evidence_url)).length;
   const validUrls = candidates.filter(
-    (c) => isValidUrl(c.website) || isValidUrl(c.evidence_url)
+    (c) => isValidUrl(c.website) || isValidUrl(c.evidence_url),
   ).length;
 
   const dupInternal = duplicate_results.filter((d) => d.status === 'duplicate_inside_result').length;
@@ -196,14 +374,65 @@ export function computeMetrics(result: ProviderRunResult): BenchmarkMetrics {
   const avgCompleteness = n === 0 ? 0 :
     candidates.reduce((sum, c) => sum + candidateCompleteness(c), 0) / n;
 
-  const strengths = candidates.map(evidenceStrength);
+  const div = diversification ?? computeDiversification(candidates);
+  const totalDuplicates = dupInternal + dupSellUp + dupHubSpot;
+
+  // Use phase result for hardened metrics when available
+  const verifiedCandidates = phaseResult?.verified_candidates ?? [];
+  const rejectedCandidates = phaseResult?.rejected_candidates ?? [];
+  const rawCount = phaseResult?.raw_discovered_candidates.length ?? n;
+
+  let score: number;
+  let breakdown: ScoreBreakdown;
+  let scoreBefore: number;
+  let scoreAfter: number;
+  let capsApplied: CapApplication[] = [];
+
+  if (verifiedCandidates.length > 0 || rejectedCandidates.length > 0) {
+    const hardenedDiv = computeDiversification(verifiedCandidates.length > 0 ? verifiedCandidates : candidates);
+    const hardenedResult = computeHardenedScore(
+      verifiedCandidates,
+      rejectedCandidates,
+      rawCount,
+      totalDuplicates,
+      hardenedDiv,
+    );
+    score = hardenedResult.score_after_caps;
+    breakdown = hardenedResult.breakdown;
+    scoreBefore = hardenedResult.score_before_caps;
+    scoreAfter = hardenedResult.score_after_caps;
+    capsApplied = hardenedResult.caps_applied;
+  } else {
+    // Legacy path (no phase result available)
+    const legacyResult = computeScore(candidates, totalDuplicates, div);
+    score = legacyResult.score;
+    breakdown = legacyResult.breakdown;
+    scoreBefore = legacyResult.score;
+    scoreAfter = legacyResult.score;
+  }
+
+  // Extended metrics
+  const rejectedArticles = rejectedCandidates.filter((r) =>
+    r.entity_type === 'article' || r.entity_type === 'blog_post' || r.rejection_code === 'ARTICLE_AS_COMPANY',
+  ).length;
+  const rejectedNonCompany = rejectedCandidates.filter((r) =>
+    r.entity_type !== 'article' && r.entity_type !== 'blog_post',
+  ).length;
+  const identityAttempted = rejectedCandidates.filter((r) =>
+    r.rejection_code === 'UNRESOLVABLE_IDENTITY' || r.rejection_code === 'ARTICLE_AS_COMPANY',
+  ).length + verifiedCandidates.filter((c) => c.identity_resolution !== null).length;
+  const identitySuccessful = verifiedCandidates.filter((c) => c.identity_resolution?.resolved_company_name).length;
+  const officialDomainVerified = verifiedCandidates.filter((c) => isOfficialSiteUrl(c.official_website_url)).length;
+  const linkedInFound = verifiedCandidates.filter((c) => c.linkedin_status === 'found').length;
+  const linkedInSearchedNotFound = verifiedCandidates.filter((c) => c.linkedin_status === 'searched_not_found').length;
+  const missingDescription = (verifiedCandidates.length > 0 ? verifiedCandidates : candidates).filter((c) => !c.description).length;
+  const invalidFinalRows = phaseResult ? phaseResult.rejected_candidates.filter((r) => r.rejection_code === 'INVALID_FINAL_ROW').length : 0;
+  const verifiedCompanyCount = verifiedCandidates.filter((c) => c.is_verified_company).length;
+
+  const strengths = (verifiedCandidates.length > 0 ? verifiedCandidates : candidates).map(evidenceStrength);
   const officialCount = strengths.filter((s) => s === 'official').length;
   const strongCount = strengths.filter((s) => s === 'strong').length;
   const weakCount = strengths.filter((s) => s === 'weak').length;
-
-  const div = diversification ?? computeDiversification(candidates);
-  const totalDuplicates = dupInternal + dupSellUp + dupHubSpot;
-  const { score, breakdown } = computeScore(candidates, totalDuplicates, div);
 
   return {
     provider: result.provider,
@@ -239,5 +468,23 @@ export function computeMetrics(result: ProviderRunResult): BenchmarkMetrics {
 
     score,
     score_breakdown: breakdown,
+
+    // Extended (16AB.23.1)
+    raw_discovered_count: rawCount,
+    verified_company_count: verifiedCompanyCount,
+    rejected_non_company_count: rejectedNonCompany,
+    rejected_article_count: rejectedArticles,
+    identity_resolution_attempted: identityAttempted,
+    identity_resolution_successful: identitySuccessful,
+    official_domain_verified_count: officialDomainVerified,
+    linkedin_found_count: linkedInFound,
+    linkedin_searched_not_found_count: linkedInSearchedNotFound,
+    missing_description_count: missingDescription,
+    invalid_final_rows: invalidFinalRows,
+    score_before_caps: scoreBefore,
+    score_after_caps: scoreAfter,
+    caps_applied: capsApplied,
+    automatically_verified_companies: verifiedCompanyCount,
+    human_review_status: 'pending',
   };
 }
