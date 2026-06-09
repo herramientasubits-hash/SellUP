@@ -51,9 +51,17 @@ export type EntityType =
   | 'government_entity'
   | 'unknown';
 
-// ─── Estado de LinkedIn ───────────────────────────────────────────────────────
+// ─── Estado de LinkedIn (16AB.23.2 — estados granulares) ─────────────────────
 
-export type LinkedInStatus = 'found' | 'searched_not_found' | 'not_searched' | 'invalid';
+export type LinkedInStatus =
+  | 'confirmed'          // Verificación HTTP exitosa
+  | 'http_unverified'    // Formato válido + slug coherente + modelo y fuentes coinciden → probable
+  | 'slug_matches'       // Formato válido + slug coherente con nombre de empresa
+  | 'url_format_valid'   // Solo tiene patrón /company/ — slug no relacionado
+  | 'found'              // Compat hacia atrás (equivale a http_unverified)
+  | 'searched_not_found'
+  | 'not_searched'
+  | 'invalid';
 
 // ─── Resolución de identidad empresarial ──────────────────────────────────────
 
@@ -183,6 +191,38 @@ export type ProviderRunResult = {
   errors: BenchmarkError[];
 };
 
+// ─── Nivel de evidencia (16AB.23.2) ──────────────────────────────────────────
+
+export type EvidenceLevel = 'A' | 'B' | 'C' | 'D' | 'E';
+
+export type EvidenceClassification = {
+  level: EvidenceLevel;
+  is_circular: boolean;    // evidence_url tiene el mismo dominio que website
+  is_repeated: boolean;    // misma URL usada como evidencia de otra empresa en el pool
+  reason: string;
+};
+
+// ─── Métricas de pool (16AB.23.2) ────────────────────────────────────────────
+
+export type PoolMetrics = {
+  candidate_pool_size: number;
+  verification_attempts: number;
+  verified_before_dedup: number;
+  external_duplicates_removed: number;
+  replacement_rounds: number;
+  replacement_candidates_verified: number;
+  final_candidate_count: number;
+  primary_evidence_count: number;
+  secondary_high_authority_count: number;
+  weak_evidence_count: number;
+  circular_evidence_count: number;
+  repeated_evidence_count: number;
+  low_confidence_removed: number;
+  linkedin_confirmed_count: number;
+  linkedin_http_unverified_count: number;
+  requested_count_reached: boolean;
+};
+
 // ─── Métricas calculadas ──────────────────────────────────────────────────────
 
 export type BenchmarkMetrics = {
@@ -243,6 +283,9 @@ export type BenchmarkMetrics = {
   caps_applied: CapApplication[];
   automatically_verified_companies: number;
   human_review_status: 'pending';
+
+  // Métricas de pool (16AB.23.2) — opcionales para compatibilidad con otros proveedores
+  pool_metrics?: PoolMetrics;
 };
 
 export type ScoreBreakdown = {

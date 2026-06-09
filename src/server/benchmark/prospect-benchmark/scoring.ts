@@ -12,6 +12,7 @@ import type {
   CapApplication,
   CandidatePhaseResult,
   DiversificationMetrics,
+  PoolMetrics,
   ProviderRunResult,
   RejectedCandidate,
   ScoreBreakdown,
@@ -98,8 +99,11 @@ function evidenceStrength(
     if (STRONG_EVIDENCE_HOSTS.has(evHost)) return 'official';
   } catch { /* ignore */ }
 
-  // LinkedIn corporate (verified)
-  if ('linkedin_status' in c && (c as VerifiedBenchmarkCandidate).linkedin_status === 'found') return 'official';
+  // LinkedIn corporativo (confirmado o http_unverified/found)
+  if ('linkedin_status' in c) {
+    const ls = (c as VerifiedBenchmarkCandidate).linkedin_status;
+    if (ls === 'confirmed' || ls === 'http_unverified' || ls === 'found') return 'official';
+  }
   if (isValidUrl(c.linkedin) && c.linkedin?.includes('linkedin.com/company/')) return 'official';
 
   // Official site confirmed
@@ -265,10 +269,62 @@ export function computeHardenedScore(
   }
 
   // Cap 6 (hard): Article or publication in final results → benchmark invalid
-  // This is signaled by a very low cap, effectively invalidating the run
   if (rejectedArticles > 0 && verifiedCandidates.some((c) => c.entity_type === 'article' || c.entity_type === 'blog_post')) {
     caps.push({ cap_name: 'article_in_final_results', cap_value: 0, reason: `Article or publication passed through to final results — benchmark invalid`, metric_value: 'INVALID' });
     maxAllowed = Math.min(maxAllowed, 0);
+  }
+
+  // ─── Caps nuevos 16AB.23.2 ─────────────────────────────────────────────────
+
+  // Cap 7 (hard): Duplicado externo exacto en resultados finales → benchmark inválido, max 40
+  const externalDupsInFinal = allRejected.filter(
+    (r) => r.rejection_code === 'EXTERNAL_DUPLICATE',
+  ).length;
+  // Note: this cap triggers only if duplicates slipped through to final (rejection_code presence
+  // means they were caught by the pipeline — here we check verifiedCandidates for any that
+  // might have been marked duplicate_sellup or duplicate_hubspot in their _duplicate_status field)
+  const dupSlippedThrough = verifiedCandidates.filter(
+    (c) => (c as VerifiedBenchmarkCandidate & { _duplicate_status?: string })._duplicate_status === 'duplicate_sellup' ||
+           (c as VerifiedBenchmarkCandidate & { _duplicate_status?: string })._duplicate_status === 'duplicate_hubspot',
+  ).length;
+  if (dupSlippedThrough > 0) {
+    caps.push({ cap_name: 'external_duplicate_in_final', cap_value: 40, reason: `${dupSlippedThrough} duplicado(s) externo(s) exacto(s) en resultado final`, metric_value: dupSlippedThrough });
+    maxAllowed = Math.min(maxAllowed, 40);
+  }
+
+  // Cap 8: Confianza Baja en resultado final → max 50
+  const lowConfidenceInFinal = verifiedCandidates.filter((c) => c.confidence === 'Baja').length;
+  if (lowConfidenceInFinal > 0) {
+    caps.push({ cap_name: 'low_confidence_in_final', cap_value: 50, reason: `${lowConfidenceInFinal} candidato(s) de confianza Baja en resultado final`, metric_value: lowConfidenceInFinal });
+    maxAllowed = Math.min(maxAllowed, 50);
+  }
+
+  // Cap 9: >20% de filas finales con evidencia Nivel C o D → max 70
+  const weakEvidenceInFinal = allRejected.filter(
+    (r) => r.rejection_code === 'WEAK_EVIDENCE_PRIMARY',
+  ).length;
+  const totalFinal = n + weakEvidenceInFinal; // approximate total before weak rejection
+  const weakPct = totalFinal > 0 ? (weakEvidenceInFinal / totalFinal) * 100 : 0;
+  if (weakPct > 20) {
+    caps.push({ cap_name: 'weak_evidence_pct', cap_value: 70, reason: `Más del 20% de filas finales con evidencia débil (${weakPct.toFixed(0)}%)`, metric_value: `${weakPct.toFixed(0)}%` });
+    maxAllowed = Math.min(maxAllowed, 70);
+  }
+
+  // Cap 10: URL secundaria repetida como evidencia principal de >1 empresa → max 75
+  // Detected via pool_metrics.repeated_evidence_count (passed from selection pipeline)
+  // Since computeHardenedScore doesn't receive pool metrics directly, we detect via rejected codes
+  const repeatedEvidenceCount = allRejected.filter(
+    (r) => r.rejection_code === 'REPEATED_EVIDENCE',
+  ).length;
+  if (repeatedEvidenceCount > 0) {
+    caps.push({ cap_name: 'repeated_evidence', cap_value: 75, reason: `URL de evidencia repetida para ${repeatedEvidenceCount} empresa(s)`, metric_value: repeatedEvidenceCount });
+    maxAllowed = Math.min(maxAllowed, 75);
+  }
+
+  // Cap 11: Externalduplicates detected (pipeline caught them — score penalty)
+  if (externalDupsInFinal > 0) {
+    caps.push({ cap_name: 'external_duplicates_detected', cap_value: 75, reason: `${externalDupsInFinal} duplicado(s) externo(s) detectados y eliminados del pool`, metric_value: externalDupsInFinal });
+    maxAllowed = Math.min(maxAllowed, 75);
   }
 
   const finalScore = Math.min(rawScore, maxAllowed);
@@ -350,6 +406,7 @@ export function computeScore(
 export function computeMetrics(
   result: ProviderRunResult,
   phaseResult?: CandidatePhaseResult,
+  poolMetrics?: PoolMetrics,
 ): BenchmarkMetrics {
   const { candidates, duplicate_results, diversification, usage, timings } = result;
   const n = candidates.length;
@@ -486,5 +543,6 @@ export function computeMetrics(
     caps_applied: capsApplied,
     automatically_verified_companies: verifiedCompanyCount,
     human_review_status: 'pending',
+    pool_metrics: poolMetrics,
   };
 }

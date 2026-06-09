@@ -15,6 +15,7 @@
 import { classifyEntity, isRedditUrl } from './entity-verifier';
 import { resolveIdentity, normalizeToRootUrl, extractHostname } from './identity-resolver';
 import { validateLinkedIn } from './linkedin-validator';
+import { normalizeCompanyName, mergeNotes } from './name-normalizer';
 import type {
   BenchmarkCandidate,
   CandidatePhaseResult,
@@ -38,6 +39,8 @@ export const REJECTION_CODES = {
   FORUM_POST: 'FORUM_POST',
   ASSOCIATION: 'ASSOCIATION',
   INVALID_FINAL_ROW: 'INVALID_FINAL_ROW',
+  LOW_CONFIDENCE: 'LOW_CONFIDENCE',
+  EXTERNAL_DUPLICATE: 'EXTERNAL_DUPLICATE',
 } as const;
 
 // ─── Tipos que nunca pueden ser prospectos ────────────────────────────────────
@@ -200,8 +203,8 @@ function validateSingleCandidate(
     }
   }
 
-  // 6. LinkedIn validation
-  const linkedInVal = validateLinkedIn(raw.linkedin);
+  // 6. LinkedIn validation — pass company name to enable http_unverified vs url_format_valid
+  const linkedInVal = validateLinkedIn(raw.linkedin, resolvedName);
   const linkedInStatus: LinkedInStatus = linkedInVal.status;
 
   // 7. Colombia and sector evidence (from existing fields)
@@ -215,10 +218,16 @@ function validateSingleCandidate(
   const hasRealOfficialSite = !!officialWebsite && !NON_CORPORATE_HOSTS.has(officialWebsiteHost);
   const isVerified = entityType === 'company' && (hasRealOfficialSite || !!identityResolution);
 
-  // 9. Build verified candidate
+  // 9. Normalize company name (strip informal parentheticals → move to notes)
+  const normResult = normalizeCompanyName(resolvedName);
+  const finalName = normResult.cleanName;
+  const mergedNotes = mergeNotes(raw.notes, normResult.extractedNotes);
+
+  // 10. Build verified candidate
   const verified: VerifiedBenchmarkCandidate = {
     ...raw,
-    name: resolvedName,
+    name: finalName,
+    notes: mergedNotes,
     website: officialWebsite,
     linkedin: linkedInVal.normalized_url ?? raw.linkedin,
     entity_type: entityType,
@@ -248,10 +257,18 @@ export function runCandidateValidationPipeline(
     if (r) rejected.push(r);
   }
 
-  // Final selection: apply the "too many missing critical fields" rule
+  // Final selection: apply Baja confidence and missing-fields rules
   const finalCandidates: VerifiedBenchmarkCandidate[] = [];
   for (const v of verified) {
-    if (hasTooManyMissingCriticalFields(v)) {
+    if (v.confidence === 'Baja') {
+      rejected.push({
+        rejection_code: REJECTION_CODES.LOW_CONFIDENCE,
+        rejection_reason: 'Confianza Baja — no puede entrar al resultado final',
+        original_name: v.name,
+        original_url: v.website,
+        entity_type: v.entity_type,
+      });
+    } else if (hasTooManyMissingCriticalFields(v)) {
       rejected.push({
         rejection_code: REJECTION_CODES.INVALID_FINAL_ROW,
         rejection_reason: 'Candidate has all four critical enrichment fields empty (linkedin, city, size, description) — cannot enter final results',

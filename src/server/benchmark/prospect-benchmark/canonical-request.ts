@@ -15,10 +15,11 @@ export const CANONICAL_REQUEST: BenchmarkRequest = {
     'Empresas B2B con escala y potencial para soluciones de formación corporativa de UBITS',
 };
 
-// Límites operativos de la primera prueba
+// Límites operativos — ajustados para 16AB.23.2
 export const BENCHMARK_LIMITS = {
   requested_count: 10,
   max_candidates_to_discover: 30,
-  max_searches_per_provider: 12,
+  max_searches_per_provider: 16,
   max_structural_repairs: 1,
+  max_replacement_rounds: 2,
 } as const;

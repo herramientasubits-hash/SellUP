@@ -8,14 +8,17 @@
 
 import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit/duplicate-checker';
 import { computeDiversification, computeMetrics } from './scoring';
-import { runCandidateValidationPipeline } from './candidate-validator';
+import { runCandidateValidationPipeline, REJECTION_CODES } from './candidate-validator';
+import { runSelectionPipeline } from './selection-pipeline';
 import { ALL_MODES, PROVIDER_RUNNERS } from './providers/index';
+import { BENCHMARK_LIMITS } from './canonical-request';
 import type {
   BenchmarkCandidate,
   BenchmarkMetrics,
   BenchmarkProviderMode,
   CandidatePhaseResult,
   DuplicatePhaseResult,
+  PoolMetrics,
   ProviderRunResult,
 } from './types';
 import type { BenchmarkRequest } from './types';
@@ -100,6 +103,7 @@ export async function runBenchmark(
 
   const results: ProviderRunResult[] = [];
   const phaseResults = new Map<BenchmarkProviderMode, CandidatePhaseResult>();
+  const poolMetricsMap = new Map<BenchmarkProviderMode, PoolMetrics>();
 
   for (const mode of modes) {
     const runner = PROVIDER_RUNNERS[mode];
@@ -118,7 +122,7 @@ export async function runBenchmark(
       console.log(`  [${mode}] ${result.candidates.length} candidatos en ${duration}s`);
     }
 
-    // Fase B: Verificación de entidad e identidad (16AB.23.1)
+    // Fase B/C/D: Verificación de entidad, identidad y selección por calidad
     if (result.candidates.length > 0) {
       console.log(`  [${mode}] Verificando identidad y tipo de entidad...`);
       const phase = runCandidateValidationPipeline(result.candidates);
@@ -138,21 +142,57 @@ export async function runBenchmark(
         }
       }
 
-      // Use final_candidates (post-validation) as the result candidates
-      result.candidates = phase.final_candidates;
-    }
+      if (mode === 'anthropic_native_search') {
+        // Pipeline 16AB.23.2: duplicados sobre el pool completo ANTES de la selección final
+        console.log(`  [${mode}] Verificando duplicados del pool completo (read-only)...`);
+        const allDupeResults = await runDuplicatePhase(phase.final_candidates);
+        const externalDups = allDupeResults.filter(
+          (d) => d.status === 'duplicate_sellup' || d.status === 'duplicate_hubspot',
+        ).length;
+        if (externalDups > 0) {
+          console.log(`  [${mode}] ${externalDups} duplicados externos detectados — serán excluidos del resultado final`);
+        }
 
-    // Fase D: duplicados (solo si hay candidatos finales)
-    if (result.candidates.length > 0) {
-      console.log(`  [${mode}] Verificando duplicados (read-only)...`);
-      result.duplicate_results = await runDuplicatePhase(result.candidates);
-      const dups = result.duplicate_results.filter((d) => d.status !== 'new_candidate' && d.status !== 'unchecked').length;
-      if (dups > 0) {
-        console.log(`  [${mode}] ${dups} posibles duplicados encontrados`);
+        const lowConfidenceRemoved = phase.rejected_candidates.filter(
+          (r) => r.rejection_code === REJECTION_CODES.LOW_CONFIDENCE,
+        ).length;
+
+        // Fase E-H: selección final con deduplicación y reemplazo iterativo
+        const selectionResult = runSelectionPipeline(
+          phase.final_candidates,
+          allDupeResults,
+          request.requested_count,
+          BENCHMARK_LIMITS.max_replacement_rounds,
+          lowConfidenceRemoved,
+        );
+
+        // Registrar candidatos rechazados en selección dentro de la fase
+        phase.rejected_candidates.push(...selectionResult.rejectedFromSelection);
+
+        poolMetricsMap.set(mode, selectionResult.poolMetrics);
+        result.candidates = selectionResult.finalCandidates;
+        result.duplicate_results = allDupeResults;
+
+        console.log(`  [${mode}] Selección final: ${selectionResult.finalCandidates.length} candidatos`);
+        if (!selectionResult.poolMetrics.requested_count_reached) {
+          console.log(`  [${mode}] AVISO: requested_count_not_reached (${selectionResult.finalCandidates.length}/${request.requested_count})`);
+        }
+      } else {
+        // Flujo estándar para otros proveedores
+        result.candidates = phase.final_candidates;
+
+        if (result.candidates.length > 0) {
+          console.log(`  [${mode}] Verificando duplicados (read-only)...`);
+          result.duplicate_results = await runDuplicatePhase(result.candidates);
+          const dups = result.duplicate_results.filter((d) => d.status !== 'new_candidate' && d.status !== 'unchecked').length;
+          if (dups > 0) {
+            console.log(`  [${mode}] ${dups} posibles duplicados encontrados`);
+          }
+        }
       }
     }
 
-    // Fase E: diversificación (análisis, no filtra)
+    // Diversificación (análisis, no filtra)
     if (result.candidates.length > 0) {
       result.diversification = computeDiversification(result.candidates);
     }
@@ -160,9 +200,9 @@ export async function runBenchmark(
     results.push(result);
   }
 
-  // Calcular métricas para todos los proveedores (con datos de fases si disponibles)
+  // Calcular métricas para todos los proveedores (con datos de fases y pool si disponibles)
   const metrics: BenchmarkMetrics[] = results.map((r) =>
-    computeMetrics(r, phaseResults.get(r.provider)),
+    computeMetrics(r, phaseResults.get(r.provider), poolMetricsMap.get(r.provider)),
   );
 
   return { results, metrics };
