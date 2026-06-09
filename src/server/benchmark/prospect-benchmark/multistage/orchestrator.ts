@@ -81,6 +81,13 @@ function buildEmptyMetrics(): ExecutionMetrics {
     longest_call_duration_ms: 0,
     terminated_connections: 0,
     partial_results_preserved: false,
+    // 16AB.23.7
+    usage_bearing_api_calls: 0,
+    rate_limited_attempts: 0,
+    cached_discovery_batches_loaded: 0,
+    new_discovery_batches_attempted: 0,
+    retryable_discovery_batches: 0,
+    resume_degradation_prevented: false,
   };
 }
 
@@ -271,14 +278,18 @@ export async function runMultistageProvider(
     );
   } finally {
     clearTimeout(overallTimer);
-    // Save final metrics
+    // Save final metrics and invocation summary
     metrics.checkpoint_count = checkpoint.getCheckpointCount();
     const state = checkpoint.getState();
+    // Mirror new usage counters into metrics for the execution summary
+    metrics.usage_bearing_api_calls = state.usage.usage_bearing_api_calls;
+    metrics.rate_limited_attempts = state.usage.rate_limited_attempts;
     checkpoint.saveFile('../execution-summary.json', {
       runId,
       ...metrics,
       usage: state.usage,
     });
+    checkpoint.saveInvocationSummary(new Date().toISOString());
   }
 }
 
@@ -308,6 +319,13 @@ async function executeStages(
   if (metrics.total_api_calls > 0) await sleep(MULTISTAGE_CONFIG.inter_call_pause_ms);
 
   // ─── Stage 2: Discovery Batches ────────────────────────────────────────────
+  //
+  // 16AB.23.7 — Two-phase loading:
+  //   Phase A: Hydrate ALL completed (cached) batches without checking budget.
+  //            A budget gate here would silently drop batch 1 when the previous
+  //            run exhausted its attempt counter on rate-limited 429 calls.
+  //   Phase B: Attempt only the batches that are NOT yet completed, subject to
+  //            the full budget gate.  New calls consume the fresh invocation budget.
 
   const discoveryStart = Date.now();
   checkpoint.markStageStarted('stage2_discovery');
@@ -316,29 +334,63 @@ async function executeStages(
   const allDiscovered: DiscoveryCandidate[] = [];
   const allNames: string[] = [];
 
+  // ── Phase A: load all cached batches (no budget check) ─────────────────────
+  let cachedBatchesLoaded = 0;
   for (let i = 0; i < MULTISTAGE_CONFIG.discovery_batch_count; i++) {
-    const theme = themes[i] ?? `Tema ${i + 1} — tecnología B2B Colombia`;
+    if (!checkpoint.isDiscoveryBatchCompleted(i)) continue;
+    const cached = checkpoint.loadFile<{ candidates: DiscoveryCandidate[] }>(
+      checkpoint.discoveryFile(i)
+    );
+    if (cached?.candidates && cached.candidates.length > 0) {
+      allDiscovered.push(...cached.candidates);
+      allNames.push(...cached.candidates.map((c) => c.name));
+      cachedBatchesLoaded++;
+      metrics.discovery_batches_completed++;
+    }
+    // If the file is corrupt, it will be handled in Phase B (batch not skipped)
+  }
 
+  // ── Phase B: process uncompleted batches subject to budget gate ─────────────
+  let newBatchesAttempted = 0;
+  let retryableBatches = 0;
+  for (let i = 0; i < MULTISTAGE_CONFIG.discovery_batch_count; i++) {
+    if (checkpoint.isDiscoveryBatchCompleted(i)) continue; // already loaded in Phase A
+
+    if (!checkpoint.withinBudget()) {
+      const reason = checkpoint.budgetExhaustedReason() ?? 'unknown';
+      stageErrors.push({
+        phase: 'stage2_discovery',
+        message: `Budget exhausted (${reason}) before batch ${i}`,
+        recoverable: true,
+      });
+      break;
+    }
+
+    const theme = themes[i] ?? `Tema ${i + 1} — tecnología B2B Colombia`;
     const batchCandidates = await runStage2DiscoveryBatch(
       apiKey, i, theme, request.country, request.commercial_context,
       [...allNames],
       checkpoint, metrics, fetchFn
     );
 
+    newBatchesAttempted++;
     allDiscovered.push(...batchCandidates);
     allNames.push(...batchCandidates.map((c) => c.name));
-
-    if (!checkpoint.withinBudget()) {
-      stageErrors.push({ phase: 'stage2_discovery', message: 'Budget exhausted', recoverable: false });
-      break;
-    }
 
     if (i < MULTISTAGE_CONFIG.discovery_batch_count - 1) {
       await sleep(MULTISTAGE_CONFIG.inter_call_pause_ms);
     }
   }
 
+  // Count all remaining uncompleted batches as retryable in the next session
+  for (let i = 0; i < MULTISTAGE_CONFIG.discovery_batch_count; i++) {
+    if (!checkpoint.isDiscoveryBatchCompleted(i)) retryableBatches++;
+  }
+
   metrics.per_stage_duration_ms['stage2_discovery'] = Date.now() - discoveryStart;
+  metrics.cached_discovery_batches_loaded = cachedBatchesLoaded;
+  metrics.new_discovery_batches_attempted = newBatchesAttempted;
+  metrics.retryable_discovery_batches = retryableBatches;
   checkpoint.markStageCompleted('stage2_discovery');
   checkpoint.saveFile('prefiltered-pool-raw.json', { candidates: allDiscovered });
 
@@ -361,15 +413,31 @@ async function executeStages(
     prefilteredPool = cachedPrefilter.accepted;
     prefilterRejected = cachedPrefilter.rejected;
   } else {
-    checkpoint.markStageStarted('stage3_prefilter');
-    const result = runStage3Prefilter(allDiscovered);
-    prefilteredPool = result.accepted;
-    prefilterRejected = result.rejected;
-    checkpoint.saveArtifact('prefiltered-pool.json', 'stage3_prefilter', prefilterInputHash, {
-      accepted: prefilteredPool,
-      rejected: prefilterRejected,
-      stats: { total: allDiscovered.length, accepted: prefilteredPool.length, rejected: prefilterRejected.length },
-    });
+    // 16AB.23.7 — No-degradation guard: if the existing artifact was computed from
+    // MORE inputs than we currently have, do not overwrite it with a smaller set.
+    const existingRaw = checkpoint.loadArtifactRaw<{
+      accepted: DiscoveryCandidate[];
+      rejected: Array<{ candidate: DiscoveryCandidate; reason: string }>;
+      stats: { total: number; accepted: number; rejected: number };
+    }>('prefiltered-pool.json');
+    const existingTotal = existingRaw?.data?.stats?.total ?? 0;
+
+    if (existingTotal > allDiscovered.length && existingRaw?.data) {
+      // Preserve the richer artifact — resume degradation prevented
+      prefilteredPool = existingRaw.data.accepted;
+      prefilterRejected = existingRaw.data.rejected;
+      metrics.resume_degradation_prevented = true;
+    } else {
+      checkpoint.markStageStarted('stage3_prefilter');
+      const result = runStage3Prefilter(allDiscovered);
+      prefilteredPool = result.accepted;
+      prefilterRejected = result.rejected;
+      checkpoint.saveArtifact('prefiltered-pool.json', 'stage3_prefilter', prefilterInputHash, {
+        accepted: prefilteredPool,
+        rejected: prefilterRejected,
+        stats: { total: allDiscovered.length, accepted: prefilteredPool.length, rejected: prefilterRejected.length },
+      });
+    }
   }
 
   checkpoint.markStageCompleted('stage3_prefilter');
@@ -570,10 +638,11 @@ async function executeStages(
       : 'partial';
 
   if (!checkpoint.withinBudget() && benchmarkCandidates.length < request.requested_count) {
+    const budgetReason = checkpoint.budgetExhaustedReason() ?? 'unknown';
     stageErrors.push({
       phase: 'budget',
-      message: `Budget exhausted: ${usage.total_api_calls} API calls, $${usage.estimated_cost_usd.toFixed(4)} cost`,
-      recoverable: false,
+      message: `Budget exhausted (${budgetReason}): ${usage.usage_bearing_api_calls}/${MULTISTAGE_CONFIG.max_usage_bearing_api_calls_per_run} usage-bearing calls, $${usage.known_cost_usd.toFixed(4)} known cost`,
+      recoverable: true,
     });
   }
 

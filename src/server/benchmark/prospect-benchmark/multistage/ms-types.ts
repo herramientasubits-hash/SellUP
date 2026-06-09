@@ -93,11 +93,13 @@ export type RunUsage = {
   output_tokens: number;
   /** Kept for compat. Sum of search_calls across all BatchUsage records. */
   searches_executed: number;
+  /** Kept for backward compat. Equals total_provider_attempts. */
   total_api_calls: number;
   successful_api_calls: number;
   failed_api_calls: number;
   retried_api_calls: number;
   rate_limit_wait_ms: number;
+  /** Kept for backward compat. Equals known_cost_usd. */
   estimated_cost_usd: number;
   // ─── Web search stats (16AB.23.5) ──────────────────────────────────────
   /** Sum of web_search_requests from calls with status reported_by_provider. */
@@ -117,6 +119,43 @@ export type RunUsage = {
   web_search_results_count: number;
   web_search_citations_count: number;
   web_search_errors_count: number;
+  // ─── 16AB.23.7 — Separated provider attempt / consumption counters ──────
+  /** Every HTTP attempt to the provider, including 429s. */
+  total_provider_attempts: number;
+  /** Only calls that returned token usage (input_tokens > 0 || output_tokens > 0). */
+  usage_bearing_api_calls: number;
+  /** 429s that returned zero usage. Do NOT count against consumption budget. */
+  rate_limited_attempts: number;
+  /** Errors where usage status is ambiguous (may have been sent but response lost). */
+  unknown_usage_attempts: number;
+  /** Accumulated cost from usage-bearing calls only. Equals estimated_cost_usd. */
+  known_cost_usd: number;
+  /**
+   * Conservative upper bound for legacy search cost when web_search_count_status
+   * was 'unavailable' for pre-16AB.23.5 runs.
+   * Used in the monetary gate as: known_cost_usd + legacy_search_cost_upper_bound_usd.
+   * NOT presented as actual cost.
+   */
+  legacy_search_cost_upper_bound_usd: number | null;
+};
+
+// ─── Invocation budget (16AB.23.7) ────────────────────────────────────────────
+
+/**
+ * Per-invocation attempt budget. Resets to zero on every CLI run or --resume.
+ * Persisted to state/invocations/<id>.json for audit.
+ */
+export type InvocationBudgetState = {
+  invocationId: string;
+  startedAt: string;
+  isResume: boolean;
+  attempts: number;
+  retries: number;
+  successfulCalls: number;
+  failedCalls: number;
+  rateLimitedAttempts: number;
+  rateLimitWaitMs: number;
+  incrementalKnownCostUsd: number;
 };
 
 // ─── Artifact envelope (16AB.23.4) ────────────────────────────────────────────
@@ -176,4 +215,11 @@ export type ExecutionMetrics = {
   longest_call_duration_ms: number;
   terminated_connections: number;
   partial_results_preserved: boolean;
+  // 16AB.23.7 additions (optional: not present on legacy ExecutionMetrics instances)
+  usage_bearing_api_calls?: number;
+  rate_limited_attempts?: number;
+  cached_discovery_batches_loaded?: number;
+  new_discovery_batches_attempted?: number;
+  retryable_discovery_batches?: number;
+  resume_degradation_prevented?: boolean;
 };

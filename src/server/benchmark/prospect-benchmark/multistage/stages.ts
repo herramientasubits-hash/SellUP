@@ -82,7 +82,7 @@ export async function runStage1Plan(
   metrics.longest_call_duration_ms = Math.max(metrics.longest_call_duration_ms, dur);
   metrics.total_api_calls++;
 
-  checkpoint.addUsage(result.usage);
+  checkpoint.addUsage(result.usage, result.errorCode);
 
   if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
 
@@ -188,7 +188,7 @@ export async function runStage2DiscoveryBatch(
   metrics.longest_call_duration_ms = Math.max(metrics.longest_call_duration_ms, dur);
   metrics.total_api_calls++;
 
-  checkpoint.addUsage(result.usage);
+  checkpoint.addUsage(result.usage, result.errorCode);
   if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
 
   // Persist and accumulate web search audit (16AB.23.5)
@@ -359,7 +359,7 @@ export async function runStage5VerificationBatch(
   metrics.longest_call_duration_ms = Math.max(metrics.longest_call_duration_ms, dur);
   metrics.total_api_calls++;
 
-  checkpoint.addUsage(result.usage);
+  checkpoint.addUsage(result.usage, result.errorCode);
   if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
 
   if (result.errorCode) {
@@ -492,7 +492,7 @@ export async function runStage5VerificationCandidates(
     const dur = Date.now() - startMs;
     metrics.longest_call_duration_ms = Math.max(metrics.longest_call_duration_ms, dur);
     metrics.total_api_calls++;
-    checkpoint.addUsage(result.usage);
+    checkpoint.addUsage(result.usage, result.errorCode);
     if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
 
     // Persist and accumulate web search audit (16AB.23.5)
@@ -573,7 +573,7 @@ export async function runReplacementDiscovery(
   metrics.longest_call_duration_ms = Math.max(metrics.longest_call_duration_ms, dur);
   metrics.total_api_calls++;
 
-  checkpoint.addUsage(result.usage);
+  checkpoint.addUsage(result.usage, result.errorCode);
   if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
 
   // Persist and accumulate web search audit (16AB.23.5)

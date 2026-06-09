@@ -14,10 +14,18 @@ export const MULTISTAGE_CONFIG = {
   per_call_timeout_ms: 90_000,
   overall_run_timeout_ms: 1_200_000,
 
-  // API budget
+  // API budget (legacy — kept for backward compat; use separated gates below)
   max_total_api_calls: 16,
   max_total_search_tool_uses: 40,
   max_cost_usd: 2.5,
+
+  // 16AB.23.7 — Separated budget model
+  // Rate-limited 429 attempts (zero usage) do NOT count against the consumption gate.
+  max_usage_bearing_api_calls_per_run: 16,
+  // Fresh attempt budget for each CLI invocation or --resume session.
+  max_provider_attempts_per_invocation: 16,
+  // Maximum cumulative rate-limit wait per invocation (3 min) before giving up.
+  max_rate_limit_wait_ms_per_invocation: 180_000,
 
   // Stage 2 — Discovery batches
   discovery_batch_count: 5,

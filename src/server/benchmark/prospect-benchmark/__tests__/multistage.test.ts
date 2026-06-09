@@ -8,7 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -824,6 +824,553 @@ describe('Case 10 — corrupt artifact is handled gracefully', () => {
       assert.ok(
         existsSync(join(subdir, `${key}.json.corrupt`)),
         'corrupt per-candidate file must be renamed to .corrupt'
+      );
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// 16AB.23.7 — Budget separation tests (Cases 1–12)
+// ════════════════════════════════════════════════════════════════════════════════
+
+function makeZeroUsage() {
+  return {
+    input_tokens: 0,
+    output_tokens: 0,
+    search_calls: 0,
+    search_count_status: 'unavailable' as const,
+    token_cost_usd: 0,
+    web_search_cost_usd: null,
+    cost_usd: 0,
+  };
+}
+
+function makeTokenUsage(cost = 0.01) {
+  return {
+    input_tokens: 1000,
+    output_tokens: 500,
+    search_calls: 0,
+    search_count_status: 'unavailable' as const,
+    token_cost_usd: cost,
+    web_search_cost_usd: null,
+    cost_usd: cost,
+  };
+}
+
+function writeLegacyState(dir: string, overrides: Record<string, unknown>): void {
+  const base = {
+    runId: 'legacy-run',
+    provider: 'anthropic_native_search',
+    requestHash: 'hash-legacy',
+    model: 'claude-sonnet-4-6',
+    pipelineVersion: '16AB.23.3',
+    currentStage: 'stage2_discovery',
+    completedStages: [],
+    completedDiscoveryBatches: [],
+    completedVerificationBatches: [],
+    failedBatches: [],
+    stageArtifacts: {},
+    usage: {},
+    startedAt: '2026-06-09T19:18:06.336Z',
+    updatedAt: '2026-06-09T20:19:47.366Z',
+  };
+  const merged = { ...base, ...overrides };
+  const stateDir = join(dir, 'state');
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, 'run-state.json'), JSON.stringify(merged), 'utf-8');
+}
+
+// ─── Case 1 (16AB.23.7): Legacy run state migration ───────────────────────────
+
+describe('16AB.23.7 Case 1 — legacy run state migration', () => {
+  it('resume derives usage_bearing_api_calls=5 from successful_api_calls on legacy state', () => {
+    const dir = makeTmpDir();
+    try {
+      writeLegacyState(dir, {
+        completedDiscoveryBatches: [0, 1],
+        failedBatches: [
+          { stage: 'stage2_discovery', batch: 2, errorCode: 'rate_limit' },
+          { stage: 'stage2_discovery', batch: 3, errorCode: 'rate_limit' },
+          { stage: 'stage2_discovery', batch: 4, errorCode: 'rate_limit' },
+        ],
+        usage: {
+          input_tokens: 286057,
+          output_tokens: 8122,
+          searches_executed: 0,
+          total_api_calls: 16,
+          successful_api_calls: 5,
+          failed_api_calls: 11,
+          retried_api_calls: 13,
+          rate_limit_wait_ms: 195000,
+          estimated_cost_usd: 0.98,
+          // 16AB.23.5 fields present
+          web_search_requests_reported: 0,
+          web_search_requests_inferred: 0,
+          web_search_count_status: 'unavailable',
+          token_cost_usd: 0.98,
+          web_search_cost_usd: null,
+          web_search_results_count: 0,
+          web_search_citations_count: 0,
+          web_search_errors_count: 0,
+          // No 16AB.23.7 fields — migration must fill them
+        },
+      });
+
+      const resumed = CheckpointManager.resume(dir);
+      assert.ok(resumed !== null, 'must be resumable');
+
+      const usage = resumed!.getState().usage;
+      assert.equal(usage.usage_bearing_api_calls, 5, 'usage_bearing_api_calls derived from successful_api_calls');
+      assert.ok(usage.rate_limited_attempts >= 11, 'rate_limited_attempts ≥ failed_api_calls(11)');
+      assert.equal(usage.known_cost_usd, 0.98, 'known_cost_usd derived from estimated_cost_usd');
+      assert.equal(usage.total_provider_attempts, 16, 'total_provider_attempts derived from total_api_calls');
+      assert.ok(usage.legacy_search_cost_upper_bound_usd !== null, 'upper bound computed for unavailable status');
+
+      // Key assertion: withinBudget must be TRUE after migration (5 usage-bearing, not 16)
+      assert.ok(resumed!.hasRunConsumptionBudget(), 'run consumption budget available (5/16)');
+      assert.ok(resumed!.hasMonetaryBudget(), 'monetary budget available ($0.98 + upper_bound < $2.50)');
+      assert.ok(resumed!.canMakeProviderAttempt(), 'invocation attempt budget fresh on resume');
+      assert.ok(resumed!.withinBudget(), 'withinBudget() MUST be true — this was the reported bug');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 2 (16AB.23.7): 429 sin usage ────────────────────────────────────────
+
+describe('16AB.23.7 Case 2 — 429 with zero tokens does not consume run budget', () => {
+  it('rate_limit addUsage increments rate_limited_attempts only', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c2', 'hash');
+      checkpoint.addUsage(makeZeroUsage(), 'rate_limit');
+
+      const usage = checkpoint.getState().usage;
+      assert.equal(usage.rate_limited_attempts, 1, 'rate_limited_attempts must be 1');
+      assert.equal(usage.usage_bearing_api_calls, 0, 'usage_bearing_api_calls must remain 0');
+      assert.equal(usage.known_cost_usd, 0, 'known_cost_usd must not increase');
+      assert.equal(usage.total_provider_attempts, 1, 'total_provider_attempts incremented');
+      assert.equal(usage.total_api_calls, 1, 'legacy total_api_calls also incremented');
+
+      // Budget NOT exhausted: run consumption gate uses usage_bearing_api_calls (0), not rate_limited (1)
+      assert.ok(checkpoint.hasRunConsumptionBudget(), 'consumption budget still available after 429');
+      assert.ok(checkpoint.canMakeProviderAttempt(), 'invocation budget still available');
+      assert.ok(checkpoint.withinBudget(), 'withinBudget() must be true after 1 rate-limited attempt');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 3 (16AB.23.7): Error con usage ──────────────────────────────────────
+
+describe('16AB.23.7 Case 3 — error with tokens still consumes run budget', () => {
+  it('non-rate-limit error that returned tokens increments usage_bearing_api_calls', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c3', 'hash');
+      checkpoint.addUsage(makeTokenUsage(0.01), 'timeout');
+
+      const usage = checkpoint.getState().usage;
+      assert.equal(usage.usage_bearing_api_calls, 1, 'usage_bearing_api_calls must be 1');
+      assert.equal(usage.rate_limited_attempts, 0, 'rate_limited_attempts must be 0');
+      assert.ok(usage.known_cost_usd > 0, 'known_cost_usd must increase');
+      assert.equal(usage.total_provider_attempts, 1, 'total_provider_attempts incremented');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 4 (16AB.23.7): Nueva invocación reset ───────────────────────────────
+
+describe('16AB.23.7 Case 4 — resume resets invocation attempt budget without erasing history', () => {
+  it('getInvocationBudget().attempts=0 after resume while usage_bearing_api_calls is preserved', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c4', 'hash');
+      for (let i = 0; i < 5; i++) {
+        checkpoint.addUsage(makeTokenUsage(0.01));
+        checkpoint.recordSuccess();
+      }
+
+      assert.equal(checkpoint.getState().usage.usage_bearing_api_calls, 5);
+
+      const resumed = CheckpointManager.resume(dir);
+      assert.ok(resumed !== null);
+
+      assert.equal(resumed!.getInvocationBudget().attempts, 0, 'invocation attempts reset to 0 on resume');
+      assert.ok(resumed!.canMakeProviderAttempt(), 'fresh invocation has full attempt budget');
+      assert.equal(
+        resumed!.getState().usage.usage_bearing_api_calls,
+        5,
+        'historical usage_bearing_api_calls preserved across resume',
+      );
+      assert.ok(resumed!.hasRunConsumptionBudget(), 'run consumption budget still available (5/16)');
+      assert.ok(resumed!.withinBudget(), 'withinBudget() true on fresh resume with 5 prior calls');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 5 (16AB.23.7): Cachés cargadas aunque budget de consumo agotado ─────
+
+describe('16AB.23.7 Case 5 — Phase A loads all cached batches even when run consumption budget is exhausted', () => {
+  it('10 candidates hydrated from cache when usage_bearing_api_calls=16 (budget exhausted)', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c5', 'hash');
+
+      // Pre-populate 2 completed discovery batches (5 candidates each)
+      const makeBatch = (idx: number) => ({
+        batch_index: idx,
+        batch_theme: `Theme${idx}`,
+        candidates: Array.from({ length: 5 }, (_, i) =>
+          makeCandidate(`Empresa${idx}_${i}`, `https://e${idx}-${i}.co`, idx),
+        ),
+      });
+      checkpoint.saveFile(checkpoint.discoveryFile(0), makeBatch(0));
+      checkpoint.markDiscoveryBatchCompleted(0);
+      checkpoint.saveFile(checkpoint.discoveryFile(1), makeBatch(1));
+      checkpoint.markDiscoveryBatchCompleted(1);
+
+      // Exhaust the run consumption budget (16 usage-bearing calls)
+      for (let i = 0; i < 16; i++) checkpoint.addUsage(makeTokenUsage(0.01));
+
+      assert.ok(!checkpoint.hasRunConsumptionBudget(), 'run consumption budget must be exhausted');
+      assert.ok(!checkpoint.withinBudget(), 'withinBudget() must be false');
+
+      // Simulate Phase A: load ALL completed batches WITHOUT checking withinBudget()
+      const allDiscovered: DiscoveryCandidate[] = [];
+      for (let i = 0; i < 5; i++) {
+        if (!checkpoint.isDiscoveryBatchCompleted(i)) continue;
+        const cached = checkpoint.loadFile<{ candidates: DiscoveryCandidate[] }>(checkpoint.discoveryFile(i));
+        if (cached?.candidates) allDiscovered.push(...cached.candidates);
+      }
+
+      assert.equal(allDiscovered.length, 10, 'Phase A must hydrate all 10 cached candidates');
+      // Phase B cannot run (budget exhausted) — but the cached data is preserved
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 6 (16AB.23.7): Phase A carga cache, Phase B intenta faltantes ───────
+
+describe('16AB.23.7 Case 6 — Phase A hydrates cache; Phase B fetch only missing batches', () => {
+  it('batches 0,1 cached (no fetch), batches 2-4 trigger exactly 3 fetch calls', async () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c6', 'hash');
+
+      // Batches 0 and 1 cached
+      for (const idx of [0, 1]) {
+        checkpoint.saveFile(checkpoint.discoveryFile(idx), {
+          batch_index: idx, batch_theme: `Theme${idx}`,
+          candidates: [makeCandidate(`Empresa${idx}`, `https://e${idx}.co`, idx)],
+        });
+        checkpoint.markDiscoveryBatchCompleted(idx);
+      }
+
+      let fetchCallCount = 0;
+      const countingFetch: FetchFn = async () => {
+        fetchCallCount++;
+        const body = JSON.stringify({
+          id: 'msg_test', type: 'message', role: 'assistant',
+          content: [{ type: 'text', text: `<json_output>${JSON.stringify({ batch_index: 0, batch_theme: 'SaaS', candidates: [] })}</json_output>` }],
+          model: 'claude-sonnet-4-6', stop_reason: 'end_turn',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        });
+        return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+      };
+
+      // Phase A: load cached batches (no fetch)
+      const allDiscovered: DiscoveryCandidate[] = [];
+      for (let i = 0; i < 5; i++) {
+        if (!checkpoint.isDiscoveryBatchCompleted(i)) continue;
+        const cached = checkpoint.loadFile<{ candidates: DiscoveryCandidate[] }>(checkpoint.discoveryFile(i));
+        if (cached?.candidates) allDiscovered.push(...cached.candidates);
+      }
+      assert.equal(fetchCallCount, 0, 'Phase A must not call fetch');
+      assert.equal(allDiscovered.length, 2, 'Phase A hydrates 2 cached candidates');
+
+      // Phase B: attempt uncompleted batches (2, 3, 4) — budget available
+      const metrics = buildMetrics();
+      const existingNames = allDiscovered.map((c) => c.name);
+      for (let i = 0; i < 5; i++) {
+        if (checkpoint.isDiscoveryBatchCompleted(i)) continue;
+        if (!checkpoint.withinBudget()) break;
+        await runStage2DiscoveryBatch(
+          'fake-key', i, `Theme${i}`, 'Colombia', 'ctx',
+          existingNames, checkpoint, metrics, countingFetch,
+        );
+      }
+
+      assert.equal(fetchCallCount, 3, 'Phase B must call fetch exactly 3 times (batches 2, 3, 4)');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 7 (16AB.23.7): Budget se agota durante Phase B ──────────────────────
+
+describe('16AB.23.7 Case 7 — budget exhaustion mid-Phase B preserves completed batches', () => {
+  it('batches 0,1,2 preserved when invocation budget exhausts before batch 3', async () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c7', 'hash');
+
+      // Batches 0,1 cached
+      for (const idx of [0, 1]) {
+        checkpoint.saveFile(checkpoint.discoveryFile(idx), {
+          batch_index: idx, batch_theme: `Theme${idx}`,
+          candidates: [makeCandidate(`Empresa${idx}`, `https://e${idx}.co`, idx)],
+        });
+        checkpoint.markDiscoveryBatchCompleted(idx);
+      }
+
+      // Batch 2 will succeed, but exhaust the invocation budget
+      const onceSuccessfulThenExhausted: FetchFn = async () => {
+        const body = JSON.stringify({
+          id: 'msg_test', type: 'message', role: 'assistant',
+          content: [{ type: 'text', text: `<json_output>${JSON.stringify({ batch_index: 2, batch_theme: 'Theme2', candidates: [{ name: 'Batch2Empresa', website: 'https://b2.co', linkedin: null, city: null, sector: 'SaaS', description: null, confidence: 'Alta', evidence_url: null, evidence_source: null, estimated_size: null, notes: null }] })}</json_output>` }],
+          model: 'claude-sonnet-4-6', stop_reason: 'end_turn',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        });
+        return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+      };
+
+      // Phase A: load cached batches
+      for (let i = 0; i < 5; i++) {
+        if (!checkpoint.isDiscoveryBatchCompleted(i)) continue;
+        checkpoint.loadFile<{ candidates: DiscoveryCandidate[] }>(checkpoint.discoveryFile(i));
+      }
+
+      // Phase B: batch 2 runs successfully
+      const metrics = buildMetrics();
+      await runStage2DiscoveryBatch(
+        'fake-key', 2, 'Theme2', 'Colombia', 'ctx', [], checkpoint, metrics, onceSuccessfulThenExhausted,
+      );
+      assert.ok(checkpoint.isDiscoveryBatchCompleted(2), 'batch 2 must be completed after success');
+
+      // Exhaust invocation budget after batch 2
+      for (let i = 0; i < 16; i++) checkpoint.addUsage(makeTokenUsage(0.01));
+      assert.ok(!checkpoint.withinBudget(), 'budget exhausted — Phase B must stop');
+
+      // Phase B continues: should break at batch 3 (budget exhausted)
+      let attemptedAfterExhaustion = false;
+      for (let i = 3; i < 5; i++) {
+        if (checkpoint.isDiscoveryBatchCompleted(i)) continue;
+        if (!checkpoint.withinBudget()) break;
+        attemptedAfterExhaustion = true;
+      }
+      assert.ok(!attemptedAfterExhaustion, 'must not attempt batches 3,4 after budget exhaustion');
+
+      // Completed batches preserved
+      assert.ok(checkpoint.isDiscoveryBatchCompleted(0), 'batch 0 preserved');
+      assert.ok(checkpoint.isDiscoveryBatchCompleted(1), 'batch 1 preserved');
+      assert.ok(checkpoint.isDiscoveryBatchCompleted(2), 'batch 2 preserved');
+      assert.ok(!checkpoint.isDiscoveryBatchCompleted(3), 'batch 3 retryable');
+      assert.ok(!checkpoint.isDiscoveryBatchCompleted(4), 'batch 4 retryable');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 8 (16AB.23.7): No-degradación — artifact con más inputs se preserva ─
+
+describe('16AB.23.7 Case 8 — no-degradation: loadArtifactRaw returns existing even on hash mismatch', () => {
+  it('richer existing prefilter artifact is detectable via loadArtifactRaw when pool shrinks', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c8', 'hash');
+
+      // Save prefilter artifact with 10 candidates
+      const pool10 = Array.from({ length: 10 }, (_, i) => makeCandidate(`Empresa${i}`, `https://e${i}.co`));
+      const hash10 = computePrefilterInputHash(pool10, '16AB.23.4');
+      checkpoint.saveArtifact('prefiltered-pool.json', 'stage3_prefilter', hash10, {
+        accepted: pool10,
+        rejected: [],
+        stats: { total: 10, accepted: 10, rejected: 0 },
+      });
+
+      // Now pool has only 5 candidates (hash mismatch)
+      const pool5 = pool10.slice(0, 5);
+      const hash5 = computePrefilterInputHash(pool5, '16AB.23.4');
+      assert.notEqual(hash10, hash5, 'hashes must differ');
+
+      // loadArtifactIfValid returns null (hash mismatch — correct behavior)
+      const valid = checkpoint.loadArtifactIfValid<unknown>('prefiltered-pool.json', hash5);
+      assert.equal(valid, null, 'loadArtifactIfValid must reject on hash mismatch');
+
+      // loadArtifactRaw returns the existing data regardless of hash
+      const raw = checkpoint.loadArtifactRaw<{ accepted: DiscoveryCandidate[]; stats: { total: number } }>('prefiltered-pool.json');
+      assert.ok(raw !== null, 'loadArtifactRaw must return existing artifact');
+      assert.equal(raw!.data.stats.total, 10, 'existing artifact reports 10 total inputs');
+
+      // No-degradation check: existing artifact has more inputs than current pool
+      const existingTotal = raw?.data.stats.total ?? 0;
+      assert.ok(existingTotal > pool5.length, 'degradation detected: existing(10) > current(5)');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 9 (16AB.23.7): Costo máximo bloquea llamadas ────────────────────────
+
+describe('16AB.23.7 Case 9 — monetary limit blocks further calls', () => {
+  it('withinBudget() false and reason is monetary when known_cost_usd >= max_cost_usd', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c9', 'hash');
+      // Spend exactly $2.50 (at or above limit)
+      checkpoint.addUsage({ ...makeTokenUsage(), cost_usd: 2.5, token_cost_usd: 2.5 });
+
+      assert.ok(!checkpoint.hasMonetaryBudget(), 'monetary budget must be exhausted at $2.50');
+      assert.ok(!checkpoint.withinBudget(), 'withinBudget() must be false');
+      assert.equal(checkpoint.budgetExhaustedReason(), 'monetary', 'exhausted reason must be monetary');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 10 (16AB.23.7): Upper bound de costo legacy ─────────────────────────
+
+describe('16AB.23.7 Case 10 — legacy search cost upper bound computed on resume', () => {
+  it('legacy_search_cost_upper_bound_usd is set and used in monetary gate', () => {
+    const dir = makeTmpDir();
+    try {
+      writeLegacyState(dir, {
+        usage: {
+          input_tokens: 100000, output_tokens: 50000, searches_executed: 0,
+          total_api_calls: 5, successful_api_calls: 5, failed_api_calls: 0,
+          retried_api_calls: 0, rate_limit_wait_ms: 0, estimated_cost_usd: 1.05,
+          web_search_requests_reported: 0, web_search_requests_inferred: 0,
+          web_search_count_status: 'unavailable',
+          token_cost_usd: 1.05, web_search_cost_usd: null,
+          web_search_results_count: 0, web_search_citations_count: 0, web_search_errors_count: 0,
+        },
+      });
+
+      const resumed = CheckpointManager.resume(dir);
+      assert.ok(resumed !== null);
+      const usage = resumed!.getState().usage;
+
+      // Upper bound = 5 calls * 4 searches/call * $0.01/search = $0.20
+      assert.ok(usage.legacy_search_cost_upper_bound_usd !== null, 'upper bound must be computed');
+      assert.ok(usage.legacy_search_cost_upper_bound_usd! > 0, 'upper bound must be positive');
+      // effective cost = 1.05 + 0.20 = 1.25 < 2.50 → still has budget
+      assert.ok(resumed!.hasMonetaryBudget(), 'monetary budget available ($1.25 effective < $2.50)');
+      // Upper bound is separate from known_cost_usd
+      assert.equal(usage.known_cost_usd, 1.05, 'known_cost_usd must not include upper bound');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 11 (16AB.23.7): Reanudaciones infinitas no bypassean límite monetario ─
+
+describe('16AB.23.7 Case 11 — accumulated cost persists across resumes', () => {
+  it('third resume still sees monetary limit exceeded from accumulated known_cost_usd', () => {
+    const dir = makeTmpDir();
+    try {
+      // First run: spend $2.40
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c11', 'hash');
+      checkpoint.addUsage({ ...makeTokenUsage(), cost_usd: 2.4, token_cost_usd: 2.4 });
+      assert.ok(checkpoint.hasMonetaryBudget(), 'still within limit after $2.40');
+
+      // Second invocation (resume): spend $0.165 more → crosses $2.50
+      const r1 = CheckpointManager.resume(dir);
+      assert.ok(r1 !== null);
+      assert.equal(r1!.getInvocationBudget().attempts, 0, 'invocation budget resets on resume');
+      assert.ok(r1!.hasMonetaryBudget(), 'still within limit at start of second invocation ($2.40)');
+
+      r1!.addUsage({ ...makeTokenUsage(), cost_usd: 0.165, token_cost_usd: 0.165 });
+      assert.ok(!r1!.hasMonetaryBudget(), 'monetary limit exceeded after $2.565');
+      assert.ok(!r1!.withinBudget(), 'withinBudget() false after $2.565');
+
+      // Third invocation (resume): monetary limit MUST persist (cost is cumulative, not reset)
+      const r2 = CheckpointManager.resume(dir);
+      assert.ok(r2 !== null);
+      assert.equal(r2!.getInvocationBudget().attempts, 0, 'invocation budget resets again');
+      assert.ok(!r2!.hasMonetaryBudget(), 'monetary limit persists after third resume');
+      assert.ok(!r2!.withinBudget(), 'withinBudget() still false on third resume');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+// ─── Case 12 (16AB.23.7): Batch recuperado sin duplicar candidatos ni costos ──
+
+describe('16AB.23.7 Case 12 — recovered batch adds usage once, second cache load is free', () => {
+  it('batch 2 retried after rate_limit failure; cost incremented once; cache load adds nothing', async () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23_7-c12', 'hash');
+
+      // Historical failure for batch 2 (rate_limit)
+      checkpoint.recordBatchFailure('stage2_discovery', 2, 'rate_limit');
+      const failedBatchCountBefore = checkpoint.getState().failedBatches.length;
+      const usageBefore = checkpoint.getState().usage.usage_bearing_api_calls;
+      const costBefore = checkpoint.getState().usage.known_cost_usd;
+
+      // Retry batch 2 — it now succeeds
+      const metrics = buildMetrics();
+      const result = await runStage2DiscoveryBatch(
+        'fake-key', 2, 'Theme2', 'Colombia', 'ctx', [], checkpoint, metrics,
+        successfulFetch([{
+          name: 'RecoveredEmpresa', website: 'https://recovered.co',
+          linkedin: null, city: null, sector: 'SaaS', description: null,
+          confidence: 'Alta', evidence_url: null, evidence_source: null,
+          estimated_size: null, notes: null,
+        }]),
+      );
+
+      assert.ok(checkpoint.isDiscoveryBatchCompleted(2), 'batch 2 must be completed after retry');
+      assert.ok(result.length > 0, 'recovered batch must return candidates');
+      // Cost and usage incremented exactly once
+      assert.equal(
+        checkpoint.getState().usage.usage_bearing_api_calls - usageBefore,
+        1,
+        'usage_bearing_api_calls incremented exactly once',
+      );
+      assert.ok(checkpoint.getState().usage.known_cost_usd > costBefore, 'cost incremented once');
+      // Historical failedBatches preserved (audit trail, not cleared on retry)
+      assert.equal(
+        checkpoint.getState().failedBatches.length,
+        failedBatchCountBefore,
+        'historical failure records kept for audit',
+      );
+
+      const usageAfterRetry = checkpoint.getState().usage.usage_bearing_api_calls;
+      const costAfterRetry = checkpoint.getState().usage.known_cost_usd;
+
+      // Second load from cache must NOT add usage
+      await runStage2DiscoveryBatch(
+        'fake-key', 2, 'Theme2', 'Colombia', 'ctx', [], checkpoint, buildMetrics(),
+        async () => { throw new Error('fetch must NOT be called for completed batch'); },
+      );
+
+      assert.equal(
+        checkpoint.getState().usage.usage_bearing_api_calls,
+        usageAfterRetry,
+        'cache load must not increment usage_bearing_api_calls',
+      );
+      assert.equal(
+        checkpoint.getState().usage.known_cost_usd,
+        costAfterRetry,
+        'cache load must not increment known_cost_usd',
       );
     } finally {
       cleanupDir(dir);
