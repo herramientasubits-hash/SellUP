@@ -265,7 +265,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => handleCountryChange(v)}
                 disabled={saving}
               >
-                <SelectTrigger className="w-full h-11 rounded-xl">
+                <SelectTrigger className="!w-full !h-11 !rounded-xl">
                   <SelectValue placeholder="Seleccionar país" />
                 </SelectTrigger>
                 <SelectContent>
@@ -311,7 +311,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => set('industry', v ?? '')}
                 disabled={saving}
               >
-                <SelectTrigger className="w-full h-11 rounded-xl">
+                <SelectTrigger className="!w-full !h-11 !rounded-xl">
                   <SelectValue placeholder="Seleccionar industria" />
                 </SelectTrigger>
                 <SelectContent>
@@ -329,7 +329,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => set('company_size', v ?? '')}
                 disabled={saving}
               >
-                <SelectTrigger className="w-full h-11 rounded-xl">
+                <SelectTrigger className="!w-full !h-11 !rounded-xl">
                   <SelectValue placeholder="Empleados" />
                 </SelectTrigger>
                 <SelectContent>
@@ -371,7 +371,7 @@ export function CreateCandidateDrawer({
                       onValueChange={(v) => set('tax_identifier_type', (v ?? '') as TaxIdentifierType)}
                       disabled={isDisabled || saving}
                     >
-                      <SelectTrigger className="w-full h-11 rounded-xl">
+                <SelectTrigger className="!w-full !h-11 !rounded-xl">
                         <SelectValue placeholder="Tipo" />
                       </SelectTrigger>
                       <SelectContent>
@@ -429,7 +429,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => set('source_primary', (v ?? 'manual') as CandidateSourcePrimary)}
                 disabled={saving}
               >
-                <SelectTrigger className="w-full h-11 rounded-xl">
+                <SelectTrigger className="!w-full !h-11 !rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

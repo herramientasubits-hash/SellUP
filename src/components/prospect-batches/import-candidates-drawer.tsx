@@ -492,7 +492,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   País de referencia <span className="text-destructive">*</span>
                 </label>
                 <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
-                  <SelectTrigger className="h-11 rounded-xl">
+                  <SelectTrigger className="!w-full !h-11 !rounded-xl">
                     <SelectValue placeholder="País" />
                   </SelectTrigger>
                   <SelectContent>
@@ -513,7 +513,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   Industria / criterio
                 </label>
                 <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
-                  <SelectTrigger className="h-11 rounded-xl">
+                  <SelectTrigger className="!w-full !h-11 !rounded-xl">
                     <SelectValue placeholder="Industria" />
                   </SelectTrigger>
                   <SelectContent>
