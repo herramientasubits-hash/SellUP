@@ -43,7 +43,11 @@ import {
   type ImportMethod,
   type ImportDefaults,
 } from '@/modules/prospect-batches/import-candidates-parser';
-import { LATAM_COUNTRIES, INDUSTRIES } from '@/modules/accounts/types';
+import {
+  LATAM_COUNTRIES,
+  INDUSTRIES,
+} from '@/modules/accounts/types';
+import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 
 // ── Tipos locales ─────────────────────────────────────────────
 
@@ -482,19 +486,19 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         <div className="space-y-5">
           <SurfaceCard>
             <SurfaceCardHeader title="Configuración de importación" />
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground">
                   País de referencia <span className="text-destructive">*</span>
                 </label>
                 <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
-                  <SelectTrigger className="h-8 text-xs">
+                  <SelectTrigger className="h-11 rounded-xl">
                     <SelectValue placeholder="Selecciona el país de estos candidatos" />
                   </SelectTrigger>
                   <SelectContent>
                     {LATAM_COUNTRIES.map((c) => (
-                      <SelectItem key={c.code} value={c.code} className="text-xs">
-                        {c.name}
+                      <SelectItem key={c.code} value={c.code}>
+                        {getFlagEmoji(c.code)} {c.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -509,12 +513,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   Industria / criterio
                 </label>
                 <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Selecciona o escribe una industria" />
+                  <SelectTrigger className="h-11 rounded-xl">
+                    <SelectValue placeholder="Selecciona una industria" />
                   </SelectTrigger>
                   <SelectContent>
                     {INDUSTRIES.map((ind) => (
-                      <SelectItem key={ind} value={ind} className="text-xs">
+                      <SelectItem key={ind} value={ind}>
                         {ind}
                       </SelectItem>
                     ))}
