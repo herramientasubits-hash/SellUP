@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut, Settings } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
@@ -69,27 +68,8 @@ export function AppSidebar({
 
   return (
     <div className={cn("flex h-full flex-col", className)}>
-      {/* Top zone — brand logo + user avatar stacked vertically */}
-      <div className="flex shrink-0 flex-col items-center gap-3 border-b border-sidebar-border/30 pt-4 pb-3">
-        {/* Brand / logo */}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Link
-                href="/pipeline"
-                aria-label="SellUp"
-                className="group flex items-center justify-center transition-opacity hover:opacity-90"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-su-brand to-su-accent-cool text-[15px] font-extrabold text-white shadow-sm shadow-su-brand/30 ring-1 ring-white/10">
-                  S
-                </span>
-              </Link>
-            }
-          />
-          <TooltipContent side="right">Inicio</TooltipContent>
-        </Tooltip>
-
-        {/* User avatar — opens dropdown with account options */}
+      {/* Top zone — user avatar only */}
+      <div className="flex shrink-0 flex-col items-center border-b border-sidebar-border/30 pt-4 pb-3">
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
