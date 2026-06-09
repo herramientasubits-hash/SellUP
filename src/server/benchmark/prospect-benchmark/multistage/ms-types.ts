@@ -1,5 +1,5 @@
 /**
- * Multistage Orchestrator — Types (16AB.23.3)
+ * Multistage Orchestrator — Types (16AB.23.3 / 16AB.23.4)
  */
 
 export type MultistageErrorCode =
@@ -75,7 +75,7 @@ export type ApiCallResult<T> = {
   durationMs: number;
 };
 
-// ─── Run state (checkpoint) ────────────────────────────────────────────────────
+// ─── Usage ────────────────────────────────────────────────────────────────────
 
 export type RunUsage = {
   input_tokens: number;
@@ -88,6 +88,29 @@ export type RunUsage = {
   rate_limit_wait_ms: number;
   estimated_cost_usd: number;
 };
+
+// ─── Artifact envelope (16AB.23.4) ────────────────────────────────────────────
+
+/**
+ * Envelope wrapping any derived artifact.
+ * An artifact is reusable only when:
+ *   artifactVersion === CURRENT_ARTIFACT_VERSION AND inputHash === expectedInputHash
+ */
+export type CheckpointArtifact<T> = {
+  artifactVersion: number;
+  stage: string;
+  inputHash: string;
+  createdAt: string;
+  data: T;
+};
+
+/** Per-stage artifact validity metadata stored in RunState. */
+export type StageArtifactMeta = {
+  inputHash: string;
+  status: 'completed' | 'stale' | 'failed';
+};
+
+// ─── Run state (checkpoint) ────────────────────────────────────────────────────
 
 export type RunState = {
   runId: string;
@@ -103,6 +126,8 @@ export type RunState = {
   usage: RunUsage;
   startedAt: string;
   updatedAt: string;
+  /** Per-stage artifact hashes for downstream invalidation (16AB.23.4). */
+  stageArtifacts?: Record<string, StageArtifactMeta>;
 };
 
 // ─── Execution metrics ─────────────────────────────────────────────────────────

@@ -1,8 +1,16 @@
 /**
- * Multistage Orchestrator — Main Entry Point (16AB.23.3)
+ * Multistage Orchestrator — Main Entry Point (16AB.23.3 / 16AB.23.4)
  *
  * Executes 8 stages with checkpointing, resume, timeout, and rate-limit
  * handling. No single HTTP connection may exceed per_call_timeout_ms.
+ *
+ * 16AB.23.4 — Checkpoint coherence:
+ *   - Derived artifacts (prefilter, dedup, selection) carry an inputHash envelope.
+ *   - An artifact is only reused when its stored inputHash matches the current inputs.
+ *   - Stage 5 uses per-candidate cache (see runStage5VerificationCandidates).
+ *   - Legacy artifacts without envelope are treated as stale and recomputed.
+ *   - On resume, legacy verification-XX.json files are migrated to per-candidate
+ *     cache when the candidate identity can be matched to the current pool.
  *
  * Outputs state/ directory under the run's outputDir.
  * Returns ProviderRunResult — identical interface to the previous single-call provider.
@@ -16,9 +24,17 @@ import {
   runStage2DiscoveryBatch,
   runStage3Prefilter,
   runStage5VerificationBatch,
+  runStage5VerificationCandidates,
   runReplacementDiscovery,
   verifiedToBenchmarkCandidate,
 } from './stages';
+import {
+  computePrefilterInputHash,
+  computeDedupInputHash,
+  computeSelectionInputHash,
+  computeVerificationCandidateInputHash,
+  computeCandidateKey,
+} from './artifact-hash';
 import type { FetchFn } from './client';
 import type {
   DiscoveryCandidate,
@@ -72,12 +88,57 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ─── Stage 4 — External duplicate check (delegates to duplicate-checker) ─────
+// ─── Legacy migration (16AB.23.4) ────────────────────────────────────────────
+
+/**
+ * On resume, scan legacy verification-XX.json files and migrate matching
+ * candidates to per-candidate cache. Only migrates when:
+ *   1. The candidate appears in the current discovery pool (identity match).
+ *   2. No valid per-candidate cache already exists for that candidate.
+ *
+ * This preserves verified results (e.g. Simetrik) across the hotfix upgrade
+ * without requiring manual file edits.
+ */
+function migrateLegacyVerifications(
+  checkpoint: CheckpointManager,
+  currentPool: DiscoveryCandidate[],
+  country: string
+): void {
+  // Build lookup: normalized name → discovery candidate
+  const byNormName = new Map<string, DiscoveryCandidate>();
+  for (const c of currentPool) {
+    byNormName.set(c.name.toLowerCase().trim(), c);
+  }
+
+  for (let i = 0; i < 20; i++) {
+    const legacy = checkpoint.loadFile<{ candidates: VerifiedCandidateResult[] }>(
+      checkpoint.verificationFile(i)
+    );
+    if (!legacy?.candidates) continue;
+
+    for (const verResult of legacy.candidates) {
+      const original = byNormName.get(verResult.original_name.toLowerCase().trim());
+      if (!original) continue;
+
+      const key = computeCandidateKey(original);
+      const inputHash = computeVerificationCandidateInputHash(
+        original, country, MULTISTAGE_CONFIG.pipeline_version, MULTISTAGE_CONFIG.model
+      );
+
+      // Only migrate if per-candidate cache does not already hold a valid entry
+      const existing = checkpoint.loadVerificationCandidateIfValid<VerifiedCandidateResult>(key, inputHash);
+      if (!existing) {
+        checkpoint.saveVerificationCandidate(key, verResult, inputHash);
+      }
+    }
+  }
+}
+
+// ─── Stage 4 — External duplicate check ──────────────────────────────────────
 
 async function runStage4ExternalDedup(
   pool: DiscoveryCandidate[],
   checkpoint: CheckpointManager,
-  startMs: number,
   metrics: ExecutionMetrics
 ): Promise<{
   deduped: DiscoveryCandidate[];
@@ -85,14 +146,18 @@ async function runStage4ExternalDedup(
 }> {
   const stageStart = Date.now();
 
-  // Read from cache if available
-  const cached = checkpoint.loadFile<{
+  // 16AB.23.4: compute the expected inputHash for this pool.
+  // Only reuse the cached artifact when its stored hash matches.
+  const expectedInputHash = computeDedupInputHash(pool, MULTISTAGE_CONFIG.pipeline_version);
+
+  const cached = checkpoint.loadArtifactIfValid<{
     deduped: DiscoveryCandidate[];
     externalDuplicates: string[];
-  }>('deduplicated-pool.json');
+  }>('deduplicated-pool.json', expectedInputHash);
 
   if (cached) {
     metrics.per_stage_duration_ms['stage4_dedup'] = 0;
+    checkpoint.updateStageArtifact('stage4_dedup', expectedInputHash, 'completed');
     return cached;
   }
 
@@ -134,9 +199,12 @@ async function runStage4ExternalDedup(
   }
 
   const out = { deduped, externalDuplicates };
-  checkpoint.saveFile('deduplicated-pool.json', out);
+
+  // Save with envelope so future resumes can validate coherence
+  checkpoint.saveArtifact('deduplicated-pool.json', 'stage4_dedup', expectedInputHash, out);
   checkpoint.saveFile('external-duplicates.json', { external_duplicates: externalDuplicates });
   checkpoint.markStageCompleted('stage4_dedup');
+  checkpoint.updateStageArtifact('stage4_dedup', expectedInputHash, 'completed');
   metrics.per_stage_duration_ms['stage4_dedup'] = Date.now() - stageStart;
 
   return out;
@@ -277,51 +345,72 @@ async function executeStages(
   // ─── Stage 3: Deterministic Pre-filter ────────────────────────────────────
 
   const prefilterStart = Date.now();
-  checkpoint.markStageStarted('stage3_prefilter');
 
-  const { accepted: prefilteredPool, rejected: prefilterRejected } = runStage3Prefilter(allDiscovered);
+  // 16AB.23.4: use inputHash to decide whether the cached prefilter is still valid.
+  const prefilterInputHash = computePrefilterInputHash(allDiscovered, MULTISTAGE_CONFIG.pipeline_version);
 
-  checkpoint.saveFile('prefiltered-pool.json', {
-    accepted: prefilteredPool,
-    rejected: prefilterRejected,
-    stats: { total: allDiscovered.length, accepted: prefilteredPool.length, rejected: prefilterRejected.length },
-  });
+  const cachedPrefilter = checkpoint.loadArtifactIfValid<{
+    accepted: DiscoveryCandidate[];
+    rejected: Array<{ candidate: DiscoveryCandidate; reason: string }>;
+  }>('prefiltered-pool.json', prefilterInputHash);
+
+  let prefilteredPool: DiscoveryCandidate[];
+  let prefilterRejected: Array<{ candidate: DiscoveryCandidate; reason: string }>;
+
+  if (cachedPrefilter) {
+    prefilteredPool = cachedPrefilter.accepted;
+    prefilterRejected = cachedPrefilter.rejected;
+  } else {
+    checkpoint.markStageStarted('stage3_prefilter');
+    const result = runStage3Prefilter(allDiscovered);
+    prefilteredPool = result.accepted;
+    prefilterRejected = result.rejected;
+    checkpoint.saveArtifact('prefiltered-pool.json', 'stage3_prefilter', prefilterInputHash, {
+      accepted: prefilteredPool,
+      rejected: prefilterRejected,
+      stats: { total: allDiscovered.length, accepted: prefilteredPool.length, rejected: prefilterRejected.length },
+    });
+  }
+
   checkpoint.markStageCompleted('stage3_prefilter');
+  checkpoint.updateStageArtifact('stage3_prefilter', prefilterInputHash, 'completed');
   metrics.per_stage_duration_ms['stage3_prefilter'] = Date.now() - prefilterStart;
 
   // ─── Stage 4: External Dedup ───────────────────────────────────────────────
 
   const { deduped: dedupedPool, externalDuplicates } = await runStage4ExternalDedup(
-    prefilteredPool, checkpoint, overallStartMs, metrics
+    prefilteredPool, checkpoint, metrics
   );
 
-  // ─── Stage 5: Verification Batches ────────────────────────────────────────
+  // ─── Stage 5: Per-candidate Verification ──────────────────────────────────
 
   const verifyStart = Date.now();
   checkpoint.markStageStarted('stage5_verification');
 
-  // Verify the best N candidates first (initial pool)
+  // 16AB.23.4: migrate any legacy verification-XX.json files to per-candidate cache
+  // before running verification. This preserves previously verified candidates
+  // (e.g. Simetrik) when resuming a run created before this hotfix.
+  if (metrics.resumed_from_checkpoint) {
+    migrateLegacyVerifications(checkpoint, allDiscovered, request.country);
+  }
+
   const initialPool = dedupedPool.slice(0, MULTISTAGE_CONFIG.initial_verification_pool_size);
   const reservePool = dedupedPool.slice(MULTISTAGE_CONFIG.initial_verification_pool_size);
 
-  const allVerified: VerifiedCandidateResult[] = [];
+  // Per-candidate cache: Simetrik (or any previously verified candidate) will
+  // be served from cache; only new/changed candidates trigger API calls.
+  const allVerified: VerifiedCandidateResult[] = await runStage5VerificationCandidates(
+    apiKey,
+    initialPool,
+    request.country,
+    checkpoint,
+    metrics,
+    fetchFn,
+    sleep
+  );
 
-  for (let i = 0; i < initialPool.length; i += MULTISTAGE_CONFIG.verification_batch_size) {
-    const batch = initialPool.slice(i, i + MULTISTAGE_CONFIG.verification_batch_size);
-    const batchIdx = Math.floor(i / MULTISTAGE_CONFIG.verification_batch_size);
-
-    const verified = await runStage5VerificationBatch(
-      apiKey, batchIdx, batch, request.country,
-      checkpoint, metrics, fetchFn
-    );
-    allVerified.push(...verified);
-
-    if (!checkpoint.withinBudget()) {
-      stageErrors.push({ phase: 'stage5_verification', message: 'Budget exhausted', recoverable: false });
-      break;
-    }
-
-    await sleep(MULTISTAGE_CONFIG.inter_call_pause_ms);
+  if (!checkpoint.withinBudget() && allVerified.length === 0) {
+    stageErrors.push({ phase: 'stage5_verification', message: 'Budget exhausted', recoverable: false });
   }
 
   metrics.per_stage_duration_ms['stage5_verification'] = Date.now() - verifyStart;
@@ -336,14 +425,33 @@ async function executeStages(
     (v) => v.is_real_company && v.operates_in_colombia && v.is_tech_b2b && v.confidence !== 'Baja' && !v.rejection_reason
   );
 
-  let finalCandidates = acceptedVerified.slice(0, request.requested_count);
+  // 16AB.23.4: selection is only reused when its inputHash matches the current
+  // accepted candidate set. Growing the pool invalidates the old selection.
+  const selectionInputHash = computeSelectionInputHash(
+    acceptedVerified, request.requested_count, MULTISTAGE_CONFIG.pipeline_version
+  );
 
-  checkpoint.saveFile(checkpoint.selectionFile(0), {
-    round: 0,
-    candidate_count: finalCandidates.length,
-    candidates: finalCandidates,
-  });
+  const cachedSelection = checkpoint.loadArtifactIfValid<{
+    round: number;
+    candidate_count: number;
+    candidates: VerifiedCandidateResult[];
+  }>(checkpoint.selectionFile(0), selectionInputHash);
+
+  let finalCandidates: VerifiedCandidateResult[];
+
+  if (cachedSelection) {
+    finalCandidates = cachedSelection.candidates;
+  } else {
+    finalCandidates = acceptedVerified.slice(0, request.requested_count);
+    checkpoint.saveArtifact(checkpoint.selectionFile(0), 'stage6_selection', selectionInputHash, {
+      round: 0,
+      candidate_count: finalCandidates.length,
+      candidates: finalCandidates,
+    });
+  }
+
   checkpoint.markStageCompleted('stage6_selection');
+  checkpoint.updateStageArtifact('stage6_selection', selectionInputHash, 'completed');
   metrics.per_stage_duration_ms['stage6_selection'] = Date.now() - selectionStart;
 
   // ─── Stage 7: Controlled Replacement ──────────────────────────────────────

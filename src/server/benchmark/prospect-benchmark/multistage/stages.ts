@@ -1,9 +1,14 @@
 /**
- * Multistage Orchestrator — Stage Implementations (16AB.23.3)
+ * Multistage Orchestrator — Stage Implementations (16AB.23.3 / 16AB.23.4)
  *
  * Stages 3 and 4 are purely deterministic (no AI).
  * Stages 1, 2, and 5 make AI calls via the client module.
  * Parsing logic lives here, keeping prompts.ts declarative.
+ *
+ * 16AB.23.4: runStage5VerificationCandidates uses per-candidate cache instead
+ * of batch-index caching. Each candidate result is stored individually keyed
+ * by stable identity (domain/name hash). Only uncached candidates trigger API
+ * calls on resume.
  */
 
 import { callWithRetry } from './client';
@@ -15,6 +20,10 @@ import {
   SYSTEM_PROMPT,
 } from './prompts';
 import { MULTISTAGE_CONFIG } from './config';
+import {
+  computeCandidateKey,
+  computeVerificationCandidateInputHash,
+} from './artifact-hash';
 import type { CheckpointManager } from './checkpoint';
 import type {
   ApiCallResult,
@@ -409,6 +418,110 @@ function parseVerificationResult(text: string, fallback: DiscoveryCandidate[]): 
     notes: c.notes,
     rejection_reason: null,
   }));
+}
+
+// ─── Stage 5 — Per-candidate verification (16AB.23.4) ────────────────────────
+
+/**
+ * Verify a list of candidates using per-candidate cache instead of batch-index
+ * caching. Each result is stored individually keyed by stable candidate identity.
+ *
+ * On resume:
+ *   - Cached candidates (valid inputHash) are returned immediately — no API call.
+ *   - Only uncached candidates are grouped into API batches.
+ *
+ * This eliminates the order-dependency bug where verification-01.json could
+ * represent different candidates across runs.
+ */
+export async function runStage5VerificationCandidates(
+  apiKey: string,
+  candidates: DiscoveryCandidate[],
+  country: string,
+  checkpoint: CheckpointManager,
+  metrics: ExecutionMetrics,
+  fetchFn: FetchFn,
+  sleepFn: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
+): Promise<VerifiedCandidateResult[]> {
+  const results: VerifiedCandidateResult[] = [];
+  const toVerify: DiscoveryCandidate[] = [];
+
+  // ── Pass 1: serve cached results, collect uncached ──────────────────────
+  for (const c of candidates) {
+    const key = computeCandidateKey(c);
+    const inputHash = computeVerificationCandidateInputHash(
+      c, country, MULTISTAGE_CONFIG.pipeline_version, MULTISTAGE_CONFIG.model
+    );
+    const cached = checkpoint.loadVerificationCandidateIfValid<VerifiedCandidateResult>(key, inputHash);
+    if (cached) {
+      results.push(cached);
+    } else {
+      toVerify.push(c);
+    }
+  }
+
+  // ── Pass 2: verify uncached candidates in batches ───────────────────────
+  for (let i = 0; i < toVerify.length; i += MULTISTAGE_CONFIG.verification_batch_size) {
+    if (!checkpoint.withinBudget()) {
+      metrics.partial_results_preserved = true;
+      break;
+    }
+
+    const batch = toVerify.slice(i, i + MULTISTAGE_CONFIG.verification_batch_size);
+    const prompt = buildVerificationPrompt(batch, country);
+    const startMs = Date.now();
+
+    const result = await callWithRetry(
+      apiKey,
+      prompt,
+      {
+        maxSearchUses: MULTISTAGE_CONFIG.max_searches_per_verification_call,
+        timeoutMs: MULTISTAGE_CONFIG.per_call_timeout_ms,
+        systemPrompt: SYSTEM_PROMPT,
+      },
+      (waitMs) => { checkpoint.addRateLimitWait(waitMs); metrics.rate_limit_wait_ms += waitMs; },
+      fetchFn
+    );
+
+    const dur = Date.now() - startMs;
+    metrics.longest_call_duration_ms = Math.max(metrics.longest_call_duration_ms, dur);
+    metrics.total_api_calls++;
+    checkpoint.addUsage(result.usage);
+    if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
+
+    if (result.errorCode) {
+      if (result.errorCode === 'connection_terminated') metrics.terminated_connections++;
+      checkpoint.recordFailure();
+      metrics.failed_api_calls++;
+      metrics.partial_results_preserved = true;
+      // Candidates in this batch are lost for this run — do not add to results
+    } else {
+      checkpoint.recordSuccess();
+      metrics.successful_api_calls++;
+
+      const verified = parseVerificationResult(result.data ?? '', batch);
+
+      // Save each result individually to per-candidate cache
+      for (let j = 0; j < verified.length; j++) {
+        const original = batch[j];
+        if (original) {
+          const key = computeCandidateKey(original);
+          const inputHash = computeVerificationCandidateInputHash(
+            original, country, MULTISTAGE_CONFIG.pipeline_version, MULTISTAGE_CONFIG.model
+          );
+          checkpoint.saveVerificationCandidate(key, verified[j], inputHash);
+        }
+      }
+
+      results.push(...verified);
+      metrics.verification_batches_completed++;
+    }
+
+    if (i + MULTISTAGE_CONFIG.verification_batch_size < toVerify.length) {
+      await sleepFn(MULTISTAGE_CONFIG.inter_call_pause_ms);
+    }
+  }
+
+  return results;
 }
 
 // ─── Stage 2 replacement discovery ───────────────────────────────────────────

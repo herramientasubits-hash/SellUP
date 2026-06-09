@@ -1,18 +1,38 @@
 /**
- * Multistage Orchestrator — Checkpoint Manager (16AB.23.3)
+ * Multistage Orchestrator — Checkpoint Manager (16AB.23.3 / 16AB.23.4)
  *
  * Persists run state to scratch/.../<runId>/state/ after every mutation.
  * Each batch gets its own file. Corrupt files are renamed and retried.
- * Zero-dependency on AI providers.
+ *
+ * 16AB.23.4 additions:
+ *   - saveArtifact / loadArtifactIfValid: envelope-based cache with inputHash validation
+ *   - saveVerificationCandidate / loadVerificationCandidateIfValid: per-candidate cache
+ *   - updateStageArtifact: tracks per-stage inputHash and status in RunState
+ *
+ * Legacy artifacts (no envelope) are treated as stale and always recalculated.
+ * Discovery batch files are exempt — they are controlled by completedDiscoveryBatches.
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'fs';
 import { join } from 'path';
-import type { RunState } from './ms-types';
+import type { CheckpointArtifact, RunState, StageArtifactMeta } from './ms-types';
 import { MULTISTAGE_CONFIG } from './config';
+import { CURRENT_ARTIFACT_VERSION } from './artifact-hash';
 
 function zeroPad(n: number): string {
   return String(n + 1).padStart(2, '0');
+}
+
+function isCheckpointArtifact(v: unknown): v is CheckpointArtifact<unknown> {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'artifactVersion' in v &&
+    typeof (v as Record<string, unknown>)['artifactVersion'] === 'number' &&
+    'inputHash' in v &&
+    typeof (v as Record<string, unknown>)['inputHash'] === 'string' &&
+    'data' in v
+  );
 }
 
 export class CheckpointManager {
@@ -39,6 +59,7 @@ export class CheckpointManager {
       completedDiscoveryBatches: [],
       completedVerificationBatches: [],
       failedBatches: [],
+      stageArtifacts: {},
       usage: {
         input_tokens: 0,
         output_tokens: 0,
@@ -64,6 +85,8 @@ export class CheckpointManager {
     if (!existsSync(path)) return null;
     try {
       const state = JSON.parse(readFileSync(path, 'utf-8')) as RunState;
+      // Ensure stageArtifacts exists on legacy run states
+      if (!state.stageArtifacts) state.stageArtifacts = {};
       return new CheckpointManager(stateDir, state);
     } catch {
       return null;
@@ -158,7 +181,103 @@ export class CheckpointManager {
     this.persist();
   }
 
-  // ─── File I/O ──────────────────────────────────────────────────────────────
+  // ─── Stage artifact tracking (16AB.23.4) ──────────────────────────────────
+
+  /** Record the inputHash and status for a stage artifact in RunState. */
+  updateStageArtifact(stage: string, inputHash: string, status: StageArtifactMeta['status']): void {
+    if (!this.state.stageArtifacts) this.state.stageArtifacts = {};
+    this.state.stageArtifacts[stage] = { inputHash, status };
+    this.persist();
+  }
+
+  getStageArtifact(stage: string): StageArtifactMeta | undefined {
+    return this.state.stageArtifacts?.[stage];
+  }
+
+  // ─── Artifact envelope I/O (16AB.23.4) ────────────────────────────────────
+
+  /**
+   * Save a derived artifact wrapped in an envelope containing its inputHash.
+   * Path is relative to stateDir (may include a subdirectory).
+   */
+  saveArtifact<T>(name: string, stage: string, inputHash: string, data: T): void {
+    const artifact: CheckpointArtifact<T> = {
+      artifactVersion: CURRENT_ARTIFACT_VERSION,
+      stage,
+      inputHash,
+      createdAt: new Date().toISOString(),
+      data,
+    };
+    const fullPath = join(this.stateDir, name);
+    mkdirSync(join(fullPath, '..'), { recursive: true });
+    writeFileSync(fullPath, JSON.stringify(artifact, null, 2), 'utf-8');
+  }
+
+  /**
+   * Load a derived artifact only if:
+   *   - The file exists
+   *   - It has a valid envelope (not legacy)
+   *   - artifactVersion === CURRENT_ARTIFACT_VERSION
+   *   - inputHash === expectedInputHash
+   *
+   * Returns null for: missing, legacy (no envelope), version mismatch, hash mismatch, corrupt.
+   * Corrupt files are renamed to .corrupt but NOT deleted.
+   * Stale files (hash mismatch) are left in place for diagnostics.
+   */
+  loadArtifactIfValid<T>(name: string, expectedInputHash: string): T | null {
+    const path = join(this.stateDir, name);
+    if (!existsSync(path)) return null;
+    try {
+      const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+      if (!isCheckpointArtifact(raw)) {
+        // Legacy artifact without envelope — stale, do not delete
+        return null;
+      }
+      if (raw.artifactVersion !== CURRENT_ARTIFACT_VERSION) return null;
+      if (raw.inputHash !== expectedInputHash) return null;
+      return raw.data as T;
+    } catch {
+      try { renameSync(path, `${path}.corrupt`); } catch { /* ignore */ }
+      return null;
+    }
+  }
+
+  // ─── Per-candidate verification cache (16AB.23.4) ─────────────────────────
+
+  /** Save a single verified candidate result keyed by stable candidate identity. */
+  saveVerificationCandidate(key: string, data: unknown, inputHash: string): void {
+    const subdir = join(this.stateDir, 'verification-candidates');
+    mkdirSync(subdir, { recursive: true });
+    const artifact: CheckpointArtifact<unknown> = {
+      artifactVersion: CURRENT_ARTIFACT_VERSION,
+      stage: 'stage5_verification',
+      inputHash,
+      createdAt: new Date().toISOString(),
+      data,
+    };
+    writeFileSync(join(subdir, `${key}.json`), JSON.stringify(artifact, null, 2), 'utf-8');
+  }
+
+  /**
+   * Load a per-candidate verification result only if valid.
+   * Returns null if missing, legacy, version mismatch, hash mismatch, or corrupt.
+   */
+  loadVerificationCandidateIfValid<T>(key: string, expectedInputHash: string): T | null {
+    const path = join(this.stateDir, 'verification-candidates', `${key}.json`);
+    if (!existsSync(path)) return null;
+    try {
+      const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+      if (!isCheckpointArtifact(raw)) return null;
+      if (raw.artifactVersion !== CURRENT_ARTIFACT_VERSION) return null;
+      if (raw.inputHash !== expectedInputHash) return null;
+      return raw.data as T;
+    } catch {
+      try { renameSync(path, `${path}.corrupt`); } catch { /* ignore */ }
+      return null;
+    }
+  }
+
+  // ─── Raw file I/O (discovery batches, plan, etc.) ─────────────────────────
 
   saveFile(name: string, data: unknown): void {
     writeFileSync(join(this.stateDir, name), JSON.stringify(data, null, 2), 'utf-8');
@@ -170,7 +289,7 @@ export class CheckpointManager {
     try {
       return JSON.parse(readFileSync(path, 'utf-8')) as T;
     } catch {
-      try { renameSync(path, `${path}.corrupt`); } catch {}
+      try { renameSync(path, `${path}.corrupt`); } catch { /* ignore */ }
       return null;
     }
   }

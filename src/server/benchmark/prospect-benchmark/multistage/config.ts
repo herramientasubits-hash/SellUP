@@ -8,7 +8,7 @@
 export const MULTISTAGE_CONFIG = {
   model: 'claude-sonnet-4-6' as const,
   anthropic_api: 'https://api.anthropic.com/v1/messages' as const,
-  pipeline_version: '16AB.23.3' as const,
+  pipeline_version: '16AB.23.4' as const,
 
   // Timeouts — a single HTTP connection must never exceed 5 min
   per_call_timeout_ms: 90_000,
