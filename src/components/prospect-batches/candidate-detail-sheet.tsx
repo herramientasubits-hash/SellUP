@@ -20,7 +20,6 @@ import {
   Loader2,
   RefreshCw,
   Info,
-  FileSearch,
   Copy,
 } from 'lucide-react';
 import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
@@ -724,9 +723,6 @@ export function CandidateDetailSheet({
 
   // Validation-derived state for external_import candidates
   const validationMetaSheet = importMeta?.validation;
-  const isCandidateNitMatched =
-    validationMetaSheet?.sellup_duplicate_check?.matched_by === 'tax_identifier_candidate' ||
-    validationMetaSheet?.hubspot_duplicate_check?.matched_by === 'tax_identifier_candidate';
   const sellupDupStatus = validationMetaSheet?.sellup_duplicate_check?.status;
   const hsDupStatus = validationMetaSheet?.hubspot_duplicate_check?.status;
   const isAutoValidated = isExternalImport && !!validationMetaSheet;
@@ -867,7 +863,6 @@ export function CandidateDetailSheet({
           <TabsList variant="line" className="shrink-0 border-b border-border/40 px-7 pb-px w-full justify-start gap-6 bg-transparent">
             <TabsTrigger value="resumen" className="pb-3 rounded-none">Resumen</TabsTrigger>
             <TabsTrigger value="empresa" className="pb-3 rounded-none">Empresa</TabsTrigger>
-            <TabsTrigger value="inteligencia" className="pb-3 rounded-none">Inteligencia</TabsTrigger>
             <TabsTrigger value="validacion" className="pb-3 rounded-none">Validación</TabsTrigger>
             <TabsTrigger value="tecnico" className="pb-3 rounded-none">Técnico</TabsTrigger>
           </TabsList>
@@ -1121,6 +1116,216 @@ export function CandidateDetailSheet({
                 </div>
               </div>
             )}
+            {/* Análisis de Encaje IA (redistribuido desde Inteligencia) */}
+            {hasAiEval && showAiEvaluation && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <div className="flex items-center gap-1">
+                  <SectionHeader>Análisis de Encaje</SectionHeader>
+                  <InfoTooltip content="Evaluación automática basada en información pública. No reemplaza la revisión comercial." />
+                </div>
+
+                {fitReasons.length > 0 && (
+                  <ul className="space-y-1">
+                    {fitReasons.slice(0, 4).map((r, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                        <span>{isChileOfficialCandidate ? sanitizeTextForChile(r) : r}</span>
+                      </li>
+                    ))}
+                    {fitReasons.length > 4 && (
+                      <li className="text-[10px] text-muted-foreground/60 italic pl-5">
+                        +{fitReasons.length - 4} razones más en detalle
+                      </li>
+                    )}
+                  </ul>
+                )}
+
+                {/* Siguiente paso recomendado */}
+                {(() => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const enrichmentData = candidate.metadata?.enrichment as any;
+                  const recommended = enrichmentData?.sellup_fit?.recommended_next_step;
+                  if (!recommended) return null;
+                  return (
+                    <div className="pt-3 border-t border-border/10 space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">Siguiente paso recomendado</p>
+                      <p className="text-xs text-foreground/90 font-medium leading-relaxed">{recommended}</p>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Oportunidades comerciales (redistribuido desde Inteligencia) */}
+            {hasAiEval && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                  <SectionHeader>Necesidades Detectadas</SectionHeader>
+                  {(() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const enrichmentData = candidate.metadata?.enrichment as any;
+                    const needs = enrichmentData?.sellup_fit?.possible_needs as string[] | undefined;
+                    if (!needs || needs.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguna detectada</p>;
+                    const visibleNeeds = showAllNeeds ? needs : needs.slice(0, 3);
+                    return (
+                      <div className="space-y-2">
+                        <ul className="space-y-1.5">
+                          {visibleNeeds.map((n, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                              <span>{n}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {needs.length > 3 && (
+                          <Button variant="ghost" size="sm" className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllNeeds(!showAllNeeds)} type="button">
+                            {showAllNeeds ? 'Ver menos' : `Ver todas (${needs.length})`}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                  <SectionHeader>Ángulos Comerciales</SectionHeader>
+                  {(() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const enrichmentData = candidate.metadata?.enrichment as any;
+                    const angles = enrichmentData?.commercial_angles as string[] | undefined;
+                    if (!angles || angles.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguno disponible</p>;
+                    const visibleAngles = showAllAngles ? angles : angles.slice(0, 3);
+                    return (
+                      <div className="space-y-2">
+                        <ul className="space-y-1.5">
+                          {visibleAngles.map((ang, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80 font-medium">
+                              <Sparkles className="h-3.5 w-3.5 text-su-brand mt-0.5 shrink-0" />
+                              <span>{ang}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {angles.length > 3 && (
+                          <Button variant="ghost" size="sm" className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllAngles(!showAllAngles)} type="button">
+                            {showAllAngles ? 'Ver menos' : `Ver todos (${angles.length})`}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Enriquecimiento Comercial (redistribuido desde Inteligencia) */}
+            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
+              <SectionHeader>Enriquecimiento</SectionHeader>
+              {(() => {
+                const eligibility = evaluateCandidateEnrichmentNeed(candidate);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const enrichmentData = candidate.metadata?.enrichment as any;
+                const isAutoEnriching = enrichmentData?.status === 'enriching' || enrichmentData?.status === 'pending';
+
+                if (isEnriching || isAutoEnriching) {
+                  return (
+                    <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-4 flex flex-col items-center justify-center gap-3 text-center">
+                      <Loader2 className="h-6 w-6 text-su-brand animate-spin" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-su-brand">
+                          {enrichmentData?.status === 'pending' ? 'Enriquecimiento pendiente…' : 'Enriqueciendo candidato…'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/80">
+                          {enrichmentData?.status === 'pending'
+                            ? 'Este candidato está en la cola para enriquecimiento automático.'
+                            : 'Evaluando perfil comercial y señales con IA.'}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const hasEnrichError = !!enrichError || (enrichmentData && enrichmentData.status === 'failed');
+                const activeErrorCode = enrichErrorCode || enrichmentData?.error_code || null;
+                const activeErrorMessage = enrichError || enrichmentData?.error_message || null;
+
+                if (hasEnrichError) {
+                  const isModelError = activeErrorCode === 'provider_model_not_found' || activeErrorCode === 'all_ai_providers_failed' || activeErrorCode === 'no_ai_providers_configured';
+                  const friendlyMessage = isModelError
+                    ? 'No fue posible ejecutar el enriquecimiento con los proveedores configurados. Revisa Configuración > Proveedores de IA.'
+                    : (activeErrorMessage || 'Fallo en enriquecimiento');
+
+                  return (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-destructive">Fallo en enriquecimiento</p>
+                          <p className="text-xs text-muted-foreground leading-normal">{friendlyMessage}</p>
+                        </div>
+                      </div>
+                      <Button onClick={handleEnrich} size="sm" className="w-full bg-destructive text-white hover:bg-destructive/90 gap-1.5" type="button">
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Reintentar enriquecimiento
+                      </Button>
+                    </div>
+                  );
+                }
+
+                if (enrichmentData?.status === 'completed') {
+                  const providerDisplay = enrichmentData.provider === 'anthropic' ? 'Claude' : enrichmentData.provider === 'google' ? 'Google Gemini' : enrichmentData.provider === 'openai' ? 'OpenAI' : enrichmentData.provider;
+                  const modelDisplay = enrichmentData.display_name || enrichmentData.model;
+                  const usage = enrichmentData.usage || {};
+                  return (
+                    <div className="space-y-3">
+                      {enrichmentData.fallback_used && (
+                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-start gap-2 text-xs text-emerald-800 dark:text-emerald-300">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                          <p className="font-semibold">Enriquecido con fallback ({providerDisplay}).</p>
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-1.5 text-[9px] text-muted-foreground/60 bg-muted/20 p-2.5 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span>Proveedor: {providerDisplay} ({modelDisplay})</span>
+                          <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
+                        </div>
+                        {usage?.estimated_cost !== undefined && (
+                          <div className="text-right">
+                            Coste estimado: <span className="font-mono">${Number(usage.estimated_cost).toFixed(5)} USD</span>
+                          </div>
+                        )}
+                      </div>
+                      <AIButton onClick={handleEnrich} variant="outline" size="sm" loading={isEnriching} leftIcon={RefreshCw} type="button" className="w-full">
+                        Re-enriquecer candidato
+                      </AIButton>
+                    </div>
+                  );
+                }
+
+                if (eligibility.needs_enrichment) {
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold text-foreground/90">Faltan datos comerciales.</p>
+                          <p className="text-[11px] text-muted-foreground">Este candidato tiene información inicial insuficiente para su revisión comercial.</p>
+                        </div>
+                      </div>
+                      <AIButton onClick={handleEnrich} size="sm" loading={isEnriching} type="button" className="w-full">
+                        Enriquecer candidato
+                      </AIButton>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="rounded-xl border border-border/30 bg-muted/10 p-3.5 text-center flex items-center justify-center gap-2">
+                    <Info className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+                    <p className="text-xs text-muted-foreground/80">Este candidato ya cuenta con información comercial suficiente.</p>
+                  </div>
+                );
+              })()}
+            </div>
           </TabsContent>
 
           {/* Tab 2: Empresa */}
@@ -1231,468 +1436,6 @@ export function CandidateDetailSheet({
                     <Field label="Fuente oficial" value={structuredSourceLabel} />
                   )}
                 </FieldGrid>
-
-                {/* Sugerencia de NIT y Búsqueda */}
-                {!candidate.tax_identifier && (() => {
-                  const isCO = candidate.country_code?.toUpperCase() === 'CO';
-                  const lookupStatus = taxIdLookup?.status;
-                  const hasBestCandidate = !!taxIdLookup?.best_candidate;
-
-                  if (hasBestCandidate && taxIdLookup?.best_candidate) {
-                    return (
-                      <div className="mt-3 border-t border-border/20 pt-3 space-y-3">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className="border-0 bg-amber-500/5 text-amber-600/70 dark:text-amber-400/70 text-[9px] font-medium flex items-center gap-1">
-                            <AlertTriangle className="h-2.5 w-2.5" />
-                            {isCO ? 'NIT sugerido disponible' : 'Identificador sugerido disponible'}
-                          </Badge>
-                        </div>
-
-                        <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
-                                NIT sugerido para revisión
-                              </p>
-                              <p className="font-mono text-sm font-bold text-foreground">
-                                {taxIdLookup.best_candidate.tax_identifier}
-                              </p>
-                              {taxIdLookup.best_candidate.legal_name && (
-                                <p className="text-xs text-muted-foreground">
-                                  Razón social: {taxIdLookup.best_candidate.legal_name}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex flex-col items-end gap-1.5 shrink-0">
-                              <Badge className={`border-0 text-[9px] font-semibold ${
-                                taxIdLookup.best_candidate.confidence === 'high'
-                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              }`}>
-                                {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
-                              </Badge>
-                              {isCandidateNitMatched && (
-                                <Badge className="border-0 bg-su-brand/10 text-su-brand text-[9px] font-semibold">
-                                  Usado como señal
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
-                            <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
-                              <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
-                              {taxIdLookup.best_candidate.source_url && (
-                                <a
-                                  href={taxIdLookup.best_candidate.source_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5"
-                                >
-                                  (Ver fuente)
-                                </a>
-                              )}
-                            </div>
-                            <Button
-                              onClick={() =>
-                                setConfirmDialogData({
-                                  taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
-                                  sourceName: taxIdLookup.best_candidate!.source_name,
-                                  sourceUrl: taxIdLookup.best_candidate!.source_url,
-                                  legalName: taxIdLookup.best_candidate!.legal_name,
-                                  confidence: taxIdLookup.best_candidate!.confidence,
-                                })
-                              }
-                              size="sm"
-                              className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
-                              type="button"
-                            >
-                              Usar este NIT
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  if (lookupStatus === 'no_result') {
-                    return (
-                      <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                            <AlertTriangle className="h-2.5 w-2.5" />
-                            {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                          </Badge>
-                        </div>
-                        {isLookingUpTaxId ? (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Buscando...
-                          </div>
-                        ) : (
-                          <Button
-                            onClick={handleLookupTaxIdentifier}
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                            type="button"
-                          >
-                            <FileSearch className="h-3.5 w-3.5" />
-                            Buscar identificador fiscal
-                          </Button>
-                        )}
-                        <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                          No se encontró NIT en fuentes disponibles.
-                        </p>
-                        {taxIdLookupError && (
-                          <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  if (lookupStatus === 'failed') {
-                    return (
-                      <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                            <AlertTriangle className="h-2.5 w-2.5" />
-                            {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                          </Badge>
-                        </div>
-                        {isLookingUpTaxId ? (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Buscando...
-                          </div>
-                        ) : (
-                          <Button
-                            onClick={handleLookupTaxIdentifier}
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30 text-destructive border-destructive/20 hover:bg-destructive/5"
-                            type="button"
-                          >
-                            <FileSearch className="h-3.5 w-3.5" />
-                            Reintentar búsqueda de identificador fiscal
-                          </Button>
-                        )}
-                        <p className="text-xs text-destructive/80 italic leading-relaxed">
-                          Fallo de búsqueda: {taxIdLookup?.error || 'Error técnico desconocido.'}
-                        </p>
-                        {taxIdLookupError && (
-                          <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  if (lookupStatus === 'completed' && !hasBestCandidate && taxIdLookup) {
-                    const skipReasonLabels: Record<string, string> = {
-                      no_high_confidence_candidate: 'Sin candidato con confianza suficiente.',
-                      nit_check_digit_invalid: 'Dígito de verificación incorrecto en los candidatos encontrados.',
-                      name_match_too_weak: 'La coincidencia de nombre es demasiado débil.',
-                      critical_risk_present: 'Se detectaron riesgos críticos en los candidatos encontrados.',
-                      no_candidates: 'No se encontraron candidatos.',
-                    };
-                    const reasonLabel = taxIdLookup.best_candidate_skip_reason
-                      ? (skipReasonLabels[taxIdLookup.best_candidate_skip_reason] || taxIdLookup.best_candidate_skip_reason)
-                      : 'No cumple las reglas de seguridad de coincidencia.';
-
-                    return (
-                      <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                            <AlertTriangle className="h-2.5 w-2.5" />
-                            {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                          </Badge>
-                        </div>
-                        {isLookingUpTaxId ? (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Buscando...
-                          </div>
-                        ) : (
-                          <Button
-                            onClick={handleLookupTaxIdentifier}
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                            type="button"
-                          >
-                            <FileSearch className="h-3.5 w-3.5" />
-                            Buscar identificador fiscal
-                          </Button>
-                        )}
-                        <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                          No se sugirió ningún NIT automático de forma segura. Motivo: {reasonLabel}
-                        </p>
-                        {taxIdLookupError && (
-                          <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          {isCO ? 'NIT faltante' : 'Identificador fiscal faltante'}
-                        </Badge>
-                      </div>
-                      {isLookingUpTaxId ? (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Buscando...
-                        </div>
-                      ) : (
-                        <Button
-                          onClick={handleLookupTaxIdentifier}
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
-                          type="button"
-                        >
-                          <FileSearch className="h-3.5 w-3.5" />
-                          Buscar identificador fiscal
-                        </Button>
-                      )}
-                      {taxIdLookupError && (
-                        <p className="text-xs text-destructive">{taxIdLookupError}</p>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Resultados de la búsqueda */}
-                {taxIdLookup && (
-                  <div className="mt-3 border-t border-border/20 pt-3 space-y-2">
-                    {approveTaxIdError && (
-                      <p className="text-xs text-destructive">{approveTaxIdError}</p>
-                    )}
-
-                    {!taxIdLookupError &&
-                      taxIdLookup.status === 'no_result' &&
-                      taxIdLookup.candidates.length === 0 && (
-                        <div className="space-y-1">
-                          {(() => {
-                            const isCO = candidate.country_code?.toUpperCase() === 'CO';
-                            if (!isCO) {
-                              return (
-                                <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                                  No se encontró identificador fiscal con las fuentes disponibles.
-                                </p>
-                              );
-                            }
-
-                            const hasConfigWarning = taxIdLookup.warnings?.some(
-                              (w) => w.includes('no configurada') || w.includes('No hay fuente')
-                            );
-                            const hasTechWarning = taxIdLookup.warnings?.some(
-                              (w) => w.includes('no disponible')
-                            ) || !!taxIdLookup.error;
-                            const hasNoNitWarning = taxIdLookup.warnings?.some(
-                              (w) => w.includes('no expone')
-                            );
-
-                            if (hasConfigWarning) {
-                              return (
-                                <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                                  No encontramos un NIT confirmado con las fuentes disponibles. SellUp revisó datos internos y HubSpot. La consulta contra fuentes oficiales de Colombia se podrá activar cuando la integración esté configurada.
-                                </p>
-                              );
-                            }
-
-                            if (hasTechWarning) {
-                              return (
-                                <div className="space-y-1">
-                                  <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
-                                    No fue posible consultar la fuente oficial Colombia en este momento.
-                                  </p>
-                                  {taxIdLookup.error && (
-                                    <details className="text-[10px] text-muted-foreground/50 cursor-pointer">
-                                      <summary className="hover:text-muted-foreground transition-colors select-none font-medium">
-                                        Detalles técnicos
-                                      </summary>
-                                      <pre className="mt-1 font-mono bg-muted/40 p-1.5 rounded-md overflow-x-auto text-[9px] border border-border/20 max-w-full whitespace-pre-wrap break-all">
-                                        {taxIdLookup.error}
-                                      </pre>
-                                    </details>
-                                  )}
-                                </div>
-                              );
-                            }
-
-                            if (hasNoNitWarning) {
-                              return (
-                                <p className="text-xs text-amber-600 dark:text-amber-400 italic leading-relaxed">
-                                  La fuente oficial consultada no expone identificador fiscal en los datos disponibles.
-                                </p>
-                              );
-                            }
-
-                            return (
-                              <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-                                No encontramos un NIT confirmado en datos internos, HubSpot ni fuente oficial Colombia.
-                              </p>
-                            );
-                          })()}
-                        </div>
-                      )}
-
-                    {taxIdLookup.warnings && taxIdLookup.warnings.length > 0 && (
-                      <div className="space-y-0.5">
-                        {taxIdLookup.warnings
-                          .filter(
-                            (w) =>
-                              !(
-                                candidate.country_code?.toUpperCase() === 'CO' &&
-                                (w.includes('no configurada') ||
-                                  w.includes('No hay fuente') ||
-                                  w.includes('no disponible') ||
-                                  w.includes('no expone') ||
-                                  w.includes('sin resultados'))
-                              )
-                          )
-                          .map((w, i) => (
-                            <p key={i} className="text-[10px] text-muted-foreground/60 italic">
-                              {w}
-                            </p>
-                          ))}
-                        {candidate.country_code?.toUpperCase() === 'CO' &&
-                          taxIdLookup.candidates.length === 0 &&
-                          taxIdLookup.warnings.some((w) => w.includes('sin resultados')) && (
-                            <p className="text-[10px] text-muted-foreground/60 italic">
-                              Fuente oficial Colombia consultada sin resultados.
-                            </p>
-                          )}
-                      </div>
-                    )}
-
-                    {taxIdLookup.candidates.length > 0 && (
-                      <div className="space-y-2 mt-2">
-                        <div className="flex flex-col gap-0.5">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                            {candidate.country_code?.toUpperCase() === 'CO'
-                              ? 'Posibles NIT encontrados'
-                              : 'Posibles identificadores encontrados'}
-                          </p>
-                        </div>
-                        {taxIdLookup.candidates.map((c, i) => {
-                          const isApprovedCandidate =
-                            candidate.tax_identifier &&
-                            (candidate.tax_identifier === c.normalized_tax_identifier ||
-                              candidate.tax_identifier === c.tax_identifier);
-
-                          return (
-                            <div
-                              key={i}
-                              className={`rounded-xl border p-3 space-y-1.5 ${
-                                isApprovedCandidate
-                                  ? 'border-emerald-500/30 bg-emerald-500/5'
-                                  : 'border-amber-500/20 bg-amber-500/5'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="font-mono text-xs font-semibold text-foreground">
-                                  {c.tax_identifier}
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  <Badge
-                                    className={`border-0 text-[9px] font-semibold shrink-0 ${
-                                      c.confidence === 'high'
-                                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                        : c.confidence === 'medium'
-                                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                        : 'bg-muted text-muted-foreground'
-                                    }`}
-                                  >
-                                    {c.confidence === 'high' ? 'Alta' : c.confidence === 'medium' ? 'Media' : 'Baja'}
-                                  </Badge>
-                                  {isApprovedCandidate && (
-                                    <Badge className="border-0 bg-emerald-500 text-white dark:bg-emerald-600 text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5">
-                                      <CheckCircle2 className="h-2.5 w-2.5" />
-                                      Seleccionado
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                              {c.legal_name && (
-                                <p className="text-xs text-muted-foreground">{c.legal_name}</p>
-                              )}
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[10px] text-muted-foreground/60">
-                                  {c.source_name}
-                                </span>
-                                {c.source_url && (
-                                  <a
-                                    href={c.source_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[10px] text-su-brand hover:underline flex items-center gap-0.5"
-                                  >
-                                    <Link2 className="h-2.5 w-2.5" />
-                                    Ver fuente
-                                  </a>
-                                )}
-                              </div>
-                              {c.evidence_text && (
-                                <p className="text-[10px] text-muted-foreground/60 italic line-clamp-2">
-                                  {c.evidence_text}
-                                </p>
-                              )}
-                              {c.risks.length > 0 && (
-                                <ul className="space-y-0.5 mt-1">
-                                  {c.risks.map((r, j) => (
-                                    <li
-                                      key={j}
-                                      className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1"
-                                    >
-                                      <AlertTriangle className="h-2.5 w-2.5 mt-0.5 shrink-0" />
-                                      {r}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                              {isApprovedCandidate ? (
-                                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold mt-1">
-                                  Aprobado por revisión humana
-                                </Badge>
-                              ) : (
-                                <div className="flex items-center justify-between pt-1">
-                                  <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
-                                    Requiere revisión humana
-                                  </Badge>
-                                  {!candidate.tax_identifier && (
-                                    <Button
-                                      onClick={() =>
-                                        setConfirmDialogData({
-                                          taxIdentifier: c.tax_identifier,
-                                          sourceName: c.source_name,
-                                          sourceUrl: c.source_url,
-                                          legalName: c.legal_name,
-                                          confidence: c.confidence,
-                                        })
-                                      }
-                                      disabled={isApprovingTaxId}
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-[10px] font-semibold border-su-brand/20 bg-white hover:bg-su-brand hover:text-white dark:bg-zinc-900 transition-colors"
-                                      type="button"
-                                    >
-                                      Usar este NIT
-                                    </Button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
                 </>
               )}
             </div>
@@ -1850,321 +1593,6 @@ export function CandidateDetailSheet({
                 </div>
               </div>
             )}
-          </TabsContent>
-
-          {/* Tab 3: Inteligencia */}
-          <TabsContent value="inteligencia" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
-            {/* Análisis de Encaje */}
-            {hasAiEval ? (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <SectionHeader>Análisis de Encaje IA</SectionHeader>
-                    <InfoTooltip content="Evaluación de encaje comercial generada por el agente de IA corporativo." />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {fitStatus && (
-                      <Badge
-                        className={`border-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                          fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
-                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                            : fitStatus === 'medium' || fitStatus === 'medium_fit'
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                            : 'bg-destructive/10 text-destructive'
-                        }`}
-                      >
-                        {FIT_STATUS_LABELS[fitStatus] || fitStatus.replace(/_/g, ' ')}
-                      </Badge>
-                    )}
-                    {fitScore !== null && (
-                      <span className="text-xs font-semibold">{fitScore} / 100</span>
-                    )}
-                  </div>
-                </div>
-
-                {fitReasons.length > 0 && (
-                  <div className="space-y-1.5 pt-2 border-t border-border/10">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Razones del Encaje</p>
-                    <ul className="space-y-1">
-                      {fitReasons.map((r, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                          <span>{isChileOfficialCandidate ? sanitizeTextForChile(r) : r}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Siguiente paso recomendado */}
-                {(() => {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const enrichmentData = candidate.metadata?.enrichment as any;
-                  const recommended = enrichmentData?.sellup_fit?.recommended_next_step;
-                  if (!recommended) return null;
-                  return (
-                    <div className="pt-3 border-t border-border/10 space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">Siguiente paso recomendado</p>
-                      <p className="text-xs text-foreground/90 font-medium leading-relaxed">{recommended}</p>
-                    </div>
-                  );
-                })()}
-              </div>
-            ) : null}
-
-            {/* Necesidades UBITS y Ángulos Comerciales */}
-            {hasAiEval && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Necesidades */}
-                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                  <SectionHeader>Necesidades Detectadas</SectionHeader>
-                  {(() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const enrichmentData = candidate.metadata?.enrichment as any;
-                    const needs = enrichmentData?.sellup_fit?.possible_needs as string[] | undefined;
-                    if (!needs || needs.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguna detectada</p>;
-                    
-                    const visibleNeeds = showAllNeeds ? needs : needs.slice(0, 3);
-                    return (
-                      <div className="space-y-2">
-                        <ul className="space-y-1.5">
-                          {visibleNeeds.map((n, i) => (
-                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                              <span>{n}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        {needs.length > 3 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1"
-                            onClick={() => setShowAllNeeds(!showAllNeeds)}
-                            type="button"
-                          >
-                            {showAllNeeds ? 'Ver menos' : `Ver todas (${needs.length})`}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Ángulos comerciales */}
-                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                  <SectionHeader>Ángulos Comerciales</SectionHeader>
-                  {(() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const enrichmentData = candidate.metadata?.enrichment as any;
-                    const angles = enrichmentData?.commercial_angles as string[] | undefined;
-                    if (!angles || angles.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguno disponible</p>;
-
-                    const visibleAngles = showAllAngles ? angles : angles.slice(0, 3);
-                    return (
-                      <div className="space-y-2">
-                        <ul className="space-y-1.5">
-                          {visibleAngles.map((ang, i) => (
-                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80 font-medium">
-                              <Sparkles className="h-3.5 w-3.5 text-su-brand mt-0.5 shrink-0" />
-                              <span>{ang}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        {angles.length > 3 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1"
-                            onClick={() => setShowAllAngles(!showAllAngles)}
-                            type="button"
-                          >
-                            {showAllAngles ? 'Ver menos' : `Ver todos (${angles.length})`}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {/* Riesgos de Negocio (Dynamic severity sorted list) */}
-            {sortedRisks.length > 0 && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                <SectionHeader>Riesgos e Incertidumbres</SectionHeader>
-                <div className="space-y-2">
-                  {sortedRisks.map((risk, i) => {
-                    const severity = classifyRisk(risk);
-                    const styleMap = {
-                      critical: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
-                      high: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
-                      medium: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-                      low: 'bg-muted/50 text-muted-foreground border-border/30',
-                    };
-                    const badgeMap = {
-                      critical: 'Crítico',
-                      high: 'Alto',
-                      medium: 'Medio',
-                      low: 'Bajo',
-                    };
-                    return (
-                      <div
-                        key={i}
-                        className={`flex items-start justify-between gap-3 text-xs rounded-lg border p-2.5 ${styleMap[severity]}`}
-                      >
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                          <span className="leading-relaxed">
-                            {isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}
-                          </span>
-                        </div>
-                        <Badge className="border-0 text-[8px] font-bold uppercase py-0.5 px-1.5 shrink-0 select-none bg-black/5 dark:bg-white/5 text-inherit">
-                          {badgeMap[severity]}
-                        </Badge>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Enriquecimiento Comercial Control */}
-            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-              <SectionHeader>Enriquecimiento Comercial</SectionHeader>
-              {(() => {
-                const eligibility = evaluateCandidateEnrichmentNeed(candidate);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const enrichmentData = candidate.metadata?.enrichment as any;
-                const isAutoEnriching = enrichmentData?.status === 'enriching' || enrichmentData?.status === 'pending';
-
-                if (isEnriching || isAutoEnriching) {
-                  return (
-                    <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-4 flex flex-col items-center justify-center gap-3 text-center animate-pulse">
-                      <Loader2 className="h-6 w-6 text-su-brand animate-spin" />
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-su-brand">
-                          {enrichmentData?.status === 'pending' ? 'Enriquecimiento pendiente...' : 'Enriqueciendo candidato...'}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground/80">
-                          {enrichmentData?.status === 'pending'
-                            ? 'Este candidato está en la cola para enriquecimiento automático incremental.'
-                            : 'Evaluando perfil comercial, propuesta de encaje y señales con IA.'}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                }
-
-                const hasEnrichError = !!enrichError || (enrichmentData && enrichmentData.status === 'failed');
-                const activeErrorCode = enrichErrorCode || enrichmentData?.error_code || null;
-                const activeErrorMessage = enrichError || enrichmentData?.error_message || null;
-
-                if (hasEnrichError) {
-                  const isModelError = activeErrorCode === 'provider_model_not_found' || activeErrorCode === 'all_ai_providers_failed' || activeErrorCode === 'no_ai_providers_configured';
-                  const friendlyMessage = isModelError
-                    ? 'No fue posible ejecutar el enriquecimiento con los proveedores de IA configurados. Revisa Configuración > Proveedores de IA.'
-                    : (activeErrorMessage || 'Fallo en enriquecimiento');
-
-                  return (
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-                        <div className="space-y-1 flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-destructive">Fallo en enriquecimiento</p>
-                          <p className="text-xs text-muted-foreground leading-normal">{friendlyMessage}</p>
-                        </div>
-                      </div>
-                      <Button
-                        onClick={handleEnrich}
-                        size="sm"
-                        className="w-full bg-destructive text-white hover:bg-destructive/90 gap-1.5"
-                        type="button"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        Reintentar enriquecimiento
-                      </Button>
-                    </div>
-                  );
-                }
-
-                if (enrichmentData && enrichmentData.status === 'completed') {
-                  const providerDisplay = enrichmentData.provider === 'anthropic' ? 'Claude' : enrichmentData.provider === 'google' ? 'Google Gemini' : enrichmentData.provider === 'openai' ? 'OpenAI' : enrichmentData.provider;
-                  const modelDisplay = enrichmentData.display_name || enrichmentData.model;
-                  const usage = enrichmentData.usage || {};
-
-                  return (
-                    <div className="space-y-3">
-                      {enrichmentData.fallback_used && (
-                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-start gap-2 text-xs text-emerald-800 dark:text-emerald-300">
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <div className="space-y-0.5">
-                            <p className="font-semibold">Enriquecido con fallback ({providerDisplay}).</p>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* AI Info details banner */}
-                      <div className="flex flex-col gap-1.5 text-[9px] text-muted-foreground/60 bg-muted/20 p-2.5 rounded-lg">
-                        <div className="flex items-center justify-between">
-                          <span>Proveedor: {providerDisplay} ({modelDisplay})</span>
-                          <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
-                        </div>
-                        {usage && usage.estimated_cost !== undefined && (
-                          <div className="text-right">
-                            Coste estimado: <span className="font-mono">${Number(usage.estimated_cost).toFixed(5)} USD</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <AIButton
-                        onClick={handleEnrich}
-                        variant="outline"
-                        size="sm"
-                        loading={isEnriching}
-                        leftIcon={RefreshCw}
-                        type="button"
-                        className="w-full"
-                      >
-                        Re-enriquecer candidato
-                      </AIButton>
-                    </div>
-                  );
-                }
-
-                if (eligibility.needs_enrichment) {
-                  return (
-                    <div className="space-y-4">
-                      <div className="flex items-start gap-2.5">
-                        <AlertTriangle className="h-4.5 w-4.5 text-amber-500 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-foreground/90">Faltan datos comerciales.</p>
-                          <p className="text-[11px] text-muted-foreground">Este candidato tiene información inicial insuficiente para su revisión comercial.</p>
-                        </div>
-                      </div>
-                      <AIButton
-                        onClick={handleEnrich}
-                        size="sm"
-                        loading={isEnriching}
-                        type="button"
-                        className="w-full"
-                      >
-                        Enriquecer candidato
-                      </AIButton>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="rounded-xl border border-border/30 bg-muted/10 p-3.5 text-center flex items-center justify-center gap-2">
-                    <Info className="h-4 w-4 text-muted-foreground/60 shrink-0" />
-                    <p className="text-xs text-muted-foreground/80">
-                      Este candidato ya cuenta con información comercial suficiente.
-                    </p>
-                  </div>
-                );
-              })()}
-            </div>
           </TabsContent>
 
           {/* Tab 4: Validación */}
@@ -2391,6 +1819,246 @@ export function CandidateDetailSheet({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Identificador Fiscal — estado automático */}
+            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+              <div className="flex items-center gap-1">
+                <SectionHeader>Identificador Fiscal</SectionHeader>
+                <InfoTooltip content="Dato legal o tributario consultado en fuentes disponibles. Debe revisarse antes de aprobarlo." />
+              </div>
+
+              {candidate.tax_identifier ? (
+                /* Identificador ya existente */
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
+                      <CheckCircle2 className="h-2.5 w-2.5" />
+                      Identificador validado
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-mono text-sm font-semibold text-foreground">
+                      {candidate.tax_identifier}
+                    </span>
+                    <CopyButton value={candidate.tax_identifier} />
+                  </div>
+                  {taxIdLookup?.selected_candidate && (
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Fuente: {taxIdLookup.selected_candidate.source_name}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                /* Sin identificador — flujo automático */
+                (() => {
+                  const isCO = candidate.country_code?.toUpperCase() === 'CO';
+                  const lookupStatus = taxIdLookup?.status;
+                  const hasBestCandidate = !!taxIdLookup?.best_candidate;
+                  const isDuplicateConfirmed =
+                    candidate.duplicate_status === 'exact_duplicate' ||
+                    sellupDupStatus === 'duplicate' ||
+                    hsDupStatus === 'match';
+
+                  /* En búsqueda activa */
+                  if (isLookingUpTaxId || lookupStatus === 'searching') {
+                    return (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-su-brand" />
+                        <span>Buscando identificador fiscal…</span>
+                        <InfoTooltip content="SellUp está consultando fuentes disponibles para encontrar el identificador fiscal." />
+                      </div>
+                    );
+                  }
+
+                  /* Sugerencia encontrada */
+                  if (hasBestCandidate && taxIdLookup?.best_candidate) {
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="border-0 bg-amber-500/5 text-amber-600/70 dark:text-amber-400/70 text-[9px] font-medium flex items-center gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {isCO ? 'NIT sugerido — requiere revisión' : 'Identificador sugerido — requiere revisión'}
+                          </Badge>
+                        </div>
+                        <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
+                                {isCO ? 'NIT sugerido' : 'Identificador sugerido'}
+                              </p>
+                              <p className="font-mono text-sm font-bold text-foreground">
+                                {taxIdLookup.best_candidate.tax_identifier}
+                              </p>
+                              {taxIdLookup.best_candidate.legal_name && (
+                                <p className="text-xs text-muted-foreground">
+                                  Razón social: {taxIdLookup.best_candidate.legal_name}
+                                </p>
+                              )}
+                            </div>
+                            <Badge className={`border-0 text-[9px] font-semibold shrink-0 ${
+                              taxIdLookup.best_candidate.confidence === 'high'
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            }`}>
+                              {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
+                            <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
+                              <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
+                              {taxIdLookup.best_candidate.source_url && (
+                                <a href={taxIdLookup.best_candidate.source_url} target="_blank" rel="noopener noreferrer" className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5">
+                                  (Ver fuente)
+                                </a>
+                              )}
+                            </div>
+                            <Button
+                              onClick={() => setConfirmDialogData({
+                                taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
+                                sourceName: taxIdLookup.best_candidate!.source_name,
+                                sourceUrl: taxIdLookup.best_candidate!.source_url,
+                                legalName: taxIdLookup.best_candidate!.legal_name,
+                                confidence: taxIdLookup.best_candidate!.confidence,
+                              })}
+                              size="sm"
+                              className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
+                              type="button"
+                            >
+                              Usar este {isCO ? 'NIT' : 'identificador'}
+                            </Button>
+                          </div>
+                        </div>
+                        {approveTaxIdError && <p className="text-xs text-destructive">{approveTaxIdError}</p>}
+                      </div>
+                    );
+                  }
+
+                  /* Error en búsqueda */
+                  if (lookupStatus === 'failed') {
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground/80">No fue posible completar la búsqueda.</p>
+                        {!isDuplicateConfirmed && isCO && (
+                          <Button
+                            onClick={handleLookupTaxIdentifier}
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-xs border-destructive/20 text-destructive hover:bg-destructive/5"
+                            type="button"
+                            aria-label="Reintentar búsqueda de identificador fiscal"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Reintentar búsqueda
+                          </Button>
+                        )}
+                        {taxIdLookupError && <p className="text-xs text-destructive">{taxIdLookupError}</p>}
+                      </div>
+                    );
+                  }
+
+                  /* Sin resultado */
+                  if (lookupStatus === 'no_result' || (lookupStatus === 'completed' && !hasBestCandidate)) {
+                    const skipReasonLabels: Record<string, string> = {
+                      no_high_confidence_candidate: 'Sin candidato con confianza suficiente.',
+                      nit_check_digit_invalid: 'Dígito de verificación incorrecto en los candidatos encontrados.',
+                      name_match_too_weak: 'La coincidencia de nombre es demasiado débil.',
+                      critical_risk_present: 'Riesgos críticos detectados en los candidatos.',
+                      no_candidates: 'No se encontraron candidatos.',
+                    };
+                    const skipReason = taxIdLookup?.best_candidate_skip_reason
+                      ? (skipReasonLabels[taxIdLookup.best_candidate_skip_reason] || taxIdLookup.best_candidate_skip_reason)
+                      : null;
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground/80">
+                          No encontramos un identificador fiscal confiable.
+                          {skipReason && <span className="italic text-muted-foreground/60"> Motivo: {skipReason}</span>}
+                        </p>
+                        {!isDuplicateConfirmed && isCO && (
+                          <Button
+                            onClick={handleLookupTaxIdentifier}
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-xs hover:bg-su-brand-soft hover:text-su-brand hover:border-su-brand/30"
+                            type="button"
+                            aria-label="Reintentar búsqueda de identificador fiscal"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Reintentar búsqueda
+                          </Button>
+                        )}
+                        {taxIdLookupError && <p className="text-xs text-destructive">{taxIdLookupError}</p>}
+                      </div>
+                    );
+                  }
+
+                  /* País no soportado */
+                  if (!isCO) {
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground/80 italic">
+                          La búsqueda automática todavía no está disponible para este país.
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/50">Puedes ingresar el identificador fiscal manualmente desde la pestaña Empresa.</p>
+                      </div>
+                    );
+                  }
+
+                  /* Estado inicial / pendiente para CO */
+                  return (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
+                      <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
+                      <span>Identificador fiscal pendiente de búsqueda automática.</span>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+
+            {/* Riesgos e Incertidumbres (redistribuido desde Inteligencia) */}
+            {sortedRisks.length > 0 && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <SectionHeader>Riesgos e Incertidumbres</SectionHeader>
+                <div className="space-y-2">
+                  {sortedRisks.map((risk, i) => {
+                    const severity = classifyRisk(risk);
+                    const styleMap = {
+                      critical: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
+                      high: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
+                      medium: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+                      low: 'bg-muted/50 text-muted-foreground border-border/30',
+                    };
+                    const badgeMap = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' };
+                    return (
+                      <div key={i} className={`flex items-start justify-between gap-3 text-xs rounded-lg border p-2.5 ${styleMap[severity]}`}>
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span className="leading-relaxed">{isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}</span>
+                        </div>
+                        <Badge className="border-0 text-[8px] font-bold uppercase py-0.5 px-1.5 shrink-0 select-none bg-black/5 dark:bg-white/5 text-inherit">
+                          {badgeMap[severity]}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Datos Faltantes (de evaluación IA) */}
+            {missingFields.length > 0 && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <SectionHeader>Datos Faltantes</SectionHeader>
+                <ul className="space-y-1.5">
+                  {missingFields.map((field, i) => (
+                    <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground/80">
+                      <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500/70" />
+                      <span>{isChileOfficialCandidate ? sanitizeTextForChile(field) : field}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
