@@ -268,7 +268,7 @@ export function CreateCandidateDrawer({
                 <SelectTrigger className="!w-full !h-11 !rounded-xl">
                   <SelectValue placeholder="Seleccionar país" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="!w-auto !min-w-[200px]">
                   {LATAM_COUNTRIES.map((c) => (
                     <SelectItem key={c.code} value={c.code}>
                       {getFlagEmoji(c.code)} {c.name}
@@ -314,7 +314,7 @@ export function CreateCandidateDrawer({
                 <SelectTrigger className="!w-full !h-11 !rounded-xl">
                   <SelectValue placeholder="Seleccionar industria" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="!w-auto !min-w-[200px]">
                   {INDUSTRIES.map((ind) => (
                     <SelectItem key={ind} value={ind}>
                       {ind}

@@ -495,7 +495,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   <SelectTrigger className="!w-full !h-11 !rounded-xl">
                     <SelectValue placeholder="País" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="!w-auto !min-w-[200px]">
                     {LATAM_COUNTRIES.map((c) => (
                       <SelectItem key={c.code} value={c.code}>
                         {getFlagEmoji(c.code)} {c.name}
@@ -516,7 +516,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   <SelectTrigger className="!w-full !h-11 !rounded-xl">
                     <SelectValue placeholder="Industria" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="!w-auto !min-w-[200px]">
                     {INDUSTRIES.map((ind) => (
                       <SelectItem key={ind} value={ind}>
                         {ind}
