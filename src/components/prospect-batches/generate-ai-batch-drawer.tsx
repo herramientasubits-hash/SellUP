@@ -5,21 +5,21 @@ import { useRouter } from 'next/navigation';
 import {
   Sparkles,
   Loader2,
-  Globe,
-  Target,
   AlertCircle,
   CheckCircle2,
-  Database,
   ChevronRight,
   TriangleAlert,
   XCircle,
   Info,
-  ChevronDown,
   Settings2,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { AIButton } from '@/components/ai/ai-button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import {
   Select,
   SelectTrigger,
@@ -36,7 +36,7 @@ import {
   BATCH_SEARCH_DEPTH_LABELS,
   type BatchSearchDepth,
 } from '@/modules/prospect-batches/types';
-import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -344,7 +344,11 @@ export function GenerateAIBatchDrawer() {
           className="space-y-8"
         >
           {/* Segmentación */}
-          <Section icon={Globe} label="Segmentación">
+          <SurfaceCard>
+            <SurfaceCardHeader
+              title="Segmentación"
+              description="Define el país y la industria para la búsqueda."
+            />
             <Row>
               <Field label="País" required>
                 <Select
@@ -383,11 +387,15 @@ export function GenerateAIBatchDrawer() {
                 </Select>
               </Field>
             </Row>
-          </Section>
+          </SurfaceCard>
 
           {/* Cantidad */}
           {drawer.advancedOpen ? (
-            <Section icon={Target} label="Cantidad">
+            <SurfaceCard>
+              <SurfaceCardHeader
+                title="Cantidad"
+                description="Control cuántas empresas se intentan encontrar."
+              />
               <Field label="Cantidad de empresas">
                 <Select
                   value={form.targetCount}
@@ -405,13 +413,16 @@ export function GenerateAIBatchDrawer() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   La cantidad debe estar entre 10 y 25. SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
                 </p>
               </Field>
-            </Section>
+            </SurfaceCard>
           ) : (
-            <Section icon={Target} label="Cantidad">
+            <SurfaceCard>
+              <SurfaceCardHeader
+                title="Cantidad"
+              />
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {form.countryCode === 'CO' ? (
                   "SellUp buscará hasta 5 empresas útiles para revisión. Si encuentra registros duplicados, liquidados, inactivos o sin datos mínimos, los omitirá automáticamente."
@@ -421,21 +432,19 @@ export function GenerateAIBatchDrawer() {
                   "SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda."
                 )}
               </p>
-            </Section>
+            </SurfaceCard>
           )}
 
           {/* Fuentes automáticas */}
           <SourcesInfo sources={autoSources} hasCountry={!!form.countryCode} />
 
           {/* Nota MVP */}
-          <div className="rounded-xl border border-border/40 bg-muted/40 px-4 py-3">
-            <div className="flex gap-2.5">
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-xs text-muted-foreground">
-                Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana para validar su información comercial y legal.
-              </p>
-            </div>
-          </div>
+          <Alert variant="warning">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana para validar su información comercial y legal.
+            </AlertDescription>
+          </Alert>
 
           {/* Opciones avanzadas */}
           <AdvancedOptionsSection
@@ -536,7 +545,7 @@ function DrawerFooter({
       <div className="flex w-full items-center justify-between gap-3">
         {generating && progressMsg ? (
           <p className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
+            <Loader2 className="h-3 w-3 animate-spin animate-su-pulse" />
             {progressMsg}
           </p>
         ) : (
@@ -545,7 +554,7 @@ function DrawerFooter({
         <div className="flex items-center gap-2">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={onClose}
             disabled={generating}
@@ -759,32 +768,21 @@ type SourcesInfoProps = {
 
 function SourcesInfo({ sources, hasCountry }: SourcesInfoProps) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Database className="h-3.5 w-3.5 text-muted-foreground/60" />
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-          Fuentes que usará el agente
-        </span>
-      </div>
-      <div className="flex flex-col gap-1.5">
+    <SurfaceCard>
+      <SurfaceCardHeader
+        title="Fuentes que usará el agente"
+        description={hasCountry ? undefined : "Las fuentes se configuran automáticamente al seleccionar el país."}
+      />
+      <div className="flex flex-wrap gap-2">
         {sources.map((src) => (
-          <div
-            key={src.label}
-            className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-card px-3 py-2"
-          >
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-            <span className="text-xs font-medium text-foreground">{src.label}</span>
-            <span className="text-xs text-muted-foreground">·</span>
-            <span className="text-xs text-muted-foreground">{src.desc}</span>
-          </div>
+          <Badge key={src.label} variant="secondary" className="rounded-full px-3 py-1 text-xs">
+            <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+            <span className="font-medium">{src.label}</span>
+            <span className="text-muted-foreground">· {src.desc}</span>
+          </Badge>
         ))}
       </div>
-      {!hasCountry && (
-        <p className="text-[11px] text-muted-foreground/70 pl-1">
-          Las fuentes se configuran automáticamente al seleccionar el país.
-        </p>
-      )}
-    </section>
+    </SurfaceCard>
   );
 }
 
@@ -812,170 +810,168 @@ function AdvancedOptionsSection({
   onFormChange,
 }: AdvancedOptionsSectionProps) {
   return (
-    <section className="space-y-3">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 text-left"
-        disabled={generating}
-      >
-        <Settings2 className="h-3.5 w-3.5 text-muted-foreground/50" />
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-          Opciones avanzadas
-        </span>
-        <ChevronDown
-          className={`ml-auto h-3.5 w-3.5 text-muted-foreground/40 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-        />
-      </button>
-
-      {isOpen && (
-        <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-4 space-y-4">
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500/80" />
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Estas opciones son para diagnóstico y QA. En uso normal SellUp selecciona las fuentes automáticamente.
-            </p>
+    <Accordion
+      value={isOpen ? ['advanced'] : []}
+      onValueChange={() => onToggle()}
+    >
+      <AccordionItem value="advanced" className="border-none">
+        <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 hover:no-underline hover:text-muted-foreground/80">
+          <div className="flex items-center gap-2">
+            <Settings2 className="h-3.5 w-3.5" />
+            Opciones avanzadas
           </div>
+        </AccordionTrigger>
+        <AccordionContent>
+          <SurfaceCard elevated className="mt-2">
+            <Alert variant="warning" className="mb-4">
+              <TriangleAlert className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Estas opciones son para diagnóstico y QA. En uso normal SellUp selecciona las fuentes automáticamente.
+              </AlertDescription>
+            </Alert>
 
-          {/* Cantidad override */}
-          <div className="space-y-1.5">
-            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-              Cantidad (Override QA)
-            </Label>
-            <Select
-              value={form.targetCount}
-              onValueChange={(v) => onFormChange('targetCount', v ?? '10')}
-              disabled={generating}
-            >
-              <SelectTrigger className="w-full h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[10, 15, 20, 25].map((n) => (
-                  <SelectItem key={n} value={String(n)} className="text-xs">
-                    {n} empresas
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="space-y-4">
+              {/* Cantidad override */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Cantidad (Override QA)
+                </Label>
+                <Select
+                  value={form.targetCount}
+                  onValueChange={(v) => onFormChange('targetCount', v ?? '10')}
+                  disabled={generating}
+                >
+                  <SelectTrigger className="w-full h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 15, 20, 25].map((n) => (
+                      <SelectItem key={n} value={String(n)} className="text-sm">
+                        {n} empresas
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-          {/* Profundidad de búsqueda */}
-          <div className="space-y-1.5">
-            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-              Profundidad de búsqueda
-            </Label>
-            <Select
-              value={form.advSearchDepth}
-              onValueChange={(v) => onFormChange('advSearchDepth', (v ?? 'standard') as BatchSearchDepth)}
-              disabled={generating}
-            >
-              <SelectTrigger className="w-full h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(['basic', 'standard'] as BatchSearchDepth[]).map((key) => (
-                  <SelectItem key={key} value={key} className="text-xs">
-                    {BATCH_SEARCH_DEPTH_LABELS[key]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+              {/* Profundidad de búsqueda */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Profundidad de búsqueda
+                </Label>
+                <Select
+                  value={form.advSearchDepth}
+                  onValueChange={(v) => onFormChange('advSearchDepth', (v ?? 'standard') as BatchSearchDepth)}
+                  disabled={generating}
+                >
+                  <SelectTrigger className="w-full h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['basic', 'standard'] as BatchSearchDepth[]).map((key) => (
+                      <SelectItem key={key} value={key} className="text-sm">
+                        {BATCH_SEARCH_DEPTH_LABELS[key]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-          {/* Preflight estructurado */}
-          <div className="flex items-start gap-3">
-            <input
-              id="adv-structured-source-preflight"
-              type="checkbox"
-              checked={isColombiaAuto || isChilePreview || form.advStructuredSourcePreflight}
-              onChange={(e) => {
-                if (!isColombiaAuto && !isChilePreview) onFormChange('advStructuredSourcePreflight', e.target.checked);
-              }}
-              disabled={generating || isColombiaAuto || isChilePreview}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
-            />
-            <Label htmlFor="adv-structured-source-preflight" className="cursor-pointer space-y-0.5">
-              <span className="text-xs font-medium text-foreground">
-                Ejecutar preflight estructurado
-              </span>
-              {(isColombiaAuto || isChilePreview) && (
-                <p className="text-[10px] text-muted-foreground">
-                  Activado automáticamente para {isColombiaAuto ? 'Colombia' : 'Chile'}.
+              {/* Preflight estructurado */}
+              <div className="flex items-start gap-3">
+                <input
+                  id="adv-structured-source-preflight"
+                  type="checkbox"
+                  checked={isColombiaAuto || isChilePreview || form.advStructuredSourcePreflight}
+                  onChange={(e) => {
+                    if (!isColombiaAuto && !isChilePreview) onFormChange('advStructuredSourcePreflight', e.target.checked);
+                  }}
+                  disabled={generating || isColombiaAuto || isChilePreview}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
+                />
+                <Label htmlFor="adv-structured-source-preflight" className="cursor-pointer space-y-0.5">
+                  <span className="text-sm font-medium text-foreground">
+                    Ejecutar preflight estructurado
+                  </span>
+                  {(isColombiaAuto || isChilePreview) && (
+                    <p className="text-xs text-muted-foreground">
+                      Activado automáticamente para {isColombiaAuto ? 'Colombia' : 'Chile'}.
+                    </p>
+                  )}
+                  {!isColombiaAuto && !isChilePreview && suggestedSource && (
+                    <p className="text-xs text-muted-foreground">
+                      Fuente: {STRUCTURED_SOURCE_LABELS[suggestedSource] ?? suggestedSource}
+                    </p>
+                  )}
+                  {!isColombiaAuto && !suggestedSource && form.countryCode && (
+                    <p className="text-xs text-muted-foreground">
+                      Sin fuente estructurada para este país.
+                    </p>
+                  )}
+                </Label>
+              </div>
+
+              {/* Crear lote fuente oficial */}
+              <div className="flex items-start gap-3">
+                <input
+                  id="adv-create-structured-source-batch"
+                  type="checkbox"
+                  checked={isColombiaAuto || isChilePreview || form.advCreateStructuredSourceBatch}
+                  onChange={(e) => {
+                    if (!isColombiaAuto && !isChilePreview) onFormChange('advCreateStructuredSourceBatch', e.target.checked);
+                  }}
+                  disabled={generating || isColombiaAuto || isChilePreview}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
+                />
+                <Label htmlFor="adv-create-structured-source-batch" className="cursor-pointer space-y-0.5">
+                  <span className="text-sm font-medium text-foreground">
+                    Incluir también prospectos desde fuente oficial
+                  </span>
+                  {(isColombiaAuto || isChilePreview) && (
+                    <p className="text-xs text-muted-foreground">
+                      Activado automáticamente para {isColombiaAuto ? 'Colombia (RUES/co_rues)' : 'Chile (RES/cl_res)'}.
+                    </p>
+                  )}
+                  {!isColombiaAuto && !isChilePreview && (
+                    <p className="text-xs text-muted-foreground">
+                      Crea lote separado con candidatos de la fuente oficial. Requieren revisión humana.
+                    </p>
+                  )}
+                </Label>
+              </div>
+
+              {/* Página RUES — solo diagnóstico/QA */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Usar página específica de fuente oficial
+                </Label>
+                <Select
+                  value={String(form.advStructuredSourcePage)}
+                  onValueChange={(v) =>
+                    onFormChange('advStructuredSourcePage', Math.max(1, Math.min(STRUCTURED_PAGE_MAX, parseInt(v ?? '1') || 1)))
+                  }
+                  disabled={generating}
+                >
+                  <SelectTrigger className="w-full h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: STRUCTURED_PAGE_MAX }, (_, i) => i + 1).map((p) => (
+                      <SelectItem key={p} value={String(p)} className="text-sm">
+                        Página {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Solo diagnóstico / QA. En uso normal SellUp selecciona la página automáticamente.
                 </p>
-              )}
-              {!isColombiaAuto && !isChilePreview && suggestedSource && (
-                <p className="text-[11px] text-muted-foreground">
-                  Fuente: {STRUCTURED_SOURCE_LABELS[suggestedSource] ?? suggestedSource}
-                </p>
-              )}
-              {!isColombiaAuto && !suggestedSource && form.countryCode && (
-                <p className="text-[11px] text-muted-foreground">
-                  Sin fuente estructurada para este país.
-                </p>
-              )}
-            </Label>
-          </div>
-
-          {/* Crear lote fuente oficial */}
-          <div className="flex items-start gap-3">
-            <input
-              id="adv-create-structured-source-batch"
-              type="checkbox"
-              checked={isColombiaAuto || isChilePreview || form.advCreateStructuredSourceBatch}
-              onChange={(e) => {
-                if (!isColombiaAuto && !isChilePreview) onFormChange('advCreateStructuredSourceBatch', e.target.checked);
-              }}
-              disabled={generating || isColombiaAuto || isChilePreview}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
-            />
-            <Label htmlFor="adv-create-structured-source-batch" className="cursor-pointer space-y-0.5">
-              <span className="text-xs font-medium text-foreground">
-                Incluir también prospectos desde fuente oficial
-              </span>
-              {(isColombiaAuto || isChilePreview) && (
-                <p className="text-[10px] text-muted-foreground">
-                  Activado automáticamente para {isColombiaAuto ? 'Colombia (RUES/co_rues)' : 'Chile (RES/cl_res)'}.
-                </p>
-              )}
-              {!isColombiaAuto && !isChilePreview && (
-                <p className="text-[11px] text-muted-foreground">
-                  Crea lote separado con candidatos de la fuente oficial. Requieren revisión humana.
-                </p>
-              )}
-            </Label>
-          </div>
-
-          {/* Página RUES — solo diagnóstico/QA */}
-          <div className="space-y-1.5">
-            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-              Usar página específica de fuente oficial
-            </Label>
-            <Select
-              value={String(form.advStructuredSourcePage)}
-              onValueChange={(v) =>
-                onFormChange('advStructuredSourcePage', Math.max(1, Math.min(STRUCTURED_PAGE_MAX, parseInt(v ?? '1') || 1)))
-              }
-              disabled={generating}
-            >
-              <SelectTrigger className="w-full h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Array.from({ length: STRUCTURED_PAGE_MAX }, (_, i) => i + 1).map((p) => (
-                  <SelectItem key={p} value={String(p)} className="text-xs">
-                    Página {p}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              Solo diagnóstico / QA. En uso normal SellUp selecciona la página automáticamente.
-            </p>
-          </div>
-        </div>
-      )}
-    </section>
+              </div>
+            </div>
+          </SurfaceCard>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
 
@@ -1008,150 +1004,108 @@ function GenerationResultPanel({
   const statusLabel = result ? PREFLIGHT_STATUS_LABELS[result.status] ?? result.status : '';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 animate-su-fade-in">
       {/* Título */}
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
+      <SurfaceCard elevated>
+        <div className="flex items-center gap-3">
           {usefulCandidatesCount > 0 ? (
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            </div>
           ) : (
-            <TriangleAlert className="h-4 w-4 text-amber-500" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
+              <TriangleAlert className="h-4 w-4 text-amber-500" />
+            </div>
           )}
-          <h3 className="text-sm font-semibold text-foreground">
-            {usefulCandidatesCount > 0 ? 'Generación completada' : 'Generación finalizada'}
-          </h3>
-        </div>
-        <div className="text-xs text-muted-foreground leading-relaxed">
-          {countryCode === 'CO' ? (
-            usefulCandidatesCount > 0 ? (
-              <div className="space-y-1">
-                <p>Empresas candidatas listas para revisión.</p>
-                <p className="text-[11px] text-muted-foreground/75 font-medium">
-                  SellUp encontró {usefulCandidatesCount} empresa{usefulCandidatesCount !== 1 ? 's' : ''} útil{usefulCandidatesCount !== 1 ? 'es' : ''} en fuente oficial.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <p>La fuente oficial no entregó empresas revisables.</p>
-                {structuredBatch?.status === 'official_source_error' ? (
-                  <p className="text-[11px] text-destructive dark:text-red-400 font-medium">
-                    La fuente oficial no pudo completarse. Intenta nuevamente más tarde.
-                  </p>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">
+              {usefulCandidatesCount > 0 ? 'Generación completada' : 'Generación finalizada'}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {countryCode === 'CO' ? (
+                usefulCandidatesCount > 0 ? (
+                  `SellUp encontró ${usefulCandidatesCount} empresa${usefulCandidatesCount !== 1 ? 's' : ''} útil${usefulCandidatesCount !== 1 ? 'es' : ''} en fuente oficial.`
                 ) : (
-                  <>
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                      SellUp revisó la fuente oficial disponible, pero los registros encontrados fueron omitidos por duplicidad, liquidación, inactividad o datos mínimos insuficientes.
-                    </p>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      No se usó fuente comercial porque para Colombia los registros deben tener NIT válido.
-                    </p>
-                  </>
-                )}
-              </div>
-            )
-          ) : countryCode === 'CL' ? (
-            usefulCandidatesCount > 0 ? (
-              <div className="space-y-1">
-                <p>Empresas chilenas listas para revisión.</p>
-                <p className="text-[11px] text-muted-foreground/75 font-medium">
-                  SellUp encontró {usefulCandidatesCount} empresa{usefulCandidatesCount !== 1 ? 's' : ''} con RUT válido en la fuente oficial.
-                </p>
-                <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  Sector no disponible en fuente oficial — puede requerir enriquecimiento externo o revisión humana.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <p>La fuente oficial chilena no entregó empresas revisables.</p>
-                {structuredBatch?.status === 'official_source_error' ? (
-                  <p className="text-[11px] text-destructive dark:text-red-400 font-medium">
-                    La fuente oficial no pudo completarse. Intenta nuevamente más tarde.
-                  </p>
+                  'La fuente oficial no entregó empresas revisables.'
+                )
+              ) : countryCode === 'CL' ? (
+                usefulCandidatesCount > 0 ? (
+                  `SellUp encontró ${usefulCandidatesCount} empresa${usefulCandidatesCount !== 1 ? 's' : ''} con RUT válido en la fuente oficial.`
                 ) : (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                    SellUp revisó la fuente oficial disponible, pero los registros encontrados fueron omitidos por duplicidad, datos mínimos insuficientes o filtros de capital/fecha.
-                  </p>
-                )}
-              </div>
-            )
-          ) : (
-            usefulCandidatesCount > 0 ? (
-              <p>Empresas candidatas listas para revisión.</p>
-            ) : omittedCandidatesCount > 0 ? (
-              <span>
-                No se encontraron empresas útiles para revisión. SellUp omitió {omittedCandidatesCount} registro{omittedCandidatesCount !== 1 ? 's' : ''} por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
-              </span>
-            ) : (
-              <p>No se encontraron empresas con los criterios actuales.</p>
-            )
-          )}
+                  'La fuente oficial chilena no entregó empresas revisables.'
+                )
+              ) : (
+                usefulCandidatesCount > 0 ? (
+                  'Empresas candidatas listas para revisión.'
+                ) : (
+                  'No se encontraron empresas con los criterios actuales.'
+                )
+              )}
+            </p>
+          </div>
         </div>
-      </div>
+      </SurfaceCard>
 
       {/* Lote Apollo — oculto si fuente oficial satisfizo completamente, Colombia o Chile */}
       {sourceStrategy !== 'official_source_satisfied' && countryCode !== 'CO' && countryCode !== 'CL' && (
-        <div className="rounded-xl border border-border/40 bg-card p-4 space-y-3">
-          <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-            <div className="h-2 w-2 rounded-full bg-su-brand" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-              {sourceStrategy === 'official_plus_commercial'
-                ? 'Complemento comercial (Apollo)'
-                : sourceStrategy === 'commercial_fallback'
-                ? 'Fuente alternativa (Apollo)'
-                : 'Empresas generadas (Apollo)'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Estado:</span>
-            {usefulCandidatesCount > 0 ? (
-              <span className="font-medium text-emerald-500 flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Creado
-              </span>
-            ) : (
-              <span className="font-medium text-amber-500 flex items-center gap-1">
-                <TriangleAlert className="h-3 w-3" /> Sin candidatas útiles
-              </span>
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title={sourceStrategy === 'official_plus_commercial'
+              ? 'Complemento comercial (Apollo)'
+              : sourceStrategy === 'commercial_fallback'
+              ? 'Fuente alternativa (Apollo)'
+              : 'Empresas generadas (Apollo)'}
+          />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Estado:</span>
+              {usefulCandidatesCount > 0 ? (
+                <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Creado
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <TriangleAlert className="h-3 w-3" />
+                  Sin candidatas útiles
+                </Badge>
+              )}
+            </div>
+            {apolloBatchId && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Batch ID:</span>
+                <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-foreground">
+                  {apolloBatchId.slice(0, 8)}…
+                </code>
+              </div>
             )}
-          </div>
-          {apolloBatchId && (
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Batch ID:</span>
-              <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
-                {apolloBatchId.slice(0, 8)}…
-              </code>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Candidatos útiles:</span>
-              <span className="font-semibold text-foreground">{usefulCandidatesCount}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Omitidos:</span>
-              <span className="font-semibold text-foreground">{omittedCandidatesCount}</span>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Candidatos útiles:</span>
+                <span className="font-semibold text-foreground">{usefulCandidatesCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Omitidos:</span>
+                <span className="font-semibold text-foreground">{omittedCandidatesCount}</span>
+              </div>
             </div>
           </div>
-        </div>
+        </SurfaceCard>
       )}
 
       {/* Lote fuente oficial (si se intentó) */}
       {structuredBatch && (() => {
         const nothingToWrite = isStructuredSourceNothingToWrite(structuredBatch);
         const isSocrataTimeout = isSocrataTimeoutError(structuredBatch);
-        const borderClass = structuredBatch.ok || structuredBatch.status === 'official_source_success'
-          ? 'border-su-brand/20'
-          : structuredBatch.status === 'official_source_error'
-            ? 'border-destructive/20'
-            : 'border-amber-500/20';
         const dotClass = structuredBatch.ok || structuredBatch.status === 'official_source_success'
-          ? 'bg-su-brand'
+          ? 'bg-emerald-500'
           : structuredBatch.status === 'official_source_error'
             ? 'bg-destructive'
             : 'bg-amber-500';
 
         return (
-          <div className={`rounded-xl border p-4 space-y-3 bg-card ${borderClass}`}>
-            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+          <SurfaceCard>
+            <div className="flex items-center gap-2 mb-3">
               <div className={`h-2 w-2 rounded-full ${dotClass}`} />
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
                 Fuente oficial procesada
@@ -1161,38 +1115,41 @@ function GenerationResultPanel({
             {structuredBatch.ok || structuredBatch.status === 'official_source_success' ? (
               <>
                 {structuredBatch.autoMode && (
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                    <CheckCircle2 className="h-3 w-3 shrink-0" />
-                    {sourceStrategy === 'official_source_satisfied' ? (
-                      <span>SellUp encontró {structuredBatch.candidatesWritten} empresas útiles en fuente oficial. Se omitieron {structuredBatch.candidatesSkipped} registros no viables.</span>
-                    ) : (
-                      <span>Se encontraron {structuredBatch.candidatesWritten} empresas nuevas para revisión.</span>
-                    )}
-                  </div>
+                  <Alert variant="success" className="mb-3">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      {sourceStrategy === 'official_source_satisfied' ? (
+                        `SellUp encontró ${structuredBatch.candidatesWritten} empresas útiles en fuente oficial. Se omitieron ${structuredBatch.candidatesSkipped} registros no viables.`
+                      ) : (
+                        `Se encontraron ${structuredBatch.candidatesWritten} empresas nuevas para revisión.`
+                      )}
+                    </AlertDescription>
+                  </Alert>
                 )}
                 {advancedOpen && (
-                  <>
-                    <div className="flex items-center justify-between text-xs">
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Estado:</span>
-                      <span className="font-medium text-emerald-500 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3" /> Creado · Revisión humana pendiente
-                      </span>
+                      <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Creado · Revisión humana pendiente
+                      </Badge>
                     </div>
                     {!structuredBatch.autoMode && (
-                      <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center justify-between">
                         <span className="text-muted-foreground">Página usada:</span>
                         <span className="font-semibold text-foreground">{structuredSourcePage}</span>
                       </div>
                     )}
                     {structuredBatch.batchId && (
-                      <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center justify-between">
                         <span className="text-muted-foreground">Batch ID:</span>
-                        <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-foreground">
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-foreground">
                           {structuredBatch.batchId.slice(0, 8)}…
                         </code>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Candidatos escritos:</span>
                         <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten}</span>
@@ -1202,139 +1159,107 @@ function GenerationResultPanel({
                         <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
                       </div>
                     </div>
-                  </>
+                  </div>
                 )}
               </>
             ) : structuredBatch.status === 'official_source_error' ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                  <span className="text-xs font-medium text-destructive">
-                    La fuente oficial no pudo completarse
-                  </span>
-                </div>
-                {structuredBatch.errorDetails ? (
-                  <p className="text-[11px] text-destructive/80 pl-5 leading-relaxed">
-                    Detalle: {structuredBatch.errorDetails}
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-destructive/80 pl-5 leading-relaxed">
-                    Ocurrió un error inesperado al conectar o procesar la fuente oficial.
-                  </p>
-                )}
-              </div>
+              <Alert variant="destructive">
+                <TriangleAlert className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <span className="font-medium">La fuente oficial no pudo completarse.</span>
+                  {structuredBatch.errorDetails ? (
+                    <span className="mt-1 block">Detalle: {structuredBatch.errorDetails}</span>
+                  ) : (
+                    <span className="mt-1 block">Ocurrió un error inesperado al conectar o procesar la fuente oficial.</span>
+                  )}
+                </AlertDescription>
+              </Alert>
             ) : structuredBatch.status === 'official_source_empty' ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    La fuente oficial no encontró registros nuevos
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
-                  La consulta a la fuente oficial no devolvió registros nuevos para los criterios seleccionados. Todos los candidatos ya existen en SellUp.
-                </p>
-              </div>
+              <Alert variant="warning">
+                <TriangleAlert className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <span className="font-medium">La fuente oficial no encontró registros nuevos.</span>
+                  <span className="mt-1 block">La consulta a la fuente oficial no devolvió registros nuevos para los criterios seleccionados. Todos los candidatos ya existen en SellUp.</span>
+                </AlertDescription>
+              </Alert>
             ) : structuredBatch.status === 'official_source_no_useful_candidates' ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    La fuente oficial no entregó empresas revisables
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
-                  SellUp revisó la fuente oficial disponible, pero los registros encontrados fueron omitidos por duplicidad, liquidación, inactividad o datos mínimos insuficientes.
-                </p>
-              </div>
+              <Alert variant="warning">
+                <TriangleAlert className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <span className="font-medium">La fuente oficial no entregó empresas revisables.</span>
+                  <span className="mt-1 block">SellUp revisó la fuente oficial disponible, pero los registros encontrados fueron omitidos por duplicidad, liquidación, inactividad o datos mínimos insuficientes.</span>
+                </AlertDescription>
+              </Alert>
             ) : isAutoModeAllPagesScanned(structuredBatch) ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    Sin empresas nuevas en la fuente oficial
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
-                  SellUp revisó las páginas disponibles y no encontró registros nuevos para esta búsqueda. Todos los candidatos ya existen en SellUp.
-                </p>
-              </div>
+              <Alert variant="warning">
+                <TriangleAlert className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <span className="font-medium">Sin empresas nuevas en la fuente oficial.</span>
+                  <span className="mt-1 block">SellUp revisó las páginas disponibles y no encontró registros nuevos para esta búsqueda. Todos los candidatos ya existen en SellUp.</span>
+                </AlertDescription>
+              </Alert>
             ) : nothingToWrite ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    Sin candidatos nuevos en esta página
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
-                  Todos los registros encontrados ya existen en SellUp. No se escribieron duplicados.
-                </p>
-                <div className="flex items-center justify-between text-xs pl-5">
-                  <span className="text-muted-foreground">Página usada:</span>
-                  <span className="font-semibold text-foreground">{structuredSourcePage}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs pl-5">
-                  <span className="text-muted-foreground">Omitidos (ya existían):</span>
-                  <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped ?? 0}</span>
-                </div>
-                <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400 pl-5">
-                  Intenta con una página diferente en Opciones avanzadas.
-                </p>
-              </div>
+              <Alert variant="warning">
+                <TriangleAlert className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <span className="font-medium">Sin candidatos nuevos en esta página.</span>
+                  <span className="mt-1 block">Todos los registros encontrados ya existen en SellUp. No se escribieron duplicados.</span>
+                  <span className="mt-2 block text-muted-foreground">Página usada: {structuredSourcePage} · Omitidos: {structuredBatch.candidatesSkipped ?? 0}</span>
+                  <span className="mt-1 block font-medium">Intenta con una página diferente en Opciones avanzadas.</span>
+                </AlertDescription>
+              </Alert>
             ) : isSocrataTimeout ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    Fuente oficial no respondió a tiempo
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed">
-                  La API pública de datos.gov.co no respondió. El lote Apollo sí fue creado. Intenta nuevamente en unos minutos.
-                </p>
-              </div>
+              <Alert variant="warning">
+                <TriangleAlert className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <span className="font-medium">Fuente oficial no respondió a tiempo.</span>
+                  <span className="mt-1 block">La API pública de datos.gov.co no respondió. El lote Apollo sí fue creado. Intenta nuevamente en unos minutos.</span>
+                </AlertDescription>
+              </Alert>
             ) : (
-              <div className="space-y-1">
-                <span className="text-xs font-medium text-destructive">Error en la fuente oficial</span>
-                {structuredBatch.errors && structuredBatch.errors.map((err, i) => (
-                  <p key={i} className="text-[11px] text-destructive/80 pl-2">· {err}</p>
-                ))}
-              </div>
+              <Alert variant="destructive">
+                <XCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <span className="font-medium">Error en la fuente oficial.</span>
+                  {structuredBatch.errors && structuredBatch.errors.map((err, i) => (
+                    <span key={i} className="mt-1 block">· {err}</span>
+                  ))}
+                </AlertDescription>
+              </Alert>
             )}
 
             {!nothingToWrite && structuredBatch.warnings && structuredBatch.warnings.length > 0 && (() => {
               const visible = structuredBatch.warnings!.filter(w => w in WARNING_LABELS);
               if (visible.length === 0) return null;
               return (
-                <div className="rounded-lg bg-amber-500/5 p-2 border border-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400 space-y-1">
-                  <div className="flex items-center gap-1 font-semibold">
-                    <TriangleAlert className="h-3 w-3" />
-                    <span>Advertencias</span>
-                  </div>
-                  {visible.map((w, i) => (
-                    <p key={i} className="pl-4">· {WARNING_LABELS[w]}</p>
-                  ))}
-                </div>
+                <Alert variant="warning" className="mt-3">
+                  <TriangleAlert className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    <span className="font-medium">Advertencias:</span>
+                    {visible.map((w, i) => (
+                      <span key={i} className="mt-1 block">· {WARNING_LABELS[w]}</span>
+                    ))}
+                  </AlertDescription>
+                </Alert>
               );
             })()}
-          </div>
+          </SurfaceCard>
         );
       })()}
 
       {/* Preflight informativo (solo si no hubo lote estructurado) */}
       {!structuredBatch && result && (
-        <div className="rounded-xl border border-border/40 bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between border-b border-border/40 pb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-              Preflight Fuente Oficial
-            </span>
-            <div className="flex items-center gap-1 text-[11px]">
-              {statusIcon}
-              <span className="font-medium text-foreground">{statusLabel}</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Preflight Fuente Oficial"
+            actions={
+              <div className="flex items-center gap-1.5 text-xs">
+                {statusIcon}
+                <span className="font-medium text-foreground">{statusLabel}</span>
+              </div>
+            }
+          />
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Candidatos leídos:</span>
               <span className="font-medium text-foreground">{result.recordsRead}</span>
@@ -1344,7 +1269,7 @@ function GenerationResultPanel({
               <span className="font-medium text-foreground">{result.candidatesCount}</span>
             </div>
           </div>
-        </div>
+        </SurfaceCard>
       )}
     </div>
   );
