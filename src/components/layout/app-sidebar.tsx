@@ -70,7 +70,7 @@ export function AppSidebar({
   return (
     <div className={cn("flex h-full flex-col", className)}>
       {/* Brand / logo — top, icon-only */}
-      <div className="flex h-20 shrink-0 items-center justify-center border-b border-sidebar-border/40">
+      <div className="flex h-20 shrink-0 items-center justify-center">
         <Tooltip>
           <TooltipTrigger
             render={
@@ -90,7 +90,7 @@ export function AppSidebar({
       </div>
 
       {/* Nav — middle, icon-rail with hover tooltips */}
-      <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-5">
+      <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 pt-4 pb-2">
         {mainNavItems.map((item, i) => (
           <div
             key={item.href}
@@ -102,29 +102,32 @@ export function AppSidebar({
         ))}
       </nav>
 
-      {/* Bottom dock — notifications, theme, user avatar. Each icon button
-          shows a tooltip on hover; user avatar opens a dropdown. */}
-      <div className="shrink-0 border-t border-sidebar-border/40 p-2 flex flex-col items-center gap-1.5">
+      {/* Bottom dock — utilities then user avatar, separated */}
+      <div className="shrink-0 border-t border-sidebar-border/30 px-2 pt-2 pb-3 flex flex-col items-center gap-1">
+        {/* Utility icons */}
         <NotificationBell
           initialUnreadCount={initialUnreadCount}
           variant="sidebar"
         />
-
         <ThemeToggle variant="sidebar" />
 
+        {/* Separator line */}
+        <div className="my-1.5 h-px w-7 bg-sidebar-border/40" />
+
+        {/* User avatar — opens dropdown */}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
               render={
                 <DropdownMenuTrigger
                   className={cn(
-                    "group mt-1 flex items-center justify-center rounded-full p-0.5 transition-all",
-                    "hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/50",
-                    "data-[popup-open]:bg-white/[0.06]",
+                    "group flex items-center justify-center rounded-full p-0.5 transition-all",
+                    "hover:ring-2 hover:ring-su-brand/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-su-brand/50",
+                    "data-[popup-open]:ring-2 data-[popup-open]:ring-su-brand/30",
                   )}
                   aria-label={`Cuenta de ${displayName}`}
                 >
-                  <Avatar className="h-9 w-9 border-2 border-sidebar-border/40 transition-colors group-hover:border-su-brand/40">
+                  <Avatar className="h-9 w-9 ring-2 ring-sidebar-border/50 transition-all group-hover:ring-su-brand/40">
                     <AvatarImage src={avatarUrl} alt={displayName} />
                     <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
                       {initials}
