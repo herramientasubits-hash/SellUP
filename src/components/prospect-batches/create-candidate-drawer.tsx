@@ -16,7 +16,6 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { Field } from '@/components/forms/field';
-import { SearchableSelect, type SearchableSelectOption } from '@/components/forms/searchable-select';
 import { toast } from 'sonner';
 import { createProspectCandidate } from '@/modules/prospect-batches/actions';
 import {
@@ -171,17 +170,6 @@ export function CreateCandidateDrawer({
     }
   }
 
-  const countryOptions: SearchableSelectOption[] = LATAM_COUNTRIES.map((c) => ({
-    value: c.code,
-    label: `${getFlagEmoji(c.code)} ${c.name}`,
-    description: c.code,
-  }));
-
-  const industryOptions: SearchableSelectOption[] = INDUSTRIES.map((ind) => ({
-    value: ind,
-    label: ind,
-  }));
-
   return (
     <DrawerShell
       open={open}
@@ -272,15 +260,22 @@ export function CreateCandidateDrawer({
           />
           <div className="space-y-4">
             <Field label="País">
-              <SearchableSelect
-                options={countryOptions}
+              <Select
                 value={form.country_code}
                 onValueChange={(v) => handleCountryChange(v)}
-                placeholder="Seleccionar país"
-                searchPlaceholder="Buscar país..."
-                emptyMessage="No se encontraron países."
                 disabled={saving}
-              />
+              >
+                <SelectTrigger className="w-full h-11 rounded-xl">
+                  <SelectValue placeholder="Seleccionar país" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LATAM_COUNTRIES.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {getFlagEmoji(c.code)} {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Ciudad">
@@ -311,15 +306,22 @@ export function CreateCandidateDrawer({
           />
           <div className="grid grid-cols-2 gap-4">
             <Field label="Industria">
-              <SearchableSelect
-                options={industryOptions}
+              <Select
                 value={form.industry}
                 onValueChange={(v) => set('industry', v ?? '')}
-                placeholder="Seleccionar industria"
-                searchPlaceholder="Buscar industria..."
-                emptyMessage="No se encontraron industrias."
                 disabled={saving}
-              />
+              >
+                <SelectTrigger className="w-full h-11 rounded-xl">
+                  <SelectValue placeholder="Seleccionar industria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {INDUSTRIES.map((ind) => (
+                    <SelectItem key={ind} value={ind}>
+                      {ind}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field label="Tamaño">
               <Select

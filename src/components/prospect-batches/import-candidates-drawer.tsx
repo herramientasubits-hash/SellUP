@@ -23,7 +23,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
-import { SearchableSelect, type SearchableSelectOption } from '@/components/forms/searchable-select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -481,15 +487,18 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 <label className="text-xs font-medium text-foreground">
                   País de referencia <span className="text-destructive">*</span>
                 </label>
-                <SearchableSelect
-                  value={selectedCountryCode}
-                  onValueChange={(v) => setSelectedCountryCode(v ?? '')}
-                  placeholder="Selecciona el país de estos candidatos"
-                  options={LATAM_COUNTRIES.map((c) => ({
-                    value: c.code,
-                    label: c.name,
-                  } satisfies SearchableSelectOption))}
-                />
+                <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Selecciona el país de estos candidatos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LATAM_COUNTRIES.map((c) => (
+                      <SelectItem key={c.code} value={c.code} className="text-xs">
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="text-[10px] text-muted-foreground">
                   Se usará para las filas que no tengan país en el archivo.
                 </p>
@@ -499,15 +508,18 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 <label className="text-xs font-medium text-foreground">
                   Industria / criterio
                 </label>
-                <SearchableSelect
-                  value={selectedIndustry}
-                  onValueChange={(v) => setSelectedIndustry(v ?? '')}
-                  placeholder="Selecciona o escribe una industria"
-                  options={INDUSTRIES.map((ind) => ({
-                    value: ind,
-                    label: ind,
-                  } satisfies SearchableSelectOption))}
-                />
+                <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Selecciona o escribe una industria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INDUSTRIES.map((ind) => (
+                      <SelectItem key={ind} value={ind} className="text-xs">
+                        {ind}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="text-[10px] text-muted-foreground">
                   Se usará para las filas que no tengan sector o industria.
                 </p>
