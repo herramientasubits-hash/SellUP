@@ -135,10 +135,6 @@ export function UsersTab({
   const [filter, setFilter] = useState<UserFilter>(initialFilter);
   const [viewMode, setViewMode] = useState<UserViewMode>('list');
 
-  useEffect(() => {
-    setFilter(initialFilter);
-  }, [initialFilter]);
-
   const statusMap: Record<string, string> = {
     active: 'active',
     pending: 'pending_approval',
@@ -169,7 +165,7 @@ export function UsersTab({
   const showViewToggle = filter === 'active' || filter === 'all';
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col flex-1 min-h-0 space-y-4">
       {/* Filter bar + view toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-1 rounded-xl border border-border/60 bg-muted/40 p-1">
@@ -239,7 +235,7 @@ export function UsersTab({
 
       {/* Org chart */}
       {showOrgChart && viewMode === 'org' && (
-        <SurfaceCard className="overflow-hidden">
+        <SurfaceCard className="flex-1 overflow-hidden min-h-[500px]">
           <OrgChart users={users} roles={roles} />
         </SurfaceCard>
       )}
@@ -279,7 +275,7 @@ export function GroupsTab({ users, groups, roles }: GroupsTabProps) {
   const activeUsers = useMemo(() => users.filter(u => u.access_status === 'active'), [users]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col flex-1 min-h-0 space-y-4">
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
           {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
@@ -309,13 +305,15 @@ export function GroupsTab({ users, groups, roles }: GroupsTabProps) {
       </div>
 
       {viewMode === 'list' && (
-        <SurfaceCard>
+        <SurfaceCard className="flex-1">
           <GroupManagementPanel groups={groups} />
         </SurfaceCard>
       )}
 
       {viewMode === 'org' && (
-        <GroupsView users={activeUsers} groups={groups} roles={roles} />
+        <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border/40">
+          <GroupsView users={activeUsers} groups={groups} roles={roles} />
+        </div>
       )}
     </div>
   );
