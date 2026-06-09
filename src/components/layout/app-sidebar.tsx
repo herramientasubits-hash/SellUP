@@ -69,8 +69,9 @@ export function AppSidebar({
 
   return (
     <div className={cn("flex h-full flex-col", className)}>
-      {/* Brand / logo — top, icon-only */}
-      <div className="flex h-20 shrink-0 items-center justify-center">
+      {/* Top zone — brand logo + user avatar stacked vertically */}
+      <div className="flex shrink-0 flex-col items-center gap-3 border-b border-sidebar-border/30 pt-4 pb-3">
+        {/* Brand / logo */}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -87,34 +88,8 @@ export function AppSidebar({
           />
           <TooltipContent side="right">Inicio</TooltipContent>
         </Tooltip>
-      </div>
 
-      {/* Nav — middle, icon-rail with hover tooltips */}
-      <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 pt-4 pb-2">
-        {mainNavItems.map((item, i) => (
-          <div
-            key={item.href}
-            style={{ animationDelay: `${i * 40}ms` }}
-            className="animate-su-slide-in w-full"
-          >
-            <NavLink item={item} mode="rail" />
-          </div>
-        ))}
-      </nav>
-
-      {/* Bottom dock — utilities then user avatar, separated */}
-      <div className="shrink-0 border-t border-sidebar-border/30 px-2 pt-2 pb-3 flex flex-col items-center gap-1">
-        {/* Utility icons */}
-        <NotificationBell
-          initialUnreadCount={initialUnreadCount}
-          variant="sidebar"
-        />
-        <ThemeToggle variant="sidebar" />
-
-        {/* Separator line */}
-        <div className="my-1.5 h-px w-7 bg-sidebar-border/40" />
-
-        {/* User avatar — opens dropdown */}
+        {/* User avatar — opens dropdown with account options */}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
@@ -122,14 +97,14 @@ export function AppSidebar({
                 <DropdownMenuTrigger
                   className={cn(
                     "group flex items-center justify-center rounded-full p-0.5 transition-all",
-                    "hover:ring-2 hover:ring-su-brand/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-su-brand/50",
-                    "data-[popup-open]:ring-2 data-[popup-open]:ring-su-brand/30",
+                    "hover:ring-2 hover:ring-su-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-su-brand/50",
+                    "data-[popup-open]:ring-2 data-[popup-open]:ring-su-brand/40",
                   )}
                   aria-label={`Cuenta de ${displayName}`}
                 >
-                  <Avatar className="h-9 w-9 ring-2 ring-sidebar-border/50 transition-all group-hover:ring-su-brand/40">
+                  <Avatar className="h-8 w-8 ring-2 ring-sidebar-border/60 transition-all group-hover:ring-su-brand/50">
                     <AvatarImage src={avatarUrl} alt={displayName} />
-                    <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
+                    <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[10px] font-bold text-white">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
@@ -183,6 +158,28 @@ export function AppSidebar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+
+      {/* Nav — middle, icon-rail with hover tooltips */}
+      <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-4">
+        {mainNavItems.map((item, i) => (
+          <div
+            key={item.href}
+            style={{ animationDelay: `${i * 40}ms` }}
+            className="animate-su-slide-in w-full"
+          >
+            <NavLink item={item} mode="rail" />
+          </div>
+        ))}
+      </nav>
+
+      {/* Bottom dock — notifications + theme toggle only */}
+      <div className="shrink-0 border-t border-sidebar-border/30 px-2 pt-2 pb-3 flex flex-col items-center gap-1">
+        <NotificationBell
+          initialUnreadCount={initialUnreadCount}
+          variant="sidebar"
+        />
+        <ThemeToggle variant="sidebar" />
       </div>
     </div>
   );
