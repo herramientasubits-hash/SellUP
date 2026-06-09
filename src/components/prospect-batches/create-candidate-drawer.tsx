@@ -1,11 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Loader2, Building2, Globe, Briefcase, Hash, FileText, Zap } from 'lucide-react';
+import { Plus, Loader2, Building2, Zap } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
   SelectTrigger,
@@ -13,6 +15,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
+import { Field } from '@/components/forms/field';
+import { SearchableSelect, type SearchableSelectOption } from '@/components/forms/searchable-select';
 import { toast } from 'sonner';
 import { createProspectCandidate } from '@/modules/prospect-batches/actions';
 import {
@@ -24,7 +28,7 @@ import {
   type TaxIdentifierType,
   type CandidateSourcePrimary,
 } from '@/modules/prospect-batches/types';
-import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import {
   getTaxIdentifierRule,
   validateTaxIdentifier,
@@ -167,6 +171,17 @@ export function CreateCandidateDrawer({
     }
   }
 
+  const countryOptions: SearchableSelectOption[] = LATAM_COUNTRIES.map((c) => ({
+    value: c.code,
+    label: `${getFlagEmoji(c.code)} ${c.name}`,
+    description: c.code,
+  }));
+
+  const industryOptions: SearchableSelectOption[] = INDUSTRIES.map((ind) => ({
+    value: ind,
+    label: ind,
+  }));
+
   return (
     <DrawerShell
       open={open}
@@ -185,7 +200,7 @@ export function CreateCandidateDrawer({
         <div className="flex w-full items-center justify-end gap-2">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={handleClose}
             disabled={saving}
@@ -212,95 +227,99 @@ export function CreateCandidateDrawer({
       <form
         id="create-candidate-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-5 animate-su-fade-in"
       >
         {/* Empresa */}
-        <Section icon={Building2} label="Empresa">
-          <Field label="Nombre de la empresa" required>
-            <Input
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-              placeholder="Ej. Acme Corp"
-              disabled={saving}
-              autoFocus
-            />
-          </Field>
-          <Field label="Razón social">
-            <Input
-              value={form.legal_name}
-              onChange={(e) => set('legal_name', e.target.value)}
-              placeholder="Nombre legal completo"
-              disabled={saving}
-            />
-          </Field>
-          <Field label="Sitio web">
-            <Input
-              value={form.website}
-              onChange={(e) => set('website', e.target.value)}
-              placeholder="https://acme.com"
-              disabled={saving}
-            />
-          </Field>
-        </Section>
-
-        {/* Ubicación */}
-        <Section icon={Globe} label="Ubicación">
-          <Row>
-            <Field label="País">
-              <Select
-                value={form.country_code}
-                onValueChange={(v) => handleCountryChange(v)}
-                disabled={saving}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar" />
-                </SelectTrigger>
-                <SelectContent>
-                  {LATAM_COUNTRIES.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>
-                      {getFlagEmoji(c.code)} {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Ciudad">
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Empresa"
+            description="Información básica de la empresa."
+          />
+          <div className="space-y-4">
+            <Field label="Nombre de la empresa" required>
               <Input
-                value={form.city}
-                onChange={(e) => set('city', e.target.value)}
-                placeholder="Bogotá"
+                value={form.name}
+                onChange={(e) => set('name', e.target.value)}
+                placeholder="Ej. Acme Corp"
+                disabled={saving}
+                autoFocus
+              />
+            </Field>
+            <Field label="Razón social">
+              <Input
+                value={form.legal_name}
+                onChange={(e) => set('legal_name', e.target.value)}
+                placeholder="Nombre legal completo"
                 disabled={saving}
               />
             </Field>
-          </Row>
-          <Field label="Región / Dpto.">
-            <Input
-              value={form.region}
-              onChange={(e) => set('region', e.target.value)}
-              placeholder="Cundinamarca"
-              disabled={saving}
-            />
-          </Field>
-        </Section>
+            <Field label="Sitio web">
+              <Input
+                value={form.website}
+                onChange={(e) => set('website', e.target.value)}
+                placeholder="https://acme.com"
+                disabled={saving}
+              />
+            </Field>
+          </div>
+        </SurfaceCard>
+
+        {/* Ubicación */}
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Ubicación"
+            description="País y ubicación de la empresa."
+          />
+          <div className="space-y-4">
+            <Field label="País">
+              <SearchableSelect
+                options={countryOptions}
+                value={form.country_code}
+                onValueChange={(v) => handleCountryChange(v)}
+                placeholder="Seleccionar país"
+                searchPlaceholder="Buscar país..."
+                emptyMessage="No se encontraron países."
+                disabled={saving}
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Ciudad">
+                <Input
+                  value={form.city}
+                  onChange={(e) => set('city', e.target.value)}
+                  placeholder="Bogotá"
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Región / Dpto.">
+                <Input
+                  value={form.region}
+                  onChange={(e) => set('region', e.target.value)}
+                  placeholder="Cundinamarca"
+                  disabled={saving}
+                />
+              </Field>
+            </div>
+          </div>
+        </SurfaceCard>
 
         {/* Perfil de empresa */}
-        <Section icon={Briefcase} label="Perfil de empresa">
-          <Row>
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Perfil de empresa"
+            description="Industria y tamaño de la empresa."
+          />
+          <div className="grid grid-cols-2 gap-4">
             <Field label="Industria">
-              <Select
+              <SearchableSelect
+                options={industryOptions}
                 value={form.industry}
                 onValueChange={(v) => set('industry', v ?? '')}
+                placeholder="Seleccionar industria"
+                searchPlaceholder="Buscar industria..."
+                emptyMessage="No se encontraron industrias."
                 disabled={saving}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar" />
-                </SelectTrigger>
-                <SelectContent>
-                  {INDUSTRIES.map((ind) => (
-                    <SelectItem key={ind} value={ind}>{ind}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </Field>
             <Field label="Tamaño">
               <Select
@@ -308,7 +327,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => set('company_size', v ?? '')}
                 disabled={saving}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full h-11 rounded-xl">
                   <SelectValue placeholder="Empleados" />
                 </SelectTrigger>
                 <SelectContent>
@@ -318,8 +337,8 @@ export function CreateCandidateDrawer({
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </SurfaceCard>
 
         {/* Identificador fiscal */}
         {(() => {
@@ -337,81 +356,100 @@ export function CreateCandidateDrawer({
           }
 
           return (
-            <Section icon={Hash} label="Identificador fiscal">
-              <Row>
-                <Field label="Tipo">
-                  <Select
-                    value={form.tax_identifier_type}
-                    onValueChange={(v) => set('tax_identifier_type', (v ?? '') as TaxIdentifierType)}
-                    disabled={isDisabled || saving}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.entries(TAX_IDENTIFIER_TYPE_LABELS) as [TaxIdentifierType, string][]).map(
-                        ([key, label]) => (
-                          <SelectItem key={key} value={key}>{label}</SelectItem>
-                        )
-                      )}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Número">
-                  <Input
-                    value={form.tax_identifier}
-                    onChange={(e) => handleTaxIdChange(e.target.value)}
-                    onBlur={handleTaxIdBlur}
-                    placeholder={rule?.placeholder ?? 'Seleccione un país'}
-                    disabled={isDisabled || saving}
-                    className={taxIdError ? 'border-destructive focus-visible:ring-destructive' : ''}
-                  />
-                </Field>
-              </Row>
-              <div className="mt-1.5 space-y-1">
-                <p className={`text-xs ${!rule ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground'}`}>
-                  {helpText}
-                </p>
-                {taxIdError && (
-                  <p className="text-xs text-destructive font-medium animate-su-fade-in">
-                    {taxIdError}
+            <SurfaceCard>
+              <SurfaceCardHeader
+                title="Identificador fiscal"
+                description={hasCountry && rule ? `Tipo: ${rule.label}` : undefined}
+              />
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Tipo">
+                    <Select
+                      value={form.tax_identifier_type}
+                      onValueChange={(v) => set('tax_identifier_type', (v ?? '') as TaxIdentifierType)}
+                      disabled={isDisabled || saving}
+                    >
+                      <SelectTrigger className="w-full h-11 rounded-xl">
+                        <SelectValue placeholder="Tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.entries(TAX_IDENTIFIER_TYPE_LABELS) as [TaxIdentifierType, string][]).map(
+                          ([key, label]) => (
+                            <SelectItem key={key} value={key}>{label}</SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Número">
+                    <Input
+                      value={form.tax_identifier}
+                      onChange={(e) => handleTaxIdChange(e.target.value)}
+                      onBlur={handleTaxIdBlur}
+                      placeholder={rule?.placeholder ?? 'Seleccione un país'}
+                      disabled={isDisabled || saving}
+                      className={taxIdError ? 'border-destructive focus-visible:ring-destructive' : ''}
+                    />
+                  </Field>
+                </div>
+                {taxIdError ? (
+                  <Alert variant="destructive">
+                    <AlertDescription className="text-xs">
+                      {taxIdError}
+                    </AlertDescription>
+                  </Alert>
+                ) : !rule && hasCountry ? (
+                  <Alert variant="warning">
+                    <AlertDescription className="text-xs">
+                      {helpText}
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {helpText}
                   </p>
                 )}
               </div>
-            </Section>
+            </SurfaceCard>
           );
         })()}
 
         {/* Fuente y notas */}
-        <Section icon={FileText} label="Fuente y notas">
-          <Field label="Fuente principal">
-            <Select
-              value={form.source_primary}
-              onValueChange={(v) => set('source_primary', (v ?? 'manual') as CandidateSourcePrimary)}
-              disabled={saving}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.entries(CANDIDATE_SOURCE_LABELS) as [CandidateSourcePrimary, string][]).map(
-                  ([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  )
-                )}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Notas de revisión">
-            <Textarea
-              value={form.review_notes}
-              onChange={(e) => set('review_notes', e.target.value)}
-              placeholder="Observaciones sobre este candidato..."
-              rows={3}
-              disabled={saving}
-            />
-          </Field>
-        </Section>
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Fuente y notas"
+            description="Origen del candidato y observaciones."
+          />
+          <div className="space-y-4">
+            <Field label="Fuente principal">
+              <Select
+                value={form.source_primary}
+                onValueChange={(v) => set('source_primary', (v ?? 'manual') as CandidateSourcePrimary)}
+                disabled={saving}
+              >
+                <SelectTrigger className="w-full h-11 rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(CANDIDATE_SOURCE_LABELS) as [CandidateSourcePrimary, string][]).map(
+                    ([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Notas de revisión">
+              <Textarea
+                value={form.review_notes}
+                onChange={(e) => set('review_notes', e.target.value)}
+                placeholder="Observaciones sobre este candidato..."
+                rows={3}
+                disabled={saving}
+              />
+            </Field>
+          </div>
+        </SurfaceCard>
       </form>
     </DrawerShell>
   );
