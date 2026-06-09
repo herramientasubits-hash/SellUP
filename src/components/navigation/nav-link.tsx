@@ -33,7 +33,7 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
                 aria-label={item.title}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "relative flex w-full items-center justify-center py-2.5 transition-all duration-200",
+                  "relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
                   isActive
                     ? "bg-su-brand/15 text-white"
                     : "text-sidebar-foreground/55 hover:bg-white/[0.05] hover:text-sidebar-foreground/85",

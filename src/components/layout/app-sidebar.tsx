@@ -143,13 +143,13 @@ export function AppSidebar({
       {/* Nav — middle, icon-rail with hover tooltips */}
       <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-4">
         {mainNavItems.map((item, i) => (
-          <div
-            key={item.href}
-            style={{ animationDelay: `${i * 40}ms` }}
-            className="animate-su-slide-in w-full"
-          >
-            <NavLink item={item} mode="rail" />
-          </div>
+            <div
+              key={item.href}
+              style={{ animationDelay: `${i * 40}ms` }}
+              className="animate-su-slide-in flex w-full justify-center"
+            >
+              <NavLink item={item} mode="rail" />
+            </div>
         ))}
       </nav>
 
