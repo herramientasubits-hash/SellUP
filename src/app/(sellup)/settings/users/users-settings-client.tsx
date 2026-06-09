@@ -145,7 +145,7 @@ export function UsersSettingsClient({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="usuarios" className="flex-1 min-h-0 mt-2 overflow-y-auto">
+        <TabsContent value="usuarios" className="flex-1 min-h-0 mt-2 flex flex-col overflow-hidden">
           <UsersTab
             users={users}
             roles={roles}
@@ -159,7 +159,7 @@ export function UsersSettingsClient({
           />
         </TabsContent>
 
-        <TabsContent value="grupos" className="flex-1 min-h-0 mt-2 overflow-y-auto">
+        <TabsContent value="grupos" className="flex-1 min-h-0 mt-2 flex flex-col overflow-hidden">
           <GroupsTab
             users={users}
             groups={groups}

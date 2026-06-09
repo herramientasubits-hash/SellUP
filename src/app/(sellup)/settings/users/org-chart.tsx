@@ -152,7 +152,7 @@ export function OrgChart({ users, roles }: OrgChartProps) {
   }
 
   return (
-    <div className="relative h-full min-h-[400px] select-none">
+    <div className="relative h-full min-h-[400px] select-none rounded-2xl border border-border/50 bg-card p-5 shadow-[0_1px_3px_0_rgb(0_0_0/0.03),0_1px_2px_-1px_rgb(0_0_0/0.03)]">
       {/* Zoom controls */}
       <div className="absolute right-3 top-3 z-10 flex flex-col gap-1">
         <button

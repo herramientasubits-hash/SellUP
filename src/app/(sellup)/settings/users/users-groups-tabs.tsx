@@ -235,9 +235,9 @@ export function UsersTab({
 
       {/* Org chart */}
       {showOrgChart && viewMode === 'org' && (
-        <SurfaceCard className="flex-1 overflow-hidden min-h-[500px]">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <OrgChart users={users} roles={roles} />
-        </SurfaceCard>
+        </div>
       )}
 
       {/* User list */}
