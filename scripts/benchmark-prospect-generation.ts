@@ -1,12 +1,15 @@
 #!/usr/bin/env tsx
 /**
- * Benchmark de Generación de Prospectos — CLI (Hito 16AB.23)
+ * Benchmark de Generación de Prospectos — CLI (Hito 16AB.23.3)
  *
- * Ejecuta la solicitud canónica contra todos los proveedores configurados.
- * Genera resultados ciegos en scratch/prospect-benchmark/run-<timestamp>/
+ * Ejecuta la solicitud canónica contra los proveedores seleccionados.
+ * Genera resultados en scratch/prospect-benchmark/run-<timestamp>/
  *
- * Uso: npm run benchmark:prospects
- *      npx tsx scripts/benchmark-prospect-generation.ts
+ * Uso:
+ *   npm run benchmark:prospects
+ *   npm run benchmark:prospects -- --providers=anthropic_native_search
+ *   npm run benchmark:prospects -- --resume=<run-id>
+ *   npm run benchmark:prospects -- --modes=anthropic_native_search   (alias)
  *
  * Variables de entorno requeridas (al menos una para que algo ejecute):
  *   TAVILY_API_KEY + ANTHROPIC_API_KEY  → current_sellup (baseline)
@@ -24,7 +27,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
-// ─── Carga .env.local si existe (antes de cualquier import que use env vars) ──
+// ─── Carga .env.local si existe ───────────────────────────────────────────────
 
 function loadEnvFile(filePath: string): void {
   if (!existsSync(filePath)) return;
@@ -50,7 +53,7 @@ loadEnvFile(join(cwd, '.env'));
 import { CANONICAL_REQUEST } from '../src/server/benchmark/prospect-benchmark/canonical-request';
 import { runBenchmark } from '../src/server/benchmark/prospect-benchmark/runner';
 import { ensureOutputDir, printSummary, writeBlindOutputs } from '../src/server/benchmark/prospect-benchmark/output';
-import type { BenchmarkProviderMode } from '../src/server/benchmark/prospect-benchmark/types';
+import type { BenchmarkProviderMode, BenchmarkRunOptions } from '../src/server/benchmark/prospect-benchmark/types';
 
 // ─── Seguridad: confirmar que no estamos en producción ────────────────────────
 
@@ -60,23 +63,49 @@ if (process.env.NODE_ENV === 'production' && !process.env.BENCHMARK_ALLOW_PRODUC
   process.exit(1);
 }
 
-// ─── Parse de argumentos opcionales ──────────────────────────────────────────
+// ─── Parse de argumentos ──────────────────────────────────────────────────────
 
-function parseArgs(): { modes?: BenchmarkProviderMode[] } {
+type ParsedArgs = {
+  modes?: BenchmarkProviderMode[];
+  resumeRunId?: string;
+};
+
+function parseArgs(): ParsedArgs {
   const args = process.argv.slice(2);
-  const modesIdx = args.indexOf('--modes');
-  if (modesIdx >= 0 && args[modesIdx + 1]) {
-    const modes = args[modesIdx + 1].split(',').map((m) => m.trim()) as BenchmarkProviderMode[];
-    return { modes };
+  const result: ParsedArgs = {};
+
+  for (const arg of args) {
+    // --providers=a,b,c  OR  --modes=a,b,c  (alias)
+    if (arg.startsWith('--providers=') || arg.startsWith('--modes=')) {
+      const val = arg.split('=', 2)[1] ?? '';
+      result.modes = val.split(',').map((m) => m.trim()) as BenchmarkProviderMode[];
+      continue;
+    }
+
+    // --resume=<run-id>
+    if (arg.startsWith('--resume=')) {
+      result.resumeRunId = arg.split('=', 2)[1]?.trim();
+      continue;
+    }
+
+    // Legacy positional --modes <value>
+    if (arg === '--modes' || arg === '--providers') {
+      const idx = args.indexOf(arg);
+      const next = args[idx + 1];
+      if (next && !next.startsWith('--')) {
+        result.modes = next.split(',').map((m) => m.trim()) as BenchmarkProviderMode[];
+      }
+    }
   }
-  return {};
+
+  return result;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   console.log('\n' + '═'.repeat(70));
-  console.log('  BENCHMARK DE GENERACIÓN DE PROSPECTOS — SellUp (16AB.23)');
+  console.log('  BENCHMARK DE GENERACIÓN DE PROSPECTOS — SellUp (16AB.23.3)');
   console.log('═'.repeat(70));
   console.log('\n  Solicitud canónica:');
   console.log(`    País:     ${CANONICAL_REQUEST.country} (${CANONICAL_REQUEST.country_code})`);
@@ -85,19 +114,41 @@ async function main(): Promise<void> {
   console.log(`    Contexto: ${CANONICAL_REQUEST.commercial_context}`);
   console.log('');
 
-  const { modes } = parseArgs();
+  const { modes, resumeRunId } = parseArgs();
 
-  // Generar run ID basado en timestamp
-  const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const outputDir = ensureOutputDir(cwd, runId);
+  // ─── Resolve run ID and output dir ─────────────────────────────────────────
 
-  console.log(`  Run ID: ${runId}`);
+  let runId: string;
+  let outputDir: string;
+
+  if (resumeRunId) {
+    runId = resumeRunId;
+    outputDir = ensureOutputDir(cwd, runId, true);
+    if (!existsSync(outputDir)) {
+      console.error(`\n  ERROR: No se encontró el run ${resumeRunId} en scratch/prospect-benchmark/`);
+      console.error('  Verifica el run ID e intenta de nuevo.\n');
+      process.exit(1);
+    }
+    console.log(`  Reanudando run: ${runId}`);
+  } else {
+    runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    outputDir = ensureOutputDir(cwd, runId, false);
+    console.log(`  Nuevo run: ${runId}`);
+  }
+
   console.log(`  Output: ${outputDir}\n`);
 
-  // Ejecutar benchmark
-  const { results, metrics } = await runBenchmark(CANONICAL_REQUEST, modes);
+  const runOptions: BenchmarkRunOptions = {
+    outputDir,
+    resumeRunId,
+  };
 
-  // Escribir salidas
+  // ─── Ejecutar benchmark ─────────────────────────────────────────────────────
+
+  const { results, metrics } = await runBenchmark(CANONICAL_REQUEST, modes, runOptions);
+
+  // ─── Escribir salidas ───────────────────────────────────────────────────────
+
   const completed = results.filter((r) => r.status !== 'skipped_not_configured');
   if (completed.length === 0) {
     console.log('\n  ATENCIÓN: Ningún proveedor pudo ejecutar.');
@@ -111,6 +162,10 @@ async function main(): Promise<void> {
 
   writeBlindOutputs(results, metrics, outputDir);
   printSummary(results, metrics, outputDir);
+
+  console.log(`\n  Para reanudar si se interrumpió:`);
+  console.log(`    npm run benchmark:prospects -- --resume=${runId}`);
+  console.log(`    npm run benchmark:prospects -- --providers=anthropic_native_search --resume=${runId}\n`);
 }
 
 main().catch((err) => {

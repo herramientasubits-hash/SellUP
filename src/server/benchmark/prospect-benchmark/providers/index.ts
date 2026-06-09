@@ -7,14 +7,14 @@ export { runAnthropicSearchProvider } from './anthropic-search';
 export { runOpenAISearchProvider } from './openai-search';
 export { runGeminiSearchProvider } from './gemini-search';
 
-import type { BenchmarkProviderMode, ProviderRunResult } from '../types';
+import type { BenchmarkProviderMode, BenchmarkRunOptions, ProviderRunResult } from '../types';
 import type { BenchmarkRequest } from '../types';
 import { runCurrentSellUpProvider } from './current-sellup';
 import { runAnthropicSearchProvider } from './anthropic-search';
 import { runOpenAISearchProvider } from './openai-search';
 import { runGeminiSearchProvider } from './gemini-search';
 
-export type ProviderRunner = (request: BenchmarkRequest) => Promise<ProviderRunResult>;
+export type ProviderRunner = (request: BenchmarkRequest, options?: BenchmarkRunOptions) => Promise<ProviderRunResult>;
 
 export const PROVIDER_RUNNERS: Record<BenchmarkProviderMode, ProviderRunner> = {
   current_sellup: runCurrentSellUpProvider,

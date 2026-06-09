@@ -306,6 +306,14 @@ export type CandidatePhaseResult = {
   final_candidates: VerifiedBenchmarkCandidate[];
 };
 
+// ─── Opciones de ejecución del benchmark ─────────────────────────────────────
+
+export type BenchmarkRunOptions = {
+  outputDir?: string;
+  resumeRunId?: string;
+  fetchFn?: typeof fetch;
+};
+
 // ─── Reporte completo del benchmark ──────────────────────────────────────────
 
 export type BenchmarkReport = {

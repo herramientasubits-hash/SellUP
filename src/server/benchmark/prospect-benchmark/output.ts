@@ -87,7 +87,7 @@ function buildMetricsTable(metrics: BenchmarkMetrics[]): string {
 
 // ─── Main output writer ───────────────────────────────────────────────────────
 
-export function ensureOutputDir(baseDir: string, runId: string): string {
+export function ensureOutputDir(baseDir: string, runId: string, _isResume = false): string {
   const dir = join(baseDir, 'scratch', 'prospect-benchmark', `run-${runId}`);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });

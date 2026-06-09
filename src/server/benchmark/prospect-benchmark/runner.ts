@@ -16,6 +16,7 @@ import type {
   BenchmarkCandidate,
   BenchmarkMetrics,
   BenchmarkProviderMode,
+  BenchmarkRunOptions,
   CandidatePhaseResult,
   DuplicatePhaseResult,
   PoolMetrics,
@@ -95,7 +96,8 @@ function printCostEstimation(modes: BenchmarkProviderMode[]): void {
 
 export async function runBenchmark(
   request: BenchmarkRequest,
-  modes: BenchmarkProviderMode[] = ALL_MODES
+  modes: BenchmarkProviderMode[] = ALL_MODES,
+  options?: BenchmarkRunOptions
 ): Promise<{ results: ProviderRunResult[]; metrics: BenchmarkMetrics[] }> {
 
   printCostEstimation(modes);
@@ -110,7 +112,7 @@ export async function runBenchmark(
     console.log(`  [${mode}] Ejecutando...`);
     const start = Date.now();
 
-    const result = await runner(request);
+    const result = await runner(request, options);
     const duration = ((Date.now() - start) / 1000).toFixed(1);
 
     if (result.status === 'skipped_not_configured') {
