@@ -44,7 +44,7 @@ export default async function UsersManagementPage() {
       </div>
 
       <div className="flex-1 min-h-0 px-8 pb-4 overflow-hidden">
-        <div className="h-full max-w-6xl mx-auto">
+        <div className="h-full">
           <UsersSettingsClient
             users={users}
             roles={roles}
