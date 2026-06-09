@@ -49,7 +49,7 @@ export function AIButton({
         aria-busy={loading}
         className={cn(
           "relative overflow-hidden transition-all duration-300 font-bold rounded-full",
-          isPrimary && !disabled && "su-ai-gradient text-su-brand-foreground border-transparent hover:opacity-90 active:scale-95",
+          isPrimary && !disabled && "su-ai-gradient text-su-brand-foreground border-0 shadow-none ring-0 hover:opacity-90 active:scale-95",
           isOutline && !disabled && "su-ai-border hover:opacity-80 active:scale-95",
           size === "xs" && "h-7 px-3 text-[10px] gap-1",
           size === "sm" && "h-8 px-4 text-xs gap-1.5",
