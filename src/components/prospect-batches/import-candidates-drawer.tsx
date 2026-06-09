@@ -486,14 +486,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         <div className="space-y-5">
           <SurfaceCard>
             <SurfaceCardHeader title="Configuración de importación" />
-            <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground">
                   País de referencia <span className="text-destructive">*</span>
                 </label>
                 <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
                   <SelectTrigger className="h-11 rounded-xl">
-                    <SelectValue placeholder="Selecciona el país de estos candidatos" />
+                    <SelectValue placeholder="País" />
                   </SelectTrigger>
                   <SelectContent>
                     {LATAM_COUNTRIES.map((c) => (
@@ -504,7 +504,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
-                  Se usará para las filas que no tengan país en el archivo.
+                  Valor por defecto para filas sin país.
                 </p>
               </div>
 
@@ -514,7 +514,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 </label>
                 <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
                   <SelectTrigger className="h-11 rounded-xl">
-                    <SelectValue placeholder="Selecciona una industria" />
+                    <SelectValue placeholder="Industria" />
                   </SelectTrigger>
                   <SelectContent>
                     {INDUSTRIES.map((ind) => (
@@ -525,7 +525,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
-                  Se usará para las filas que no tengan sector o industria.
+                  Valor por defecto para filas sin industria.
                 </p>
               </div>
             </div>
