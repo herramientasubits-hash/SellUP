@@ -1,0 +1,57 @@
+{
+  "candidate_id": "sgm-salud",
+  "layer": "D",
+  "type": "candidate_delta",
+  "version": "1.0",
+  "pool_source": "pool_consolidado_CO_Tecnologia_17_candidatos",
+
+  "known_data": {
+    "candidate_name": "SGM Salud",
+    "proposed_website": null,
+    "proposed_linkedin": null,
+    "discovery_reason": "Aparece en búsquedas de healthtech B2B o tecnología en Colombia; nombre sugiere actividad en sector salud",
+    "discovery_urls": [],
+    "duplicate_status": "not_flagged",
+    "known_risks": [
+      "El nombre incluye 'Salud' — riesgo de ser empresa operativa de salud y no empresa tecnológica",
+      "Puede ser empresa de servicios de salud ocupacional que usa tecnología internamente",
+      "Actividad principal no confirmada desde el pool"
+    ]
+  },
+
+  "role_in_validation": "caso_frontera_sectorial",
+  "role_description": "Permite verificar que el paquete distingue correctamente entre una empresa que comercializa tecnología B2B para el sector salud (healthtech B2B — aceptable) y una empresa que opera servicios de salud u ofrece software solo como herramienta interna (no aceptable en sector Tecnología). Si el paquete clasifica automáticamente como Tecnología por el contexto del pool sin verificar la actividad real, hay un problema en las reglas.",
+
+  "mandatory_verification_questions": [
+    "¿SGM Salud es una empresa de software o tecnología, o es una empresa que presta servicios de salud?",
+    "¿Tiene un producto o servicio tecnológico propio que comercializa a otras organizaciones (B2B)?",
+    "¿El producto tecnológico es su actividad principal o solo una herramienta de operación interna?",
+    "¿Existe evidencia de clientes empresariales que compran o usan su tecnología?",
+    "¿Tiene escala suficiente para UBITS (100+ empleados o señal equivalente)?",
+    "¿Opera formalmente en Colombia con presencia local confirmada?"
+  ],
+
+  "sector_boundary_test": {
+    "test_id": "SGM_BOUNDARY_001",
+    "rule_summary": "Si la actividad principal es prestar servicios de salud (clínica, salud ocupacional, medicina prepagada) y la tecnología es solo su herramienta interna, clasificar como Salud y asignar rejected para el pool de Tecnología.",
+    "rule_summary_2": "Solo avanza como Tecnología si confirma que comercializa, implementa o licencia un producto o servicio tecnológico para organizaciones (healthtech B2B).",
+    "source_document": "02_Playbook_de_diversificacion_y_novedad",
+    "source_section": "§6.2 Criterios de exclusión + §6.4 Salud & Farmacéuticos",
+    "execution_layer": "model",
+    "priority": "blocking"
+  },
+
+  "expected_hypothesis": "Solo puede quedar como eligible si se confirma que su actividad principal es comercializar tecnología B2B (healthtech B2B). Si la actividad principal es prestar servicios de salud, debe quedar rejected en el pool de Tecnología. Si la clasificación es ambigua, quedar en requires_review.",
+
+  "fields_to_verify": [
+    "official_website",
+    "linkedin_company_url",
+    "primary_business_activity",
+    "technology_b2b_classification",
+    "colombia_operation",
+    "size_and_scale",
+    "client_evidence"
+  ],
+
+  "verification_task": "Buscar evidencia pública de SGM Salud en Colombia. Objetivo principal: determinar si es una empresa de tecnología B2B (healthtech B2B) o una empresa que presta servicios de salud. Confirmar: (1) cuál es su actividad principal según sitio oficial y LinkedIn, (2) si comercializa tecnología a otras organizaciones o si presta servicios de salud, (3) si tiene clientes corporativos identificables que compran su tecnología. Si no se puede confirmar que vende tecnología B2B como actividad principal, asignar rejected. Si hay ambigüedad, asignar requires_review. Documentar evidencia y razonamiento."
+}

@@ -1,0 +1,109 @@
+{
+  "module": "verification_output_schema",
+  "layer": "A",
+  "type": "shared_cacheable",
+  "version": "1.0",
+  "source_document": "05_Contrato_de_salida_para_SellUp",
+  "source_sections": ["§3.1", "§5", "§6", "§7"],
+  "purpose": "Contrato compacto interno para verificación individual de candidatos",
+
+  "output_mode": "verification",
+  "delivery_format": "compact_verification_record + discovery_table_row",
+
+  "compact_verification_record": {
+    "candidate_name": "",
+    "identity": {
+      "status": "verified | supported | conflicting | not_found",
+      "official_website": "URL literal completa o null",
+      "linkedin_company_url": "https://www.linkedin.com/company/... o null",
+      "evidence_urls": ["URL 1", "URL 2"]
+    },
+    "colombia_operation": {
+      "status": "verified | supported | estimated | conflicting | not_found",
+      "evidence_urls": ["URL 1"]
+    },
+    "technology_b2b_fit": {
+      "status": "verified | supported | estimated | conflicting | not_found",
+      "subsegment": "nombre del subsegmento o null",
+      "reason": "explicación breve de por qué califica o no como tecnología B2B",
+      "evidence_urls": ["URL 1"]
+    },
+    "size": {
+      "value": "rango normalizado o null",
+      "status": "verified | supported | estimated | not_found",
+      "evidence_urls": []
+    },
+    "ubits_fit": {
+      "signals": ["señal 1", "señal 2"],
+      "status": "present | not_found"
+    },
+    "conflicts": [],
+    "missing_information": [],
+    "audit_status": "eligible_auditable | eligible_partially_auditable | requires_review | rejected",
+    "confidence": "Alta | Media | Baja",
+    "eligibility": "eligible_auditable | eligible_partially_auditable | requires_review | rejected",
+    "primary_evidence_url": "URL literal completa — fuente principal que confirma empresa + país + sector",
+    "notes": "texto libre; aclarar contexto de tamaño, duplicados, riesgos o condiciones"
+  },
+
+  "discovery_table_12_columns": {
+    "description": "Tabla oficial para importación en SellUp — 12 columnas exactas",
+    "columns": [
+      "Empresa",
+      "País",
+      "Sector",
+      "Sitio web",
+      "LinkedIn",
+      "Ciudad",
+      "Tamaño estimado",
+      "Descripción",
+      "URL evidencia principal",
+      "Fuente / evidencia",
+      "Confianza",
+      "Notas"
+    ],
+    "column_rules": {
+      "Empresa": "Nombre comercial público; sin razón social extensa si existe marca distinta",
+      "País": "País de la operación investigada — no asumir del grupo global",
+      "Sector": "Tecnología (en este caso)",
+      "Sitio web": "URL oficial completa y literal — no directorios ni redes sociales como sustituto",
+      "LinkedIn": "URL corporativa completa y literal; vacío si no se confirma",
+      "Ciudad": "Ciudad principal de operación en Colombia; vacío si no se confirma",
+      "Tamaño estimado": "Rango normalizado únicamente; contexto de global/local va en Notas",
+      "Descripción": "20-60 palabras neutras: qué hace, qué ofrece, en qué mercado, por qué es tecnología",
+      "URL evidencia principal": "URL específica y completa que permita confirmar empresa + sector + país",
+      "Fuente / evidencia": "Texto breve explicando qué demuestra la fuente",
+      "Confianza": "Alta | Media | Baja",
+      "Notas": "Aclaraciones de tamaño, duplicados, condiciones de elegibilidad, hipótesis de fit"
+    },
+    "source_document": "05_Contrato_de_salida_para_SellUp §6-§7"
+  },
+
+  "schema_validation_rules": [
+    {
+      "rule_id": "SCHEMA_001",
+      "rule_summary": "La tabla de discovery debe tener exactamente 12 columnas en el orden oficial.",
+      "execution_layer": "code"
+    },
+    {
+      "rule_id": "SCHEMA_002",
+      "rule_summary": "confidence solo puede ser Alta, Media o Baja.",
+      "execution_layer": "code"
+    },
+    {
+      "rule_id": "SCHEMA_003",
+      "rule_summary": "primary_evidence_url no puede ser null cuando eligibility es eligible_auditable.",
+      "execution_layer": "code"
+    },
+    {
+      "rule_id": "SCHEMA_004",
+      "rule_summary": "eligibility debe ser uno de: eligible_auditable, eligible_partially_auditable, requires_review, rejected.",
+      "execution_layer": "code"
+    },
+    {
+      "rule_id": "SCHEMA_005",
+      "rule_summary": "Tamaño estimado debe ser uno de los rangos normalizados o vacío.",
+      "execution_layer": "code"
+    }
+  ]
+}

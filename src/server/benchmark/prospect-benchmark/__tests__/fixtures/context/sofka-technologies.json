@@ -1,0 +1,41 @@
+{
+  "candidate_id": "sofka-technologies",
+  "layer": "D",
+  "type": "candidate_delta",
+  "version": "1.0",
+  "pool_source": "pool_consolidado_CO_Tecnologia_17_candidatos",
+
+  "known_data": {
+    "candidate_name": "Sofka Technologies",
+    "proposed_website": null,
+    "proposed_linkedin": null,
+    "discovery_reason": "Empresa de tecnología B2B conocida en Colombia; actividad clara en software y servicios TI",
+    "discovery_urls": [],
+    "duplicate_status": "not_flagged",
+    "known_risks": []
+  },
+
+  "role_in_validation": "caso_control_positivo",
+  "role_description": "Permite verificar que el paquete aprueba correctamente una empresa tecnológica B2B real con evidencia pública suficiente. Si el paquete rechaza o degrada indebidamente a Sofka, hay un problema en las reglas.",
+
+  "mandatory_verification_questions": [
+    "¿La identidad y dominio corresponden específicamente a Sofka Technologies y no a otra empresa con nombre similar?",
+    "¿Opera realmente en Colombia? ¿Tiene sede, equipo o clientes locales confirmados?",
+    "¿Su actividad principal es tecnología B2B (desarrollo, integración, servicios TI)?",
+    "¿El tamaño encontrado corresponde al grupo global o a la operación en Colombia? Aclarar en Notas.",
+    "¿Las URLs del sitio oficial y LinkedIn apuntan a la misma entidad?"
+  ],
+
+  "expected_hypothesis": "eligible_auditable si la evidencia confirma identidad, operación en Colombia y actividad tecnológica B2B. Hipótesis de control: el paquete no debe rechazar ni degradar indebidamente a una empresa con estas características.",
+
+  "fields_to_verify": [
+    "official_website",
+    "linkedin_company_url",
+    "colombia_operation",
+    "technology_b2b_subsegment",
+    "size_colombia_vs_global",
+    "identity_confirmation"
+  ],
+
+  "verification_task": "Buscar evidencia pública de Sofka Technologies en Colombia. Confirmar: (1) sitio oficial y LinkedIn corporativo corresponden a la misma entidad, (2) opera en Colombia con presencia local confirmada, (3) su actividad principal es tecnología B2B. Registrar subsegmento, tamaño aproximado y señales de fit UBITS. Reportar cualquier conflicto de identidad (ej: grupo regional vs. entidad colombiana específica). Asignar eligibility según gates."
+}

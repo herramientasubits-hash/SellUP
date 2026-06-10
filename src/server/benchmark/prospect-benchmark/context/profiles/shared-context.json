@@ -1,0 +1,197 @@
+{
+  "module": "agent1_global_rules",
+  "layer": "A",
+  "type": "shared_cacheable",
+  "version": "1.0",
+  "applies_to": "toda verificación, independientemente de país e industria",
+
+  "principal_rule": {
+    "rule_id": "GLOBAL_001",
+    "rule_summary": "Preferir dato no encontrado antes que dato inventado, ambiguo o presentado con certeza que la evidencia no permite.",
+    "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+    "source_section": "§2 Principio rector",
+    "execution_layer": "model",
+    "priority": "blocking"
+  },
+
+  "identity_rules": [
+    {
+      "rule_id": "IDENTITY_001",
+      "rule_summary": "No mezclar empresa, matriz, filial o marca. Cada verificación corresponde a una sola entidad.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§6 Validación de identidad empresarial",
+      "execution_layer": "combined",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "IDENTITY_002",
+      "rule_summary": "Confirmar identidad con al menos dos señales coincidentes: dominio, razón social, ID fiscal, dirección, marca, país+actividad.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§6.2 Señales de coincidencia fuerte",
+      "execution_layer": "combined",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "IDENTITY_003",
+      "rule_summary": "Marcar como requires_review cuando existan empresas homónimas, dominio de otro país, LinkedIn de marca diferente, empresa adquirida o renombrada.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§6.3 Señales de riesgo de identidad",
+      "execution_layer": "model",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "IDENTITY_004",
+      "rule_summary": "URL de LinkedIn corporativo debe comenzar por https://www.linkedin.com/company/ — no perfiles /in/.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§6 + 05_Contrato §5",
+      "execution_layer": "code",
+      "priority": "blocking"
+    }
+  ],
+
+  "evidence_rules": [
+    {
+      "rule_id": "EVIDENCE_001",
+      "rule_summary": "Una URL no constituye evidencia suficiente por sí sola. La evidencia debe explicar qué dato respalda, dónde aparece y por qué corresponde a la empresa investigada.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§5 Fuente no es lo mismo que evidencia",
+      "execution_layer": "model",
+      "priority": "high"
+    },
+    {
+      "rule_id": "EVIDENCE_002",
+      "rule_summary": "La evidencia principal solo puede ser fuerte cuando su URL provenga de tool_result_url, citation_url o tool_result_and_citation. Nunca de model_generated_url ni unknown_origin.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§21 Evidencia principal del prospecto",
+      "execution_layer": "combined",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "EVIDENCE_003",
+      "rule_summary": "Fuentes de exploración o baja autoridad (blogs, directorios abiertos, agregadores) nunca deben ser la única evidencia para confianza Alta.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§4.4 Nivel 4 — Fuentes de exploración",
+      "execution_layer": "combined",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "EVIDENCE_004",
+      "rule_summary": "Distinguir hechos (verified), estimaciones (estimated) e inferencias. Nunca presentar valor estimado como exacto.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§8 Estados de validación",
+      "execution_layer": "model",
+      "priority": "high"
+    },
+    {
+      "rule_id": "EVIDENCE_005",
+      "rule_summary": "URLs deben mostrarse como texto literal completo. Eliminar utm_*, fbclid, gclid. No usar texto ancla.",
+      "source_document": "05_Contrato_de_salida_para_SellUp",
+      "source_section": "§5 Regla obligatoria para URLs",
+      "execution_layer": "code",
+      "priority": "high"
+    }
+  ],
+
+  "quality_gates_global": [
+    {
+      "rule_id": "GATE_001",
+      "rule_summary": "Entregar menos resultados antes que completar con candidatos débiles o sin evidencia auditable.",
+      "source_document": "02_Playbook_de_diversificacion_y_novedad",
+      "source_section": "§3.2 + §4.3",
+      "execution_layer": "model",
+      "priority": "high"
+    },
+    {
+      "rule_id": "GATE_002",
+      "rule_summary": "Excluir confianza Baja. No proponer empresa con confianza Baja para escritura automática en HubSpot.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§9.3 low",
+      "execution_layer": "combined",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "GATE_003",
+      "rule_summary": "No promover resultados sin evidencia auditable. No aprobar candidato si la evidencia principal tiene origen desconocido o fue generada por el modelo.",
+      "source_document": "07_Checklist_calidad_QA_SellUp",
+      "source_section": "§4 Falla bloqueante + §5 QA de evidencia",
+      "execution_layer": "combined",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "GATE_004",
+      "rule_summary": "No inventar identificadores fiscales, NIT, correos, teléfonos ni contactos.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§13 Datos legales y fiscales",
+      "execution_layer": "model",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "GATE_005",
+      "rule_summary": "Reportar conflictos entre fuentes; no elegir silenciosamente uno sin fundamento.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§19 Tratamiento de conflictos",
+      "execution_layer": "model",
+      "priority": "high"
+    }
+  ],
+
+  "output_rules": [
+    {
+      "rule_id": "OUTPUT_001",
+      "rule_summary": "Idioma de salida: español. Pueden mantenerse en idioma original nombres, razones sociales, cargos y marcas.",
+      "source_document": "05_Contrato_de_salida_para_SellUp",
+      "source_section": "§4.4 Idioma",
+      "execution_layer": "model",
+      "priority": "high"
+    },
+    {
+      "rule_id": "OUTPUT_002",
+      "rule_summary": "Fechas en formato YYYY-MM-DD.",
+      "source_document": "05_Contrato_de_salida_para_SellUp",
+      "source_section": "§4.5 Fechas",
+      "execution_layer": "code",
+      "priority": "medium"
+    },
+    {
+      "rule_id": "OUTPUT_003",
+      "rule_summary": "La tabla de discovery debe tener exactamente 12 columnas en el orden oficial.",
+      "source_document": "05_Contrato_de_salida_para_SellUp",
+      "source_section": "§6 Salida oficial para discovery",
+      "execution_layer": "code",
+      "priority": "blocking"
+    }
+  ],
+
+  "model_responsibilities": [
+    "Interpretar actividad principal de la empresa",
+    "Investigar y confirmar identidad",
+    "Evaluar si es tecnología B2B real",
+    "Explicar evidencia con contexto suficiente",
+    "Detectar contradicciones entre fuentes",
+    "Identificar señales de fit UBITS",
+    "Proponer estado de validación (verified/supported/estimated/conflicting/not_found)",
+    "Proponer nivel de confianza (Alta/Media/Baja)",
+    "Proponer elegibilidad según gates"
+  ],
+
+  "code_responsibilities": [
+    "Validar schema del JSON de salida",
+    "Validar que LinkedIn URL contenga /company/",
+    "Rechazar perfiles /in/ de personas",
+    "Normalizar dominios y eliminar protocolos cuando aplique",
+    "Detectar y marcar duplicados por nombre o dominio",
+    "Verificar que evidencia principal tenga URL no vacía",
+    "Bloquear combinación not_found + confianza Alta",
+    "Aplicar caps de tamaño a rangos normalizados",
+    "Verificar columnas obligatorias en tabla de salida",
+    "Controlar presupuesto de tokens por llamada"
+  ],
+
+  "combined_responsibilities": [
+    "Suficiencia de evidencia: modelo evalúa semánticamente; código verifica campos obligatorios",
+    "Identidad empresarial: modelo evalúa señales; código valida formatos de URL y dominio",
+    "Clasificación tecnológica B2B: modelo evalúa actividad; código verifica contra lista de exclusiones",
+    "Confianza final: modelo propone; código bloquea combinaciones inválidas",
+    "Elegibilidad final: modelo y código aplican gates en conjunto"
+  ]
+}

@@ -1,0 +1,147 @@
+{
+  "module": "country_source_profile",
+  "layer": "B",
+  "type": "dynamic_by_country",
+  "country_code": "CO",
+  "country_name": "Colombia",
+  "version": "1.0",
+  "source_document": "01_Catalogo_maestro_de_fuentes_LATAM",
+  "source_sections": ["§7 fila Colombia", "§8.1 Colombia"],
+
+  "country_sources": [
+    {
+      "source_name": "RUES",
+      "source_type": "official_business_registry",
+      "purpose": "Validación formal: razón social, NIT, estado legal, forma jurídica",
+      "authority": "high",
+      "allowed_use": "Confirmar existencia formal de la empresa en Colombia",
+      "limitations": "Puede tener captcha o bloqueos; diferencia entre razón social y marca comercial",
+      "automation_level": "manual_or_low"
+    },
+    {
+      "source_name": "datos.gov.co / RUES Socrata",
+      "source_type": "official_open_data",
+      "purpose": "Consulta estructurada de registros mercantiles cuando dataset esté disponible",
+      "authority": "high",
+      "allowed_use": "Validación fiscal y empresarial con mayor automatización que RUES web",
+      "limitations": "Disponibilidad de datasets puede variar; verificar frescura del dataset",
+      "automation_level": "high_if_dataset_available"
+    },
+    {
+      "source_name": "Supersociedades",
+      "source_type": "regulator",
+      "purpose": "Tamaño y madurez empresarial; rankings de empresas grandes",
+      "authority": "high",
+      "allowed_use": "Estimar escala de empresa; confirmar existencia formal de sociedades grandes",
+      "limitations": "Cubre principalmente sociedades de cierta envergadura; no cubre todas las empresas",
+      "automation_level": "medium"
+    },
+    {
+      "source_name": "SECOP II",
+      "source_type": "public_procurement",
+      "purpose": "Discovery B2G; contratos adjudicados; NIT de proveedores tecnológicos al Estado",
+      "authority": "high",
+      "allowed_use": "Confirmar operación en Colombia; detectar actividad como proveedor tecnológico al Estado",
+      "limitations": "Aplica principalmente a empresas que contratan con el Estado",
+      "automation_level": "high_via_open_data"
+    },
+    {
+      "source_name": "Fedesoft",
+      "source_type": "industry_association",
+      "purpose": "Discovery de empresas de software y tecnología colombianas",
+      "authority": "medium",
+      "allowed_use": "Confirmar actividad tecnológica B2B; identificar subsegmento",
+      "limitations": "Solo cubre afiliados; no toda empresa tech está en Fedesoft",
+      "automation_level": "medium"
+    },
+    {
+      "source_name": "Clústeres TIC regionales",
+      "source_type": "industry_association",
+      "purpose": "Discovery sectorial tech por ciudad (Medellín, Bogotá, Cali, Barranquilla)",
+      "authority": "medium",
+      "allowed_use": "Confirmar presencia en ecosistema tech local",
+      "limitations": "Cobertura parcial; depende de la afiliación",
+      "automation_level": "medium"
+    },
+    {
+      "source_name": "ProColombia",
+      "source_type": "exporter_directory",
+      "purpose": "Discovery de empresas exportadoras de software y servicios TI",
+      "authority": "medium_high",
+      "allowed_use": "Señal de escala y actividad internacional para empresas tech",
+      "limitations": "Solo empresas con actividad exportadora",
+      "automation_level": "medium"
+    },
+    {
+      "source_name": "Great Place to Work Colombia",
+      "source_type": "company_ranking",
+      "purpose": "Señal de tamaño y cultura organizacional",
+      "authority": "high",
+      "allowed_use": "Señal de fit UBITS; confirmar escala mínima",
+      "limitations": "Sesgo hacia empresas que participan activamente en el ranking",
+      "automation_level": "medium"
+    },
+    {
+      "source_name": "LinkedIn corporativo",
+      "source_type": "commercial_public_source",
+      "purpose": "Identidad, tamaño estimado, operación, clientes, señales de crecimiento",
+      "authority": "medium",
+      "allowed_use": "Confirmar identidad; estimar tamaño; verificar actividad reciente",
+      "limitations": "Datos son self-reported; rango de empleados es aproximado",
+      "automation_level": "medium_via_search"
+    },
+    {
+      "source_name": "Sitio oficial",
+      "source_type": "official_website",
+      "purpose": "Fuente primaria corporativa para identidad, productos, servicios y presencia local",
+      "authority": "high",
+      "allowed_use": "Confirmar actividad principal, dominio oficial, descripción, sedes en Colombia",
+      "limitations": "Contenido self-reported; puede estar desactualizado",
+      "automation_level": "medium_via_search"
+    }
+  ],
+
+  "country_identity_rules": [
+    {
+      "rule_id": "CO_IDENTITY_001",
+      "rule_summary": "Operación en Colombia requiere evidencia explícita: sede, oficina, equipo, registro, clientes o presencia comercial local. La nacionalidad de los fundadores o una mención aislada no es suficiente.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§15 Dirección, ciudad y presencia geográfica",
+      "execution_layer": "model",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "CO_IDENTITY_002",
+      "rule_summary": "Distinguir razón social de nombre comercial. En Colombia muchas empresas difieren entre su marca y su razón social en RUES.",
+      "source_document": "01_Catalogo_maestro_de_fuentes_LATAM",
+      "source_section": "§8.1 Limitaciones",
+      "execution_layer": "model",
+      "priority": "high"
+    }
+  ],
+
+  "country_operation_rules": [
+    {
+      "rule_id": "CO_OPERATION_001",
+      "rule_summary": "No asumir que una empresa multinacional opera en Colombia solo por tener cobertura regional. Confirmar sede, equipo o clientes locales.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§15",
+      "execution_layer": "model",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "CO_OPERATION_002",
+      "rule_summary": "El tamaño puede referirse a empleados globales o empleados en Colombia. No mezclar escalas sin aclarar.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§14 Empleados, tamaño e ingresos",
+      "execution_layer": "model",
+      "priority": "high"
+    }
+  ],
+
+  "geographic_context": {
+    "main_tech_hubs": ["Bogotá", "Medellín", "Cali", "Barranquilla", "Bucaramanga"],
+    "source_document": "08_Matriz_orquestacion_prompts_busqueda",
+    "source_section": "§14 Distribución geográfica Colombia"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "module": "industry_search_profile",
+  "layer": "C",
+  "type": "dynamic_by_industry",
+  "industry_key": "technology",
+  "industry_name": "Tecnología",
+  "version": "1.0",
+  "source_document": "02_Playbook_de_diversificacion_y_novedad",
+  "source_sections": ["§6.2 Tecnología", "§4 Marco de calidad de candidatos"],
+
+  "operative_definition": "Incluye software empresarial, SaaS B2B, desarrollo a medida, integradores, servicios TI, cloud, data y analytics, ciberseguridad, QA y testing, RPA y automatización, infraestructura digital, fintech B2B, govtech, healthtech B2B y edtech corporativo. La empresa debe desarrollar, comercializar, implementar, operar, licenciar o integrar un producto o servicio tecnológico para organizaciones.",
+  "source_document_definition": "02_Playbook_de_diversificacion_y_novedad",
+  "source_section_definition": "§6.2 Definición operativa",
+
+  "included_subsegments": [
+    "software_factory",
+    "desarrollo_a_medida",
+    "erp_software_empresarial",
+    "crm_sales_tech",
+    "qa_testing",
+    "cloud",
+    "data_analytics",
+    "ciberseguridad",
+    "rpa_automatizacion",
+    "it_outsourcing",
+    "staff_augmentation",
+    "integradores_ti",
+    "devops_platform_engineering",
+    "fintech_infrastructure",
+    "healthtech_b2b",
+    "govtech",
+    "saas_empresarial",
+    "edtech_corporativo",
+    "hr_tech"
+  ],
+
+  "excluded_subsegments": [
+    "agencias_marketing_digital_sin_desarrollo_propio",
+    "apps_consumo_pequenas_sin_venta_enterprise",
+    "freelancers",
+    "consultores_individuales",
+    "estudios_boutique_sin_escala",
+    "empresas_salud_retail_finanzas_que_solo_usan_tecnologia",
+    "perfiles_marcas_sin_estructura_empresarial",
+    "empresas_sin_operacion_b2b_demostrable",
+    "bpo_clasificado_como_tech_sin_validar"
+  ],
+
+  "sector_validation_questions": [
+    "¿La empresa desarrolla, comercializa, implementa u opera un producto o servicio tecnológico propio o como integrador para organizaciones?",
+    "¿El producto o servicio tecnológico es su actividad principal, o solo usa tecnología como herramienta interna?",
+    "¿Existen clientes corporativos identificables?",
+    "¿Tiene equipo técnico visible (desarrolladores, arquitectos, QA, etc.)?",
+    "¿La descripción del sitio o LinkedIn muestra venta a empresas (B2B)?",
+    "¿Pertenece a algún subsegmento del listado included_subsegments?"
+  ],
+
+  "key_exclusion_test": {
+    "test_id": "TECH_EXCL_001",
+    "rule_summary": "No basta con que la empresa use software internamente. Debe comercializarlo o implementarlo para terceros.",
+    "source_document": "02_Playbook_de_diversificacion_y_novedad",
+    "source_section": "§6.2 Criterios de exclusión",
+    "execution_layer": "combined",
+    "priority": "blocking"
+  },
+
+  "ubits_fit_signals": [
+    "Equipos técnicos grandes",
+    "Reskilling constante",
+    "Certificaciones cloud, agile, security",
+    "Operación remota o regional",
+    "Crecimiento de headcount",
+    "Vacantes técnicas recurrentes",
+    "Equipos de customer success o implementación",
+    "Necesidad de inglés técnico",
+    "Formación de tech leads",
+    "Transformación a IA / cloud / data"
+  ],
+  "fit_signals_source": "02_Playbook_de_diversificacion_y_novedad §6.2 Señales de buen fit UBITS",
+  "fit_language_rule": "Presentar señales de fit como hipótesis: 'Podría existir una necesidad de formación asociada a...'. No afirmar necesidades como confirmadas.",
+
+  "misclassification_risks": [
+    "Confundir agencia digital con empresa tecnológica",
+    "Incluir BPO como tecnología sin validar",
+    "Incluir apps de consumo sin venta enterprise",
+    "Incluir estudios pequeños sin escala",
+    "Clasificar empresa de salud que usa un software como healthtech B2B"
+  ],
+  "risks_source": "02_Playbook_de_diversificacion_y_novedad §6.2 Riesgos de mala clasificación",
+
+  "industry_validation_rules": [
+    {
+      "rule_id": "TECH_001",
+      "rule_summary": "Verificar actividad principal con sitio oficial, LinkedIn, descripción de servicios y clientes antes de clasificar como Tecnología.",
+      "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+      "source_section": "§16 Sector e industria",
+      "execution_layer": "model",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "TECH_002",
+      "rule_summary": "Para healthtech B2B: confirmar que vende tecnología a organizaciones de salud, no que simplemente opera servicios de salud con apoyo tecnológico.",
+      "source_document": "02_Playbook_de_diversificacion_y_novedad",
+      "source_section": "§6.2 Criterios de exclusión",
+      "execution_layer": "model",
+      "priority": "blocking"
+    },
+    {
+      "rule_id": "TECH_003",
+      "rule_summary": "Para fintech B2B: confirmar venta de infraestructura o software a empresas financieras, no que sea una entidad financiera que usa tecnología.",
+      "source_document": "02_Playbook_de_diversificacion_y_novedad",
+      "source_section": "§6.2 Criterios de exclusión",
+      "execution_layer": "model",
+      "priority": "blocking"
+    }
+  ]
+}

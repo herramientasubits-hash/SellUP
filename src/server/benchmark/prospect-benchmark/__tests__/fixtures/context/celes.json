@@ -1,0 +1,56 @@
+{
+  "candidate_id": "celes",
+  "layer": "D",
+  "type": "candidate_delta",
+  "version": "1.0",
+  "pool_source": "pool_consolidado_CO_Tecnologia_17_candidatos",
+
+  "known_data": {
+    "candidate_name": "Celes",
+    "proposed_website": null,
+    "proposed_linkedin": null,
+    "discovery_reason": "Aparece en búsquedas de retail tech o tecnología B2B en Colombia",
+    "discovery_urls": [],
+    "duplicate_status": "possible_duplicate",
+    "known_risks": [
+      "Marcada como possible_duplicate en el pool",
+      "Antecedentes de evidencia agregadora o débil",
+      "Posible confusión con otra entidad de nombre similar"
+    ]
+  },
+
+  "role_in_validation": "caso_riesgo_duplicidad",
+  "role_description": "Permite verificar que el paquete detecta correctamente duplicidad, evidencia débil o insuficiente escala, y no promueve una empresa únicamente porque parece plausible. Si el paquete aprueba a Celes sin resolver el riesgo de duplicidad, hay un problema en las reglas.",
+
+  "mandatory_verification_questions": [
+    "¿La entidad es una empresa real, activa y con estructura corporativa identificable?",
+    "¿El dominio y el LinkedIn corresponden a la misma empresa con el mismo nombre?",
+    "¿Existe un duplicado en el pool histórico, en SellUp o en HubSpot que corresponda a esta misma entidad?",
+    "¿La evidencia disponible proviene de fuentes directas (sitio oficial, registro) o solo de agregadores y directorios?",
+    "¿La actividad corresponde realmente a retail tech B2B o a otra categoría sectorial?",
+    "¿Tiene escala suficiente para UBITS (100+ empleados o señal equivalente)?"
+  ],
+
+  "expected_hypothesis": "requires_review o rejected si persisten duplicidad, evidencia débil o falta de escala demostrable. El paquete debe activar requires_review al menos ante la marca possible_duplicate, sin esperar evidencia adicional.",
+
+  "duplicate_check_protocol": {
+    "rule_id": "CELES_DUP_001",
+    "rule_summary": "Al detectar duplicate_status = possible_duplicate, el candidato debe quedar como requires_review como mínimo, salvo que se resuelva explícitamente la unicidad con evidencia directa.",
+    "source_document": "03_Protocolo_investigacion_evidencia_confianza",
+    "source_section": "§6.3 Señales de riesgo de identidad",
+    "execution_layer": "combined",
+    "priority": "blocking"
+  },
+
+  "fields_to_verify": [
+    "official_website",
+    "linkedin_company_url",
+    "duplicate_resolution",
+    "evidence_origin",
+    "technology_b2b_classification",
+    "size_and_scale",
+    "identity_confirmation"
+  ],
+
+  "verification_task": "Buscar evidencia pública de Celes en Colombia. Confirmar: (1) es una empresa real y activa con estructura corporativa identificable, (2) sitio oficial y LinkedIn apuntan a la misma entidad, (3) no existe duplicado en el pool que corresponda a la misma empresa. Evaluar si la evidencia proviene de fuentes directas o solo de agregadores. Clasificar actividad: ¿es realmente tecnología B2B o pertenece a otro sector? Verificar escala mínima. Si no se resuelve la duplicidad, asignar requires_review. Si la evidencia es débil o hay duplicado confirmado, asignar rejected."
+}
