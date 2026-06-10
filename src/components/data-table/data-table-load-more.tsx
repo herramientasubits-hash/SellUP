@@ -56,7 +56,7 @@ export function DataTableLoadMore({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center justify-center gap-3 px-5 py-3 text-xs text-muted-foreground border-t border-border/40",
+        "shrink-0 flex flex-wrap items-center justify-center gap-3 px-5 py-3 text-xs text-muted-foreground border-t border-border/40",
         className,
       )}
     >

@@ -426,7 +426,7 @@ export function DataTable<TData>({
               "su-table",
               (stickyHeader || fillHeight) && "su-table-sticky",
             )}
-            containerClassName={fillHeight ? "overflow-visible" : undefined}
+            containerClassName={fillHeight ? undefined : "overflow-x-auto"}
           >
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (

@@ -50,7 +50,7 @@ export function DataTablePagination<TData>({
     return (
       <div
         className={cn(
-          "flex items-center justify-between px-5 py-3 text-xs text-muted-foreground",
+          "shrink-0 flex items-center justify-between px-5 py-3 text-xs text-muted-foreground",
           className,
         )}
       >
