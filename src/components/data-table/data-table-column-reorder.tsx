@@ -127,8 +127,10 @@ export function SortableTableHead({
     transform: CSS.Translate.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : undefined,
-    position: "relative",
-    zIndex: isDragging ? 30 : undefined,
+    position: isDragging ? "relative" : "sticky",
+    top: isDragging ? undefined : 0,
+    zIndex: isDragging ? 30 : 10,
+    backgroundColor: isDragging ? undefined : "var(--card)",
   };
 
   return (

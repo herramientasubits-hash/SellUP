@@ -463,7 +463,10 @@ export function DataTable<TData>({
                     headerGroup.headers.map((header) => (
                       <TableHead
                         key={header.id}
-                        style={{ width: header.column.columnDef.size }}
+                        style={{
+                          width: header.column.columnDef.size,
+                          ...(fillHeight ? { position: "sticky", top: 0, zIndex: 10, backgroundColor: "var(--card)" } : {}),
+                        }}
                       >
                         {header.isPlaceholder
                           ? null
