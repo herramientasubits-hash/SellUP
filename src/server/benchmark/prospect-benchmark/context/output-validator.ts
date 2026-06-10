@@ -13,7 +13,8 @@ import type {
   VerificationOutputValidationResult,
   VerificationStatus,
   SizeScope,
-  AuditStatus,
+  AuditabilityStatus,
+  EligibilityStatus,
   Confidence,
   LegalNameRecord,
 } from './types';
@@ -35,7 +36,24 @@ const SIZE_SCOPES = new Set<string>([
   'unknown',
 ]);
 
-const AUDIT_STATUSES = new Set<string>([
+/** Valores válidos para `audit_status` (calidad de evidencia). */
+const AUDITABILITY_STATUSES = new Set<string>([
+  'auditable',
+  'partially_auditable',
+  'not_auditable',
+]);
+
+/**
+ * Mapa seguro de valores de elegibilidad usados por error en `audit_status`.
+ * Solo se reconocen los dos patrones documentados en 16AB.24.8.
+ */
+const AUDIT_STATUS_ELIGIBILITY_MAPPING: Record<string, AuditabilityStatus> = {
+  eligible_auditable: 'auditable',
+  eligible_partially_auditable: 'partially_auditable',
+};
+
+/** Valores válidos para `eligibility` (decisión operativa). */
+const ELIGIBILITY_STATUSES = new Set<string>([
   'eligible_auditable',
   'eligible_partially_auditable',
   'requires_review',
@@ -175,16 +193,21 @@ function migrateLegacySchema(input: Record<string, unknown>): MigrateResult {
 function buildResult(
   sanitizedOutput: CompactVerificationRecord | null,
   issues: VerificationOutputValidationIssue[],
+  auditStatusSanitization?: { originalValue: string; mappedTo: AuditabilityStatus },
 ): VerificationOutputValidationResult {
   const blockingIssues = issues.filter((i) => i.severity === 'blocking');
   const warnings = issues.filter((i) => i.severity === 'warning');
-  return {
+  const result: VerificationOutputValidationResult = {
     valid: blockingIssues.length === 0,
     sanitizedOutput,
     issues,
     blockingIssues,
     warnings,
   };
+  if (auditStatusSanitization) {
+    result.auditStatusSanitization = auditStatusSanitization;
+  }
+  return result;
 }
 
 // ─── Validación del bloque company_facts ──────────────────────────────────────
@@ -615,21 +638,32 @@ function validateCore(
   const conflicts = coerceStringArray(obj['conflicts']);
   const missing_information = coerceStringArray(obj['missing_information']);
 
-  // audit_status
+  // audit_status — acepta valores de auditabilidad o mapea desde enum de elegibilidad
   const rawAuditStatus = obj['audit_status'];
-  if (typeof rawAuditStatus !== 'string' || !AUDIT_STATUSES.has(rawAuditStatus)) {
+  let audit_status: AuditabilityStatus;
+  let auditStatusSanitization: { originalValue: string; mappedTo: AuditabilityStatus } | undefined;
+
+  if (typeof rawAuditStatus === 'string' && AUDITABILITY_STATUSES.has(rawAuditStatus)) {
+    audit_status = rawAuditStatus as AuditabilityStatus;
+  } else if (typeof rawAuditStatus === 'string' && rawAuditStatus in AUDIT_STATUS_ELIGIBILITY_MAPPING) {
+    const mapped = AUDIT_STATUS_ELIGIBILITY_MAPPING[rawAuditStatus]!;
+    audit_status = mapped;
+    auditStatusSanitization = { originalValue: rawAuditStatus, mappedTo: mapped };
+    issues.push({
+      path: 'audit_status',
+      code: 'audit_status_mapped_from_eligibility_enum',
+      severity: 'warning',
+      message: `audit_status '${rawAuditStatus}' es un valor de elegibilidad; mapeado automáticamente a '${mapped}'. Dato original preservado en auditStatusSanitization.`,
+    });
+  } else {
     issues.push({
       path: 'audit_status',
       code: 'invalid_enum',
       severity: 'blocking',
-      message: `Valor de enum inválido en audit_status: '${String(rawAuditStatus)}'.`,
+      message: `Valor de enum inválido en audit_status: '${String(rawAuditStatus)}'. Valores permitidos: auditable, partially_auditable, not_auditable.`,
     });
+    audit_status = 'not_auditable';
   }
-  const audit_status = (
-    typeof rawAuditStatus === 'string' && AUDIT_STATUSES.has(rawAuditStatus)
-      ? rawAuditStatus
-      : 'requires_review'
-  ) as AuditStatus;
 
   // confidence
   const rawConfidence = obj['confidence'];
@@ -649,19 +683,19 @@ function validateCore(
 
   // eligibility
   const rawEligibility = obj['eligibility'];
-  if (typeof rawEligibility !== 'string' || !AUDIT_STATUSES.has(rawEligibility)) {
+  if (typeof rawEligibility !== 'string' || !ELIGIBILITY_STATUSES.has(rawEligibility)) {
     issues.push({
       path: 'eligibility',
       code: 'invalid_enum',
       severity: 'blocking',
-      message: `Valor de enum inválido en eligibility: '${String(rawEligibility)}'.`,
+      message: `Valor de enum inválido en eligibility: '${String(rawEligibility)}'. Valores permitidos: eligible_auditable, eligible_partially_auditable, requires_review, rejected.`,
     });
   }
   let eligibility = (
-    typeof rawEligibility === 'string' && AUDIT_STATUSES.has(rawEligibility)
+    typeof rawEligibility === 'string' && ELIGIBILITY_STATUSES.has(rawEligibility)
       ? rawEligibility
       : 'requires_review'
-  ) as AuditStatus;
+  ) as EligibilityStatus;
 
   // primary_evidence_url
   const rawEvidenceUrl = obj['primary_evidence_url'];
@@ -706,30 +740,22 @@ function validateCore(
     eligibility = 'requires_review';
   }
 
-  // Gate 3: audit_status rejected implica eligibility rejected
-  if (audit_status === 'rejected' && ELIGIBLE_STATUSES.has(eligibility)) {
+  // Gate 3: audit_status not_auditable es incompatible con elegibilidad directa
+  if (audit_status === 'not_auditable' && ELIGIBLE_STATUSES.has(eligibility)) {
     issues.push({
       path: 'eligibility',
-      code: 'eligible_with_rejected_audit',
+      code: 'eligible_with_not_auditable',
       severity: 'blocking',
-      message: 'audit_status rejected es incompatible con elegibilidad. Degradado a rejected.',
+      message: 'audit_status not_auditable es incompatible con elegibilidad. Degradado a requires_review.',
     });
-    eligibility = 'rejected';
+    eligibility = 'requires_review';
   }
 
-  // Gate 4: duplicado confirmado no puede ser elegible
-  const hasDuplicateConflict = conflicts.some(
-    (c) => /duplicado|duplicate/i.test(c),
-  );
-  if (hasDuplicateConflict && ELIGIBLE_STATUSES.has(eligibility)) {
-    issues.push({
-      path: 'eligibility',
-      code: 'eligible_with_duplicate',
-      severity: 'blocking',
-      message: 'Duplicado confirmado en conflicts es incompatible con elegibilidad. Degradado a rejected.',
-    });
-    eligibility = 'rejected';
-  }
+  // Gate 4 eliminado en 16AB.24.8: el patrón regex sobre texto libre de conflicts[]
+  // era demasiado amplio — detectaba menciones de "duplicados" en contextos de alias de
+  // identidad (ej: perfiles LinkedIn del mismo ente), no solo duplicados comerciales
+  // confirmados. La resolución de duplicidad es ahora competencia de computeFinalEligibility()
+  // que recibe un DuplicateResolutionDetail estructurado.
 
   const sanitizedOutput: CompactVerificationRecord = {
     candidate_name: candidateName || (typeof obj['candidate_name'] === 'string' ? obj['candidate_name'] : ''),
@@ -748,7 +774,7 @@ function validateCore(
     notes,
   };
 
-  return buildResult(sanitizedOutput, issues);
+  return buildResult(sanitizedOutput, issues, auditStatusSanitization);
 }
 
 // ─── API pública ──────────────────────────────────────────────────────────────

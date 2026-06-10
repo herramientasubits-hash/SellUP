@@ -54,7 +54,7 @@ function makeBase(): CompactVerificationRecord {
     ubits_fit: { signals: ['LMS integration'], status: 'present' },
     conflicts: [],
     missing_information: [],
-    audit_status: 'eligible_auditable',
+    audit_status: 'auditable',
     confidence: 'Alta',
     eligibility: 'eligible_auditable',
     primary_evidence_url: 'https://acme.com',

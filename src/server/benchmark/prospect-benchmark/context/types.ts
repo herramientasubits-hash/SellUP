@@ -192,13 +192,70 @@ export type VerificationStatus =
 
 export type SizeScope = 'colombia' | 'legal_entity' | 'global_group' | 'unknown';
 
-// ─── Estado de auditoría / elegibilidad ──────────────────────────────────────
+// ─── Auditabilidad de evidencia (calidad, separada de elegibilidad) ───────────
 
-export type AuditStatus =
+export type AuditabilityStatus = 'auditable' | 'partially_auditable' | 'not_auditable';
+
+// ─── Estado de elegibilidad operativa ─────────────────────────────────────────
+
+export type EligibilityStatus =
   | 'eligible_auditable'
   | 'eligible_partially_auditable'
   | 'requires_review'
   | 'rejected';
+
+// ─── Estado de auditoría (alias backward-compat) ──────────────────────────────
+
+/** @deprecated Use EligibilityStatus for eligibility fields; AuditabilityStatus for audit_status */
+export type AuditStatus = EligibilityStatus;
+
+// ─── Estado de check por fuente de duplicidad ─────────────────────────────────
+
+export type DuplicateSourceCheckStatus =
+  | 'not_checked'
+  | 'checked_no_match'
+  | 'possible_match'
+  | 'confirmed_match'
+  | 'check_failed';
+
+export type DuplicateSourceCheck = {
+  status: DuplicateSourceCheckStatus;
+  matches: string[];
+  checkedAt: string | null;
+  errorCode: string | null;
+};
+
+// ─── Resolución global de duplicidad ──────────────────────────────────────────
+
+export type GlobalDuplicateResolutionStatus =
+  | 'no_duplicate'
+  | 'possible_duplicate'
+  | 'confirmed_duplicate_sellup'
+  | 'confirmed_duplicate_hubspot'
+  | 'confirmed_duplicate_internal'
+  | 'unresolved_duplicate';
+
+export type DuplicateResolutionDetail = {
+  globalStatus: GlobalDuplicateResolutionStatus;
+  requiresHumanReview: boolean;
+  blocksEligibility: boolean;
+  sources: {
+    sellup: DuplicateSourceCheck;
+    hubspot: DuplicateSourceCheck;
+    internal_pool: DuplicateSourceCheck;
+    candidate_history: DuplicateSourceCheck;
+  };
+};
+
+// ─── Fuente de la elegibilidad final ──────────────────────────────────────────
+
+export type FinalEligibilitySource = 'deterministic_gates' | 'model_proposal' | 'error';
+
+export type DeterministicEligibilityResult = {
+  finalEligibility: EligibilityStatus;
+  finalEligibilitySource: FinalEligibilitySource;
+  reasoning: string[];
+};
 
 // ─── Confianza ────────────────────────────────────────────────────────────────
 
@@ -253,9 +310,9 @@ export type CompactVerificationRecord = {
   };
   conflicts: string[];
   missing_information: string[];
-  audit_status: AuditStatus;
+  audit_status: AuditabilityStatus;
   confidence: Confidence;
-  eligibility: AuditStatus;
+  eligibility: EligibilityStatus;
   primary_evidence_url: string | null;
   notes: string;
 };
@@ -297,4 +354,8 @@ export type VerificationOutputValidationResult = {
   issues: VerificationOutputValidationIssue[];
   blockingIssues: VerificationOutputValidationIssue[];
   warnings: VerificationOutputValidationIssue[];
+  auditStatusSanitization?: {
+    originalValue: string;
+    mappedTo: AuditabilityStatus;
+  };
 };

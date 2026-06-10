@@ -13,6 +13,7 @@ import type {
   TwelveColumnRow,
   VerificationOutputValidationResult,
   VerificationOutputValidationIssue,
+  DuplicateResolutionDetail,
 } from './types';
 import { validateVerificationOutput } from './output-validator';
 
@@ -35,7 +36,10 @@ export const TWELVE_COLUMN_NAMES = [
 
 // ─── Construcción de Notas ────────────────────────────────────────────────────
 
-function buildNotes(record: CompactVerificationRecord): string {
+function buildNotes(
+  record: CompactVerificationRecord,
+  duplicateResolution?: DuplicateResolutionDetail,
+): string {
   const parts: string[] = [];
 
   const commercialName = record.identity.commercial_name || record.candidate_name;
@@ -67,6 +71,23 @@ function buildNotes(record: CompactVerificationRecord): string {
     parts.push(`Conflictos: ${record.conflicts.join('; ')}`);
   }
 
+  // Notas de resolución de duplicidad (16AB.24.8)
+  if (duplicateResolution) {
+    const dup = duplicateResolution;
+    const needsReview =
+      dup.globalStatus === 'unresolved_duplicate' ||
+      dup.globalStatus === 'possible_duplicate' ||
+      dup.requiresHumanReview;
+    const hubspotNotChecked = dup.sources.hubspot.status === 'not_checked';
+
+    if (needsReview) {
+      parts.push('Posible duplicado sin resolver');
+    }
+    if (hubspotNotChecked) {
+      parts.push('HubSpot no consultado');
+    }
+  }
+
   if (record.notes) {
     parts.push(record.notes);
   }
@@ -74,9 +95,19 @@ function buildNotes(record: CompactVerificationRecord): string {
   return parts.join(' | ');
 }
 
+// ─── Opciones de transformación ───────────────────────────────────────────────
+
+export type TransformOptions = {
+  duplicateResolution?: DuplicateResolutionDetail;
+  currentYear?: number;
+};
+
 // ─── Transformación principal ─────────────────────────────────────────────────
 
-export function transformToTwelveColumns(record: CompactVerificationRecord): TwelveColumnRow {
+export function transformToTwelveColumns(
+  record: CompactVerificationRecord,
+  options?: TransformOptions,
+): TwelveColumnRow {
   const empresa = record.identity.commercial_name || record.candidate_name;
   const ciudad = record.colombia_operation.primary_city ?? '';
   const tamano = record.size.value ?? '';
@@ -96,7 +127,7 @@ export function transformToTwelveColumns(record: CompactVerificationRecord): Twe
     url_evidencia_principal: evidenceUrl,
     fuente_evidencia: '',
     confianza: record.confidence,
-    notas: buildNotes(record),
+    notas: buildNotes(record, options?.duplicateResolution),
   };
 }
 
@@ -106,8 +137,11 @@ export type TransformResult =
   | { ok: true; row: TwelveColumnRow; issues: VerificationOutputValidationIssue[] }
   | { ok: false; issues: VerificationOutputValidationIssue[] };
 
-export function transformWithValidation(raw: unknown): TransformResult {
-  const validation: VerificationOutputValidationResult = validateVerificationOutput(raw);
+export function transformWithValidation(raw: unknown, options?: TransformOptions): TransformResult {
+  const validation: VerificationOutputValidationResult = validateVerificationOutput(
+    raw,
+    options?.currentYear !== undefined ? { currentYear: options.currentYear } : undefined,
+  );
 
   if (validation.sanitizedOutput === null) {
     return { ok: false, issues: validation.issues };
@@ -117,7 +151,7 @@ export function transformWithValidation(raw: unknown): TransformResult {
     return { ok: false, issues: validation.issues };
   }
 
-  const row = transformToTwelveColumns(validation.sanitizedOutput);
+  const row = transformToTwelveColumns(validation.sanitizedOutput, options);
   return { ok: true, row, issues: validation.issues };
 }
 
