@@ -24,6 +24,8 @@ import {
   computeCandidateKey,
   computeVerificationCandidateInputHash,
 } from './artifact-hash';
+import { extractJsonRobust, countJsonCandidates } from './json-extractor';
+import { buildInvalidResponseDiagnostic } from './response-diagnostics';
 import type { CheckpointManager } from './checkpoint';
 import type {
   ApiCallResult,
@@ -36,17 +38,16 @@ import type {
 import type { FetchFn } from './client';
 import type { BenchmarkCandidate } from '../types';
 
-// ─── JSON extraction ──────────────────────────────────────────────────────────
+// ─── JSON extraction — replaced by extractJsonRobust (16AB.23.9) ─────────────
+// The local extractJson only handled <json_output> tags.
+// extractJsonRobust from json-extractor.ts adds: direct parse, code fence,
+// balanced scanner, and truncation detection.
+// The original tag strategy is Strategy 3 in the new extractor.
 
-function extractJson(text: string): unknown | null {
-  const tagMatch = text.match(/<json_output>([\s\S]*?)<\/json_output>/);
-  const raw = tagMatch?.[1]?.trim() ?? null;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+/** Thin wrapper used by stage 1 (plan) which has no search audit to pass through. */
+function extractJsonForPlan(text: string): unknown | null {
+  const result = extractJsonRobust(text, null);
+  return result.success ? result.data : null;
 }
 
 // ─── Stage 1 — Search Plan ────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ export async function runStage1Plan(
 
   if (!result.data) return buildDefaultPlan(country, industry);
 
-  const parsed = extractJson(result.data) as Record<string, unknown> | null;
+  const parsed = extractJsonForPlan(result.data) as Record<string, unknown> | null;
   const plan = parsePlan(parsed);
   checkpoint.saveFile(cacheKey, plan);
   checkpoint.markStageCompleted('stage1_plan');
@@ -145,6 +146,17 @@ function buildDefaultPlan(country: string, _industry: string): SearchPlanOutput 
 
 // ─── Stage 2 — Discovery batches ─────────────────────────────────────────────
 
+// ─── Discovery parse result (16AB.23.9) ──────────────────────────────────────
+
+type DiscoveryParseResult = {
+  candidates: DiscoveryCandidate[];
+  rejectedCandidates: Array<{ index: number; reason: string; issues: Array<{ path: string; code: string }> }>;
+  parseError: string | null;
+  jsonCandidateCount: number;
+  strategy: string | null;
+  truncated: boolean;
+};
+
 export async function runStage2DiscoveryBatch(
   apiKey: string,
   batchIndex: number,
@@ -188,8 +200,11 @@ export async function runStage2DiscoveryBatch(
   metrics.longest_call_duration_ms = Math.max(metrics.longest_call_duration_ms, dur);
   metrics.total_api_calls++;
 
+  // 16AB.23.9: addUsage BEFORE any parsing — preserves tokens even when JSON fails
   checkpoint.addUsage(result.usage, result.errorCode);
   if (result.retried) { checkpoint.recordRetry(); metrics.retried_api_calls++; }
+
+  const usageReceived = (result.usage.input_tokens > 0 || result.usage.output_tokens > 0);
 
   // Persist and accumulate web search audit (16AB.23.5)
   if (result.webSearchAudit) {
@@ -198,33 +213,179 @@ export async function runStage2DiscoveryBatch(
     checkpoint.addWebSearchAuditCounts(result.webSearchAudit);
   }
 
+  // ── Response-level failures (no usable text from model) ───────────────────
   if (result.errorCode) {
     if (result.errorCode === 'connection_terminated') metrics.terminated_connections++;
+    if (result.errorCode === 'truncated_output') {
+      metrics.truncated_responses = (metrics.truncated_responses ?? 0) + 1;
+    }
+    if (result.errorCode === 'repeated_invalid_response') {
+      metrics.repeated_invalid_responses = (metrics.repeated_invalid_responses ?? 0) + 1;
+    }
+
     checkpoint.recordFailure();
     metrics.failed_api_calls++;
     checkpoint.recordBatchFailure('stage2_discovery', batchIndex, result.errorCode);
     metrics.partial_results_preserved = true;
+
+    if (usageReceived) {
+      metrics.invalid_responses_with_usage = (metrics.invalid_responses_with_usage ?? 0) + 1;
+    } else {
+      metrics.invalid_responses_without_usage = (metrics.invalid_responses_without_usage ?? 0) + 1;
+    }
+
+    // Save sanitized diagnostic — never raw text
+    checkpoint.saveResponseDiagnostic(
+      buildInvalidResponseDiagnostic({
+        errorCode: mapTodiagnosticCode(result.errorCode),
+        stage: 'stage2_discovery',
+        batchId: batchIndex,
+        stopReason: result.stopReason,
+        contentBlockTypes: [],
+        text: '',
+        jsonCandidateCount: 0,
+        usageReceived,
+        searchAuditReceived: !!result.webSearchAudit,
+        retryable: true,
+      }),
+      batchIndex
+    );
+
     return [];
   }
 
   checkpoint.recordSuccess();
   metrics.successful_api_calls++;
 
-  const candidates = parseDiscoveryCandidates(result.data ?? '', batchIndex, theme);
-  checkpoint.saveFile(checkpoint.discoveryFile(batchIndex), { batch_index: batchIndex, batch_theme: theme, candidates });
+  // ── Parse the structured output (16AB.23.9 — robust extraction) ───────────
+  const text = result.data ?? '';
+  const parsed = parseDiscoveryCandidatesDetailed(text, batchIndex, theme, result.stopReason);
+
+  if (parsed.parseError) {
+    // Text was returned but no valid JSON found — parse failure, not provider failure
+    metrics.parse_failures = (metrics.parse_failures ?? 0) + 1;
+    if (usageReceived) {
+      metrics.usage_preserved_after_parse_failure = (metrics.usage_preserved_after_parse_failure ?? 0) + 1;
+    }
+    checkpoint.recordBatchFailure('stage2_discovery', batchIndex, 'parse_error');
+    metrics.failed_api_calls++;
+
+    checkpoint.saveResponseDiagnostic(
+      buildInvalidResponseDiagnostic({
+        errorCode: parsed.truncated ? 'truncated_output' : 'no_json_candidate',
+        stage: 'stage2_discovery',
+        batchId: batchIndex,
+        stopReason: result.stopReason,
+        text,
+        jsonCandidateCount: parsed.jsonCandidateCount,
+        usageReceived,
+        searchAuditReceived: !!result.webSearchAudit,
+        retryable: true,
+      }),
+      batchIndex
+    );
+    return [];
+  }
+
+  // ── Save valid candidates (may be partial batch) ──────────────────────────
+  const { candidates, rejectedCandidates } = parsed;
+
+  if (rejectedCandidates.length > 0) {
+    metrics.schema_failures = (metrics.schema_failures ?? 0) + rejectedCandidates.length;
+    metrics.partial_batches_completed = (metrics.partial_batches_completed ?? 0) + 1;
+  }
+
+  checkpoint.saveFile(checkpoint.discoveryFile(batchIndex), {
+    batch_index: batchIndex,
+    batch_theme: theme,
+    candidates,
+    rejected_candidates: rejectedCandidates,
+    parse_strategy: parsed.strategy,
+  });
   checkpoint.markDiscoveryBatchCompleted(batchIndex);
   metrics.discovery_batches_completed++;
 
   return candidates;
 }
 
-function parseDiscoveryCandidates(text: string, batchIndex: number, theme: string): DiscoveryCandidate[] {
-  const obj = extractJson(text) as Record<string, unknown> | null;
-  if (!obj || !Array.isArray(obj['candidates'])) return [];
+/** Map MultistageErrorCode to InvalidResponseDiagnosticCode (best-effort). */
+function mapTodiagnosticCode(
+  code: import('./ms-types').MultistageErrorCode | null
+): import('./response-diagnostics').InvalidResponseDiagnosticCode {
+  if (!code) return 'provider_error';
+  const map: Record<string, import('./response-diagnostics').InvalidResponseDiagnosticCode> = {
+    rate_limit: 'provider_error',
+    timeout: 'provider_error',
+    connection_terminated: 'provider_error',
+    invalid_response: 'no_text_blocks',
+    provider_error: 'provider_error',
+    budget_exhausted: 'provider_error',
+    parse_error: 'malformed_json',
+    empty_response: 'empty_response',
+    no_text_blocks: 'no_text_blocks',
+    truncated_output: 'truncated_output',
+    pause_turn_unhandled: 'pause_turn_unhandled',
+    repeated_invalid_response: 'repeated_invalid_response',
+  };
+  return map[code] ?? 'provider_error';
+}
 
-  return (obj['candidates'] as unknown[])
-    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null)
-    .map((c) => ({
+/** Validate a single raw candidate object and return issues. */
+function validateDiscoveryRow(c: Record<string, unknown>): Array<{ path: string; code: string }> {
+  const issues: Array<{ path: string; code: string }> = [];
+  const name = String(c['name'] ?? '').trim();
+  if (name.length < 2) issues.push({ path: 'name', code: 'too_short' });
+  const conf = String(c['confidence'] ?? '').toLowerCase();
+  if (!['alta', 'media', 'baja', 'high', 'low'].includes(conf)) {
+    issues.push({ path: 'confidence', code: 'invalid_value' });
+  }
+  return issues;
+}
+
+function parseDiscoveryCandidatesDetailed(
+  text: string,
+  batchIndex: number,
+  theme: string,
+  stopReason?: string | null
+): DiscoveryParseResult {
+  const jsonCandidateCount = text ? countJsonCandidates(text) : 0;
+  const extraction = extractJsonRobust(text, stopReason);
+
+  if (!extraction.success) {
+    return {
+      candidates: [],
+      rejectedCandidates: [],
+      parseError: extraction.error,
+      jsonCandidateCount,
+      strategy: null,
+      truncated: extraction.truncated,
+    };
+  }
+
+  const obj = extraction.data as Record<string, unknown> | null;
+  if (!obj || !Array.isArray(obj['candidates'])) {
+    return {
+      candidates: [],
+      rejectedCandidates: [],
+      parseError: 'no_candidates_array',
+      jsonCandidateCount,
+      strategy: extraction.strategy,
+      truncated: false,
+    };
+  }
+
+  const candidates: DiscoveryCandidate[] = [];
+  const rejectedCandidates: DiscoveryParseResult['rejectedCandidates'] = [];
+
+  (obj['candidates'] as unknown[]).forEach((raw, index) => {
+    if (typeof raw !== 'object' || raw === null) {
+      rejectedCandidates.push({ index, reason: 'not_an_object', issues: [{ path: '', code: 'not_object' }] });
+      return;
+    }
+    const c = raw as Record<string, unknown>;
+    const issues = validateDiscoveryRow(c);
+
+    const candidate: DiscoveryCandidate = {
       name: String(c['name'] ?? '').trim(),
       website: cleanUrl(c['website']),
       linkedin: cleanUrl(c['linkedin']),
@@ -238,8 +399,31 @@ function parseDiscoveryCandidates(text: string, batchIndex: number, theme: strin
       notes: cleanStr(c['notes']),
       batch_index: batchIndex,
       batch_theme: theme,
-    }))
-    .filter((c) => c.name.length > 1);
+    };
+
+    if (candidate.name.length < 2) {
+      rejectedCandidates.push({ index, reason: 'empty_name', issues });
+      return;
+    }
+
+    if (issues.length > 0) {
+      // Only reject on hard failures (name too short already caught above)
+      // Other issues: accept with partial data, log in rejectedCandidates for audit
+      rejectedCandidates.push({ index, reason: 'partial_schema_issues', issues });
+    }
+
+    // Accept the candidate — issues logged but not blocking (spec §6)
+    candidates.push(candidate);
+  });
+
+  return {
+    candidates,
+    rejectedCandidates,
+    parseError: null,
+    jsonCandidateCount,
+    strategy: extraction.strategy,
+    truncated: false,
+  };
 }
 
 // ─── Stage 3 — Deterministic pre-filter ──────────────────────────────────────
@@ -374,7 +558,7 @@ export async function runStage5VerificationBatch(
   checkpoint.recordSuccess();
   metrics.successful_api_calls++;
 
-  const verified = parseVerificationResult(result.data ?? '', candidates);
+  const verified = parseVerificationResult(result.data ?? '', candidates, result.stopReason);
   checkpoint.saveFile(checkpoint.verificationFile(batchIndex), { batch_index: batchIndex, candidates: verified });
   checkpoint.markVerificationBatchCompleted(batchIndex);
   metrics.verification_batches_completed++;
@@ -382,8 +566,9 @@ export async function runStage5VerificationBatch(
   return verified;
 }
 
-function parseVerificationResult(text: string, fallback: DiscoveryCandidate[]): VerifiedCandidateResult[] {
-  const obj = extractJson(text) as Record<string, unknown> | null;
+function parseVerificationResult(text: string, fallback: DiscoveryCandidate[], stopReason?: string | null): VerifiedCandidateResult[] {
+  const extraction = extractJsonRobust(text, stopReason);
+  const obj = extraction.success ? (extraction.data as Record<string, unknown> | null) : null;
 
   if (obj && Array.isArray(obj['candidates'])) {
     return (obj['candidates'] as unknown[])
@@ -513,7 +698,7 @@ export async function runStage5VerificationCandidates(
       checkpoint.recordSuccess();
       metrics.successful_api_calls++;
 
-      const verified = parseVerificationResult(result.data ?? '', batch);
+      const verified = parseVerificationResult(result.data ?? '', batch, result.stopReason);
 
       // Save each result individually to per-candidate cache
       for (let j = 0; j < verified.length; j++) {
@@ -592,7 +777,9 @@ export async function runReplacementDiscovery(
   checkpoint.recordSuccess();
   metrics.successful_api_calls++;
 
-  return parseDiscoveryCandidates(result.data ?? '', 100 + round, `replacement_round_${round}`);
+  return parseDiscoveryCandidatesDetailed(
+    result.data ?? '', 100 + round, `replacement_round_${round}`, result.stopReason
+  ).candidates;
 }
 
 // ─── Convert verified result → BenchmarkCandidate ────────────────────────────

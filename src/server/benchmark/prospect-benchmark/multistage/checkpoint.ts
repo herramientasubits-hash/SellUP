@@ -606,6 +606,43 @@ export class CheckpointManager {
 
   // ─── Invocation summary (16AB.23.7) ───────────────────────────────────────
 
+  // ─── Response diagnostics (16AB.23.9) ─────────────────────────────────────
+
+  /**
+   * Persist a sanitized InvalidResponseDiagnostic for one failed batch attempt.
+   * Stored under state/response-diagnostics/<stage>-<batchId>-attempt-<N>.json.
+   * A diagnostic does NOT mark the batch as completed.
+   * Only sanitized metadata is stored — no raw text, no prompts, no API keys.
+   */
+  saveResponseDiagnostic(
+    diagnostic: import('./response-diagnostics').InvalidResponseDiagnostic,
+    batchId?: number
+  ): void {
+    const subdir = 'response-diagnostics';
+    mkdirSync(join(this.stateDir, subdir), { recursive: true });
+
+    // Count existing attempts for this batch to assign attempt number
+    const prefix = batchId !== undefined
+      ? `${diagnostic.stage}-${String(batchId).padStart(2, '0')}`
+      : diagnostic.stage;
+
+    let attempt = 1;
+    try {
+      const existing = readdirSync(join(this.stateDir, subdir));
+      const matching = existing.filter((f) => f.startsWith(prefix) && f.endsWith('.json'));
+      attempt = matching.length + 1;
+    } catch { /* dir may not exist yet */ }
+
+    const fileName = `${prefix}-attempt-${String(attempt).padStart(2, '0')}.json`;
+    const fullPath = join(this.stateDir, subdir, fileName);
+
+    const record = {
+      ...diagnostic,
+      attemptNumber: attempt,
+    };
+    writeFileSync(fullPath, JSON.stringify(record, null, 2), 'utf-8');
+  }
+
   /** Persist a sanitized summary of this invocation's activity. No secrets, no raw responses. */
   saveInvocationSummary(finishedAt: string): void {
     const subdir = join(this.stateDir, 'invocations');

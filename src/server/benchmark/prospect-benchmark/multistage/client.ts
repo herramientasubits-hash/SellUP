@@ -30,6 +30,7 @@ import type {
   SearchCountStatus,
 } from './web-search-audit';
 import type { ApiCallResult, BatchUsage, MultistageErrorCode } from './ms-types';
+import { computeResponseHash } from './response-diagnostics';
 
 // ─── Anthropic request/response types ────────────────────────────────────────
 
@@ -220,6 +221,10 @@ export async function callAgentic(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  // Track last response metadata for granular error classification (16AB.23.9)
+  let lastStopReason: string | null = null;
+  let lastContentBlockTypes: string[] = [];
+
   try {
     while (iterations < MAX_ITER) {
       iterations++;
@@ -229,6 +234,9 @@ export async function callAgentic(
       totalInput += resp.usage?.input_tokens ?? 0;
       totalOutput += resp.usage?.output_tokens ?? 0;
 
+      lastStopReason = resp.stop_reason ?? null;
+      lastContentBlockTypes = resp.content.map((c) => c.type);
+
       // Extract audit for this response turn (includes server_tool_use and citations)
       if (maxSearchUses > 0) {
         turnAudits.push(extractAnthropicWebSearchAudit(resp));
@@ -236,9 +244,16 @@ export async function callAgentic(
 
       messages.push({ role: 'assistant', content: resp.content });
 
+      // 'pause_turn' signals the model paused mid-generation (extended thinking).
+      // Do not attempt to parse a partial response — flag explicitly for diagnosis.
+      if (resp.stop_reason === 'pause_turn') {
+        // Treat as non-retryable structural failure rather than generic invalid_response
+        finalText = '';
+        break;
+      }
+
       // stop_reason 'tool_use' signals client-side tool execution needed.
       // Server-side web_search returns 'end_turn' with results already in content.
-      // 'pause_turn' (extended thinking) also exits here — not expected for web search.
       if (resp.stop_reason !== 'tool_use') {
         finalText = extractText(resp.content);
         break;
@@ -263,12 +278,15 @@ export async function callAgentic(
     const errorCode = classifyError(err);
     const mergedAudit = turnAudits.length > 0 ? mergeWebSearchAudits(turnAudits) : null;
     const usage = buildBatchUsage(totalInput, totalOutput, mergedAudit);
+    const responseHash = computeResponseHash('', errorCode, lastStopReason);
     return {
       data: null,
       usage,
       errorCode,
       errorMessage: err instanceof Error ? err.message : String(err),
       durationMs: Date.now() - startMs,
+      stopReason: lastStopReason,
+      responseHash,
       ...(mergedAudit ? { webSearchAudit: mergedAudit } : {}),
     };
   }
@@ -277,12 +295,37 @@ export async function callAgentic(
   const mergedAudit = turnAudits.length > 0 ? mergeWebSearchAudits(turnAudits) : null;
   const usage = buildBatchUsage(totalInput, totalOutput, mergedAudit);
 
+  // 16AB.23.9 — Granular classification of no-text responses
+  let errorCode: MultistageErrorCode | null = null;
+  let errorMessage: string | null = null;
+
+  if (!finalText) {
+    if (lastContentBlockTypes.length === 0) {
+      errorCode = 'empty_response';
+      errorMessage = 'Response contained no content blocks';
+    } else if (lastStopReason === 'pause_turn') {
+      errorCode = 'pause_turn_unhandled';
+      errorMessage = 'Model paused turn (pause_turn) before emitting text';
+    } else if (lastStopReason === 'max_tokens') {
+      errorCode = 'truncated_output';
+      errorMessage = 'Output truncated at token limit (max_tokens) before any text block';
+    } else {
+      // Has blocks (e.g. server_tool_use, web_search_tool_result) but no text block
+      errorCode = 'no_text_blocks';
+      errorMessage = `Response had ${lastContentBlockTypes.length} block(s) [${lastContentBlockTypes.join(', ')}] but no text block`;
+    }
+  }
+
+  const responseHash = computeResponseHash(finalText, errorCode, lastStopReason);
+
   return {
     data: finalText || null,
     usage,
-    errorCode: finalText ? null : 'invalid_response',
-    errorMessage: finalText ? null : 'No text content in response',
+    errorCode,
+    errorMessage,
     durationMs: Date.now() - startMs,
+    stopReason: lastStopReason,
+    responseHash,
     ...(mergedAudit ? { webSearchAudit: mergedAudit } : {}),
   };
 }
@@ -295,6 +338,19 @@ function sleep(ms: number): Promise<void> {
 
 export type RetryResult = ApiCallResult<string> & { retried: boolean };
 
+/**
+ * Returns true for non-rate-limit response failures that warrant a single retry.
+ * pause_turn and empty_response are NOT retried — they indicate structural issues.
+ * repeated_invalid_response is never retried (already the dedup result).
+ */
+function isRetryableParseError(code: MultistageErrorCode | null): boolean {
+  return (
+    code === 'invalid_response' ||
+    code === 'no_text_blocks' ||
+    code === 'truncated_output'
+  );
+}
+
 export async function callWithRetry(
   apiKey: string,
   userPrompt: string,
@@ -306,19 +362,51 @@ export async function callWithRetry(
   let last: ApiCallResult<string> | null = null;
   let retried = false;
 
+  // 16AB.23.9 — track previous non-rate-limit response hash for identical-retry detection
+  let prevParseHash: string | null = null;
+  let prevParseErrorCode: MultistageErrorCode | null = null;
+
   for (let attempt = 0; attempt <= MULTISTAGE_CONFIG.max_retries_per_call; attempt++) {
     if (attempt > 0) {
       retried = true;
-      const waitMs = Math.min(MULTISTAGE_CONFIG.backoff_base_ms * Math.pow(2, attempt - 1), 60_000);
-      onRateLimitWait?.(waitMs);
-      await sleepFn(waitMs);
+      // Rate-limit retries use exponential backoff; parse retries are immediate
+      if (last?.errorCode === 'rate_limit') {
+        const waitMs = Math.min(MULTISTAGE_CONFIG.backoff_base_ms * Math.pow(2, attempt - 1), 60_000);
+        onRateLimitWait?.(waitMs);
+        await sleepFn(waitMs);
+      }
     }
 
     const result = await callAgentic(apiKey, userPrompt, opts, fetchFn);
     last = result;
 
-    // Only retry on rate limit
-    if (result.errorCode !== 'rate_limit') break;
+    if (result.errorCode === 'rate_limit') continue;
+
+    // 16AB.23.9 — identical-response detection for retryable parse errors
+    if (isRetryableParseError(result.errorCode)) {
+      const currentHash = result.responseHash ?? null;
+      if (
+        currentHash !== null &&
+        prevParseHash !== null &&
+        currentHash === prevParseHash &&
+        result.errorCode === prevParseErrorCode
+      ) {
+        // Two consecutive identical failures — do not attempt again
+        last = {
+          ...result,
+          errorCode: 'repeated_invalid_response',
+          errorMessage: `Identical response hash on consecutive attempts (${result.errorCode})`,
+        };
+        break;
+      }
+      prevParseHash = currentHash;
+      prevParseErrorCode = result.errorCode;
+
+      // Retry once on parse errors (only if attempts remain)
+      if (attempt < MULTISTAGE_CONFIG.max_retries_per_call) continue;
+    }
+
+    break;
   }
 
   return { ...last!, retried };

@@ -12,7 +12,13 @@ export type MultistageErrorCode =
   | 'invalid_response'
   | 'provider_error'
   | 'budget_exhausted'
-  | 'parse_error';
+  | 'parse_error'
+  // 16AB.23.9 — granular response failure codes
+  | 'empty_response'          // no content blocks at all
+  | 'no_text_blocks'          // content blocks present but none are type='text'
+  | 'truncated_output'        // stop_reason=max_tokens or scanner found incomplete JSON
+  | 'pause_turn_unhandled'    // stop_reason=pause_turn — turn paused mid-generation
+  | 'repeated_invalid_response'; // two consecutive identical non-rate-limit failures
 
 // ─── Stage outputs ─────────────────────────────────────────────────────────────
 
@@ -84,6 +90,15 @@ export type ApiCallResult<T> = {
   durationMs: number;
   /** Audit trail for Anthropic Web Search. Present when search was enabled for this call. */
   webSearchAudit?: import('./web-search-audit').AnthropicWebSearchAudit;
+  // 16AB.23.9 — response metadata for diagnostics and identical-retry detection
+  /** stop_reason from the final Anthropic response turn. */
+  stopReason?: string | null;
+  /**
+   * Sanitized fingerprint: SHA-256(textHash + errorCode + stopReason) truncated to 16 hex chars.
+   * Used to detect consecutive identical non-rate-limit failures in the retry loop.
+   * Never contains raw text.
+   */
+  responseHash?: string;
 };
 
 // ─── Usage ────────────────────────────────────────────────────────────────────
@@ -235,6 +250,15 @@ export type ExecutionMetrics = {
   quality_retraction_count?: number;
   legacy_candidates_retracted?: number;
   partial_input_preserved?: boolean;
+  // 16AB.23.9 additions
+  invalid_responses_with_usage?: number;
+  invalid_responses_without_usage?: number;
+  parse_failures?: number;
+  schema_failures?: number;
+  truncated_responses?: number;
+  partial_batches_completed?: number;
+  repeated_invalid_responses?: number;
+  usage_preserved_after_parse_failure?: number;
 };
 
 // ─── Legacy verification record (16AB.23.8) ────────────────────────────────────
