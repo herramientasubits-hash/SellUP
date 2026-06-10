@@ -491,14 +491,17 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       }
     >
       {/* Import loading overlay */}
-      {confirming ? (
-        <ImportLoadingOverlay
-          open={confirming}
-          total={preview ? preview.valid + preview.warnings_only : 0}
-        />
-      ) : (
-        <>
+      {confirming && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-su-fade-in">
+          <ImportLoadingOverlay
+            open={confirming}
+            total={preview ? preview.valid + preview.warnings_only : 0}
+          />
+        </div>
+      )}
+
       {/* ── Step: input ───────────────────────────────────── */}
+      {step === 'input' && !confirming && (
         <div className="space-y-5">
           <SurfaceCard>
             <SurfaceCardHeader title="Configuración de importación" />
@@ -728,6 +731,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             </AlertDescription>
           </Alert>
         </div>
+      )}
 
       {/* ── Step: preview ─────────────────────────────────── */}
       {step === 'preview' && preview && (
@@ -1018,8 +1022,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             </Alert>
           )}
         </div>
-      )}
-        </>
       )}
     </DrawerShell>
   );

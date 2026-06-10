@@ -58,10 +58,10 @@ export function ImportLoadingOverlay({
   const progress = ((completedSteps.length + 1) / STEPS.length) * 100;
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center animate-su-fade-in">
+    <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-su-fade-in">
       {/* Gradient card */}
       <div
-        className="w-full rounded-2xl p-8 flex flex-col items-center gap-5"
+        className="w-full max-w-lg rounded-2xl p-10 flex flex-col items-center gap-6"
         style={{
           background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
         }}
