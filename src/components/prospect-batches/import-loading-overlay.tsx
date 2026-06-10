@@ -59,7 +59,7 @@ export function ImportLoadingOverlay({
 
   return (
     <div
-      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
+      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
       style={{
         background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
       }}
