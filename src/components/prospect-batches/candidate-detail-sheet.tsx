@@ -21,10 +21,14 @@ import {
   RefreshCw,
   Info,
   Copy,
+  Target,
+  BarChart3,
 } from 'lucide-react';
 import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { ModalShell } from '@/components/shared/modal-shell';
+import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import {
   CANDIDATE_STATUS_LABELS,
@@ -860,7 +864,7 @@ export function CandidateDetailSheet({
         }
       >
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <TabsList variant="segmented" className="shrink-0 mx-7 mt-4">
+          <TabsList variant="line" className="shrink-0 mx-7 mt-4">
             <TabsTrigger value="empresa"><Building2 className="h-4 w-4" /> Empresa</TabsTrigger>
             <TabsTrigger value="validacion"><CheckCircle2 className="h-4 w-4" /> Validación</TabsTrigger>
           </TabsList>
@@ -886,140 +890,64 @@ export function CandidateDetailSheet({
               </div>
             )}
 
-            {/* Cards Grid de Evaluación */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Card 1: Evaluación y Estado */}
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-                <div>
-                  <div className="flex items-center gap-1">
-                    <SectionHeader>Evaluación de Encaje</SectionHeader>
-                    <InfoTooltip content="Clasificación automática del nivel de encaje comercial de la empresa con UBITS." />
+            {/* KPIs: Scores y Estado */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <MetricCard
+                title="Encaje"
+                description="Evaluación comercial"
+                value={fitScore !== null ? fitScore.toFixed(0) : '—'}
+                subtitle="/ 100"
+                icon={
+                  <div className="rounded-lg p-1.5 bg-su-brand-soft">
+                    <Target className="h-4 w-4 text-su-brand" />
                   </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    {fitStatus ? (
-                      <Badge
-                        className={`border-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                          fitStatus === 'high' || fitStatus === 'high_fit' || fitStatus === 'good_fit'
-                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                            : fitStatus === 'medium' || fitStatus === 'medium_fit'
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                            : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {FIT_STATUS_LABELS[fitStatus] ?? fitStatus.replace(/_/g, ' ')}
-                      </Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground italic">Sin evaluación</span>
-                    )}
-                    {fitScore !== null && (
-                      <span
-                        className={`text-sm font-semibold tabular-nums ${
-                          fitScore >= 75
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : fitScore >= 50
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-muted-foreground'
-                        }`}
-                      >
-                        {fitScore.toFixed(0)} / 100
-                      </span>
-                    )}
+                }
+                iconPosition="right"
+                valueClassName={fitScore !== null ? (fitScore >= 75 ? 'text-emerald-600 dark:text-emerald-400' : fitScore >= 50 ? 'text-amber-600 dark:text-amber-400' : '') : ''}
+              />
+              <MetricCard
+                title="Completitud"
+                description="Datos esenciales"
+                value={typeof candidate.data_completeness_score === 'number' ? candidate.data_completeness_score : '—'}
+                subtitle={typeof candidate.data_completeness_score === 'number' ? '%' : ''}
+                icon={
+                  <div className="rounded-lg p-1.5 bg-su-brand-soft">
+                    <BarChart3 className="h-4 w-4 text-su-brand" />
                   </div>
-                </div>
-
-                <div className="pt-2 border-t border-border/20">
-                  <div className="flex items-center gap-1">
-                    <SectionHeader>Estado en SellUp</SectionHeader>
-                    <InfoTooltip content="Estado del prospecto en la plataforma y el flujo de revisión." />
+                }
+                iconPosition="right"
+              />
+              <MetricCard
+                title="Estado"
+                description="En SellUp"
+                value={CANDIDATE_STATUS_LABELS[candidate.status]}
+                icon={
+                  <div className={`rounded-lg p-1.5 ${
+                    candidate.status === 'approved' ? 'bg-emerald-500/10' :
+                    candidate.status === 'needs_review' ? 'bg-amber-500/10' :
+                    candidate.status === 'converted_to_account' ? 'bg-su-brand-soft' :
+                    'bg-muted'
+                  }`}>
+                    <CheckCircle2 className={`h-4 w-4 ${
+                      candidate.status === 'approved' ? 'text-emerald-500' :
+                      candidate.status === 'needs_review' ? 'text-amber-500' :
+                      candidate.status === 'converted_to_account' ? 'text-su-brand' :
+                      'text-muted-foreground'
+                    }`} />
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap mt-1">
-                    {isAutoValidated ? (
-                      <>
-                        <Badge
-                          className={`border-0 text-[10px] font-semibold ${
-                            hasDuplicateSignalInValidation
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          }`}
-                        >
-                          {hasDuplicateSignalInValidation ? 'Posible duplicado' : 'Validado para revisión'}
-                        </Badge>
-                        <Badge className="border-0 text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                          Revisión manual
-                        </Badge>
-                      </>
-                    ) : (
-                      <>
-                        <Badge
-                          className={`border-0 text-[10px] font-semibold ${
-                            {
-                              generated: 'bg-muted text-muted-foreground',
-                              normalized: 'bg-muted text-muted-foreground',
-                              needs_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                              approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                              discarded: 'bg-muted/60 text-muted-foreground/60',
-                              duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-                              converted_to_account: 'bg-su-brand-soft text-su-brand',
-                            }[candidate.status]
-                          }`}
-                        >
-                          {CANDIDATE_STATUS_LABELS[candidate.status]}
-                        </Badge>
-                        {candidate.review_status && (
-                          <Badge
-                            className={`border-0 text-[10px] font-semibold ${
-                              REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
-                            }`}
-                          >
-                            {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
-                          </Badge>
-                        )}
-                      </>
-                    )}
+                }
+                iconPosition="right"
+                footer={candidate.review_status ? (
+                  <div className="flex items-center gap-2 pt-2 border-t border-border/40">
+                    <span className="text-[10px] text-muted-foreground">Revisión:</span>
+                    <Badge className={`border-0 text-[9px] font-semibold ${
+                      REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
+                    }`}>
+                      {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
+                    </Badge>
                   </div>
-                </div>
-              </div>
-
-              {/* Card 2: Completitud */}
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-                <div>
-                  <div className="flex items-center gap-1">
-                    <SectionHeader>Completitud de Datos</SectionHeader>
-                    <InfoTooltip content="Puntaje de completitud de datos esenciales de contacto y negocio." />
-                  </div>
-                  {typeof candidate.data_completeness_score === 'number' && (
-                    <div className="space-y-1.5 mt-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Completitud:</span>
-                        <span className="font-semibold text-foreground">{candidate.data_completeness_score}%</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-su-brand rounded-full transition-all duration-300"
-                          style={{ width: candidate.data_completeness_score + '%' }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-2 border-t border-border/20">
-                  <SectionHeader>Actividad y CIIU</SectionHeader>
-                  <FieldGrid>
-                    {ciiu && <Field label="Código CIIU" value={ciiu} mono />}
-                    <Field
-                      label="Industria"
-                      value={
-                        isChileOfficialCandidate ? (
-                          <span className="text-xs text-muted-foreground/60 italic">No disponible</span>
-                        ) : (
-                          val(sectorDescription ?? candidate.industry, 'Sin sector')
-                        )
-                      }
-                    />
-                  </FieldGrid>
-                </div>
-              </div>
+                ) : undefined}
+              />
             </div>
 
             {/* AI Summary */}
@@ -1205,8 +1133,9 @@ export function CandidateDetailSheet({
             )}
 
             {/* Datos Oficiales y Legales */}
-            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-              <SectionHeader>Datos Oficiales y Legales</SectionHeader>
+            <CollapsibleSection title="Datos Oficiales y Legales" defaultOpen>
+            <SurfaceCard>
+              <SurfaceCardHeader title="Datos Oficiales y Legales" />
               {isChileOfficialCandidate ? (
                 <FieldGrid>
                   <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
@@ -1312,11 +1241,13 @@ export function CandidateDetailSheet({
                 </FieldGrid>
                 </>
               )}
-            </div>
+            </SurfaceCard>
+            </CollapsibleSection>
 
             {/* Datos Comerciales y Web */}
-            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-              <SectionHeader>Datos Comerciales y Web</SectionHeader>
+            <CollapsibleSection title="Datos Comerciales y Web">
+            <SurfaceCard>
+              <SurfaceCardHeader title="Datos Comerciales y Web" />
               <div className="space-y-3">
                 <FieldGrid>
                   <Field
@@ -1421,11 +1352,13 @@ export function CandidateDetailSheet({
                   </div>
                 ) : null}
               </div>
-            </div>
+            </SurfaceCard>
+            </CollapsibleSection>
 
             {/* Evidencia Pública Encontrada */}
             {displayedPublicEvidence.length > 0 && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+              <CollapsibleSection title="Evidencia Pública">
+              <SurfaceCard>
                 <SectionHeader>Evidencia pública encontrada</SectionHeader>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {displayedPublicEvidence.map((item, idx) => {
@@ -1465,15 +1398,14 @@ export function CandidateDetailSheet({
                     );
                   })}
                 </div>
-              </div>
+              </SurfaceCard>
+              </CollapsibleSection>
             )}
 
             {/* Identificador Fiscal — estado automático */}
-            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-              <div className="flex items-center gap-1">
-                <SectionHeader>Identificador Fiscal</SectionHeader>
-                <InfoTooltip content="Dato legal o tributario consultado en fuentes disponibles. Debe revisarse antes de aprobarlo." />
-              </div>
+            <CollapsibleSection title="Identificador Fiscal">
+            <SurfaceCard>
+              <SurfaceCardHeader title="Identificador Fiscal" description="Dato legal o tributario consultado en fuentes disponibles. Debe revisarse antes de aprobarlo." />
 
               {candidate.tax_identifier ? (
                 /* Identificador ya existente */
@@ -1660,11 +1592,13 @@ export function CandidateDetailSheet({
                   );
                 })()
               )}
-            </div>
+            </SurfaceCard>
+            </CollapsibleSection>
 
             {/* Enriquecimiento Comercial */}
-            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-              <SectionHeader>Enriquecimiento</SectionHeader>
+            <CollapsibleSection title="Enriquecimiento">
+            <SurfaceCard>
+              <SurfaceCardHeader title="Enriquecimiento" />
               {(() => {
                 const eligibility = evaluateCandidateEnrichmentNeed(candidate);
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1770,17 +1704,15 @@ export function CandidateDetailSheet({
                   </div>
                 );
               })()}
-            </div>
+            </SurfaceCard>
+            </CollapsibleSection>
           </TabsContent>
 
           {/* Tab 2: Validación */}
           <TabsContent value="validacion" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
             {/* Estado de Duplicidad */}
-            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-              <div className="flex items-center gap-1">
-                <SectionHeader>Verificación de Duplicidad</SectionHeader>
-                <InfoTooltip content="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM." />
-              </div>
+            <SurfaceCard>
+              <SurfaceCardHeader title="Verificación de Duplicidad" description="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM." />
               <div className="flex items-center gap-2 flex-wrap mt-1">
                 {isAutoValidated ? (
                   <>
@@ -1840,7 +1772,7 @@ export function CandidateDetailSheet({
                   </Badge>
                 )}
               </div>
-            </div>
+            </SurfaceCard>
 
             {/* Coincidencias de Duplicidad */}
             {isAutoValidated ? (
@@ -2002,8 +1934,9 @@ export function CandidateDetailSheet({
 
             {/* Riesgos e Incertidumbres */}
             {sortedRisks.length > 0 && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                <SectionHeader>Riesgos e Incertidumbres</SectionHeader>
+              <CollapsibleSection title="Riesgos e Incertidumbres">
+              <SurfaceCard>
+                <SurfaceCardHeader title="Riesgos e Incertidumbres" />
                 <div className="space-y-2">
                   {sortedRisks.map((risk, i) => {
                     const severity = classifyRisk(risk);
@@ -2027,13 +1960,15 @@ export function CandidateDetailSheet({
                     );
                   })}
                 </div>
-              </div>
+              </SurfaceCard>
+              </CollapsibleSection>
             )}
 
             {/* Datos Faltantes (de evaluación IA) */}
             {missingFields.length > 0 && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                <SectionHeader>Datos Faltantes</SectionHeader>
+              <CollapsibleSection title="Datos Faltantes">
+              <SurfaceCard>
+                <SurfaceCardHeader title="Datos Faltantes" />
                 <ul className="space-y-1.5">
                   {missingFields.map((field, i) => (
                     <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground/80">
@@ -2042,13 +1977,15 @@ export function CandidateDetailSheet({
                     </li>
                   ))}
                 </ul>
-              </div>
+              </SurfaceCard>
+              </CollapsibleSection>
             )}
 
             {/* Datos de Validación (Claves normalizadas) */}
             {validationMetaSheet && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-                <SectionHeader>Datos de la Validación</SectionHeader>
+              <CollapsibleSection title="Claves Normalizadas">
+              <SurfaceCard>
+                <SurfaceCardHeader title="Datos de la Validación" />
                 <div className="space-y-3">
                   <FieldGrid>
                     <Field
@@ -2100,12 +2037,14 @@ export function CandidateDetailSheet({
                     </div>
                   )}
                 </div>
-              </div>
+              </SurfaceCard>
+              </CollapsibleSection>
             )}
 
             {/* Detalle Técnico del Sistema */}
-            <div className="rounded-xl border border-border/30 bg-card p-4 space-y-4">
-              <SectionHeader>Detalle Técnico del Sistema</SectionHeader>
+            <CollapsibleSection title="Detalle Técnico">
+            <SurfaceCard>
+              <SurfaceCardHeader title="Detalle Técnico del Sistema" />
               <FieldGrid>
                 <Field label="Candidate ID" value={candidate.id} mono />
                 <Field label="Batch ID" value={candidate.batch_id} mono />
@@ -2129,16 +2068,17 @@ export function CandidateDetailSheet({
                   <p className="text-xs text-muted-foreground leading-relaxed">{candidate.review_notes}</p>
                 </div>
               )}
-            </div>
+            </SurfaceCard>
 
             {candidate.source_trace && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-2">
-                <SectionHeader>Source Trace Raw JSON</SectionHeader>
+              <SurfaceCard>
+                <SurfaceCardHeader title="Source Trace Raw JSON" />
                 <pre className="text-[9px] text-muted-foreground/80 overflow-auto max-h-48 leading-relaxed font-mono bg-muted/40 p-2.5 rounded-lg border border-border/20">
                   {JSON.stringify(candidate.source_trace, null, 2)}
                 </pre>
-              </div>
+              </SurfaceCard>
             )}
+            </CollapsibleSection>
           </TabsContent>
         </Tabs>
       </DrawerShell>
