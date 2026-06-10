@@ -7,12 +7,10 @@ import {
   ClipboardPaste,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Loader2,
   FileText,
   ArrowLeft,
   GitMerge,
-  ExternalLink,
   Info,
   Copy,
 } from 'lucide-react';
@@ -33,6 +31,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ImportLoadingOverlay } from '@/components/prospect-batches/import-loading-overlay';
+import { ImportPreviewDataTable } from '@/components/prospect-batches/import-preview-data-table';
 import {
   parsePastedCandidates,
   parseCsvCandidates,
@@ -55,46 +54,17 @@ import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 type Step = 'input' | 'preview' | 'success';
 type FileMethod = 'paste' | 'file';
 
-interface ImportDuplicateResult {
+export interface ImportDuplicateResult {
   index: number;
   duplicate_status: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data';
   reason?: string;
 }
 
+import type { ImportRow } from '@/modules/prospect-batches/import-candidates-parser';
+export type { ImportRow } from '@/modules/prospect-batches/import-candidates-parser';
+
 interface ImportCandidatesDrawerProps {
   children: React.ReactNode;
-}
-
-// ── Helpers ───────────────────────────────────────────────────
-
-
-function DuplicateBadge({ status }: { status?: ImportDuplicateResult['duplicate_status'] }) {
-  if (!status || status === 'no_match') return null;
-  if (status === 'exact_duplicate') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold text-orange-600 dark:text-orange-400">
-        <GitMerge className="h-2.5 w-2.5" />
-        Duplicado exacto
-      </span>
-    );
-  }
-  if (status === 'possible_duplicate') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-        <GitMerge className="h-2.5 w-2.5" />
-        Posible duplicado
-      </span>
-    );
-  }
-  return null;
-}
-
-function DefaultBadge({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-su-brand-soft px-2 py-0.5 text-[10px] font-medium text-su-brand">
-      {label}
-    </span>
-  );
 }
 
 // ── Componente principal ──────────────────────────────────────
@@ -121,6 +91,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   // Preview state
   const [preview, setPreview] = React.useState<ImportPreview | null>(null);
   const [duplicates, setDuplicates] = React.useState<ImportDuplicateResult[]>([]);
+  const [selectedRows, setSelectedRows] = React.useState<ImportRow[]>([]);
   const [loadingPreview, setLoadingPreview] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
   const [resultBatchId, setResultBatchId] = React.useState<string | null>(null);
@@ -288,14 +259,15 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   // handleConfirm usa fetch (no Server Action) → sin router.refresh automático
   async function handleConfirm() {
     if (!preview) return;
-    const validRows = getValidRows(preview);
-    if (validRows.length === 0) {
-      toast.error('No hay filas válidas para importar.');
+    // Import only selected rows that are valid (no errors)
+    const rowsToImport = selectedRows.filter((r) => r.status !== 'error');
+    if (rowsToImport.length === 0) {
+      toast.error('No hay filas seleccionadas para importar.');
       return;
     }
     setConfirming(true);
     try {
-      const candidates = validRows.map((r) => ({
+      const candidates = rowsToImport.map((r) => ({
         company_name: r.raw.company_name,
         country: r.raw.country,
         country_code: r.resolved_country_code ?? r.raw.country_code,
@@ -444,6 +416,11 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             {step === 'preview' && preview && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
+                  {selectedRows.length > 0 && (
+                    <p className="text-[11px] text-su-brand font-medium">
+                      {selectedRows.length} fila{selectedRows.length !== 1 ? 's' : ''} seleccionada{selectedRows.length !== 1 ? 's' : ''} para importar.
+                    </p>
+                  )}
                   {preview.errors > 0 && (
                     <p className="text-[11px] text-destructive font-medium">
                       {preview.errors} {preview.errors === 1 ? 'fila' : 'filas'} con errores no {preview.errors === 1 ? 'será importada' : 'serán importadas'}.
@@ -463,7 +440,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     onClick={handleConfirm}
                     disabled={
                       confirming ||
-                      (preview.valid + preview.warnings_only === 0)
+                      selectedRows.filter((r) => r.status !== 'error').length === 0
                     }
                     size="sm"
                     className="gap-2 text-xs font-semibold"
@@ -474,7 +451,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         Importando y validando…
                       </>
                     ) : (
-                      `Importar y validar ${preview.valid + preview.warnings_only} candidatos`
+                      `Importar y validar ${selectedRows.filter((r) => r.status !== 'error').length} candidatos`
                     )}
                   </Button>
                 </div>
@@ -727,7 +704,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
       {/* ── Step: preview ─────────────────────────────────── */}
       {step === 'preview' && preview && (
-        <div className="space-y-4">
+        <div className="flex flex-col flex-1 min-h-0 gap-4">
           <button
             type="button"
             onClick={() => setStep('input')}
@@ -834,175 +811,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           )}
 
           {/* Tabla de filas */}
-          <div className="rounded-xl border border-border/40 overflow-hidden bg-card">
-            <div className="overflow-x-auto">
-              <table className="min-w-[1000px] w-full text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-border/40 bg-muted/30">
-                    <th className="px-3 py-2 text-center font-semibold text-muted-foreground w-12">#</th>
-                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[180px]">Empresa</th>
-                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground w-24">País</th>
-                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[120px]">Sector</th>
-                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[140px]">Website</th>
-                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[140px]">LinkedIn</th>
-                    <th className="px-3 py-2 text-center font-semibold text-muted-foreground w-28">Confianza</th>
-                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground w-40">Estado</th>
-                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[200px] max-w-[300px]">Notas / advertencias</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.map((row) => {
-                    const dup = duplicateMap.get(row.index);
-                    
-                    const displayUrl = row.raw.website ? row.raw.website.replace(/^(https?:\/\/)?(www\.)?/, '') : '';
-                    const hrefUrl = row.raw.website ? (row.raw.website.startsWith('http') ? row.raw.website : `https://${row.raw.website}`) : '';
-                    
-                    return (
-                      <tr key={row.index} className="border-b border-border/20 last:border-0 hover:bg-muted/20 transition-colors">
-                        <td className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
-                          {row.index + 1}
-                        </td>
-                        
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-col gap-0.5">
-                            <p className="font-semibold text-foreground truncate max-w-[200px]" title={row.raw.company_name}>
-                              {row.raw.company_name || <span className="text-muted-foreground/60 italic">Sin nombre</span>}
-                            </p>
-                            {row.raw.description && (
-                              <p className="text-[10px] text-muted-foreground/80 truncate max-w-[200px]" title={row.raw.description}>
-                                {row.raw.description}
-                              </p>
-                            )}
-                          </div>
-                        </td>
-                        
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-col gap-0.5">
-                            <p className="text-foreground font-medium">
-                              {row.resolved_country_code ?? row.raw.country_code ?? row.raw.country ?? (
-                                <span className="text-muted-foreground/60 italic">—</span>
-                              )}
-                            </p>
-                            {row.country_from_default && (
-                              <DefaultBadge label="por defecto" />
-                            )}
-                          </div>
-                        </td>
-                        
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-col gap-0.5">
-                            <p className="text-foreground truncate max-w-[120px]" title={row.raw.industry}>
-                              {row.raw.industry ?? <span className="text-muted-foreground/60 italic">—</span>}
-                            </p>
-                            {row.industry_from_default && (
-                              <DefaultBadge label="por defecto" />
-                            )}
-                          </div>
-                        </td>
-                        
-                        <td className="px-3 py-2.5">
-                          {row.raw.website ? (
-                            <a
-                              href={hrefUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
-                              title={row.raw.website}
-                            >
-                              {displayUrl}
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                            </a>
-                          ) : (
-                            <span className="text-muted-foreground/60 italic">—</span>
-                          )}
-                        </td>
-                        
-                        <td className="px-3 py-2.5">
-                          {row.raw.linkedin_url && row.raw.linkedin_url.toLowerCase() !== 'no encontrado' ? (
-                            <a
-                              href={row.raw.linkedin_url.startsWith('http') ? row.raw.linkedin_url : `https://${row.raw.linkedin_url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
-                              title={row.raw.linkedin_url}
-                            >
-                              {row.raw.linkedin_url.replace(/^(https?:\/\/)?(www\.)?linkedin\.com\//, '')}
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                            </a>
-                          ) : (
-                            <span className="text-muted-foreground/60 italic">No encontrado</span>
-                          )}
-                        </td>
-                        
-                        <td className="px-3 py-2.5 text-center">
-                          {row.raw.confidence ? (
-                            <span className={cn(
-                              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                              row.raw.confidence.toLowerCase() === 'alta' && "bg-emerald-500/10 text-emerald-500",
-                              row.raw.confidence.toLowerCase() === 'media' && "bg-amber-500/10 text-amber-500",
-                              row.raw.confidence.toLowerCase() === 'baja' && "bg-destructive/10 text-destructive",
-                              !['alta', 'media', 'baja'].includes(row.raw.confidence.toLowerCase()) && "bg-muted text-muted-foreground"
-                            )}>
-                              {row.raw.confidence}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground/60 italic">—</span>
-                          )}
-                        </td>
-                        
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <div className="flex flex-col gap-1 items-start">
-                            {row.status === 'error' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
-                                <XCircle className="h-2.5 w-2.5" />
-                                Error
-                              </span>
-                            )}
-                            {row.status === 'warning' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                                <AlertTriangle className="h-2.5 w-2.5" />
-                                Importable con advertencias
-                              </span>
-                            )}
-                            {row.status === 'valid' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                <CheckCircle2 className="h-2.5 w-2.5" />
-                                Importable
-                              </span>
-                            )}
-                            {dup && dup.duplicate_status !== 'no_match' && (
-                              <DuplicateBadge status={dup.duplicate_status} />
-                            )}
-                          </div>
-                        </td>
-                        
-                        <td className="px-3 py-2.5 max-w-[300px]">
-                          <div className="space-y-1 text-[11px] leading-relaxed">
-                            {row.errors.map((e) => (
-                              <div key={e} className="flex items-start gap-1 text-destructive font-medium">
-                                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-destructive" />
-                                <span>{e}</span>
-                              </div>
-                            ))}
-                            {row.warnings.map((w) => (
-                              <div key={w} className="flex items-start gap-1 text-amber-600 dark:text-amber-400">
-                                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-500" />
-                                <span className="truncate max-w-[240px]" title={w}>{w}</span>
-                              </div>
-                            ))}
-                            {row.raw.notes && (
-                              <div className="text-muted-foreground/80 truncate max-w-[260px]" title={row.raw.notes}>
-                                <span className="font-semibold">Notas:</span> {row.raw.notes}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+          <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border/40 bg-card">
+            <ImportPreviewDataTable
+              rows={preview.rows}
+              duplicateMap={duplicateMap}
+              onSelectionChange={setSelectedRows}
+            />
           </div>
 
           {preview.errors === preview.total && (
