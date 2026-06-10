@@ -14,11 +14,11 @@ interface ImportLoadingOverlayProps {
 }
 
 const STEPS = [
-  'Validando duplicados',
-  'Creando lote de importación',
-  'Registrando candidatos',
-  'Enriquecimiento automático',
-  'Finalizando',
+  { label: 'Importando candidatos', sub: 'Validando duplicados y estructura' },
+  { label: 'Buscando identificación fiscal', sub: 'Validando NIT / RUC / Cédula' },
+  { label: 'Enriquecimiento automático', sub: 'Consultando fuentes externas' },
+  { label: 'Registrando candidatos', sub: 'Guardando en base de datos' },
+  { label: 'Finalizando', sub: 'Preparando resultados' },
 ];
 
 export function ImportLoadingOverlay({
@@ -37,7 +37,7 @@ export function ImportLoadingOverlay({
     }
 
     const timers: NodeJS.Timeout[] = [];
-    const stepDuration = 1200;
+    const stepDuration = 1400;
 
     STEPS.forEach((_, i) => {
       if (i > 0) {
@@ -58,17 +58,14 @@ export function ImportLoadingOverlay({
   const progress = ((completedSteps.length + 1) / STEPS.length) * 100;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center animate-su-fade-in">
-      {/* Full gradient background */}
+    <div className="flex flex-col items-center justify-center py-8 animate-su-fade-in">
+      {/* Gradient card */}
       <div
-        className="absolute inset-0"
+        className="w-full rounded-2xl p-8 flex flex-col items-center gap-5"
         style={{
           background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
         }}
-      />
-
-      {/* Content */}
-      <div className="relative flex flex-col items-center gap-5 z-10">
+      >
         {/* Sparkle icon */}
         <div className="animate-su-float">
           <Sparkles className="h-10 w-10 text-white/80" strokeWidth={1.5} />
@@ -77,7 +74,7 @@ export function ImportLoadingOverlay({
         {/* Main label */}
         <div className="text-center space-y-1">
           <p className="text-base font-bold text-white">
-            Importando candidatos
+            {STEPS[currentStep].label}
           </p>
           {total > 0 && (
             <p className="text-sm text-white/70">
@@ -86,9 +83,9 @@ export function ImportLoadingOverlay({
           )}
         </div>
 
-        {/* Current step label */}
+        {/* Sub label */}
         <p className="text-xs text-white/60">
-          {STEPS[currentStep]}
+          {STEPS[currentStep].sub}
         </p>
 
         {/* Progress bar */}
