@@ -493,7 +493,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       <div className="relative flex-1 min-h-0">
         {/* Import loading overlay */}
         {confirming && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-su-fade-in">
+          <div className="absolute inset-0 z-50 flex items-center justify-center animate-su-fade-in">
             <ImportLoadingOverlay
               open={confirming}
               total={preview ? preview.valid + preview.warnings_only : 0}

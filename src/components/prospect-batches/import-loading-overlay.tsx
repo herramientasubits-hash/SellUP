@@ -58,47 +58,44 @@ export function ImportLoadingOverlay({
   const progress = ((completedSteps.length + 1) / STEPS.length) * 100;
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-su-fade-in">
-      {/* Gradient card */}
-      <div
-        className="w-full max-w-lg rounded-2xl p-10 flex flex-col items-center gap-6"
-        style={{
-          background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
-        }}
-      >
-        {/* Sparkle icon */}
-        <div className="animate-su-float">
-          <Sparkles className="h-10 w-10 text-white/80" strokeWidth={1.5} />
-        </div>
+    <div
+      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 p-8"
+      style={{
+        background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
+      }}
+    >
+      {/* Sparkle icon */}
+      <div className="animate-su-float">
+        <Sparkles className="h-12 w-12 text-white/80" strokeWidth={1.5} />
+      </div>
 
-        {/* Main label */}
-        <div className="text-center space-y-1">
-          <p className="text-base font-bold text-white">
-            {STEPS[currentStep].label}
-          </p>
-          {total > 0 && (
-            <p className="text-sm text-white/70">
-              {total} candidato{total !== 1 ? 's' : ''} en proceso
-            </p>
-          )}
-        </div>
-
-        {/* Sub label */}
-        <p className="text-xs text-white/60">
-          {STEPS[currentStep].sub}
+      {/* Main label */}
+      <div className="text-center space-y-1">
+        <p className="text-lg font-bold text-white">
+          {STEPS[currentStep].label}
         </p>
+        {total > 0 && (
+          <p className="text-sm text-white/70">
+            {total} candidato{total !== 1 ? 's' : ''} en proceso
+          </p>
+        )}
+      </div>
 
-        {/* Progress bar */}
-        <div className="w-full max-w-[280px] space-y-2">
-          <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-white transition-all duration-700 ease-out"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="flex justify-end text-xs font-bold text-white/80">
-            {Math.round(progress)}%
-          </div>
+      {/* Sub label */}
+      <p className="text-xs text-white/60">
+        {STEPS[currentStep].sub}
+      </p>
+
+      {/* Progress bar */}
+      <div className="w-full max-w-[280px] space-y-2">
+        <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-white transition-all duration-700 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex justify-end text-xs font-bold text-white/80">
+          {Math.round(progress)}%
         </div>
       </div>
     </div>
