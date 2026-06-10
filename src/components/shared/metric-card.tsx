@@ -21,6 +21,7 @@ interface MetricCardProps {
   error?: string;
   className?: string;
   valueClassName?: string;
+  compact?: boolean;
 }
 
 function MetricCardSkeleton({ className }: { className?: string }) {
@@ -60,6 +61,7 @@ export function MetricCard({
   error,
   className,
   valueClassName,
+  compact = false,
 }: MetricCardProps) {
   if (loading) return <MetricCardSkeleton className={className} />;
 
@@ -117,7 +119,8 @@ export function MetricCard({
           <div className="mt-3 flex items-baseline flex-wrap gap-x-2 gap-y-1">
             <span
               className={cn(
-                "text-3xl font-bold tracking-tight text-foreground tabular-nums",
+                compact ? "text-lg font-semibold" : "text-3xl font-bold",
+                "tracking-tight text-foreground tabular-nums",
                 valueClassName,
               )}
             >
@@ -165,7 +168,8 @@ export function MetricCard({
         <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1">
           <span
             className={cn(
-              "text-3xl font-bold tracking-tight text-foreground tabular-nums",
+              compact ? "text-lg font-semibold" : "text-3xl font-bold",
+              "tracking-tight text-foreground tabular-nums",
               valueClassName,
             )}
           >

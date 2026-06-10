@@ -921,6 +921,7 @@ export function CandidateDetailSheet({
                 title="Estado"
                 description="En SellUp"
                 value={CANDIDATE_STATUS_LABELS[candidate.status]}
+                compact
                 icon={
                   <div className={`rounded-lg p-1.5 ${
                     candidate.status === 'approved' ? 'bg-emerald-500/10' :
