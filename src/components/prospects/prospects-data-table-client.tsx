@@ -12,6 +12,7 @@ import {
   X,
   Info,
   Loader2,
+  Clock,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -106,6 +107,17 @@ const FIT_STATUS_LABELS: Record<string, string> = {
 const COUNTRY_LABELS: Record<string, string> = Object.fromEntries(
   LATAM_COUNTRIES.map((c) => [c.code, c.name])
 );
+
+function isLessThan24Hours(dateStr: string): boolean {
+  const created = new Date(dateStr);
+  const now = new Date();
+  return now.getTime() - created.getTime() < 24 * 60 * 60 * 1000;
+}
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -815,6 +827,35 @@ export function ProspectsDataTableClient({
           label: 'Origen',
           popoverTitle: 'Origen',
           filterOptions: ORIGIN_OPTIONS,
+        },
+      },
+      {
+        id: 'created_at',
+        accessorKey: 'created_at',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Fecha" />
+        ),
+        cell: ({ row }) => {
+          const c = row.original;
+          const isNew = c.created_at && isLessThan24Hours(c.created_at);
+          return (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {c.created_at ? formatDate(c.created_at) : '—'}
+              </span>
+              {isNew && (
+                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                  Nuevo
+                </Badge>
+              )}
+            </div>
+          );
+        },
+        size: 150,
+        minSize: 120,
+        meta: {
+          label: 'Fecha',
+          popoverTitle: 'Fecha de creación',
         },
       },
       {

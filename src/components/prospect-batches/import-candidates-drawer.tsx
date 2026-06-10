@@ -356,13 +356,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       setImportStats(result.stats || null);
       // Close drawer and show success toast
       handleClose();
-      toast.success(`Se importaron ${result.candidatesCreated} candidato${result.candidatesCreated !== 1 ? 's' : ''} exitosamente.`, {
-        description: 'Los prospectos están listos para revisión.',
-        action: {
-          label: 'Ver prospectos',
-          onClick: () => router.push(`/prospects?sourceId=${result.batchId}`),
-        },
-      });
+      toast.success(`Se importaron ${result.candidatesCreated} candidato${result.candidatesCreated !== 1 ? 's' : ''} exitosamente.`);
       // Refresh data in background
       router.refresh();
     } catch (err) {
