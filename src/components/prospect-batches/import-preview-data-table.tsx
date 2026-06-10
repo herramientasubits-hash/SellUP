@@ -384,26 +384,7 @@ export function ImportPreviewDataTable({
     },
   ], [duplicateMap]);
 
-  const table = useReactTable({
-    data: rows,
-    columns,
-    state: { sorting, columnFilters, columnVisibility, rowSelection },
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: handleRowSelectionChange,
-    enableRowSelection: true,
-    getRowId,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFacetedRowModel: getFacetedRowModel(),
-    getFacetedUniqueValues: getFacetedUniqueValues(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: 25 } },
-  });
-
-  const allColumns = React.useMemo(() => {
+  const allColumns = React.useMemo<ColumnDef<ImportRow, unknown>[]>(() => {
     const selectCol: ColumnDef<ImportRow, unknown> = {
       id: 'select',
       header: ({ table }) => (
@@ -423,13 +404,32 @@ export function ImportPreviewDataTable({
           className="translate-y-[1px]"
         />
       ),
-      size: 36,
+      size: 40,
       enableSorting: false,
       enableHiding: false,
       enableColumnFilter: false,
     };
     return [selectCol, ...columns];
   }, [columns]);
+
+  const table = useReactTable({
+    data: rows,
+    columns: allColumns,
+    state: { sorting, columnFilters, columnVisibility, rowSelection },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: handleRowSelectionChange,
+    enableRowSelection: true,
+    getRowId,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFacetedRowModel: getFacetedRowModel(),
+    getFacetedUniqueValues: getFacetedUniqueValues(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageSize: 25 } },
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col">
