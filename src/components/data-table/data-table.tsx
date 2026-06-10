@@ -239,24 +239,20 @@ export function DataTable<TData>({
       extras.push({
         id: "select",
         header: ({ table }) => (
-          <div data-table-select className="flex items-center justify-center">
-            <Checkbox
-              checked={table.getIsAllPageRowsSelected()}
-              onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-              aria-label="Seleccionar todas las filas"
-              className="translate-y-[1px]"
-            />
-          </div>
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected()}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Seleccionar todas las filas"
+            className="translate-y-[1px]"
+          />
         ),
         cell: ({ row }) => (
-          <div data-table-select className="flex items-center justify-center">
-            <Checkbox
-              checked={row.getIsSelected()}
-              onCheckedChange={(value) => row.toggleSelected(!!value)}
-              aria-label="Seleccionar fila"
-              className="translate-y-[1px]"
-            />
-          </div>
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Seleccionar fila"
+            className="translate-y-[1px]"
+          />
         ),
         size: 36,
         enableSorting: false,
@@ -631,6 +627,7 @@ function DataTableRow<TData>({
           <TableCell
             key={cell.id}
             style={{ width: cell.column.columnDef.size }}
+            data-table-select={cell.column.id === "select" || undefined}
           >
             {flexRender(cell.column.columnDef.cell, cell.getContext())}
           </TableCell>
