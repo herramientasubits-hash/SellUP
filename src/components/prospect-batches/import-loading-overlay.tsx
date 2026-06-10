@@ -59,18 +59,21 @@ export function ImportLoadingOverlay({
 
   return (
     <div
-      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 p-8"
+      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
       style={{
         background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
       }}
     >
+      {/* Mirror shine sweep */}
+      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.06)_20%,rgba(255,255,255,0.35)_50%,rgba(255,255,255,0.06)_80%,transparent_100%)] animate-su-mirror-shine" />
+
       {/* Sparkle icon */}
-      <div className="animate-su-float">
+      <div className="animate-su-float relative z-10">
         <Sparkles className="h-12 w-12 text-white/80" strokeWidth={1.5} />
       </div>
 
       {/* Main label */}
-      <div className="text-center space-y-1">
+      <div className="relative z-10 text-center space-y-1">
         <p className="text-lg font-bold text-white">
           {STEPS[currentStep].label}
         </p>
@@ -82,12 +85,12 @@ export function ImportLoadingOverlay({
       </div>
 
       {/* Sub label */}
-      <p className="text-xs text-white/60">
+      <p className="relative z-10 text-xs text-white/60">
         {STEPS[currentStep].sub}
       </p>
 
       {/* Progress bar */}
-      <div className="w-full max-w-[280px] space-y-2">
+      <div className="relative z-10 w-full max-w-[280px] space-y-2">
         <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
           <div
             className="h-full rounded-full bg-white transition-all duration-700 ease-out"
