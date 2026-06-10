@@ -123,7 +123,7 @@ export function DrawerShell({
         {/* Scrollable body content */}
         <div className={cn(
           'relative flex-1 min-h-0 flex flex-col',
-          scrollable ? 'overflow-y-auto px-7 py-6 bg-muted/30' : 'overflow-hidden'
+          scrollable ? 'overflow-y-auto px-7 py-6 bg-background' : 'overflow-hidden'
         )}>
           {loading ? (
             <div className="flex flex-col gap-4 animate-su-fade-in">

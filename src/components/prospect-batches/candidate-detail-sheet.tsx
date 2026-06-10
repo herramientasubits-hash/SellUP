@@ -864,7 +864,7 @@ export function CandidateDetailSheet({
         }
       >
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <TabsList variant="line" className="shrink-0 mx-7 mt-4">
+          <TabsList variant="segmented" className="shrink-0 mx-7 mt-4">
             <TabsTrigger value="empresa"><Building2 className="h-4 w-4" /> Empresa</TabsTrigger>
             <TabsTrigger value="validacion"><CheckCircle2 className="h-4 w-4" /> Validación</TabsTrigger>
           </TabsList>
