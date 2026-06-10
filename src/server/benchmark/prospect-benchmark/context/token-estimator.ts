@@ -20,22 +20,26 @@ export function estimateTokensFromObject(value: unknown): number {
 }
 
 export type TokenEstimate = {
-  sharedTokens: number;
+  sharedTokens: number;               // tokens del modelo (modelContext)
   candidateTokens: number;
-  totalTokens: number;
+  totalTokens: number;                // modelo + candidato
+  fullInternalContextTokens: number; // modelo + interno + candidato
   method: string;
 };
 
 export function buildTokenEstimate(
-  sharedContext: unknown,
-  candidateDelta: unknown
+  modelContext: unknown,
+  candidateDelta: unknown,
+  internalContext?: unknown,
 ): TokenEstimate {
-  const sharedTokens = estimateTokensFromObject(sharedContext);
+  const sharedTokens = estimateTokensFromObject(modelContext);
   const candidateTokens = estimateTokensFromObject(candidateDelta);
+  const internalTokens = internalContext ? estimateTokensFromObject(internalContext) : 0;
   return {
     sharedTokens,
     candidateTokens,
     totalTokens: sharedTokens + candidateTokens,
+    fullInternalContextTokens: sharedTokens + internalTokens + candidateTokens,
     method: TOKEN_ESTIMATION_METHOD,
   };
 }

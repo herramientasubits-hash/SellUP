@@ -2,7 +2,7 @@
   "module": "agent1_global_rules",
   "layer": "A",
   "type": "shared_cacheable",
-  "version": "1.0",
+  "version": "1.1",
   "applies_to": "toda verificación, independientemente de país e industria",
 
   "principal_rule": {
@@ -146,7 +146,7 @@
     },
     {
       "rule_id": "OUTPUT_002",
-      "rule_summary": "Fechas en formato YYYY-MM-DD.",
+      "rule_summary": "Fechas en formato YYYY-MM-DD. Cuando solo se conoce el año, usar incorporation_year (entero) y dejar incorporation_date null. No convertir año en YYYY-01-01.",
       "source_document": "05_Contrato_de_salida_para_SellUp",
       "source_section": "§4.5 Fechas",
       "execution_layer": "code",
@@ -160,38 +160,5 @@
       "execution_layer": "code",
       "priority": "blocking"
     }
-  ],
-
-  "model_responsibilities": [
-    "Interpretar actividad principal de la empresa",
-    "Investigar y confirmar identidad",
-    "Evaluar si es tecnología B2B real",
-    "Explicar evidencia con contexto suficiente",
-    "Detectar contradicciones entre fuentes",
-    "Identificar señales de fit UBITS",
-    "Proponer estado de validación (verified/supported/estimated/conflicting/not_found)",
-    "Proponer nivel de confianza (Alta/Media/Baja)",
-    "Proponer elegibilidad según gates"
-  ],
-
-  "code_responsibilities": [
-    "Validar schema del JSON de salida",
-    "Validar que LinkedIn URL contenga /company/",
-    "Rechazar perfiles /in/ de personas",
-    "Normalizar dominios y eliminar protocolos cuando aplique",
-    "Detectar y marcar duplicados por nombre o dominio",
-    "Verificar que evidencia principal tenga URL no vacía",
-    "Bloquear combinación not_found + confianza Alta",
-    "Aplicar caps de tamaño a rangos normalizados",
-    "Verificar columnas obligatorias en tabla de salida",
-    "Controlar presupuesto de tokens por llamada"
-  ],
-
-  "combined_responsibilities": [
-    "Suficiencia de evidencia: modelo evalúa semánticamente; código verifica campos obligatorios",
-    "Identidad empresarial: modelo evalúa señales; código valida formatos de URL y dominio",
-    "Clasificación tecnológica B2B: modelo evalúa actividad; código verifica contra lista de exclusiones",
-    "Confianza final: modelo propone; código bloquea combinaciones inválidas",
-    "Elegibilidad final: modelo y código aplican gates en conjunto"
   ]
 }

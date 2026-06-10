@@ -2,10 +2,8 @@
   "module": "verification_output_schema",
   "layer": "A",
   "type": "shared_cacheable",
-  "version": "1.0",
+  "version": "1.1",
   "source_document": "05_Contrato_de_salida_para_SellUp",
-  "source_sections": ["§3.1", "§5", "§6", "§7"],
-  "purpose": "Contrato compacto interno para verificación individual de candidatos",
 
   "output_mode": "verification",
   "delivery_format": "compact_verification_record + discovery_table_row",
@@ -14,12 +12,20 @@
     "candidate_name": "",
     "identity": {
       "status": "verified | supported | conflicting | not_found",
+      "commercial_name": "Nombre comercial público (marca). Columna Empresa usa este campo.",
+      "legal_name": {
+        "value": null,
+        "status": "verified | supported | not_found",
+        "evidence_urls": []
+      },
       "official_website": "URL literal completa o null",
       "linkedin_company_url": "https://www.linkedin.com/company/... o null",
       "evidence_urls": ["URL 1", "URL 2"]
     },
     "colombia_operation": {
       "status": "verified | supported | estimated | conflicting | not_found",
+      "primary_city": null,
+      "other_cities": [],
       "evidence_urls": ["URL 1"]
     },
     "technology_b2b_fit": {
@@ -31,6 +37,12 @@
     "size": {
       "value": "rango normalizado o null",
       "status": "verified | supported | estimated | not_found",
+      "scope": "colombia | legal_entity | global_group | unknown | null",
+      "evidence_urls": []
+    },
+    "company_facts": {
+      "incorporation_date": null,
+      "incorporation_year": null,
       "evidence_urls": []
     },
     "ubits_fit": {
@@ -43,11 +55,23 @@
     "confidence": "Alta | Media | Baja",
     "eligibility": "eligible_auditable | eligible_partially_auditable | requires_review | rejected",
     "primary_evidence_url": "URL literal completa — fuente principal que confirma empresa + país + sector",
-    "notes": "texto libre; aclarar contexto de tamaño, duplicados, riesgos o condiciones"
+    "notes": "texto libre; razón social distinta del nombre comercial, otras ciudades, contexto de tamaño, duplicados, riesgos, fecha de constitución"
+  },
+
+  "company_facts_rules": {
+    "incorporation_date": "Solo acepta YYYY-MM-DD. Debe ser fecha de calendario real. Si solo se conoce el año, dejar null y usar incorporation_year.",
+    "incorporation_year": "Solo acepta entero >= 1800 y <= año actual. No inventar cuando no hay evidencia.",
+    "no_convert_year_to_date": "Prohibido convertir año aislado en YYYY-01-01. Usar incorporation_year en su lugar.",
+    "invalid_degrades_to_null": "Texto de fecha malformado (ej: '24 de mayo de 2013') debe degradarse a null con issue de validación."
+  },
+
+  "identity_mapping_rules": {
+    "empresa_column": "Usar commercial_name. Fallback: candidate_name. Nunca usar legal_name como nombre principal.",
+    "legal_name_in_notes": "Cuando legal_name.value difiere del commercial_name, incluirlo en notes de forma compacta.",
+    "size_scope_in_notes": "Cuando size.scope sea global_group o ambiguo, aclararlo en notes."
   },
 
   "discovery_table_12_columns": {
-    "description": "Tabla oficial para importación en SellUp — 12 columnas exactas",
     "columns": [
       "Empresa",
       "País",
@@ -63,47 +87,18 @@
       "Notas"
     ],
     "column_rules": {
-      "Empresa": "Nombre comercial público; sin razón social extensa si existe marca distinta",
-      "País": "País de la operación investigada — no asumir del grupo global",
-      "Sector": "Tecnología (en este caso)",
-      "Sitio web": "URL oficial completa y literal — no directorios ni redes sociales como sustituto",
-      "LinkedIn": "URL corporativa completa y literal; vacío si no se confirma",
-      "Ciudad": "Ciudad principal de operación en Colombia; vacío si no se confirma",
-      "Tamaño estimado": "Rango normalizado únicamente; contexto de global/local va en Notas",
-      "Descripción": "20-60 palabras neutras: qué hace, qué ofrece, en qué mercado, por qué es tecnología",
-      "URL evidencia principal": "URL específica y completa que permita confirmar empresa + sector + país",
-      "Fuente / evidencia": "Texto breve explicando qué demuestra la fuente",
-      "Confianza": "Alta | Media | Baja",
-      "Notas": "Aclaraciones de tamaño, duplicados, condiciones de elegibilidad, hipótesis de fit"
-    },
-    "source_document": "05_Contrato_de_salida_para_SellUp §6-§7"
-  },
-
-  "schema_validation_rules": [
-    {
-      "rule_id": "SCHEMA_001",
-      "rule_summary": "La tabla de discovery debe tener exactamente 12 columnas en el orden oficial.",
-      "execution_layer": "code"
-    },
-    {
-      "rule_id": "SCHEMA_002",
-      "rule_summary": "confidence solo puede ser Alta, Media o Baja.",
-      "execution_layer": "code"
-    },
-    {
-      "rule_id": "SCHEMA_003",
-      "rule_summary": "primary_evidence_url no puede ser null cuando eligibility es eligible_auditable.",
-      "execution_layer": "code"
-    },
-    {
-      "rule_id": "SCHEMA_004",
-      "rule_summary": "eligibility debe ser uno de: eligible_auditable, eligible_partially_auditable, requires_review, rejected.",
-      "execution_layer": "code"
-    },
-    {
-      "rule_id": "SCHEMA_005",
-      "rule_summary": "Tamaño estimado debe ser uno de los rangos normalizados o vacío.",
-      "execution_layer": "code"
+      "Empresa": "identity.commercial_name; fallback: candidate_name. Sin razón social extensa si existe marca distinta.",
+      "País": "País de la operación investigada — no asumir del grupo global.",
+      "Sector": "Tecnología (en este caso).",
+      "Sitio web": "URL oficial completa y literal — no directorios ni redes sociales como sustituto.",
+      "LinkedIn": "URL corporativa completa y literal; vacío si no se confirma.",
+      "Ciudad": "colombia_operation.primary_city; vacío si no se confirma. No inferir desde dirección sin parseo seguro.",
+      "Tamaño estimado": "size.value (rango normalizado); vacío si not_found. Contexto de scope en Notas.",
+      "Descripción": "20-60 palabras neutras: qué hace, qué ofrece, en qué mercado, por qué es tecnología.",
+      "URL evidencia principal": "primary_evidence_url — URL específica y completa.",
+      "Fuente / evidencia": "Texto breve explicando qué demuestra la fuente.",
+      "Confianza": "Alta | Media | Baja.",
+      "Notas": "Razón social cuando difiere; otras ciudades; scope del tamaño; fecha de constitución validada; conflictos; condiciones de elegibilidad."
     }
-  ]
+  }
 }

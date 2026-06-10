@@ -1,7 +1,8 @@
 /**
- * Context Assembler — Assembler (Hito 16AB.24.2)
+ * Context Assembler — Assembler (Hotfix 16AB.24.5)
  *
  * Orquesta el ensamblado completo del contexto de verificación.
+ * Separa modelContext (payload para Claude) de internalPolicyContext (código).
  * No llama Anthropic ni ninguna API externa.
  * No ejecuta el benchmark real.
  * No modifica producción.
@@ -16,19 +17,18 @@ import {
   resolveIndustryKey,
   loadCountryProfile,
   loadIndustryProfile,
-  loadSharedContext,
   loadEvidencePolicy,
-  loadVerificationSchema,
   extractRulesFromProfile,
   extractAllSharedRules,
 } from './context-loader';
 import { buildCandidateDelta } from './candidate-delta-builder';
 import { buildTokenEstimate } from './token-estimator';
 import { validateTokenBudget, validateRules, validateCandidateDelta } from './context-validator';
+import { buildModelContext, buildInternalPolicyContext } from './compact-context-builder';
 
 // ─── Serialización estable para hashes ───────────────────────────────────────
 
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value);
   }
@@ -71,37 +71,6 @@ function sortRulesDeterministically(rules: ContextRule[]): ContextRule[] {
   });
 }
 
-// ─── Bloque compartido ────────────────────────────────────────────────────────
-
-type SharedContextBlock = {
-  globalRules: unknown;
-  countryProfile: unknown;
-  industryProfile: unknown;
-  evidencePolicy: unknown;
-  verificationSchema: unknown;
-  contextVersion: string;
-};
-
-function buildSharedBlock(
-  countryKey: string,
-  industryKey: string
-): SharedContextBlock | null {
-  const countryProfile = loadCountryProfile(countryKey);
-  if (!countryProfile) return null;
-
-  const industryProfile = loadIndustryProfile(industryKey);
-  if (!industryProfile) return null;
-
-  return {
-    globalRules: loadSharedContext(),
-    countryProfile,
-    industryProfile,
-    evidencePolicy: loadEvidencePolicy(),
-    verificationSchema: loadVerificationSchema(),
-    contextVersion: CONTEXT_VERSION,
-  };
-}
-
 // ─── Ensamblador principal ────────────────────────────────────────────────────
 
 export function assembleVerificationContext(options: AssembleOptions): AssembleResult {
@@ -126,12 +95,20 @@ export function assembleVerificationContext(options: AssembleOptions): AssembleR
     };
   }
 
-  // 2. Construir bloque compartido cacheable
-  const sharedBlock = buildSharedBlock(countryKey, industryKey);
-  if (!sharedBlock) {
+  // 2. Cargar perfiles
+  const countryProfile = loadCountryProfile(countryKey);
+  if (!countryProfile) {
     return {
       ok: false,
-      error: { code: 'profile_not_found', detail: `Perfil no encontrado: ${countryKey}/${industryKey}` },
+      error: { code: 'profile_not_found', detail: `Perfil de país no encontrado: ${countryKey}` },
+    };
+  }
+
+  const industryProfile = loadIndustryProfile(industryKey);
+  if (!industryProfile) {
+    return {
+      ok: false,
+      error: { code: 'profile_not_found', detail: `Perfil de industria no encontrado: ${industryKey}` },
     };
   }
 
@@ -153,8 +130,8 @@ export function assembleVerificationContext(options: AssembleOptions): AssembleR
 
   // 5. Recopilar todas las reglas con trazabilidad
   const sharedRules = extractAllSharedRules();
-  const countryRules = extractRulesFromProfile(sharedBlock.countryProfile);
-  const industryRules = extractRulesFromProfile(sharedBlock.industryProfile);
+  const countryRules = extractRulesFromProfile(countryProfile);
+  const industryRules = extractRulesFromProfile(industryProfile);
 
   const allRules = [...sharedRules, ...countryRules, ...industryRules];
 
@@ -172,17 +149,23 @@ export function assembleVerificationContext(options: AssembleOptions): AssembleR
   }
   warnings.push(...ruleValidation.warnings);
 
-  // 8. Calcular hashes estables
-  const sharedContextHash = sha256(stableStringify(sharedBlock));
+  // 8. Construir contexto separado modelo / interno
+  const evidencePolicy = loadEvidencePolicy();
+  const modelContext = buildModelContext(countryProfile, industryProfile, sortedRules);
+  const internalPolicyContext = buildInternalPolicyContext(sortedRules, countryProfile, evidencePolicy);
+
+  // 9. Calcular hashes estables
+  //    sharedContextHash: basado en modelContext (lo que envía al modelo)
+  const sharedContextHash = sha256(stableStringify(modelContext));
   const candidateDeltaHash = sha256(stableStringify(delta));
   const assembledContextHash = sha256(
-    stableStringify({ sharedBlock, delta, contextVersion: CONTEXT_VERSION })
+    stableStringify({ modelContext, internalPolicyContext, delta, contextVersion: CONTEXT_VERSION }),
   );
 
-  // 9. Estimar tokens
-  const tokenEstimate = buildTokenEstimate(sharedBlock, delta);
+  // 10. Estimar tokens por capa
+  const tokenEstimate = buildTokenEstimate(modelContext, delta, internalPolicyContext);
 
-  // 10. Validar presupuesto de tokens
+  // 11. Validar presupuesto de tokens (solo sobre contexto del modelo)
   const budgetResult = validateTokenBudget(tokenEstimate);
   if (budgetResult.status === 'exceeded') {
     return {
@@ -191,32 +174,34 @@ export function assembleVerificationContext(options: AssembleOptions): AssembleR
         code: budgetResult.errorCode ?? 'context_budget_exceeded',
         detail: budgetResult.detail ?? 'Presupuesto de tokens excedido',
         estimatedTokens: tokenEstimate.totalTokens,
-        limitTokens: 5200,
+        limitTokens: 5_500,
       } as { code: 'context_budget_exceeded'; detail: string; estimatedTokens: number; limitTokens: number },
     };
   }
   warnings.push(...budgetResult.warnings);
 
-  // 11. Construir resultado final
+  // 12. Construir resultado final
   const context: AssembledVerificationContext = {
     contextVersion: CONTEXT_VERSION,
     mode,
     countryProfile: countryKey,
     industryProfile: industryKey,
 
-    sharedContext: sharedBlock,
+    modelContext,
+    internalPolicyContext,
+    traceability: sortedRules,
     candidateDelta: delta,
 
     appliedRuleIds: sortedRules.map((r) => r.ruleId),
-    traceability: sortedRules,
 
     sharedContextHash,
     candidateDeltaHash,
     assembledContextHash,
 
-    estimatedSharedTokens: tokenEstimate.sharedTokens,
+    estimatedModelSharedTokens: tokenEstimate.sharedTokens,
     estimatedCandidateTokens: tokenEstimate.candidateTokens,
-    estimatedTotalTokens: tokenEstimate.totalTokens,
+    estimatedModelTotalTokens: tokenEstimate.totalTokens,
+    estimatedFullInternalContextTokens: tokenEstimate.fullInternalContextTokens,
 
     cacheable: true,
     warnings,

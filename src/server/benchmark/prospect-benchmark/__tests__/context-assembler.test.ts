@@ -1,5 +1,5 @@
 /**
- * Context Assembler Tests (Hito 16AB.24.2)
+ * Context Assembler Tests (Hito 16AB.24.2 — actualizado para Hotfix 16AB.24.5)
  *
  * 27 casos obligatorios — sin llamadas a APIs externas.
  * Usa node:test + node:assert.
@@ -164,15 +164,15 @@ describe('Context Assembler — 27 casos obligatorios', () => {
   // 9. No incluye otros países en el perfil de país
   it('9. el perfil de país solo contiene Colombia (country_code=CO)', () => {
     const ctx = assembleOk({ candidate: makeSofkaInput(), country: 'Colombia', industry: 'Tecnología' });
-    const shared = ctx.sharedContext as { countryProfile: { country_code?: string } };
-    assert.equal(shared.countryProfile.country_code, 'CO');
+    assert.equal(ctx.modelContext.countryContext.country_code, 'CO');
+    assert.equal(ctx.countryProfile, 'colombia');
   });
 
   // 10. No incluye otras industrias en el perfil de industria
   it('10. el perfil de industria solo contiene Tecnología (industry_key=technology)', () => {
     const ctx = assembleOk({ candidate: makeSofkaInput(), country: 'Colombia', industry: 'Tecnología' });
-    const shared = ctx.sharedContext as { industryProfile: { industry_key?: string } };
-    assert.equal(shared.industryProfile.industry_key, 'technology');
+    assert.equal(ctx.modelContext.industryContext.industry, 'Tecnología');
+    assert.equal(ctx.industryProfile, 'technology');
   });
 
   // 11. No incluye contactos
@@ -264,12 +264,12 @@ describe('Context Assembler — 27 casos obligatorios', () => {
     assert.ok(url.includes('content=real'), 'parámetros no tracking deben conservarse');
   });
 
-  // 19. Shared tokens ≤ 4.500
-  it('19. estimatedSharedTokens ≤ 4.500', () => {
+  // 19. Model shared tokens ≤ 5.500
+  it('19. estimatedModelSharedTokens ≤ 5.500', () => {
     const ctx = assembleOk({ candidate: makeSofkaInput(), country: 'Colombia', industry: 'Tecnología' });
     assert.ok(
-      ctx.estimatedSharedTokens <= TOKEN_BUDGET.sharedHardLimit,
-      `Shared tokens ${ctx.estimatedSharedTokens} supera límite ${TOKEN_BUDGET.sharedHardLimit}`
+      ctx.estimatedModelSharedTokens <= TOKEN_BUDGET.sharedHardLimit,
+      `Shared tokens ${ctx.estimatedModelSharedTokens} supera límite ${TOKEN_BUDGET.sharedHardLimit}`
     );
   });
 
@@ -282,12 +282,16 @@ describe('Context Assembler — 27 casos obligatorios', () => {
     );
   });
 
-  // 21. Total tokens ≤ 5.200
-  it('21. estimatedTotalTokens ≤ 5.200', () => {
+  // 21. Total modelo ≤ 6.000 y contexto interno completo ≤ 8.000
+  it('21. estimatedModelTotalTokens ≤ 6.000 y full interno ≤ 8.000', () => {
     const ctx = assembleOk({ candidate: makeSofkaInput(), country: 'Colombia', industry: 'Tecnología' });
     assert.ok(
-      ctx.estimatedTotalTokens <= TOKEN_BUDGET.totalHardLimit,
-      `Total tokens ${ctx.estimatedTotalTokens} supera límite ${TOKEN_BUDGET.totalHardLimit}`
+      ctx.estimatedModelTotalTokens <= 6_000,
+      `Total modelo ${ctx.estimatedModelTotalTokens} supera 6.000`
+    );
+    assert.ok(
+      ctx.estimatedFullInternalContextTokens <= TOKEN_BUDGET.totalHardLimit,
+      `Contexto interno completo ${ctx.estimatedFullInternalContextTokens} supera límite ${TOKEN_BUDGET.totalHardLimit}`
     );
   });
 
@@ -331,7 +335,7 @@ describe('Context Assembler — 27 casos obligatorios', () => {
   // 24. Output schema contiene todos los campos y enums
   it('24. el esquema de salida contiene los campos y enums requeridos', () => {
     const ctx = assembleOk({ candidate: makeSofkaInput(), country: 'Colombia', industry: 'Tecnología' });
-    const schemaStr = JSON.stringify(ctx.sharedContext);
+    const schemaStr = JSON.stringify(ctx.modelContext);
     assert.ok(schemaStr.includes('candidate_name'), 'schema debe tener candidate_name');
     assert.ok(schemaStr.includes('eligibility'), 'schema debe tener eligibility');
     assert.ok(schemaStr.includes('confidence'), 'schema debe tener confidence');
@@ -375,7 +379,7 @@ describe('Context Assembler — 27 casos obligatorios', () => {
     // Verificamos que el contexto ensamblado funciona sin acceso a scratch/
     // (los tests completan exitosamente sin que los archivos de scratch/ sean necesarios)
     const ctx = assembleOk({ candidate: makeSofkaInput(), country: 'Colombia', industry: 'Tecnología' });
-    assert.ok(ctx.contextVersion === '16AB.24.2-v1', 'Versión debe ser 16AB.24.2-v1');
+    assert.ok(ctx.contextVersion === '16AB.24.5-v1', 'Versión debe ser 16AB.24.5-v1');
     // Si hubiera dependencia de scratch/, los imports de perfiles fallarían antes de llegar aquí
   });
 
@@ -407,9 +411,9 @@ describe('Context Assembler — 27 casos obligatorios', () => {
       assert.equal(ctx.cacheable, true);
     });
 
-    it('contextVersion es 16AB.24.2-v1', () => {
+    it('contextVersion es 16AB.24.5-v1', () => {
       const ctx = assembleOk({ candidate: makeSofkaInput(), country: 'Colombia', industry: 'Tecnología' });
-      assert.equal(ctx.contextVersion, '16AB.24.2-v1');
+      assert.equal(ctx.contextVersion, '16AB.24.5-v1');
     });
 
     it('estimateTokens es determinístico', () => {

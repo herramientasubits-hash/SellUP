@@ -2,11 +2,7 @@
   "module": "evidence_and_quality_policy",
   "layer": "A",
   "type": "shared_cacheable",
-  "version": "1.0",
-  "source_documents": [
-    "03_Protocolo_investigacion_evidencia_confianza §4-§11",
-    "07_Checklist_calidad_QA_SellUp §3-§8 §15 §17"
-  ],
+  "version": "1.1",
 
   "validation_states": {
     "verified": "Dato confirmado por fuente oficial, sitio corporativo, registro público o documento legal",
@@ -41,17 +37,14 @@
 
   "evidence_origin_policy": {
     "allowed_for_strong_evidence": ["tool_result_url", "citation_url", "tool_result_and_citation"],
-    "not_allowed_for_strong_evidence": ["model_generated_url", "unknown_origin"],
-    "source_document": "03_Protocolo_investigacion_evidencia_confianza",
-    "source_section": "§21 + §5"
+    "not_allowed_for_strong_evidence": ["model_generated_url", "unknown_origin"]
   },
 
   "minimum_evidence_for_verification": {
     "identity": "Sitio oficial O LinkedIn corporativo + otra señal coincidente de identidad",
     "colombia_operation": "Evidencia explícita de: sede, oficina, equipo, registro, clientes o presencia comercial local",
     "technology_b2b": "Evidencia de que desarrolla, comercializa, implementa, opera, licencia o integra producto/servicio tecnológico para organizaciones",
-    "size": "Puede quedar verified, supported, estimated o not_found. Nunca convertir rango en número exacto.",
-    "source_document": "07_Checklist_calidad_QA_SellUp §5 + 03_Protocolo §22"
+    "size": "Puede quedar verified, supported, estimated o not_found. Nunca convertir rango en número exacto."
   },
 
   "eligibility_gates": {
@@ -71,8 +64,7 @@
     "eligible_partially_auditable": {
       "description": "Solo cuando falta un dato secundario no crítico",
       "missing_allowed": ["ciudad", "tamano", "linkedin", "senal_comercial_no_esencial"],
-      "missing_never_allowed": ["identidad", "pais", "sector", "sitio_oficial", "evidencia_principal"],
-      "source_document": "07_Checklist_calidad_QA_SellUp §4-§5"
+      "missing_never_allowed": ["identidad", "pais", "sector", "sitio_oficial", "evidencia_principal"]
     },
     "requires_review": {
       "description": "Candidato con incertidumbre que impide decisión automática",
@@ -97,24 +89,9 @@
         "evidencia_debil_como_unica_fuente",
         "confianza_baja",
         "url_principal_no_auditable"
-      ],
-      "source_document": "07_Checklist_calidad_QA_SellUp §4 Falla bloqueante + 02_Playbook §4.4"
+      ]
     }
   },
 
-  "size_ranges_normalized": ["1-10", "11-50", "51-200", "201-500", "501-1.000", "1.001-5.000", "5.001-10.000", "10.000+"],
-  "size_range_source": "05_Contrato_de_salida_para_SellUp §7 Tamaño estimado",
-
-  "source_hierarchy": [
-    "1. Registro oficial empresarial",
-    "2. Sitio corporativo oficial",
-    "3. Documento oficial de la empresa",
-    "4. LinkedIn corporativo",
-    "5. Regulador o superintendencia",
-    "6. Cámara o gremio",
-    "7. Medio reputado",
-    "8. Directorio confiable",
-    "9. Fuente exploratoria (solo discovery inicial, nunca evidencia principal)"
-  ],
-  "hierarchy_source": "07_Checklist_calidad_QA_SellUp §6 QA de fuentes"
+  "size_ranges_normalized": ["1-10", "11-50", "51-200", "201-500", "501-1.000", "1.001-5.000", "5.001-10.000", "10.000+"]
 }

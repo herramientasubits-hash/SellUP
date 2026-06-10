@@ -4,7 +4,7 @@
  * Constantes versionadas. Modificar aquí cambia el sharedContextHash.
  */
 
-export const CONTEXT_VERSION = '16AB.24.2-v1' as const;
+export const CONTEXT_VERSION = '16AB.24.5-v1' as const;
 
 // ─── Países y perfiles soportados ────────────────────────────────────────────
 
@@ -40,12 +40,15 @@ export const SUPPORTED_INDUSTRIES: Record<string, string> = {
 //
 // Equivalencia semántica: sharedHardLimit=7000 ≈ 4.500 tokens reales (chars/6).
 
+// Límites calibrados para 16AB.24.5: contexto compacto separado modelo/interno.
+// sharedTokens = modelContext únicamente (no incluye internalPolicyContext).
+// fullInternalContextTokens = modelo + interno + candidato.
 export const TOKEN_BUDGET = {
-  sharedWarningThreshold: 6_500,
-  sharedHardLimit: 7_000,
-  candidateWarningThreshold: 850,
-  candidateHardLimit: 1_000,
-  totalWarningThreshold: 7_200,
+  sharedWarningThreshold: 5_000,
+  sharedHardLimit: 5_500,
+  candidateWarningThreshold: 600,
+  candidateHardLimit: 700,
+  totalWarningThreshold: 5_700,
   totalHardLimit: 8_000,
 } as const;
 

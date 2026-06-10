@@ -1,5 +1,5 @@
 /**
- * Context Assembler — Preview Offline (Hito 16AB.24.2)
+ * Context Assembler — Preview Offline (Hito 16AB.24.2 — actualizado para Hotfix 16AB.24.5)
  *
  * Genera previews de contexto ensamblado para Sofka, Celes y SGM Salud.
  * Guarda resultados en scratch/agent1-context-implementation-preview/.
@@ -103,9 +103,9 @@ const results: Array<{
   candidateId: string;
   sharedContextHash: string;
   candidateDeltaHash: string;
-  estimatedSharedTokens: number;
+  estimatedModelSharedTokens: number;
   estimatedCandidateTokens: number;
-  estimatedTotalTokens: number;
+  estimatedModelTotalTokens: number;
   warnings: string[];
   ok: boolean;
 }> = [];
@@ -123,16 +123,16 @@ for (const { id, input, file } of candidates) {
       candidateId: id,
       sharedContextHash: result.context.sharedContextHash,
       candidateDeltaHash: result.context.candidateDeltaHash,
-      estimatedSharedTokens: result.context.estimatedSharedTokens,
+      estimatedModelSharedTokens: result.context.estimatedModelSharedTokens,
       estimatedCandidateTokens: result.context.estimatedCandidateTokens,
-      estimatedTotalTokens: result.context.estimatedTotalTokens,
+      estimatedModelTotalTokens: result.context.estimatedModelTotalTokens,
       warnings: result.context.warnings,
       ok: true,
     });
-    console.log(`✓ ${id}: ${file} — ${result.context.estimatedTotalTokens} tokens estimados`);
+    console.log(`✓ ${id}: ${file} — ${result.context.estimatedModelTotalTokens} tokens estimados (modelo)`);
   } else {
     console.error(`✗ ${id}: error — ${result.error.code}: ${result.error.detail}`);
-    results.push({ candidateId: id, sharedContextHash: '', candidateDeltaHash: '', estimatedSharedTokens: 0, estimatedCandidateTokens: 0, estimatedTotalTokens: 0, warnings: [], ok: false });
+    results.push({ candidateId: id, sharedContextHash: '', candidateDeltaHash: '', estimatedModelSharedTokens: 0, estimatedCandidateTokens: 0, estimatedModelTotalTokens: 0, warnings: [], ok: false });
   }
 }
 
@@ -163,12 +163,12 @@ const tokenComparison = {
   },
   candidates: results.map((r) => ({
     candidateId: r.candidateId,
-    estimatedSharedTokens: r.estimatedSharedTokens,
+    estimatedModelSharedTokens: r.estimatedModelSharedTokens,
     estimatedCandidateTokens: r.estimatedCandidateTokens,
-    estimatedTotalTokens: r.estimatedTotalTokens,
-    sharedWithinBudget: r.estimatedSharedTokens <= TOKEN_BUDGET.sharedHardLimit,
+    estimatedModelTotalTokens: r.estimatedModelTotalTokens,
+    sharedWithinBudget: r.estimatedModelSharedTokens <= TOKEN_BUDGET.sharedHardLimit,
     candidateWithinBudget: r.estimatedCandidateTokens <= TOKEN_BUDGET.candidateHardLimit,
-    totalWithinBudget: r.estimatedTotalTokens <= TOKEN_BUDGET.totalHardLimit,
+    totalWithinBudget: r.estimatedModelTotalTokens <= TOKEN_BUDGET.totalHardLimit,
     warnings: r.warnings,
   })),
   method: 'ceil(chars / 4) — estimación determinística sin API',

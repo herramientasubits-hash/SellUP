@@ -77,48 +77,51 @@ export type BudgetValidationResult = {
 export function validateTokenBudget(estimate: TokenEstimate): BudgetValidationResult {
   const warnings: string[] = [];
 
-  if (estimate.totalTokens > TOKEN_BUDGET.totalHardLimit) {
+  // Hard limit aplica sobre contexto completo (modelo + interno + candidato)
+  if (estimate.fullInternalContextTokens > TOKEN_BUDGET.totalHardLimit) {
     return {
       status: 'exceeded',
       warnings,
       errorCode: 'context_budget_exceeded',
-      detail: `Total estimado ${estimate.totalTokens} supera el límite de ${TOKEN_BUDGET.totalHardLimit} tokens.`,
+      detail: `Contexto completo ${estimate.fullInternalContextTokens} supera el límite absoluto de ${TOKEN_BUDGET.totalHardLimit} tokens.`,
     };
   }
 
+  // Límite de modelo compartido
   if (estimate.sharedTokens > TOKEN_BUDGET.sharedHardLimit) {
     return {
       status: 'exceeded',
       warnings,
       errorCode: 'context_budget_exceeded',
-      detail: `Bloque compartido estimado ${estimate.sharedTokens} supera el límite de ${TOKEN_BUDGET.sharedHardLimit} tokens.`,
+      detail: `Contexto de modelo ${estimate.sharedTokens} supera el límite de ${TOKEN_BUDGET.sharedHardLimit} tokens.`,
     };
   }
 
+  // Límite de candidato
   if (estimate.candidateTokens > TOKEN_BUDGET.candidateHardLimit) {
     return {
       status: 'exceeded',
       warnings,
       errorCode: 'context_budget_exceeded',
-      detail: `Delta candidato estimado ${estimate.candidateTokens} supera el límite de ${TOKEN_BUDGET.candidateHardLimit} tokens.`,
+      detail: `Delta candidato ${estimate.candidateTokens} supera el límite de ${TOKEN_BUDGET.candidateHardLimit} tokens.`,
     };
   }
 
   if (estimate.sharedTokens > TOKEN_BUDGET.sharedWarningThreshold) {
     warnings.push(
-      `Bloque compartido (${estimate.sharedTokens} tokens) cerca del límite de ${TOKEN_BUDGET.sharedHardLimit}.`
+      `Contexto de modelo (${estimate.sharedTokens} tokens) cerca del límite de ${TOKEN_BUDGET.sharedHardLimit}.`,
     );
   }
 
   if (estimate.candidateTokens > TOKEN_BUDGET.candidateWarningThreshold) {
     warnings.push(
-      `Delta candidato (${estimate.candidateTokens} tokens) cerca del límite de ${TOKEN_BUDGET.candidateHardLimit}.`
+      `Delta candidato (${estimate.candidateTokens} tokens) cerca del límite de ${TOKEN_BUDGET.candidateHardLimit}.`,
     );
   }
 
   if (estimate.totalTokens > TOKEN_BUDGET.totalWarningThreshold) {
     warnings.push(
-      `Total estimado (${estimate.totalTokens} tokens) cerca del límite de ${TOKEN_BUDGET.totalHardLimit}.`
+      `Total modelo (${estimate.totalTokens} tokens) cerca del umbral de ${TOKEN_BUDGET.totalWarningThreshold}.`,
     );
   }
 
