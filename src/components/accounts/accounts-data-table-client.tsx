@@ -321,39 +321,6 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
         enableColumnFilter: false,
         meta: { label: 'Creación', popoverTitle: 'Creación', disableFilter: true },
       },
-      {
-        id: 'actions',
-        header: () => <span className="sr-only">Acciones</span>,
-        cell: ({ row }) => {
-          const account = row.original;
-          return (
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => openDetail(account.id)}
-              >
-                <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => setEditingId(account.id)}
-              >
-                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-              </Button>
-            </div>
-          );
-        },
-        size: 72,
-        minSize: 72,
-        enableSorting: false,
-        enableHiding: false,
-        enableColumnFilter: false,
-        meta: { label: 'Acciones', disableFilter: true, disableSort: true },
-      },
     ],
     [openDetail],
   );

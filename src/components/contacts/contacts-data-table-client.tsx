@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Mail, Phone, ExternalLink, Info } from 'lucide-react';
+import { toast } from 'sonner';
+import { Mail, Phone, ExternalLink, Info, Pencil, Star, RefreshCw, Archive } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import {
@@ -20,8 +22,9 @@ import {
   type ContactRole,
 } from '@/modules/contacts/types';
 import type { ContactListItem } from '@/modules/contacts/actions';
-import { ContactRowActions } from './contact-row-actions';
 import { ContactDetailSheet } from './contact-detail-sheet';
+import { EditContactDrawer } from './edit-contact-drawer';
+import { setPrimaryContact, changeContactStatus, archiveContact } from '@/modules/contacts/actions';
 
 // ── Badge styles ───────────────────────────────────────────────
 
@@ -68,13 +71,54 @@ interface ContactsDataTableClientProps {
 }
 
 export function ContactsDataTableClient({ contacts }: ContactsDataTableClientProps) {
+  const router = useRouter();
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  const [editingContact, setEditingContact] = React.useState<ContactListItem | null>(null);
+  const [editOpen, setEditOpen] = React.useState(false);
 
   const openDetail = React.useCallback((contactId: string) => {
     setDetailContactId(contactId);
     setDetailOpen(true);
   }, []);
+
+  const openEdit = React.useCallback((contact: ContactListItem) => {
+    setEditingContact(contact);
+    setEditOpen(true);
+  }, []);
+
+  async function handleSetPrimary(contact: ContactListItem) {
+    if (contact.is_primary) return;
+    const result = await setPrimaryContact(contact.account_id, contact.id);
+    if (!result.success) {
+      toast.error(result.error);
+      return;
+    }
+    router.refresh();
+    toast.success(`${contact.full_name} marcado como contacto primario`);
+  }
+
+  async function handleChangeStatus(contact: ContactListItem, status: ContactStatus) {
+    if (status === contact.contact_status) return;
+    const result = await changeContactStatus(contact.id, status);
+    if (!result.success) {
+      toast.error(result.error);
+      return;
+    }
+    router.refresh();
+    toast.success(`Estado actualizado: ${CONTACT_STATUS_LABELS[status]}`);
+  }
+
+  async function handleArchive(contact: ContactListItem) {
+    if (!confirm(`¿Archivar a "${contact.full_name}"? Esta acción requiere rol admin.`)) return;
+    const result = await archiveContact(contact.id);
+    if (!result.success) {
+      toast.error(result.error);
+      return;
+    }
+    router.refresh();
+    toast.success(`${contact.full_name} archivado`);
+  }
 
   // ── Column definitions ────────────────────────────────────────
   const columns: ColumnDef<Row, unknown>[] = React.useMemo(
@@ -273,22 +317,6 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
           filterOptions: SENIORITY_FILTER_OPTIONS,
         },
       },
-      {
-        id: 'actions',
-        header: () => <span className="sr-only">Acciones</span>,
-        cell: ({ row }) => (
-          <ContactRowActions
-            contact={row.original}
-            onActionComplete={() => openDetail(row.original.id)}
-          />
-        ),
-        size: 48,
-        minSize: 48,
-        enableSorting: false,
-        enableHiding: false,
-        enableColumnFilter: false,
-        meta: { label: 'Acciones', disableFilter: true, disableSort: true },
-      },
     ],
     [openDetail],
   );
@@ -296,25 +324,65 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
   // ── Context menu ──────────────────────────────────────────────
   const contextMenu = React.useMemo(
     () => ({
-      items: (row: Row): DataTableContextMenuItem[] => [
-        {
-          id: 'view',
-          label: 'Ver detalle',
-          icon: Info,
-          onClick: () => openDetail(row.id),
-        },
-        {
-          id: 'go-account',
-          label: 'Ir a la cuenta',
-          icon: ExternalLink,
+      items: (row: Row): DataTableContextMenuItem[] => {
+        const items: DataTableContextMenuItem[] = [
+          {
+            id: 'view',
+            label: 'Ver detalle',
+            icon: Info,
+            onClick: () => openDetail(row.id),
+          },
+          {
+            id: 'edit',
+            label: 'Editar contacto',
+            icon: Pencil,
+            onClick: () => openEdit(row),
+          },
+          {
+            id: 'go-account',
+            label: 'Ir a la cuenta',
+            icon: ExternalLink,
+            separator: true,
+            onClick: () => {
+              window.location.href = `/accounts/${row.account_id}`;
+            },
+          },
+        ];
+
+        if (!row.is_primary && row.contact_status === 'active') {
+          items.push({
+            id: 'set-primary',
+            label: 'Marcar primario',
+            icon: Star,
+            onClick: () => handleSetPrimary(row),
+          });
+        }
+
+        items.push({
+          id: 'change-status',
+          label: 'Cambiar estado',
+          icon: RefreshCw,
           separator: true,
           onClick: () => {
-            window.location.href = `/accounts/${row.account_id}`;
+            const statuses: ContactStatus[] = ['active', 'inactive', 'left_company', 'do_not_contact'];
+            const currentIdx = statuses.indexOf(row.contact_status);
+            const nextIdx = (currentIdx + 1) % statuses.length;
+            handleChangeStatus(row, statuses[nextIdx]);
           },
-        },
-      ],
+        });
+
+        items.push({
+          id: 'archive',
+          label: 'Archivar',
+          icon: Archive,
+          variant: 'destructive' as const,
+          onClick: () => handleArchive(row),
+        });
+
+        return items;
+      },
     }),
-    [openDetail],
+    [openDetail, openEdit],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -328,6 +396,13 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
         onClick: (rows) => openDetail(rows[0].id),
       },
       {
+        id: 'edit-contact',
+        label: 'Editar contacto',
+        icon: Pencil,
+        disabled: (rows) => rows.length !== 1,
+        onClick: (rows) => openEdit(rows[0]),
+      },
+      {
         id: 'go-accounts',
         label: 'Ir a cuentas',
         icon: ExternalLink,
@@ -336,8 +411,23 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
           window.location.href = `/accounts/${rows[0].account_id}`;
         },
       },
+      {
+        id: 'set-primary',
+        label: 'Marcar primario',
+        icon: Star,
+        disabled: (rows) => rows.length !== 1 || rows[0].is_primary || rows[0].contact_status !== 'active',
+        onClick: (rows) => handleSetPrimary(rows[0]),
+      },
+      {
+        id: 'archive',
+        label: 'Archivar',
+        icon: Archive,
+        variant: 'destructive',
+        disabled: (rows) => rows.length !== 1,
+        onClick: (rows) => handleArchive(rows[0]),
+      },
     ],
-    [openDetail],
+    [openDetail, openEdit],
   );
 
   return (
@@ -378,6 +468,18 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
           setDetailContactId(null);
         }}
       />
+
+      {editingContact && (
+        <EditContactDrawer
+          key={editingContact.id}
+          contact={editingContact}
+          open={editOpen}
+          onClose={() => {
+            setEditOpen(false);
+            setEditingContact(null);
+          }}
+        />
+      )}
     </>
   );
 }
