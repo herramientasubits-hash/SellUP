@@ -41,6 +41,8 @@ export interface DrawerShellProps {
   showCloseButton?: boolean;
   /** Whether the body content is scrollable as a whole (default: true) */
   scrollable?: boolean;
+  /** Show loading skeleton with mirror shine effect */
+  loading?: boolean;
 }
 
 const sideSizeClasses = {
@@ -85,6 +87,7 @@ export function DrawerShell({
   className,
   showCloseButton = true,
   scrollable = true,
+  loading = false,
 }: DrawerShellProps) {
   const sizeClass = sideSizeClasses[side][size];
 
@@ -122,7 +125,31 @@ export function DrawerShell({
           'relative flex-1 min-h-0 flex flex-col',
           scrollable ? 'overflow-y-auto px-7 py-6' : 'overflow-hidden'
         )}>
-          {children}
+          {loading ? (
+            <div className="flex flex-col gap-4 animate-su-fade-in">
+              {/* Mirror shine overlay */}
+              <div className="relative overflow-hidden rounded-xl bg-muted/50 p-6">
+                <div className="absolute inset-0 -translate-x-full skew-x-[-15deg] bg-gradient-to-r from-transparent via-white/20 to-transparent animate-su-mirror-shine" />
+                <div className="space-y-3">
+                  <div className="h-4 w-3/4 rounded-md bg-muted" />
+                  <div className="h-3 w-1/2 rounded-md bg-muted" />
+                </div>
+              </div>
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="relative overflow-hidden rounded-lg bg-muted/50 p-4">
+                    <div className="absolute inset-0 -translate-x-full skew-x-[-15deg] bg-gradient-to-r from-transparent via-white/20 to-transparent animate-su-mirror-shine" style={{ animationDelay: `${i * 0.15}s` }} />
+                    <div className="space-y-2">
+                      <div className="h-3 w-full rounded bg-muted" />
+                      <div className="h-3 w-4/5 rounded bg-muted" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            children
+          )}
         </div>
 
         {/* Footer actions */}
