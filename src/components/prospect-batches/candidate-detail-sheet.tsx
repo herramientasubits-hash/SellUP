@@ -860,11 +860,11 @@ export function CandidateDetailSheet({
         }
       >
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <TabsList variant="line" className="shrink-0 border-b border-border/40 px-7 pb-px w-full justify-start gap-6 bg-transparent">
-            <TabsTrigger value="resumen" className="pb-3 rounded-none">Resumen</TabsTrigger>
-            <TabsTrigger value="empresa" className="pb-3 rounded-none">Empresa</TabsTrigger>
-            <TabsTrigger value="validacion" className="pb-3 rounded-none">Validación</TabsTrigger>
-            <TabsTrigger value="tecnico" className="pb-3 rounded-none">Técnico</TabsTrigger>
+          <TabsList className="shrink-0 px-7 pt-4 pb-2 w-full justify-start">
+            <TabsTrigger value="resumen">Resumen</TabsTrigger>
+            <TabsTrigger value="empresa">Empresa</TabsTrigger>
+            <TabsTrigger value="validacion">Validación</TabsTrigger>
+            <TabsTrigger value="tecnico">Técnico</TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Resumen */}
