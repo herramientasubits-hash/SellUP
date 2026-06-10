@@ -1040,7 +1040,7 @@ export function ProspectsDataTableClient({
               <Building2 className="h-6 w-6 text-muted-foreground/40" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin prospectos</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
               {isSourceFiltered
                 ? 'No se encontraron prospectos en esta operación.'
                 : 'Ajusta los filtros o importa prospectos para ver resultados.'}

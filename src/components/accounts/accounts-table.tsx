@@ -128,7 +128,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
         </div>
         <div className="space-y-1">
           <p className="text-sm font-medium text-foreground">Sin cuentas todavía</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
+          <p className="max-w-xs text-xs text-muted-foreground mx-auto">
             Todavía no hay cuentas registradas. Crea una cuenta manualmente o, más adelante,
             genera prospectos con IA.
           </p>

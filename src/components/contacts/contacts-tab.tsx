@@ -241,7 +241,7 @@ function EmptyState() {
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
           <Users className="h-5 w-5 text-muted-foreground/40" />
         </div>
-        <div className="max-w-xs space-y-1">
+        <div className="max-w-xs space-y-1 mx-auto">
           <p className="text-sm font-semibold text-foreground">Sin contactos todavía</p>
           <p className="text-xs text-muted-foreground leading-relaxed">
             Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o,

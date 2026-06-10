@@ -59,7 +59,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
             <Star className="h-5 w-5 text-muted-foreground/40" />
           </div>
-          <div className="max-w-xs space-y-1">
+          <div className="max-w-xs space-y-1 mx-auto">
             <p className="text-sm font-semibold text-foreground">Sin contactos todavía</p>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Todavía no hay contactos registrados. Crea contactos manualmente desde una cuenta

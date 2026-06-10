@@ -453,7 +453,7 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
               <Info className="h-6 w-6 text-muted-foreground/40" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin contactos todavía</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
               Crea contactos manualmente desde una cuenta o agrégales aquí vinculándolos a una cuenta.
             </p>
           </div>

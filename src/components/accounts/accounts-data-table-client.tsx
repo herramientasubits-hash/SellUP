@@ -451,7 +451,7 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
               <Building2 className="h-6 w-6 text-muted-foreground/40" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin cuentas todavía</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
               Crea una cuenta manualmente o, más adelante, genera prospectos con IA.
             </p>
           </div>
