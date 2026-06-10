@@ -545,6 +545,67 @@
     color: oklch(0.99 0 0);
   }
 
+  /* ── Import loading overlay ──────────────────────────────────────────────── */
+  @keyframes su-gradient-spin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  @keyframes su-gradient-rotate-bg {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  @keyframes su-mirror-shine {
+    0%   { transform: translateX(-100%) skewX(-15deg); }
+    100% { transform: translateX(200%) skewX(-15deg); }
+  }
+  @keyframes su-float-up {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+
+  .animate-su-gradient-spin {
+    animation: su-gradient-spin 1.8s linear infinite;
+  }
+  .animate-su-mirror-shine {
+    animation: su-mirror-shine 2s ease-in-out infinite;
+  }
+  .animate-su-float {
+    animation: su-float-up 3s ease-in-out infinite;
+  }
+
+  /* Gradient spinner ring — conic gradient that spins */
+  .su-import-spinner-ring {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 0deg,
+      var(--su-ai-stop-1),
+      var(--su-ai-stop-2),
+      var(--su-ai-stop-3),
+      var(--su-ai-stop-4),
+      var(--su-ai-stop-5),
+      var(--su-ai-stop-1)
+    );
+    animation: su-gradient-spin 1.8s linear infinite;
+    position: relative;
+  }
+  .su-import-spinner-ring::after {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    border-radius: 50%;
+    background: var(--background);
+  }
+
+  /* Glass overlay panel */
+  .su-glass-overlay {
+    background: oklch(from var(--card) calc(l * 0.95) c h / 0.7);
+    backdrop-filter: blur(20px) saturate(1.6) brightness(1.05);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6) brightness(1.05);
+    border: 1px solid oklch(from var(--border) c h / 0.4);
+  }
+
   /* Skeleton shimmer for placeholders */
   .su-skeleton {
     background: linear-gradient(

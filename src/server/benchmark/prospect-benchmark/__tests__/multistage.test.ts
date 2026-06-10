@@ -8,7 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -550,7 +550,7 @@ describe('Case 4 — per-candidate verification cache', () => {
       // Pre-populate Simetrik in per-candidate cache
       const simetrik = makeCandidate('Simetrik', 'https://simetrik.com');
       const simetrikKey = computeCandidateKey(simetrik);
-      const simetrikHash = computeVerificationCandidateInputHash(simetrik, country, '16AB.23.4', 'claude-sonnet-4-6');
+      const simetrikHash = computeVerificationCandidateInputHash(simetrik, country, '16AB.23.8', 'claude-sonnet-4-6');
       const simetrikVerified = makeVerified('Simetrik', 'https://simetrik.com');
       checkpoint.saveVerificationCandidate(simetrikKey, simetrikVerified, simetrikHash);
 
@@ -740,7 +740,7 @@ describe('Case 9 — repeated resume does not duplicate costs or verifications',
 
       const simetrik = makeCandidate('Simetrik', 'https://simetrik.com');
       const key = computeCandidateKey(simetrik);
-      const inputHash = computeVerificationCandidateInputHash(simetrik, country, '16AB.23.4', 'claude-sonnet-4-6');
+      const inputHash = computeVerificationCandidateInputHash(simetrik, country, '16AB.23.8', 'claude-sonnet-4-6');
 
       // First run: verify Simetrik and save to per-candidate cache
       const simetrikVerified = makeVerified('Simetrik', 'https://simetrik.com');
@@ -1428,5 +1428,327 @@ describe('Test 10 — 8 solid candidates produce 8, not 10 weak ones', () => {
       accepted.every((c) => c.name.startsWith('SolidEmpresa')),
       'only solid companies must be accepted'
     );
+  });
+});
+
+// ─── Cases 16AB.23.8 — Legacy verification enforcement ───────────────────────
+
+describe('Case 16AB.23.8-1 — saveLegacyVerification writes correct record', () => {
+  it('creates legacy-verifications/<key>.json with status legacy_unverifiable', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-1', 'hash-23.8-1');
+      checkpoint.saveLegacyVerification('deadbeefdeadbeef', 'Simetrik');
+      const path = join(dir, 'state', 'legacy-verifications', 'deadbeefdeadbeef.json');
+      assert.ok(existsSync(path), 'legacy-verifications/<key>.json must exist');
+      const record = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+      assert.equal(record['status'], 'legacy_unverifiable');
+      assert.equal(record['requiresReverification'], true);
+      assert.equal(record['candidateKey'], 'deadbeefdeadbeef');
+      assert.equal(record['candidateName'], 'Simetrik');
+      assert.ok(typeof record['migratedAt'] === 'string', 'migratedAt must be a string');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-2 — isLegacyVerification returns correct boolean', () => {
+  it('returns true for marked key, false for unmarked key', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-2', 'hash-23.8-2');
+      checkpoint.saveLegacyVerification('aaaa1111aaaa1111', 'Truora');
+      assert.equal(checkpoint.isLegacyVerification('aaaa1111aaaa1111'), true, 'marked key must return true');
+      assert.equal(checkpoint.isLegacyVerification('bbbb2222bbbb2222'), false, 'unmarked key must return false');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-3 — getLegacyVerificationKeys returns all marked keys', () => {
+  it('returns exactly the keys that were saved, excludes .superseded files', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-3', 'hash-23.8-3');
+      checkpoint.saveLegacyVerification('key0000000000001', 'CandA');
+      checkpoint.saveLegacyVerification('key0000000000002', 'CandB');
+      checkpoint.saveLegacyVerification('key0000000000003', 'CandC');
+
+      // Supersede one — it must not appear in keys
+      checkpoint.clearLegacyVerification('key0000000000002');
+
+      const keys = checkpoint.getLegacyVerificationKeys();
+      assert.ok(keys.includes('key0000000000001'), 'CandA key must be present');
+      assert.ok(!keys.includes('key0000000000002'), 'superseded CandB key must be absent');
+      assert.ok(keys.includes('key0000000000003'), 'CandC key must be present');
+      assert.equal(keys.length, 2, 'must return exactly 2 active legacy keys');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-4 — saveVerificationCandidate clears legacy record for same key', () => {
+  it('fresh verification supersedes the legacy record for that key', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-4', 'hash-23.8-4');
+      const key = 'cccc3333cccc3333';
+      checkpoint.saveLegacyVerification(key, 'B-Secure');
+      assert.equal(checkpoint.isLegacyVerification(key), true, 'must be legacy before re-verification');
+
+      const freshData = { original_name: 'B-Secure', is_real_company: true };
+      checkpoint.saveVerificationCandidate(key, freshData, 'newhash0000001');
+
+      assert.equal(checkpoint.isLegacyVerification(key), false, 'legacy record must be cleared after re-verification');
+      // The superseded file must exist for audit trail
+      const supersededPath = join(dir, 'state', 'legacy-verifications', `${key}.json.superseded`);
+      assert.ok(existsSync(supersededPath), 'superseded file must be preserved for audit');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-5 — legacy record for one key does not affect another key', () => {
+  it('re-verifying Truora does not affect Simetrik legacy status', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-5', 'hash-23.8-5');
+      const keySimetrik = 'dddd4444dddd4444';
+      const keyTruora = 'eeee5555eeee5555';
+      checkpoint.saveLegacyVerification(keySimetrik, 'Simetrik');
+      checkpoint.saveLegacyVerification(keyTruora, 'Truora');
+
+      // Re-verify Truora only
+      checkpoint.saveVerificationCandidate(keyTruora, { original_name: 'Truora' }, 'newhash0000002');
+
+      assert.equal(checkpoint.isLegacyVerification(keySimetrik), true, 'Simetrik must remain legacy');
+      assert.equal(checkpoint.isLegacyVerification(keyTruora), false, 'Truora must no longer be legacy');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-6 — addUsage accumulates known_web_search_cost_usd from known-cost calls', () => {
+  it('known_web_search_cost_usd sums only calls where web_search_cost_usd is non-null', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-6', 'hash-23.8-6');
+
+      // 4 calls with known search cost ($0.01 each)
+      for (let i = 0; i < 4; i++) {
+        checkpoint.addUsage({
+          input_tokens: 500, output_tokens: 200, search_calls: 1,
+          search_count_status: 'reported_by_provider', token_cost_usd: 0.02,
+          web_search_cost_usd: 0.01, cost_usd: 0.03,
+        });
+      }
+      // 3 calls with unknown search cost
+      for (let i = 0; i < 3; i++) {
+        checkpoint.addUsage({
+          input_tokens: 500, output_tokens: 200, search_calls: 0,
+          search_count_status: 'unavailable', token_cost_usd: 0.02,
+          web_search_cost_usd: null, cost_usd: 0.02,
+        });
+      }
+
+      const usage = checkpoint.getState().usage;
+      assert.equal(usage.known_web_search_cost_usd, 0.04, 'known_web_search_cost_usd must be 4 × $0.01 = $0.04');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-7 — known_web_search_cost_usd preserved when web_search_cost_usd is nullified', () => {
+  it('web_search_cost_usd goes null but known_web_search_cost_usd retains the partial total', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-7', 'hash-23.8-7');
+
+      checkpoint.addUsage({
+        input_tokens: 500, output_tokens: 200, search_calls: 1,
+        search_count_status: 'reported_by_provider', token_cost_usd: 0.02,
+        web_search_cost_usd: 0.01, cost_usd: 0.03,
+      });
+      // This unknown call nullifies web_search_cost_usd
+      checkpoint.addUsage({
+        input_tokens: 500, output_tokens: 200, search_calls: 0,
+        search_count_status: 'unavailable', token_cost_usd: 0.02,
+        web_search_cost_usd: null, cost_usd: 0.02,
+      });
+
+      const usage = checkpoint.getState().usage;
+      assert.equal(usage.web_search_cost_usd, null, 'web_search_cost_usd must be null');
+      assert.equal(usage.known_web_search_cost_usd, 0.01, 'known_web_search_cost_usd must preserve $0.01');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-8 — addUsage increments unknown_search_usage_calls for null-cost calls', () => {
+  it('each call with null web_search_cost_usd increments unknown_search_usage_calls', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-8', 'hash-23.8-8');
+
+      for (let i = 0; i < 7; i++) {
+        checkpoint.addUsage({
+          input_tokens: 500, output_tokens: 200, search_calls: 0,
+          search_count_status: 'unavailable', token_cost_usd: 0.02,
+          web_search_cost_usd: null, cost_usd: 0.02,
+        });
+      }
+
+      const usage = checkpoint.getState().usage;
+      assert.equal(usage.unknown_search_usage_calls, 7, 'unknown_search_usage_calls must be 7');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-9 — resume() back-fills known_web_search_cost_usd from reported searches', () => {
+  it('legacy run-state with web_search_requests_reported=4 back-fills known cost as 4×$0.01', () => {
+    const dir = makeTmpDir();
+    try {
+      mkdirSync(join(dir, 'state'), { recursive: true });
+      const legacyState = {
+        runId: 'run-legacy-cost', provider: 'anthropic_native_search',
+        requestHash: 'hash-legacy-cost', model: 'claude-sonnet-4-6',
+        pipelineVersion: '16AB.23.4', currentStage: 'stage5_verification',
+        completedStages: [], completedDiscoveryBatches: [], completedVerificationBatches: [],
+        failedBatches: [], stageArtifacts: {},
+        usage: {
+          input_tokens: 5000, output_tokens: 2000, searches_executed: 4,
+          total_api_calls: 11, successful_api_calls: 4, failed_api_calls: 0,
+          retried_api_calls: 0, rate_limit_wait_ms: 0, estimated_cost_usd: 0.15,
+          web_search_requests_reported: 4, web_search_requests_inferred: 0,
+          web_search_count_status: 'reported_by_provider',
+          token_cost_usd: 0.11, web_search_cost_usd: null,
+          web_search_results_count: 12, web_search_citations_count: 8,
+          web_search_errors_count: 0,
+          total_provider_attempts: 11, usage_bearing_api_calls: 6,
+          rate_limited_attempts: 0, unknown_usage_attempts: 7,
+          known_cost_usd: 0.11, legacy_search_cost_upper_bound_usd: null,
+        },
+        startedAt: '2026-06-09T19:18:05.000Z',
+        updatedAt: '2026-06-09T20:00:00.000Z',
+      };
+      writeFileSync(join(dir, 'state', 'run-state.json'), JSON.stringify(legacyState), 'utf-8');
+
+      const resumed = CheckpointManager.resume(dir);
+      assert.ok(resumed !== null, 'resume must succeed');
+      const usage = resumed!.getState().usage;
+      assert.equal(
+        usage.known_web_search_cost_usd, 0.04,
+        'known_web_search_cost_usd must be back-filled as 4 × $0.01 = $0.04'
+      );
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-10 — resume() back-fills unknown_search_usage_calls from unknown_usage_attempts', () => {
+  it('legacy run-state with unknown_usage_attempts=7 back-fills unknown_search_usage_calls=7', () => {
+    const dir = makeTmpDir();
+    try {
+      mkdirSync(join(dir, 'state'), { recursive: true });
+      const legacyState = {
+        runId: 'run-legacy-unk', provider: 'anthropic_native_search',
+        requestHash: 'hash-legacy-unk', model: 'claude-sonnet-4-6',
+        pipelineVersion: '16AB.23.4', currentStage: 'stage5_verification',
+        completedStages: [], completedDiscoveryBatches: [], completedVerificationBatches: [],
+        failedBatches: [], stageArtifacts: {},
+        usage: {
+          input_tokens: 1000, output_tokens: 500, searches_executed: 0,
+          total_api_calls: 10, successful_api_calls: 3, failed_api_calls: 0,
+          retried_api_calls: 0, rate_limit_wait_ms: 0, estimated_cost_usd: 0.05,
+          web_search_requests_reported: 0, web_search_requests_inferred: 0,
+          web_search_count_status: 'unavailable',
+          token_cost_usd: 0.05, web_search_cost_usd: null,
+          web_search_results_count: 0, web_search_citations_count: 0,
+          web_search_errors_count: 0,
+          total_provider_attempts: 10, usage_bearing_api_calls: 3,
+          rate_limited_attempts: 0, unknown_usage_attempts: 7,
+          known_cost_usd: 0.05, legacy_search_cost_upper_bound_usd: null,
+        },
+        startedAt: '2026-06-09T19:00:00.000Z',
+        updatedAt: '2026-06-09T20:00:00.000Z',
+      };
+      writeFileSync(join(dir, 'state', 'run-state.json'), JSON.stringify(legacyState), 'utf-8');
+
+      const resumed = CheckpointManager.resume(dir);
+      assert.ok(resumed !== null, 'resume must succeed');
+      const usage = resumed!.getState().usage;
+      assert.equal(
+        usage.unknown_search_usage_calls, 7,
+        'unknown_search_usage_calls must be back-filled as unknown_usage_attempts=7'
+      );
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-11 — getVerificationCandidateKeys returns keys from verification-candidates/', () => {
+  it('returns keys for existing .json files, excludes .corrupt files', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-11', 'hash-23.8-11');
+      const subdir = join(dir, 'state', 'verification-candidates');
+      mkdirSync(subdir, { recursive: true });
+
+      writeFileSync(join(subdir, 'aaa1111100000001.json'), '{}', 'utf-8');
+      writeFileSync(join(subdir, 'bbb2222200000002.json'), '{}', 'utf-8');
+      writeFileSync(join(subdir, 'ccc3333300000003.json.corrupt'), '{}', 'utf-8');
+
+      const keys = checkpoint.getVerificationCandidateKeys();
+      assert.ok(keys.includes('aaa1111100000001'), 'first key must be present');
+      assert.ok(keys.includes('bbb2222200000002'), 'second key must be present');
+      assert.ok(!keys.includes('ccc3333300000003'), 'corrupt file key must be absent');
+      assert.equal(keys.length, 2, 'must return exactly 2 keys');
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+});
+
+describe('Case 16AB.23.8-12 — stale per-candidate hash is detected via loadArtifactRaw comparison', () => {
+  it('artifact saved with old hash is correctly identified as stale when compared to a new hash', () => {
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = CheckpointManager.create(dir, 'run-23.8-12', 'hash-23.8-12');
+      const key = 'fff6666600000006';
+      const oldHash = 'oldhash0000001';
+      const newHash = 'newhash0000002';
+
+      // Save an artifact with the old hash (simulating pre-16AB.23.8 verification)
+      checkpoint.saveVerificationCandidate(key, { original_name: 'Truora' }, oldHash);
+
+      // Load raw without hash validation
+      const artifact = checkpoint.loadArtifactRaw<{ original_name: string }>(
+        `verification-candidates/${key}.json`
+      );
+      assert.ok(artifact !== null, 'raw artifact must be loadable');
+      assert.equal(artifact!.inputHash, oldHash, 'stored hash must match old hash');
+      assert.notEqual(artifact!.inputHash, newHash, 'stored hash must differ from new hash');
+
+      // loadVerificationCandidateIfValid must reject when queried with new hash
+      const valid = checkpoint.loadVerificationCandidateIfValid<{ original_name: string }>(key, newHash);
+      assert.equal(valid, null, 'stale artifact must not be served as valid');
+
+      // After marking as legacy, isLegacyVerification must return true
+      checkpoint.saveLegacyVerification(key, artifact!.data.original_name);
+      assert.equal(checkpoint.isLegacyVerification(key), true, 'stale candidate must be marked as legacy');
+    } finally {
+      cleanupDir(dir);
+    }
   });
 });

@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { ImportLoadingOverlay } from '@/components/prospect-batches/import-loading-overlay';
 import {
   parsePastedCandidates,
   parseCsvCandidates,
@@ -481,6 +482,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         )
       }
     >
+      {/* Import loading overlay */}
+      <ImportLoadingOverlay
+        open={confirming}
+        total={preview ? preview.valid + preview.warnings_only : 0}
+      />
+
       {/* ── Step: input ───────────────────────────────────── */}
       {step === 'input' && (
         <div className="space-y-5">

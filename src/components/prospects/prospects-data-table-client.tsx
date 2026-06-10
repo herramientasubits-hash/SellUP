@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+import { Progress } from '@/components/ui/progress';
 import {
   DataTable,
   DataTableColumnHeader,
@@ -966,34 +967,52 @@ export function ProspectsDataTableClient({
     <>
       {/* Banner de operación reciente (sourceId activo) */}
       {isSourceFiltered && (
-        <div className="shrink-0 flex items-center justify-between gap-3 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-              <Loader2 className="h-4 w-4 shrink-0 text-su-brand animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
-            )}
-            <p className="text-xs font-medium text-su-brand">
-              {batchStats ? (
-                (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-                  `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}...`
-                ) : (
-                  `Importación completada. Se enriquecieron ${batchStats.completed} prospecto${batchStats.completed !== 1 ? 's' : ''} y ${batchStats.failed + batchStats.possibleDuplicates} requiere${batchStats.failed + batchStats.possibleDuplicates !== 1 ? 'n' : ''} revisión.`
-                )
+        <div className="shrink-0 flex flex-col gap-2.5 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
+                <Loader2 className="h-4 w-4 shrink-0 text-su-brand animate-spin" />
               ) : (
-                getSourceBanner(sourceBatchType)
+                <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
               )}
-            </p>
+              <p className="text-xs font-medium text-su-brand">
+                {batchStats ? (
+                  (batchStats.pending > 0 || batchStats.enriching > 0) ? (
+                    `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}...`
+                  ) : (
+                    `Importación completada. Se enriquecieron ${batchStats.completed} prospecto${batchStats.completed !== 1 ? 's' : ''} y ${batchStats.failed + batchStats.possibleDuplicates} requiere${batchStats.failed + batchStats.possibleDuplicates !== 1 ? 'n' : ''} revisión.`
+                  )
+                ) : (
+                  getSourceBanner(sourceBatchType)
+                )}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push('/prospects')}
+              className="h-7 shrink-0 gap-1.5 px-2.5 text-xs text-su-brand hover:bg-su-brand-soft hover:text-su-brand"
+            >
+              <X className="h-3 w-3" />
+              Ver todos los prospectos
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push('/prospects')}
-            className="h-7 shrink-0 gap-1.5 px-2.5 text-xs text-su-brand hover:bg-su-brand-soft hover:text-su-brand"
-          >
-            <X className="h-3 w-3" />
-            Ver todos los prospectos
-          </Button>
+          {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) && (
+            <div className="space-y-1.5">
+              <Progress
+                value={batchStats.total > 0 ? ((batchStats.completed + batchStats.failed) / batchStats.total) * 100 : 0}
+                className="h-1.5 bg-su-brand/10"
+              />
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                <span>
+                  {batchStats.completed + batchStats.failed} de {batchStats.total} procesados
+                </span>
+                <span className="tabular-nums font-medium text-su-brand/70">
+                  {batchStats.total > 0 ? Math.round(((batchStats.completed + batchStats.failed) / batchStats.total) * 100) : 0}%
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

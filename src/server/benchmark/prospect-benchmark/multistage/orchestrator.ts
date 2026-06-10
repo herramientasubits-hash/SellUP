@@ -88,6 +88,11 @@ function buildEmptyMetrics(): ExecutionMetrics {
     new_discovery_batches_attempted: 0,
     retryable_discovery_batches: 0,
     resume_degradation_prevented: false,
+    // 16AB.23.8
+    checkpoint_degradation_detected: false,
+    quality_retraction_count: 0,
+    legacy_candidates_retracted: 0,
+    partial_input_preserved: false,
   };
 }
 
@@ -95,50 +100,81 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ─── Legacy migration (16AB.23.4) ────────────────────────────────────────────
+// ─── Legacy migration (16AB.23.8) ────────────────────────────────────────────
 
 /**
- * On resume, scan legacy verification-XX.json files and migrate matching
- * candidates to per-candidate cache. Only migrates when:
- *   1. The candidate appears in the current discovery pool (identity match).
- *   2. No valid per-candidate cache already exists for that candidate.
+ * On resume, identify candidates whose cached verification has no audit trail
+ * and must be re-verified. Writes records to state/legacy-verifications/.
  *
- * This preserves verified results (e.g. Simetrik) across the hotfix upgrade
- * without requiring manual file edits.
+ * Two sources of legacy-unverifiable candidates:
+ *   1. Legacy batch files (verification-XX.json) — pre-per-candidate-cache runs.
+ *   2. Per-candidate cache entries whose inputHash no longer matches the current
+ *      pipeline version — verified before the audit trail enforcement (16AB.23.8).
+ *
+ * NEVER writes to verification-candidates/ from a legacy source. A genuine
+ * re-verification via Stage 5 Pass 2 is the only way to produce a valid entry.
  */
 function migrateLegacyVerifications(
   checkpoint: CheckpointManager,
   currentPool: DiscoveryCandidate[],
   country: string
 ): void {
-  // Build lookup: normalized name → discovery candidate
   const byNormName = new Map<string, DiscoveryCandidate>();
+  const byKey = new Map<string, DiscoveryCandidate>();
   for (const c of currentPool) {
     byNormName.set(c.name.toLowerCase().trim(), c);
+    byKey.set(computeCandidateKey(c), c);
   }
 
+  // Step 1: candidates from legacy batch files are always legacy-unverifiable
   for (let i = 0; i < 20; i++) {
     const legacy = checkpoint.loadFile<{ candidates: VerifiedCandidateResult[] }>(
       checkpoint.verificationFile(i)
     );
     if (!legacy?.candidates) continue;
-
     for (const verResult of legacy.candidates) {
       const original = byNormName.get(verResult.original_name.toLowerCase().trim());
       if (!original) continue;
-
       const key = computeCandidateKey(original);
-      const inputHash = computeVerificationCandidateInputHash(
-        original, country, MULTISTAGE_CONFIG.pipeline_version, MULTISTAGE_CONFIG.model
-      );
-
-      // Only migrate if per-candidate cache does not already hold a valid entry
-      const existing = checkpoint.loadVerificationCandidateIfValid<VerifiedCandidateResult>(key, inputHash);
-      if (!existing) {
-        checkpoint.saveVerificationCandidate(key, verResult, inputHash);
-      }
+      checkpoint.saveLegacyVerification(key, verResult.original_name);
     }
   }
+
+  // Step 2: per-candidate cache entries with stale hashes (pre-16AB.23.8 pipeline)
+  // are also legacy-unverifiable — they were verified without the current audit trail.
+  for (const key of checkpoint.getVerificationCandidateKeys()) {
+    if (checkpoint.isLegacyVerification(key)) continue; // already marked in Step 1
+    const original = byKey.get(key);
+    if (!original) continue;
+    const currentHash = computeVerificationCandidateInputHash(
+      original, country, MULTISTAGE_CONFIG.pipeline_version, MULTISTAGE_CONFIG.model
+    );
+    const artifact = checkpoint.loadArtifactRaw<VerifiedCandidateResult>(
+      `verification-candidates/${key}.json`
+    );
+    if (artifact && artifact.inputHash !== currentHash) {
+      const candidateName = artifact.data?.original_name ?? original.name;
+      checkpoint.saveLegacyVerification(key, candidateName);
+    }
+  }
+}
+
+// ─── Selection eligibility gate (16AB.23.8) ───────────────────────────────────
+
+/**
+ * A candidate is eligible for final selection only when it has a valid
+ * per-candidate verification artifact AND is NOT in legacy-verifications/.
+ * Legacy candidates must be re-verified with the current audit trail first.
+ */
+function isCandidateEligibleForFinalSelection(
+  v: VerifiedCandidateResult,
+  checkpoint: CheckpointManager
+): boolean {
+  const key = computeCandidateKey({
+    name: v.resolved_name ?? v.original_name,
+    website: v.official_website,
+  });
+  return !checkpoint.isLegacyVerification(key);
 }
 
 // ─── Stage 4 — External duplicate check ──────────────────────────────────────
@@ -462,6 +498,12 @@ async function executeStages(
     migrateLegacyVerifications(checkpoint, allDiscovered, request.country);
   }
 
+  // 16AB.23.8: count candidates marked as legacy-unverifiable after migration
+  const legacyRetractedKeys = checkpoint.getLegacyVerificationKeys();
+  metrics.quality_retraction_count = legacyRetractedKeys.length;
+  metrics.legacy_candidates_retracted = legacyRetractedKeys.length;
+  metrics.checkpoint_degradation_detected = false; // discovery pool intact
+
   const initialPool = dedupedPool.slice(0, MULTISTAGE_CONFIG.initial_verification_pool_size);
   const reservePool = dedupedPool.slice(MULTISTAGE_CONFIG.initial_verification_pool_size);
 
@@ -489,8 +531,15 @@ async function executeStages(
   const selectionStart = Date.now();
   checkpoint.markStageStarted('stage6_selection');
 
+  // 16AB.23.8: also exclude legacy-unverifiable candidates from selection
   const acceptedVerified = allVerified.filter(
-    (v) => v.is_real_company && v.operates_in_colombia && v.is_tech_b2b && v.confidence !== 'Baja' && !v.rejection_reason
+    (v) =>
+      v.is_real_company &&
+      v.operates_in_colombia &&
+      v.is_tech_b2b &&
+      v.confidence !== 'Baja' &&
+      !v.rejection_reason &&
+      isCandidateEligibleForFinalSelection(v, checkpoint)
   );
 
   // 16AB.23.4: selection is only reused when its inputHash matches the current
@@ -619,10 +668,13 @@ async function executeStages(
         (usage.output_tokens / 1_000_000) * COST_RATES.output_per_million
       : null;
 
-  const webSearchCostUsd = usage.web_search_cost_usd;  // already null when unavailable
+  const webSearchCostUsd = usage.web_search_cost_usd;  // null when any call had unknown cost
+  // 16AB.23.8: when full search cost is unknown, use the partial known cost so the
+  // total is at least a lower bound rather than omitting the known portion entirely.
+  const knownWebSearchCostUsd = usage.known_web_search_cost_usd ?? 0;
 
   const totalCostUsd = tokenCostUsd !== null
-    ? tokenCostUsd + (webSearchCostUsd ?? 0)
+    ? tokenCostUsd + (webSearchCostUsd ?? knownWebSearchCostUsd)
     : null;
 
   const costStatus = !usage.input_tokens

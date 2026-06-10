@@ -1,5 +1,5 @@
 /**
- * Multistage Orchestrator — Types (16AB.23.3 / 16AB.23.4 / 16AB.23.5)
+ * Multistage Orchestrator — Types (16AB.23.3 / 16AB.23.4 / 16AB.23.5 / 16AB.23.8)
  */
 
 import type { SearchCountStatus } from './web-search-audit';
@@ -115,6 +115,14 @@ export type RunUsage = {
    * Null if any call had status 'unavailable' (partial search cost unknown).
    */
   web_search_cost_usd: number | null;
+  /**
+   * Sum of web search costs only from calls where cost was known.
+   * Never nullified — preserved even when web_search_cost_usd is null.
+   * 16AB.23.8: allows honest partial-cost reporting.
+   */
+  known_web_search_cost_usd: number;
+  /** Count of calls where web search usage was unavailable (cost unknown). */
+  unknown_search_usage_calls: number;
   /** Result counts across calls with search enabled. */
   web_search_results_count: number;
   web_search_citations_count: number;
@@ -222,4 +230,23 @@ export type ExecutionMetrics = {
   new_discovery_batches_attempted?: number;
   retryable_discovery_batches?: number;
   resume_degradation_prevented?: boolean;
+  // 16AB.23.8 additions
+  checkpoint_degradation_detected?: boolean;
+  quality_retraction_count?: number;
+  legacy_candidates_retracted?: number;
+  partial_input_preserved?: boolean;
+};
+
+// ─── Legacy verification record (16AB.23.8) ────────────────────────────────────
+
+/**
+ * Written to state/legacy-verifications/<key>.json for candidates whose
+ * cached verification has no audit trail and requires re-verification.
+ */
+export type LegacyVerificationRecord = {
+  status: 'legacy_unverifiable';
+  requiresReverification: true;
+  candidateKey: string;
+  candidateName: string;
+  migratedAt: string;
 };

@@ -1,5 +1,5 @@
 /**
- * Multistage Orchestrator — Centralized Configuration (16AB.23.3)
+ * Multistage Orchestrator — Centralized Configuration (16AB.23.3 / 16AB.23.8)
  *
  * All operational limits, timeouts, and cost rates in one place.
  * Change here to affect the entire pipeline.
@@ -8,7 +8,11 @@
 export const MULTISTAGE_CONFIG = {
   model: 'claude-sonnet-4-6' as const,
   anthropic_api: 'https://api.anthropic.com/v1/messages' as const,
-  pipeline_version: '16AB.23.4' as const,
+  // 16AB.23.8: bumped to invalidate all pre-audit per-candidate verification
+  // artifacts (Simetrik, Truora, B-Secure, etc.) so they are re-verified with
+  // the new audit trail enforcement. Discovery/prefilter/dedup are also
+  // invalidated but those are CPU-only and produce identical deterministic output.
+  pipeline_version: '16AB.23.8' as const,
 
   // Timeouts — a single HTTP connection must never exceed 5 min
   per_call_timeout_ms: 90_000,

@@ -25,7 +25,7 @@
  *   - Per-invocation summary persisted to state/invocations/<id>.json
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync, readdirSync } from 'fs';
 import { join } from 'path';
 import type {
   BatchUsage,
@@ -102,6 +102,8 @@ export class CheckpointManager {
         web_search_count_status: 'unavailable',
         token_cost_usd: 0,
         web_search_cost_usd: 0,
+        known_web_search_cost_usd: 0,
+        unknown_search_usage_calls: 0,
         web_search_results_count: 0,
         web_search_citations_count: 0,
         web_search_errors_count: 0,
@@ -167,6 +169,17 @@ export class CheckpointManager {
         // estimated_cost_usd already only accumulated from actual token usage (429s add 0)
         u.known_cost_usd = u.estimated_cost_usd;
       }
+      // Back-fill 16AB.23.8 partial-cost fields
+      if (u.known_web_search_cost_usd === undefined) {
+        // If searches were reported, compute exact known cost; otherwise fall back to 0.
+        u.known_web_search_cost_usd = u.web_search_requests_reported > 0
+          ? u.web_search_requests_reported * COST_RATES.web_search_per_request
+          : (u.web_search_cost_usd ?? 0);
+      }
+      if (u.unknown_search_usage_calls === undefined) {
+        u.unknown_search_usage_calls = u.unknown_usage_attempts;
+      }
+
       if (u.legacy_search_cost_upper_bound_usd === undefined) {
         // Compute conservative upper bound for pre-16AB.23.5 runs where search cost is unknown.
         // Only applies when web_search_count_status is 'unavailable' and there were real calls.
@@ -344,13 +357,19 @@ export class CheckpointManager {
       statuses.filter((s): s is SearchCountStatus => s !== undefined)
     );
 
-    // Web search cost: null if any call was unavailable
+    // Web search cost: null if any call was unavailable (backward compat)
     if (usage.web_search_cost_usd !== null) {
       if (u.web_search_cost_usd !== null) {
         usage.web_search_cost_usd = (usage.web_search_cost_usd ?? 0) + u.web_search_cost_usd;
       } else {
         usage.web_search_cost_usd = null;
       }
+    }
+    // 16AB.23.8: always accumulate known cost separately — never nullified
+    if (u.web_search_cost_usd !== null) {
+      usage.known_web_search_cost_usd = (usage.known_web_search_cost_usd ?? 0) + u.web_search_cost_usd;
+    } else {
+      usage.unknown_search_usage_calls = (usage.unknown_search_usage_calls ?? 0) + 1;
     }
 
     this.persist();
@@ -473,6 +492,8 @@ export class CheckpointManager {
       data,
     };
     writeFileSync(join(subdir, `${key}.json`), JSON.stringify(artifact, null, 2), 'utf-8');
+    // 16AB.23.8: a fresh verification supersedes any legacy record
+    this.clearLegacyVerification(key);
   }
 
   /**
@@ -491,6 +512,67 @@ export class CheckpointManager {
     } catch {
       try { renameSync(path, `${path}.corrupt`); } catch { /* ignore */ }
       return null;
+    }
+  }
+
+  // ─── Legacy verification records (16AB.23.8) ──────────────────────────────
+
+  /**
+   * Mark a candidate as legacy-unverifiable.
+   * Written to state/legacy-verifications/<key>.json.
+   * Candidates here are excluded from final selection until re-verified.
+   */
+  saveLegacyVerification(key: string, candidateName: string): void {
+    const subdir = join(this.stateDir, 'legacy-verifications');
+    mkdirSync(subdir, { recursive: true });
+    const record = {
+      status: 'legacy_unverifiable' as const,
+      requiresReverification: true as const,
+      candidateKey: key,
+      candidateName,
+      migratedAt: new Date().toISOString(),
+    };
+    writeFileSync(join(subdir, `${key}.json`), JSON.stringify(record, null, 2), 'utf-8');
+  }
+
+  /** True when the candidate has been marked as legacy-unverifiable. */
+  isLegacyVerification(key: string): boolean {
+    return existsSync(join(this.stateDir, 'legacy-verifications', `${key}.json`));
+  }
+
+  /** Returns all candidate keys present in state/legacy-verifications/. */
+  getLegacyVerificationKeys(): string[] {
+    const dir = join(this.stateDir, 'legacy-verifications');
+    if (!existsSync(dir)) return [];
+    try {
+      return readdirSync(dir)
+        .filter((f) => f.endsWith('.json') && !f.endsWith('.superseded.json'))
+        .map((f) => f.slice(0, -5));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Mark a legacy record as superseded (fresh verification exists).
+   * Renames to <key>.json.superseded so the file is preserved for audit.
+   */
+  clearLegacyVerification(key: string): void {
+    const path = join(this.stateDir, 'legacy-verifications', `${key}.json`);
+    if (!existsSync(path)) return;
+    try { renameSync(path, `${path}.superseded`); } catch { /* ignore */ }
+  }
+
+  /** Returns all candidate keys present in state/verification-candidates/. */
+  getVerificationCandidateKeys(): string[] {
+    const dir = join(this.stateDir, 'verification-candidates');
+    if (!existsSync(dir)) return [];
+    try {
+      return readdirSync(dir)
+        .filter((f) => f.endsWith('.json') && !f.endsWith('.corrupt'))
+        .map((f) => f.slice(0, -5));
+    } catch {
+      return [];
     }
   }
 
