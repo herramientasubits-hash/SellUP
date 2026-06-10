@@ -908,8 +908,22 @@ export function CandidateDetailSheet({
               <MetricCard
                 title="Completitud"
                 description="Datos esenciales"
-                value={typeof candidate.data_completeness_score === 'number' ? candidate.data_completeness_score : '—'}
-                subtitle={typeof candidate.data_completeness_score === 'number' ? '%' : ''}
+                value={(() => {
+                  const score = candidate.data_completeness_score;
+                  if (typeof score === 'number') return score;
+                  const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
+                  const pct = enrichment?.completeness_pct;
+                  if (typeof pct === 'number') return pct;
+                  return '—';
+                })()}
+                subtitle={(() => {
+                  const score = candidate.data_completeness_score;
+                  if (typeof score === 'number') return '%';
+                  const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
+                  const pct = enrichment?.completeness_pct;
+                  if (typeof pct === 'number') return '%';
+                  return '';
+                })()}
                 icon={
                   <div className="rounded-lg p-1.5 bg-su-brand-soft">
                     <BarChart3 className="h-4 w-4 text-su-brand" />

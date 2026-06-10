@@ -96,7 +96,7 @@ export function DrawerShell({
       {trigger && <SheetTrigger render={trigger as React.ReactElement} />}
       <SheetContent
         side={side}
-        className={cn('flex flex-col gap-0 overflow-hidden', sizeClass, className)}
+        className={cn('flex flex-col gap-0 overflow-hidden !bg-background', sizeClass, className)}
         showCloseButton={showCloseButton}
       >
         {/* Header section with optional icon */}
