@@ -111,9 +111,14 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
 
   React.useEffect(() => {
     if (open && accountId) {
-      loadData(accountId);
+      let cancelled = false;
+      (async () => {
+        await loadData(accountId);
+        if (cancelled) return;
+      })();
+      return () => { cancelled = true; };
     } else if (!open) {
-      setData(null);
+      queueMicrotask(() => setData(null));
     }
   }, [open, accountId, loadData]);
 
@@ -158,12 +163,12 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
           </div>
         ) : (
           <Tabs defaultValue="resumen">
-                  <TabsList className="mb-4">
-                    <TabsTrigger value="resumen">Resumen</TabsTrigger>
-                    <TabsTrigger value="contactos">Contactos</TabsTrigger>
-                    <TabsTrigger value="inteligencia">Inteligencia</TabsTrigger>
-                    <TabsTrigger value="actividad">Actividad</TabsTrigger>
-                    <TabsTrigger value="agentes">Agentes</TabsTrigger>
+                  <TabsList variant="segmented" className="mx-7 mt-4">
+                    <TabsTrigger value="resumen"><Building2 className="h-4 w-4" /> Resumen</TabsTrigger>
+                    <TabsTrigger value="contactos"><Users className="h-4 w-4" /> Contactos</TabsTrigger>
+                    <TabsTrigger value="inteligencia"><Brain className="h-4 w-4" /> Inteligencia</TabsTrigger>
+                    <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
+                    <TabsTrigger value="agentes"><Bot className="h-4 w-4" /> Agentes</TabsTrigger>
                   </TabsList>
 
                   {/* Resumen */}

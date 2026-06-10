@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Copy, Check, Database, ExternalLink, Layers, Lock } from 'lucide-react';
+import { Copy, Check, Database, ExternalLink, Layers, Lock, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -252,10 +252,10 @@ export function SourceDetailDrawer({
     >
       {isRues ? (
         <Tabs defaultValue="info" className="w-full">
-          <TabsList variant="line" className="mb-5">
-            <TabsTrigger value="info">Información</TabsTrigger>
+          <TabsList variant="segmented" className="mx-7 mt-4">
+            <TabsTrigger value="info"><Info className="h-4 w-4" /> Información</TabsTrigger>
             <TabsTrigger value="batches">
-              Lotes
+              <Layers className="h-4 w-4" /> Lotes
               {batchesCount > 0 && (
                 <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
                   {batchesCount}

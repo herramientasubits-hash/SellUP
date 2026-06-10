@@ -21,6 +21,8 @@ import {
   RefreshCw,
   Info,
   Copy,
+  FileText,
+  Wrench,
 } from 'lucide-react';
 import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -860,11 +862,11 @@ export function CandidateDetailSheet({
         }
       >
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <TabsList className="shrink-0 px-7 pt-4 pb-2 w-full justify-start">
-            <TabsTrigger value="resumen">Resumen</TabsTrigger>
-            <TabsTrigger value="empresa">Empresa</TabsTrigger>
-            <TabsTrigger value="validacion">Validación</TabsTrigger>
-            <TabsTrigger value="tecnico">Técnico</TabsTrigger>
+          <TabsList variant="segmented" className="shrink-0 mx-7 mt-4">
+            <TabsTrigger value="resumen"><FileText className="h-4 w-4" /> Resumen</TabsTrigger>
+            <TabsTrigger value="empresa"><Building2 className="h-4 w-4" /> Empresa</TabsTrigger>
+            <TabsTrigger value="validacion"><CheckCircle2 className="h-4 w-4" /> Validación</TabsTrigger>
+            <TabsTrigger value="tecnico"><Wrench className="h-4 w-4" /> Técnico</TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Resumen */}

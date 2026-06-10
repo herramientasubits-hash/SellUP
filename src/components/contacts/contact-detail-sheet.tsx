@@ -14,6 +14,7 @@ import {
   User,
   Building2,
   Globe,
+  Sparkles,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
@@ -108,11 +109,18 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
 
   React.useEffect(() => {
     if (open && contactId) {
-      loadData(contactId);
+      let cancelled = false;
+      (async () => {
+        await loadData(contactId);
+        if (cancelled) return;
+      })();
+      return () => { cancelled = true; };
     } else if (!open) {
-      setContact(null);
-      setAuditLog([]);
-      setAccount(null);
+      queueMicrotask(() => {
+        setContact(null);
+        setAuditLog([]);
+        setAccount(null);
+      });
     }
   }, [open, contactId, loadData]);
 
@@ -180,11 +188,11 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         </div>
       ) : (
         <Tabs defaultValue="resumen">
-                <TabsList className="mb-4">
-                  <TabsTrigger value="resumen">Resumen</TabsTrigger>
-                  <TabsTrigger value="actividad">Actividad</TabsTrigger>
-                  <TabsTrigger value="enriquecimiento">Enriquecimiento</TabsTrigger>
-                  <TabsTrigger value="hubspot">HubSpot</TabsTrigger>
+                <TabsList variant="segmented" className="mx-7 mt-4">
+                  <TabsTrigger value="resumen"><User className="h-4 w-4" /> Resumen</TabsTrigger>
+                  <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
+                  <TabsTrigger value="enriquecimiento"><Sparkles className="h-4 w-4" /> Enriquecimiento</TabsTrigger>
+                  <TabsTrigger value="hubspot"><Globe className="h-4 w-4" /> HubSpot</TabsTrigger>
                 </TabsList>
 
                 {/* Resumen */}
