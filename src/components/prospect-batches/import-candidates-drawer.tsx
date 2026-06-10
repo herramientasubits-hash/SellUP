@@ -354,8 +354,16 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       setResultBatchId(result.batchId);
       setResultCount(result.candidatesCreated);
       setImportStats(result.stats || null);
-      setStep('success');
-      // Refresh manual en background: el estado del drawer se preserva
+      // Close drawer and show success toast
+      handleClose();
+      toast.success(`Se importaron ${result.candidatesCreated} candidato${result.candidatesCreated !== 1 ? 's' : ''} exitosamente.`, {
+        description: 'Los prospectos están listos para revisión.',
+        action: {
+          label: 'Ver prospectos',
+          onClick: () => router.push(`/prospects?sourceId=${result.batchId}`),
+        },
+      });
+      // Refresh data in background
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al importar prospectos');
@@ -1009,108 +1017,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </AlertDescription>
             </Alert>
           )}
-        </div>
-      )}
-
-      {/* ── Step: success ─────────────────────────────────── */}
-      {step === 'success' && (
-        <div className="flex flex-col items-center justify-center gap-5 py-4 text-center">
-          <div className="rounded-full bg-emerald-500/10 p-4">
-            <CheckCircle2 className="h-9 w-9 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">
-              ¡Importación completada!
-            </p>
-            <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-              Se han cargado y validado los prospectos en el lote. Ninguno se enviará a HubSpot hasta que sea aprobado.
-            </p>
-          </div>
-
-          {importStats && (
-            <SurfaceCard>
-              <SurfaceCardHeader title="Resumen de Lote" />
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-lg bg-card border border-border/30 p-2">
-                  <span className="text-[10px] text-muted-foreground block">Filas procesadas</span>
-                  <span className="font-semibold text-foreground text-sm tabular-nums">{importStats.totalProcessed}</span>
-                </div>
-                
-                <div className="rounded-lg bg-card border border-border/30 p-2">
-                  <span className="text-[10px] text-muted-foreground block">Guardados con éxito</span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400 text-sm tabular-nums">{importStats.importedCount}</span>
-                </div>
-
-                <div className="rounded-lg bg-card border border-border/30 p-2 col-span-2 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] text-muted-foreground block">Enriquecimiento automático</span>
-                    <span className="text-[11px] font-medium text-su-brand">Incremental (Campos vacíos)</span>
-                  </div>
-                  <Badge className="bg-su-brand-soft text-su-brand font-semibold hover:bg-su-brand-soft/80 border-0">
-                    {importStats.autoEnrichPendingCount} pendiente{importStats.autoEnrichPendingCount !== 1 ? 's' : ''}
-                  </Badge>
-                </div>
-
-                {importStats.alreadyCompleteCount > 0 && (
-                  <div className="rounded-lg bg-card border border-border/30 p-2 col-span-2 flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground">Listos para revisión (Completos)</span>
-                    <span className="font-semibold text-foreground tabular-nums">{importStats.alreadyCompleteCount}</span>
-                  </div>
-                )}
-
-                {importStats.duplicateCount > 0 && (
-                  <div className="rounded-lg bg-card border border-border/30 p-2 flex flex-col justify-between">
-                    <span className="text-[10px] text-muted-foreground block">Duplicados exactos</span>
-                    <span className="font-semibold text-orange-600 dark:text-orange-400 text-sm tabular-nums">{importStats.duplicateCount}</span>
-                  </div>
-                )}
-
-                {importStats.possibleDuplicateCount > 0 && (
-                  <div className="rounded-lg bg-card border border-border/30 p-2 flex flex-col justify-between">
-                    <span className="text-[10px] text-muted-foreground block">Posibles duplicados</span>
-                    <span className="font-semibold text-amber-600 dark:text-amber-400 text-sm tabular-nums">{importStats.possibleDuplicateCount}</span>
-                  </div>
-                )}
-
-                {importStats.errorsCount > 0 && (
-                  <div className="rounded-lg bg-card border border-border/30 p-2 flex flex-col justify-between border-destructive/20 bg-destructive/5">
-                    <span className="text-[10px] text-destructive block">Omitidos con error</span>
-                    <span className="font-semibold text-destructive text-sm tabular-nums">{importStats.errorsCount}</span>
-                  </div>
-                )}
-              </div>
-            </SurfaceCard>
-          )}
-
-          <div className="flex flex-col gap-2 w-full max-w-xs">
-            <Button
-              type="button"
-              onClick={() => {
-                handleClose();
-                if (resultBatchId) router.push(`/prospects?sourceId=${resultBatchId}`);
-              }}
-              className="w-full gap-2 text-xs"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Ver prospectos importados
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={resetState}
-              className="w-full text-xs"
-            >
-              Importar otro archivo
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleClose}
-              className="w-full text-xs text-muted-foreground"
-            >
-              Cerrar
-            </Button>
-          </div>
         </div>
       )}
         </>

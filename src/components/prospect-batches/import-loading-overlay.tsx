@@ -58,7 +58,7 @@ export function ImportLoadingOverlay({
   const progress = ((completedSteps.length + 1) / STEPS.length) * 100;
 
   return (
-    <div className="flex flex-col items-center justify-center py-8 animate-su-fade-in">
+    <div className="flex-1 flex flex-col items-center justify-center animate-su-fade-in">
       {/* Gradient card */}
       <div
         className="w-full rounded-2xl p-8 flex flex-col items-center gap-5"
