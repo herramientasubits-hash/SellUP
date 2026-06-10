@@ -18,7 +18,12 @@ export type MultistageErrorCode =
   | 'no_text_blocks'          // content blocks present but none are type='text'
   | 'truncated_output'        // stop_reason=max_tokens or scanner found incomplete JSON
   | 'pause_turn_unhandled'    // stop_reason=pause_turn — turn paused mid-generation
-  | 'repeated_invalid_response'; // two consecutive identical non-rate-limit failures
+  | 'repeated_invalid_response' // two consecutive identical non-rate-limit failures
+  // 16AB.23.10 — non-retryable provider errors (billing / auth)
+  | 'insufficient_credits'      // credit balance too low — requires provider action
+  | 'provider_billing_error'    // billing / payment issue — requires provider action
+  | 'provider_account_disabled' // account disabled or suspended — requires provider action
+  | 'authentication_error';     // invalid API key or auth failure — non-retryable
 
 // ─── Stage outputs ─────────────────────────────────────────────────────────────
 

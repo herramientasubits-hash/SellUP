@@ -36,7 +36,12 @@ export type InvalidResponseDiagnosticCode =
   | 'pause_turn_unhandled'
   | 'unsupported_content_blocks'
   | 'provider_error'
-  | 'repeated_invalid_response';
+  | 'repeated_invalid_response'
+  // 16AB.23.10 — non-retryable provider errors
+  | 'insufficient_credits'
+  | 'provider_billing_error'
+  | 'provider_account_disabled'
+  | 'authentication_error';
 
 // ─── Diagnostic record ────────────────────────────────────────────────────────
 

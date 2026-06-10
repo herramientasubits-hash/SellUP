@@ -68,21 +68,87 @@ export type ACallOptions = {
 
 // ─── Error classification ─────────────────────────────────────────────────────
 
+/**
+ * Classify a thrown error into a MultistageErrorCode.
+ *
+ * Priority order (16AB.23.10):
+ *   1. Billing / credits / account — must precede generic 'invalid' check
+ *   2. Authentication
+ *   3. Rate limit
+ *   4. Timeout / connection
+ *   5. Structural / parse (safe: billing + auth already intercepted above)
+ *   6. Provider error (catch-all)
+ */
 export function classifyError(err: unknown): MultistageErrorCode {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+
+  // 1. Billing / credits — check before 'invalid' because Anthropic billing errors
+  //    arrive as HTTP 400 invalid_request_error and would otherwise match the
+  //    generic 'invalid' branch, producing a retryable invalid_response.
+  if (
+    msg.includes('credit balance') ||
+    msg.includes('insufficient credits') ||
+    msg.includes('insufficient_credits')
+  ) {
+    return 'insufficient_credits';
+  }
+  if (
+    msg.includes('account disabled') ||
+    msg.includes('account_disabled') ||
+    msg.includes('account suspended') ||
+    msg.includes('account_suspended')
+  ) {
+    return 'provider_account_disabled';
+  }
+  if (msg.includes('payment required') || msg.includes('payment_required')) {
+    return 'provider_billing_error';
+  }
+
+  // 2. Authentication — check before 'invalid' for the same reason
+  if (
+    msg.includes('authentication_error') ||
+    msg.includes('invalid_api_key') ||
+    msg.includes('invalid api key') ||
+    (msg.includes('401') && msg.includes('unauthorized'))
+  ) {
+    return 'authentication_error';
+  }
+
+  // 3. Rate limit
   if (msg.includes('429') || msg.includes('rate_limit') || msg.includes('too many requests')) {
     return 'rate_limit';
   }
+
+  // 4. Timeout / connection
   if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('time out')) {
     return 'timeout';
   }
   if (msg.includes('terminated') || msg.includes('aborted') || msg.includes('abort')) {
     return 'connection_terminated';
   }
+
+  // 5. Structural / parse (safe: billing + auth already intercepted above)
   if (msg.includes('invalid') || msg.includes('parse') || msg.includes('json')) {
     return 'invalid_response';
   }
+
   return 'provider_error';
+}
+
+/**
+ * Returns true for errors that must NOT be retried within the same invocation.
+ * These indicate a provider-level condition that requires human action (reload
+ * credits, fix the API key, re-enable the account) before any call can succeed.
+ * Exporting allows callers and tests to use the same predicate without re-listing
+ * error codes.
+ */
+export function isNonRetryableProviderError(code: MultistageErrorCode | null): boolean {
+  return (
+    code === 'insufficient_credits' ||
+    code === 'provider_billing_error' ||
+    code === 'provider_account_disabled' ||
+    code === 'authentication_error'
+  );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -381,6 +447,10 @@ export async function callWithRetry(
     last = result;
 
     if (result.errorCode === 'rate_limit') continue;
+
+    // 16AB.23.10 — non-retryable provider errors: billing, auth, account disabled.
+    // Break immediately — one attempt only, never produce repeated_invalid_response.
+    if (isNonRetryableProviderError(result.errorCode)) break;
 
     // 16AB.23.9 — identical-response detection for retryable parse errors
     if (isRetryableParseError(result.errorCode)) {

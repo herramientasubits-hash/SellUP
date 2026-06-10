@@ -27,7 +27,7 @@ import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-import { callWithRetry } from '../client';
+import { callWithRetry, classifyError, isNonRetryableProviderError } from '../client';
 import { runStage2DiscoveryBatch } from '../stages';
 import { CheckpointManager } from '../checkpoint';
 import { extractJsonRobust, looksLikeIncompleteJson, isTruncatedByTokenLimit } from '../json-extractor';
@@ -514,6 +514,203 @@ describe('response-recovery', () => {
     assert.ok(typeof diag.textSha256 === 'string', 'hash present for identity');
     assert.equal(diag.errorCode, 'malformed_json');
     assert.equal(diag.usageReceived, true);
+  });
+
+  // ─── Tests 16–23: Hotfix 16AB.23.10 — billing / auth error classification ────
+  //
+  // Caso 1  (16): billing HTTP 400 → insufficient_credits, not invalid_response
+  // Caso 2  (17): billing error → exactly 1 provider attempt, 0 retries
+  // Caso 3  (18): billing error → never produces repeated_invalid_response
+  // Caso 4  (19): billing error → zero tokens, zero searches, zero cost
+  // Caso 5  (20): 429 rate limit → unchanged behavior
+  // Caso 6  (21): HTTP 200 invalid JSON → invalid_response, not billing
+  // Caso 7  (22): authentication error → authentication_error, not invalid_response
+  // Caso 8  (23): generic "invalid" without billing signals → invalid_response
+
+  /** Synthetic Anthropic HTTP 400 billing error response. */
+  function makeBillingErrorResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message:
+            'Your credit balance is too low to access the Anthropic API. ' +
+            'Please go to Plans & Billing to upgrade or purchase credits.',
+        },
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } }
+    );
+  }
+
+  it('16. Billing HTTP 400 → insufficient_credits, not invalid_response', async () => {
+    const fetch: FetchFn = async () => makeBillingErrorResponse();
+
+    const result = await callWithRetry(
+      'fake-key', 'prompt',
+      { maxSearchUses: 0, timeoutMs: 5000, systemPrompt: SYSTEM_PROMPT },
+      undefined, fetch, async () => {}
+    );
+
+    assert.equal(result.errorCode, 'insufficient_credits', 'must classify as insufficient_credits');
+    assert.notEqual(result.errorCode, 'invalid_response', 'must NOT be invalid_response');
+    assert.notEqual(result.errorCode, 'repeated_invalid_response', 'must NOT be repeated_invalid_response');
+    assert.equal(result.data, null, 'data must be null');
+    // isNonRetryableProviderError must recognize the code
+    assert.equal(isNonRetryableProviderError('insufficient_credits'), true);
+  });
+
+  it('17. Billing error → exactly 1 provider attempt, 0 retries', async () => {
+    let callCount = 0;
+    const fetch: FetchFn = async () => {
+      callCount++;
+      return makeBillingErrorResponse();
+    };
+
+    const result = await callWithRetry(
+      'fake-key', 'prompt',
+      { maxSearchUses: 0, timeoutMs: 5000, systemPrompt: SYSTEM_PROMPT },
+      undefined, fetch, async () => {}
+    );
+
+    assert.equal(callCount, 1, 'fetch must be called exactly once — no retry');
+    assert.equal(result.retried, false, 'retried must be false');
+    assert.equal(result.errorCode, 'insufficient_credits');
+  });
+
+  it('18. Billing error → never produces repeated_invalid_response', async () => {
+    const fetch: FetchFn = async () => makeBillingErrorResponse();
+
+    const result = await callWithRetry(
+      'fake-key', 'prompt',
+      { maxSearchUses: 0, timeoutMs: 5000, systemPrompt: SYSTEM_PROMPT },
+      undefined, fetch, async () => {}
+    );
+
+    assert.notEqual(
+      result.errorCode,
+      'repeated_invalid_response',
+      'billing error must never escalate to repeated_invalid_response'
+    );
+    assert.equal(result.errorCode, 'insufficient_credits');
+  });
+
+  it('19. Billing error → zero tokens, zero searches, zero cost', async () => {
+    const fetch: FetchFn = async () => makeBillingErrorResponse();
+
+    const result = await callWithRetry(
+      'fake-key', 'prompt',
+      { maxSearchUses: 0, timeoutMs: 5000, systemPrompt: SYSTEM_PROMPT },
+      undefined, fetch, async () => {}
+    );
+
+    assert.equal(result.usage.input_tokens, 0, 'input_tokens must be 0');
+    assert.equal(result.usage.output_tokens, 0, 'output_tokens must be 0');
+    assert.equal(result.usage.search_calls, 0, 'search_calls must be 0');
+    assert.equal(result.usage.token_cost_usd, 0, 'token_cost_usd must be 0');
+    assert.equal(result.usage.cost_usd, 0, 'cost_usd must be 0');
+
+    // Verify checkpoint does NOT count this as usage-bearing
+    const dir = makeTmpDir();
+    try {
+      const checkpoint = makeCheckpoint(dir);
+      checkpoint.addUsage(result.usage, result.errorCode);
+      const state = checkpoint.getState();
+      assert.equal(state.usage.usage_bearing_api_calls, 0, 'must NOT be usage-bearing');
+      assert.equal(state.usage.input_tokens, 0);
+      assert.equal(state.usage.known_cost_usd, 0);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('20. Rate limit (429) → unchanged behavior: rate_limit code, backoff applies', async () => {
+    // classifyError must still recognize 429 as rate_limit
+    const err429 = new Error('Anthropic 429: {"type":"error","error":{"type":"rate_limit_error","message":"Too many requests."}}');
+    assert.equal(classifyError(err429), 'rate_limit');
+    assert.equal(isNonRetryableProviderError('rate_limit'), false);
+
+    // Full callWithRetry: 429 then success → retried=true, errorCode=null
+    let callCount = 0;
+    const fetch: FetchFn = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'Too many requests.' } }),
+          { status: 429, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      return makeAnthropicResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 20 },
+      });
+    };
+
+    const result = await callWithRetry(
+      'fake-key', 'prompt',
+      { maxSearchUses: 0, timeoutMs: 5000, systemPrompt: SYSTEM_PROMPT },
+      undefined, fetch, async () => {}
+    );
+
+    assert.equal(result.retried, true, 'must have retried after 429');
+    assert.equal(result.errorCode, null, 'must succeed after retry');
+    assert.equal(callCount, 2, '2 calls: 429 then success');
+  });
+
+  it('21. HTTP 200 invalid JSON → invalid_response (classifyError), not billing', () => {
+    // This tests that a parse/structural error is not misclassified as billing.
+    // HTTP 200 bodies don't go through classifyError at all (errors are thrown only
+    // for non-2xx). We test classifyError directly for structural error signals.
+    const parseErr = new Error('Unexpected token { in JSON at position 42');
+    assert.equal(classifyError(parseErr), 'invalid_response');
+    assert.notEqual(classifyError(parseErr), 'insufficient_credits');
+    assert.notEqual(classifyError(parseErr), 'provider_billing_error');
+  });
+
+  it('22. Authentication error → authentication_error, not invalid_response', async () => {
+    const authErr = new Error(
+      'Anthropic 401: {"type":"error","error":{"type":"authentication_error","message":"Invalid API Key."}}'
+    );
+    assert.equal(classifyError(authErr), 'authentication_error');
+    assert.notEqual(classifyError(authErr), 'invalid_response');
+    assert.equal(isNonRetryableProviderError('authentication_error'), true);
+
+    // Full callWithRetry: auth error → 1 attempt, non-retryable
+    let callCount = 0;
+    const fetch: FetchFn = async () => {
+      callCount++;
+      return new Response(
+        JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'Invalid API Key.' } }),
+        { status: 401, headers: { 'content-type': 'application/json' } }
+      );
+    };
+
+    const result = await callWithRetry(
+      'fake-key', 'prompt',
+      { maxSearchUses: 0, timeoutMs: 5000, systemPrompt: SYSTEM_PROMPT },
+      undefined, fetch, async () => {}
+    );
+
+    assert.equal(result.errorCode, 'authentication_error');
+    assert.equal(callCount, 1, 'auth error must not be retried');
+    assert.equal(result.retried, false);
+  });
+
+  it('23. Generic "invalid" message without billing signals → invalid_response, not billing', () => {
+    // Ensures that non-billing invalid_request_error messages are not misclassified.
+    const genericInvalid = new Error(
+      'Anthropic 400: {"type":"error","error":{"type":"invalid_request_error","message":"invalid parameter: max_tokens must be at most 8192"}}'
+    );
+    assert.equal(classifyError(genericInvalid), 'invalid_response');
+    assert.notEqual(classifyError(genericInvalid), 'insufficient_credits');
+    assert.notEqual(classifyError(genericInvalid), 'provider_billing_error');
+    assert.notEqual(classifyError(genericInvalid), 'provider_account_disabled');
+
+    // Another generic "invalid" without any billing keyword
+    const anotherInvalid = new Error('invalid model identifier provided');
+    assert.equal(classifyError(anotherInvalid), 'invalid_response');
+    assert.equal(isNonRetryableProviderError('invalid_response'), false);
   });
 
   // ─── Test 15: Truncated batch → retry count reduced ──────────────────────────
