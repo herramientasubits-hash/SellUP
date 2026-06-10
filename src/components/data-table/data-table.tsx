@@ -239,20 +239,24 @@ export function DataTable<TData>({
       extras.push({
         id: "select",
         header: ({ table }) => (
-          <Checkbox
-            checked={table.getIsAllPageRowsSelected()}
-            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-            aria-label="Seleccionar todas las filas"
-            className="translate-y-[1px]"
-          />
+          <div data-table-select className="flex items-center justify-center">
+            <Checkbox
+              checked={table.getIsAllPageRowsSelected()}
+              onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+              aria-label="Seleccionar todas las filas"
+              className="translate-y-[1px]"
+            />
+          </div>
         ),
         cell: ({ row }) => (
-          <Checkbox
-            checked={row.getIsSelected()}
-            onCheckedChange={(value) => row.toggleSelected(!!value)}
-            aria-label="Seleccionar fila"
-            className="translate-y-[1px]"
-          />
+          <div data-table-select className="flex items-center justify-center">
+            <Checkbox
+              checked={row.getIsSelected()}
+              onCheckedChange={(value) => row.toggleSelected(!!value)}
+              aria-label="Seleccionar fila"
+              className="translate-y-[1px]"
+            />
+          </div>
         ),
         size: 36,
         enableSorting: false,
@@ -595,7 +599,20 @@ function DataTableRow<TData>({
   reorderHandleProps,
 }: DataTableRowProps<TData>) {
   const isSelected = row.getIsSelected();
-  const handleClick = rowClickable && onRowClick ? () => onRowClick(row.original) : undefined;
+  const handleClick = rowClickable && onRowClick
+    ? (e: React.MouseEvent<HTMLTableRowElement>) => {
+        const target = e.target as HTMLElement;
+        if (
+          target.closest('[data-table-select]') ||
+          target.closest('[role="checkbox"]') ||
+          target.closest('button') ||
+          target.closest('a')
+        ) {
+          return;
+        }
+        onRowClick(row.original);
+      }
+    : undefined;
 
   const cells = (
     <>
