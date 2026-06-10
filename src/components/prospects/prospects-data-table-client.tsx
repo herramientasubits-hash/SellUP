@@ -810,26 +810,6 @@ export function ProspectsDataTableClient({
         },
       },
       {
-        id: 'source_origin',
-        accessorFn: (row) => getSourceOriginValue(row),
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Origen" />
-        ),
-        cell: ({ row }) => (
-          <span className="truncate text-xs text-muted-foreground">
-            {getCandidateOriginLabel(row.original)}
-          </span>
-        ),
-        size: 145,
-        minSize: 110,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Origen',
-          popoverTitle: 'Origen',
-          filterOptions: ORIGIN_OPTIONS,
-        },
-      },
-      {
         id: 'created_at',
         accessorKey: 'created_at',
         header: ({ column }) => (
