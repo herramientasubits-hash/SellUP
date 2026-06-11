@@ -1,5 +1,5 @@
 /**
- * Verification Hardening — Candidate Verification Runner (Hotfix 16AB.24.11)
+ * Verification Hardening — Candidate Verification Runner (16AB.24.11 / 16AB.25.5)
  *
  * Reusable orchestration API for per-candidate verification.
  * Combines: context → provider → output validation → duplicate checks
@@ -8,8 +8,15 @@
  * Injectable interfaces allow test mocks; no provider-specific logic here.
  * No candidate-specific conditionals (no "if Sofka... / if Celes...").
  * No real API calls during this hotfix — callers must pass mocks or no-ops.
+ *
+ * 16AB.25.5 — Budget outcome:
+ *   When provider returns budgetOutcome='hard_limit_exceeded_after_completion',
+ *   the response is STILL persisted and all local deterministic stages run.
+ *   The runner records this outcome in the result and blocks further calls upstream.
  */
 
+import type { BudgetOutcome } from '../multistage/ms-types';
+export type { BudgetOutcome };
 import type { HubSpotDuplicateChecker } from './duplicate-source-check';
 import {
   makeNotChecked,
@@ -71,6 +78,13 @@ export type VerificationOutput = {
   outputTokens: number;
   searchRequests: number;
   costUsd: number;
+  /**
+   * 16AB.25.5: Budget outcome from the provider call.
+   * When 'hard_limit_exceeded_after_completion', the response is valid and must be
+   * persisted. All local stages continue. No further provider calls are allowed.
+   * Omitted (undefined) means 'within_budget'.
+   */
+  budgetOutcome?: BudgetOutcome;
 };
 
 export interface CandidateContextAssembler {
@@ -123,6 +137,12 @@ export type CandidateVerificationResult = {
   /** Number of stage artifact files written this invocation. 0 on skipped_already_complete. */
   stageArtifactsModified: number;
   error: string | null;
+  /**
+   * 16AB.25.5: Budget outcome from the provider call.
+   * 'hard_limit_exceeded_after_completion' means the response was preserved but
+   * no further provider calls should be made. Upstream callers must check this.
+   */
+  budgetOutcome: BudgetOutcome;
 };
 
 // ─── Orchestrator ──────────────────────────────────────────────────────────────
@@ -187,12 +207,14 @@ export async function runCandidateVerification(
       stagesReused: checkpoint.getManifest().completedStages,
       stageArtifactsModified: 0,
       error: null,
+      budgetOutcome: 'within_budget',
     };
   }
 
   const stagesRun: string[] = [];
   const stagesReused: string[] = [];
   let usageAdded = { providerCalls: 0, inputTokens: 0, outputTokens: 0, searchRequests: 0, costUsd: 0 };
+  let runBudgetOutcome: BudgetOutcome = 'within_budget';
 
   try {
     checkpoint.markStageStarted();
@@ -225,9 +247,15 @@ export async function runCandidateVerification(
       const cached = checkpoint.loadStageData<VerificationOutput>(providerStage);
       if (cached) {
         output = cached;
+        // 16AB.25.5: restore budget outcome from cached stage (resume path)
+        if (cached.budgetOutcome && cached.budgetOutcome !== 'within_budget') {
+          runBudgetOutcome = cached.budgetOutcome;
+        }
         stagesReused.push(providerStage);
       } else {
         output = await opts.provider.runVerification(context);
+        // 16AB.25.5: capture budget outcome BEFORE saving — always persist, even when exceeded
+        runBudgetOutcome = output.budgetOutcome ?? 'within_budget';
         usageAdded = {
           providerCalls: 1,
           inputTokens: output.inputTokens,
@@ -235,11 +263,15 @@ export async function runCandidateVerification(
           searchRequests: output.searchRequests,
           costUsd: output.costUsd,
         };
+        // Always mark provider_completed — a completed call's response must be preserved
+        // regardless of whether the cost exceeded the hard limit after completion.
         checkpoint.markStageCompleted(providerStage, output);
         stagesRun.push(providerStage);
       }
     } else {
       output = await opts.provider.runVerification(context);
+      // 16AB.25.5: capture budget outcome BEFORE saving — always persist, even when exceeded
+      runBudgetOutcome = output.budgetOutcome ?? 'within_budget';
       usageAdded = {
         providerCalls: 1,
         inputTokens: output.inputTokens,
@@ -247,6 +279,8 @@ export async function runCandidateVerification(
         searchRequests: output.searchRequests,
         costUsd: output.costUsd,
       };
+      // Always mark provider_completed — a completed call's response must be preserved
+      // regardless of whether the cost exceeded the hard limit after completion.
       checkpoint.markStageCompleted(providerStage, output);
       stagesRun.push(providerStage);
     }
@@ -376,6 +410,7 @@ export async function runCandidateVerification(
       stagesReused,
       stageArtifactsModified: stagesRun.length,
       error: null,
+      budgetOutcome: runBudgetOutcome,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -391,6 +426,7 @@ export async function runCandidateVerification(
       stagesReused,
       stageArtifactsModified: stagesRun.length,
       error: msg,
+      budgetOutcome: runBudgetOutcome,
     };
   }
 }

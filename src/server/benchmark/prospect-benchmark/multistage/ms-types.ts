@@ -1,9 +1,28 @@
 /**
- * Multistage Orchestrator — Types (16AB.23.3 / 16AB.23.4 / 16AB.23.5 / 16AB.23.8)
+ * Multistage Orchestrator — Types (16AB.23.3 / 16AB.23.4 / 16AB.23.5 / 16AB.23.8 / 16AB.25.5)
  */
 
 import type { SearchCountStatus } from './web-search-audit';
 export type { SearchCountStatus };
+
+// ─── Budget outcome (16AB.25.5) ───────────────────────────────────────────────
+
+/**
+ * Describes how the monetary budget was affected by a provider call.
+ *
+ * - within_budget: cost did not exceed soft or hard limit
+ * - soft_limit_exceeded: cost exceeded soft limit but not hard limit (call allowed, warning issued)
+ * - hard_limit_exceeded_after_completion: the call COMPLETED and returned a valid response,
+ *   but the cumulative cost now exceeds the hard limit. The response MUST be preserved.
+ *   All local deterministic stages continue. No further provider calls are allowed.
+ * - blocked_before_provider_call: budget was already exhausted before the call started;
+ *   no provider call was made, no cost was consumed.
+ */
+export type BudgetOutcome =
+  | 'within_budget'
+  | 'soft_limit_exceeded'
+  | 'hard_limit_exceeded_after_completion'
+  | 'blocked_before_provider_call';
 
 export type MultistageErrorCode =
   | 'rate_limit'
