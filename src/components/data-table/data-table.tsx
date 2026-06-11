@@ -525,7 +525,7 @@ export function DataTable<TData>({
                 <TableRow className="hover:bg-transparent">
                   <TableCell
                     colSpan={allColumns.length}
-                    className="h-32 text-center text-sm text-muted-foreground"
+                    className="h-32 text-center text-sm text-muted-foreground whitespace-normal"
                   >
                     {emptyState ?? "Sin resultados."}
                   </TableCell>

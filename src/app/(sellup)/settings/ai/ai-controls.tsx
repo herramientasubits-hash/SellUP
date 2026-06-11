@@ -122,8 +122,9 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
     let result;
     try {
       result = await connectAiProvider(provider.key, apiKey);
-    } catch (err: any) {
-      showToast(`Error de conexión: ${err.message || err}`, 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Error de conexión: ${msg}`, 'error');
       setLoading(false);
       return;
     }

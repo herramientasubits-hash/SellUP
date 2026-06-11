@@ -66,7 +66,7 @@ export type StructuredSourceCandidateWriterInput = {
   runHubspotCheck?: boolean;
   runHubSpotCheck?: boolean;
   limit?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   batchId?: string | null;
 };
 
@@ -386,7 +386,7 @@ function adaptCandidate(
   if (disc.sourceTrace && typeof disc.sourceTrace === 'object') {
     sourceTrace = {
       ...defaultSourceTrace,
-      ...(disc.sourceTrace as any),
+      ...(disc.sourceTrace as Record<string, unknown>),
     };
   }
 
