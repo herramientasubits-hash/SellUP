@@ -35,6 +35,10 @@ export type MultiSelectProps = {
   emptyMessage?: string;
   disabled?: boolean;
   className?: string;
+  /** Maximum number of selections allowed. Omit for unlimited. */
+  maxSelections?: number;
+  /** Called when the user attempts to select beyond maxSelections. */
+  onMaxSelectionsReached?: () => void;
 };
 
 export function MultiSelect({
@@ -46,6 +50,8 @@ export function MultiSelect({
   emptyMessage = "No se encontraron resultados.",
   disabled = false,
   className,
+  maxSelections,
+  onMaxSelectionsReached,
 }: MultiSelectProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -57,6 +63,10 @@ export function MultiSelect({
     if (value.includes(optionValue)) {
       handleUnselect(optionValue);
     } else {
+      if (maxSelections !== undefined && value.length >= maxSelections) {
+        onMaxSelectionsReached?.();
+        return;
+      }
       onValueChange?.([...value, optionValue]);
     }
   };

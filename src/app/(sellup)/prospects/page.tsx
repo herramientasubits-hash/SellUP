@@ -15,6 +15,8 @@ import {
   getProspectBatchById,
 } from '@/modules/prospect-batches/actions';
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
+import { loadActiveCatalog } from '@/modules/industry-catalog/loader';
+import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 
 interface PageProps {
   searchParams: Promise<{
@@ -29,6 +31,20 @@ interface PageProps {
 
 export default async function ProspectsPage({ searchParams }: PageProps) {
   await requireActiveUser();
+
+  // Feature flag: read server-side only — never NEXT_PUBLIC_
+  const enableV2 = process.env.ENABLE_EXPLORATORY_SEARCH_FORM_V2 === 'true';
+
+  // Load catalog only when flag is on — zero Supabase queries when flag is off
+  let catalog: ActiveIndustryCatalog | null = null;
+  if (enableV2) {
+    try {
+      catalog = await loadActiveCatalog();
+    } catch {
+      // If catalog fails to load, fall back to V1 form silently
+      catalog = null;
+    }
+  }
 
   const params = await searchParams;
 
@@ -84,7 +100,7 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
       description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer />
+          <GenerateAIBatchDrawer enableV2={enableV2 && !!catalog} catalog={catalog} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

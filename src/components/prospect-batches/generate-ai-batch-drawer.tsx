@@ -13,6 +13,8 @@ import {
   Info,
   Settings2,
 } from 'lucide-react';
+import { ExploratorySearchFormV2 } from '@/components/prospect-batches/exploratory-search-form-v2';
+import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -168,7 +170,14 @@ function getAutoSources(countryCode: string) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function GenerateAIBatchDrawer() {
+type GenerateAIBatchDrawerProps = {
+  /** When true, renders the catalog-driven V2 exploratory form. */
+  enableV2?: boolean;
+  /** Required when enableV2 is true. Pre-loaded catalog from SSR. */
+  catalog?: ActiveIndustryCatalog | null;
+};
+
+export function GenerateAIBatchDrawer({ enableV2 = false, catalog = null }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -293,6 +302,27 @@ export function GenerateAIBatchDrawer() {
 
   const canSubmit = !!form.countryCode && !!form.industry && !drawer.generating;
   const showPreflightResult = result.generationAttempted && (!!result.preflightResult || !!result.structuredBatchResult || result.usefulCandidatesCount === 0);
+
+  // V2: catalog-driven exploratory form
+  if (enableV2 && catalog) {
+    return (
+      <DrawerShell
+        open={drawer.open}
+        onOpenChange={(v) => !v && handleClose()}
+        trigger={
+          <AIButton size="sm" onClick={() => updateDrawer('open', true)}>
+            Generar con IA
+          </AIButton>
+        }
+        title="Generar empresas candidatas con IA"
+        description="Configura los criterios de búsqueda para explorar el catálogo de industrias."
+        icon={<Sparkles className="h-4 w-4 text-su-brand" />}
+        size="xl"
+      >
+        <ExploratorySearchFormV2 catalog={catalog} onClose={handleClose} />
+      </DrawerShell>
+    );
+  }
 
   return (
     <DrawerShell
