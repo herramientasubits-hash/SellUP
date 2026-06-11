@@ -775,6 +775,467 @@ describe('D. Per-candidate checkpoints', () => {
   });
 });
 
+// ─── Section F: Artifact immutability on resume (Hotfix 16AB.25.2) ──────────
+
+describe('F. Artifact immutability on resume', () => {
+  let tmpDir: string;
+  const setupTmp = (): void => { tmpDir = makeTmpDir(); };
+  const teardownTmp = (): void => { cleanup(tmpDir); };
+
+  const { readFileSync, readdirSync, writeFileSync } = require('fs') as typeof import('fs');
+  const pathMod = require('path') as typeof import('path');
+  const { createHash } = require('crypto') as typeof import('crypto');
+
+  function hashFile(filePath: string): string {
+    return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+  }
+
+  function allStageHashes(candidateKey: string): Record<string, string> {
+    const stagesDir = pathMod.join(tmpDir, candidateKey, 'stages');
+    const hashes: Record<string, string> = {};
+    try {
+      for (const f of readdirSync(stagesDir)) {
+        hashes[f] = hashFile(pathMod.join(stagesDir, f));
+      }
+    } catch { /* stages dir may not exist yet */ }
+    return hashes;
+  }
+
+  // F1 — resume of 'completed' does not write stage artifacts
+  it('F1: resume of completed candidate writes 0 stage artifacts', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f1-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate,
+        checkpointDirectory: tmpDir,
+        resume: false,
+        contextAssembler: makeNoOpContextAssembler(),
+        provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2',
+        contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const hashesAfterFirstRun = allStageHashes('f1-candidate');
+
+      const result = await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(result.status, 'skipped_already_complete');
+      assert.equal(result.stageArtifactsModified, 0);
+
+      const hashesAfterResume = allStageHashes('f1-candidate');
+      assert.deepEqual(
+        hashesAfterResume,
+        hashesAfterFirstRun,
+        'Stage file hashes must be identical before and after resume'
+      );
+    } finally { teardownTmp(); }
+  });
+
+  // F2 — resume of 'completed_requires_review' does not modify stage artifacts
+  it('F2: resume of completed_requires_review does not modify stage artifacts', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f2-candidate');
+      const reviewProvider = {
+        async runVerification() {
+          const base = await makeNoOpProvider().runVerification(undefined as never);
+          return { ...base, requiresReview: true, requiresHumanReview: true };
+        },
+      };
+      const opts: CandidateVerificationRunOptions = {
+        candidate,
+        checkpointDirectory: tmpDir,
+        resume: false,
+        contextAssembler: makeNoOpContextAssembler(),
+        provider: reviewProvider,
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2',
+        contextVersion: '16AB.24.5-v1',
+      };
+      const first = await runCandidateVerification(opts);
+      assert.equal(first.status, 'completed_requires_review');
+
+      const hashesAfterFirstRun = allStageHashes('f2-candidate');
+      const result = await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(result.status, 'skipped_already_complete');
+      assert.equal(result.stageArtifactsModified, 0);
+
+      const hashesAfterResume = allStageHashes('f2-candidate');
+      assert.deepEqual(hashesAfterResume, hashesAfterFirstRun);
+    } finally { teardownTmp(); }
+  });
+
+  // F3 — gates_computed.json (deterministic-gates source) hash preserved
+  it('F3: stages/gates_computed.json hash preserved on resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f3-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const gatesPath = pathMod.join(tmpDir, 'f3-candidate', 'stages', 'gates_computed.json');
+      const hashBefore = hashFile(gatesPath);
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(hashFile(gatesPath), hashBefore, 'gates_computed.json must not change on resume');
+    } finally { teardownTmp(); }
+  });
+
+  // F4 — final_result_created.json (final-result source) hash preserved
+  it('F4: stages/final_result_created.json hash preserved on resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f4-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const finalPath = pathMod.join(tmpDir, 'f4-candidate', 'stages', 'final_result_created.json');
+      const hashBefore = hashFile(finalPath);
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(hashFile(finalPath), hashBefore, 'final_result_created.json must not change on resume');
+    } finally { teardownTmp(); }
+  });
+
+  // F5 — provider_completed.json (provider-usage source) hash preserved
+  it('F5: stages/provider_completed.json hash preserved on resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f5-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const provPath = pathMod.join(tmpDir, 'f5-candidate', 'stages', 'provider_completed.json');
+      const hashBefore = hashFile(provPath);
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(hashFile(provPath), hashBefore, 'provider_completed.json must not change on resume');
+    } finally { teardownTmp(); }
+  });
+
+  // F6 — context_assembled.json hash preserved
+  it('F6: stages/context_assembled.json hash preserved on resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f6-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const ctxPath = pathMod.join(tmpDir, 'f6-candidate', 'stages', 'context_assembled.json');
+      const hashBefore = hashFile(ctxPath);
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(hashFile(ctxPath), hashBefore, 'context_assembled.json must not change on resume');
+    } finally { teardownTmp(); }
+  });
+
+  // F7 — verification-output source (output_validated.json) hash preserved
+  it('F7: stages/output_validated.json hash preserved on resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f7-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const valPath = pathMod.join(tmpDir, 'f7-candidate', 'stages', 'output_validated.json');
+      const hashBefore = hashFile(valPath);
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(hashFile(valPath), hashBefore, 'output_validated.json must not change on resume');
+    } finally { teardownTmp(); }
+  });
+
+  // F8 — duplicate-resolution source (duplicates_checked.json) hash preserved
+  it('F8: stages/duplicates_checked.json hash preserved on resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f8-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const dupPath = pathMod.join(tmpDir, 'f8-candidate', 'stages', 'duplicates_checked.json');
+      const hashBefore = hashFile(dupPath);
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(hashFile(dupPath), hashBefore, 'duplicates_checked.json must not change on resume');
+    } finally { teardownTmp(); }
+  });
+
+  // F9 — provenance-report source (provenance_computed.json) hash preserved
+  it('F9: stages/provenance_computed.json hash preserved on resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f9-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const provPath = pathMod.join(tmpDir, 'f9-candidate', 'stages', 'provenance_computed.json');
+      const hashBefore = hashFile(provPath);
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(hashFile(provPath), hashBefore, 'provenance_computed.json must not change on resume');
+    } finally { teardownTmp(); }
+  });
+
+  // F10 — twelveColumns loaded from stage data on skip (TSV source preserved)
+  it('F10: twelveColumns loaded from stage data on skipped_already_complete', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f10-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      const first = await runCandidateVerification(opts);
+      assert.ok(first.twelveColumns !== null, 'First run must produce twelveColumns');
+
+      const resumed = await runCandidateVerification({ ...opts, resume: true });
+      assert.equal(resumed.status, 'skipped_already_complete');
+      assert.ok(resumed.twelveColumns !== null, 'Resume must return twelveColumns from stage data');
+      assert.deepEqual(resumed.twelveColumns, first.twelveColumns, 'twelveColumns must be identical');
+    } finally { teardownTmp(); }
+  });
+
+  // F11 — resume summary reports skipped_already_complete as invocationStatus
+  it('F11: result status is skipped_already_complete on idempotent resume', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f11-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const result = await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(result.status, 'skipped_already_complete', 'invocation status must be skipped_already_complete');
+      assert.equal(result.stagesRun.length, 0, 'stagesRun must be empty');
+      assert.equal(result.stagesReused.length, CANDIDATE_VERIFICATION_STAGES.length, 'all 7 stages must be reused');
+    } finally { teardownTmp(); }
+  });
+
+  // F12 — resume adds 0 provider calls
+  it('F12: resume adds 0 provider calls', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f12-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const result = await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(result.usageAdded.providerCalls, 0);
+    } finally { teardownTmp(); }
+  });
+
+  // F13 — resume adds 0 tokens
+  it('F13: resume adds 0 tokens', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f13-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const result = await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(result.usageAdded.inputTokens, 0);
+      assert.equal(result.usageAdded.outputTokens, 0);
+    } finally { teardownTmp(); }
+  });
+
+  // F14 — resume adds 0 searches
+  it('F14: resume adds 0 search requests', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f14-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const result = await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(result.usageAdded.searchRequests, 0);
+    } finally { teardownTmp(); }
+  });
+
+  // F15 — resume adds $0 cost
+  it('F15: resume adds $0 cost', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f15-candidate');
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      const result = await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(result.usageAdded.costUsd, 0);
+      assert.equal(result.stageArtifactsModified, 0);
+    } finally { teardownTmp(); }
+  });
+
+  // F16 — changed input hash invalidates stage (reruns instead of skipping)
+  it('F16: changed candidateInputHash invalidates stage and forces rerun', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f16-candidate');
+      let providerCallCount = 0;
+      const countingProvider = {
+        async runVerification() {
+          providerCallCount++;
+          return makeNoOpProvider().runVerification(undefined as never);
+        },
+      };
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: countingProvider,
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      assert.equal(providerCallCount, 1);
+
+      const changedCandidate = { ...candidate, candidateInputHash: 'changed-hash-xyz' };
+      const result = await runCandidateVerification({ ...opts, candidate: changedCandidate, resume: true });
+
+      assert.notEqual(result.status, 'skipped_already_complete', 'Changed hash must force rerun');
+      assert.equal(providerCallCount, 2, 'Provider must be called again after hash change');
+    } finally { teardownTmp(); }
+  });
+
+  // F17 — corrupt stage artifact triggers rerun of that stage (not considered complete)
+  it('F17: corrupt stage artifact triggers rerun, not skipped_already_complete', async () => {
+    setupTmp();
+    try {
+      const checkpoint = CandidateCheckpointManager.create(tmpDir, 'f17-key', {
+        candidateInputHash: 'hash-f17',
+        sharedContextHash: 'shared-f17',
+        pipelineVersion: '16AB.25.2',
+        contextVersion: '16AB.24.5-v1',
+      });
+      // Mark stages completed with real data
+      checkpoint.markStageCompleted('context_assembled', { data: 'ctx' });
+      // Write corrupt bytes to context_assembled stage file
+      writeFileSync(
+        pathMod.join(tmpDir, 'f17-key', 'stages', 'context_assembled.json'),
+        'CORRUPTED !!!',
+        'utf-8'
+      );
+
+      // Loading the corrupt stage must return null
+      const loaded = checkpoint.loadStageData('context_assembled');
+      assert.equal(loaded, null, 'Corrupt stage must return null — not considered complete');
+    } finally { teardownTmp(); }
+  });
+
+  // F18 — behavior is generic: no candidate-specific logic
+  it('F18: artifact immutability applies to any candidate key (no Simetrik-specific logic)', async () => {
+    setupTmp();
+    try {
+      for (const key of ['generic-a', 'generic-b', 'sofka-test', 'celes-test']) {
+        const candidate = makeCandidate(key);
+        const opts: CandidateVerificationRunOptions = {
+          candidate, checkpointDirectory: tmpDir, resume: false,
+          contextAssembler: makeNoOpContextAssembler(), provider: makeNoOpProvider(),
+          duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+          pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+        };
+        await runCandidateVerification(opts);
+        const hashesBefore = allStageHashes(key);
+
+        const result = await runCandidateVerification({ ...opts, resume: true });
+
+        assert.equal(result.status, 'skipped_already_complete', `${key}: must skip`);
+        assert.equal(result.stageArtifactsModified, 0, `${key}: must not modify artifacts`);
+        assert.deepEqual(allStageHashes(key), hashesBefore, `${key}: stage hashes must be identical`);
+      }
+    } finally { teardownTmp(); }
+  });
+
+  // F19 — no external calls: provider never called on idempotent resume
+  it('F19: provider is never called on idempotent resume (0 external calls)', async () => {
+    setupTmp();
+    try {
+      const candidate = makeCandidate('f19-candidate');
+      let providerCalled = false;
+      const sentinelProvider = {
+        async runVerification() {
+          providerCalled = true;
+          return makeNoOpProvider().runVerification(undefined as never);
+        },
+      };
+      const opts: CandidateVerificationRunOptions = {
+        candidate, checkpointDirectory: tmpDir, resume: false,
+        contextAssembler: makeNoOpContextAssembler(), provider: sentinelProvider,
+        duplicateCheckers: { hubspot: nullHubSpotDuplicateChecker },
+        pipelineVersion: '16AB.25.2', contextVersion: '16AB.24.5-v1',
+      };
+      await runCandidateVerification(opts);
+      providerCalled = false; // reset after first run
+
+      await runCandidateVerification({ ...opts, resume: true });
+
+      assert.equal(providerCalled, false, 'Provider must NOT be called on idempotent resume');
+    } finally { teardownTmp(); }
+  });
+});
+
 // ─── TSV serialization smoke test ────────────────────────────────────────────
 
 describe('E. TSV output', () => {

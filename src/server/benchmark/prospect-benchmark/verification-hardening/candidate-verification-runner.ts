@@ -108,6 +108,7 @@ export type CandidateVerificationRunOptions = {
 
 export type CandidateVerificationResult = {
   candidateKey: string;
+  /** Invocation result — may be 'skipped_already_complete' even when candidateStatus is 'completed'. */
   status: 'completed' | 'completed_requires_review' | 'failed' | 'skipped_already_complete';
   twelveColumns: ReturnType<typeof transformVerificationToTwelveColumns> | null;
   usageAdded: {
@@ -119,6 +120,8 @@ export type CandidateVerificationResult = {
   };
   stagesRun: string[];
   stagesReused: string[];
+  /** Number of stage artifact files written this invocation. 0 on skipped_already_complete. */
+  stageArtifactsModified: number;
   error: string | null;
 };
 
@@ -170,13 +173,19 @@ export async function runCandidateVerification(
   }
 
   if (checkpoint.isAlreadyCompleted()) {
+    // Load twelveColumns from stage data so callers never need to re-read stage files
+    // and are never tempted to overwrite derived artifacts.
+    const finalData = checkpoint.loadStageData<{
+      twelveColumns: ReturnType<typeof transformVerificationToTwelveColumns>;
+    }>('final_result_created');
     return {
       candidateKey: candidate.candidateKey,
       status: 'skipped_already_complete',
-      twelveColumns: null,
+      twelveColumns: finalData?.twelveColumns ?? null,
       usageAdded: { providerCalls: 0, inputTokens: 0, outputTokens: 0, searchRequests: 0, costUsd: 0 },
       stagesRun: [],
       stagesReused: checkpoint.getManifest().completedStages,
+      stageArtifactsModified: 0,
       error: null,
     };
   }
@@ -365,6 +374,7 @@ export async function runCandidateVerification(
       usageAdded,
       stagesRun,
       stagesReused,
+      stageArtifactsModified: stagesRun.length,
       error: null,
     };
   } catch (err) {
@@ -379,6 +389,7 @@ export async function runCandidateVerification(
       usageAdded,
       stagesRun,
       stagesReused,
+      stageArtifactsModified: stagesRun.length,
       error: msg,
     };
   }
