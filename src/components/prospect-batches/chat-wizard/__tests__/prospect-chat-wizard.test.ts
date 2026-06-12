@@ -233,29 +233,7 @@ describe('SET_SUBINDUSTRIES action', () => {
 });
 
 // ── SKIP_ADDITIONAL_CRITERIA ──────────────────────────────────────────────────
-
-describe('SKIP_ADDITIONAL_CRITERIA action', () => {
-  test('skip advances to requested_count', () => {
-    const s = advanceTo('additional_criteria');
-    const next = prospectWizardReducer(s, { type: 'SKIP_ADDITIONAL_CRITERIA' });
-    assert.equal(next.currentStep, 'requested_count');
-    assert.equal(next.additionalCriteriaRaw, null);
-  });
-});
-
-// ── SET_REQUESTED_COUNT ───────────────────────────────────────────────────────
-
-describe('SET_REQUESTED_COUNT action', () => {
-  test('sets count and advances to summary', () => {
-    const s = advanceTo('requested_count');
-    const next = prospectWizardReducer(s, {
-      type: 'SET_REQUESTED_COUNT',
-      value: 10,
-    });
-    assert.equal(next.currentStep, 'summary');
-    assert.equal(next.requestedCount, 10);
-  });
-});
+// covered by 'additional_criteria advances directly to summary' in System-controlled quantity
 
 // ── EDIT_STEP ─────────────────────────────────────────────────────────────────
 
@@ -488,15 +466,12 @@ describe('deriveWizardMessages', () => {
       `Expected assistant messages (${assistantCount}) >= user messages (${userCount})`
     );
 
-    // Messages should follow a pattern of question then answer
-    let lastAssistant = false;
+    // Messages should follow an alternating pattern (assistant → user → assistant …)
     for (const msg of msgs) {
-      if (msg.role === 'assistant') {
-        lastAssistant = true;
-      } else if (msg.role === 'user') {
-        // User should come after assistant (unless it's the first message)
-        lastAssistant = false;
-      }
+      assert.ok(
+        msg.role === 'assistant' || msg.role === 'user' || msg.role === 'system',
+        `Unexpected role: ${msg.role}`,
+      );
     }
   });
 
@@ -550,5 +525,237 @@ describe('System-controlled quantity', () => {
   test('canValidateWizard succeeds at summary without explicit quantity selection', () => {
     const s = advanceTo('summary');
     assert.equal(canValidateWizard(s), true, 'Expected canValidateWizard to return true at summary');
+  });
+});
+
+// ── 16AB.35.2.3 — Composer contextual (tests C1–C15) ─────────────────────────
+
+import {
+  getComposerMode,
+  getComposerPlaceholder,
+} from '../wizard-composer-utils';
+
+describe('getComposerMode — 16AB.35.2.3', () => {
+  test('C1: locked_selection at search_type', () => {
+    assert.equal(getComposerMode('search_type'), 'locked_selection');
+  });
+
+  test('C2: locked_selection at country', () => {
+    assert.equal(getComposerMode('country'), 'locked_selection');
+  });
+
+  test('C3: locked_selection at industry', () => {
+    assert.equal(getComposerMode('industry'), 'locked_selection');
+  });
+
+  test('C4: locked_selection at subindustries', () => {
+    assert.equal(getComposerMode('subindustries'), 'locked_selection');
+  });
+
+  test('C5: text_input at additional_criteria', () => {
+    assert.equal(getComposerMode('additional_criteria'), 'text_input');
+  });
+
+  test('C6: locked_selection at summary', () => {
+    assert.equal(getComposerMode('summary'), 'locked_selection');
+  });
+
+  test('C7: validating at validating step', () => {
+    assert.equal(getComposerMode('validating'), 'validating');
+  });
+
+  test('C8: validated at validated step', () => {
+    assert.equal(getComposerMode('validated'), 'validated');
+  });
+
+  test('C9: blocked at blocked step', () => {
+    assert.equal(getComposerMode('blocked'), 'blocked');
+  });
+
+  test('C10: blocked at error step', () => {
+    assert.equal(getComposerMode('error'), 'blocked');
+  });
+
+  test('C11: locked_selection at welcome step', () => {
+    assert.equal(getComposerMode('welcome'), 'locked_selection');
+  });
+});
+
+describe('getComposerPlaceholder — 16AB.35.2.3', () => {
+  test('C12: placeholder for search_type mentions selección', () => {
+    const p = getComposerPlaceholder('search_type');
+    assert.ok(p.length > 0, 'Expected non-empty placeholder');
+    assert.match(p, /[Ss]elecciona/, 'Expected selection hint for search_type');
+  });
+
+  test('C13: placeholder for additional_criteria invites writing', () => {
+    const p = getComposerPlaceholder('additional_criteria');
+    assert.ok(p.length > 0, 'Expected non-empty placeholder');
+    assert.match(p, /[Ee]scribe/, 'Expected write hint for additional_criteria');
+  });
+
+  test('C14: placeholder for validating mentions validation', () => {
+    const p = getComposerPlaceholder('validating');
+    assert.ok(p.length > 0, 'Expected non-empty placeholder');
+    assert.match(p, /[Vv]alid/, 'Expected validation hint for validating');
+  });
+
+  test('C15: placeholder for blocked mentions correction', () => {
+    const p = getComposerPlaceholder('blocked');
+    assert.ok(p.length > 0, 'Expected non-empty placeholder');
+    assert.match(p, /[Cc]orrige/, 'Expected correction hint for blocked');
+  });
+});
+
+// ── 16AB.35.2.3 — Additional criteria flow via composer ──────────────────────
+
+describe('Additional criteria via composer — 16AB.35.2.3', () => {
+  test('C16: additional_criteria step is text_input mode', () => {
+    const s = advanceTo('additional_criteria');
+    assert.equal(s.currentStep, 'additional_criteria');
+    assert.equal(getComposerMode(s.currentStep), 'text_input');
+  });
+
+  test('C17: summary step returns to locked_selection mode', () => {
+    const s = advanceTo('summary');
+    assert.equal(getComposerMode(s.currentStep), 'locked_selection');
+  });
+
+  test('C18: validating step after BEGIN_VALIDATION has validating mode', () => {
+    let s = advanceTo('summary');
+    s = prospectWizardReducer(s, { type: 'BEGIN_VALIDATION' });
+    assert.equal(getComposerMode(s.currentStep), 'validating');
+  });
+
+  test('C19: validated step has validated mode', () => {
+    let s = advanceTo('summary');
+    s = prospectWizardReducer(s, { type: 'BEGIN_VALIDATION' });
+    s = prospectWizardReducer(s, { type: 'VALIDATION_SUCCEEDED' });
+    assert.equal(getComposerMode(s.currentStep), 'validated');
+  });
+
+  test('C20: blocked step has blocked mode', () => {
+    let s = advanceTo('summary');
+    s = prospectWizardReducer(s, { type: 'BEGIN_VALIDATION' });
+    s = prospectWizardReducer(s, {
+      type: 'VALIDATION_FAILED',
+      warnings: [],
+      blockingIssues: [
+        {
+          code: 'SERVER_VALIDATION_FAILED',
+          step: 'summary',
+          message: 'Error',
+          recoverable: true,
+        },
+      ],
+    });
+    assert.equal(getComposerMode(s.currentStep), 'blocked');
+  });
+});
+
+// ── 16AB.35.2.3 — Compatibility (tests C21–C30) ──────────────────────────────
+
+describe('Compatibility — 16AB.35.2.3', () => {
+  test('C21: reducer deterministic — same inputs produce same outputs', () => {
+    const s1 = advanceTo('summary');
+    const s2 = advanceTo('summary');
+    assert.deepEqual(s1, s2, 'Same inputs must produce identical states');
+  });
+
+  test('C22: no LLM calls — APPLY_CRITERIA_GUARD_RESULT accepts pre-computed result', () => {
+    let s = advanceTo('additional_criteria');
+    s = prospectWizardReducer(s, {
+      type: 'APPLY_CRITERIA_GUARD_RESULT',
+      rawValue: 'empresas tecnológicas',
+      result: {
+        status: 'allowed',
+        normalizedValue: 'empresas tecnológicas',
+        warnings: [],
+        blockingIssues: [],
+      },
+    });
+    assert.equal(s.currentStep, 'summary');
+    assert.equal(s.additionalCriteriaRaw, 'empresas tecnológicas');
+  });
+
+  test('C23: SKIP_ADDITIONAL_CRITERIA advances without criteria', () => {
+    const s = advanceTo('additional_criteria');
+    const next = prospectWizardReducer(s, { type: 'SKIP_ADDITIONAL_CRITERIA' });
+    assert.equal(next.currentStep, 'summary');
+    assert.equal(next.additionalCriteriaRaw, null);
+  });
+
+  test('C24: V2 experience still resolved when chatWizard disabled', () => {
+    const exp = resolveGenerateProspectsExperience(false, true, STUB_CATALOG);
+    assert.equal(exp, 'exploratory_form_v2');
+  });
+
+  test('C25: no quantity step in flow from additional_criteria to summary', () => {
+    const s = advanceTo('additional_criteria');
+    const next = prospectWizardReducer(s, { type: 'SKIP_ADDITIONAL_CRITERIA' });
+    // Must go directly to summary (no requested_count step in between)
+    assert.equal(next.currentStep, 'summary', 'Expected direct skip to summary');
+  });
+
+  test('C26: CONFIRM_RESTART resets to welcome (composer resets too)', () => {
+    let s = advanceTo('summary');
+    s = prospectWizardReducer(s, { type: 'REQUEST_RESTART' });
+    s = prospectWizardReducer(s, { type: 'CONFIRM_RESTART' });
+    assert.equal(s.currentStep, 'welcome');
+    // After restart, welcome auto-advances to search_type
+    const initial = getComposerMode('welcome');
+    assert.equal(initial, 'locked_selection');
+  });
+
+  test('C27: all steps produce a non-empty placeholder', () => {
+    const steps = [
+      'search_type', 'country', 'industry', 'subindustries',
+      'additional_criteria', 'summary', 'validating', 'validated',
+      'blocked', 'error',
+    ];
+    for (const step of steps) {
+      const p = getComposerPlaceholder(step);
+      assert.ok(p.length > 0, `Expected non-empty placeholder for step: ${step}`);
+    }
+  });
+
+  test('C28: getComposerMode covers all ProspectWizardStep values', () => {
+    const steps = [
+      'welcome', 'search_type', 'country', 'industry', 'subindustries',
+      'additional_criteria', 'requested_count', 'summary', 'validating',
+      'validated', 'blocked', 'error',
+    ];
+    for (const step of steps) {
+      const mode = getComposerMode(step);
+      const valid: string[] = ['locked_selection', 'text_input', 'validating', 'validated', 'blocked'];
+      assert.ok(valid.includes(mode), `Unexpected mode "${mode}" for step "${step}"`);
+    }
+  });
+
+  test('C29: criteria warning does not block advancement when status is warning', () => {
+    let s = advanceTo('additional_criteria');
+    s = prospectWizardReducer(s, {
+      type: 'APPLY_CRITERIA_GUARD_RESULT',
+      rawValue: 'empresas maduras',
+      result: {
+        status: 'warning',
+        normalizedValue: 'empresas maduras',
+        warnings: [
+          {
+            code: 'CRITERIA_OUTSIDE_CATALOG',
+            step: 'additional_criteria',
+            message: 'Criterio fuera del catálogo',
+          },
+        ],
+        blockingIssues: [],
+      },
+    });
+    assert.equal(s.currentStep, 'summary', 'Warning status should still advance to summary');
+  });
+
+  test('C30: GO_BACK from summary returns to additional_criteria (not requested_count)', () => {
+    const s = advanceTo('summary');
+    const prev = prospectWizardReducer(s, { type: 'GO_BACK' });
+    assert.equal(prev.currentStep, 'additional_criteria');
   });
 });

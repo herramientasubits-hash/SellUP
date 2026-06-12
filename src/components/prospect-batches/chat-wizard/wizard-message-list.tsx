@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Bot, AlertTriangle, XCircle, Pencil } from 'lucide-react';
+import { AlertTriangle, XCircle, Pencil } from 'lucide-react';
+import { AIOrb } from './ai-orb';
 import type {
   DerivedWizardMessage,
   EditableWizardStep,
@@ -70,12 +71,7 @@ export function WizardMessageList({
 function AssistantMessage({ message }: { message: DerivedWizardMessage }) {
   return (
     <div className="flex items-start gap-2.5">
-      <div
-        aria-hidden
-        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-su-brand-soft"
-      >
-        <Bot className="h-3.5 w-3.5 text-su-brand" />
-      </div>
+      <AIOrb size="sm" className="mt-0.5" />
       <div className="max-w-[85%] rounded-xl rounded-tl-sm bg-muted/60 px-4 py-2.5 text-sm text-foreground">
         {message.content}
       </div>

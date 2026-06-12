@@ -17,17 +17,21 @@ import type {
   WizardBlockingIssue,
   WizardWarning,
   WizardMessageContext,
+  CriteriaGuardResult,
 } from '@/modules/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { SearchableSelectOption } from '@/components/forms/searchable-select';
 import type { MultiSelectOption } from '@/components/forms/multi-select';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
+import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { WizardMessageList } from './wizard-message-list';
 import { WizardActiveStep } from './wizard-active-step';
 import {
   WizardConversationSummary,
   RestartConfirmation,
 } from './wizard-conversation-summary';
+import { WizardChatComposer } from './wizard-chat-composer';
+import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +60,9 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
       }),
   );
+
+  // Criteria text draft for the composer — reset on submit or skip
+  const [criteriaText, setCriteriaText] = React.useState('');
 
   // ── Derived context for messages ──────────────────────────────────────────
 
@@ -109,6 +116,7 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
   }, [state.industryId, state.countryCode, catalog.subindustries]);
 
   // ── Auto-start conversation on mount ──────────────────────────────────────
+
   const hasStartedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -117,7 +125,7 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
     dispatch({ type: 'START' });
   }, [state.currentStep, dispatch]);
 
-  // ── Autoscroll & focus on step change ────────────────────────────────────
+  // ── Autoscroll on step change ─────────────────────────────────────────────
 
   const activeStepRef = React.useRef<HTMLDivElement>(null);
   const stepTitleRef = React.useRef<HTMLHeadingElement>(null);
@@ -136,7 +144,6 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
       block: 'nearest',
     });
 
-    // Focus step title for keyboard / screen reader users
     const focusId = setTimeout(() => {
       stepTitleRef.current?.focus({ preventScroll: true });
     }, 80);
@@ -168,6 +175,38 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
 
   function handleEditStep(step: EditableWizardStep) {
     dispatch({ type: 'EDIT_STEP', step });
+  }
+
+  // ── Composer submission (additional criteria) ─────────────────────────────
+
+  function handleComposerSubmit() {
+    if (state.currentStep !== 'additional_criteria') return;
+    const trimmed = criteriaText.trim();
+    if (!trimmed) return;
+
+    const maxChars = EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars;
+    if (trimmed.length > maxChars) return;
+
+    const normalized = normalizeCriteria(trimmed);
+    const hasInjection = normalized ? detectPromptInjection(normalized) : false;
+    const warnings: WizardWarning[] = hasInjection
+      ? [
+          {
+            code: 'CRITERIA_OUTSIDE_CATALOG',
+            step: 'additional_criteria',
+            message: 'El criterio contiene instrucciones que no se procesarán.',
+          },
+        ]
+      : [];
+    const result: CriteriaGuardResult = {
+      status: hasInjection ? 'warning' : 'allowed',
+      normalizedValue: normalized,
+      warnings,
+      blockingIssues: [],
+    };
+
+    dispatch({ type: 'APPLY_CRITERIA_GUARD_RESULT', rawValue: trimmed, result });
+    setCriteriaText('');
   }
 
   // ── Validation ────────────────────────────────────────────────────────────
@@ -241,62 +280,81 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
 
   const isSummaryPhase = SUMMARY_STEPS.has(state.currentStep);
 
+  const composerMode = getComposerMode(state.currentStep);
+  const composerPlaceholder = getComposerPlaceholder(state.currentStep);
+  const maxCriteriaChars = EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars;
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Progress indicator */}
-      {showProgress && progressLabel && (
-        <div className="flex items-center gap-3" aria-hidden>
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-su-brand transition-all duration-500"
-              style={{ width: `${progress.percentage}%` }}
-            />
+    <div className="flex flex-col gap-0 min-h-full">
+      {/* Scrollable conversation body */}
+      <div className="flex flex-col gap-4 pb-6">
+        {/* Progress indicator */}
+        {showProgress && progressLabel && (
+          <div className="flex items-center gap-3" aria-hidden>
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-su-brand transition-all duration-500"
+                style={{ width: `${progress.percentage}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {progressLabel}
+            </span>
           </div>
-          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-            {progressLabel}
-          </span>
-        </div>
-      )}
+        )}
 
-      {/* Conversation history */}
-      {messages.length > 0 && (
-        <WizardMessageList
-          messages={messages}
-          currentStep={state.currentStep}
-          onEditStep={handleEditStep}
+        {/* Conversation history */}
+        {messages.length > 0 && (
+          <WizardMessageList
+            messages={messages}
+            currentStep={state.currentStep}
+            onEditStep={handleEditStep}
+          />
+        )}
+
+        {/* Restart confirmation (inline modal) */}
+        {state.restartConfirmationRequired && (
+          <RestartConfirmation dispatch={dispatch} />
+        )}
+
+        {/* Active step input or summary */}
+        {!state.restartConfirmationRequired && (
+          <div ref={activeStepRef}>
+            {isSummaryPhase ? (
+              <WizardConversationSummary
+                state={state}
+                catalog={catalog}
+                dispatch={dispatch}
+                onValidate={handleValidate}
+                onClose={onClose}
+              />
+            ) : (
+              <WizardActiveStep
+                state={state}
+                dispatch={dispatch}
+                industryOptions={industryOptions}
+                subindustryOptions={subindustryOptions}
+                onCountryChange={handleCountryChange}
+                stepTitleRef={stepTitleRef}
+              />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Sticky composer — spans full width by negating the drawer's px-7 padding */}
+      <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/30 mt-auto">
+        <WizardChatComposer
+          mode={composerMode}
+          value={criteriaText}
+          placeholder={composerPlaceholder}
+          maxLength={maxCriteriaChars}
+          onChange={setCriteriaText}
+          onSubmit={handleComposerSubmit}
         />
-      )}
-
-      {/* Restart confirmation (inline modal) */}
-      {state.restartConfirmationRequired && (
-        <RestartConfirmation dispatch={dispatch} />
-      )}
-
-      {/* Active step input or summary */}
-      {!state.restartConfirmationRequired && (
-        <div ref={activeStepRef}>
-          {isSummaryPhase ? (
-            <WizardConversationSummary
-              state={state}
-              catalog={catalog}
-              dispatch={dispatch}
-              onValidate={handleValidate}
-              onClose={onClose}
-            />
-          ) : (
-            <WizardActiveStep
-              state={state}
-              dispatch={dispatch}
-              industryOptions={industryOptions}
-              subindustryOptions={subindustryOptions}
-              onCountryChange={handleCountryChange}
-              stepTitleRef={stepTitleRef}
-            />
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

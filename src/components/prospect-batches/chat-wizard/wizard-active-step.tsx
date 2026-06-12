@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import {
-  ChevronRight,
   Building2,
   Users,
   Sparkles,
@@ -10,22 +9,15 @@ import {
   Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import { MultiSelect } from '@/components/forms/multi-select';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
-import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
-import {
-  SEARCH_MODE_DEFINITIONS,
-  canAdvanceFromCurrentStep,
-} from '@/modules/prospect-batches/chat-wizard';
+import { SEARCH_MODE_DEFINITIONS } from '@/modules/prospect-batches/chat-wizard';
 import type {
   ProspectWizardState,
   ProspectWizardAction,
-  CriteriaGuardResult,
-  WizardWarning,
 } from '@/modules/prospect-batches/chat-wizard';
 import type { SearchableSelectOption } from '@/components/forms/searchable-select';
 import type { MultiSelectOption } from '@/components/forms/multi-select';
@@ -53,7 +45,7 @@ export function WizardActiveStep({
 }: WizardActiveStepProps) {
   switch (state.currentStep) {
     case 'welcome':
-      return <WelcomeStep dispatch={dispatch} titleRef={stepTitleRef} />;
+      return <WelcomeStep />;
 
     case 'search_type':
       return (
@@ -151,14 +143,8 @@ function StepBlockingIssues({ state, step }: { state: ProspectWizardState; step:
 
 // ── Welcome step ──────────────────────────────────────────────────────────────
 
-type WelcomeStepProps = {
-  dispatch: React.Dispatch<ProspectWizardAction>;
-  titleRef: React.RefObject<HTMLHeadingElement | null>;
-};
-
-function WelcomeStep({ dispatch, titleRef }: WelcomeStepProps) {
-  // Welcome step is auto-started, so we don't render anything here
-  // The conversation begins immediately in search_type
+function WelcomeStep() {
+  // Auto-started on mount; the conversation begins immediately in search_type
   return null;
 }
 
@@ -319,6 +305,7 @@ function IndustryStep({
         placeholder="Seleccionar industria"
         searchPlaceholder="Buscar industria..."
         emptyMessage="No se encontraron industrias."
+        compact
       />
       <StepBlockingIssues state={state} step="industry" />
     </StepWrapper>
@@ -385,6 +372,7 @@ function SubindustriesStep({
           maxSelections={max}
           onMaxSelectionsReached={handleMaxReached}
           disabled={subindustryOptions.length === 0}
+          compact
         />
       </div>
 
@@ -413,6 +401,8 @@ function SubindustriesStep({
 }
 
 // ── Additional criteria step ──────────────────────────────────────────────────
+// The textarea lives in WizardChatComposer (sticky bottom). This step only
+// shows the question + skip actions.
 
 type AdditionalCriteriaStepProps = {
   state: ProspectWizardState;
@@ -425,44 +415,6 @@ function AdditionalCriteriaStep({
   dispatch,
   titleRef,
 }: AdditionalCriteriaStepProps) {
-  const maxChars = EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars;
-  const [text, setText] = React.useState(state.additionalCriteriaRaw ?? '');
-
-  const charCount = text.length;
-  const overLimit = charCount > maxChars;
-
-  function handleContinue() {
-    const trimmed = text.trim();
-    if (trimmed === '') {
-      dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' });
-      return;
-    }
-    // Basic criteria guard (full ethics module: 16AB.35.3)
-    const normalized = normalizeCriteria(trimmed);
-    const hasInjection = normalized ? detectPromptInjection(normalized) : false;
-    const warnings: WizardWarning[] = hasInjection
-      ? [
-          {
-            code: 'CRITERIA_OUTSIDE_CATALOG',
-            step: 'additional_criteria',
-            message:
-              'El criterio contiene instrucciones que no se procesarán.',
-          },
-        ]
-      : [];
-    const result: CriteriaGuardResult = {
-      status: hasInjection ? 'warning' : 'allowed',
-      normalizedValue: normalized,
-      warnings,
-      blockingIssues: [],
-    };
-    dispatch({
-      type: 'APPLY_CRITERIA_GUARD_RESULT',
-      rawValue: trimmed,
-      result,
-    });
-  }
-
   function handleSkip() {
     dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' });
   }
@@ -472,68 +424,31 @@ function AdditionalCriteriaStep({
       title="¿Hay alguna característica adicional que debamos tener en cuenta?"
       titleRef={titleRef}
     >
-      <div className="space-y-1">
-        <Textarea
-          id="wizard-additional-criteria"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Empresas con operación regional. Equipos distribuidos. Señales recientes de crecimiento. Presencia en varios países."
-          rows={4}
-          maxLength={maxChars + 1}
-          className="resize-none text-sm"
-          aria-label="Criterio adicional — opcional"
-          aria-describedby="wizard-criteria-counter"
-        />
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Opcional</span>
-          <span
-            id="wizard-criteria-counter"
-            aria-live="polite"
-            aria-atomic="true"
-            className={
-              overLimit
-                ? 'font-semibold text-destructive'
-                : 'text-muted-foreground'
-            }
-          >
-            {charCount}/{maxChars}
-          </span>
-        </div>
-        {overLimit && (
-          <p role="alert" className="text-xs text-destructive">
-            El criterio puede tener máximo {maxChars} caracteres.
-          </p>
-        )}
-      </div>
+      <p className="text-xs text-muted-foreground">
+        Opcional. Escríbela en el campo inferior o salta este paso.
+      </p>
 
       <StepBlockingIssues state={state} step="additional_criteria" />
 
-      <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
         <Button
           type="button"
-          onClick={handleContinue}
-          disabled={overLimit}
+          variant="outline"
+          size="sm"
+          className="flex-1"
+          onClick={handleSkip}
         >
-          Continuar
+          No agregar criterio
         </Button>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1"
-            onClick={handleSkip}
-          >
-            No agregar criterio
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="flex-1 text-muted-foreground"
-            onClick={handleSkip}
-          >
-            No estoy seguro
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="flex-1 text-muted-foreground"
+          onClick={handleSkip}
+        >
+          No estoy seguro
+        </Button>
       </div>
     </StepWrapper>
   );

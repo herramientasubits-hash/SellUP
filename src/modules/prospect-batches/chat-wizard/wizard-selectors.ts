@@ -20,7 +20,7 @@ const PROGRESS_STEPS: ProspectWizardStep[] = [
 ];
 
 export function getWizardProgress(state: ProspectWizardState): WizardProgress {
-  const terminal: ProspectWizardStep[] = ['validated', 'blocked', 'error'];
+  const terminal: ProspectWizardStep[] = ['summary', 'validating', 'validated', 'blocked', 'error'];
   if (terminal.includes(state.currentStep)) {
     return { currentStepIndex: PROGRESS_STEPS.length, totalSteps: PROGRESS_STEPS.length, percentage: 100 };
   }
@@ -120,7 +120,7 @@ export function buildExploratoryFormInput(
   // requestedCount is system-controlled and is not user-configurable in the UI.
   // It will be determined by SellUp based on quality, availability, and other criteria.
   // We keep it in the state for compatibility with existing validation/preview logic.
-  const { min, max, default: defaultCount } = EXPLORATORY_SEARCH_LIMITS.requestedCount;
+  const { min, max } = EXPLORATORY_SEARCH_LIMITS.requestedCount;
   const maxSubs = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
 
   if (

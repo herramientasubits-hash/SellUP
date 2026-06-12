@@ -39,6 +39,10 @@ export type MultiSelectProps = {
   maxSelections?: number;
   /** Called when the user attempts to select beyond maxSelections. */
   onMaxSelectionsReached?: () => void;
+  /** Compact mode: reduces item padding and clamps descriptions to 1 line */
+  compact?: boolean;
+  /** Additional className for the popover content */
+  contentClassName?: string;
 };
 
 export function MultiSelect({
@@ -52,6 +56,8 @@ export function MultiSelect({
   className,
   maxSelections,
   onMaxSelectionsReached,
+  compact = false,
+  contentClassName,
 }: MultiSelectProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -130,10 +136,16 @@ export function MultiSelect({
           </Button>
         }
       />
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-xl border shadow-md">
+      {/* Use --anchor-width (Base UI variable) to match trigger width, capped at available space */}
+      <PopoverContent
+        className={cn(
+          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-md",
+          contentClassName,
+        )}
+      >
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList className="max-h-[300px] overflow-y-auto">
+          <CommandList className="max-h-[280px] overflow-y-auto">
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
@@ -142,16 +154,24 @@ export function MultiSelect({
                   value={option.value}
                   disabled={option.disabled}
                   onSelect={() => handleSelect(option.value)}
-                  className="flex flex-col items-start"
+                  className={cn(
+                    "flex flex-col items-start",
+                    compact && "py-1.5",
+                  )}
                 >
                   <div className="flex items-center w-full">
-                    <span className="flex-1 text-sm">{option.label}</span>
+                    <span className={cn("flex-1 text-sm", compact && "font-medium")}>{option.label}</span>
                     {value.includes(option.value) && (
-                      <Check className={cn("ml-2 h-4 w-4")} />
+                      <Check className={cn("ml-2 h-4 w-4 shrink-0")} />
                     )}
                   </div>
                   {option.description && (
-                    <span className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                    <span
+                      className={cn(
+                        "text-[11px] text-muted-foreground leading-tight mt-0.5",
+                        compact && "line-clamp-1",
+                      )}
+                    >
                       {option.description}
                     </span>
                   )}
