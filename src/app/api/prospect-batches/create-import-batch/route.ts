@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
+import { loadImportCatalog } from '@/modules/prospect-batches/import-catalog-loader';
+import { classifyImportRows } from '@/modules/prospect-batches/import-classification-service';
+import { buildImportPersistencePayload } from '@/modules/prospect-batches/import-classification-payload-builder';
+import type { ImportRow, ParsedImportRow } from '@/modules/prospect-batches/import-candidates-parser';
 
 interface ImportCandidate {
   company_name: string;
@@ -8,6 +12,7 @@ interface ImportCandidate {
   country_code?: string;
   website?: string;
   industry?: string;
+  subindustry?: string;
   city?: string;
   region?: string;
   tax_identifier?: string;
@@ -23,6 +28,8 @@ interface ImportCandidate {
   owner_email?: string;
   source_evidence?: string;
   confidence?: string;
+  industryOriginalValue?: string | null;
+  subindustryOriginalValue?: string | null;
 }
 
 interface ImportBatchInput {
@@ -30,6 +37,7 @@ interface ImportBatchInput {
   candidates: ImportCandidate[];
   recognized_columns: string[];
   unrecognized_columns: string[];
+  duplicate_columns?: string[];
   total_rows: number;
   valid_rows: number;
   invalid_rows: number;
@@ -60,6 +68,56 @@ function extractDomain(website: string): string | null {
   }
 }
 
+// ── Build lightweight ImportRow from ImportCandidate ──────────────────────────
+// Reconstructs the shape needed by the classification service from the
+// already-parsed candidate data received from the client.
+
+function candidateToClassifiableRow(
+  candidate: ImportCandidate,
+  index: number,
+): ImportRow {
+  const raw: ParsedImportRow = {
+    company_name: candidate.company_name,
+    country: candidate.country,
+    country_code: candidate.country_code,
+    website: candidate.website,
+    industry: candidate.industry,
+    subindustry: candidate.subindustry,
+    city: candidate.city,
+    region: candidate.region,
+    tax_identifier: candidate.tax_identifier,
+    tax_identifier_type: candidate.tax_identifier_type,
+    linkedin_url: candidate.linkedin_url,
+    company_size: candidate.company_size,
+    description: candidate.description,
+    notes: candidate.notes,
+    source_url: candidate.source_url,
+    contact_name: candidate.contact_name,
+    contact_role: candidate.contact_role,
+    contact_email: candidate.contact_email,
+    owner_email: candidate.owner_email,
+    source_evidence: candidate.source_evidence,
+    confidence: candidate.confidence,
+  };
+
+  // Determine original values: prefer client-sent originals, fallback to effective values
+  const industryOriginalValue = candidate.industryOriginalValue ?? candidate.industry?.trim() ?? null;
+  const subindustryOriginalValue = candidate.subindustryOriginalValue ?? candidate.subindustry?.trim() ?? null;
+
+  return {
+    index,
+    raw,
+    status: 'valid',
+    errors: [],
+    warnings: [],
+    resolved_country_code: candidate.country_code?.trim().toUpperCase() ?? null,
+    country_from_default: false,
+    industry_from_default: false,
+    industryOriginalValue,
+    subindustryOriginalValue,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -83,6 +141,67 @@ export async function POST(request: NextRequest) {
     const internalUserId = internalUser.id;
     const input = await request.json() as ImportBatchInput;
 
+    // ── Duplicate columns check ────────────────────────────────────────────
+    if (input.duplicate_columns && input.duplicate_columns.length > 0) {
+      return NextResponse.json({
+        success: false,
+        code: 'duplicate_import_columns',
+        duplicateColumns: input.duplicate_columns,
+      }, { status: 422 });
+    }
+
+    // ── Load classification catalog ────────────────────────────────────────
+    const catalogResult = await loadImportCatalog();
+
+    if (!catalogResult.success) {
+      return NextResponse.json({
+        success: false,
+        code: 'industry_catalog_unavailable',
+        message: catalogResult.message,
+      }, { status: 503 });
+    }
+
+    const { catalog, catalogVersionId } = catalogResult;
+
+    // ── Classify all rows ──────────────────────────────────────────────────
+    const classifiableRows = input.candidates.map((c, i) => candidateToClassifiableRow(c, i));
+
+    const classificationResult = classifyImportRows({
+      rows: classifiableRows,
+      catalog,
+      catalogVersionId,
+    });
+
+    // ── Block if any row requires review ───────────────────────────────────
+    if (!classificationResult.valid) {
+      return NextResponse.json({
+        success: false,
+        code: 'classification_review_required',
+        catalogVersion: classificationResult.catalogVersion,
+        classificationSummary: classificationResult.summary,
+        rows: classificationResult.rows.map((r) => ({
+          rowNumber: r.rowNumber,
+          companyName: r.parsedRow.raw.company_name,
+          industry: r.parsedRow.raw.industry,
+          subindustry: r.parsedRow.raw.subindustry,
+          validationStatus: r.validationStatus,
+          classification: {
+            industryMatchStatus: r.classification.industryMatchStatus,
+            industryName: r.classification.industryName,
+            subindustryMatchStatus: r.classification.subindustryMatchStatus,
+            subindustryName: r.classification.subindustryName,
+            requiresHumanReview: r.classification.requiresHumanReview,
+            warnings: r.classification.classificationWarnings,
+          },
+        })),
+        blockingIssues: classificationResult.blockingIssues,
+      }, { status: 422 });
+    }
+
+    // ── Build persistence payload ──────────────────────────────────────────
+    const persistencePayload = buildImportPersistencePayload(classificationResult);
+
+    // ── Existing batch metadata logic ──────────────────────────────────────
     const now = new Date();
     const dateLabel = now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -106,6 +225,17 @@ export async function POST(request: NextRequest) {
       (c) => !c.industry && !!input.defaults?.industry
     ).length;
 
+    // ── Verify catalog version hasn't changed (pre-persist check) ──────────
+    const recheckResult = await loadImportCatalog();
+    if (!recheckResult.success || recheckResult.catalogVersionId !== catalogVersionId) {
+      return NextResponse.json({
+        success: false,
+        code: 'catalog_version_changed',
+        message: 'Catalog version changed during classification. Please retry.',
+      }, { status: 409 });
+    }
+
+    // ── Create batch with catalog_version ──────────────────────────────────
     const { data: batch, error: batchError } = await supabase
       .from('prospect_batches')
       .insert({
@@ -118,6 +248,7 @@ export async function POST(request: NextRequest) {
         source: 'external_import',
         owner_id: internalUserId,
         created_by: internalUserId,
+        catalog_version: persistencePayload.batch.catalog_version,
         metadata: {
           import_type: input.import_type,
           imported_rows_count: input.total_rows,
@@ -136,6 +267,7 @@ export async function POST(request: NextRequest) {
           defaults_applied: !!(input.defaults?.country_code || input.defaults?.industry),
           rows_using_default_country_count: rowsUsingDefaultCountry,
           rows_using_default_industry_count: rowsUsingDefaultIndustry,
+          classification_summary: classificationResult.summary,
         },
       })
       .select()
@@ -152,9 +284,15 @@ export async function POST(request: NextRequest) {
       details: { name: batch.name, source: 'external_import', import_type: input.import_type },
     });
 
+    // ── Insert candidates with classification fields ───────────────────────
     let candidatesCreated = 0;
 
-    for (const candidate of input.candidates) {
+    for (let i = 0; i < input.candidates.length; i++) {
+      const candidate = input.candidates[i];
+      const rowNumber = i + 1;
+      const classifiedRow = classificationResult.rows[i];
+      const candidatePayload = persistencePayload.candidates.get(rowNumber);
+
       const website = candidate.website?.trim() || null;
       const domain = website ? extractDomain(website) : null;
       const normalizedName = normalizeName(candidate.company_name);
@@ -163,7 +301,7 @@ export async function POST(request: NextRequest) {
       if (candidate.description) notesArr.push(`Descripción: ${candidate.description}`);
       if (candidate.notes) notesArr.push(candidate.notes);
 
-      const { error: candidateError } = await supabase.from('prospect_candidates').insert({
+      const insertData: Record<string, unknown> = {
         batch_id: batch.id,
         name: candidate.company_name.trim(),
         normalized_name: normalizedName,
@@ -200,7 +338,24 @@ export async function POST(request: NextRequest) {
             origen: 'external_import',
           }
         },
-      });
+      };
+
+      // Attach classification fields if persistable
+      if (candidatePayload) {
+        insertData.catalog_version_id = candidatePayload.catalog_version_id;
+        insertData.industry_id = candidatePayload.industry_id;
+        insertData.subindustry_id = candidatePayload.subindustry_id;
+        insertData.subindustry = candidatePayload.subindustry;
+        insertData.import_classification = candidatePayload.import_classification;
+      } else if (classifiedRow) {
+        // Row exists but not persistable (shouldn't happen since we blocked above)
+        // Still attach catalog_version_id for traceability
+        insertData.catalog_version_id = catalogVersionId;
+      }
+
+      const { error: candidateError } = await supabase
+        .from('prospect_candidates')
+        .insert(insertData);
 
       if (!candidateError) candidatesCreated++;
     }
@@ -254,7 +409,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       batchId: batch.id, 
       candidatesCreated,
-      stats 
+      stats,
+      classification: {
+        catalogVersion: classificationResult.catalogVersion,
+        summary: classificationResult.summary,
+      },
     });
   } catch (err) {
     console.error('[create-import-batch] Error:', err);

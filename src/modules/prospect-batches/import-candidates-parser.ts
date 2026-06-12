@@ -14,6 +14,7 @@ export interface ParsedImportRow {
   country_code?: string;
   website?: string;
   industry?: string;
+  subindustry?: string;
   city?: string;
   region?: string;
   tax_identifier?: string;
@@ -42,6 +43,8 @@ export interface ImportRow {
   resolved_country_code: string | null;
   country_from_default: boolean;
   industry_from_default: boolean;
+  industryOriginalValue: string | null;
+  subindustryOriginalValue: string | null;
 }
 
 export interface ImportPreview {
@@ -52,6 +55,7 @@ export interface ImportPreview {
   recognized_columns: string[];
   unrecognized_columns: string[];
   rows: ImportRow[];
+  duplicateColumns: string[];
 }
 
 function normalizeHeader(raw: string): string {
@@ -105,11 +109,27 @@ export const EXTERNAL_IMPORT_CONTRACT: readonly ImportColumnDefinition[] = [
   {
     field: 'industry',
     officialHeader: 'Sector',
-    aliases: ['sector', 'industria', 'industry', 'vertical', 'rubro', 'giro'],
+    aliases: [
+      'sector', 'industria', 'industry', 'vertical', 'rubro', 'giro',
+      'sector economico', 'sector económico', 'categoria', 'categoría',
+    ],
     required: false,
     recommended: true,
     description: 'Sector o industria de la empresa.',
     example: 'Educación',
+  },
+  {
+    field: 'subindustry',
+    officialHeader: 'Subindustria',
+    aliases: [
+      'subindustria', 'sub industria', 'sub-industry', 'subindustry',
+      'subsector', 'sub sector', 'subcategoría', 'subcategoria', 'subcategory',
+      'vertical específica', 'vertical especifica',
+    ],
+    required: false,
+    recommended: false,
+    description: 'Subindustria o subsector específico de la empresa.',
+    example: 'SaaS Empresarial',
   },
   {
     field: 'website',
@@ -405,11 +425,22 @@ export function normalizeImportColumns(headers: string[]): {
   fieldMap: Array<{ original: string; field: string | null }>;
   recognized: string[];
   unrecognized: string[];
+  duplicateFields: string[];
 } {
   const fieldMap = headers.map((h) => resolveHeader(h));
+  const seenFields = new Map<string, number>();
+  const duplicateFields: string[] = [];
+
+  for (const { field } of fieldMap) {
+    if (field === null) continue;
+    const count = (seenFields.get(field) ?? 0) + 1;
+    seenFields.set(field, count);
+    if (count === 2) duplicateFields.push(field);
+  }
+
   const recognized = fieldMap.filter((f) => f.field !== null).map((f) => f.field as string);
   const unrecognized = fieldMap.filter((f) => f.field === null).map((f) => f.original);
-  return { fieldMap, recognized, unrecognized };
+  return { fieldMap, recognized, unrecognized, duplicateFields };
 }
 
 // ── Validación de fila con defaults ───────────────────────────
@@ -426,6 +457,10 @@ function normalizeConfidence(val?: string): string | undefined {
 function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefaults): ImportRow {
   const errors: string[] = [];
   const warnings: string[] = [];
+
+  // Capture original file values before defaults are applied
+  const industryOriginalValue = raw.industry?.trim() || null;
+  const subindustryOriginalValue = raw.subindustry?.trim() || null;
 
   if (!raw.company_name || !raw.company_name.trim()) {
     errors.push('Falta nombre de empresa');
@@ -494,6 +529,8 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
     resolved_country_code: errors.length === 0 ? resolved_country_code : null,
     country_from_default,
     industry_from_default,
+    industryOriginalValue,
+    subindustryOriginalValue,
   };
 }
 
@@ -503,6 +540,7 @@ interface ParseResult {
   rows: ImportRow[];
   recognized_columns: string[];
   unrecognized_columns: string[];
+  duplicate_columns: string[];
   truncated: boolean;
   truncatedAt: number;
 }
@@ -611,17 +649,17 @@ function extractAndParseTable(text: string, defaults?: ImportDefaults): ParseRes
   
   if (bestBlock) {
     const { headers, dataRows } = bestBlock;
-    const { fieldMap, recognized, unrecognized } = normalizeImportColumns(headers);
-    
+    const { fieldMap, recognized, unrecognized, duplicateFields } = normalizeImportColumns(headers);
+
     const truncated = dataRows.length > MAX_IMPORT_ROWS;
     const limitedRows = truncated ? dataRows.slice(0, MAX_IMPORT_ROWS) : dataRows;
-    
+
     const rows: ImportRow[] = [];
     let rowIndex = 0;
-    
+
     for (const cells of limitedRows) {
       if (isBlankRow(cells)) continue;
-      
+
       const rawObj: Record<string, string> = {};
       for (let i = 0; i < fieldMap.length; i++) {
         const { field } = fieldMap[i];
@@ -629,16 +667,17 @@ function extractAndParseTable(text: string, defaults?: ImportDefaults): ParseRes
           rawObj[field] = cells[i]?.trim() ?? '';
         }
       }
-      
+
       const raw = rawObj as unknown as ParsedImportRow;
       rows.push(validateRow(raw, rowIndex, defaults));
       rowIndex++;
     }
-    
+
     return {
       rows,
       recognized_columns: recognized,
       unrecognized_columns: unrecognized,
+      duplicate_columns: duplicateFields,
       truncated,
       truncatedAt: MAX_IMPORT_ROWS
     };
@@ -656,12 +695,12 @@ function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
   // Fallback to previous behavior
   const allLines = text.split(/\r?\n/).filter((l) => l.trim());
   if (allLines.length < 2) {
-    return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };
+    return { rows: [], recognized_columns: [], unrecognized_columns: [], duplicate_columns: [], truncated: false, truncatedAt: 0 };
   }
 
   const sep = detectSeparator(allLines[0]);
   const headers = splitCsvLine(allLines[0], sep);
-  const { fieldMap, recognized, unrecognized } = normalizeImportColumns(headers);
+  const { fieldMap, recognized, unrecognized, duplicateFields } = normalizeImportColumns(headers);
 
   const dataLines = allLines.slice(1);
   const truncated = dataLines.length > MAX_IMPORT_ROWS;
@@ -688,7 +727,7 @@ function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
     rowIndex++;
   }
 
-  return { rows, recognized_columns: recognized, unrecognized_columns: unrecognized, truncated, truncatedAt: MAX_IMPORT_ROWS };
+  return { rows, recognized_columns: recognized, unrecognized_columns: unrecognized, duplicate_columns: duplicateFields, truncated, truncatedAt: MAX_IMPORT_ROWS };
 }
 
 // ── Parsing de XLSX (async, cliente) ──────────────────────────
@@ -708,18 +747,18 @@ export async function parseXlsxCandidates(
 
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {
-    return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };
+    return { rows: [], recognized_columns: [], unrecognized_columns: [], duplicate_columns: [], truncated: false, truncatedAt: 0 };
   }
 
   const sheet = workbook.Sheets[sheetName];
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
 
   if (matrix.length < 2) {
-    return { rows: [], recognized_columns: [], unrecognized_columns: [], truncated: false, truncatedAt: 0 };
+    return { rows: [], recognized_columns: [], unrecognized_columns: [], duplicate_columns: [], truncated: false, truncatedAt: 0 };
   }
 
   const headers = (matrix[0] as unknown[]).map((h) => String(h ?? ''));
-  const { fieldMap, recognized, unrecognized } = normalizeImportColumns(headers);
+  const { fieldMap, recognized, unrecognized, duplicateFields } = normalizeImportColumns(headers);
 
   const dataRows = matrix.slice(1) as unknown[][];
   const truncated = dataRows.length > MAX_IMPORT_ROWS;
@@ -748,6 +787,7 @@ export async function parseXlsxCandidates(
     rows,
     recognized_columns: recognized,
     unrecognized_columns: unrecognized,
+    duplicate_columns: duplicateFields,
     truncated,
     truncatedAt: MAX_IMPORT_ROWS,
   };
@@ -764,7 +804,7 @@ export function parseCsvCandidates(csvText: string, defaults?: ImportDefaults): 
 }
 
 export function buildImportPreview(parseResult: ParseResult): ImportPreview {
-  const { rows, recognized_columns, unrecognized_columns } = parseResult;
+  const { rows, recognized_columns, unrecognized_columns, duplicate_columns } = parseResult;
   const valid = rows.filter((r) => r.status === 'valid').length;
   const errors = rows.filter((r) => r.status === 'error').length;
   const warnings_only = rows.filter((r) => r.status === 'warning').length;
@@ -776,6 +816,7 @@ export function buildImportPreview(parseResult: ParseResult): ImportPreview {
     warnings_only,
     recognized_columns,
     unrecognized_columns,
+    duplicateColumns: duplicate_columns,
     rows,
   };
 }
