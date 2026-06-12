@@ -108,6 +108,15 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
       }));
   }, [state.industryId, state.countryCode, catalog.subindustries]);
 
+  // ── Auto-start conversation on mount ──────────────────────────────────────
+  const hasStartedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (hasStartedRef.current || state.currentStep !== 'welcome') return;
+    hasStartedRef.current = true;
+    dispatch({ type: 'START' });
+  }, [state.currentStep, dispatch]);
+
   // ── Autoscroll & focus on step change ────────────────────────────────────
 
   const activeStepRef = React.useRef<HTMLDivElement>(null);

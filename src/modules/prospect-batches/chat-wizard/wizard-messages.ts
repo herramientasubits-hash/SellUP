@@ -71,9 +71,15 @@ export function deriveWizardMessages(
       id: 'assistant-welcome-greeting',
       role: 'assistant',
       messageType: 'text',
-      content:
-        '¡Hola! Voy a ayudarte a configurar una búsqueda de prospectos. ' +
-        '¿Qué tipo de búsqueda quieres realizar?',
+      content: 'Hola, te ayudaré a encontrar los prospectos que necesitas.',
+      step: 'welcome',
+    });
+
+    messages.push({
+      id: 'assistant-welcome-intro',
+      role: 'assistant',
+      messageType: 'text',
+      content: 'Primero, selecciona el tipo de búsqueda que quieres realizar.',
       step: 'welcome',
     });
   }
@@ -84,7 +90,7 @@ export function deriveWizardMessages(
       id: 'assistant-search-type-question',
       role: 'assistant',
       messageType: 'choice',
-      content: 'Selecciona el tipo de búsqueda:',
+      content: '¿Qué tipo de prospectos quieres encontrar?',
       step: 'search_type',
     });
 

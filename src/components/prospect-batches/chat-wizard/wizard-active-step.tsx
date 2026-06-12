@@ -166,36 +166,9 @@ type WelcomeStepProps = {
 };
 
 function WelcomeStep({ dispatch, titleRef }: WelcomeStepProps) {
-  return (
-    <div className="space-y-5">
-      <div className="rounded-xl bg-su-brand-soft/60 px-5 py-5">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-su-brand-soft">
-            <Sparkles className="h-4 w-4 text-su-brand" aria-hidden />
-          </div>
-          <h3
-            ref={titleRef}
-            tabIndex={-1}
-            className="text-base font-semibold text-foreground focus:outline-none"
-          >
-            Generar prospectos con IA
-          </h3>
-        </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Te ayudaré a definir paso a paso qué empresas quieres encontrar.
-        </p>
-      </div>
-
-      <Button
-        type="button"
-        onClick={() => dispatch({ type: 'START' })}
-        className="w-full gap-2"
-      >
-        Comenzar
-        <ChevronRight className="h-4 w-4" aria-hidden />
-      </Button>
-    </div>
-  );
+  // Welcome step is auto-started, so we don't render anything here
+  // The conversation begins immediately in search_type
+  return null;
 }
 
 // ── Search type step ──────────────────────────────────────────────────────────

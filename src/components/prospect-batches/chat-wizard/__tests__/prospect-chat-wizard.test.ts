@@ -422,10 +422,28 @@ describe('deriveWizardMessages', () => {
     assert.equal(msgs.length, 0);
   });
 
-  test('returns messages after advancing past welcome', () => {
+  test('returns welcome and question messages after START (search_type)', () => {
     const s = advanceTo('search_type');
     const msgs = deriveWizardMessages(s, MSG_CTX);
-    assert.ok(msgs.length > 0, 'Expected messages after START');
+    assert.ok(msgs.length >= 3, `Expected at least 3 messages, got ${msgs.length}`);
+
+    const assistantMsgs = msgs.filter((m) => m.role === 'assistant');
+    const hasGreeting = assistantMsgs.some((m) => m.id === 'assistant-welcome-greeting');
+    const hasIntro = assistantMsgs.some((m) => m.id === 'assistant-welcome-intro');
+    const hasQuestion = assistantMsgs.some((m) => m.id === 'assistant-search-type-question');
+
+    assert.ok(hasGreeting, 'Expected welcome greeting message');
+    assert.ok(hasIntro, 'Expected welcome intro message');
+    assert.ok(hasQuestion, 'Expected search type question message');
+  });
+
+  test('conversation greeting is conversational without repetition', () => {
+    const s = advanceTo('search_type');
+    const msgs = deriveWizardMessages(s, MSG_CTX);
+    const greeting = msgs.find((m) => m.id === 'assistant-welcome-greeting');
+    assert.ok(greeting, 'Expected greeting message');
+    assert.match(greeting!.content, /^Hola/i, 'Greeting should start with Hola');
+    assert.match(greeting!.content, /encontrar.*prospectos/i, 'Greeting should mention finding prospects');
   });
 
   test('includes user message with country name after country selection', () => {
