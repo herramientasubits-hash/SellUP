@@ -130,7 +130,7 @@ export function MultiSelect({
           </Button>
         }
       />
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-xl border shadow-md">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-xl border shadow-md z-[9999]">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList className="max-h-[300px] overflow-y-auto">
