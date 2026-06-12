@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
+import { resolveGenerateProspectsExperience } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import {
   getGlobalCandidatesList,
@@ -32,19 +33,22 @@ interface PageProps {
 export default async function ProspectsPage({ searchParams }: PageProps) {
   await requireActiveUser();
 
-  // Feature flag: read server-side only — never NEXT_PUBLIC_
+  // Feature flags: read server-side only — never NEXT_PUBLIC_
+  const enableChatWizard = process.env.ENABLE_PROSPECT_CHAT_WIZARD === 'true';
   const enableV2 = process.env.ENABLE_EXPLORATORY_SEARCH_FORM_V2 === 'true';
 
-  // Load catalog only when flag is on — zero Supabase queries when flag is off
+  // Load catalog only when any enhanced experience is on — zero Supabase queries otherwise
   let catalog: ActiveIndustryCatalog | null = null;
-  if (enableV2) {
+  if (enableChatWizard || enableV2) {
     try {
       catalog = await loadActiveCatalog();
     } catch {
-      // If catalog fails to load, fall back to V1 form silently
+      // If catalog fails to load, fall back to legacy form silently
       catalog = null;
     }
   }
+
+  const experience = resolveGenerateProspectsExperience(enableChatWizard, enableV2, catalog);
 
   const params = await searchParams;
 
@@ -100,7 +104,7 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
       description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer enableV2={enableV2 && !!catalog} catalog={catalog} />
+          <GenerateAIBatchDrawer experience={experience} catalog={catalog} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />
