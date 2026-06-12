@@ -32,7 +32,7 @@ const PopoverContent = React.forwardRef<
   PopoverContentProps
 >(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
   <PopoverPrimitive.Portal>
-    <PopoverPrimitive.Positioner sideOffset={sideOffset} align={align} className="z-[9999]">
+    <PopoverPrimitive.Positioner sideOffset={sideOffset} align={align} positionMethod="fixed" className="z-[9999]">
       <PopoverPrimitive.Popup
         ref={ref}
         className={cn(
