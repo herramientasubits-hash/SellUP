@@ -31,6 +31,8 @@ export type WizardActiveStepProps = {
   subindustryOptions: MultiSelectOption[];
   onCountryChange: (code: string) => void;
   stepTitleRef: React.RefObject<HTMLHeadingElement | null>;
+  criteriaIntention: 'pending' | 'yes';
+  onCriteriaIntentionYes: () => void;
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -42,6 +44,8 @@ export function WizardActiveStep({
   subindustryOptions,
   onCountryChange,
   stepTitleRef,
+  criteriaIntention,
+  onCriteriaIntentionYes,
 }: WizardActiveStepProps) {
   switch (state.currentStep) {
     case 'welcome':
@@ -91,6 +95,8 @@ export function WizardActiveStep({
           state={state}
           dispatch={dispatch}
           titleRef={stepTitleRef}
+          intention={criteriaIntention}
+          onIntentionYes={onCriteriaIntentionYes}
         />
       );
 
@@ -401,22 +407,36 @@ function SubindustriesStep({
 }
 
 // ── Additional criteria step ──────────────────────────────────────────────────
-// The textarea lives in WizardChatComposer (sticky bottom). This step only
-// shows the question + skip actions.
+// Gate: user first picks YES/NO. YES enables the composer (text_input mode);
+// NO skips directly to summary.
 
 type AdditionalCriteriaStepProps = {
   state: ProspectWizardState;
   dispatch: React.Dispatch<ProspectWizardAction>;
   titleRef: React.RefObject<HTMLHeadingElement | null>;
+  intention: 'pending' | 'yes';
+  onIntentionYes: () => void;
 };
 
 function AdditionalCriteriaStep({
   state,
   dispatch,
   titleRef,
+  intention,
+  onIntentionYes,
 }: AdditionalCriteriaStepProps) {
-  function handleSkip() {
-    dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' });
+  if (intention === 'yes') {
+    return (
+      <StepWrapper
+        title="¿Hay alguna característica adicional que debamos tener en cuenta?"
+        titleRef={titleRef}
+      >
+        <p className="text-xs text-muted-foreground">
+          Escríbela en el campo de abajo y presiona enviar.
+        </p>
+        <StepBlockingIssues state={state} step="additional_criteria" />
+      </StepWrapper>
+    );
   }
 
   return (
@@ -425,7 +445,7 @@ function AdditionalCriteriaStep({
       titleRef={titleRef}
     >
       <p className="text-xs text-muted-foreground">
-        Opcional. Escríbela en el campo inferior o salta este paso.
+        Por ejemplo: tamaño de empresa, tecnología usada, etapa de crecimiento…
       </p>
 
       <StepBlockingIssues state={state} step="additional_criteria" />
@@ -433,21 +453,20 @@ function AdditionalCriteriaStep({
       <div className="flex gap-2">
         <Button
           type="button"
-          variant="outline"
           size="sm"
           className="flex-1"
-          onClick={handleSkip}
+          onClick={onIntentionYes}
         >
-          No agregar criterio
+          Sí, quiero agregar
         </Button>
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="flex-1 text-muted-foreground"
-          onClick={handleSkip}
+          className="flex-1"
+          onClick={() => dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' })}
         >
-          No estoy seguro
+          No, continuar
         </Button>
       </div>
     </StepWrapper>

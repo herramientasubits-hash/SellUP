@@ -64,6 +64,9 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
   // Criteria text draft for the composer — reset on submit or skip
   const [criteriaText, setCriteriaText] = React.useState('');
 
+  // Tracks whether the user confirmed they want to add criteria (YES/NO gate)
+  const [criteriaIntention, setCriteriaIntention] = React.useState<'pending' | 'yes'>('pending');
+
   // ── Derived context for messages ──────────────────────────────────────────
 
   const messageContext = React.useMemo<WizardMessageContext>(
@@ -177,6 +180,21 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
     dispatch({ type: 'EDIT_STEP', step });
   }
 
+  // ── Summary dispatch wrapper — resets criteria gate when going back ────────
+  // GO_BACK from summary and EDIT_STEP to additional_criteria both return the
+  // user to that step; reset the intention so the YES/NO gate re-appears.
+
+  function summaryDispatch(action: Parameters<typeof dispatch>[0]) {
+    if (
+      action.type === 'GO_BACK' ||
+      (action.type === 'EDIT_STEP' && action.step === 'additional_criteria')
+    ) {
+      setCriteriaIntention('pending');
+      setCriteriaText('');
+    }
+    dispatch(action);
+  }
+
   // ── Composer submission (additional criteria) ─────────────────────────────
 
   function handleComposerSubmit() {
@@ -280,8 +298,15 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
 
   const isSummaryPhase = SUMMARY_STEPS.has(state.currentStep);
 
-  const composerMode = getComposerMode(state.currentStep);
-  const composerPlaceholder = getComposerPlaceholder(state.currentStep);
+  // Lock the composer until the user explicitly says YES to adding criteria
+  const composerMode =
+    state.currentStep === 'additional_criteria' && criteriaIntention === 'pending'
+      ? ('locked_selection' as const)
+      : getComposerMode(state.currentStep);
+  const composerPlaceholder =
+    state.currentStep === 'additional_criteria' && criteriaIntention === 'pending'
+      ? '¿Quieres agregar algún criterio adicional?'
+      : getComposerPlaceholder(state.currentStep);
   const maxCriteriaChars = EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars;
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -326,7 +351,7 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
               <WizardConversationSummary
                 state={state}
                 catalog={catalog}
-                dispatch={dispatch}
+                dispatch={summaryDispatch}
                 onValidate={handleValidate}
                 onClose={onClose}
               />
@@ -338,6 +363,8 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
                 subindustryOptions={subindustryOptions}
                 onCountryChange={handleCountryChange}
                 stepTitleRef={stepTitleRef}
+                criteriaIntention={criteriaIntention}
+                onCriteriaIntentionYes={() => setCriteriaIntention('yes')}
               />
             )}
           </div>

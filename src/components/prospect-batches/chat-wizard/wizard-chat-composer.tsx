@@ -90,10 +90,14 @@ export function WizardChatComposer({
           disabled={!canSend}
           onClick={canSend ? onSubmit : undefined}
           aria-label="Enviar respuesta"
+          style={canSend ? {
+            background: 'linear-gradient(135deg, var(--su-ai-stop-1) 0%, var(--su-ai-stop-3) 100%)',
+            boxShadow: '0 2px 8px rgba(45,92,247,0.35)',
+          } : undefined}
           className={cn(
-            'h-7 w-7 shrink-0 rounded-lg transition-all',
+            'h-7 w-7 shrink-0 rounded-full transition-all',
             canSend
-              ? 'su-ai-gradient text-white hover:opacity-90 active:scale-95'
+              ? 'text-white hover:opacity-90 active:scale-95'
               : 'bg-muted text-muted-foreground/40',
           )}
         >
