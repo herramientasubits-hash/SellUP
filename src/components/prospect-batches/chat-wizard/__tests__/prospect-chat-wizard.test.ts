@@ -20,6 +20,7 @@ import {
   resolveGenerateProspectsExperience,
 } from '@/components/prospect-batches/generate-ai-batch-experience';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
+import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -91,9 +92,6 @@ function advanceTo(step: string): ProspectWizardState {
   if (step === 'additional_criteria') return s;
 
   s = prospectWizardReducer(s, { type: 'SKIP_ADDITIONAL_CRITERIA' });
-  if (step === 'requested_count') return s;
-
-  s = prospectWizardReducer(s, { type: 'SET_REQUESTED_COUNT', value: 25 });
   if (step === 'summary') return s;
 
   return s;
@@ -358,7 +356,7 @@ describe('getWizardProgress', () => {
     assert.ok(p.percentage >= 100, `Expected 100%, got ${p.percentage}%`);
   });
 
-  test('progress increases with each step', () => {
+  test('progress increases with each visible step', () => {
     const stepOrder = [
       'welcome',
       'search_type',
@@ -366,7 +364,6 @@ describe('getWizardProgress', () => {
       'industry',
       'subindustries',
       'additional_criteria',
-      'requested_count',
       'summary',
     ] as const;
     let prev = -1;
@@ -379,6 +376,12 @@ describe('getWizardProgress', () => {
       );
       prev = p.percentage;
     }
+  });
+
+  test('total steps no longer includes requested_count', () => {
+    const s = advanceTo('summary');
+    const p = getWizardProgress(s);
+    assert.equal(p.totalSteps, 6, 'Expected 6 visible steps (requested_count removed)');
   });
 });
 
@@ -495,5 +498,57 @@ describe('deriveWizardMessages', () => {
         lastAssistant = false;
       }
     }
+  });
+
+  test('no quantity-related messages appear in conversation (16AB.35.2.2)', () => {
+    const s = advanceTo('summary');
+    const msgs = deriveWizardMessages(s, MSG_CTX);
+
+    // Verify no quantity question appears
+    const hasCountQuestion = msgs.some((m) =>
+      m.id === 'assistant-count-question' ||
+      m.content.includes('¿Cuántos prospectos')
+    );
+    assert.equal(hasCountQuestion, false, 'Expected no quantity question in messages');
+
+    // Verify no user count answer appears
+    const hasCountAnswer = msgs.some((m) => m.id === 'user-count-answer');
+    assert.equal(hasCountAnswer, false, 'Expected no quantity answer in messages');
+  });
+});
+
+// ── System-controlled quantity (16AB.35.2.2) ───────────────────────────────────
+
+describe('System-controlled quantity', () => {
+  test('additional_criteria advances directly to summary', () => {
+    let s = advanceTo('additional_criteria');
+    s = prospectWizardReducer(s, { type: 'SKIP_ADDITIONAL_CRITERIA' });
+    assert.equal(s.currentStep, 'summary', 'Expected SKIP_ADDITIONAL_CRITERIA to advance to summary');
+  });
+
+  test('go_back from summary goes to additional_criteria', () => {
+    const s = advanceTo('summary');
+    const next = prospectWizardReducer(s, { type: 'GO_BACK' });
+    assert.equal(next.currentStep, 'additional_criteria', 'Expected GO_BACK from summary to go to additional_criteria');
+  });
+
+  test('requestedCount is preserved internally but not user-configurable', () => {
+    const s = advanceTo('summary');
+    // requestedCount should still be set internally for compatibility
+    assert.notEqual(s.requestedCount, null, 'Expected requestedCount to be set internally');
+    // It should be the default value
+    assert.equal(s.requestedCount, EXPLORATORY_SEARCH_LIMITS.requestedCount.default, 'Expected requestedCount to be default value');
+  });
+
+  test('buildExploratoryFormInput works without passing through requested_count step', () => {
+    const s = advanceTo('summary');
+    const payload = buildExploratoryFormInput(s);
+    assert.ok(payload !== null, 'Expected valid payload from summary');
+    assert.equal(payload?.requestedCount, s.requestedCount, 'Expected requestedCount in payload');
+  });
+
+  test('canValidateWizard succeeds at summary without explicit quantity selection', () => {
+    const s = advanceTo('summary');
+    assert.equal(canValidateWizard(s), true, 'Expected canValidateWizard to return true at summary');
   });
 });

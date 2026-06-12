@@ -226,7 +226,6 @@ function SummaryPanel({ state, catalog, dispatch, onValidate }: SummaryPanelProp
       ? selectedSubs.map((s) => s.name).join(', ')
       : 'Toda la industria';
   const criteriaLabel = state.additionalCriteriaRaw ?? 'Ninguno';
-  const countLabel = state.requestedCount != null ? String(state.requestedCount) : '—';
 
   const serverWarnings = state.warnings.filter((w) => w.step === 'summary');
 
@@ -268,11 +267,12 @@ function SummaryPanel({ state, catalog, dispatch, onValidate }: SummaryPanelProp
           label="Tamaño mínimo"
           value=">200 empleados"
         />
-        <SummaryRow
-          label="Cantidad"
-          value={`${countLabel} empresas`}
-          onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'requested_count' })}
-        />
+      </div>
+
+      <div className="rounded-lg bg-muted/40 px-4 py-3">
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          <span className="font-medium text-foreground">Cantidad:</span> SellUp determinará cuántas empresas entregar según calidad, disponibilidad y criterios de búsqueda.
+        </p>
       </div>
 
       {serverWarnings.map((w) => (

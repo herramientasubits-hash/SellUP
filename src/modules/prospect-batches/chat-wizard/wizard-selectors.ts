@@ -16,7 +16,6 @@ const PROGRESS_STEPS: ProspectWizardStep[] = [
   'industry',
   'subindustries',
   'additional_criteria',
-  'requested_count',
   'summary',
 ];
 
@@ -42,8 +41,7 @@ const PREV_MAP: Partial<Record<ProspectWizardStep, ProspectWizardStep>> = {
   industry: 'country',
   subindustries: 'industry',
   additional_criteria: 'subindustries',
-  requested_count: 'additional_criteria',
-  summary: 'requested_count',
+  summary: 'additional_criteria',
   validating: 'summary',
   validated: 'summary',
   blocked: 'summary',
@@ -85,9 +83,6 @@ export function canAdvanceFromCurrentStep(state: ProspectWizardState): boolean {
     case 'additional_criteria':
       return !hasBlocking;
 
-    case 'requested_count':
-      return state.requestedCount !== null && !hasBlocking;
-
     case 'summary':
       return !hasBlocking;
 
@@ -122,7 +117,10 @@ export function getAvailableSearchModes(): ProspectSearchModeDefinition[] {
 export function buildExploratoryFormInput(
   state: ProspectWizardState,
 ): WizardFormPayload | null {
-  const { min, max } = EXPLORATORY_SEARCH_LIMITS.requestedCount;
+  // requestedCount is system-controlled and is not user-configurable in the UI.
+  // It will be determined by SellUp based on quality, availability, and other criteria.
+  // We keep it in the state for compatibility with existing validation/preview logic.
+  const { min, max, default: defaultCount } = EXPLORATORY_SEARCH_LIMITS.requestedCount;
   const maxSubs = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
 
   if (
@@ -176,8 +174,7 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
     (state.currentStep === 'country' ||
       state.currentStep === 'industry' ||
       state.currentStep === 'subindustries' ||
-      state.currentStep === 'additional_criteria' ||
-      state.currentStep === 'requested_count')
+      state.currentStep === 'additional_criteria')
   ) {
     violations.push(
       `coming_soon mode "${state.searchMode}" reached step "${state.currentStep}"`,

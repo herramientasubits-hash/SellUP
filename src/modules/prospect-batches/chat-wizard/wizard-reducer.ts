@@ -266,7 +266,7 @@ export function prospectWizardReducer(
       return {
         ...state,
         additionalCriteriaRaw: null,
-        currentStep: 'requested_count',
+        currentStep: 'summary',
         blockingIssues: withoutBlockingForStep(
           state.blockingIssues,
           'additional_criteria',
@@ -296,11 +296,11 @@ export function prospectWizardReducer(
         };
       }
 
-      // allowed or warning — advance
+      // allowed or warning — advance directly to summary
       return {
         ...state,
         additionalCriteriaRaw: result.normalizedValue,
-        currentStep: 'requested_count',
+        currentStep: 'summary',
         blockingIssues: [
           ...withoutBlockingForStep(state.blockingIssues, 'additional_criteria'),
           ...result.blockingIssues,

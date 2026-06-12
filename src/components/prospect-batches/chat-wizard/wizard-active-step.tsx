@@ -102,15 +102,6 @@ export function WizardActiveStep({
         />
       );
 
-    case 'requested_count':
-      return (
-        <RequestedCountStep
-          state={state}
-          dispatch={dispatch}
-          titleRef={stepTitleRef}
-        />
-      );
-
     case 'validating':
       return <ValidatingStep />;
 
@@ -544,76 +535,6 @@ function AdditionalCriteriaStep({
           </Button>
         </div>
       </div>
-    </StepWrapper>
-  );
-}
-
-// ── Requested count step ──────────────────────────────────────────────────────
-
-type RequestedCountStepProps = {
-  state: ProspectWizardState;
-  dispatch: React.Dispatch<ProspectWizardAction>;
-  titleRef: React.RefObject<HTMLHeadingElement | null>;
-};
-
-function RequestedCountStep({
-  state,
-  dispatch,
-  titleRef,
-}: RequestedCountStepProps) {
-  const { options, default: defaultCount } =
-    EXPLORATORY_SEARCH_LIMITS.requestedCount;
-  const selected = state.requestedCount ?? defaultCount;
-
-  return (
-    <StepWrapper
-      title="¿Cuántas empresas quieres encontrar?"
-      titleRef={titleRef}
-    >
-      <div
-        className="flex flex-wrap gap-2"
-        role="group"
-        aria-label="Cantidad de empresas"
-      >
-        {options.map((n) => {
-          const isSelected = selected === n;
-          return (
-            <button
-              key={n}
-              type="button"
-              onClick={() =>
-                dispatch({ type: 'SET_REQUESTED_COUNT', value: n })
-              }
-              aria-pressed={isSelected}
-              className={[
-                'rounded-full border px-4 py-1.5 text-sm font-medium transition-all',
-                isSelected
-                  ? 'border-su-brand bg-su-brand text-white shadow-sm'
-                  : 'border-border bg-card text-foreground hover:border-su-brand/50 hover:bg-muted/40',
-              ].join(' ')}
-            >
-              {n}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="rounded-lg bg-muted/40 px-4 py-3">
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          SellUp intentará encontrar hasta <strong>{selected}</strong> empresas.
-          La cantidad final puede variar según calidad y duplicados.
-        </p>
-      </div>
-
-      <StepBlockingIssues state={state} step="requested_count" />
-
-      <Button
-        type="button"
-        onClick={() => dispatch({ type: 'SET_REQUESTED_COUNT', value: selected })}
-        disabled={!canAdvanceFromCurrentStep(state)}
-      >
-        Continuar
-      </Button>
     </StepWrapper>
   );
 }

@@ -268,42 +268,9 @@ export function deriveWizardMessages(
     }
   }
 
-  // ── Requested count ───────────────────────────────────────────────────────
-  if (hasReached(state.currentStep, 'requested_count') && state.industryId) {
-    messages.push({
-      id: 'assistant-count-question',
-      role: 'assistant',
-      messageType: 'choice',
-      content: '¿Cuántos prospectos quieres generar?',
-      step: 'requested_count',
-    });
-
-    if (state.requestedCount !== null && hasReached(state.currentStep, 'summary')) {
-      messages.push({
-        id: 'user-count-answer',
-        role: 'user',
-        messageType: 'selection_summary',
-        content: String(state.requestedCount),
-        step: 'requested_count',
-      });
-    }
-
-    // Blocking issues for requested_count
-    for (const issue of state.blockingIssues.filter(
-      (i) => i.step === 'requested_count',
-    )) {
-      messages.push({
-        id: `error-count-${issue.code.toLowerCase()}`,
-        role: 'system',
-        messageType: 'error',
-        content: issue.message,
-        step: 'requested_count',
-      });
-    }
-  }
-
   // ── Summary ───────────────────────────────────────────────────────────────
-  if (hasReached(state.currentStep, 'summary') && state.requestedCount !== null) {
+  // Requested count is system-controlled, not user-selectable
+  if (hasReached(state.currentStep, 'summary')) {
     messages.push({
       id: 'assistant-summary',
       role: 'assistant',
