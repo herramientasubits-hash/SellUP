@@ -67,6 +67,12 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
   // Tracks whether the user confirmed they want to add criteria (YES/NO gate)
   const [criteriaIntention, setCriteriaIntention] = React.useState<'pending' | 'yes'>('pending');
 
+  // ── Progressive message reveal ─────────────────────────────────────────────
+  const [visibleCount, setVisibleCount] = React.useState(0);
+  const [isTyping, setIsTyping] = React.useState(false);
+  const prevMsgCountRef = React.useRef(0);
+  const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Derived context for messages ──────────────────────────────────────────
 
   const messageContext = React.useMemo<WizardMessageContext>(
@@ -85,6 +91,41 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
     () => deriveWizardMessages(state, messageContext),
     [state, messageContext],
   );
+
+  // ── Progressive reveal: show messages one-by-one with typing delay ──────────
+  React.useEffect(() => {
+    const prevCount = prevMsgCountRef.current;
+    const newCount = messages.length;
+
+    if (newCount > prevCount) {
+      // New messages arrived — reveal them progressively
+      let revealed = prevCount;
+      const revealNext = () => {
+        if (revealed >= newCount) {
+          setIsTyping(false);
+          return;
+        }
+        revealed++;
+        setIsTyping(revealed < newCount);
+        setVisibleCount(revealed);
+        if (revealed < newCount) {
+          typingTimerRef.current = setTimeout(revealNext, 350);
+        }
+      };
+      // Start revealing
+      setIsTyping(true);
+      typingTimerRef.current = setTimeout(revealNext, 300);
+    } else if (newCount < prevCount) {
+      // Messages removed (e.g. restart) — reset
+      setVisibleCount(newCount);
+    }
+
+    prevMsgCountRef.current = newCount;
+
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, [messages.length]);
 
   const progress = React.useMemo(() => getWizardProgress(state), [state]);
 
@@ -130,6 +171,7 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
   const activeStepRef = React.useRef<HTMLDivElement>(null);
   const stepTitleRef = React.useRef<HTMLHeadingElement>(null);
   const prevStepRef = React.useRef(state.currentStep);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     if (state.currentStep === prevStepRef.current) return;
@@ -139,10 +181,21 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    activeStepRef.current?.scrollIntoView({
-      behavior: prefersReduced ? 'auto' : 'smooth',
-      block: 'nearest',
-    });
+    const behavior = prefersReduced ? 'auto' : 'smooth';
+
+    // For summary/validating/validated/blocked: scroll to very bottom of the scroll container
+    if (SUMMARY_STEPS.has(state.currentStep) || state.currentStep === 'validated') {
+      requestAnimationFrame(() => {
+        const container = scrollContainerRef.current?.closest('[data-slot="sheet-content"]')
+          ?.querySelector('.overflow-y-auto') as HTMLElement | null;
+        if (container) {
+          container.scrollTo({ top: container.scrollHeight, behavior });
+        }
+        activeStepRef.current?.scrollIntoView({ behavior, block: 'end' });
+      });
+    } else {
+      activeStepRef.current?.scrollIntoView({ behavior, block: 'nearest' });
+    }
 
     const focusId = setTimeout(() => {
       stepTitleRef.current?.focus({ preventScroll: true });
@@ -311,7 +364,7 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
   return (
     <div className="flex flex-col gap-0 min-h-full">
       {/* Scrollable conversation body */}
-      <div className="flex flex-col gap-4 pb-6">
+      <div ref={scrollContainerRef} className="flex flex-col gap-4 pb-6">
         {/* Progress indicator */}
         {showProgress && progressLabel && (
           <div className="flex items-center gap-3" aria-hidden>
@@ -331,6 +384,8 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
         {messages.length > 0 && (
           <WizardMessageList
             messages={messages}
+            visibleCount={visibleCount}
+            isTyping={isTyping}
             currentStep={state.currentStep}
             onEditStep={handleEditStep}
           />

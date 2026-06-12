@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, XCircle, Pencil } from 'lucide-react';
+import { AlertTriangle, XCircle, Pencil, Loader2 } from 'lucide-react';
 import { AIOrb } from './ai-orb';
 import type {
   DerivedWizardMessage,
@@ -12,6 +12,8 @@ import type {
 
 type WizardMessageListProps = {
   messages: DerivedWizardMessage[];
+  visibleCount?: number;
+  isTyping?: boolean;
   currentStep: string;
   onEditStep: (step: EditableWizardStep) => void;
 };
@@ -29,9 +31,14 @@ const EDITABLE_STEPS = new Set<string>([
 
 export function WizardMessageList({
   messages,
+  visibleCount,
+  isTyping = false,
   currentStep,
   onEditStep,
 }: WizardMessageListProps) {
+  const effectiveVisible = visibleCount ?? messages.length;
+  const visibleMessages = messages.slice(0, effectiveVisible);
+
   return (
     <div
       role="log"
@@ -41,7 +48,7 @@ export function WizardMessageList({
       aria-relevant="additions"
       className="space-y-2"
     >
-      {messages.map((msg) => {
+      {visibleMessages.map((msg) => {
         if (msg.role === 'assistant') {
           return <AssistantMessage key={msg.id} message={msg} />;
         }
@@ -62,6 +69,19 @@ export function WizardMessageList({
         }
         return <ErrorMessage key={msg.id} message={msg} />;
       })}
+
+      {/* Typing indicator */}
+      {isTyping && effectiveVisible < messages.length && (
+        <div className="flex items-start gap-2.5 animate-su-fade-in">
+          <AIOrb size="sm" className="mt-0.5" />
+          <div className="flex items-center gap-1.5 rounded-xl rounded-tl-sm bg-muted/40 px-4 py-3">
+            <Loader2 className="h-3 w-3 animate-spin text-su-brand" />
+            <span className="text-sm text-muted-foreground/70 animate-pulse">
+              escribiendo
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
