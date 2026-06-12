@@ -307,9 +307,8 @@ export function deriveWizardMessages(
     messages.push({
       id: 'assistant-summary',
       role: 'assistant',
-      messageType: 'selection_summary',
-      content:
-        'Aquí está el resumen de tu búsqueda. Puedes editar cualquier campo o validar para continuar.',
+      messageType: 'text',
+      content: 'Esto es lo que entendí de tu búsqueda:',
       step: 'summary',
     });
   }

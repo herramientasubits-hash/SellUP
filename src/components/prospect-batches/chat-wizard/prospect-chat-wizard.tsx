@@ -244,7 +244,7 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {/* Progress indicator */}
       {showProgress && progressLabel && (
         <div className="flex items-center gap-3" aria-hidden>

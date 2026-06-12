@@ -38,7 +38,7 @@ export function WizardMessageList({
       aria-live="polite"
       aria-atomic="false"
       aria-relevant="additions"
-      className="space-y-3"
+      className="space-y-2"
     >
       {messages.map((msg) => {
         if (msg.role === 'assistant') {
