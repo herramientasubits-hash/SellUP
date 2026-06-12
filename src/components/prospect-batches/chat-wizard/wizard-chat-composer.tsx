@@ -46,6 +46,13 @@ export function WizardChatComposer({
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
   }, [value, isLocked]);
 
+  // Focus textarea as soon as the composer unlocks
+  React.useEffect(() => {
+    if (!isTextInput) return;
+    const id = setTimeout(() => textareaRef.current?.focus(), 60);
+    return () => clearTimeout(id);
+  }, [isTextInput]);
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

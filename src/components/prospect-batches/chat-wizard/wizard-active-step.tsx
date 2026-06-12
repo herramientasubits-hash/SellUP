@@ -334,18 +334,16 @@ function SubindustriesStep({
   titleRef,
 }: SubindustriesStepProps) {
   const max = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
-  const selected = state.subindustryIds;
 
-  function handleContinue() {
-    dispatch({ type: 'SET_SUBINDUSTRIES', subindustryIds: selected });
-  }
+  // Draft selection — doesn't advance the step on every change
+  const [draft, setDraft] = React.useState<string[]>(state.subindustryIds);
 
-  function handleSkip() {
-    dispatch({ type: 'SKIP_SUBINDUSTRIES' });
-  }
-
-  function handleMaxReached() {
-    // Blocking issue is shown via StepBlockingIssues — no need for toast here
+  function handleAdvance() {
+    if (draft.length > 0) {
+      dispatch({ type: 'SET_SUBINDUSTRIES', subindustryIds: draft });
+    } else {
+      dispatch({ type: 'SKIP_SUBINDUSTRIES' });
+    }
   }
 
   return (
@@ -359,15 +357,13 @@ function SubindustriesStep({
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>Subindustrias</span>
           <span aria-live="polite" aria-atomic="true">
-            {selected.length}/{max} seleccionadas
+            {draft.length}/{max} seleccionadas
           </span>
         </div>
         <MultiSelect
           options={subindustryOptions}
-          value={selected}
-          onValueChange={(ids) =>
-            dispatch({ type: 'SET_SUBINDUSTRIES', subindustryIds: ids })
-          }
+          value={draft}
+          onValueChange={setDraft}
           placeholder={
             subindustryOptions.length === 0
               ? 'No hay subindustrias disponibles'
@@ -376,7 +372,6 @@ function SubindustriesStep({
           searchPlaceholder="Buscar subindustria..."
           emptyMessage="No se encontraron subindustrias."
           maxSelections={max}
-          onMaxSelectionsReached={handleMaxReached}
           disabled={subindustryOptions.length === 0}
           compact
         />
@@ -384,24 +379,14 @@ function SubindustriesStep({
 
       <StepBlockingIssues state={state} step="subindustries" />
 
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          className="flex-1"
-          onClick={handleContinue}
-          disabled={selected.length === 0}
-        >
-          Continuar
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1"
-          onClick={handleSkip}
-        >
-          Omitir este paso
-        </Button>
-      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        onClick={handleAdvance}
+      >
+        Omitir este paso
+      </Button>
     </StepWrapper>
   );
 }
