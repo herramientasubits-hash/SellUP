@@ -120,11 +120,8 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
 
   // ── Auto-start conversation on mount ──────────────────────────────────────
 
-  const hasStartedRef = React.useRef(false);
-
   React.useEffect(() => {
-    if (hasStartedRef.current || state.currentStep !== 'welcome') return;
-    hasStartedRef.current = true;
+    if (state.currentStep !== 'welcome') return;
     dispatch({ type: 'START' });
   }, [state.currentStep, dispatch]);
 
