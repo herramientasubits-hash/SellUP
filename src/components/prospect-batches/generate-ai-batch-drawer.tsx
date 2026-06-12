@@ -98,6 +98,40 @@ const PREFLIGHT_STATUS_LABELS: Record<string, string> = {
 
 const STRUCTURED_PAGE_MAX = 5;
 
+// ── Progressive thinking steps ────────────────────────────────────────────────
+
+type ProgressStep = { label: string; delay: number };
+
+const PROGRESS_STEPS: ProgressStep[] = [
+  { label: 'Iniciando agente…', delay: 400 },
+  { label: 'Consultando fuentes y descubriendo empresas…', delay: 600 },
+  { label: 'Analizando registros encontrados…', delay: 500 },
+  { label: 'Filtrando candidatas elegibles…', delay: 500 },
+  { label: 'Generando resumen…', delay: 400 },
+];
+
+function ThinkingStepsDisplay({ steps, isTyping }: { steps: string[]; isTyping: boolean }) {
+  return (
+    <div className="space-y-2 animate-su-fade-in">
+      {steps.map((msg, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground/80 animate-su-fade-in">
+          <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-su-brand" />
+          <span className="leading-relaxed">{msg}</span>
+        </div>
+      ))}
+      {isTyping && (
+        <div className="flex items-start gap-2 text-xs text-muted-foreground/60 animate-su-fade-in">
+          <Loader2 className="h-3.5 w-3.5 mt-0.5 shrink-0 animate-spin text-su-brand/60" />
+          <span className="leading-relaxed flex items-center gap-0.5">
+            Pensando
+            <span className="animate-pulse">…</span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_FORM = {
   countryCode: '',
   industry: '',
@@ -184,6 +218,9 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
   const [result, setResult] = React.useState(EMPTY_RESULT);
+  const [progressSteps, setProgressSteps] = React.useState<string[]>([]);
+  const typingStepIndex = React.useRef(0);
+  const showTyping = React.useRef(false);
 
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -202,6 +239,7 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
     setDrawer(EMPTY_DRAWER);
     setForm(EMPTY_FORM);
     setResult(EMPTY_RESULT);
+    setProgressSteps([]);
   }
 
   function handleGoToBatch() {
@@ -209,6 +247,24 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
     const id = result.generatedBatchId;
     handleClose();
     router.push(`/prospects?sourceId=${id}`);
+  }
+
+  // Run progressive thinking steps during generation
+  async function runProgressiveSteps() {
+    typingStepIndex.current = 0;
+    showTyping.current = false;
+    setProgressSteps([]);
+
+    for (let i = 0; i < PROGRESS_STEPS.length; i++) {
+      typingStepIndex.current = i;
+      showTyping.current = true;
+      setProgressSteps((prev) => [...prev.slice(0, i)]);
+
+      await new Promise((r) => setTimeout(r, PROGRESS_STEPS[i].delay));
+
+      showTyping.current = false;
+      setProgressSteps((prev) => [...prev, PROGRESS_STEPS[i].label]);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -225,13 +281,15 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
 
     const count = ((form.countryCode === 'CO' || form.countryCode === 'CL') && !drawer.advancedOpen) ? 5 : (parseInt(form.targetCount) || 10);
 
-    setDrawer({ open: true, generating: true, advancedOpen: drawer.advancedOpen, progressMsg: 'Iniciando agente…' });
+    setDrawer({ open: true, generating: true, advancedOpen: drawer.advancedOpen, progressMsg: '' });
     setResult(EMPTY_RESULT);
+    setProgressSteps([]);
+
+    // Start progressive steps in parallel with the API call
+    const stepsDone = runProgressiveSteps();
 
     try {
       const country = LATAM_COUNTRIES.find((c) => c.code === form.countryCode);
-
-      updateDrawer('progressMsg', 'Consultando fuentes y descubriendo empresas…');
 
       // For CO/CL: auto-activate structured source. Advanced overrides take effect only if advanced is open.
       const effectivePreflight = (isColombiaAuto || isChilePreview)
@@ -259,6 +317,9 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
         structuredSourcePageAuto: effectivePageAuto,
       });
 
+      // Wait for all progressive steps to finish displaying
+      await stepsDone;
+
       const uCount = batchResult.usefulCandidatesCount ?? batchResult.candidatesCreated ?? 0;
       const oCount = batchResult.omittedCandidatesCount ?? 0;
 
@@ -285,18 +346,21 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
       }
 
       if (batchResult.structuredSourcePreflight || batchResult.structuredSourceBatch || uCount === 0) {
-        updateDrawer('progressMsg', '');
+        // Keep drawer open to show result — clear progress steps
+        setProgressSteps([]);
       } else {
         setDrawer(EMPTY_DRAWER);
         setForm(EMPTY_FORM);
         setResult(EMPTY_RESULT);
+        setProgressSteps([]);
         if (batchResult.batchId) {
           router.push(`/prospects?sourceId=${batchResult.batchId}`);
         }
       }
     } catch (err) {
+      await stepsDone;
       toast.error(err instanceof Error ? err.message : 'Error al generar prospectos');
-      updateDrawer('progressMsg', '');
+      setProgressSteps([]);
     } finally {
       updateDrawer('generating', false);
     }
@@ -304,6 +368,18 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
 
   const canSubmit = !!form.countryCode && !!form.industry && !drawer.generating;
   const showPreflightResult = result.generationAttempted && (!!result.preflightResult || !!result.structuredBatchResult || result.usefulCandidatesCount === 0);
+
+  // Auto-scroll to bottom when result appears or steps update
+  const resultPanelRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (showPreflightResult || (drawer.generating && progressSteps.length > 0)) {
+      requestAnimationFrame(() => {
+        if (resultPanelRef.current) {
+          resultPanelRef.current.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        }
+      });
+    }
+  }, [showPreflightResult, drawer.generating, progressSteps.length]);
 
   // Chat wizard experience
   if (experience === 'chat_wizard' && catalog) {
@@ -378,17 +454,29 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
     >
       {showPreflightResult ? (
         /* ── Resultado de generación ── */
-        <GenerationResultPanel
-          result={result.preflightResult}
-          structuredBatch={result.structuredBatchResult}
-          apolloBatchId={result.generatedBatchId}
-          structuredSourcePage={form.advStructuredSourcePage}
-          sourceStrategy={result.sourceStrategy}
-          advancedOpen={drawer.advancedOpen}
-          usefulCandidatesCount={result.usefulCandidatesCount}
-          omittedCandidatesCount={result.omittedCandidatesCount}
-          countryCode={form.countryCode}
-        />
+        <div ref={resultPanelRef}>
+          {progressSteps.length > 0 && (
+            <div className="mb-4 pb-4 border-b border-border/30">
+              <ThinkingStepsDisplay steps={progressSteps} isTyping={false} />
+            </div>
+          )}
+          <GenerationResultPanel
+            result={result.preflightResult}
+            structuredBatch={result.structuredBatchResult}
+            apolloBatchId={result.generatedBatchId}
+            structuredSourcePage={form.advStructuredSourcePage}
+            sourceStrategy={result.sourceStrategy}
+            advancedOpen={drawer.advancedOpen}
+            usefulCandidatesCount={result.usefulCandidatesCount}
+            omittedCandidatesCount={result.omittedCandidatesCount}
+            countryCode={form.countryCode}
+          />
+        </div>
+      ) : drawer.generating ? (
+        /* ── Thinking steps progresivos ── */
+        <div ref={resultPanelRef} className="flex flex-col items-start py-6 px-2">
+          <ThinkingStepsDisplay steps={progressSteps} isTyping={true} />
+        </div>
       ) : (
         /* ── Formulario principal ── */
         <form
