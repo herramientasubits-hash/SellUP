@@ -92,6 +92,27 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
     [state, messageContext],
   );
 
+  // ── Sound: short "pop" when AI message appears ─────────────────────────────
+  const playMessageSound = React.useCallback(() => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.12);
+      setTimeout(() => ctx.close(), 200);
+    } catch {
+      // Silently ignore if AudioContext is unavailable
+    }
+  }, []);
+
   // ── Progressive reveal: show messages one-by-one with typing delay ──────────
   React.useEffect(() => {
     const prevCount = prevMsgCountRef.current;
@@ -108,13 +129,18 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
         revealed++;
         setIsTyping(revealed < newCount);
         setVisibleCount(revealed);
+        // Play sound only for assistant messages (not user/system)
+        const msg = messages[revealed - 1];
+        if (msg?.role === 'assistant') {
+          playMessageSound();
+        }
         if (revealed < newCount) {
-          typingTimerRef.current = setTimeout(revealNext, 350);
+          typingTimerRef.current = setTimeout(revealNext, 450);
         }
       };
       // Start revealing
       setIsTyping(true);
-      typingTimerRef.current = setTimeout(revealNext, 300);
+      typingTimerRef.current = setTimeout(revealNext, 400);
     } else if (newCount < prevCount) {
       // Messages removed (e.g. restart) — reset
       setVisibleCount(newCount);
@@ -125,7 +151,7 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
     return () => {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
-  }, [messages.length]);
+  }, [messages.length, messages, playMessageSound]);
 
   const progress = React.useMemo(() => getWizardProgress(state), [state]);
 
