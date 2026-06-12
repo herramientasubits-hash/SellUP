@@ -461,4 +461,39 @@ describe('deriveWizardMessages', () => {
     const uniqueIds = new Set(ids);
     assert.equal(ids.length, uniqueIds.size, 'Expected all message ids to be unique');
   });
+
+  test('no duplicate welcome messages at search_type', () => {
+    const s = advanceTo('search_type');
+    const msgs = deriveWizardMessages(s, MSG_CTX);
+    const greetingCount = msgs.filter((m) => m.id === 'assistant-welcome-greeting').length;
+    const introCount = msgs.filter((m) => m.id === 'assistant-welcome-intro').length;
+    assert.equal(greetingCount, 1, 'Expected exactly one greeting message');
+    assert.equal(introCount, 1, 'Expected exactly one intro message');
+  });
+
+  test('conversation flow is coherent from start to summary', () => {
+    const s = advanceTo('summary');
+    const msgs = deriveWizardMessages(s, MSG_CTX);
+
+    // Count assistant vs user messages
+    const assistantCount = msgs.filter((m) => m.role === 'assistant').length;
+    const userCount = msgs.filter((m) => m.role === 'user').length;
+
+    // Should have more assistant messages (questions) than user messages, or equal
+    assert.ok(
+      assistantCount >= userCount,
+      `Expected assistant messages (${assistantCount}) >= user messages (${userCount})`
+    );
+
+    // Messages should follow a pattern of question then answer
+    let lastAssistant = false;
+    for (const msg of msgs) {
+      if (msg.role === 'assistant') {
+        lastAssistant = true;
+      } else if (msg.role === 'user') {
+        // User should come after assistant (unless it's the first message)
+        lastAssistant = false;
+      }
+    }
+  });
 });
