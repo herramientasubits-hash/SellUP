@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type AIOrBSize = 'sm' | 'md';
@@ -28,20 +27,11 @@ export function AIOrb({ size = 'sm', className }: AIOrBProps) {
       aria-hidden
       style={ORB_STYLE}
       className={cn(
-        'shrink-0 rounded-full flex items-center justify-center',
+        'shrink-0 rounded-full',
         size === 'sm' && 'h-6 w-6',
         size === 'md' && 'h-8 w-8',
         className,
       )}
-    >
-      <Sparkles
-        className={cn(
-          'drop-shadow-sm',
-          size === 'sm' && 'h-3 w-3 text-white/90',
-          size === 'md' && 'h-4 w-4 text-white',
-        )}
-        aria-hidden
-      />
-    </div>
+    />
   );
 }
