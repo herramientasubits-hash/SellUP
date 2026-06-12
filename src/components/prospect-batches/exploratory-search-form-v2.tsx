@@ -45,7 +45,6 @@ type FormState = {
   industryId: string;
   subindustryIds: string[];
   additionalCriteria: string;
-  requestedCount: number;
 };
 
 const EMPTY_FORM: FormState = {
@@ -53,7 +52,6 @@ const EMPTY_FORM: FormState = {
   industryId: '',
   subindustryIds: [],
   additionalCriteria: '',
-  requestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -153,7 +151,7 @@ export function ExploratorySearchFormV2({
         industryId: form.industryId,
         subindustryIds: form.subindustryIds,
         additionalCriteriaRaw: trimmedCriteria === '' ? null : trimmedCriteria,
-        requestedCount: form.requestedCount,
+        requestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
         catalogVersion: catalog.version,
       });
       setResult(res);
@@ -319,34 +317,6 @@ export function ExploratorySearchFormV2({
         </p>
       </SurfaceCard>
 
-      {/* Requested count */}
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Cantidad de empresas"
-          description="Número de empresas candidatas a buscar."
-        />
-        <Field label="Cantidad">
-          <Select
-            value={String(form.requestedCount)}
-            onValueChange={(v) =>
-              set('requestedCount', parseInt(v ?? '') || EXPLORATORY_SEARCH_LIMITS.requestedCount.default)
-            }
-            disabled={submitting}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EXPLORATORY_SEARCH_LIMITS.requestedCount.options.map((n) => (
-                <SelectItem key={n} value={String(n)}>
-                  {n} empresas
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      </SurfaceCard>
-
       {/* Live summary */}
       <SearchSummaryCard
         catalog={catalog}
@@ -437,12 +407,6 @@ function SearchSummaryCard({ catalog, form }: SearchSummaryCardProps) {
           <dt className="text-muted-foreground shrink-0">Tamaño</dt>
           <dd className="font-medium text-foreground text-right">
             {'>200 empleados'}
-          </dd>
-        </Row>
-        <Row>
-          <dt className="text-muted-foreground shrink-0">Cantidad</dt>
-          <dd className="font-medium text-foreground text-right">
-            {form.requestedCount} empresas
           </dd>
         </Row>
         {normalizedCriteria && (
