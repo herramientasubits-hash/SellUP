@@ -335,16 +335,8 @@ function SubindustriesStep({
 }: SubindustriesStepProps) {
   const max = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
 
-  // Draft selection — doesn't advance the step on every change
+  // Draft selection — doesn't auto-advance on each individual click
   const [draft, setDraft] = React.useState<string[]>(state.subindustryIds);
-
-  function handleAdvance() {
-    if (draft.length > 0) {
-      dispatch({ type: 'SET_SUBINDUSTRIES', subindustryIds: draft });
-    } else {
-      dispatch({ type: 'SKIP_SUBINDUSTRIES' });
-    }
-  }
 
   return (
     <StepWrapper title="¿Quieres enfocar más la búsqueda?" titleRef={titleRef}>
@@ -379,14 +371,24 @@ function SubindustriesStep({
 
       <StepBlockingIssues state={state} step="subindustries" />
 
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        onClick={handleAdvance}
-      >
-        Omitir este paso
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          className="flex-1"
+          disabled={draft.length === 0}
+          onClick={() => dispatch({ type: 'SET_SUBINDUSTRIES', subindustryIds: draft })}
+        >
+          Continuar
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={() => dispatch({ type: 'SKIP_SUBINDUSTRIES' })}
+        >
+          Omitir este paso
+        </Button>
+      </div>
     </StepWrapper>
   );
 }
