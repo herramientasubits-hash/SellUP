@@ -186,10 +186,11 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
     // For summary/validating/validated/blocked: scroll to very bottom of the scroll container
     if (SUMMARY_STEPS.has(state.currentStep) || state.currentStep === 'validated') {
       requestAnimationFrame(() => {
-        const container = scrollContainerRef.current?.closest('[data-slot="sheet-content"]')
-          ?.querySelector('.overflow-y-auto') as HTMLElement | null;
-        if (container) {
-          container.scrollTo({ top: container.scrollHeight, behavior });
+        // The DrawerShell puts overflow-y-auto on a parent div — find it
+        const scrollEl = scrollContainerRef.current?.closest('.overflow-y-auto') as HTMLElement | null
+          ?? scrollContainerRef.current?.parentElement as HTMLElement | null;
+        if (scrollEl) {
+          scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior });
         }
         activeStepRef.current?.scrollIntoView({ behavior, block: 'end' });
       });
@@ -203,6 +204,18 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
 
     return () => clearTimeout(focusId);
   }, [state.currentStep]);
+
+  // ── Autoscroll when new messages are revealed progressively ─────────────────
+  React.useEffect(() => {
+    if (visibleCount === 0) return;
+    requestAnimationFrame(() => {
+      const scrollEl = scrollContainerRef.current?.closest('.overflow-y-auto') as HTMLElement | null
+        ?? scrollContainerRef.current?.parentElement as HTMLElement | null;
+      if (scrollEl) {
+        scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' });
+      }
+    });
+  }, [visibleCount]);
 
   // ── Country change with geographic reconciliation ─────────────────────────
 
