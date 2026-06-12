@@ -72,7 +72,7 @@ export function SearchableSelect({
           </Button>
         }
       />
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-xl border shadow-md z-[9999]">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-xl border shadow-md">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList className="max-h-[300px] overflow-y-auto">
