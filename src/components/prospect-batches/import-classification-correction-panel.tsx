@@ -5,9 +5,10 @@
 // via SearchableSelect. Revalidates in backend after correction.
 
 import * as React from 'react';
-import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, X, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import type {
   ImportClassificationPreviewRow,
@@ -44,6 +45,12 @@ type CorrectionPanelProps = {
   catalogVersion: CatalogVersionState;
   onCorrect: (correction: ManualClassificationCorrection) => Promise<void>;
   onClose: () => void;
+  equivalentRows?: ImportClassificationPreviewRow[];
+  onBulkCorrect?: (
+    rows: ImportClassificationPreviewRow[],
+    industryId: string,
+    subindustryId: string | null,
+  ) => Promise<void>;
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -54,6 +61,8 @@ export function ImportClassificationCorrectionPanel({
   catalogVersion,
   onCorrect,
   onClose,
+  equivalentRows,
+  onBulkCorrect,
 }: CorrectionPanelProps) {
   const [selectedIndustryId, setSelectedIndustryId] = React.useState<string>(
     row.industryCanonicalId ?? '',
@@ -62,10 +71,13 @@ export function ImportClassificationCorrectionPanel({
     row.subindustryCanonicalId ?? '',
   );
   const [isSaving, setIsSaving] = React.useState(false);
+  const [applyToEquivalent, setApplyToEquivalent] = React.useState(false);
   const [validationMessage, setValidationMessage] = React.useState<{
     type: 'success' | 'warning' | 'error';
     text: string;
   } | null>(null);
+
+  const equivalentCount = equivalentRows?.length ?? 0;
 
   // ── Derived data ───────────────────────────────────────────────────────────
 
@@ -76,22 +88,12 @@ export function ImportClassificationCorrectionPanel({
 
   const availableSubindustries = React.useMemo(() => {
     if (!selectedIndustry) return [];
-    let filtered = selectedIndustry.subindustries.filter((s) => {
+    const filtered = selectedIndustry.subindustries.filter((s) => {
       if (!s.countries || s.countries.length === 0) return true;
       return row.countryCode ? s.countries.includes(row.countryCode) : true;
     });
     return filtered;
   }, [selectedIndustry, row.countryCode]);
-
-  // Reset subindustry when industry changes
-  React.useEffect(() => {
-    if (selectedIndustry && selectedSubindustryId) {
-      const stillValid = availableSubindustries.some((s) => s.id === selectedSubindustryId);
-      if (!stillValid) {
-        setSelectedSubindustryId('');
-      }
-    }
-  }, [selectedIndustryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Industry select options ────────────────────────────────────────────────
 
@@ -125,13 +127,24 @@ export function ImportClassificationCorrectionPanel({
     setValidationMessage(null);
 
     try {
-      await onCorrect({
+      const correction = {
         rowNumber: row.rowNumber,
         industryId: selectedIndustryId,
         subindustryId: selectedSubindustryId || null,
         catalogVersion: catalogVersion.version,
+      };
+
+      await onCorrect(correction);
+
+      if (applyToEquivalent && equivalentRows && equivalentRows.length > 0 && onBulkCorrect) {
+        await onBulkCorrect(equivalentRows, selectedIndustryId, selectedSubindustryId || null);
+      }
+
+      const total = applyToEquivalent ? equivalentCount + 1 : 1;
+      setValidationMessage({
+        type: 'success',
+        text: total > 1 ? `Corrección aplicada a ${total} filas.` : 'Corrección aplicada.',
       });
-      setValidationMessage({ type: 'success', text: 'Corrección aplicada.' });
     } catch (err) {
       setValidationMessage({
         type: 'error',
@@ -140,7 +153,10 @@ export function ImportClassificationCorrectionPanel({
     } finally {
       setIsSaving(false);
     }
-  }, [selectedIndustryId, selectedSubindustryId, row.rowNumber, catalogVersion.version, onCorrect]);
+  }, [
+    selectedIndustryId, selectedSubindustryId, row.rowNumber, catalogVersion.version,
+    onCorrect, applyToEquivalent, equivalentRows, equivalentCount, onBulkCorrect,
+  ]);
 
   // ── Reset to automatic ─────────────────────────────────────────────────────
 
@@ -245,7 +261,7 @@ export function ImportClassificationCorrectionPanel({
           <SearchableSelect
             options={industryOptions}
             value={selectedIndustryId}
-            onValueChange={setSelectedIndustryId}
+            onValueChange={(v) => { setSelectedIndustryId(v); setSelectedSubindustryId(''); }}
             placeholder="Seleccionar industria..."
             searchPlaceholder="Buscar industria..."
             emptyMessage="No se encontraron industrias"
@@ -292,6 +308,32 @@ export function ImportClassificationCorrectionPanel({
         </div>
       )}
 
+      {/* Bulk correction option */}
+      {equivalentCount > 0 && (
+        <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
+          <div className="flex items-start gap-2.5">
+            <Checkbox
+              id="apply-to-equivalent"
+              checked={applyToEquivalent}
+              onCheckedChange={(v) => setApplyToEquivalent(!!v)}
+              className="mt-0.5 shrink-0"
+            />
+            <label htmlFor="apply-to-equivalent" className="cursor-pointer space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <Users className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">
+                  Aplicar a {equivalentCount + 1} filas equivalentes
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Otras {equivalentCount} {equivalentCount === 1 ? 'fila tiene' : 'filas tienen'} el
+                mismo valor original de industria, subindustria y país.
+              </p>
+            </label>
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center justify-end gap-2">
         <Button
@@ -311,7 +353,11 @@ export function ImportClassificationCorrectionPanel({
           disabled={isSaving || !selectedIndustryId}
           className="h-8 text-xs bg-su-brand text-white hover:bg-su-brand/90"
         >
-          {isSaving ? 'Aplicando...' : 'Aplicar corrección'}
+          {isSaving
+            ? 'Aplicando...'
+            : applyToEquivalent && equivalentCount > 0
+              ? `Aplicar a ${equivalentCount + 1} filas`
+              : 'Aplicar corrección'}
         </Button>
       </div>
     </div>

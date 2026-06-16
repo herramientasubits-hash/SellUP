@@ -16,8 +16,6 @@ import {
   Search,
   ArrowRight,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -40,6 +38,7 @@ import { ImportPreviewDataTable } from '@/components/prospect-batches/import-pre
 import { ImportClassificationTable } from '@/components/prospect-batches/import-classification-table';
 import { ImportClassificationSummary } from '@/components/prospect-batches/import-classification-summary';
 import { ImportClassificationCorrectionPanel } from '@/components/prospect-batches/import-classification-correction-panel';
+import { ImportColumnMappingTable } from '@/components/prospect-batches/import-column-mapping-table';
 import {
   parsePastedCandidates,
   parseCsvCandidates,
@@ -56,9 +55,10 @@ import {
   LATAM_COUNTRIES,
 } from '@/modules/accounts/types';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
-import { detectColumnMappings, groupRowsByOriginalValues } from '@/modules/prospect-batches/import-column-mapping';
+import { detectColumnMappings } from '@/modules/prospect-batches/import-column-mapping';
 import type {
   ImportColumnMapping,
+  ImportColumnTarget,
   ImportClassificationPreviewRow,
   ClassificationFilterStatus,
   ClassificationSummaryStats,
@@ -139,6 +139,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   const [filterStatus, setFilterStatus] = React.useState<ClassificationFilterStatus>('all');
   const [correctionPanelRow, setCorrectionPanelRow] = React.useState<ImportClassificationPreviewRow | null>(null);
   const [catalogData, setCatalogData] = React.useState<{ industries: Array<{ id: string; name: string; slug: string; aliases?: string[]; subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }> }> } | null>(null);
+  const [originalIndustryColumn, setOriginalIndustryColumn] = React.useState<string | null>(null);
+  const [originalSubindustryColumn, setOriginalSubindustryColumn] = React.useState<string | null>(null);
+  const [catalogVersionChanged, setCatalogVersionChanged] = React.useState(false);
 
   function resetState() {
     setStep('input');
@@ -169,6 +172,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     setFilterStatus('all');
     setCorrectionPanelRow(null);
     setCatalogData(null);
+    setOriginalIndustryColumn(null);
+    setOriginalSubindustryColumn(null);
+    setCatalogVersionChanged(false);
   }
 
   function handleClose() {
@@ -262,6 +268,33 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       const built = buildImportPreview(parseResult);
       setPreview(built);
 
+      // Detect column mappings from parsed headers for the mapping step
+      const allHeaders = [...built.recognized_columns, ...built.unrecognized_columns];
+      const initialMappings = detectColumnMappings(allHeaders, []);
+      const enrichedMappings = initialMappings.map((m) => {
+        if (m.targetField === 'industry') {
+          return {
+            ...m,
+            sampleValues: built.rows.slice(0, 5).map((r) => r.raw.industry ?? '').filter(Boolean),
+          };
+        }
+        if (m.targetField === 'subindustry') {
+          return {
+            ...m,
+            sampleValues: built.rows.slice(0, 5).map((r) => r.raw.subindustry ?? '').filter(Boolean),
+          };
+        }
+        return m;
+      });
+      setColumnMappings(enrichedMappings);
+      setRawHeaders(allHeaders);
+      setOriginalIndustryColumn(
+        enrichedMappings.find((m) => m.targetField === 'industry')?.sourceColumn ?? null,
+      );
+      setOriginalSubindustryColumn(
+        enrichedMappings.find((m) => m.targetField === 'subindustry')?.sourceColumn ?? null,
+      );
+
       const validForCheck = getValidRows(built).map((r) => ({
         index: r.index,
         company_name: r.raw.company_name,
@@ -301,30 +334,66 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     }
   }
 
+  // ── Handle column mapping changes ──────────────────────────────────────────
+  function handleMappingChange(sourceColumn: string, newTarget: ImportColumnTarget) {
+    setColumnMappings((prev) =>
+      prev.map((m) =>
+        m.sourceColumn === sourceColumn
+          ? { ...m, targetField: newTarget, detectedAutomatically: false }
+          : m,
+      ),
+    );
+  }
+
+  // ── Derive effective industry/subindustry values after user remapping ───────
+  function getEffectiveClassificationValues(row: ImportRow): {
+    industry: string | undefined;
+    subindustry: string | undefined;
+  } {
+    const industryTarget = columnMappings.find((m) => m.targetField === 'industry');
+    const subindustryTarget = columnMappings.find((m) => m.targetField === 'subindustry');
+
+    // Map source column → which raw field it was originally parsed from
+    function rawValueForColumn(sourceColumn: string | undefined): string | undefined {
+      if (!sourceColumn) return undefined;
+      if (sourceColumn === originalIndustryColumn) return row.raw.industry ?? undefined;
+      if (sourceColumn === originalSubindustryColumn) return row.raw.subindustry ?? undefined;
+      return undefined;
+    }
+
+    return {
+      industry: industryTarget ? rawValueForColumn(industryTarget.sourceColumn) : undefined,
+      subindustry: subindustryTarget ? rawValueForColumn(subindustryTarget.sourceColumn) : undefined,
+    };
+  }
+
   // ── Handle mapping step: detect columns and go to classification ────────────
   async function handleBuildClassification() {
     if (!preview) return;
     setLoadingClassification(true);
     setClassificationError(null);
     try {
-      // Build rows for classification API
+      // Build rows for classification API — apply user column remapping
       const classifiableRows = preview.rows
         .filter((r) => r.status === 'valid' || r.status === 'warning')
-        .map((r) => ({
-          company_name: r.raw.company_name,
-          country_code: r.resolved_country_code,
-          industry: r.raw.industry,
-          subindustry: r.raw.subindustry,
-          website: r.raw.website,
-          linkedin_url: r.raw.linkedin_url,
-          city: r.raw.city,
-          company_size: r.raw.company_size,
-          description: r.raw.description,
-          source_url: r.raw.source_url,
-          source_evidence: r.raw.source_evidence,
-          confidence: r.raw.confidence,
-          notes: r.raw.notes,
-        }));
+        .map((r) => {
+          const { industry, subindustry } = getEffectiveClassificationValues(r);
+          return {
+            company_name: r.raw.company_name,
+            country_code: r.resolved_country_code,
+            industry,
+            subindustry,
+            website: r.raw.website,
+            linkedin_url: r.raw.linkedin_url,
+            city: r.raw.city,
+            company_size: r.raw.company_size,
+            description: r.raw.description,
+            source_url: r.raw.source_url,
+            source_evidence: r.raw.source_evidence,
+            confidence: r.raw.confidence,
+            notes: r.raw.notes,
+          };
+        });
 
       const res = await fetch('/api/prospect-batches/classify-import-rows', {
         method: 'POST',
@@ -370,23 +439,18 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       // Fetch full catalog for correction panel
       const catalogRes = await fetch('/api/prospect-batches/import-catalog');
       if (catalogRes.ok) {
-        const catalogJson = await catalogRes.json();
+        const catalogJson = await catalogRes.json() as {
+          success: boolean;
+          catalog?: {
+            version: string;
+            industries: Array<{
+              id: string; name: string; slug: string; aliases?: string[];
+              subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }>;
+            }>;
+          };
+        };
         if (catalogJson.success && catalogJson.catalog) {
-          setCatalogData({
-            industries: catalogJson.catalog.industries.map((i: any) => ({
-              id: i.id,
-              name: i.name,
-              slug: i.slug,
-              aliases: i.aliases,
-              subindustries: i.subindustries.map((s: any) => ({
-                id: s.id,
-                name: s.name,
-                slug: s.slug,
-                aliases: s.aliases,
-                countries: s.countries,
-              })),
-            })),
-          });
+          setCatalogData({ industries: catalogJson.catalog.industries });
         }
       }
 
@@ -400,12 +464,21 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   }
 
   // ── Handle correction save ─────────────────────────────────────────────────
-  async function handleSaveCorrection(correction: ManualClassificationCorrection) {
-    // Call API to revalidate this specific correction
+  async function handleSaveCorrection(
+    correction: ManualClassificationCorrection,
+    contextRow?: ImportClassificationPreviewRow,
+  ) {
+    const rowContext = contextRow ?? correctionPanelRow;
     const res = await fetch('/api/prospect-batches/revalidate-classification', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(correction),
+      body: JSON.stringify({
+        ...correction,
+        companyName: rowContext?.companyName,
+        countryCode: rowContext?.countryCode,
+        industryOriginalValue: rowContext?.industryOriginalValue,
+        subindustryOriginalValue: rowContext?.subindustryOriginalValue,
+      }),
     });
 
     const result = await res.json() as {
@@ -416,6 +489,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     };
 
     if (!result.success || !result.row) {
+      if (result.code === 'catalog_version_changed') {
+        setCatalogVersionChanged(true);
+        throw new Error('La versión del catálogo ha cambiado. Revalida el archivo antes de importar.');
+      }
       throw new Error(result.message ?? 'Error al revalidar');
     }
 
@@ -449,12 +526,15 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   ) {
     if (!catalogVersion) return;
     for (const row of group) {
-      await handleSaveCorrection({
-        rowNumber: row.rowNumber,
-        industryId,
-        subindustryId,
-        catalogVersion: catalogVersion.version,
-      });
+      await handleSaveCorrection(
+        {
+          rowNumber: row.rowNumber,
+          industryId,
+          subindustryId,
+          catalogVersion: catalogVersion.version,
+        },
+        row, // Pass each row as its own context
+      );
     }
   }
 
@@ -641,6 +721,31 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
   const exactDuplicateCount = duplicates.filter((d) => d.duplicate_status === 'exact_duplicate').length;
   const possibleDuplicateCount = duplicates.filter((d) => d.duplicate_status === 'possible_duplicate').length;
+
+  // Rows that share the same original industry+subindustry+country as the row being corrected
+  const equivalentRows = React.useMemo(() => {
+    if (!correctionPanelRow) return [];
+    return classificationRows.filter(
+      (r) =>
+        r.rowNumber !== correctionPanelRow.rowNumber &&
+        (r.industryOriginalValue ?? '').toLowerCase().trim() ===
+          (correctionPanelRow.industryOriginalValue ?? '').toLowerCase().trim() &&
+        (r.subindustryOriginalValue ?? '').toLowerCase().trim() ===
+          (correctionPanelRow.subindustryOriginalValue ?? '').toLowerCase().trim() &&
+        (r.countryCode ?? '').toUpperCase() ===
+          (correctionPanelRow.countryCode ?? '').toUpperCase(),
+    );
+  }, [correctionPanelRow, classificationRows]);
+
+  // Whether any column mapping conflict blocks proceeding to classification
+  const hasMappingConflict = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of columnMappings) {
+      if (m.targetField === 'ignore') continue;
+      counts.set(m.targetField, (counts.get(m.targetField) ?? 0) + 1);
+    }
+    return (counts.get('industry') ?? 0) > 1 || (counts.get('subindustry') ?? 0) > 1;
+  }, [columnMappings]);
 
   return (
     <DrawerShell
@@ -1082,6 +1187,96 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               Puedes copiar desde Google Sheets/Excel o subir un archivo CSV/XLSX.
             </AlertDescription>
           </Alert>
+        </div>
+      )}
+
+      {/* ── Step: mapping ─────────────────────────────────── */}
+      {step === 'mapping' && (
+        <div className="space-y-5">
+          {classificationError && (
+            <Alert variant="destructive">
+              <XCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">{classificationError}</AlertDescription>
+            </Alert>
+          )}
+          {hasMappingConflict && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Dos columnas están asignadas al mismo campo. Resuelve el conflicto antes de clasificar.
+              </AlertDescription>
+            </Alert>
+          )}
+          <ImportColumnMappingTable
+            columnMappings={columnMappings}
+            onMappingChange={handleMappingChange}
+          />
+        </div>
+      )}
+
+      {/* ── Step: classification ───────────────────────────── */}
+      {step === 'classification' && classificationSummary && (
+        <div className="flex flex-col flex-1 min-h-0 gap-4">
+          {/* Catalog version changed banner */}
+          {catalogVersionChanged && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                El catálogo de industrias fue actualizado mientras revisabas las correcciones.
+                La importación está bloqueada. Haz clic en{' '}
+                <button
+                  type="button"
+                  className="underline font-semibold"
+                  onClick={() => {
+                    setCatalogVersionChanged(false);
+                    void handleBuildClassification();
+                  }}
+                >
+                  Revalidar archivo
+                </button>{' '}
+                para volver a clasificar con la nueva versión.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Summary stat cards */}
+          {catalogVersion && (
+            <ImportClassificationSummary
+              stats={classificationSummary}
+              catalogVersion={catalogVersion.version}
+            />
+          )}
+
+          {/* Correction panel + table */}
+          <div className={cn('flex flex-1 min-h-0 gap-4', correctionPanelRow ? 'flex-col lg:flex-row' : 'flex-col')}>
+            {/* Correction panel */}
+            {correctionPanelRow && catalogData && catalogVersion && (
+              <div className="w-full lg:w-80 shrink-0 rounded-xl border border-border/40 bg-card p-4 overflow-y-auto">
+                <ImportClassificationCorrectionPanel
+                  row={correctionPanelRow}
+                  catalog={catalogData}
+                  catalogVersion={catalogVersion}
+                  onCorrect={(correction) =>
+                    handleSaveCorrection(correction, correctionPanelRow)
+                  }
+                  onClose={() => setCorrectionPanelRow(null)}
+                  equivalentRows={equivalentRows}
+                  onBulkCorrect={handleBulkCorrection}
+                />
+              </div>
+            )}
+
+            {/* Classification table */}
+            <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border/40 bg-card">
+              <ImportClassificationTable
+                rows={classificationRows}
+                filterStatus={filterStatus}
+                onFilterChange={setFilterStatus}
+                summary={classificationSummary}
+                onCorrectRow={(row) => setCorrectionPanelRow(row)}
+              />
+            </div>
+          </div>
         </div>
       )}
 
