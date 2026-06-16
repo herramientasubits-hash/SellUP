@@ -13,6 +13,11 @@ import {
   GitMerge,
   Info,
   Copy,
+  Search,
+  ArrowRight,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -32,6 +37,9 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ImportLoadingOverlay } from '@/components/prospect-batches/import-loading-overlay';
 import { ImportPreviewDataTable } from '@/components/prospect-batches/import-preview-data-table';
+import { ImportClassificationTable } from '@/components/prospect-batches/import-classification-table';
+import { ImportClassificationSummary } from '@/components/prospect-batches/import-classification-summary';
+import { ImportClassificationCorrectionPanel } from '@/components/prospect-batches/import-classification-correction-panel';
 import {
   parsePastedCandidates,
   parseCsvCandidates,
@@ -42,16 +50,25 @@ import {
   type ImportPreview,
   type ImportMethod,
   type ImportDefaults,
+  type ImportRow,
 } from '@/modules/prospect-batches/import-candidates-parser';
 import {
   LATAM_COUNTRIES,
-  INDUSTRIES,
 } from '@/modules/accounts/types';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { detectColumnMappings, groupRowsByOriginalValues } from '@/modules/prospect-batches/import-column-mapping';
+import type {
+  ImportColumnMapping,
+  ImportClassificationPreviewRow,
+  ClassificationFilterStatus,
+  ClassificationSummaryStats,
+  ManualClassificationCorrection,
+  CatalogVersionState,
+} from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
 
 // ── Tipos locales ─────────────────────────────────────────────
 
-type Step = 'input' | 'preview' | 'success';
+type Step = 'input' | 'mapping' | 'classification' | 'preview' | 'success';
 type FileMethod = 'paste' | 'file';
 
 export interface ImportDuplicateResult {
@@ -60,8 +77,10 @@ export interface ImportDuplicateResult {
   reason?: string;
 }
 
-import type { ImportRow } from '@/modules/prospect-batches/import-candidates-parser';
 export type { ImportRow } from '@/modules/prospect-batches/import-candidates-parser';
+
+// Placeholder: industries list used in default-industry select. Replaced by catalog in next milestone.
+const INDUSTRIES: string[] = [];
 
 interface ImportCandidatesDrawerProps {
   children: React.ReactNode;
@@ -106,6 +125,21 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     possibleDuplicateCount: number;
   } | null>(null);
 
+  // ── Mapping step state ─────────────────────────────────────────────────────
+  const [columnMappings, setColumnMappings] = React.useState<ImportColumnMapping[]>([]);
+  const [rawHeaders, setRawHeaders] = React.useState<string[]>([]);
+  const [sampleRows, setSampleRows] = React.useState<Record<string, string | undefined>[]>([]);
+  const [loadingClassification, setLoadingClassification] = React.useState(false);
+  const [classificationError, setClassificationError] = React.useState<string | null>(null);
+
+  // ── Classification step state ──────────────────────────────────────────────
+  const [classificationRows, setClassificationRows] = React.useState<ImportClassificationPreviewRow[]>([]);
+  const [classificationSummary, setClassificationSummary] = React.useState<ClassificationSummaryStats | null>(null);
+  const [catalogVersion, setCatalogVersion] = React.useState<CatalogVersionState | null>(null);
+  const [filterStatus, setFilterStatus] = React.useState<ClassificationFilterStatus>('all');
+  const [correctionPanelRow, setCorrectionPanelRow] = React.useState<ImportClassificationPreviewRow | null>(null);
+  const [catalogData, setCatalogData] = React.useState<{ industries: Array<{ id: string; name: string; slug: string; aliases?: string[]; subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }> }> } | null>(null);
+
   function resetState() {
     setStep('input');
     setFileMethod('paste');
@@ -124,6 +158,17 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     setResultBatchId(null);
     setResultCount(0);
     setImportStats(null);
+    setColumnMappings([]);
+    setRawHeaders([]);
+    setSampleRows([]);
+    setLoadingClassification(false);
+    setClassificationError(null);
+    setClassificationRows([]);
+    setClassificationSummary(null);
+    setCatalogVersion(null);
+    setFilterStatus('all');
+    setCorrectionPanelRow(null);
+    setCatalogData(null);
   }
 
   function handleClose() {
@@ -248,11 +293,257 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         setDuplicates([]);
       }
 
-      setStep('preview');
+      setStep('mapping');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al procesar los datos');
     } finally {
       setLoadingPreview(false);
+    }
+  }
+
+  // ── Handle mapping step: detect columns and go to classification ────────────
+  async function handleBuildClassification() {
+    if (!preview) return;
+    setLoadingClassification(true);
+    setClassificationError(null);
+    try {
+      // Build rows for classification API
+      const classifiableRows = preview.rows
+        .filter((r) => r.status === 'valid' || r.status === 'warning')
+        .map((r) => ({
+          company_name: r.raw.company_name,
+          country_code: r.resolved_country_code,
+          industry: r.raw.industry,
+          subindustry: r.raw.subindustry,
+          website: r.raw.website,
+          linkedin_url: r.raw.linkedin_url,
+          city: r.raw.city,
+          company_size: r.raw.company_size,
+          description: r.raw.description,
+          source_url: r.raw.source_url,
+          source_evidence: r.raw.source_evidence,
+          confidence: r.raw.confidence,
+          notes: r.raw.notes,
+        }));
+
+      const res = await fetch('/api/prospect-batches/classify-import-rows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows: classifiableRows,
+          defaults: {
+            country_code: selectedCountryCode || undefined,
+            industry: selectedIndustry || undefined,
+          },
+        }),
+      });
+
+      const result = await res.json() as {
+        success: boolean;
+        catalogVersion?: string;
+        catalogVersionId?: string;
+        rows?: ImportClassificationPreviewRow[];
+        summary?: ClassificationSummaryStats;
+        code?: string;
+        message?: string;
+      };
+
+      if (!result.success || !result.rows) {
+        throw new Error(result.message ?? 'Error al clasificar filas');
+      }
+
+      setClassificationRows(result.rows);
+      setClassificationSummary(result.summary ?? {
+        total: result.rows.length,
+        valid: 0,
+        normalized: 0,
+        warning: 0,
+        requiresReview: 0,
+        invalid: 0,
+      });
+      setCatalogVersion({
+        version: result.catalogVersion ?? 'unknown',
+        isCurrent: true,
+        lastChecked: new Date(),
+      });
+
+      // Fetch full catalog for correction panel
+      const catalogRes = await fetch('/api/prospect-batches/import-catalog');
+      if (catalogRes.ok) {
+        const catalogJson = await catalogRes.json();
+        if (catalogJson.success && catalogJson.catalog) {
+          setCatalogData({
+            industries: catalogJson.catalog.industries.map((i: any) => ({
+              id: i.id,
+              name: i.name,
+              slug: i.slug,
+              aliases: i.aliases,
+              subindustries: i.subindustries.map((s: any) => ({
+                id: s.id,
+                name: s.name,
+                slug: s.slug,
+                aliases: s.aliases,
+                countries: s.countries,
+              })),
+            })),
+          });
+        }
+      }
+
+      setStep('classification');
+    } catch (err) {
+      setClassificationError(err instanceof Error ? err.message : 'Error al clasificar');
+      toast.error(err instanceof Error ? err.message : 'Error al clasificar');
+    } finally {
+      setLoadingClassification(false);
+    }
+  }
+
+  // ── Handle correction save ─────────────────────────────────────────────────
+  async function handleSaveCorrection(correction: ManualClassificationCorrection) {
+    // Call API to revalidate this specific correction
+    const res = await fetch('/api/prospect-batches/revalidate-classification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(correction),
+    });
+
+    const result = await res.json() as {
+      success: boolean;
+      row?: ImportClassificationPreviewRow;
+      code?: string;
+      message?: string;
+    };
+
+    if (!result.success || !result.row) {
+      throw new Error(result.message ?? 'Error al revalidar');
+    }
+
+    // Update the row in state
+    setClassificationRows((prev) =>
+      prev.map((r) => (r.rowNumber === correction.rowNumber ? result.row! : r)),
+    );
+
+    // Recompute summary
+    const newRows = classificationRows.map((r) =>
+      r.rowNumber === correction.rowNumber ? result.row! : r,
+    );
+    const newSummary: ClassificationSummaryStats = {
+      total: newRows.length,
+      valid: newRows.filter((r) => r.validationStatus === 'valid').length,
+      normalized: newRows.filter((r) => r.validationStatus === 'normalized').length,
+      warning: newRows.filter((r) => r.validationStatus === 'warning').length,
+      requiresReview: newRows.filter((r) => r.validationStatus === 'requires_review').length,
+      invalid: newRows.filter((r) => r.validationStatus === 'invalid').length,
+    };
+    setClassificationSummary(newSummary);
+
+    setCorrectionPanelRow(null);
+  }
+
+  // ── Handle bulk correction ─────────────────────────────────────────────────
+  async function handleBulkCorrection(
+    group: ImportClassificationPreviewRow[],
+    industryId: string,
+    subindustryId: string | null,
+  ) {
+    if (!catalogVersion) return;
+    for (const row of group) {
+      await handleSaveCorrection({
+        rowNumber: row.rowNumber,
+        industryId,
+        subindustryId,
+        catalogVersion: catalogVersion.version,
+      });
+    }
+  }
+
+  // ── Handle final confirmation with classification results ──────────────────
+  async function handleConfirmWithClassification() {
+    if (!preview || !catalogVersion) return;
+    // Import only rows that are valid/normalized/warning (not requires_review or invalid)
+    const rowsToImport = classificationRows
+      .filter((r) => r.validationStatus === 'valid' || r.validationStatus === 'normalized' || r.validationStatus === 'warning')
+      .map((r) => {
+        const originalRow = preview.rows.find((pr) => pr.index === r.rowNumber - 1);
+        return originalRow;
+      })
+      .filter((r): r is ImportRow => r !== undefined);
+
+    if (rowsToImport.length === 0) {
+      toast.error('No hay filas válidas para importar. Corrige las que requieren revisión.');
+      return;
+    }
+
+    setConfirming(true);
+    try {
+      const candidates = rowsToImport.map((r) => ({
+        company_name: r.raw.company_name,
+        country: r.raw.country,
+        country_code: r.resolved_country_code ?? r.raw.country_code,
+        industry: r.raw.industry,
+        subindustry: r.raw.subindustry,
+        website: r.raw.website,
+        city: r.raw.city,
+        region: r.raw.region,
+        tax_identifier: r.raw.tax_identifier,
+        tax_identifier_type: r.raw.tax_identifier_type,
+        linkedin_url: r.raw.linkedin_url,
+        company_size: r.raw.company_size,
+        description: r.raw.description,
+        notes: r.raw.notes,
+        source_url: r.raw.source_url,
+        contact_name: r.raw.contact_name,
+        contact_role: r.raw.contact_role,
+        contact_email: r.raw.contact_email,
+        owner_email: r.raw.owner_email,
+        source_evidence: r.raw.source_evidence,
+        confidence: r.raw.confidence,
+      }));
+
+      const res = await fetch('/api/prospect-batches/create-import-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          import_type: detectedMethod,
+          candidates,
+          recognized_columns: preview.recognized_columns,
+          unrecognized_columns: preview.unrecognized_columns,
+          total_rows: preview.total,
+          valid_rows: preview.valid,
+          invalid_rows: preview.errors,
+          warning_rows: preview.warnings_only,
+          defaults: {
+            country: selectedCountry?.name,
+            country_code: selectedCountryCode || undefined,
+            industry: selectedIndustry || undefined,
+          },
+        }),
+      });
+
+      const result = await res.json() as {
+        batchId: string;
+        candidatesCreated: number;
+        stats: {
+          totalProcessed: number;
+          importedCount: number;
+          errorsCount: number;
+          alreadyCompleteCount: number;
+          autoEnrichPendingCount: number;
+          duplicateCount: number;
+          possibleDuplicateCount: number;
+        };
+      };
+      setResultBatchId(result.batchId);
+      setResultCount(result.candidatesCreated);
+      setImportStats(result.stats || null);
+      handleClose();
+      toast.success(`Se importaron ${result.candidatesCreated} candidato${result.candidatesCreated !== 1 ? 's' : ''} exitosamente.`);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al importar prospectos');
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -362,6 +653,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       title={
         step === 'input'
           ? "Importar candidatos externos"
+          : step === 'mapping'
+          ? "Mapeo de columnas"
+          : step === 'classification'
+          ? "Clasificación de industrias"
           : step === 'preview'
           ? "Vista previa de importación"
           : "Candidatos importados para revisión"
@@ -369,6 +664,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       description={
         step === 'input'
           ? "Carga empresas encontradas en Gemini, hojas de cálculo, eventos o investigación externa. SellUp validará duplicidad y las dejará listas para revisión antes de crear cuentas."
+          : step === 'mapping'
+          ? "Revisa y ajusta el mapeo de columnas detectadas automáticamente. Asegúrate de que Industria y Subindustria estén bien asignadas."
+          : step === 'classification'
+          ? "SellUp ha clasificado cada fila contra el catálogo oficial. Revisa el estado, corrige las que lo requieran y confirma para importar."
           : step === 'preview'
           ? "Revisa los datos antes de importar. Solo se importarán filas válidas y con advertencias."
           : `SellUp importó ${resultCount} prospecto${resultCount !== 1 ? 's' : ''} externo${resultCount !== 1 ? 's' : ''}. Revísalos antes de aprobarlos como cuentas.`
@@ -376,13 +675,17 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       icon={
         step === 'success'
           ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          : step === 'classification'
+          ? <Search className="h-4 w-4 text-su-brand" />
+          : step === 'mapping'
+          ? <ArrowRight className="h-4 w-4 text-su-brand" />
           : step === 'preview'
           ? <FileText className="h-4 w-4 text-su-brand" />
           : <Upload className="h-4 w-4 text-su-brand" />
       }
       className={cn(
         "transition-all duration-300",
-        step === 'preview'
+        step === 'preview' || step === 'mapping' || step === 'classification'
           ? "sm:!max-w-[90vw] sm:w-[90vw] w-full"
           : "sm:!max-w-[500px] sm:w-[500px] w-full"
       )}
@@ -407,9 +710,89 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                       Procesando…
                     </>
                   ) : (
-                    'Previsualizar'
+                    'Continuar a mapeo'
                   )}
                 </Button>
+              </div>
+            )}
+
+            {step === 'mapping' && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-left flex-1 space-y-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    Revisa el mapeo detectado. Puedes cambiar la columna asignada a Industria o Subindustria si el autodetect falló.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 justify-end shrink-0">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setStep('input')} className="text-xs">
+                    <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+                    Volver
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleBuildClassification}
+                    disabled={loadingClassification}
+                    size="sm"
+                    className="gap-2 text-xs font-semibold bg-su-brand text-white hover:bg-su-brand/90"
+                  >
+                    {loadingClassification ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Clasificando…
+                      </>
+                    ) : (
+                      'Clasificar y revisar'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {step === 'classification' && classificationSummary && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-left flex-1 space-y-1">
+                  {classificationSummary.requiresReview > 0 && (
+                    <p className="text-[11px] text-destructive font-medium">
+                      {classificationSummary.requiresReview} fila{classificationSummary.requiresReview !== 1 ? 's' : ''} requieren corrección manual.
+                    </p>
+                  )}
+                  {classificationSummary.warning > 0 && classificationSummary.requiresReview === 0 && (
+                    <p className="text-[11px] text-amber-500 font-medium">
+                      {classificationSummary.warning} fila{classificationSummary.warning !== 1 ? 's' : ''} con advertencias (se pueden importar).
+                    </p>
+                  )}
+                  {classificationSummary.requiresReview === 0 && classificationSummary.warning === 0 && (
+                    <p className="text-[11px] text-emerald-500 font-medium">
+                      Todas las filas listas para importar.
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 justify-end shrink-0">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setStep('mapping')} className="text-xs">
+                    <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+                    Volver
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleConfirmWithClassification}
+                    disabled={
+                      confirming ||
+                      classificationSummary.requiresReview > 0 ||
+                      classificationSummary.invalid > 0
+                    }
+                    size="sm"
+                    className="gap-2 text-xs font-semibold"
+                  >
+                    {confirming ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Importando y validando…
+                      </>
+                    ) : (
+                      `Importar ${classificationSummary.valid + classificationSummary.normalized + classificationSummary.warning} candidatos`
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
 
