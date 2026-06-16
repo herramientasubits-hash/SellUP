@@ -28,13 +28,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type {
   ImportClassificationPreviewRow,
@@ -333,32 +326,22 @@ export function ImportClassificationTable({
                 <label className="sr-only" htmlFor={`edit-industry-${row.original.rowNumber}`}>
                   Industria
                 </label>
-                <Select
+                <select
+                  id={`edit-industry-${row.original.rowNumber}`}
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-su-brand/60"
                   value={editIndustryId}
-                  onValueChange={(v) => {
-                    setEditIndustryId(v ?? '');
+                  onChange={(e) => {
+                    setEditIndustryId(e.target.value);
                     setEditSubindustryId('');
                   }}
+                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus
                 >
-                  <SelectTrigger
-                    id={`edit-industry-${row.original.rowNumber}`}
-                    className="h-8 text-xs"
-                    autoFocus
-                  >
-                    <SelectValue placeholder="Seleccionar industria">
-                      {editIndustryId
-                        ? (industryOptions.find((o) => o.value === editIndustryId)?.label ?? editIndustryId)
-                        : 'Seleccionar industria'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {industryOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <option value="">Seleccionar industria</option>
+                  {industryOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
             );
           }
@@ -382,34 +365,20 @@ export function ImportClassificationTable({
                 <label className="sr-only" htmlFor={`edit-subindustry-${row.original.rowNumber}`}>
                   Subindustria
                 </label>
-                <Select
+                <select
+                  id={`edit-subindustry-${row.original.rowNumber}`}
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-su-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
                   value={editSubindustryId}
-                  onValueChange={(v) => setEditSubindustryId(v ?? '')}
+                  onChange={(e) => setEditSubindustryId(e.target.value)}
                   disabled={!editIndustryId}
                 >
-                  <SelectTrigger
-                    id={`edit-subindustry-${row.original.rowNumber}`}
-                    className="h-8 text-xs"
-                    disabled={!editIndustryId}
-                  >
-                    <SelectValue
-                      placeholder={
-                        editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'
-                      }
-                    >
-                      {editSubindustryId
-                        ? (subindustryOptions.find((o) => o.value === editSubindustryId)?.label ?? editSubindustryId)
-                        : editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {subindustryOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <option value="">
+                    {editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'}
+                  </option>
+                  {subindustryOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
                 {equivalentRows.length > 0 && (
                   <label
                     className="flex items-center gap-1.5 cursor-pointer"
