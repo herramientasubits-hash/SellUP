@@ -901,7 +901,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       className={cn(
         "transition-all duration-300",
         step === 'preview' || step === 'classification'
-          ? "sm:!max-w-[90vw] sm:w-[90vw] w-full"
+          ? "!w-full sm:!w-[90vw] sm:!max-w-[90vw]"
           : "sm:!max-w-[500px] sm:w-[500px] w-full"
       )}
       footer={
