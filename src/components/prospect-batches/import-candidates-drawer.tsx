@@ -16,7 +16,9 @@ import {
   Search,
   ArrowRight,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
+import { SearchableSelect } from '@/components/forms/searchable-select';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -79,9 +81,6 @@ export interface ImportDuplicateResult {
 
 export type { ImportRow } from '@/modules/prospect-batches/import-candidates-parser';
 
-// Placeholder: industries list used in default-industry select. Replaced by catalog in next milestone.
-const INDUSTRIES: string[] = [];
-
 interface ImportCandidatesDrawerProps {
   children: React.ReactNode;
 }
@@ -98,6 +97,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   // Batch defaults
   const [selectedCountryCode, setSelectedCountryCode] = React.useState('');
   const [selectedIndustry, setSelectedIndustry] = React.useState('');
+  const [selectedSubindustryId, setSelectedSubindustryId] = React.useState('');
+
+  // Input-step catalog loading state
+  const [catalogLoading, setCatalogLoading] = React.useState(false);
+  const [catalogError, setCatalogError] = React.useState<string | null>(null);
+  const [subindustryCountryWarning, setSubindustryCountryWarning] = React.useState(false);
 
   // Input state
   const [pasteText, setPasteText] = React.useState('');
@@ -149,6 +154,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     setShowGuide(false);
     setSelectedCountryCode('');
     setSelectedIndustry('');
+    setSelectedSubindustryId('');
+    setCatalogLoading(false);
+    setCatalogError(null);
+    setSubindustryCountryWarning(false);
     setPasteText('');
     setFileName(null);
     setFileText('');
@@ -180,6 +189,59 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   function handleClose() {
     setOpen(false);
     setTimeout(resetState, 300);
+  }
+
+  function loadCatalog() {
+    setCatalogLoading(true);
+    setCatalogError(null);
+    fetch('/api/prospect-batches/import-catalog')
+      .then((res) => res.json() as Promise<{
+        success: boolean;
+        catalog?: {
+          version: string;
+          industries: Array<{
+            id: string; name: string; slug: string; aliases?: string[];
+            subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }>;
+          }>;
+        };
+        message?: string;
+      }>)
+      .then((json) => {
+        if (json.success && json.catalog) {
+          setCatalogData({ industries: json.catalog.industries });
+        } else {
+          setCatalogError(json.message ?? 'No pudimos cargar el catálogo de industrias.');
+        }
+      })
+      .catch(() => setCatalogError('No pudimos cargar el catálogo de industrias.'))
+      .finally(() => setCatalogLoading(false));
+  }
+
+  // Load catalog when drawer opens; resets on close via resetState → setCatalogData(null)
+  React.useEffect(() => {
+    if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadCatalog();
+  }, [open]);
+
+  function handleCountryChange(value: string | null) {
+    const code = value ?? '';
+    setSubindustryCountryWarning(false);
+    if (selectedSubindustryId && selectedSubindustryId !== '__none__' && catalogData && code) {
+      const industry = catalogData.industries.find((i) => i.id === selectedIndustry);
+      const sub = industry?.subindustries.find((s) => s.id === selectedSubindustryId);
+      if (sub && sub.countries && sub.countries.length > 0 && !sub.countries.includes(code)) {
+        setSelectedSubindustryId('');
+        setSubindustryCountryWarning(true);
+      }
+    }
+    setSelectedCountryCode(code);
+  }
+
+  function handleIndustryChange(value: string) {
+    setSelectedIndustry(value ?? '');
+    setSelectedSubindustryId('');
+    setSubindustryCountryWarning(false);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -226,11 +288,34 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   }
 
   const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === selectedCountryCode);
+  const selectedIndustryName = catalogData?.industries.find((i) => i.id === selectedIndustry)?.name;
+  const selectedSubindustryName = (selectedSubindustryId && selectedSubindustryId !== '__none__')
+    ? catalogData?.industries.find((i) => i.id === selectedIndustry)?.subindustries.find((s) => s.id === selectedSubindustryId)?.name
+    : undefined;
+
+  const industryOptions = React.useMemo(() => {
+    if (!catalogData) return [];
+    return catalogData.industries.map((i) => ({ value: i.id, label: i.name }));
+  }, [catalogData]);
+
+  const subindustryOptions = React.useMemo(() => {
+    if (!catalogData || !selectedIndustry || !selectedCountryCode) return [];
+    const industry = catalogData.industries.find((i) => i.id === selectedIndustry);
+    if (!industry) return [];
+    const filtered = industry.subindustries.filter(
+      (sub) => !sub.countries || sub.countries.length === 0 || sub.countries.includes(selectedCountryCode),
+    );
+    return [
+      { value: '__none__', label: 'Sin subindustria por defecto' },
+      ...filtered.map((sub) => ({ value: sub.id, label: sub.name })),
+    ];
+  }, [catalogData, selectedIndustry, selectedCountryCode]);
 
   const defaults: ImportDefaults = {
     country: selectedCountry?.name,
     countryCode: selectedCountryCode || undefined,
-    industry: selectedIndustry || undefined,
+    industry: selectedIndustryName || undefined,
+    subindustry: selectedSubindustryName || undefined,
   };
 
   // TAREA 3: handleBuildPreview usa fetch (no Server Action) → sin router.refresh automático
@@ -402,7 +487,8 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           rows: classifiableRows,
           defaults: {
             country_code: selectedCountryCode || undefined,
-            industry: selectedIndustry || undefined,
+            industry: selectedIndustryName || undefined,
+            subindustry: selectedSubindustryName || undefined,
           },
         }),
       });
@@ -436,21 +522,23 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         lastChecked: new Date(),
       });
 
-      // Fetch full catalog for correction panel
-      const catalogRes = await fetch('/api/prospect-batches/import-catalog');
-      if (catalogRes.ok) {
-        const catalogJson = await catalogRes.json() as {
-          success: boolean;
-          catalog?: {
-            version: string;
-            industries: Array<{
-              id: string; name: string; slug: string; aliases?: string[];
-              subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }>;
-            }>;
+      // Reuse catalog loaded in input step; fetch only if missing (e.g. drawer re-used without closing)
+      if (!catalogData) {
+        const catalogRes = await fetch('/api/prospect-batches/import-catalog');
+        if (catalogRes.ok) {
+          const catalogJson = await catalogRes.json() as {
+            success: boolean;
+            catalog?: {
+              version: string;
+              industries: Array<{
+                id: string; name: string; slug: string; aliases?: string[];
+                subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }>;
+              }>;
+            };
           };
-        };
-        if (catalogJson.success && catalogJson.catalog) {
-          setCatalogData({ industries: catalogJson.catalog.industries });
+          if (catalogJson.success && catalogJson.catalog) {
+            setCatalogData({ industries: catalogJson.catalog.industries });
+          }
         }
       }
 
@@ -596,7 +684,8 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           defaults: {
             country: selectedCountry?.name,
             country_code: selectedCountryCode || undefined,
-            industry: selectedIndustry || undefined,
+            industry: selectedIndustryName || undefined,
+            subindustry: selectedSubindustryName || undefined,
           },
         }),
       });
@@ -676,14 +765,15 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           defaults: {
             country: selectedCountry?.name,
             country_code: selectedCountryCode || undefined,
-            industry: selectedIndustry || undefined,
+            industry: selectedIndustryName || undefined,
+            subindustry: selectedSubindustryName || undefined,
           },
         }),
       });
 
-      const result = await res.json() as { 
-        batchId: string; 
-        candidatesCreated: number; 
+      const result = await res.json() as {
+        batchId: string;
+        candidatesCreated: number;
         stats: {
           totalProcessed: number;
           importedCount: number;
@@ -963,11 +1053,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           <SurfaceCard>
             <SurfaceCardHeader title="Configuración de importación" />
             <div className="grid grid-cols-2 gap-3">
+              {/* País de referencia */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground">
                   País de referencia <span className="text-destructive">*</span>
                 </label>
-                <Select value={selectedCountryCode} onValueChange={(v) => setSelectedCountryCode(v ?? '')}>
+                <Select value={selectedCountryCode} onValueChange={handleCountryChange}>
                   <SelectTrigger className="!w-full !h-11 !rounded-xl">
                     <SelectValue placeholder="País" />
                   </SelectTrigger>
@@ -980,28 +1071,86 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
-                  Valor por defecto para filas sin país.
+                  Se usará en filas que no incluyan país.
                 </p>
               </div>
 
+              {/* Industria por defecto */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground">
-                  Industria / criterio
+                  Industria por defecto
                 </label>
-                <Select value={selectedIndustry} onValueChange={(v) => setSelectedIndustry(v ?? '')}>
-                  <SelectTrigger className="!w-full !h-11 !rounded-xl">
-                    <SelectValue placeholder="Industria" />
-                  </SelectTrigger>
-                  <SelectContent className="!w-auto !min-w-[200px]">
-                    {INDUSTRIES.map((ind) => (
-                      <SelectItem key={ind} value={ind}>
-                        {ind}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {catalogLoading ? (
+                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-muted/30 px-4">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Cargando catálogo…</span>
+                  </div>
+                ) : catalogError ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 h-11 rounded-xl border border-destructive/50 bg-destructive/5 px-4">
+                      <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                      <span className="text-xs text-destructive truncate">No pudimos cargar el catálogo.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={loadCatalog}
+                      className="flex items-center gap-1 text-[10px] text-su-brand hover:underline"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      Reintentar
+                    </button>
+                  </div>
+                ) : catalogData && catalogData.industries.length === 0 ? (
+                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-muted/30 px-4">
+                    <span className="text-xs text-muted-foreground">No hay un catálogo publicado disponible.</span>
+                  </div>
+                ) : (
+                  <SearchableSelect
+                    options={industryOptions}
+                    value={selectedIndustry}
+                    onValueChange={handleIndustryChange}
+                    placeholder="Industria"
+                    searchPlaceholder="Buscar industria…"
+                    emptyMessage="No se encontraron industrias."
+                    disabled={!catalogData || catalogLoading}
+                  />
+                )}
                 <p className="text-[10px] text-muted-foreground">
-                  Valor por defecto para filas sin industria.
+                  Se usará únicamente en filas que no incluyan industria.
+                </p>
+              </div>
+
+              {/* Subindustria por defecto */}
+              <div className="space-y-1.5 col-span-2">
+                <label className="text-xs font-medium text-foreground">
+                  Subindustria por defecto{' '}
+                  <span className="font-normal text-muted-foreground">(opcional)</span>
+                </label>
+                {subindustryCountryWarning && (
+                  <p className="text-[10px] text-amber-500">
+                    La subindustria seleccionada no está disponible para el nuevo país y fue eliminada.
+                  </p>
+                )}
+                <SearchableSelect
+                  options={subindustryOptions}
+                  value={selectedSubindustryId}
+                  onValueChange={(v) => {
+                    setSelectedSubindustryId(v ?? '');
+                    setSubindustryCountryWarning(false);
+                  }}
+                  placeholder="Sin subindustria por defecto"
+                  searchPlaceholder="Buscar subindustria…"
+                  emptyMessage="Selecciona un país e industria primero."
+                  disabled={
+                    !catalogData ||
+                    !selectedIndustry ||
+                    !selectedCountryCode ||
+                    catalogLoading ||
+                    !!catalogError
+                  }
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Opcional. Se usará únicamente en filas que no incluyan subindustria.
                 </p>
               </div>
             </div>
@@ -1293,7 +1442,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           </button>
 
           {/* Defaults del lote */}
-          {(selectedCountryCode || selectedIndustry) && (
+          {(selectedCountryCode || selectedIndustry || selectedSubindustryId) && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-2.5">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand/70 mr-1">
                 Criterios de importación:
@@ -1305,7 +1454,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               )}
               {selectedIndustry && (
                 <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
-                  🏭 {selectedIndustry}
+                  🏭 {selectedIndustryName ?? selectedIndustry}
+                </Badge>
+              )}
+              {selectedSubindustryId && selectedSubindustryId !== '__none__' && selectedSubindustryName && (
+                <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                  🏷️ {selectedSubindustryName}
                 </Badge>
               )}
             </div>

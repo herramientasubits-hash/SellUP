@@ -6,6 +6,7 @@ export interface ImportDefaults {
   country?: string;
   countryCode?: string;
   industry?: string;
+  subindustry?: string;
 }
 
 export interface ParsedImportRow {
@@ -469,6 +470,7 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
   const hasCountryInRow = !!(raw.country?.trim() || raw.country_code?.trim());
   const country_from_default = !hasCountryInRow && !!(defaults?.countryCode || defaults?.country);
   const industry_from_default = !raw.industry?.trim() && !!defaults?.industry;
+  const subindustry_from_default = !raw.subindustry?.trim() && !!defaults?.subindustry;
 
   // Effective values after applying defaults
   const effectiveCountry = raw.country?.trim() || (country_from_default ? defaults?.country : undefined);
@@ -477,6 +479,7 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
     (country_from_default ? defaults?.countryCode : undefined) ||
     null;
   const effectiveIndustry = raw.industry?.trim() || (industry_from_default ? defaults?.industry : undefined);
+  const effectiveSubindustry = raw.subindustry?.trim() || (subindustry_from_default ? defaults?.subindustry : undefined);
 
   const hasCountry = hasCountryInRow || country_from_default;
   if (!hasCountry) {
@@ -517,6 +520,7 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
     country: effectiveCountry || raw.country,
     country_code: effectiveCountryCode || raw.country_code,
     industry: effectiveIndustry || raw.industry,
+    subindustry: effectiveSubindustry || raw.subindustry,
     confidence: normalizedConfidence,
   };
 
