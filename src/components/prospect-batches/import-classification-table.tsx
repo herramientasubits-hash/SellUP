@@ -345,7 +345,11 @@ export function ImportClassificationTable({
                     className="h-8 text-xs"
                     autoFocus
                   >
-                    <SelectValue placeholder="Seleccionar industria" />
+                    <SelectValue placeholder="Seleccionar industria">
+                      {editIndustryId
+                        ? (industryOptions.find((o) => o.value === editIndustryId)?.label ?? editIndustryId)
+                        : 'Seleccionar industria'}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {industryOptions.map((opt) => (
@@ -392,7 +396,11 @@ export function ImportClassificationTable({
                       placeholder={
                         editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'
                       }
-                    />
+                    >
+                      {editSubindustryId
+                        ? (subindustryOptions.find((o) => o.value === editSubindustryId)?.label ?? editSubindustryId)
+                        : editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {subindustryOptions.map((opt) => (
