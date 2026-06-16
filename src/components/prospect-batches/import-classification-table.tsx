@@ -1,9 +1,11 @@
 'use client';
 
-// ── Import Classification Review Table — Hito 16AB.40.3 ───────────────────────
-// Shows classified rows with status badges, inline correction, and row selection.
-// Filter tabs are rendered in the parent. Inline editing: clicking Corregir
-// activates in-row selects. No side panel. Only one row editable at a time.
+// ── Import Classification Review Table — Hito 16AB.40.4 ───────────────────────
+// Unified preview + classification table.
+// Columns: checkbox, #, Empresa, País, Sitio web, LinkedIn, Ciudad, Tamaño,
+//          Industria (editable), Subindustria (editable), Estado, Acciones.
+// Actions: Ver detalles (expandable row), Corregir (inline edit).
+// No side panel. Only one row editable at a time. Only one detail row open at a time.
 
 import * as React from 'react';
 import {
@@ -24,6 +26,9 @@ import {
   Users,
   Check,
   X,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -72,6 +77,33 @@ export type ImportClassificationTableProps = {
     subindustryId: string | null,
   ) => Promise<void>;
 };
+
+// ── Country code → display name (subset LATAM + common) ───────────────────────
+
+const COUNTRY_NAMES: Record<string, string> = {
+  AR: 'Argentina', BO: 'Bolivia', BR: 'Brasil', CL: 'Chile',
+  CO: 'Colombia', CR: 'Costa Rica', DO: 'R. Dominicana', EC: 'Ecuador',
+  GT: 'Guatemala', HN: 'Honduras', MX: 'México', NI: 'Nicaragua',
+  PA: 'Panamá', PE: 'Perú', PY: 'Paraguay', SV: 'El Salvador',
+  UY: 'Uruguay', VE: 'Venezuela', US: 'EE.UU.', ES: 'España',
+};
+
+function countryLabel(code: string | null): string {
+  if (!code) return '—';
+  return COUNTRY_NAMES[code.toUpperCase()] ?? code;
+}
+
+// ── Domain extractor ──────────────────────────────────────────────────────────
+
+function extractDomain(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const normalized = url.startsWith('http') ? url : `https://${url}`;
+    return new URL(normalized).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
 
 // ── StatusBadge ───────────────────────────────────────────────────────────────
 
@@ -133,6 +165,160 @@ function ClassificationCell({
   );
 }
 
+// ── ExpandedDetailRow ─────────────────────────────────────────────────────────
+
+function ExpandedDetailRow({
+  row,
+  colSpan,
+}: {
+  row: ImportClassificationPreviewRow;
+  colSpan: number;
+}) {
+  const websiteDomain = extractDomain(row.website);
+  const linkedinDomain = extractDomain(row.linkedinUrl);
+
+  const hasDetails =
+    row.description ||
+    row.sourceUrl ||
+    row.sourceEvidence ||
+    row.confidence ||
+    row.notes ||
+    (row.warnings && row.warnings.length > 0);
+
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-0 pb-0 pt-0">
+        <div className="mx-3 mb-3 rounded-lg border border-border/30 bg-muted/20 p-3 space-y-3">
+          {!hasDetails && (
+            <p className="text-xs text-muted-foreground italic">No hay información adicional para esta fila.</p>
+          )}
+
+          {/* Grid: descripción, evidencia, fuente, confianza, notas */}
+          {(row.description || row.sourceUrl || row.sourceEvidence || row.confidence || row.notes) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {row.description && (
+                <div className="space-y-0.5 col-span-full">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Descripción</p>
+                  <p className="text-xs text-foreground leading-relaxed">{row.description}</p>
+                </div>
+              )}
+              {row.sourceUrl && (
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">URL de evidencia</p>
+                  <a
+                    href={row.sourceUrl.startsWith('http') ? row.sourceUrl : `https://${row.sourceUrl}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    {extractDomain(row.sourceUrl) ?? row.sourceUrl}
+                  </a>
+                </div>
+              )}
+              {row.sourceEvidence && (
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Fuente / evidencia</p>
+                  <p className="text-xs text-foreground">{row.sourceEvidence}</p>
+                </div>
+              )}
+              {row.confidence && (
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Confianza</p>
+                  <p className="text-xs text-foreground">{row.confidence}</p>
+                </div>
+              )}
+              {row.notes && (
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Notas</p>
+                  <p className="text-xs text-foreground">{row.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Original values when normalized/corrected */}
+          {(row.industryOriginalValue || row.subindustryOriginalValue) &&
+            (row.correctionSource === 'manual' ||
+              row.industryMatchStatus === 'alias_match' ||
+              row.industryMatchStatus === 'normalized_match' ||
+              row.subindustryMatchStatus === 'alias_match' ||
+              row.subindustryMatchStatus === 'normalized_match') && (
+            <div className="space-y-1 border-t border-border/20 pt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Valores originales</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {row.industryOriginalValue && (
+                  <span>Industria: <em>{row.industryOriginalValue}</em></span>
+                )}
+                {row.subindustryOriginalValue && (
+                  <span>Subindustria: <em>{row.subindustryOriginalValue}</em></span>
+                )}
+                {row.correctionSource === 'manual' && (
+                  <span className="text-su-brand font-medium">— corregido manualmente</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Warnings */}
+          {row.warnings && row.warnings.length > 0 && (
+            <div className="space-y-1 border-t border-border/20 pt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-500/80">Advertencias de clasificación</p>
+              <ul className="space-y-0.5">
+                {row.warnings.map((w, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                    <span>{w.message}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Requires review reason */}
+          {row.requiresHumanReview && (
+            <div className="space-y-0.5 border-t border-border/20 pt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-destructive/80">Motivo de revisión requerida</p>
+              <p className="text-xs text-destructive">
+                Esta fila requiere corrección manual antes de poder importarse.
+                {row.industryCanonicalId === null && ' La industria no pudo clasificarse automáticamente.'}
+              </p>
+            </div>
+          )}
+
+          {/* Web links summary (shown in detail even if shown in columns) */}
+          {(websiteDomain || linkedinDomain) && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border/20 pt-2">
+              {websiteDomain && row.website && (
+                <a
+                  href={row.website.startsWith('http') ? row.website : `https://${row.website}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                  {websiteDomain}
+                </a>
+              )}
+              {linkedinDomain && row.linkedinUrl && (
+                <a
+                  href={row.linkedinUrl.startsWith('http') ? row.linkedinUrl : `https://${row.linkedinUrl}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                  {linkedinDomain}
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ImportClassificationTable({
@@ -153,6 +339,9 @@ export function ImportClassificationTable({
   const [editSaving, setEditSaving] = React.useState(false);
   const [editError, setEditError] = React.useState<string | null>(null);
   const [editApplyToEquivalent, setEditApplyToEquivalent] = React.useState(false);
+
+  // ── Expanded detail state — only one at a time ───────────────────────────────
+  const [expandedRowNumber, setExpandedRowNumber] = React.useState<number | null>(null);
 
   // ── Escape cancels editing ──────────────────────────────────────────────────
   React.useEffect(() => {
@@ -212,12 +401,18 @@ export function ImportClassificationTable({
     setEditError(null);
     setEditSaving(false);
     setEditApplyToEquivalent(false);
+    // Collapse detail row when editing starts to avoid visual overlap
+    setExpandedRowNumber(null);
   }
 
   function cancelEditing() {
     setEditingRowNumber(null);
     setEditError(null);
     setEditApplyToEquivalent(false);
+  }
+
+  function toggleDetail(rowNumber: number) {
+    setExpandedRowNumber((prev) => (prev === rowNumber ? null : rowNumber));
   }
 
   // ── Save correction ──────────────────────────────────────────────────────────
@@ -310,10 +505,86 @@ export function ImportClassificationTable({
         accessorKey: 'companyName',
         header: 'Empresa',
         cell: ({ row }) => (
-          <span className="text-xs font-medium text-foreground truncate block max-w-[180px]">
+          <span className="text-xs font-medium text-foreground block max-w-[160px] truncate" title={row.original.companyName}>
             {row.original.companyName}
           </span>
         ),
+      },
+      {
+        id: 'country',
+        header: 'País',
+        cell: ({ row }) => (
+          <span className="text-xs text-foreground whitespace-nowrap">
+            {countryLabel(row.original.countryCode)}
+          </span>
+        ),
+        size: 90,
+      },
+      {
+        id: 'website',
+        header: 'Sitio web',
+        cell: ({ row }) => {
+          const domain = extractDomain(row.original.website);
+          if (!domain || !row.original.website) return <span className="text-xs text-muted-foreground">—</span>;
+          const href = row.original.website.startsWith('http') ? row.original.website : `https://${row.original.website}`;
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline max-w-[120px] truncate"
+              title={domain}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {domain}
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          );
+        },
+        size: 130,
+      },
+      {
+        id: 'linkedin',
+        header: 'LinkedIn',
+        cell: ({ row }) => {
+          const domain = extractDomain(row.original.linkedinUrl);
+          if (!domain || !row.original.linkedinUrl) return <span className="text-xs text-muted-foreground">—</span>;
+          const href = row.original.linkedinUrl.startsWith('http') ? row.original.linkedinUrl : `https://${row.original.linkedinUrl}`;
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline max-w-[120px] truncate"
+              title={row.original.linkedinUrl}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {domain.replace('linkedin.com/', 'li/')}
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          );
+        },
+        size: 130,
+      },
+      {
+        id: 'city',
+        header: 'Ciudad',
+        cell: ({ row }) => (
+          <span className="text-xs text-foreground whitespace-nowrap">
+            {row.original.city ?? '—'}
+          </span>
+        ),
+        size: 90,
+      },
+      {
+        id: 'companySize',
+        header: 'Tamaño',
+        cell: ({ row }) => (
+          <span className="text-xs text-foreground whitespace-nowrap">
+            {row.original.companySize ?? '—'}
+          </span>
+        ),
+        size: 90,
       },
       {
         accessorKey: 'industryCanonicalName',
@@ -334,7 +605,6 @@ export function ImportClassificationTable({
                     setEditIndustryId(e.target.value);
                     setEditSubindustryId('');
                   }}
-                  // eslint-disable-next-line jsx-a11y/no-autofocus
                   autoFocus
                 >
                   <option value="">Seleccionar industria</option>
@@ -433,6 +703,8 @@ export function ImportClassificationTable({
         header: 'Acciones',
         cell: ({ row }) => {
           const isEditing = editingRowNumber === row.original.rowNumber;
+          const isExpanded = expandedRowNumber === row.original.rowNumber;
+
           if (isEditing) {
             return (
               <div
@@ -474,25 +746,42 @@ export function ImportClassificationTable({
               </div>
             );
           }
-          if (!catalog) return null;
+
           return (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                startEditing(row.original);
-              }}
-              className="h-7 gap-1 text-[10px] text-su-brand hover:text-su-brand"
-              aria-label={`Corregir clasificación de ${row.original.companyName}`}
-            >
-              <Pencil className="h-3 w-3" />
-              Corregir
-            </Button>
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => toggleDetail(row.original.rowNumber)}
+                className="h-7 gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                aria-label={isExpanded ? `Cerrar detalles de ${row.original.companyName}` : `Ver detalles de ${row.original.companyName}`}
+                aria-expanded={isExpanded}
+              >
+                {isExpanded ? (
+                  <ChevronUp className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+                {isExpanded ? 'Cerrar' : 'Ver detalles'}
+              </Button>
+              {catalog && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => startEditing(row.original)}
+                  className="h-7 gap-1 text-[10px] text-su-brand hover:text-su-brand"
+                  aria-label={`Corregir clasificación de ${row.original.companyName}`}
+                >
+                  <Pencil className="h-3 w-3" />
+                  Corregir
+                </Button>
+              )}
+            </div>
           );
         },
-        size: 140,
+        size: 200,
       },
     ],
     [
@@ -500,6 +789,7 @@ export function ImportClassificationTable({
       editingRowNumber, editIndustryId, editSubindustryId,
       editSaving, editError, editApplyToEquivalent,
       catalog, industryOptions, subindustryOptions, equivalentRows,
+      expandedRowNumber,
       handleSaveEdit,
     ],
   );
@@ -557,30 +847,35 @@ export function ImportClassificationTable({
               table.getRowModel().rows.map((row) => {
                 const isSelected = selectedRowIds.has(row.original.rowNumber);
                 const isEditing = editingRowNumber === row.original.rowNumber;
+                const isExpanded = expandedRowNumber === row.original.rowNumber;
                 return (
-                  <tr
-                    key={row.id}
-                    className={cn(
-                      'transition-colors',
-                      isEditing && 'bg-su-brand-soft/20 ring-1 ring-inset ring-su-brand/30',
-                      !isEditing && isSelected && 'bg-su-brand-soft/30 hover:bg-su-brand-soft/50 cursor-pointer',
-                      !isEditing && !isSelected && 'hover:bg-muted/20 opacity-60 cursor-pointer',
-                      !isEditing && row.original.requiresHumanReview && isSelected && 'bg-destructive/5 hover:bg-destructive/10',
+                  <React.Fragment key={row.id}>
+                    <tr
+                      className={cn(
+                        'transition-colors',
+                        isEditing && 'bg-su-brand-soft/20 ring-1 ring-inset ring-su-brand/30',
+                        !isEditing && isSelected && 'bg-su-brand-soft/30 hover:bg-su-brand-soft/50 cursor-pointer',
+                        !isEditing && !isSelected && 'hover:bg-muted/20 opacity-60 cursor-pointer',
+                        !isEditing && row.original.requiresHumanReview && isSelected && 'bg-destructive/5 hover:bg-destructive/10',
+                      )}
+                      onClick={() => {
+                        if (isEditing) return;
+                        const next = new Set(selectedRowIds);
+                        if (isSelected) next.delete(row.original.rowNumber);
+                        else next.add(row.original.rowNumber);
+                        onSelectionChange(next);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-3 py-2.5 align-top">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
+                    {isExpanded && !isEditing && (
+                      <ExpandedDetailRow row={row.original} colSpan={columns.length} />
                     )}
-                    onClick={() => {
-                      if (isEditing) return;
-                      const next = new Set(selectedRowIds);
-                      if (isSelected) next.delete(row.original.rowNumber);
-                      else next.add(row.original.rowNumber);
-                      onSelectionChange(next);
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-3 py-2.5 align-top">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
+                  </React.Fragment>
                 );
               })
             )}

@@ -52,6 +52,17 @@ export type ImportClassificationPreviewRow = {
   warnings: ClassificationWarning[];
 
   correctionSource: 'automatic' | 'suggested' | 'manual' | null;
+
+  // Preview data fields — carried from raw import row for display in unified table
+  website?: string | null;
+  linkedinUrl?: string | null;
+  city?: string | null;
+  companySize?: string | null;
+  description?: string | null;
+  sourceUrl?: string | null;
+  sourceEvidence?: string | null;
+  confidence?: string | null;
+  notes?: string | null;
 };
 
 // ── Classification status UX mapping ──────────────────────────────────────────

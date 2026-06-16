@@ -579,6 +579,16 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         countryCode: contextRow.countryCode,
         industryOriginalValue: contextRow.industryOriginalValue,
         subindustryOriginalValue: contextRow.subindustryOriginalValue,
+        // Round-trip preview fields so the row keeps showing them after correction
+        website: contextRow.website ?? null,
+        linkedinUrl: contextRow.linkedinUrl ?? null,
+        city: contextRow.city ?? null,
+        companySize: contextRow.companySize ?? null,
+        description: contextRow.description ?? null,
+        sourceUrl: contextRow.sourceUrl ?? null,
+        sourceEvidence: contextRow.sourceEvidence ?? null,
+        confidence: contextRow.confidence ?? null,
+        notes: contextRow.notes ?? null,
       }),
     });
 
@@ -861,7 +871,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         step === 'input'
           ? "Importar candidatos externos"
           : step === 'classification'
-          ? "Clasificación de industrias"
+          ? "Previsualización y clasificación"
           : step === 'preview'
           ? "Vista previa de importación"
           : "Candidatos importados para revisión"
@@ -874,7 +884,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             ? "Detectamos columnas con mapeo ambiguo. Corrígelas antes de clasificar."
             : loadingClassification
               ? "Clasificando industrias y subindustrias contra el catálogo oficial…"
-              : "Revisa el estado de clasificación, corrige las filas que lo requieran y confirma las seleccionadas."
+              : "Revisa los datos detectados, corrige la clasificación cuando sea necesario y selecciona las empresas que quieres importar."
           : step === 'preview'
           ? "Revisa los datos antes de importar. Solo se importarán filas válidas y con advertencias."
           : `SellUp importó ${resultCount} prospecto${resultCount !== 1 ? 's' : ''} externo${resultCount !== 1 ? 's' : ''}. Revísalos antes de aprobarlos como cuentas.`

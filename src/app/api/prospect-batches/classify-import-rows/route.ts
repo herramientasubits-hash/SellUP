@@ -141,6 +141,17 @@ export async function POST(request: NextRequest) {
       warnings: r.classification.classificationWarnings,
 
       correctionSource: null,
+
+      // Preview data fields — carried through so the unified table can display them
+      website: r.parsedRow.raw.website ?? null,
+      linkedinUrl: r.parsedRow.raw.linkedin_url ?? null,
+      city: r.parsedRow.raw.city ?? null,
+      companySize: r.parsedRow.raw.company_size ?? null,
+      description: r.parsedRow.raw.description ?? null,
+      sourceUrl: r.parsedRow.raw.source_url ?? null,
+      sourceEvidence: r.parsedRow.raw.source_evidence ?? null,
+      confidence: r.parsedRow.raw.confidence ?? null,
+      notes: r.parsedRow.raw.notes ?? null,
     }));
 
     return NextResponse.json({

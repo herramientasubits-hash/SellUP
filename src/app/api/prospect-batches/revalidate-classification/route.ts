@@ -21,6 +21,16 @@ type RevalidateRequest = {
   countryCode?: string | null;
   industryOriginalValue?: string | null;
   subindustryOriginalValue?: string | null;
+  // Preview data fields — round-tripped so the UI can keep showing them after correction
+  website?: string | null;
+  linkedinUrl?: string | null;
+  city?: string | null;
+  companySize?: string | null;
+  description?: string | null;
+  sourceUrl?: string | null;
+  sourceEvidence?: string | null;
+  confidence?: string | null;
+  notes?: string | null;
 };
 
 // ── POST handler ──────────────────────────────────────────────────────────────
@@ -127,6 +137,17 @@ export async function POST(request: NextRequest) {
       requiresHumanReview: false,
       warnings: [],
       correctionSource: 'manual',
+
+      // Preserve preview data fields round-tripped from the client
+      website: input.website ?? null,
+      linkedinUrl: input.linkedinUrl ?? null,
+      city: input.city ?? null,
+      companySize: input.companySize ?? null,
+      description: input.description ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      sourceEvidence: input.sourceEvidence ?? null,
+      confidence: input.confidence ?? null,
+      notes: input.notes ?? null,
     };
 
     return NextResponse.json({ success: true, row });
