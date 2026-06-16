@@ -165,6 +165,77 @@ function ClassificationCell({
   );
 }
 
+// ── Warning message translator (classifier emits messages in English) ──────────
+
+function translateWarning(message: string): string {
+  if (/^Industry value is empty or not provided/.test(message))
+    return 'El valor de industria está vacío o no fue proporcionado.';
+
+  const industryNotFound = message.match(/^Industry not found in catalog: "(.+)"\./);
+  if (industryNotFound)
+    return `La industria "${industryNotFound[1]}" no existe en el catálogo actual.`;
+
+  const industryAmbiguous = message.match(/^Ambiguous industry name: "(.+)"\./);
+  if (industryAmbiguous)
+    return `El nombre de industria "${industryAmbiguous[1]}" es ambiguo.`;
+
+  const industryAmbiguousNorm = message.match(/^Ambiguous industry after normalization: "(.+)"\./);
+  if (industryAmbiguousNorm)
+    return `La industria "${industryAmbiguousNorm[1]}" es ambigua tras la normalización.`;
+
+  if (/^Subindustry value is empty or not provided/.test(message))
+    return 'El valor de subindustria está vacío o no fue proporcionado.';
+
+  const subNotFound = message.match(/^Subindustry not found in catalog: "(.+)"\./);
+  if (subNotFound)
+    return `La subindustria "${subNotFound[1]}" no existe en el catálogo actual.`;
+
+  const subWrongIndustry = message.match(/^Subindustry "(.+)" was found in catalog but does not belong/);
+  if (subWrongIndustry)
+    return `La subindustria "${subWrongIndustry[1]}" existe en el catálogo pero no pertenece a la industria detectada.`;
+
+  const subAmbiguousWithin = message.match(/^Ambiguous subindustry "(.+)" — multiple matches within/);
+  if (subAmbiguousWithin)
+    return `La subindustria "${subAmbiguousWithin[1]}" es ambigua — múltiples coincidencias dentro de la industria detectada.`;
+
+  const subAmbiguousAcross = message.match(/^Ambiguous subindustry "(.+)" — multiple matches across/);
+  if (subAmbiguousAcross)
+    return `La subindustria "${subAmbiguousAcross[1]}" es ambigua — múltiples coincidencias en distintas industrias.`;
+
+  const subRecognized = message.match(/^Subindustry "(.+)" recognized; parent industry suggested/);
+  if (subRecognized)
+    return `La subindustria "${subRecognized[1]}" fue reconocida; industria sugerida pero no confirmada.`;
+
+  const subCountryRequired = message.match(/^Subindustry "(.+)" has country restrictions but no country code/);
+  if (subCountryRequired)
+    return `La subindustria "${subCountryRequired[1]}" tiene restricciones por país, pero no se proporcionó código de país.`;
+
+  const subNotApplicable = message.match(/^Subindustry "(.+)" is not applicable to country "(.+)"/);
+  if (subNotApplicable)
+    return `La subindustria "${subNotApplicable[1]}" no aplica para el país "${subNotApplicable[2]}".`;
+
+  return message;
+}
+
+// ── DetailField — labeled field for the expanded detail layout ────────────────
+
+function DetailField({
+  label,
+  value,
+  fullWidth,
+}: {
+  label: string;
+  value: React.ReactNode;
+  fullWidth?: boolean;
+}) {
+  return (
+    <div className={cn('space-y-0.5', fullWidth && 'col-span-full')}>
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">{label}</p>
+      <div className="text-xs text-foreground">{value}</div>
+    </div>
+  );
+}
+
 // ── ExpandedDetailRow ─────────────────────────────────────────────────────────
 
 function ExpandedDetailRow({
@@ -174,145 +245,249 @@ function ExpandedDetailRow({
   row: ImportClassificationPreviewRow;
   colSpan: number;
 }) {
-  const websiteDomain = extractDomain(row.website);
-  const linkedinDomain = extractDomain(row.linkedinUrl);
+  const statusConfig = CLASSIFICATION_STATUS_MAP[row.validationStatus];
 
-  const hasDetails =
+  const websiteHref = row.website
+    ? row.website.startsWith('http') ? row.website : `https://${row.website}`
+    : null;
+  const linkedinHref = row.linkedinUrl
+    ? row.linkedinUrl.startsWith('http') ? row.linkedinUrl : `https://${row.linkedinUrl}`
+    : null;
+  const sourceHref = row.sourceUrl
+    ? row.sourceUrl.startsWith('http') ? row.sourceUrl : `https://${row.sourceUrl}`
+    : null;
+
+  const showOriginalValues =
+    (row.industryOriginalValue || row.subindustryOriginalValue) &&
+    (row.correctionSource === 'manual' ||
+      row.industryMatchStatus === 'alias_match' ||
+      row.industryMatchStatus === 'normalized_match' ||
+      row.subindustryMatchStatus === 'alias_match' ||
+      row.subindustryMatchStatus === 'normalized_match');
+
+  const hasInfoBlock =
     row.description ||
-    row.sourceUrl ||
-    row.sourceEvidence ||
+    row.countryCode ||
+    row.city ||
+    row.website ||
+    row.linkedinUrl ||
+    row.companySize ||
     row.confidence ||
-    row.notes ||
-    (row.warnings && row.warnings.length > 0);
+    row.notes;
+
+  const hasEvidenceBlock = row.sourceUrl || row.sourceEvidence;
+
+  const hasClassificationBlock =
+    row.industryCanonicalName ||
+    row.subindustryCanonicalName ||
+    showOriginalValues ||
+    (row.warnings && row.warnings.length > 0) ||
+    row.requiresHumanReview;
 
   return (
     <tr>
       <td colSpan={colSpan} className="px-0 pb-0 pt-0">
-        <div className="mx-3 mb-3 rounded-lg border border-border/30 bg-muted/20 p-3 space-y-3">
-          {!hasDetails && (
-            <p className="text-xs text-muted-foreground italic">No hay información adicional para esta fila.</p>
-          )}
+        <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/30 bg-muted/20">
 
-          {/* Grid: descripción, evidencia, fuente, confianza, notas */}
-          {(row.description || row.sourceUrl || row.sourceEvidence || row.confidence || row.notes) && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {row.description && (
-                <div className="space-y-0.5 col-span-full">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Descripción</p>
-                  <p className="text-xs text-foreground leading-relaxed">{row.description}</p>
-                </div>
-              )}
-              {row.sourceUrl && (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">URL de evidencia</p>
-                  <a
-                    href={row.sourceUrl.startsWith('http') ? row.sourceUrl : `https://${row.sourceUrl}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline"
-                  >
-                    <ExternalLink className="h-3 w-3 shrink-0" />
-                    {extractDomain(row.sourceUrl) ?? row.sourceUrl}
-                  </a>
-                </div>
-              )}
-              {row.sourceEvidence && (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Fuente / evidencia</p>
-                  <p className="text-xs text-foreground">{row.sourceEvidence}</p>
-                </div>
-              )}
-              {row.confidence && (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Confianza</p>
-                  <p className="text-xs text-foreground">{row.confidence}</p>
-                </div>
-              )}
-              {row.notes && (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Notas</p>
-                  <p className="text-xs text-foreground">{row.notes}</p>
-                </div>
-              )}
-            </div>
-          )}
+          {/* ── Bloque 1: Resumen ──────────────────────────────────────────────── */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/20 bg-muted/30 px-3 py-2">
+            <span className="text-xs font-semibold text-foreground">{row.companyName}</span>
+            <span className={cn(
+              'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+              row.validationStatus === 'valid' || row.validationStatus === 'normalized'
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                : row.validationStatus === 'warning'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : 'bg-destructive/10 text-destructive',
+            )}>
+              {statusConfig.label}
+            </span>
+            {row.industryCanonicalName && (
+              <span className="text-[10px] text-muted-foreground">
+                {row.industryCanonicalName}
+                {row.subindustryCanonicalName && (
+                  <> · <span className="text-muted-foreground/80">{row.subindustryCanonicalName}</span></>
+                )}
+              </span>
+            )}
+          </div>
 
-          {/* Original values when normalized/corrected */}
-          {(row.industryOriginalValue || row.subindustryOriginalValue) &&
-            (row.correctionSource === 'manual' ||
-              row.industryMatchStatus === 'alias_match' ||
-              row.industryMatchStatus === 'normalized_match' ||
-              row.subindustryMatchStatus === 'alias_match' ||
-              row.subindustryMatchStatus === 'normalized_match') && (
-            <div className="space-y-1 border-t border-border/20 pt-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Valores originales</p>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {row.industryOriginalValue && (
-                  <span>Industria: <em>{row.industryOriginalValue}</em></span>
+          <div className="p-3 space-y-4">
+
+            {/* ── Bloque 2: Información detectada ─────────────────────────────── */}
+            {hasInfoBlock && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                  Información detectada
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+                  {row.description && (
+                    <DetailField
+                      label="Descripción"
+                      fullWidth
+                      value={<span className="leading-relaxed">{row.description}</span>}
+                    />
+                  )}
+                  {row.countryCode && (
+                    <DetailField label="País" value={countryLabel(row.countryCode)} />
+                  )}
+                  {row.city && (
+                    <DetailField label="Ciudad" value={row.city} />
+                  )}
+                  {row.companySize && (
+                    <DetailField label="Tamaño" value={row.companySize} />
+                  )}
+                  {row.confidence && (
+                    <DetailField label="Confianza" value={row.confidence} />
+                  )}
+                  {websiteHref && (
+                    <DetailField
+                      label="Sitio web"
+                      value={
+                        <a
+                          href={websiteHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
+                          title={row.website ?? undefined}
+                        >
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                          {extractDomain(row.website) ?? row.website}
+                        </a>
+                      }
+                    />
+                  )}
+                  {linkedinHref && (
+                    <DetailField
+                      label="LinkedIn"
+                      value={
+                        <a
+                          href={linkedinHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
+                          title={row.linkedinUrl ?? undefined}
+                        >
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                          {extractDomain(row.linkedinUrl)?.replace('linkedin.com/', 'li/') ?? row.linkedinUrl}
+                        </a>
+                      }
+                    />
+                  )}
+                  {row.notes && (
+                    <DetailField label="Notas" fullWidth value={row.notes} />
+                  )}
+                  {!hasInfoBlock && (
+                    <p className="col-span-full text-xs text-muted-foreground italic">No disponible</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Bloque 3: Evidencia ──────────────────────────────────────────── */}
+            {hasEvidenceBlock && (
+              <div className="space-y-2 border-t border-border/20 pt-3">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                  Evidencia
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+                  {sourceHref && (
+                    <DetailField
+                      label="URL de evidencia"
+                      value={
+                        <a
+                          href={sourceHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
+                          title={row.sourceUrl ?? undefined}
+                        >
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                          {extractDomain(row.sourceUrl) ?? row.sourceUrl}
+                        </a>
+                      }
+                    />
+                  )}
+                  {row.sourceEvidence && (
+                    <DetailField label="Fuente / evidencia" value={row.sourceEvidence} />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Bloque 4: Clasificación ──────────────────────────────────────── */}
+            {hasClassificationBlock && (
+              <div className="space-y-2 border-t border-border/20 pt-3">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                  Clasificación
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+                  {row.industryCanonicalName && (
+                    <DetailField label="Industria detectada" value={row.industryCanonicalName} />
+                  )}
+                  {row.subindustryCanonicalName && (
+                    <DetailField label="Subindustria detectada" value={row.subindustryCanonicalName} />
+                  )}
+                </div>
+
+                {/* Valores originales */}
+                {showOriginalValues && (
+                  <div className="mt-2 rounded-md bg-muted/40 px-3 py-2 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                      Valores originales
+                    </p>
+                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                      {row.industryOriginalValue && (
+                        <span>Industria: <em>{row.industryOriginalValue}</em></span>
+                      )}
+                      {row.subindustryOriginalValue && (
+                        <span>Subindustria: <em>{row.subindustryOriginalValue}</em></span>
+                      )}
+                      {row.correctionSource === 'manual' && (
+                        <span className="text-su-brand font-medium">— corregido manualmente</span>
+                      )}
+                    </div>
+                  </div>
                 )}
-                {row.subindustryOriginalValue && (
-                  <span>Subindustria: <em>{row.subindustryOriginalValue}</em></span>
+
+                {/* Advertencias */}
+                {row.warnings && row.warnings.length > 0 && (
+                  <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/8 px-3 py-2 space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
+                      Advertencias de clasificación
+                    </p>
+                    <ul className="space-y-1">
+                      {row.warnings.map((w, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+                          <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                          <span>{translateWarning(w.message)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
-                {row.correctionSource === 'manual' && (
-                  <span className="text-su-brand font-medium">— corregido manualmente</span>
+
+                {/* Motivo de revisión requerida */}
+                {row.requiresHumanReview && (
+                  <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-destructive/80">
+                      Motivo de revisión requerida
+                    </p>
+                    <p className="text-xs text-destructive leading-relaxed">
+                      Esta fila requiere corrección manual antes de poder importarse.
+                      {row.industryCanonicalId === null &&
+                        ' La industria no pudo clasificarse automáticamente.'}
+                    </p>
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Warnings */}
-          {row.warnings && row.warnings.length > 0 && (
-            <div className="space-y-1 border-t border-border/20 pt-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-500/80">Advertencias de clasificación</p>
-              <ul className="space-y-0.5">
-                {row.warnings.map((w, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
-                    <span>{w.message}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Requires review reason */}
-          {row.requiresHumanReview && (
-            <div className="space-y-0.5 border-t border-border/20 pt-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-destructive/80">Motivo de revisión requerida</p>
-              <p className="text-xs text-destructive">
-                Esta fila requiere corrección manual antes de poder importarse.
-                {row.industryCanonicalId === null && ' La industria no pudo clasificarse automáticamente.'}
-              </p>
-            </div>
-          )}
-
-          {/* Web links summary (shown in detail even if shown in columns) */}
-          {(websiteDomain || linkedinDomain) && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border/20 pt-2">
-              {websiteDomain && row.website && (
-                <a
-                  href={row.website.startsWith('http') ? row.website : `https://${row.website}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  <ExternalLink className="h-3 w-3 shrink-0" />
-                  {websiteDomain}
-                </a>
-              )}
-              {linkedinDomain && row.linkedinUrl && (
-                <a
-                  href={row.linkedinUrl.startsWith('http') ? row.linkedinUrl : `https://${row.linkedinUrl}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  <ExternalLink className="h-3 w-3 shrink-0" />
-                  {linkedinDomain}
-                </a>
-              )}
-            </div>
-          )}
+            {/* Empty state */}
+            {!hasInfoBlock && !hasEvidenceBlock && !hasClassificationBlock && (
+              <p className="text-xs text-muted-foreground italic">No hay información adicional para esta fila.</p>
+            )}
+          </div>
         </div>
       </td>
     </tr>
