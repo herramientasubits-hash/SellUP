@@ -17,6 +17,7 @@ import {
   ArrowRight,
   AlertTriangle,
   RefreshCw,
+  Filter,
 } from 'lucide-react';
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -148,6 +149,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   const [originalSubindustryColumn, setOriginalSubindustryColumn] = React.useState<string | null>(null);
   const [catalogVersionChanged, setCatalogVersionChanged] = React.useState(false);
 
+  // ── Row selection state (classification step) ──────────────────────────────
+  const [classificationSelectedIds, setClassificationSelectedIds] = React.useState<Set<number>>(new Set());
+
   function resetState() {
     setStep('input');
     setFileMethod('paste');
@@ -184,6 +188,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     setOriginalIndustryColumn(null);
     setOriginalSubindustryColumn(null);
     setCatalogVersionChanged(false);
+    setClassificationSelectedIds(new Set());
   }
 
   function handleClose() {
@@ -452,9 +457,11 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     };
   }
 
-  // ── Handle mapping step: detect columns and go to classification ────────────
+  // ── Handle mapping step: immediately show classification step with loading ──
   async function handleBuildClassification() {
     if (!preview) return;
+    // Transition immediately so user sees the classification step loading
+    setStep('classification');
     setLoadingClassification(true);
     setClassificationError(null);
     try {
@@ -522,7 +529,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         lastChecked: new Date(),
       });
 
-      // Reuse catalog loaded in input step; fetch only if missing (e.g. drawer re-used without closing)
+      // Initialize all rows as selected by default
+      setClassificationSelectedIds(new Set(result.rows.map((r) => r.rowNumber)));
+
+      // Reuse catalog loaded in input step; fetch only if missing
       if (!catalogData) {
         const catalogRes = await fetch('/api/prospect-batches/import-catalog');
         if (catalogRes.ok) {
@@ -541,11 +551,11 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           }
         }
       }
-
-      setStep('classification');
     } catch (err) {
       setClassificationError(err instanceof Error ? err.message : 'Error al clasificar');
       toast.error(err instanceof Error ? err.message : 'Error al clasificar');
+      // Revert to mapping step on error so user can retry
+      setStep('mapping');
     } finally {
       setLoadingClassification(false);
     }
@@ -626,12 +636,13 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     }
   }
 
-  // ── Handle final confirmation with classification results ──────────────────
+  // ── Handle final confirmation — only imports explicitly selected rows ────────
   async function handleConfirmWithClassification() {
     if (!preview || !catalogVersion) return;
-    // Import only rows that are valid/normalized/warning (not requires_review or invalid)
+    // Import only the rows the user has selected (blocking logic already prevents
+    // this being called when selected rows have requires_review/invalid status)
     const rowsToImport = classificationRows
-      .filter((r) => r.validationStatus === 'valid' || r.validationStatus === 'normalized' || r.validationStatus === 'warning')
+      .filter((r) => classificationSelectedIds.has(r.rowNumber))
       .map((r) => {
         const originalRow = preview.rows.find((pr) => pr.index === r.rowNumber - 1);
         return originalRow;
@@ -639,7 +650,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       .filter((r): r is ImportRow => r !== undefined);
 
     if (rowsToImport.length === 0) {
-      toast.error('No hay filas válidas para importar. Corrige las que requieren revisión.');
+      toast.error('Selecciona al menos una fila para importar.');
       return;
     }
 
@@ -837,6 +848,31 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     return (counts.get('industry') ?? 0) > 1 || (counts.get('subindustry') ?? 0) > 1;
   }, [columnMappings]);
 
+  // ── Selection-aware classification logic ───────────────────────────────────
+  const selectedBlockingCount = React.useMemo(() => {
+    return classificationRows.filter(
+      (r) =>
+        classificationSelectedIds.has(r.rowNumber) &&
+        (r.validationStatus === 'requires_review' || r.validationStatus === 'invalid'),
+    ).length;
+  }, [classificationRows, classificationSelectedIds]);
+
+  const canImportSelected =
+    classificationSelectedIds.size > 0 && selectedBlockingCount === 0 && !catalogVersionChanged;
+
+  // Filter options for classification step tabs (rendered in parent, not in table)
+  const classificationFilterOptions: Array<{
+    value: ClassificationFilterStatus;
+    label: string;
+    count: number;
+  }> = [
+    { value: 'all', label: 'Todas', count: classificationSummary?.total ?? 0 },
+    { value: 'valid', label: 'Listas', count: classificationSummary?.valid ?? 0 },
+    { value: 'normalized', label: 'Normalizadas', count: classificationSummary?.normalized ?? 0 },
+    { value: 'warning', label: 'Con advertencias', count: classificationSummary?.warning ?? 0 },
+    { value: 'requires_review', label: 'Requieren revisión', count: classificationSummary?.requiresReview ?? 0 },
+  ];
+
   return (
     <DrawerShell
       open={open}
@@ -915,7 +951,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
                   <p className="text-[11px] text-muted-foreground">
-                    Revisa el mapeo detectado. Puedes cambiar la columna asignada a Industria o Subindustria si el autodetect falló.
+                    Revisa el mapeo detectado. Al continuar, SellUp clasificará automáticamente cada fila contra el catálogo oficial.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 justify-end shrink-0">
@@ -926,7 +962,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   <Button
                     type="button"
                     onClick={handleBuildClassification}
-                    disabled={loadingClassification}
+                    disabled={loadingClassification || hasMappingConflict}
                     size="sm"
                     className="gap-2 text-xs font-semibold bg-su-brand text-white hover:bg-su-brand/90"
                   >
@@ -936,31 +972,37 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         Clasificando…
                       </>
                     ) : (
-                      'Clasificar y revisar'
+                      <>
+                        Continuar a revisión
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </>
                     )}
                   </Button>
                 </div>
               </div>
             )}
 
-            {step === 'classification' && classificationSummary && (
+            {step === 'classification' && !loadingClassification && classificationSummary && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
-                  {classificationSummary.requiresReview > 0 && (
+                  {classificationSelectedIds.size === 0 && (
+                    <p className="text-[11px] text-muted-foreground font-medium">
+                      Selecciona al menos una fila para importar.
+                    </p>
+                  )}
+                  {classificationSelectedIds.size > 0 && selectedBlockingCount > 0 && (
                     <p className="text-[11px] text-destructive font-medium">
-                      {classificationSummary.requiresReview} fila{classificationSummary.requiresReview !== 1 ? 's' : ''} requieren corrección manual.
+                      Corrige o deselecciona {selectedBlockingCount} fila{selectedBlockingCount !== 1 ? 's' : ''} para continuar.
                     </p>
                   )}
-                  {classificationSummary.warning > 0 && classificationSummary.requiresReview === 0 && (
-                    <p className="text-[11px] text-amber-500 font-medium">
-                      {classificationSummary.warning} fila{classificationSummary.warning !== 1 ? 's' : ''} con advertencias (se pueden importar).
-                    </p>
-                  )}
-                  {classificationSummary.requiresReview === 0 && classificationSummary.warning === 0 && (
+                  {classificationSelectedIds.size > 0 && selectedBlockingCount === 0 && (
                     <p className="text-[11px] text-emerald-500 font-medium">
-                      Todas las filas listas para importar.
+                      {classificationSelectedIds.size} fila{classificationSelectedIds.size !== 1 ? 's' : ''} seleccionada{classificationSelectedIds.size !== 1 ? 's' : ''} listas para importar.
                     </p>
                   )}
+                  <p className="text-[10px] text-muted-foreground">
+                    Seleccionadas: {classificationSelectedIds.size} de {classificationRows.length}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 justify-end shrink-0">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setStep('mapping')} className="text-xs">
@@ -970,11 +1012,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   <Button
                     type="button"
                     onClick={handleConfirmWithClassification}
-                    disabled={
-                      confirming ||
-                      classificationSummary.requiresReview > 0 ||
-                      classificationSummary.invalid > 0
-                    }
+                    disabled={confirming || !canImportSelected}
                     size="sm"
                     className="gap-2 text-xs font-semibold"
                   >
@@ -984,7 +1022,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         Importando y validando…
                       </>
                     ) : (
-                      `Importar ${classificationSummary.valid + classificationSummary.normalized + classificationSummary.warning} candidatos`
+                      `Importar ${classificationSelectedIds.size} candidato${classificationSelectedIds.size !== 1 ? 's' : ''}`
                     )}
                   </Button>
                 </div>
@@ -1363,8 +1401,35 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         </div>
       )}
 
-      {/* ── Step: classification ───────────────────────────── */}
-      {step === 'classification' && classificationSummary && (
+      {/* ── Step: classification — loading skeleton ────────── */}
+      {step === 'classification' && loadingClassification && (
+        <div className="flex flex-col flex-1 min-h-0 gap-4">
+          <div className="animate-pulse space-y-3">
+            {/* Banner skeleton */}
+            <div className="h-14 rounded-xl bg-muted/60" />
+            {/* Stat cards skeleton */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-20 rounded-xl bg-muted/40" />
+              ))}
+            </div>
+            {/* Filter tabs skeleton */}
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-7 w-20 rounded-lg bg-muted/40" />
+              ))}
+            </div>
+            {/* Table skeleton */}
+            <div className="h-64 rounded-xl bg-muted/40" />
+          </div>
+          <p className="text-center text-xs text-muted-foreground animate-pulse">
+            Clasificando industrias y subindustrias…
+          </p>
+        </div>
+      )}
+
+      {/* ── Step: classification — full UI ────────────────── */}
+      {step === 'classification' && !loadingClassification && classificationSummary && (
         <div className="flex flex-col flex-1 min-h-0 gap-4">
           {/* Catalog version changed banner */}
           {catalogVersionChanged && (
@@ -1388,6 +1453,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             </Alert>
           )}
 
+          {/* Classification error banner */}
+          {classificationError && (
+            <Alert variant="destructive">
+              <XCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">{classificationError}</AlertDescription>
+            </Alert>
+          )}
+
           {/* Summary stat cards */}
           {catalogVersion && (
             <ImportClassificationSummary
@@ -1395,6 +1468,31 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               catalogVersion={catalogVersion.version}
             />
           )}
+
+          {/* ── Filter tabs — fuera del contenedor de la tabla ── */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Filter className="h-3 w-3 text-muted-foreground shrink-0" />
+            {classificationFilterOptions.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setFilterStatus(opt.value)}
+                className={cn(
+                  'rounded-lg px-2.5 py-1 text-[10px] font-medium transition-colors',
+                  filterStatus === opt.value
+                    ? 'bg-su-brand text-white'
+                    : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {opt.label}
+                <span className="ml-1 tabular-nums opacity-70">({opt.count})</span>
+              </button>
+            ))}
+            {/* Selection count indicator */}
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              Seleccionadas: <strong className="text-foreground">{classificationSelectedIds.size}</strong> de {classificationRows.length}
+            </span>
+          </div>
 
           {/* Correction panel + table */}
           <div className={cn('flex flex-1 min-h-0 gap-4', correctionPanelRow ? 'flex-col lg:flex-row' : 'flex-col')}>
@@ -1415,14 +1513,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </div>
             )}
 
-            {/* Classification table */}
+            {/* Classification table — sin filtros internos, con selección */}
             <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border/40 bg-card">
               <ImportClassificationTable
                 rows={classificationRows}
                 filterStatus={filterStatus}
-                onFilterChange={setFilterStatus}
-                summary={classificationSummary}
                 onCorrectRow={(row) => setCorrectionPanelRow(row)}
+                selectedRowIds={classificationSelectedIds}
+                onSelectionChange={setClassificationSelectedIds}
               />
             </div>
           </div>

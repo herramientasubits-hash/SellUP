@@ -1,7 +1,8 @@
 'use client';
 
-// ── Import Classification Review Table — Hito 16AB.40 ─────────────────────────
-// Shows classified rows with status badges and correction actions.
+// ── Import Classification Review Table — Hito 16AB.40.2 ───────────────────────
+// Shows classified rows with status badges, correction actions, and row selection.
+// Filter tabs have been removed from this component — the parent renders them.
 
 import * as React from 'react';
 import {
@@ -17,18 +18,16 @@ import {
   CheckCircle2,
   XCircle,
   Pencil,
-  Filter,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import type {
   ImportClassificationPreviewRow,
   ClassificationFilterStatus,
-  ClassificationSummaryStats,
-  CLASSIFICATION_STATUS_MAP as _STATUS_MAP,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
 import { CLASSIFICATION_STATUS_MAP } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
 
@@ -38,8 +37,8 @@ type ImportClassificationTableProps = {
   rows: ImportClassificationPreviewRow[];
   onCorrectRow: (row: ImportClassificationPreviewRow) => void;
   filterStatus: ClassificationFilterStatus;
-  onFilterChange: (status: ClassificationFilterStatus) => void;
-  summary: ClassificationSummaryStats;
+  selectedRowIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
 };
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -115,18 +114,48 @@ export function ImportClassificationTable({
   rows,
   onCorrectRow,
   filterStatus,
-  onFilterChange,
-  summary,
+  selectedRowIds,
+  onSelectionChange,
 }: ImportClassificationTableProps) {
-  const [globalFilter, setGlobalFilter] = React.useState('');
-
   const filteredRows = React.useMemo(() => {
     if (filterStatus === 'all') return rows;
     return rows.filter((r) => r.validationStatus === filterStatus);
   }, [rows, filterStatus]);
 
+  const visibleRowNums = React.useMemo(
+    () => filteredRows.map((r) => r.rowNumber),
+    [filteredRows],
+  );
+
+  const allVisibleSelected =
+    visibleRowNums.length > 0 && visibleRowNums.every((n) => selectedRowIds.has(n));
+  const someVisibleSelected = visibleRowNums.some((n) => selectedRowIds.has(n));
+  const headerCheckState: boolean | 'indeterminate' = allVisibleSelected
+    ? true
+    : someVisibleSelected
+      ? 'indeterminate'
+      : false;
+
   const columns = React.useMemo<ColumnDef<ImportClassificationPreviewRow>[]>(
     () => [
+      {
+        id: 'select',
+        header: () => null, // rendered manually below for checkbox state access
+        cell: ({ row }) => (
+          <Checkbox
+            checked={selectedRowIds.has(row.original.rowNumber)}
+            onCheckedChange={(v) => {
+              const next = new Set(selectedRowIds);
+              if (v) next.add(row.original.rowNumber);
+              else next.delete(row.original.rowNumber);
+              onSelectionChange(next);
+            }}
+            aria-label={`Seleccionar fila ${row.original.rowNumber}`}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ),
+        size: 40,
+      },
       {
         accessorKey: 'rowNumber',
         header: '#',
@@ -196,7 +225,7 @@ export function ImportClassificationTable({
         size: 80,
       },
     ],
-    [onCorrectRow],
+    [onCorrectRow, selectedRowIds, onSelectionChange],
   );
 
   const table = useReactTable({
@@ -206,55 +235,37 @@ export function ImportClassificationTable({
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     initialState: { pagination: { pageSize: 25 } },
-    state: { globalFilter },
-    onGlobalFilterChange: setGlobalFilter,
   });
 
-  const filterOptions: Array<{ value: ClassificationFilterStatus; label: string; count: number }> = [
-    { value: 'all', label: 'Todas', count: summary.total },
-    { value: 'valid', label: 'Listas', count: summary.valid },
-    { value: 'normalized', label: 'Normalizadas', count: summary.normalized },
-    { value: 'warning', label: 'Con advertencias', count: summary.warning },
-    { value: 'requires_review', label: 'Requieren revisión', count: summary.requiresReview },
-  ];
+  function handleHeaderCheckChange(v: boolean | 'indeterminate') {
+    const next = new Set(selectedRowIds);
+    if (v) visibleRowNums.forEach((n) => next.add(n));
+    else visibleRowNums.forEach((n) => next.delete(n));
+    onSelectionChange(next);
+  }
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Filter className="h-3 w-3 text-muted-foreground" />
-        {filterOptions.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => onFilterChange(opt.value)}
-            className={cn(
-              'rounded-lg px-2.5 py-1 text-[10px] font-medium transition-colors',
-              filterStatus === opt.value
-                ? 'bg-su-brand text-white'
-                : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-            )}
-          >
-            {opt.label}
-            <span className="ml-1 tabular-nums">({opt.count})</span>
-          </button>
-        ))}
-      </div>
-
+    <div className="flex flex-col gap-0 h-full">
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-border/40">
+      <div className="overflow-x-auto flex-1">
         <table className="w-full text-xs">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b border-border/30 bg-muted/30">
-                {headerGroup.headers.map((header) => (
+                {headerGroup.headers.map((header, idx) => (
                   <th
                     key={header.id}
                     className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap"
                   >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
+                    {idx === 0 ? (
+                      <Checkbox
+                        checked={headerCheckState}
+                        onCheckedChange={handleHeaderCheckChange}
+                        aria-label="Seleccionar todas las filas visibles"
+                      />
+                    ) : header.isPlaceholder ? null : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
                   </th>
                 ))}
               </tr>
@@ -268,21 +279,34 @@ export function ImportClassificationTable({
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    'hover:bg-muted/20 transition-colors',
-                    row.original.requiresHumanReview && 'bg-destructive/5',
-                  )}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-3 py-2.5">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))
+              table.getRowModel().rows.map((row) => {
+                const isSelected = selectedRowIds.has(row.original.rowNumber);
+                return (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      'transition-colors cursor-pointer',
+                      isSelected
+                        ? 'bg-su-brand-soft/30 hover:bg-su-brand-soft/50'
+                        : 'hover:bg-muted/20',
+                      !isSelected && 'opacity-60',
+                      row.original.requiresHumanReview && isSelected && 'bg-destructive/5 hover:bg-destructive/10',
+                    )}
+                    onClick={() => {
+                      const next = new Set(selectedRowIds);
+                      if (isSelected) next.delete(row.original.rowNumber);
+                      else next.add(row.original.rowNumber);
+                      onSelectionChange(next);
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-3 py-2.5">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -290,7 +314,7 @@ export function ImportClassificationTable({
 
       {/* Pagination */}
       {table.getPageCount() > 1 && (
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border/20 text-[10px] text-muted-foreground">
           <span>
             Página {table.getState().pagination.pageIndex + 1} de {table.getPageCount()}
           </span>
