@@ -40,7 +40,6 @@ import { ImportLoadingOverlay } from '@/components/prospect-batches/import-loadi
 import { ImportPreviewDataTable } from '@/components/prospect-batches/import-preview-data-table';
 import { ImportClassificationTable } from '@/components/prospect-batches/import-classification-table';
 import { ImportClassificationSummary } from '@/components/prospect-batches/import-classification-summary';
-import { ImportClassificationCorrectionPanel } from '@/components/prospect-batches/import-classification-correction-panel';
 import { ImportColumnMappingTable } from '@/components/prospect-batches/import-column-mapping-table';
 import {
   parsePastedCandidates,
@@ -71,7 +70,7 @@ import type {
 
 // ── Tipos locales ─────────────────────────────────────────────
 
-type Step = 'input' | 'mapping' | 'classification' | 'preview' | 'success';
+type Step = 'input' | 'classification' | 'preview' | 'success';
 type FileMethod = 'paste' | 'file';
 
 export interface ImportDuplicateResult {
@@ -81,6 +80,33 @@ export interface ImportDuplicateResult {
 }
 
 export type { ImportRow } from '@/modules/prospect-batches/import-candidates-parser';
+
+// ── Classification value normalization (client-side pre-processing) ────────────
+// Handles known aliases not yet in the catalog: Tech→Tecnología, etc.
+
+function normalizeIndustryRaw(val: string | undefined): string | undefined {
+  if (!val) return undefined;
+  const v = val.trim().toLowerCase();
+  if (v === 'tech') return 'Tecnología';
+  if (v === 'cyber security' || v === 'cybersecurity') return 'Ciberseguridad';
+  return val;
+}
+
+function normalizeSubindustryRaw(val: string | undefined): string | undefined {
+  if (!val) return undefined;
+  const v = val.trim().toLowerCase();
+  if (['vacío', 'vacio', 'n/a', 'na', '-', 'null', 'none', ''].includes(v)) return undefined;
+  return val;
+}
+
+function computeHasMappingConflict(mappings: ImportColumnMapping[]): boolean {
+  const counts = new Map<string, number>();
+  for (const m of mappings) {
+    if (m.targetField === 'ignore') continue;
+    counts.set(m.targetField, (counts.get(m.targetField) ?? 0) + 1);
+  }
+  return (counts.get('industry') ?? 0) > 1 || (counts.get('subindustry') ?? 0) > 1;
+}
 
 interface ImportCandidatesDrawerProps {
   children: React.ReactNode;
@@ -133,8 +159,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
   // ── Mapping step state ─────────────────────────────────────────────────────
   const [columnMappings, setColumnMappings] = React.useState<ImportColumnMapping[]>([]);
-  const [rawHeaders, setRawHeaders] = React.useState<string[]>([]);
-  const [sampleRows, setSampleRows] = React.useState<Record<string, string | undefined>[]>([]);
   const [loadingClassification, setLoadingClassification] = React.useState(false);
   const [classificationError, setClassificationError] = React.useState<string | null>(null);
 
@@ -143,10 +167,8 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   const [classificationSummary, setClassificationSummary] = React.useState<ClassificationSummaryStats | null>(null);
   const [catalogVersion, setCatalogVersion] = React.useState<CatalogVersionState | null>(null);
   const [filterStatus, setFilterStatus] = React.useState<ClassificationFilterStatus>('all');
-  const [correctionPanelRow, setCorrectionPanelRow] = React.useState<ImportClassificationPreviewRow | null>(null);
+  const [needsMappingResolution, setNeedsMappingResolution] = React.useState(false);
   const [catalogData, setCatalogData] = React.useState<{ industries: Array<{ id: string; name: string; slug: string; aliases?: string[]; subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }> }> } | null>(null);
-  const [originalIndustryColumn, setOriginalIndustryColumn] = React.useState<string | null>(null);
-  const [originalSubindustryColumn, setOriginalSubindustryColumn] = React.useState<string | null>(null);
   const [catalogVersionChanged, setCatalogVersionChanged] = React.useState(false);
 
   // ── Row selection state (classification step) ──────────────────────────────
@@ -175,18 +197,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     setResultCount(0);
     setImportStats(null);
     setColumnMappings([]);
-    setRawHeaders([]);
-    setSampleRows([]);
     setLoadingClassification(false);
     setClassificationError(null);
     setClassificationRows([]);
     setClassificationSummary(null);
     setCatalogVersion(null);
     setFilterStatus('all');
-    setCorrectionPanelRow(null);
+    setNeedsMappingResolution(false);
     setCatalogData(null);
-    setOriginalIndustryColumn(null);
-    setOriginalSubindustryColumn(null);
     setCatalogVersionChanged(false);
     setClassificationSelectedIds(new Set());
   }
@@ -323,6 +341,112 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     subindustry: selectedSubindustryName || undefined,
   };
 
+  // ── Core classification runner — accepts params directly to avoid stale-closure issues ──
+  async function runClassification(
+    previewData: ImportPreview,
+    mappings: ImportColumnMapping[],
+  ) {
+    const origIndustryCol = mappings.find((m) => m.targetField === 'industry')?.sourceColumn ?? null;
+    const origSubindustryCol = mappings.find((m) => m.targetField === 'subindustry')?.sourceColumn ?? null;
+
+    setStep('classification');
+    setLoadingClassification(true);
+    setClassificationError(null);
+    setNeedsMappingResolution(false);
+
+    try {
+      const classifiableRows = previewData.rows
+        .filter((r) => r.status === 'valid' || r.status === 'warning')
+        .map((r) => {
+          function rawValueForColumn(sourceColumn: string | null): string | undefined {
+            if (!sourceColumn) return undefined;
+            if (sourceColumn === origIndustryCol) return r.raw.industry ?? undefined;
+            if (sourceColumn === origSubindustryCol) return r.raw.subindustry ?? undefined;
+            return undefined;
+          }
+          const industryRaw = rawValueForColumn(origIndustryCol);
+          const subindustryRaw = rawValueForColumn(origSubindustryCol);
+          return {
+            company_name: r.raw.company_name,
+            country_code: r.resolved_country_code,
+            industry: normalizeIndustryRaw(industryRaw),
+            subindustry: normalizeSubindustryRaw(subindustryRaw),
+            website: r.raw.website,
+            linkedin_url: r.raw.linkedin_url,
+            city: r.raw.city,
+            company_size: r.raw.company_size,
+            description: r.raw.description,
+            source_url: r.raw.source_url,
+            source_evidence: r.raw.source_evidence,
+            confidence: r.raw.confidence,
+            notes: r.raw.notes,
+          };
+        });
+
+      const res = await fetch('/api/prospect-batches/classify-import-rows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows: classifiableRows,
+          defaults: {
+            country_code: selectedCountryCode || undefined,
+            industry: selectedIndustryName || undefined,
+            subindustry: selectedSubindustryName || undefined,
+          },
+        }),
+      });
+
+      const result = await res.json() as {
+        success: boolean;
+        catalogVersion?: string;
+        catalogVersionId?: string;
+        rows?: ImportClassificationPreviewRow[];
+        summary?: ClassificationSummaryStats;
+        code?: string;
+        message?: string;
+      };
+
+      if (!result.success || !result.rows) {
+        throw new Error(result.message ?? 'Error al clasificar filas');
+      }
+
+      setClassificationRows(result.rows);
+      setClassificationSummary(result.summary ?? {
+        total: result.rows.length,
+        valid: 0,
+        normalized: 0,
+        warning: 0,
+        requiresReview: 0,
+        invalid: 0,
+      });
+      setCatalogVersion({
+        version: result.catalogVersion ?? 'unknown',
+        isCurrent: true,
+        lastChecked: new Date(),
+      });
+      setClassificationSelectedIds(new Set(result.rows.map((r) => r.rowNumber)));
+
+      if (!catalogData) {
+        const catalogRes = await fetch('/api/prospect-batches/import-catalog');
+        if (catalogRes.ok) {
+          const catalogJson = await catalogRes.json() as {
+            success: boolean;
+            catalog?: { version: string; industries: Array<{ id: string; name: string; slug: string; aliases?: string[]; subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }> }> };
+          };
+          if (catalogJson.success && catalogJson.catalog) {
+            setCatalogData({ industries: catalogJson.catalog.industries });
+          }
+        }
+      }
+    } catch (err) {
+      setClassificationError(err instanceof Error ? err.message : 'Error al clasificar');
+      toast.error(err instanceof Error ? err.message : 'Error al clasificar');
+      setStep('input');
+    } finally {
+      setLoadingClassification(false);
+    }
+  }
+
   // TAREA 3: handleBuildPreview usa fetch (no Server Action) → sin router.refresh automático
   async function handleBuildPreview() {
     if (fileMethod === 'paste' && !pasteText.trim()) {
@@ -377,13 +501,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         return m;
       });
       setColumnMappings(enrichedMappings);
-      setRawHeaders(allHeaders);
-      setOriginalIndustryColumn(
-        enrichedMappings.find((m) => m.targetField === 'industry')?.sourceColumn ?? null,
-      );
-      setOriginalSubindustryColumn(
-        enrichedMappings.find((m) => m.targetField === 'subindustry')?.sourceColumn ?? null,
-      );
 
       const validForCheck = getValidRows(built).map((r) => ({
         index: r.index,
@@ -416,7 +533,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         setDuplicates([]);
       }
 
-      setStep('mapping');
+      // Auto-proceed: skip mapping when detection is unambiguous
+      const hasConflict = computeHasMappingConflict(enrichedMappings);
+      if (!hasConflict) {
+        await runClassification(built, enrichedMappings);
+      } else {
+        setNeedsMappingResolution(true);
+        setStep('classification');
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al procesar los datos');
     } finally {
@@ -424,7 +548,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     }
   }
 
-  // ── Handle column mapping changes ──────────────────────────────────────────
+  // ── Handle column mapping changes (used when ambiguous block is shown) ──────
   function handleMappingChange(sourceColumn: string, newTarget: ImportColumnTarget) {
     setColumnMappings((prev) =>
       prev.map((m) =>
@@ -435,147 +559,26 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     );
   }
 
-  // ── Derive effective industry/subindustry values after user remapping ───────
-  function getEffectiveClassificationValues(row: ImportRow): {
-    industry: string | undefined;
-    subindustry: string | undefined;
-  } {
-    const industryTarget = columnMappings.find((m) => m.targetField === 'industry');
-    const subindustryTarget = columnMappings.find((m) => m.targetField === 'subindustry');
-
-    // Map source column → which raw field it was originally parsed from
-    function rawValueForColumn(sourceColumn: string | undefined): string | undefined {
-      if (!sourceColumn) return undefined;
-      if (sourceColumn === originalIndustryColumn) return row.raw.industry ?? undefined;
-      if (sourceColumn === originalSubindustryColumn) return row.raw.subindustry ?? undefined;
-      return undefined;
-    }
-
-    return {
-      industry: industryTarget ? rawValueForColumn(industryTarget.sourceColumn) : undefined,
-      subindustry: subindustryTarget ? rawValueForColumn(subindustryTarget.sourceColumn) : undefined,
-    };
-  }
-
-  // ── Handle mapping step: immediately show classification step with loading ──
+  // ── Reclassify after user fixes ambiguous mappings ─────────────────────────
   async function handleBuildClassification() {
     if (!preview) return;
-    // Transition immediately so user sees the classification step loading
-    setStep('classification');
-    setLoadingClassification(true);
-    setClassificationError(null);
-    try {
-      // Build rows for classification API — apply user column remapping
-      const classifiableRows = preview.rows
-        .filter((r) => r.status === 'valid' || r.status === 'warning')
-        .map((r) => {
-          const { industry, subindustry } = getEffectiveClassificationValues(r);
-          return {
-            company_name: r.raw.company_name,
-            country_code: r.resolved_country_code,
-            industry,
-            subindustry,
-            website: r.raw.website,
-            linkedin_url: r.raw.linkedin_url,
-            city: r.raw.city,
-            company_size: r.raw.company_size,
-            description: r.raw.description,
-            source_url: r.raw.source_url,
-            source_evidence: r.raw.source_evidence,
-            confidence: r.raw.confidence,
-            notes: r.raw.notes,
-          };
-        });
-
-      const res = await fetch('/api/prospect-batches/classify-import-rows', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rows: classifiableRows,
-          defaults: {
-            country_code: selectedCountryCode || undefined,
-            industry: selectedIndustryName || undefined,
-            subindustry: selectedSubindustryName || undefined,
-          },
-        }),
-      });
-
-      const result = await res.json() as {
-        success: boolean;
-        catalogVersion?: string;
-        catalogVersionId?: string;
-        rows?: ImportClassificationPreviewRow[];
-        summary?: ClassificationSummaryStats;
-        code?: string;
-        message?: string;
-      };
-
-      if (!result.success || !result.rows) {
-        throw new Error(result.message ?? 'Error al clasificar filas');
-      }
-
-      setClassificationRows(result.rows);
-      setClassificationSummary(result.summary ?? {
-        total: result.rows.length,
-        valid: 0,
-        normalized: 0,
-        warning: 0,
-        requiresReview: 0,
-        invalid: 0,
-      });
-      setCatalogVersion({
-        version: result.catalogVersion ?? 'unknown',
-        isCurrent: true,
-        lastChecked: new Date(),
-      });
-
-      // Initialize all rows as selected by default
-      setClassificationSelectedIds(new Set(result.rows.map((r) => r.rowNumber)));
-
-      // Reuse catalog loaded in input step; fetch only if missing
-      if (!catalogData) {
-        const catalogRes = await fetch('/api/prospect-batches/import-catalog');
-        if (catalogRes.ok) {
-          const catalogJson = await catalogRes.json() as {
-            success: boolean;
-            catalog?: {
-              version: string;
-              industries: Array<{
-                id: string; name: string; slug: string; aliases?: string[];
-                subindustries: Array<{ id: string; name: string; slug: string; aliases?: string[]; countries?: string[] }>;
-              }>;
-            };
-          };
-          if (catalogJson.success && catalogJson.catalog) {
-            setCatalogData({ industries: catalogJson.catalog.industries });
-          }
-        }
-      }
-    } catch (err) {
-      setClassificationError(err instanceof Error ? err.message : 'Error al clasificar');
-      toast.error(err instanceof Error ? err.message : 'Error al clasificar');
-      // Revert to mapping step on error so user can retry
-      setStep('mapping');
-    } finally {
-      setLoadingClassification(false);
-    }
+    await runClassification(preview, columnMappings);
   }
 
   // ── Handle correction save ─────────────────────────────────────────────────
   async function handleSaveCorrection(
     correction: ManualClassificationCorrection,
-    contextRow?: ImportClassificationPreviewRow,
+    contextRow: ImportClassificationPreviewRow,
   ) {
-    const rowContext = contextRow ?? correctionPanelRow;
     const res = await fetch('/api/prospect-batches/revalidate-classification', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...correction,
-        companyName: rowContext?.companyName,
-        countryCode: rowContext?.countryCode,
-        industryOriginalValue: rowContext?.industryOriginalValue,
-        subindustryOriginalValue: rowContext?.subindustryOriginalValue,
+        companyName: contextRow.companyName,
+        countryCode: contextRow.countryCode,
+        industryOriginalValue: contextRow.industryOriginalValue,
+        subindustryOriginalValue: contextRow.subindustryOriginalValue,
       }),
     });
 
@@ -612,8 +615,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       invalid: newRows.filter((r) => r.validationStatus === 'invalid').length,
     };
     setClassificationSummary(newSummary);
-
-    setCorrectionPanelRow(null);
   }
 
   // ── Handle bulk correction ─────────────────────────────────────────────────
@@ -823,31 +824,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
   const exactDuplicateCount = duplicates.filter((d) => d.duplicate_status === 'exact_duplicate').length;
   const possibleDuplicateCount = duplicates.filter((d) => d.duplicate_status === 'possible_duplicate').length;
 
-  // Rows that share the same original industry+subindustry+country as the row being corrected
-  const equivalentRows = React.useMemo(() => {
-    if (!correctionPanelRow) return [];
-    return classificationRows.filter(
-      (r) =>
-        r.rowNumber !== correctionPanelRow.rowNumber &&
-        (r.industryOriginalValue ?? '').toLowerCase().trim() ===
-          (correctionPanelRow.industryOriginalValue ?? '').toLowerCase().trim() &&
-        (r.subindustryOriginalValue ?? '').toLowerCase().trim() ===
-          (correctionPanelRow.subindustryOriginalValue ?? '').toLowerCase().trim() &&
-        (r.countryCode ?? '').toUpperCase() ===
-          (correctionPanelRow.countryCode ?? '').toUpperCase(),
-    );
-  }, [correctionPanelRow, classificationRows]);
-
-  // Whether any column mapping conflict blocks proceeding to classification
-  const hasMappingConflict = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const m of columnMappings) {
-      if (m.targetField === 'ignore') continue;
-      counts.set(m.targetField, (counts.get(m.targetField) ?? 0) + 1);
-    }
-    return (counts.get('industry') ?? 0) > 1 || (counts.get('subindustry') ?? 0) > 1;
-  }, [columnMappings]);
-
   // ── Selection-aware classification logic ───────────────────────────────────
   const selectedBlockingCount = React.useMemo(() => {
     return classificationRows.filter(
@@ -884,8 +860,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       title={
         step === 'input'
           ? "Importar candidatos externos"
-          : step === 'mapping'
-          ? "Mapeo de columnas"
           : step === 'classification'
           ? "Clasificación de industrias"
           : step === 'preview'
@@ -895,10 +869,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       description={
         step === 'input'
           ? "Carga empresas encontradas en Gemini, hojas de cálculo, eventos o investigación externa. SellUp validará duplicidad y las dejará listas para revisión antes de crear cuentas."
-          : step === 'mapping'
-          ? "Revisa y ajusta el mapeo de columnas detectadas automáticamente. Asegúrate de que Industria y Subindustria estén bien asignadas."
           : step === 'classification'
-          ? "SellUp ha clasificado cada fila contra el catálogo oficial. Revisa el estado, corrige las que lo requieran y confirma para importar."
+          ? needsMappingResolution
+            ? "Detectamos columnas con mapeo ambiguo. Corrígelas antes de clasificar."
+            : loadingClassification
+              ? "Clasificando industrias y subindustrias contra el catálogo oficial…"
+              : "Revisa el estado de clasificación, corrige las filas que lo requieran y confirma las seleccionadas."
           : step === 'preview'
           ? "Revisa los datos antes de importar. Solo se importarán filas válidas y con advertencias."
           : `SellUp importó ${resultCount} prospecto${resultCount !== 1 ? 's' : ''} externo${resultCount !== 1 ? 's' : ''}. Revísalos antes de aprobarlos como cuentas.`
@@ -908,15 +884,13 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
           : step === 'classification'
           ? <Search className="h-4 w-4 text-su-brand" />
-          : step === 'mapping'
-          ? <ArrowRight className="h-4 w-4 text-su-brand" />
           : step === 'preview'
           ? <FileText className="h-4 w-4 text-su-brand" />
           : <Upload className="h-4 w-4 text-su-brand" />
       }
       className={cn(
         "transition-all duration-300",
-        step === 'preview' || step === 'mapping' || step === 'classification'
+        step === 'preview' || step === 'classification'
           ? "sm:!max-w-[90vw] sm:w-[90vw] w-full"
           : "sm:!max-w-[500px] sm:w-[500px] w-full"
       )}
@@ -941,19 +915,17 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                       Procesando…
                     </>
                   ) : (
-                    'Continuar a mapeo'
+                    'Previsualizar y clasificar'
                   )}
                 </Button>
               </div>
             )}
 
-            {step === 'mapping' && (
+            {step === 'classification' && needsMappingResolution && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="text-left flex-1 space-y-1">
-                  <p className="text-[11px] text-muted-foreground">
-                    Revisa el mapeo detectado. Al continuar, SellUp clasificará automáticamente cada fila contra el catálogo oficial.
-                  </p>
-                </div>
+                <p className="text-[11px] text-muted-foreground flex-1">
+                  Corrige el mapeo de columnas y luego reclasifica.
+                </p>
                 <div className="flex items-center gap-2 justify-end shrink-0">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setStep('input')} className="text-xs">
                     <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
@@ -962,7 +934,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   <Button
                     type="button"
                     onClick={handleBuildClassification}
-                    disabled={loadingClassification || hasMappingConflict}
+                    disabled={loadingClassification || computeHasMappingConflict(columnMappings)}
                     size="sm"
                     className="gap-2 text-xs font-semibold bg-su-brand text-white hover:bg-su-brand/90"
                   >
@@ -973,7 +945,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                       </>
                     ) : (
                       <>
-                        Continuar a revisión
+                        Reclasificar
                         <ArrowRight className="h-3.5 w-3.5" />
                       </>
                     )}
@@ -982,7 +954,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               </div>
             )}
 
-            {step === 'classification' && !loadingClassification && classificationSummary && (
+            {step === 'classification' && !needsMappingResolution && !loadingClassification && classificationSummary && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
                   {classificationSelectedIds.size === 0 && (
@@ -1005,7 +977,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </p>
                 </div>
                 <div className="flex items-center gap-2 justify-end shrink-0">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setStep('mapping')} className="text-xs">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setStep('input')} className="text-xs">
                     <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
                     Volver
                   </Button>
@@ -1377,30 +1349,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         </div>
       )}
 
-      {/* ── Step: mapping ─────────────────────────────────── */}
-      {step === 'mapping' && (
-        <div className="space-y-5">
-          {classificationError && (
-            <Alert variant="destructive">
-              <XCircle className="h-4 w-4" />
-              <AlertDescription className="text-xs">{classificationError}</AlertDescription>
-            </Alert>
-          )}
-          {hasMappingConflict && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription className="text-xs">
-                Dos columnas están asignadas al mismo campo. Resuelve el conflicto antes de clasificar.
-              </AlertDescription>
-            </Alert>
-          )}
-          <ImportColumnMappingTable
-            columnMappings={columnMappings}
-            onMappingChange={handleMappingChange}
-          />
-        </div>
-      )}
-
       {/* ── Step: classification — loading skeleton ────────── */}
       {step === 'classification' && loadingClassification && (
         <div className="flex flex-col flex-1 min-h-0 gap-4">
@@ -1428,8 +1376,29 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         </div>
       )}
 
+      {/* ── Step: classification — mapeo ambiguo (bloque compacto) ── */}
+      {step === 'classification' && needsMappingResolution && (
+        <div className="flex flex-col flex-1 min-h-0 gap-4">
+          <Alert variant="warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              SellUp detectó columnas con mapeo ambiguo. Revisa y corrige los campos conflictivos antes de clasificar.
+              {computeHasMappingConflict(columnMappings) && (
+                <span className="block mt-1 font-semibold">
+                  Dos columnas están asignadas al mismo campo — resuelve el conflicto para continuar.
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
+          <ImportColumnMappingTable
+            columnMappings={columnMappings}
+            onMappingChange={handleMappingChange}
+          />
+        </div>
+      )}
+
       {/* ── Step: classification — full UI ────────────────── */}
-      {step === 'classification' && !loadingClassification && classificationSummary && (
+      {step === 'classification' && !loadingClassification && !needsMappingResolution && classificationSummary && (
         <div className="flex flex-col flex-1 min-h-0 gap-4">
           {/* Catalog version changed banner */}
           {catalogVersionChanged && (
@@ -1469,9 +1438,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             />
           )}
 
-          {/* ── Filter tabs — fuera del contenedor de la tabla ── */}
+          {/* ── Filter tabs + selection counter — fuera de la tabla ── */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <Filter className="h-3 w-3 text-muted-foreground shrink-0" />
+            <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             {classificationFilterOptions.map((opt) => (
               <button
                 key={opt.value}
@@ -1488,41 +1457,23 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 <span className="ml-1 tabular-nums opacity-70">({opt.count})</span>
               </button>
             ))}
-            {/* Selection count indicator */}
             <span className="ml-auto text-[10px] text-muted-foreground">
               Seleccionadas: <strong className="text-foreground">{classificationSelectedIds.size}</strong> de {classificationRows.length}
             </span>
           </div>
 
-          {/* Correction panel + table */}
-          <div className={cn('flex flex-1 min-h-0 gap-4', correctionPanelRow ? 'flex-col lg:flex-row' : 'flex-col')}>
-            {/* Correction panel */}
-            {correctionPanelRow && catalogData && catalogVersion && (
-              <div className="w-full lg:w-80 shrink-0 rounded-xl border border-border/40 bg-card p-4 overflow-y-auto">
-                <ImportClassificationCorrectionPanel
-                  row={correctionPanelRow}
-                  catalog={catalogData}
-                  catalogVersion={catalogVersion}
-                  onCorrect={(correction) =>
-                    handleSaveCorrection(correction, correctionPanelRow)
-                  }
-                  onClose={() => setCorrectionPanelRow(null)}
-                  equivalentRows={equivalentRows}
-                  onBulkCorrect={handleBulkCorrection}
-                />
-              </div>
-            )}
-
-            {/* Classification table — sin filtros internos, con selección */}
-            <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border/40 bg-card">
-              <ImportClassificationTable
-                rows={classificationRows}
-                filterStatus={filterStatus}
-                onCorrectRow={(row) => setCorrectionPanelRow(row)}
-                selectedRowIds={classificationSelectedIds}
-                onSelectionChange={setClassificationSelectedIds}
-              />
-            </div>
+          {/* Classification table — full width, inline editing, no side panel */}
+          <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border/40 bg-card">
+            <ImportClassificationTable
+              rows={classificationRows}
+              filterStatus={filterStatus}
+              selectedRowIds={classificationSelectedIds}
+              onSelectionChange={setClassificationSelectedIds}
+              catalog={catalogData ?? undefined}
+              catalogVersion={catalogVersion ?? undefined}
+              onSaveCorrection={handleSaveCorrection}
+              onBulkCorrection={handleBulkCorrection}
+            />
           </div>
         </div>
       )}
