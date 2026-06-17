@@ -21,6 +21,14 @@ export type IncrementalSearchInput = {
   countryCode: string;
   industry: string;
 
+  /**
+   * Nombres canónicos de subindustrias resueltos desde el catálogo.
+   * Provisto server-side por el wizard. Nunca controlado por el cliente.
+   * Cuando está presente, los query builders los inyectan en las queries de discovery.
+   * Hito 16AB.43.14.
+   */
+  subindustries?: string[];
+
   /** Web search provider. Limitado a tavily y mock en flujo incremental.
    * Default: 'mock' */
   webSearchProvider?: IncrementalSearchWebProvider;

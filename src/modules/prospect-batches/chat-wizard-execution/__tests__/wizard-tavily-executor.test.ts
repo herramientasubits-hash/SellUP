@@ -227,6 +227,49 @@ describe('E7: runner is called exactly once per invocation', () => {
   });
 });
 
+// ── E9: subindustries forwarded from resolved context ────────────────────────
+
+describe('E9: subindustries are forwarded to the incremental search runner', () => {
+  it('runner receives subindustries array with canonical names', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch(makeInput(), runner);
+    const captured = getCapture();
+    assert.ok(captured);
+    assert.ok(Array.isArray(captured!.subindustries), 'subindustries must be an array');
+    assert.deepEqual(captured!.subindustries, ['SaaS']);
+  });
+
+  it('subindustries array has one entry matching the resolved subindustry name', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch(makeInput(), runner);
+    assert.equal(getCapture()!.subindustries?.length, 1);
+    assert.equal(getCapture()!.subindustries?.[0], 'SaaS');
+  });
+
+  it('multiple subindustries all forwarded', async () => {
+    const multiSubResolved: ResolvedWizardExecution = {
+      ...BASE_RESOLVED,
+      subindustries: [
+        { id: 'sub-1', slug: 'saas', name: 'SaaS', applicableCountries: ['CO'] },
+        { id: 'sub-2', slug: 'edtech', name: 'EdTech', applicableCountries: ['CO'] },
+      ],
+    };
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch({ resolved: multiSubResolved, reservedBatchId: BATCH_ID }, runner);
+    assert.deepEqual(getCapture()!.subindustries, ['SaaS', 'EdTech']);
+  });
+
+  it('empty subindustries forwards empty array', async () => {
+    const noSubResolved: ResolvedWizardExecution = {
+      ...BASE_RESOLVED,
+      subindustries: [],
+    };
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch({ resolved: noSubResolved, reservedBatchId: BATCH_ID }, runner);
+    assert.deepEqual(getCapture()!.subindustries, []);
+  });
+});
+
 // ── E8: Apollo paths are not reachable from this module ──────────────────────
 
 describe('E8: structural guardrail — executor does not reference Apollo', () => {

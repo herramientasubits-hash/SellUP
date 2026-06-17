@@ -66,6 +66,7 @@ export type WebSearchResultType =
   | 'startup_database'
   | 'business_database'
   | 'association_or_chamber'
+  | 'event_or_congress'
   | 'academic_source'
   | 'pdf_document'
   | 'news_or_media'
@@ -268,6 +269,8 @@ const ASSOCIATION_CHAMBER_DOMAINS = new Set([
   'mintic.gov.co',
   'fedesoft.org',           // Hito 12D: Federación Colombiana de Software — gremio
   'fedesoft.com',           // Hito 12D: variante de dominio Fedesoft
+  'andicom.co',             // Hito 16AB.43.14: congreso TIC Colombia — no empresa
+  'ccc.org.co',             // Hito 16AB.43.14: Cámara de Comercio de Cali — no empresa
 ]);
 
 const ACADEMIC_SOURCE_DOMAINS = new Set([
@@ -365,6 +368,105 @@ const CONTENT_PAGE_TITLE_SIGNALS = [
  * Ejemplos: "Top 10 empresas..." / "Ranking 2025" / "Mejores 5 apps"
  */
 const RANKING_TITLE_RE = /\btop\s+\d+\b|\branking\s+20\d{2}\b|\branking\s+de\b|\bmejores?\s+\d+\b/i;
+
+// ─── Detección semántica de organizaciones no-empresa (Hito 16AB.43.14) ────────
+//
+// Captura eventos, congresos y cámaras de comercio cuyo dominio no aparece en
+// ASSOCIATION_CHAMBER_DOMAINS. Aplica únicamente sobre título y snippet, nunca
+// sobre el dominio o path, para evitar falsos positivos en empresas que tienen
+// secciones /events o que venden software para eventos.
+
+/**
+ * Frases que indican cámara de comercio en el título o snippet.
+ * Estas frases son altamente específicas — no aparecen en nombres de empresas.
+ */
+const CHAMBER_TITLE_SIGNALS = [
+  'cámara de comercio',
+  'camara de comercio',
+  'chamber of commerce',
+  'cámara de comercio e industria',
+  'camara de comercio e industria',
+];
+
+/**
+ * Términos fuertes de evento o congreso.
+ * Seguidos de "de " indican casi siempre un evento, no una empresa.
+ * Ejemplo: "Congreso de Tecnología Colombia 2025"
+ */
+const EVENT_CONGRESS_STRONG_TERMS = [
+  'congreso de ',
+  'conferencia de ',
+  'convención de ',
+  'convencion de ',
+  'feria de ',
+  'feria internacional de ',
+  'simposio de ',
+  'encuentro nacional de ',
+  'cumbre de ',
+];
+
+/**
+ * Señales corporativas que indican que el resultado ES una empresa que trabaja
+ * con eventos — no un evento en sí mismo. Cuando están en el título, cancelan
+ * la detección de evento_or_congress para evitar falsos positivos.
+ * Ejemplos: "EventManager | Software para gestión de eventos B2B"
+ */
+const CORPORATE_OVERRIDE_SIGNALS = [
+  'software para',
+  'software de',
+  'plataforma para',
+  'plataforma de',
+  'soluciones para',
+  'servicios para',
+  'gestión de eventos',
+  'organización de eventos',
+  'empresa de eventos',
+  'tecnología para',
+];
+
+type NonCompanyOrgDetection = {
+  isNonCompanyOrg: boolean;
+  subtype: 'event_or_congress' | 'association_or_chamber' | null;
+  reason: string;
+};
+
+/**
+ * Detecta semánticamente si un resultado es una organización no-empresa.
+ * Retorna `isNonCompanyOrg: false` cuando el título tiene señales corporativas
+ * que indican que la entidad ES una empresa relacionada con eventos.
+ * Solo inspecciona título y snippet — no el dominio ni el path.
+ */
+function detectNonCompanyOrg(result: {
+  title?: string | null;
+  snippet?: string | null;
+}): NonCompanyOrgDetection {
+  const titleLower = (result.title ?? '').toLowerCase();
+  const snippetLower = (result.snippet ?? '').toLowerCase();
+  const combinedLower = `${titleLower} ${snippetLower}`;
+
+  // Cámara de comercio: señal muy específica — no aparece en nombres de empresas.
+  if (CHAMBER_TITLE_SIGNALS.some((s) => combinedLower.includes(s))) {
+    return {
+      isNonCompanyOrg: true,
+      subtype: 'association_or_chamber',
+      reason: 'Título/snippet indica cámara de comercio — no empresa prospectable',
+    };
+  }
+
+  // Evento/congreso: verificar primero que no haya señal corporativa de override.
+  const hasCorporateOverride = CORPORATE_OVERRIDE_SIGNALS.some((s) => titleLower.includes(s));
+  if (!hasCorporateOverride) {
+    if (EVENT_CONGRESS_STRONG_TERMS.some((s) => titleLower.includes(s))) {
+      return {
+        isNonCompanyOrg: true,
+        subtype: 'event_or_congress',
+        reason: 'Título indica evento o congreso — no empresa prospectable',
+      };
+    }
+  }
+
+  return { isNonCompanyOrg: false, subtype: null, reason: '' };
+}
 
 // Patrón de año en ruta (indica artículo con fecha).
 // Hito 10B: actualizado para capturar años embebidos en segmentos de path:
@@ -510,6 +612,16 @@ export function isProspectableCompanyResult(result: {
       isProspectable: false,
       reason: `Asociación o cámara (${domain}), no empresa prospectable`,
       resultType: 'association_or_chamber',
+    };
+  }
+
+  // 3b-sem. Detección semántica de organizaciones no-empresa (Hito 16AB.43.14)
+  const nonCompanyOrgCheck = detectNonCompanyOrg(result);
+  if (nonCompanyOrgCheck.isNonCompanyOrg) {
+    return {
+      isProspectable: false,
+      reason: nonCompanyOrgCheck.reason,
+      resultType: nonCompanyOrgCheck.subtype === 'event_or_congress' ? 'event_or_congress' : 'association_or_chamber',
     };
   }
 
@@ -855,6 +967,17 @@ export function classifySearchResult(result: {
       resultType: 'non_prospectable_source',
       shouldKeep: false,
       reason: `Dominio gubernamental colombiano (${domain}) — no es empresa prospectable`,
+    };
+  }
+
+  // 9c. Detección semántica de organizaciones no-empresa (Hito 16AB.43.14)
+  // Captura eventos, congresos y cámaras cuyo dominio no está en la lista estática.
+  const nonCompanyOrg = detectNonCompanyOrg(result);
+  if (nonCompanyOrg.isNonCompanyOrg) {
+    return {
+      resultType: nonCompanyOrg.subtype === 'event_or_congress' ? 'event_or_congress' : 'association_or_chamber',
+      shouldKeep: false,
+      reason: nonCompanyOrg.reason,
     };
   }
 

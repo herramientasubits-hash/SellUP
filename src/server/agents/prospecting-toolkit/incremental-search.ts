@@ -25,7 +25,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { runProspectingPipeline } from './prospecting-pipeline';
 import { writeProspectingCandidates } from './candidate-writer';
 import { buildNoveltyIndex, evaluateCandidateNovelty } from './novelty-checker';
-import { buildExpandedMultiQueryDiscoveryQueries } from './query-builder';
+import {
+  buildCleanMultiQueryDiscoveryQueries,
+  buildExpandedMultiQueryDiscoveryQueries,
+} from './query-builder';
 import type { ProspectingPipelineCandidate, ProspectingPipelineOutput, ProspectingPipelineSummary } from './types';
 import type {
   IncrementalSearchInput,
@@ -193,10 +196,13 @@ export async function runIncrementalProspectingSearch(
   let lastNoveltyPrecheck: NoveltyPrecheckResult | null = null;
 
   for (let round = 1; round <= maxRounds; round++) {
+    const subindustries = input.subindustries ?? [];
     const queryOverrides =
       round === 1
-        ? undefined
-        : buildExpandedMultiQueryDiscoveryQueries(input.industry, input.country);
+        ? (subindustries.length > 0
+            ? buildCleanMultiQueryDiscoveryQueries(input.industry, input.country, subindustries)
+            : undefined)
+        : buildExpandedMultiQueryDiscoveryQueries(input.industry, input.country, subindustries);
 
     const roundUsageContext: TavilyUsageContext | null = input.usageInputContext
       ? { ...input.usageInputContext, roundNumber: round }

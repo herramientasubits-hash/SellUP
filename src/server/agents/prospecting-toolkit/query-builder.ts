@@ -63,6 +63,76 @@ const SOURCE_GUIDED_QUERIES_CO_TECH_R2 = [
 
 const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_andicom', 'co_secop2'] as const;
 
+// ─── Subindustrias: normalización y construcción de queries (Hito 16AB.43.14) ──
+
+/**
+ * Términos canónicos para detectar EdTech independientemente del idioma o formato.
+ * Centralizado aquí para evitar duplicación en tests y producción.
+ */
+const EDTECH_CANONICAL_TERMS = [
+  'edtech',
+  'ed-tech',
+  'tecnologia educativa',
+  'tecnología educativa',
+  'learning technology',
+  'learning tech',
+];
+
+/** Devuelve true si el nombre de la subindustria corresponde a EdTech. */
+function isEdTechSubindustry(name: string): boolean {
+  const n = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return EDTECH_CANONICAL_TERMS.some((t) => n.includes(
+    t.normalize('NFD').replace(/[̀-ͯ]/g, ''),
+  ));
+}
+
+/**
+ * Deduplica, recorta y elimina vacíos de la lista de subindustrias.
+ * Retorna un nuevo array sin modificar el original.
+ */
+function normalizeSubindustries(subindustries: string[] | undefined): string[] {
+  if (!subindustries || subindustries.length === 0) return [];
+  return [...new Set(subindustries.map((s) => s.trim()).filter((s) => s.length > 0))];
+}
+
+/**
+ * Construye una query de discovery para una subindustria específica.
+ * Usa un vocabulario controlado para EdTech; para el resto usa el nombre canónico.
+ */
+function buildSubindustryQuery(subindustry: string, country: string, round: 1 | 2): string {
+  if (isEdTechSubindustry(subindustry)) {
+    return round === 1
+      ? `empresa EdTech aprendizaje corporativo ${country} plataforma`
+      : `empresa EdTech tecnología educativa ${country} clientes corporativos`;
+  }
+  return round === 1
+    ? `empresa ${subindustry} ${country} soluciones clientes corporativos`
+    : `empresa ${subindustry} ${country} proveedores corporativo nosotros`;
+}
+
+/**
+ * Inyecta hasta 2 queries de subindustria reemplazando queries base.
+ * Mantiene el total de queries constante: no aumenta el costo Tavily.
+ * Las queries source-guided se preservan siempre.
+ */
+function injectSubindustryQueries(
+  baseQueries: string[],
+  sourceGuidedQueries: string[],
+  subindustries: string[],
+  country: string,
+  round: 1 | 2,
+): string[] {
+  const normalized = normalizeSubindustries(subindustries);
+  if (normalized.length === 0) return [...baseQueries, ...sourceGuidedQueries];
+
+  const maxSubind = Math.min(normalized.length, 2, baseQueries.length);
+  const subindQueries = normalized.slice(0, maxSubind).map((s) => buildSubindustryQuery(s, country, round));
+  const remainingBaseSlots = Math.max(0, baseQueries.length - maxSubind);
+  const keptBase = baseQueries.slice(0, remainingBaseSlots);
+
+  return [...subindQueries, ...keptBase, ...sourceGuidedQueries];
+}
+
 // ─── Sectores tech (permiten términos de software en la query) ─────────────────
 
 const TECH_SECTOR_KEYWORDS = [
@@ -394,45 +464,50 @@ export function buildProspectableCompanyDiscoveryQueries(
 export function buildCleanMultiQueryDiscoveryQueries(
   industry: string,
   country: string,
+  subindustries?: string[],
 ): string[] {
   const isTech = isTechSector(industry);
 
   if (isTech) {
     // Hito 16V.1 + 16Y.2: Colombia usa 3 subcluster + 2 source-guided (Ronda 1).
+    // Hito 16AB.43.14: subindustrias inyectan hasta 2 queries reemplazando subclusters.
     if (normalizeKey(country) === 'colombia') {
-      return [
+      const baseQueries = [
         'empresa fintech pagos Colombia clientes corporativos soluciones',
         'empresa software gestión RRHH nómina Colombia pymes corporativo',
         'empresa ciberseguridad Colombia protección datos empresas contacto',
-        ...SOURCE_GUIDED_QUERIES_CO_TECH_R1,
       ];
+      return injectSubindustryQueries(baseQueries, [...SOURCE_GUIDED_QUERIES_CO_TECH_R1], subindustries ?? [], country, 1);
     }
     // Queries validadas en Hito 13D con Tavily basic mode (otros países/Tecnología).
-    // Q3 y Q5 reemplazan "consultoría TI" y "SaaS" que devolvían 0 resultados (Hito 13C).
-    return [
+    const baseQueries = [
       `empresa desarrollo software ${country} servicios contacto`,
       `empresa tecnología ${country} soluciones empresariales contacto`,
       `empresa servicios tecnológicos ${country} clientes soluciones`,
       `empresa software ${country} nosotros servicios`,
       `empresa TI ${country} outsourcing software clientes`,
     ];
+    return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 1);
   }
 
   // Hito 16L: estrategia específica por industria antes del fallback genérico.
   const industrySpecific = resolveIndustrySpecificQueries(industry, country);
-  if (industrySpecific) return industrySpecific;
+  if (industrySpecific) {
+    return injectSubindustryQueries(industrySpecific, [], subindustries ?? [], country, 1);
+  }
 
   const sectorTerms = getSectorTerms(industry);
   const primary = sectorTerms.primary[0] ?? `empresas ${industry}`;
   const secondary = sectorTerms.secondary[0] ?? industry;
 
-  return [
+  const baseQueries = [
     `${primary} ${country} servicios contacto nosotros`,
     `empresas ${industry} ${country} corporativo soluciones contacto`,
     `${secondary} ${country} empresa servicios`,
     `compañías ${industry} ${country} soluciones contacto`,
     `${primary} ${country} empresa corporativo`,
   ];
+  return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 1);
 }
 
 function buildWebsiteDiscoveryQuery(industry: string, country: string): string {
@@ -453,40 +528,43 @@ function buildWebsiteDiscoveryQuery(industry: string, country: string): string {
 export function buildExpandedMultiQueryDiscoveryQueries(
   industry: string,
   country: string,
-  _options?: Record<string, unknown>,
+  subindustries?: string[],
 ): string[] {
   const countryKey = normalizeKey(country);
 
   // Hito 16V.1 + 16Y.2: Colombia/Tech usa 3 ciudad+subindustria + 2 source-guided (Ronda 2).
+  // Hito 16AB.43.14: subindustrias inyectan hasta 2 queries reemplazando queries base.
   if (isTechSector(industry) && countryKey === 'colombia') {
-    return [
+    const baseQueries = [
       'empresa desarrollo software Medellín nearshore clientes internacionales',
       'empresa software Cali soluciones empresariales clientes nosotros',
       'empresa cloud infraestructura Colombia servicios TI corporativo',
-      ...SOURCE_GUIDED_QUERIES_CO_TECH_R2,
     ];
+    return injectSubindustryQueries(baseQueries, [...SOURCE_GUIDED_QUERIES_CO_TECH_R2], subindustries ?? [], country, 2);
   }
 
   if (isTechSector(industry)) {
-    return [
+    const baseQueries = [
       `empresa software empresarial ${country} soluciones corporativas contacto`,
       `proveedor SaaS B2B ${country} clientes empresas nosotros`,
       `empresa automatización procesos ${country} ERP implementación`,
       `compañía consultoría TI ${country} transformación digital`,
       `empresa desarrollo aplicaciones ${country} clientes corporativos`,
     ];
+    return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 2);
   }
 
   // Fallback genérico para sectores no-tech
   const sectorTerms = getSectorTerms(industry);
   const primary = sectorTerms.primary[0] ?? `empresas ${industry}`;
-  return [
+  const baseQueries = [
     `${primary} ${country} empresas proveedores nosotros contacto`,
     `empresas ${industry} ${country} servicios especializados contacto`,
     `compañías ${industry} ${country} líderes del sector nosotros`,
     `${industry} empresas ${country} corporativo soluciones`,
     `proveedores ${industry} ${country} empresas contacto corporativo`,
   ];
+  return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 2);
 }
 
 // ─── API pública: source-guided queries ──────────────────────────────────────

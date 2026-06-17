@@ -5,9 +5,9 @@
  * existingBatchId is always the reserved batch — the writer reuses it, never creates a new one.
  * Apollo and any other provider are inaccessible from this module.
  *
- * Known limitation: subindustries and additionalCriteria from the wizard context are
- * preserved in the batch metadata but are not yet consumed by Tavily query builders.
- * Direct query enrichment from subindustries is planned for a future hito.
+ * Subindustry names (canonical, resolved from catalog) are forwarded to the incremental
+ * search pipeline so query builders can inject subindustry-specific discovery queries.
+ * Hito 16AB.43.14.
  */
 
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
@@ -40,6 +40,7 @@ export async function runWizardTavilySearch(
     country: input.resolved.country.name,
     countryCode: input.resolved.country.code,
     industry: input.resolved.industry.name,
+    subindustries: input.resolved.subindustries.map((s) => s.name),
     webSearchProvider: 'tavily',
     targetInternal: WIZARD_TAVILY_TARGET_INTERNAL,
     existingBatchId: input.reservedBatchId,
