@@ -189,6 +189,8 @@ export async function logProviderUsage(input: LogProviderUsageInput): Promise<bo
     const { error } = await admin.from('provider_usage_logs').insert({
       agent_run_id: input.agent_run_id ?? null,
       agent_run_step_id: input.agent_run_step_id ?? null,
+      batch_id: input.batch_id ?? null,
+      usage_key: input.usage_key ?? null,
       provider_key: input.provider_key,
       operation_key: input.operation_key,
       model: input.model ?? null,

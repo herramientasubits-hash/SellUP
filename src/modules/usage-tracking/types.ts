@@ -81,6 +81,8 @@ export interface ProviderUsageLog {
   id: string;
   agent_run_id: string | null;
   agent_run_step_id: string | null;
+  batch_id: string | null;
+  usage_key: string | null;
   provider_key: string;
   operation_key: string;
   model: string | null;
@@ -176,6 +178,8 @@ export interface FinishAgentRunStepInput {
 export interface LogProviderUsageInput {
   agent_run_id?: string;
   agent_run_step_id?: string;
+  batch_id?: string;
+  usage_key?: string;
   provider_key: string;
   operation_key: string;
   model?: string;
