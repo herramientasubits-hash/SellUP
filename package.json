@@ -16,7 +16,8 @@
     "test:catalog-form": "node --import tsx --test src/modules/industry-catalog/__tests__/loader.test.ts src/modules/industry-catalog/__tests__/schema.test.ts src/modules/industry-catalog/__tests__/action.test.ts",
     "test:import-classification": "node --import tsx --test src/modules/prospect-batches/import-classification/__tests__/import-classification.test.ts",
     "test:import-classification-backend": "node --import tsx --test src/modules/prospect-batches/import-classification/__tests__/import-classification-backend.test.ts",
-    "test:wizard-execution": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-pipeline-adapter.test.ts"
+    "test:wizard-execution": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-pipeline-adapter.test.ts",
+    "test:wizard-idempotency": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-idempotency.test.ts src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-execution-action.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

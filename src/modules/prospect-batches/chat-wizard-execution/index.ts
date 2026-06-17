@@ -9,8 +9,11 @@ export type {
   ResolvedWizardExecution,
   WizardContext,
   WizardGenerationCommand,
+  WizardExecutionActionResult,
 } from './wizard-execution-types';
 export { WizardExecutionError } from './wizard-execution-types';
+
+export { executeProspectWizardGenerationAction } from './wizard-execution-actions';
 
 export {
   wizardExecutionRequestSchema,
@@ -35,3 +38,14 @@ export {
   adaptResolvedWizardToGenerationInput,
   WIZARD_SYSTEM_CONTROLS,
 } from './wizard-pipeline-adapter';
+
+export {
+  reserveWizardExecutionSlot,
+  WizardIdempotencyError,
+} from './wizard-idempotency';
+export type {
+  WizardExecutionReservationInput,
+  WizardExecutionReservationResult,
+  IdempotencyDbClient,
+  DbError,
+} from './wizard-idempotency';

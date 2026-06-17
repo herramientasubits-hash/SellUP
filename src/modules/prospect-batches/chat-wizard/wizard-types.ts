@@ -24,6 +24,8 @@ export type ProspectWizardStep =
   | 'summary'
   | 'validating'
   | 'validated'
+  | 'submitting'
+  | 'success'
   | 'blocked'
   | 'error';
 
@@ -97,6 +99,10 @@ export type ProspectWizardState = {
 
   lastEditedStep: ProspectWizardStep | null;
   restartConfirmationRequired: boolean;
+
+  executionError: { code: string; message: string; retryable: boolean } | null;
+  executionBatchId: string | null;
+  executionRedirectPath: string | null;
 };
 
 // ── Action contracts ──────────────────────────────────────────────────────────
@@ -125,7 +131,10 @@ export type ProspectWizardAction =
     }
   | { type: 'CLEAR_FEEDBACK' }
   | { type: 'RECONCILE_COUNTRY_SUBINDUSTRIES'; compatibleSubindustryIds: string[] }
-  | { type: 'APPLY_CRITERIA_GUARD_RESULT'; rawValue: string; result: CriteriaGuardResult };
+  | { type: 'APPLY_CRITERIA_GUARD_RESULT'; rawValue: string; result: CriteriaGuardResult }
+  | { type: 'BEGIN_EXECUTION' }
+  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string }
+  | { type: 'EXECUTION_FAILED'; errorCode: string; message: string; retryable: boolean };
 
 // ── Derived message contract ──────────────────────────────────────────────────
 

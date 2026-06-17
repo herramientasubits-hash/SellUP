@@ -36,6 +36,10 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
   // Feature flags: read server-side only — never NEXT_PUBLIC_
   const enableChatWizard = process.env.ENABLE_PROSPECT_CHAT_WIZARD === 'true';
   const enableV2 = process.env.ENABLE_EXPLORATORY_SEARCH_FORM_V2 === 'true';
+  const enableChatWizardExecution = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION === 'true';
+
+  // Execution only active when wizard is also active
+  const wizardExecutionEnabled = enableChatWizard && enableChatWizardExecution;
 
   // Load catalog only when any enhanced experience is on — zero Supabase queries otherwise
   let catalog: ActiveIndustryCatalog | null = null;
@@ -104,7 +108,7 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
       description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} catalog={catalog} />
+          <GenerateAIBatchDrawer experience={experience} catalog={catalog} executionEnabled={wizardExecutionEnabled} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

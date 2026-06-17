@@ -113,3 +113,29 @@ export type WizardGenerationCommand = {
   generationInput: GenerateAIBatchInput;
   wizardContext: WizardContext;
 };
+
+// ── Action result (server action return type) ─────────────────────────────────
+
+export type WizardExecutionActionResult =
+  | {
+      ok: true;
+      status: 'created' | 'already_started';
+      batchId: string;
+      batchStatus: string;
+      candidateCount?: number;
+      redirectPath: string;
+    }
+  | {
+      ok: false;
+      code:
+        | 'EXECUTION_DISABLED'
+        | 'UNAUTHENTICATED'
+        | 'INACTIVE_USER'
+        | 'INVALID_REQUEST'
+        | 'CATALOG_CHANGED'
+        | 'IDEMPOTENCY_CONFLICT'
+        | 'PROVIDER_UNAVAILABLE'
+        | 'GENERATION_FAILED';
+      message: string;
+      retryable: boolean;
+    };

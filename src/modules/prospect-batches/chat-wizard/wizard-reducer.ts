@@ -32,6 +32,9 @@ export function createInitialProspectWizardState(
     blockingIssues: [],
     lastEditedStep: null,
     restartConfirmationRequired: false,
+    executionError: null,
+    executionBatchId: null,
+    executionRedirectPath: null,
   };
 }
 
@@ -427,6 +430,42 @@ export function prospectWizardReducer(
         warnings: [],
         blockingIssues: [],
         validationStatus: 'idle',
+      };
+    }
+
+    // ── BEGIN_EXECUTION ─────────────────────────────────────────────────────
+    case 'BEGIN_EXECUTION': {
+      if (state.currentStep !== 'validated') return state;
+      return {
+        ...state,
+        currentStep: 'submitting',
+        executionError: null,
+      };
+    }
+
+    // ── EXECUTION_SUCCEEDED ─────────────────────────────────────────────────
+    case 'EXECUTION_SUCCEEDED': {
+      if (state.currentStep !== 'submitting') return state;
+      return {
+        ...state,
+        currentStep: 'success',
+        executionBatchId: action.batchId,
+        executionRedirectPath: action.redirectPath,
+        executionError: null,
+      };
+    }
+
+    // ── EXECUTION_FAILED ────────────────────────────────────────────────────
+    case 'EXECUTION_FAILED': {
+      if (state.currentStep !== 'submitting') return state;
+      return {
+        ...state,
+        currentStep: 'validated',
+        executionError: {
+          code: action.errorCode,
+          message: action.message,
+          retryable: action.retryable,
+        },
       };
     }
 

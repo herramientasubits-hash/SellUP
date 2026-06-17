@@ -211,9 +211,11 @@ type GenerateAIBatchDrawerProps = {
   experience?: GenerateProspectsExperience;
   /** Required when experience is 'exploratory_form_v2' or 'chat_wizard'. */
   catalog?: ActiveIndustryCatalog | null;
+  /** When true, the chat wizard will show the real generation CTA. Default false. */
+  executionEnabled?: boolean;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, executionEnabled = false }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -397,7 +399,7 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null }:
         icon={<Sparkles className="h-4 w-4 text-su-brand" />}
         size="xl"
       >
-        <ProspectChatWizard catalog={catalog} onClose={handleClose} />
+        <ProspectChatWizard catalog={catalog} onClose={handleClose} executionEnabled={executionEnabled} />
       </DrawerShell>
     );
   }

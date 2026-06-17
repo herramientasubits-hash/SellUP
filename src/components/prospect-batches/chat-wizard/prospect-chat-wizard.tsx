@@ -24,6 +24,7 @@ import type { SearchableSelectOption } from '@/components/forms/searchable-selec
 import type { MultiSelectOption } from '@/components/forms/multi-select';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
+import { executeProspectWizardGenerationAction } from '@/modules/prospect-batches/chat-wizard-execution';
 import { WizardMessageList } from './wizard-message-list';
 import { WizardActiveStep } from './wizard-active-step';
 import {
@@ -39,6 +40,8 @@ const SUMMARY_STEPS = new Set([
   'summary',
   'validating',
   'validated',
+  'submitting',
+  'success',
   'blocked',
   'error',
 ]);
@@ -48,9 +51,10 @@ const SUMMARY_STEPS = new Set([
 type ProspectChatWizardProps = {
   catalog: ActiveIndustryCatalog;
   onClose: () => void;
+  executionEnabled?: boolean;
 };
 
-export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps) {
+export function ProspectChatWizard({ catalog, onClose, executionEnabled = false }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
     undefined,
@@ -60,6 +64,9 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
       }),
   );
+
+  // clientRequestId — generated once when entering validated state, reset on restart
+  const clientRequestIdRef = React.useRef<string | null>(null);
 
   // Criteria text draft for the composer — reset on submit or skip
   const [criteriaText, setCriteriaText] = React.useState('');
@@ -207,6 +214,14 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
         description: s.description ?? undefined,
       }));
   }, [state.industryId, state.countryCode, catalog.subindustries]);
+
+  // ── Reset clientRequestId when wizard is restarted (step returns to welcome) ─
+
+  React.useEffect(() => {
+    if (state.currentStep === 'welcome') {
+      clientRequestIdRef.current = null;
+    }
+  }, [state.currentStep]);
 
   // ── Auto-start conversation on mount ──────────────────────────────────────
 
@@ -363,6 +378,9 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
       const result = await validateExploratorySearch(payload);
 
       if (result.valid) {
+        if (!clientRequestIdRef.current) {
+          clientRequestIdRef.current = crypto.randomUUID();
+        }
         dispatch({ type: 'VALIDATION_SUCCEEDED' });
         return;
       }
@@ -408,10 +426,52 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
     }
   }
 
+  // ── Execution ─────────────────────────────────────────────────────────────
+
+  async function handleExecute() {
+    if (state.currentStep !== 'validated') return;
+    if (!clientRequestIdRef.current) return;
+
+    dispatch({ type: 'BEGIN_EXECUTION' });
+
+    try {
+      const result = await executeProspectWizardGenerationAction({
+        countryCode: state.countryCode!,
+        industryId: state.industryId!,
+        subindustryIds: state.subindustryIds,
+        additionalCriteriaRaw: state.additionalCriteriaRaw,
+        catalogVersion: state.catalogVersion,
+        clientRequestId: clientRequestIdRef.current,
+      });
+
+      if (result.ok) {
+        dispatch({
+          type: 'EXECUTION_SUCCEEDED',
+          batchId: result.batchId,
+          redirectPath: result.redirectPath,
+        });
+      } else {
+        dispatch({
+          type: 'EXECUTION_FAILED',
+          errorCode: result.code,
+          message: result.message,
+          retryable: result.retryable,
+        });
+      }
+    } catch {
+      dispatch({
+        type: 'EXECUTION_FAILED',
+        errorCode: 'GENERATION_FAILED',
+        message: 'Error al iniciar la generación. Inténtalo de nuevo.',
+        retryable: true,
+      });
+    }
+  }
+
   // ── Progress label ────────────────────────────────────────────────────────
 
   const showProgress =
-    !['welcome', 'validating', 'validated', 'blocked', 'error'].includes(
+    !['welcome', 'validating', 'validated', 'submitting', 'success', 'blocked', 'error'].includes(
       state.currentStep,
     );
   const progressLabel =
@@ -479,6 +539,8 @@ export function ProspectChatWizard({ catalog, onClose }: ProspectChatWizardProps
                 dispatch={summaryDispatch}
                 onValidate={handleValidate}
                 onClose={onClose}
+                executionEnabled={executionEnabled}
+                onExecute={handleExecute}
               />
             ) : (
               <WizardActiveStep

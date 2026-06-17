@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { CheckCircle2, Pencil, RotateCcw, X, AlertTriangle, XCircle, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { CheckCircle2, Pencil, RotateCcw, X, AlertTriangle, XCircle, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
@@ -20,6 +21,8 @@ type WizardConversationSummaryProps = {
   dispatch: React.Dispatch<ProspectWizardAction>;
   onValidate: () => void;
   onClose: () => void;
+  executionEnabled: boolean;
+  onExecute: () => void;
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -30,6 +33,8 @@ export function WizardConversationSummary({
   dispatch,
   onValidate,
   onClose,
+  executionEnabled,
+  onExecute,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -40,6 +45,22 @@ export function WizardConversationSummary({
       <ValidatedPanel
         dispatch={dispatch}
         onClose={onClose}
+        executionEnabled={executionEnabled}
+        onExecute={onExecute}
+        executionError={state.executionError}
+      />
+    );
+  }
+
+  if (state.currentStep === 'submitting') {
+    return <SubmittingPanel />;
+  }
+
+  if (state.currentStep === 'success') {
+    return (
+      <SuccessPanel
+        batchId={state.executionBatchId}
+        redirectPath={state.executionRedirectPath}
       />
     );
   }
@@ -84,9 +105,12 @@ function ValidatingPanel() {
 type ValidatedPanelProps = {
   dispatch: React.Dispatch<ProspectWizardAction>;
   onClose: () => void;
+  executionEnabled: boolean;
+  onExecute: () => void;
+  executionError: { code: string; message: string; retryable: boolean } | null;
 };
 
-function ValidatedPanel({ dispatch, onClose }: ValidatedPanelProps) {
+function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, executionError }: ValidatedPanelProps) {
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
       <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
@@ -99,10 +123,31 @@ function ValidatedPanel({ dispatch, onClose }: ValidatedPanelProps) {
             La configuración es válida.
           </p>
           <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
-            La generación real todavía no fue iniciada.
+            {executionEnabled
+              ? 'Puedes iniciar la generación de prospectos.'
+              : 'La generación real todavía no está habilitada.'}
           </p>
         </div>
       </div>
+
+      {executionError && (
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+          <p className="text-xs text-destructive">{executionError.message}</p>
+        </div>
+      )}
+
+      {executionEnabled && (
+        <Button
+          type="button"
+          size="sm"
+          className="w-full gap-1.5"
+          onClick={onExecute}
+        >
+          <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          Generar prospectos
+        </Button>
+      )}
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button
@@ -135,6 +180,55 @@ function ValidatedPanel({ dispatch, onClose }: ValidatedPanelProps) {
           <X className="h-3.5 w-3.5" aria-hidden />
           Cerrar
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Submitting panel ──────────────────────────────────────────────────────────
+
+function SubmittingPanel() {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-xl bg-muted/40 px-5 py-4"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
+      <p className="text-sm text-foreground">Generando prospectos…</p>
+    </div>
+  );
+}
+
+// ── Success panel ─────────────────────────────────────────────────────────────
+
+type SuccessPanelProps = {
+  batchId: string | null;
+  redirectPath: string | null;
+};
+
+function SuccessPanel({ batchId, redirectPath }: SuccessPanelProps) {
+  const router = useRouter();
+
+  React.useEffect(() => {
+    if (redirectPath) {
+      router.push(redirectPath);
+    }
+  }, [redirectPath, router]);
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+      <CheckCircle2
+        className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+        aria-hidden
+      />
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+          ¡Lote creado correctamente!
+        </p>
+        <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+          {batchId ? `ID: ${batchId}` : 'Redirigiendo…'}
+        </p>
       </div>
     </div>
   );
