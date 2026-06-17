@@ -18,7 +18,9 @@
     "test:import-classification-backend": "node --import tsx --test src/modules/prospect-batches/import-classification/__tests__/import-classification-backend.test.ts",
     "test:wizard-execution": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-pipeline-adapter.test.ts",
     "test:wizard-idempotency": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-idempotency.test.ts src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-execution-action.test.ts",
-    "test:existing-batch": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/candidate-writer-existing-batch.test.ts"
+    "test:existing-batch": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/candidate-writer-existing-batch.test.ts",
+    "test:wizard-tavily-executor": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-tavily-executor.test.ts",
+    "test:wizard-action-execution": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-execution-action.test.ts src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-tavily-executor.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

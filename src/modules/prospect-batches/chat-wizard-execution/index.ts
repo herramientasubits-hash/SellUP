@@ -13,7 +13,8 @@ export type {
 } from './wizard-execution-types';
 export { WizardExecutionError } from './wizard-execution-types';
 
-export { executeProspectWizardGenerationAction } from './wizard-execution-actions';
+export { executeProspectWizardGenerationAction, executeProspectWizardGeneration } from './wizard-execution-actions';
+export type { WizardExecutionDeps } from './wizard-execution-actions';
 
 export {
   wizardExecutionRequestSchema,
