@@ -15,15 +15,53 @@ import type { WizardTavilyRunner, WizardTavilyInput } from './wizard-tavily-exec
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
+import type { PilotGuardrailCode, ConfirmWizardCreditsOutput, ReleaseWizardCreditsOutput } from './wizard-pilot-types';
+import {
+  reserveWizardPilotCredits,
+  confirmWizardPilotCredits,
+  releaseWizardPilotCredits,
+  fetchWizardReservationRecord,
+} from './wizard-budget-reservations';
+import type { BudgetReservationsRpcClient, ReservationLookupClient } from './wizard-budget-reservations';
+import {
+  estimateWizardTavilyMaxCredits,
+  getPilotBudgetPeriodStart,
+  readWizardConsumedCreditsFromDb,
+} from './wizard-budget-reconciliation';
+import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real
 // implementations; tests inject lightweight fakes without Supabase or Tavily.
 
+// Typed result returned by the reserveBudget dep — encapsulates RPC + DB lookup.
+export type ReserveBudgetDepResult =
+  | { status: 'reserved'; reservationId: string; creditsReserved: number }
+  | { status: 'already_reserved'; reservationId: string; creditsReserved: number }
+  | { status: 'blocked'; code: PilotGuardrailCode; message: string };
+
 export type WizardExecutionDeps = {
   getActiveUserId: () => Promise<string>;
   resolveCatalog: (input: CatalogResolutionInput) => Promise<CatalogResolutionOutput>;
   checkTavilyAvailability: () => Promise<boolean>;
+  // Budget guardrail operations — period calculation and settings load are encapsulated here.
+  reserveBudget: (input: {
+    userId: string;
+    clientRequestId: string;
+    requestedCredits: number;
+  }) => Promise<ReserveBudgetDepResult>;
+  confirmBudget: (input: {
+    reservationId: string;
+    actualCreditsConsumed: number;
+    batchId?: string | null;
+  }) => Promise<ConfirmWizardCreditsOutput>;
+  releaseBudget: (input: {
+    reservationId: string;
+    batchId?: string | null;
+    reason?: string | null;
+  }) => Promise<ReleaseWizardCreditsOutput>;
+  readConsumedCredits: (batchId: string) => Promise<number | null>;
+  // Existing
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   runTavilyPipeline: WizardTavilyRunner;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
@@ -37,10 +75,13 @@ function isExecutionEnabled(): boolean {
 // Thin entrypoint for Next.js. Builds real deps from server context, delegates
 // to executeProspectWizardGeneration for the actual logic.
 
+const BOGOTA_TIMEZONE = 'America/Bogota';
+
 export async function executeProspectWizardGenerationAction(
   request: unknown,
 ): Promise<WizardExecutionActionResult> {
   const supabase = await createClient();
+
   const deps: WizardExecutionDeps = {
     getActiveUserId: async () => {
       const auth = await requireActiveUser();
@@ -48,9 +89,45 @@ export async function executeProspectWizardGenerationAction(
     },
     resolveCatalog: (input) => resolveWizardCatalog(input, supabase),
     checkTavilyAvailability: isTavilyConfiguredForWizard,
+
+    reserveBudget: async ({ userId, clientRequestId, requestedCredits }) => {
+      const periodStart = getPilotBudgetPeriodStart(BOGOTA_TIMEZONE);
+      const rpcResult = await reserveWizardPilotCredits(
+        { userId, clientRequestId, requestedCredits, periodStart },
+        supabase as unknown as BudgetReservationsRpcClient,
+      );
+      if (rpcResult.status === 'blocked') return rpcResult;
+
+      // Both 'reserved' and 'already_reserved' need the reservation ID for later reconciliation.
+      const record = await fetchWizardReservationRecord(
+        userId,
+        clientRequestId,
+        supabase as unknown as ReservationLookupClient,
+      );
+      if (!record) {
+        return { status: 'blocked', code: 'BUDGET_RESERVATION_FAILED', message: 'reservation_record_not_found' };
+      }
+      return {
+        status: rpcResult.status,
+        reservationId: record.id,
+        creditsReserved: record.credits_reserved,
+      };
+    },
+
+    confirmBudget: (input) =>
+      confirmWizardPilotCredits(input, supabase as unknown as BudgetReservationsRpcClient),
+
+    releaseBudget: (input) =>
+      releaseWizardPilotCredits(input, supabase as unknown as BudgetReservationsRpcClient),
+
+    readConsumedCredits: (batchId) =>
+      readWizardConsumedCreditsFromDb(batchId, supabase as unknown as ConsumedCreditsDbClient),
+
     reserveSlot: (input) =>
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
+
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),
+
     markBatchFailed: (batchId, reason) =>
       markWizardBatchFailed(batchId, reason, async (id) => {
         const result = await supabase
@@ -60,6 +137,7 @@ export async function executeProspectWizardGenerationAction(
         return { error: result.error };
       }),
   };
+
   return executeProspectWizardGeneration(request, deps);
 }
 
@@ -68,22 +146,23 @@ export async function executeProspectWizardGenerationAction(
 // through the injected deps.
 //
 // Execution order:
-//   1. Feature flag
-//   2. Auth (server session only — userId never accepted from client)
-//   3. Schema validation
-//   4. Catalog resolution
-//   5. Tavily availability (before reserving — zero batches created if unavailable)
-//   6. Durable reservation
-//   7. Idempotency guard (already_reserved → already_started, no pipeline)
-//   8. Tavily pipeline via reserved batchId
-//   9. batchId consistency check
-//  10. Success result
+//   1.  Feature flag (env) — first hard gate; zero deps called if disabled
+//   2.  Auth — userId from server session only, never from client payload
+//   3.  Schema validation — strict; rejects any unknown or economic fields
+//   4.  Catalog resolution — validates all IDs canonically
+//   5.  Tavily availability — no batch, no budget if provider unavailable
+//   6.  Estimate max credits server-side (currently 10; never from client)
+//   7.  Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency
+//   8.  Durable batch reservation — idempotency anchor
+//   9.  Tavily pipeline
+//   10. Credit reconciliation
+//   11. Success result
 
 export async function executeProspectWizardGeneration(
   request: unknown,
   deps: WizardExecutionDeps,
 ): Promise<WizardExecutionActionResult> {
-  // 1. Feature flag
+  // 1. Feature flag — hard env gate; if off, zero guardrail or DB calls
   if (!isExecutionEnabled()) {
     return {
       ok: false,
@@ -106,7 +185,7 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 3. Validate request schema
+  // 3. Validate request schema — .strict() blocks any client-injected economic fields
   const parsed = wizardExecutionRequestSchema.safeParse(request);
   if (!parsed.success) {
     const firstError = parsed.error.issues[0]?.message ?? 'Solicitud inválida.';
@@ -137,7 +216,7 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 5. Tavily availability — checked before reservation so no batch is created if unavailable
+  // 5. Tavily availability — checked before reservation so no budget or batch is created if unavailable
   const tavilyAvailable = await deps.checkTavilyAvailability();
   if (!tavilyAvailable) {
     return {
@@ -148,7 +227,29 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 6. Build resolved execution context (server-controlled — no client-supplied labels)
+  // 6. Calculate max credits server-side — client cannot control this value
+  const requestedCredits = estimateWizardTavilyMaxCredits(); // = 10
+
+  // 7. Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency all checked by RPC
+  const budgetResult = await deps.reserveBudget({
+    userId,
+    clientRequestId: req.clientRequestId,
+    requestedCredits,
+  });
+
+  if (budgetResult.status === 'blocked') {
+    return {
+      ok: false,
+      code: budgetResult.code,
+      message: GUARDRAIL_MESSAGES[budgetResult.code] ?? budgetResult.message,
+      retryable: false,
+    };
+  }
+
+  const { reservationId, creditsReserved } = budgetResult;
+  const budgetWasNew = budgetResult.status === 'reserved';
+
+  // 8. Build resolved execution context (server-controlled — no client-supplied labels)
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
   const countryName = countryEntry?.name ?? req.countryCode;
 
@@ -172,9 +273,7 @@ export async function executeProspectWizardGeneration(
     },
   };
 
-  // 7. Reserve durable execution slot (idempotency anchor).
-  // Subindustries and additionalCriteria are stored in metadata here for traceability.
-  // They are not yet consumed by Tavily query builders — planned for a future hito.
+  // 9. Reserve durable execution slot (idempotency anchor).
   let reservation: WizardExecutionReservationResult;
   try {
     reservation = await deps.reserveSlot({
@@ -190,6 +289,10 @@ export async function executeProspectWizardGeneration(
       },
     });
   } catch {
+    // Slot reservation failed — release budget if it was newly created
+    if (budgetWasNew) {
+      await deps.releaseBudget({ reservationId, reason: 'slot_reservation_failed' }).catch(() => undefined);
+    }
     return {
       ok: false,
       code: 'GENERATION_FAILED',
@@ -198,8 +301,17 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 8. Idempotency guard — already reserved means a prior request owns this execution
+  // 10. Batch idempotency: already_reserved means a prior request owns this execution
   if (reservation.status === 'already_reserved') {
+    // Budget newly reserved but batch already exists → release budget; another execution owns it
+    if (budgetWasNew) {
+      await deps.releaseBudget({
+        reservationId,
+        batchId: reservation.batchId,
+        reason: 'batch_already_reserved',
+      }).catch(() => undefined);
+    }
+    // If budget was also already_reserved, do NOT touch it — belongs to the first execution
     return {
       ok: true,
       status: 'already_started',
@@ -209,16 +321,17 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 9. Execute Tavily pipeline using the reserved batchId as anchor
+  // 11. Execute Tavily pipeline using the reserved batchId as anchor
   const reservedBatchId = reservation.batchId;
   let pipelineResult: IncrementalSearchOutput;
   try {
     pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
   } catch {
-    // Mark reserved batch as failed; catch secondary failure to preserve original error
-    await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => {
-      // Residual risk: if this also fails, batch stays in 'draft'. Requires manual cleanup.
-    });
+    // Reconcile conservatively — Tavily may have partially executed
+    const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
+    const toConfirm = (consumed !== null && consumed > 0) ? consumed : creditsReserved;
+    await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => undefined);
     return {
       ok: false,
       code: 'GENERATION_FAILED',
@@ -227,11 +340,12 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 10. Verify batchId consistency — pipeline must return the exact same batchId we reserved
+  // 12. Verify batchId consistency — pipeline must return the exact same batchId we reserved
   if (pipelineResult.batchId !== reservedBatchId) {
-    await deps.markBatchFailed(reservedBatchId, 'batchid_mismatch').catch(() => {
-      // Same residual risk as step 9
-    });
+    const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
+    const toConfirm = (consumed !== null && consumed > 0) ? consumed : creditsReserved;
+    await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    await deps.markBatchFailed(reservedBatchId, 'batchid_mismatch').catch(() => undefined);
     return {
       ok: false,
       code: 'GENERATION_FAILED',
@@ -240,7 +354,24 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 11. Success
+  // 13. Reconcile credits — confirm actual consumed (partial or full)
+  const consumedCredits = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
+  // Conservative: if 0 or null, confirm full reserved amount (logging may have failed)
+  const actualToConfirm = (consumedCredits !== null && consumedCredits > 0) ? consumedCredits : creditsReserved;
+
+  let reconciliationFailed = false;
+  try {
+    await deps.confirmBudget({
+      reservationId,
+      actualCreditsConsumed: actualToConfirm,
+      batchId: reservedBatchId,
+    });
+  } catch {
+    // Generation succeeded — do NOT convert to failure. Log warning internally.
+    reconciliationFailed = true;
+  }
+
+  // 14. Success
   return {
     ok: true,
     status: 'created',
@@ -248,5 +379,29 @@ export async function executeProspectWizardGeneration(
     batchStatus: 'ready_for_review',
     candidateCount: pipelineResult.candidatesCreated,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
+    ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),
   };
 }
+
+// ── Public message map ────────────────────────────────────────────────────────
+// Maps pilot guardrail codes to user-facing Spanish messages.
+// Internal: not exported from index.ts — only used within the action.
+
+const GUARDRAIL_MESSAGES: Partial<Record<PilotGuardrailCode, string>> = {
+  PILOT_PAUSED:
+    'La generación de prospectos está pausada temporalmente.',
+  NOT_IN_PILOT:
+    'Esta función todavía está disponible solo para el grupo piloto.',
+  BUDGET_PERIOD_NOT_CONFIGURED:
+    'El presupuesto del piloto para este mes todavía no está configurado.',
+  BUDGET_PERIOD_CLOSED:
+    'El período presupuestal del piloto está cerrado.',
+  EXECUTION_CREDIT_LIMIT_EXCEEDED:
+    'Esta búsqueda supera el máximo permitido por corrida.',
+  BUDGET_EXCEEDED:
+    'El presupuesto disponible para generación de prospectos se agotó.',
+  CONCURRENT_EXECUTION_ACTIVE:
+    'Ya tienes una generación en curso. Espera a que termine antes de iniciar otra.',
+  BUDGET_RESERVATION_FAILED:
+    'No se pudo reservar el presupuesto para la ejecución. Por favor, intenta nuevamente.',
+};

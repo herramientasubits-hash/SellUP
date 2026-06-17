@@ -2,7 +2,7 @@
  * wizard-budget-reservations.ts — Reserve, confirm, and release credit wrappers.
  *
  * Server-only. Never import from client components.
- * Not connected to executeProspectWizardGenerationAction yet (16AB.43.17).
+ * Connected to executeProspectWizardGenerationAction in 16AB.43.17.
  *
  * Wraps the three Supabase RPC functions with typed inputs/outputs and
  * injectable DB client for testability.
@@ -170,4 +170,49 @@ export async function releaseWizardPilotCredits(
         message: result ?? 'unknown_release_result',
       };
   }
+}
+
+// ── Reservation ID lookup ─────────────────────────────────────────────────────
+//
+// try_reserve_wizard_credits returns only a TEXT status code, not the reservation ID.
+// After a 'reserved' or 'already_reserved' result, callers that need the ID to later
+// confirm or release must query the table by (user_id, client_request_id).
+
+export type ReservationRecord = {
+  id: string;
+  credits_reserved: number;
+};
+
+type ReservationLookupRow = { id: string; credits_reserved: number };
+type ReservationLookupResult = {
+  data: ReservationLookupRow | null;
+  error: { message: string } | null;
+};
+type ReservationEqBuilder = { maybeSingle(): Promise<ReservationLookupResult> };
+type ReservationSelectBuilder = {
+  eq(col: string, val: string): { eq(col: string, val: string): ReservationEqBuilder };
+};
+
+export type ReservationLookupClient = {
+  from(table: string): { select(cols: string): ReservationSelectBuilder };
+};
+
+/**
+ * Fetches the reservation record created by try_reserve_wizard_credits.
+ * Returns null if the record is not found or a DB error occurs.
+ */
+export async function fetchWizardReservationRecord(
+  userId: string,
+  clientRequestId: string,
+  db: ReservationLookupClient,
+): Promise<ReservationRecord | null> {
+  const { data, error } = await db
+    .from('wizard_budget_reservations')
+    .select('id, credits_reserved')
+    .eq('user_id', userId)
+    .eq('client_request_id', clientRequestId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return { id: data.id, credits_reserved: data.credits_reserved };
 }

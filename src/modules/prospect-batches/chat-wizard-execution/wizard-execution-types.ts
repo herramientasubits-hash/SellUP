@@ -124,6 +124,8 @@ export type WizardExecutionActionResult =
       batchStatus: string;
       candidateCount?: number;
       redirectPath: string;
+      /** Present when budget reconciliation failed after a successful generation. */
+      reconciliationWarning?: 'BUDGET_RECONCILIATION_FAILED';
     }
   | {
       ok: false;
@@ -135,7 +137,16 @@ export type WizardExecutionActionResult =
         | 'CATALOG_CHANGED'
         | 'IDEMPOTENCY_CONFLICT'
         | 'PROVIDER_UNAVAILABLE'
-        | 'GENERATION_FAILED';
+        | 'GENERATION_FAILED'
+        // Pilot budget guardrail codes (16AB.43.17)
+        | 'PILOT_PAUSED'
+        | 'NOT_IN_PILOT'
+        | 'BUDGET_PERIOD_NOT_CONFIGURED'
+        | 'BUDGET_PERIOD_CLOSED'
+        | 'EXECUTION_CREDIT_LIMIT_EXCEEDED'
+        | 'BUDGET_EXCEEDED'
+        | 'CONCURRENT_EXECUTION_ACTIVE'
+        | 'BUDGET_RESERVATION_FAILED';
       message: string;
       retryable: boolean;
     };

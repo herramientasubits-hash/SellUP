@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { wizardExecutionRequestSchema } from '../wizard-execution-schema';
 import type { WizardExecutionActionResult } from '../wizard-execution-types';
 import { executeProspectWizardGeneration } from '../wizard-execution-actions';
-import type { WizardExecutionDeps } from '../wizard-execution-actions';
+import type { WizardExecutionDeps, ReserveBudgetDepResult } from '../wizard-execution-actions';
 import type { WizardExecutionReservationInput, WizardExecutionReservationResult } from '../wizard-idempotency';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from '../wizard-catalog-resolver';
 import type { WizardTavilyInput } from '../wizard-tavily-executor';
@@ -340,19 +340,45 @@ function makePipelineOutput(batchId: string, candidatesCreated = 5): Incremental
   };
 }
 
+const FAKE_RESERVATION_ID = 'reservation-fake-0001';
+
 function makeReservedDeps(overrides: Partial<WizardExecutionDeps> = {}): WizardExecutionDeps & {
   reserveSlotCalls: WizardExecutionReservationInput[];
   pipelineCalls: WizardTavilyInput[];
   markFailedCalls: Array<{ batchId: string; reason: string }>;
+  reserveBudgetCalls: Array<{ userId: string; clientRequestId: string; requestedCredits: number }>;
+  confirmBudgetCalls: Array<{ reservationId: string; actualCreditsConsumed: number; batchId?: string | null }>;
+  releaseBudgetCalls: Array<{ reservationId: string; batchId?: string | null; reason?: string | null }>;
+  readConsumedCreditsCalls: string[];
 } {
   const reserveSlotCalls: WizardExecutionReservationInput[] = [];
   const pipelineCalls: WizardTavilyInput[] = [];
   const markFailedCalls: Array<{ batchId: string; reason: string }> = [];
+  const reserveBudgetCalls: Array<{ userId: string; clientRequestId: string; requestedCredits: number }> = [];
+  const confirmBudgetCalls: Array<{ reservationId: string; actualCreditsConsumed: number; batchId?: string | null }> = [];
+  const releaseBudgetCalls: Array<{ reservationId: string; batchId?: string | null; reason?: string | null }> = [];
+  const readConsumedCreditsCalls: string[] = [];
 
   const defaultDeps: WizardExecutionDeps = {
     getActiveUserId: async () => FAKE_USER_ID,
     resolveCatalog: async (_input: CatalogResolutionInput) => FAKE_CATALOG_RESOLUTION,
     checkTavilyAvailability: async () => true,
+    reserveBudget: async (input) => {
+      reserveBudgetCalls.push(input);
+      return { status: 'reserved', reservationId: FAKE_RESERVATION_ID, creditsReserved: 10 } satisfies ReserveBudgetDepResult;
+    },
+    confirmBudget: async (input) => {
+      confirmBudgetCalls.push(input);
+      return { status: 'confirmed' };
+    },
+    releaseBudget: async (input) => {
+      releaseBudgetCalls.push(input);
+      return { status: 'released' };
+    },
+    readConsumedCredits: async (batchId: string) => {
+      readConsumedCreditsCalls.push(batchId);
+      return 10;
+    },
     reserveSlot: async (input: WizardExecutionReservationInput) => {
       reserveSlotCalls.push(input);
       return { status: 'reserved', batchId: BATCH_A } satisfies WizardExecutionReservationResult;
@@ -372,6 +398,10 @@ function makeReservedDeps(overrides: Partial<WizardExecutionDeps> = {}): WizardE
     reserveSlotCalls,
     pipelineCalls,
     markFailedCalls,
+    reserveBudgetCalls,
+    confirmBudgetCalls,
+    releaseBudgetCalls,
+    readConsumedCreditsCalls,
   };
 }
 
@@ -380,7 +410,7 @@ function makeReservedDeps(overrides: Partial<WizardExecutionDeps> = {}): WizardE
 describe('Section D — executeProspectWizardGeneration integration', () => {
 
   // D1: Feature flag off
-  it('D1: flag off → EXECUTION_DISABLED, zero deps called', async () => {
+  it('D1: flag off → EXECUTION_DISABLED, zero deps called (including budget)', async () => {
     const saved = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
     process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'false';
     const deps = makeReservedDeps();
@@ -388,6 +418,7 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
       const result = await executeProspectWizardGeneration(VALID_REQUEST_FULL, deps);
       assert.equal(result.ok, false);
       if (!result.ok) assert.equal(result.code, 'EXECUTION_DISABLED');
+      assert.equal(deps.reserveBudgetCalls.length, 0, 'reserveBudget must not be called');
       assert.equal(deps.reserveSlotCalls.length, 0, 'reserveSlot must not be called');
       assert.equal(deps.pipelineCalls.length, 0, 'pipeline must not be called');
     } finally {
@@ -436,7 +467,7 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
   });
 
   // D4: Tavily not available
-  it('D4: Tavily unavailable → PROVIDER_UNAVAILABLE, zero reservations, zero pipeline', async () => {
+  it('D4: Tavily unavailable → PROVIDER_UNAVAILABLE, zero budget, zero reservations, zero pipeline', async () => {
     const saved = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
     process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true';
     const deps = makeReservedDeps({
@@ -446,6 +477,7 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
       const result = await executeProspectWizardGeneration(VALID_REQUEST_FULL, deps);
       assert.equal(result.ok, false);
       if (!result.ok) assert.equal(result.code, 'PROVIDER_UNAVAILABLE');
+      assert.equal(deps.reserveBudgetCalls.length, 0, 'no budget reserved when Tavily unavailable');
       assert.equal(deps.reserveSlotCalls.length, 0, 'no batch reserved when Tavily unavailable');
       assert.equal(deps.pipelineCalls.length, 0);
     } finally {
@@ -455,10 +487,32 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
   });
 
   // D5: First reservation — success
-  it('D5: first reservation → created, pipeline called once with correct input', async () => {
+  it('D5: first reservation → created, budget before slot, slot before pipeline, confirmBudget called', async () => {
     const saved = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
     process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true';
-    const deps = makeReservedDeps();
+    const callOrder: string[] = [];
+    const deps = makeReservedDeps({
+      reserveBudget: async (input) => {
+        deps.reserveBudgetCalls.push(input);
+        callOrder.push('budget');
+        return { status: 'reserved', reservationId: FAKE_RESERVATION_ID, creditsReserved: 10 };
+      },
+      reserveSlot: async (input) => {
+        deps.reserveSlotCalls.push(input);
+        callOrder.push('slot');
+        return { status: 'reserved', batchId: BATCH_A };
+      },
+      runTavilyPipeline: async (input) => {
+        deps.pipelineCalls.push(input);
+        callOrder.push('tavily');
+        return makePipelineOutput(BATCH_A);
+      },
+      confirmBudget: async (input) => {
+        deps.confirmBudgetCalls.push(input);
+        callOrder.push('confirm');
+        return { status: 'confirmed' };
+      },
+    });
     try {
       const result = await executeProspectWizardGeneration(VALID_REQUEST_FULL, deps);
       assert.equal(result.ok, true);
@@ -468,12 +522,14 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
         assert.equal(result.batchStatus, 'ready_for_review');
         assert.ok(result.redirectPath.includes(BATCH_A));
       }
-      assert.equal(deps.reserveSlotCalls.length, 1, 'reserveSlot called exactly once');
+      // Ordering: budget → slot → tavily → confirm
+      assert.deepEqual(callOrder, ['budget', 'slot', 'tavily', 'confirm'], 'call order must be budget→slot→tavily→confirm');
       assert.equal(deps.pipelineCalls.length, 1, 'pipeline called exactly once');
+      assert.equal(deps.confirmBudgetCalls.length, 1, 'confirmBudget called once');
+      assert.equal(deps.releaseBudgetCalls.length, 0, 'releaseBudget must not be called on success');
       // Verify the pipeline received the correct batchId
       const pipelineCall = deps.pipelineCalls[0]!;
       assert.equal(pipelineCall.reservedBatchId, BATCH_A);
-      // Verify the resolved context forwarded correctly
       assert.equal(pipelineCall.resolved.userId, FAKE_USER_ID);
       assert.equal(pipelineCall.resolved.country.code, 'CO');
       assert.equal(pipelineCall.resolved.industry.name, 'Tecnología');
@@ -579,8 +635,8 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
     }
   });
 
-  // D10: Metadata — reserveSlot receives all required wizard fields
-  it('D10: metadata — reserveSlot receives catalog version, industryId, subindustryIds, country, criteria', async () => {
+  // D10: Metadata — reserveSlot receives all required wizard fields, identity verified
+  it('D10: metadata — reserveSlot receives catalog/industry/subindustry/country/criteria; userId from session', async () => {
     const saved = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
     process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true';
     const deps = makeReservedDeps();
@@ -598,6 +654,12 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
       assert.equal(payload.additionalCriteria, 'empresas con filial local');
       assert.equal(slot.userId, FAKE_USER_ID);
       assert.equal(slot.clientRequestId, VALID_CLIENT_REQUEST_ID);
+
+      // Identity: userId sent to reserveBudget must equal userId from getActiveUserId
+      assert.equal(deps.reserveBudgetCalls.length, 1);
+      assert.equal(deps.reserveBudgetCalls[0]!.userId, FAKE_USER_ID, 'reserveBudget must receive userId from session');
+      // requestedCredits must not come from client — it is always 10 (server-side constant)
+      assert.equal(deps.reserveBudgetCalls[0]!.requestedCredits, 10, 'requestedCredits must be server-side constant');
     } finally {
       if (saved !== undefined) process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = saved;
       else delete process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
