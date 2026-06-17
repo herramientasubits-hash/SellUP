@@ -148,6 +148,9 @@ export async function estimatePersistableAfterNovelty(params: {
 
 export async function runIncrementalProspectingSearch(
   input: IncrementalSearchInput,
+  // For testing only: inject a custom writer to verify existingBatchId forwarding.
+  // Production callers always omit this parameter.
+  writerOverride?: typeof writeProspectingCandidates,
 ): Promise<IncrementalSearchOutput> {
   const minUsefulCandidates = input.minUsefulCandidates ?? DEFAULT_MIN_USEFUL;
   const targetInternal = input.targetInternal ?? DEFAULT_TARGET_INTERNAL;
@@ -172,6 +175,8 @@ export async function runIncrementalProspectingSearch(
     query_source_key: string | null;
     round_number: number;
   }> = [];
+
+  const writerFn = writerOverride ?? writeProspectingCandidates;
 
   // Admin client para novelty pre-check (solo cuando dryRun=false)
   const adminSupabase: SupabaseClient | null = dryRun ? null : tryGetAdminClient();
@@ -368,7 +373,7 @@ export async function runIncrementalProspectingSearch(
         },
       };
 
-      const writerOutput = await writeProspectingCandidates({
+      const writerOutput = await writerFn({
         pipelineOutput: syntheticPipelineOutput,
         triggeredByUserId: input.triggeredByUserId ?? null,
         ownerId: input.ownerId ?? null,
@@ -379,6 +384,7 @@ export async function runIncrementalProspectingSearch(
           incremental_search: metadata as Record<string, unknown>,
           search_mode: 'incremental_multi_round',
         },
+        existingBatchId: input.existingBatchId ?? null,
       });
 
       if (writerOutput.status === 'failed') {

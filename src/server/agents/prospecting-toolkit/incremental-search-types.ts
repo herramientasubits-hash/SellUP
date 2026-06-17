@@ -51,6 +51,12 @@ export type IncrementalSearchInput = {
   triggeredByUserId?: string | null;
   ownerId?: string | null;
   batchName?: string | null;
+  /**
+   * When provided, the writer reuses this batch instead of creating a new one.
+   * Forwarded verbatim to writeProspectingCandidates.
+   * Internal-only — not exposed to UI or external clients.
+   */
+  existingBatchId?: string | null;
 };
 
 // ─── Round metadata ───────────────────────────────────────────────────────────

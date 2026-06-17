@@ -326,6 +326,14 @@ export type CandidateWriterInput = {
   source?: CandidateWriterSource;
   dryRun?: boolean;
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * When provided, the writer reuses this batch instead of creating a new one.
+   * The batch must exist, belong to the requesting user, have source='agent_1',
+   * and be in a state compatible with receiving pipeline results ('draft' or 'generating').
+   * The existing metadata is preserved and merged with the pipeline metadata.
+   * Internal-only — not exposed to any UI or external client.
+   */
+  existingBatchId?: string | null;
 };
 
 export type CandidateWriterSkipped = {

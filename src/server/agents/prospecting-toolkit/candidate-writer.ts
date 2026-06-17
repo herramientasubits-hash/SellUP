@@ -14,6 +14,7 @@
  */
 
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { runProspectingPipeline } from "./prospecting-pipeline";
 import { buildNoveltyIndex, evaluateCandidateNovelty } from "./novelty-checker";
 import type {
@@ -27,6 +28,30 @@ import type {
   ProspectingPipelineOutput,
   ProspectingPipelineWriteOutput,
 } from "./types";
+
+// ─── Batch validation error ───────────────────────────────────────────────────
+
+/**
+ * Thrown when existingBatchId is provided but fails validation.
+ * Callers can inspect `code` to distinguish the failure reason.
+ * No writes have occurred when this is thrown.
+ */
+export class CandidateWriterBatchValidationError extends Error {
+  constructor(
+    public readonly code:
+      | 'BATCH_NOT_FOUND'
+      | 'BATCH_WRONG_OWNER'
+      | 'BATCH_INCOMPATIBLE_SOURCE'
+      | 'BATCH_INCOMPATIBLE_STATUS',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CandidateWriterBatchValidationError';
+  }
+}
+
+/** States that allow a batch to receive pipeline results. */
+const BATCH_STATES_ACCEPTING_RESULTS: string[] = ['draft', 'generating'];
 
 // ─── Admin client ─────────────────────────────────────────────────────────────
 
@@ -186,9 +211,12 @@ function buildCandidateMetadata(
 // ─── Función principal ────────────────────────────────────────────────────────
 
 export async function writeProspectingCandidates(
-  input: CandidateWriterInput
+  input: CandidateWriterInput,
+  // For testing only: inject an admin client instead of reading env vars.
+  // Production callers always omit this parameter.
+  adminClientOverride?: SupabaseClient,
 ): Promise<CandidateWriterOutput> {
-  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata } = input;
+  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata, existingBatchId } = input;
   const isDryRun = dryRun ?? false;
 
   // Guard: sin candidatos
@@ -229,7 +257,7 @@ export async function writeProspectingCandidates(
   }
 
   // ── Write real ────────────────────────────────────────────────────────────
-  const admin = getAdminClient();
+  const admin = adminClientOverride ?? getAdminClient();
   const errors: string[] = [];
   const createdCandidateIds: string[] = [];
   const skipped: CandidateWriterSkipped[] = [];
@@ -300,56 +328,169 @@ export async function writeProspectingCandidates(
     ...(extraBatchMetadata ?? {}),
   };
 
-  // Crear prospect_batch
-  const { data: batch, error: batchError } = await admin
-    .from("prospect_batches")
-    .insert({
-      name: finalBatchName,
-      country,
-      country_code: countryCode,
-      industry,
-      target_count: pipelineOutput.summary.requested,
-      search_depth: pipelineOutput.input.searchDepth ?? "standard",
-      status: "ready_for_review",
-      source: batchSource,
-      owner_id: ownerId ?? null,
-      created_by: triggeredByUserId ?? null,
-      metadata: batchMetadata,
-    })
-    .select("id")
-    .single();
+  // ── Resolve or create batch ───────────────────────────────────────────────
+  // preMergedMetadata: metadata used for the batch row and later for the
+  // post-loop update. When reusing an existing batch, it merges the
+  // previously-stored wizard metadata (preserved) with the pipeline metadata
+  // (added). When creating a new batch it is identical to batchMetadata.
+  let batchId: string;
+  let preMergedMetadata: Record<string, unknown> = batchMetadata;
 
-  if (batchError || !batch) {
-    return {
-      dryRun: false,
-      batchId: null,
-      candidatesCreated: 0,
-      candidatesSkipped: pipelineOutput.candidates.length,
-      createdCandidateIds: [],
-      skipped: pipelineOutput.candidates.map((c) => ({
-        name: c.name,
-        reason: "batch_creation_failed",
-        searchTrace: c.searchTrace ?? undefined,
-      })),
-      status: "failed",
-      errors: [`Error al crear lote: ${batchError?.message ?? "unknown"}`],
-    };
+  if (existingBatchId) {
+    // ── Path A: reuse an existing batch ────────────────────────────────────
+    // Validate then UPDATE; throw CandidateWriterBatchValidationError before
+    // any write if the batch is not eligible.
+
+    const { data: existingBatch, error: selectError } = await admin
+      .from("prospect_batches")
+      .select("id, status, source, created_by, owner_id, metadata, client_request_id")
+      .eq("id", existingBatchId)
+      .single();
+
+    if (selectError || !existingBatch) {
+      throw new CandidateWriterBatchValidationError(
+        "BATCH_NOT_FOUND",
+        `Batch ${existingBatchId} not found or inaccessible.`,
+      );
+    }
+
+    // Ownership: accept if created_by matches triggeredByUserId OR owner_id matches ownerId
+    const ownerMatches =
+      (triggeredByUserId != null && existingBatch.created_by === triggeredByUserId) ||
+      (ownerId != null && existingBatch.owner_id === ownerId);
+    if (!ownerMatches) {
+      throw new CandidateWriterBatchValidationError(
+        "BATCH_WRONG_OWNER",
+        `Batch ${existingBatchId} does not belong to the requesting user.`,
+      );
+    }
+
+    // Source: must be agent_1 (this pipeline's type)
+    if (existingBatch.source !== "agent_1") {
+      throw new CandidateWriterBatchValidationError(
+        "BATCH_INCOMPATIBLE_SOURCE",
+        `Batch ${existingBatchId} has source '${existingBatch.source}', expected 'agent_1'.`,
+      );
+    }
+
+    // Status: only draft or generating can receive pipeline results
+    if (!BATCH_STATES_ACCEPTING_RESULTS.includes(existingBatch.status)) {
+      throw new CandidateWriterBatchValidationError(
+        "BATCH_INCOMPATIBLE_STATUS",
+        `Batch ${existingBatchId} has status '${existingBatch.status}', which cannot receive pipeline results.`,
+      );
+    }
+
+    // Merge metadata: wizard fields (preserved) + pipeline fields (added/overwritten).
+    // Wizard keys (request_source, catalog_version_id, industry_id, etc.) do not
+    // overlap with pipeline keys (generated_by, pipeline_version, etc.) so a
+    // shallow spread is sufficient and safe.
+    const existingMeta = (existingBatch.metadata ?? {}) as Record<string, unknown>;
+    preMergedMetadata = { ...existingMeta, ...batchMetadata };
+
+    // UPDATE the existing batch to ready_for_review with merged metadata.
+    // created_by, owner_id, client_request_id and created_at are NOT touched.
+    const { error: updateError } = await admin
+      .from("prospect_batches")
+      .update({
+        name: finalBatchName,
+        country,
+        country_code: countryCode,
+        industry,
+        target_count: pipelineOutput.summary.requested,
+        search_depth: pipelineOutput.input.searchDepth ?? "standard",
+        status: "ready_for_review",
+        metadata: preMergedMetadata,
+      })
+      .eq("id", existingBatchId);
+
+    if (updateError) {
+      return {
+        dryRun: false,
+        batchId: null,
+        candidatesCreated: 0,
+        candidatesSkipped: pipelineOutput.candidates.length,
+        createdCandidateIds: [],
+        skipped: pipelineOutput.candidates.map((c) => ({
+          name: c.name,
+          reason: "batch_update_failed",
+          searchTrace: c.searchTrace ?? undefined,
+        })),
+        status: "failed",
+        errors: [`Error al actualizar lote existente: ${updateError.message ?? "unknown"}`],
+      };
+    }
+
+    batchId = existingBatchId;
+
+    // Audit: record the status transition (draft → ready_for_review)
+    await admin.from("prospect_candidate_audit").insert({
+      batch_id: batchId,
+      candidate_id: null,
+      actor_user_id: triggeredByUserId ?? null,
+      action_type: "batch_status_changed",
+      details: {
+        name: finalBatchName,
+        source: batchSource,
+        generated_by: "agent_1_candidate_writer",
+        previous_status: existingBatch.status,
+        new_status: "ready_for_review",
+      },
+    });
+
+  } else {
+    // ── Path B: create a new batch (historical behavior — unchanged) ────────
+
+    const { data: batch, error: batchError } = await admin
+      .from("prospect_batches")
+      .insert({
+        name: finalBatchName,
+        country,
+        country_code: countryCode,
+        industry,
+        target_count: pipelineOutput.summary.requested,
+        search_depth: pipelineOutput.input.searchDepth ?? "standard",
+        status: "ready_for_review",
+        source: batchSource,
+        owner_id: ownerId ?? null,
+        created_by: triggeredByUserId ?? null,
+        metadata: batchMetadata,
+      })
+      .select("id")
+      .single();
+
+    if (batchError || !batch) {
+      return {
+        dryRun: false,
+        batchId: null,
+        candidatesCreated: 0,
+        candidatesSkipped: pipelineOutput.candidates.length,
+        createdCandidateIds: [],
+        skipped: pipelineOutput.candidates.map((c) => ({
+          name: c.name,
+          reason: "batch_creation_failed",
+          searchTrace: c.searchTrace ?? undefined,
+        })),
+        status: "failed",
+        errors: [`Error al crear lote: ${batchError?.message ?? "unknown"}`],
+      };
+    }
+
+    batchId = batch.id;
+
+    // Auditoría: batch_created
+    await admin.from("prospect_candidate_audit").insert({
+      batch_id: batchId,
+      candidate_id: null,
+      actor_user_id: triggeredByUserId ?? null,
+      action_type: "batch_created",
+      details: {
+        name: finalBatchName,
+        source: batchSource,
+        generated_by: "agent_1_candidate_writer",
+      },
+    });
   }
-
-  const batchId = batch.id;
-
-  // Auditoría: batch_created
-  await admin.from("prospect_candidate_audit").insert({
-    batch_id: batchId,
-    candidate_id: null,
-    actor_user_id: triggeredByUserId ?? null,
-    action_type: "batch_created",
-    details: {
-      name: finalBatchName,
-      source: batchSource,
-      generated_by: "agent_1_candidate_writer",
-    },
-  });
 
   // Crear candidatos
   for (const candidate of pipelineOutput.candidates) {
@@ -544,7 +685,7 @@ export async function writeProspectingCandidates(
       .from("prospect_batches")
       .update({
         metadata: {
-          ...batchMetadata,
+          ...preMergedMetadata,
           writer_summary: writerSummary,
           novelty_summary: noveltySummary,
           pipeline_summary_post_write: pipelineSummaryPostWrite,
