@@ -10,6 +10,7 @@
  */
 
 import type { ProspectingPipelineCandidate } from './types';
+import type { TavilyUsageBaseContext } from './tavily-usage-logging';
 
 // ─── Input ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,13 @@ export type IncrementalSearchInput = {
    * Internal-only — not exposed to UI or external clients.
    */
   existingBatchId?: string | null;
+
+  /**
+   * Contexto de uso económico para trazabilidad Tavily.
+   * Provisto server-side por el wizard. No controlado por el cliente.
+   * roundNumber se asigna internamente por ronda.
+   */
+  usageInputContext?: TavilyUsageBaseContext | null;
 };
 
 // ─── Round metadata ───────────────────────────────────────────────────────────

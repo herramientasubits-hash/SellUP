@@ -277,6 +277,7 @@ export async function runProspectingPipeline(
           queries: input.queryOverrides && input.queryOverrides.length > 0
             ? input.queryOverrides
             : undefined,
+          usageContext: input.usageContext ?? null,
         });
         const hasOverrides = !!(input.queryOverrides && input.queryOverrides.length > 0);
         const sgMeta = hasOverrides

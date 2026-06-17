@@ -257,6 +257,8 @@ export type ProspectingPipelineInput = {
    * replace the standard buildCleanMultiQueryDiscoveryQueries output.
    * Used by the incremental search orchestrator (Hito 16T.1). */
   queryOverrides?: string[];
+  /** Contexto de uso económico por ronda. Asignado server-side; no proviene del cliente. */
+  usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
 };
 
 export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
@@ -433,6 +435,8 @@ export type MultiQuerySearchInput = {
   maxResultsPerQuery?: number;
   targetCount?: number;
   searchDepth?: SearchDepth;
+  /** Contexto de uso económico por ronda. Asignado server-side; no proviene del cliente. */
+  usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
 };
 
 export type MultiQueryQueryResult = {

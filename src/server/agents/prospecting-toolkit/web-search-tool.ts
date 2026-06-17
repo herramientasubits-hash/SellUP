@@ -30,6 +30,16 @@ import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-pro
 import { runGoogleCseWebSearch } from './web-search-providers/google-cse-web-search-provider';
 import { filterNoiseResults } from './noise-filter';
 import { buildCleanMultiQueryDiscoveryQueries } from './query-builder';
+import {
+  buildTavilyUsageKey,
+  creditsForSearchDepth,
+  validateTavilyPricing,
+  computeAggregateStatus,
+  realLogTavilyUsage,
+  TavilyPricingUnavailableError,
+  type TavilyUsageDeps,
+} from './tavily-usage-logging';
+import { loadActiveTavilyMultiQueryPricing } from '@/modules/usage-tracking/provider-pricing';
 
 // Re-exportar desde query-builder para mantener la API pública estable
 export {
@@ -165,8 +175,12 @@ function prospectableScore(result: MultiQuerySearchResultEntry): number {
  * Hito 12B: Ejecuta múltiples queries especializadas, combina resultados,
  * deduplica por dominio y aplica el noise filter para maximizar yield prospectable.
  *
+ * Hito 16AB.43.10: cuando input.usageContext está presente, instrumenta el consumo
+ * económico: carga tarifa, valida antes de ejecutar, calcula créditos y registra un log
+ * por ronda. El parámetro usageDeps permite inyectar dependencias en tests.
+ *
  * Reglas críticas:
- * - No persiste en base de datos.
+ * - No persiste en base de datos (salvo el log de uso cuando usageContext está presente).
  * - No llama Apollo, Lusha, HubSpot ni proveedor IA.
  * - Provider default: mock. Tavily solo cuando se especifica explícitamente.
  * - Máximo MAX_QUERIES_LIMIT queries por invocación.
@@ -174,6 +188,7 @@ function prospectableScore(result: MultiQuerySearchResultEntry): number {
  */
 export async function runMultiQueryWebSearch(
   input: MultiQuerySearchInput,
+  usageDeps?: TavilyUsageDeps,
 ): Promise<MultiQueryWebSearchOutput> {
   const provider = input.provider ?? DEFAULT_PROVIDER;
   const maxResultsPerQuery = Math.min(
@@ -191,9 +206,21 @@ export async function runMultiQueryWebSearch(
       ? input.queries.slice(0, MAX_QUERIES_LIMIT)
       : buildCleanMultiQueryDiscoveryQueries(input.industry, input.country);
 
+  // ── Paso 0: Validar pricing antes de ejecutar queries (solo ruta instrumentada) ─
+  const usageContext = input.usageContext ?? null;
+  let activePricing = null;
+
+  if (usageContext) {
+    const pricingLoader = usageDeps?.loadPricing ?? loadActiveTavilyMultiQueryPricing;
+    activePricing = await pricingLoader();
+    validateTavilyPricing(activePricing); // lanza TavilyPricingUnavailableError si inválido
+  }
+
   // ── Paso 1: Ejecutar todas las queries secuencialmente ────────────────────
+  const roundStartMs = Date.now();
   const queryResults: MultiQueryQueryResult[] = [];
   const allRaw: MultiQuerySearchResultEntry[] = [];
+  const dispatch = usageDeps?.dispatchQuery ?? dispatchToProvider;
 
   for (const query of queries) {
     const searchInput: WebSearchInput = {
@@ -207,7 +234,7 @@ export async function runMultiQueryWebSearch(
       intent: 'company_discovery',
     };
 
-    const raw = await dispatchToProvider(provider, searchInput, maxResultsPerQuery);
+    const raw = await dispatch(provider, searchInput, maxResultsPerQuery);
 
     const validRaw = raw.results.filter((r) => {
       try { new URL(r.url); return true; } catch { return false; }
@@ -229,6 +256,7 @@ export async function runMultiQueryWebSearch(
     });
   }
 
+  const roundDurationMs = Date.now() - roundStartMs;
   const rawResultsCount = allRaw.length;
 
   // ── Paso 2: Deduplicar por dominio normalizado ────────────────────────────
@@ -263,6 +291,71 @@ export async function runMultiQueryWebSearch(
 
   const estimatedCreditCount = queryResults.filter((q) => !q.skipped).length;
 
+  const baseMetadata: Record<string, unknown> = {
+    provider,
+    queriesExecuted: queries.length,
+    queriesSkipped: queryResults.filter((q) => q.skipped).length,
+    executedAt: new Date().toISOString(),
+  };
+
+  // ── Paso 5: Registrar consumo económico (solo ruta instrumentada) ─────────
+  if (usageContext && activePricing) {
+    const creditsPerQuery = creditsForSearchDepth(String(searchDepth));
+    const successfulCount = queryResults.filter((q) => !q.skipped).length;
+    const failedCount = queryResults.filter((q) => q.skipped).length;
+    const creditsUsed = successfulCount * creditsPerQuery;
+    const estimatedCostUsd = parseFloat((creditsUsed * activePricing.unitCostUsd).toFixed(6));
+    const usageKey = buildTavilyUsageKey(usageContext.batchId, usageContext.roundNumber);
+    const { status, errorCode } = computeAggregateStatus(queryResults);
+
+    const usageMetadata: Record<string, unknown> = {
+      round_number: usageContext.roundNumber,
+      queries_planned: queries.length,
+      queries_executed: queryResults.length,
+      successful_query_count: successfulCount,
+      failed_query_count: failedCount,
+      credits_per_query: creditsPerQuery,
+      search_depth: String(searchDepth),
+      raw_results: rawResultsCount,
+      deduped_results: dedupedResultsCount,
+      filtered_out: filteredCount,
+      final_results: finalResults.length,
+      partial_failure: failedCount > 0 && successfulCount > 0,
+      pricing_source: 'provider_pricing_config',
+      pricing_unit: activePricing.unit,
+      unit_cost_usd: activePricing.unitCostUsd,
+      pipeline_mode: 'multi_query',
+      agent_key: 'prospect_generation',
+      request_source: 'prospect_chat_wizard',
+    };
+
+    const logger = usageDeps?.logUsage ?? realLogTavilyUsage;
+    const logResult = await logger({
+      provider_key: 'tavily',
+      operation_key: 'multi_query_web_search',
+      batch_id: usageContext.batchId,
+      usage_key: usageKey,
+      agent_run_id: usageContext.agentRunId ?? undefined,
+      agent_run_step_id: usageContext.agentRunStepId ?? undefined,
+      triggered_by: usageContext.triggeredByUserId,
+      credits_used: creditsUsed,
+      results_returned: rawResultsCount,
+      estimated_cost_usd: estimatedCostUsd,
+      status,
+      error_code: errorCode ?? undefined,
+      duration_ms: roundDurationMs,
+      metadata: usageMetadata,
+    });
+
+    if (logResult.kind === 'failed') {
+      console.error('[tavily-usage] usage_logging_failed after Tavily round', logResult.error);
+      baseMetadata.usage_logging_failed = true;
+      baseMetadata.usage_logging_error = logResult.error.slice(0, 200);
+    } else if (logResult.kind === 'already_logged') {
+      baseMetadata.usage_already_logged = true;
+    }
+  }
+
   return {
     queryResults,
     rawResultsCount,
@@ -271,12 +364,7 @@ export async function runMultiQueryWebSearch(
     keptCount: finalResults.length,
     results: finalResults,
     estimatedCreditCount,
-    metadata: {
-      provider,
-      queriesExecuted: queries.length,
-      queriesSkipped: queryResults.filter((q) => q.skipped).length,
-      executedAt: new Date().toISOString(),
-    },
+    metadata: baseMetadata,
   };
 }
 

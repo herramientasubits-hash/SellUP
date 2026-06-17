@@ -46,5 +46,9 @@ export async function runWizardTavilySearch(
     triggeredByUserId: input.resolved.userId,
     ownerId: input.resolved.userId,
     dryRun: false,
+    usageInputContext: {
+      batchId: input.reservedBatchId,
+      triggeredByUserId: input.resolved.userId,
+    },
   });
 }

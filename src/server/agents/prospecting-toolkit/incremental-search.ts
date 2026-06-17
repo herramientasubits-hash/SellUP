@@ -34,6 +34,7 @@ import type {
   IncrementalSearchRoundMeta,
   IncrementalSearchStoppedReason,
 } from './incremental-search-types';
+import type { TavilyUsageContext } from './tavily-usage-logging';
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -151,6 +152,9 @@ export async function runIncrementalProspectingSearch(
   // For testing only: inject a custom writer to verify existingBatchId forwarding.
   // Production callers always omit this parameter.
   writerOverride?: typeof writeProspectingCandidates,
+  // For testing only: inject a custom pipeline to capture per-round usageContext.
+  // Production callers always omit this parameter.
+  pipelineOverride?: typeof runProspectingPipeline,
 ): Promise<IncrementalSearchOutput> {
   const minUsefulCandidates = input.minUsefulCandidates ?? DEFAULT_MIN_USEFUL;
   const targetInternal = input.targetInternal ?? DEFAULT_TARGET_INTERNAL;
@@ -177,6 +181,7 @@ export async function runIncrementalProspectingSearch(
   }> = [];
 
   const writerFn = writerOverride ?? writeProspectingCandidates;
+  const pipelineFn = pipelineOverride ?? runProspectingPipeline;
 
   // Admin client para novelty pre-check (solo cuando dryRun=false)
   const adminSupabase: SupabaseClient | null = dryRun ? null : tryGetAdminClient();
@@ -193,7 +198,11 @@ export async function runIncrementalProspectingSearch(
         ? undefined
         : buildExpandedMultiQueryDiscoveryQueries(input.industry, input.country);
 
-    const pipelineOutput = await runProspectingPipeline({
+    const roundUsageContext: TavilyUsageContext | null = input.usageInputContext
+      ? { ...input.usageInputContext, roundNumber: round }
+      : null;
+
+    const pipelineOutput = await pipelineFn({
       country: input.country,
       countryCode: input.countryCode,
       industry: input.industry,
@@ -201,6 +210,7 @@ export async function runIncrementalProspectingSearch(
       mode: 'multi_query',
       targetCount: targetInternal,
       queryOverrides,
+      usageContext: roundUsageContext,
     });
 
     const rawCount = pipelineOutput.webSearch.resultsCount;
