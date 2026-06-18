@@ -37,6 +37,7 @@ import {
   classifySearchResultForProspecting,
   type PreLLMFilterSummary,
 } from './pre-llm-result-filter';
+import { isSentenceOrPhraseName } from './noise-filter';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -138,7 +139,10 @@ function inferNameFromTitle(title: string, domain?: string): string | null {
   for (const part of parts) {
     // Hito 13H: saltar segmentos con marca global ajena al dominio
     if (domain && segmentContainsForeignBrand(part, domain)) continue;
-    if (!isGenericPhrase(part)) return part;
+    if (isGenericPhrase(part)) continue;
+    // Hito 16AB.43.20: saltar segmentos que son frases/oraciones, no nombres de empresa
+    if (isSentenceOrPhraseName(part)) continue;
+    return part;
   }
   return null;
 }
@@ -575,11 +579,28 @@ export async function runProspectingPipeline(
   // ── Standard branch (single_query / multi_query) ──────────────────────────
   const resultsToProcess = webSearch.results.slice(0, targetCount);
 
+  // Hito 16AB.43.20: track names rejected for quality (sentence/phrase names)
+  let nameQualityFilteredCount = 0;
+
   const candidates: ProspectingPipelineCandidate[] = await Promise.all(
     resultsToProcess.map(async (result): Promise<ProspectingPipelineCandidate> => {
       const inferred = inferCompanyNameFromSearchResult(result.title, result.url);
-      const name = inferred.name;
+      let name = inferred.name;
       const inferredNameSource = inferred.source;
+
+      // Hito 16AB.43.20: if title_fallback returned a sentence, the title has no
+      // extractable company name. Use domain inference as last resort, or if that
+      // also fails, force the candidate to discard so it is never persisted.
+      if (inferredNameSource === 'title_fallback' && isSentenceOrPhraseName(name)) {
+        const fromDomain = inferNameFromDomain(result.url);
+        if (fromDomain && !isSentenceOrPhraseName(fromDomain)) {
+          name = fromDomain;
+        } else {
+          nameQualityFilteredCount++;
+          // Build a minimal discard candidate — no I/O, scoring will mark as discard
+          name = 'Unknown';
+        }
+      }
       const website = result.url;
       const domain = normalizeDomain(result.url);
 
@@ -667,6 +688,7 @@ export async function runProspectingPipeline(
       searchDepth,
       search_mode: input.mode ?? 'single_query',
       ...(multiQueryMeta ?? {}),
+      name_quality_filtered_count: nameQualityFilteredCount,
     },
   };
 }

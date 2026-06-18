@@ -3,7 +3,9 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Pencil, RotateCcw, X, AlertTriangle, XCircle, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { AILoader } from '@/components/ai/ai-loader';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import type {
@@ -190,16 +192,16 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
 
 function SubmittingPanel() {
   return (
-    <div
-      className="flex items-start gap-3 rounded-xl bg-muted/40 px-5 py-4"
-      role="status"
-      aria-live="polite"
-    >
-      <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
-      <div className="space-y-0.5">
-        <p className="text-sm text-foreground">Generando empresas candidatas…</p>
-        <p className="text-xs text-muted-foreground">Estamos buscando, validando duplicados y preparando los resultados.</p>
-      </div>
+    <div className="space-y-3" role="status" aria-live="polite">
+      <AILoader
+        variant="card"
+        status="generating"
+        label="Generando empresas candidatas…"
+        description="Estamos buscando, filtrando duplicados y preparando los resultados para revisión."
+      />
+      <p className="text-center text-xs text-muted-foreground">
+        No cierres esta ventana mientras termina la generación.
+      </p>
     </div>
   );
 }
@@ -217,9 +219,18 @@ function SuccessPanel({ status, onClose }: SuccessPanelProps) {
   const router = useRouter();
 
   React.useEffect(() => {
+    if (status === 'already_started') {
+      toast.info('Esta búsqueda ya había sido iniciada.', {
+        description: 'Actualizamos el listado para mostrar los resultados disponibles.',
+      });
+    } else {
+      toast.success('Prospectos generados correctamente.', {
+        description: 'Ya puedes revisarlos en el listado de prospectos.',
+      });
+    }
     router.refresh();
     onClose();
-  // onClose is stable (defined in the parent render), router.refresh is stable.
+  // onClose and router.refresh are stable references; status is captured once on mount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -1,5 +1,5 @@
 /**
- * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C, actualizado Hito 13B)
+ * Prospecting Toolkit — Filtro Anti-Ruido (Hito 7C, actualizado Hito 16AB.43.20)
  *
  * Clasificación determinística de resultados de búsqueda web.
  * Sin IA ni llamadas externas.
@@ -271,6 +271,9 @@ const ASSOCIATION_CHAMBER_DOMAINS = new Set([
   'fedesoft.com',           // Hito 12D: variante de dominio Fedesoft
   'andicom.co',             // Hito 16AB.43.14: congreso TIC Colombia — no empresa
   'ccc.org.co',             // Hito 16AB.43.14: Cámara de Comercio de Cali — no empresa
+  'colombiaedtech.org',     // Hito 16AB.43.20: ecosistema/asociación EdTech Colombia — no empresa
+  'colombiafintech.co',     // Hito 16AB.43.20: asociación Fintech Colombia — no empresa
+  'cifin.com.co',           // Hito 16AB.43.20: central de información financiera — no empresa
 ]);
 
 const ACADEMIC_SOURCE_DOMAINS = new Set([
@@ -311,6 +314,14 @@ const NEWS_MEDIA_DOMAINS = new Set([
   'enter.co',
   'colombiadigital.net',
   'sistemasenlinea.com.co',
+  // Hito 16AB.43.20: portales de noticias globales que generan ruido en LATAM
+  'yahoo.com',            // cubre noticias.yahoo.com, es-us.noticias.yahoo.com, finance.yahoo.com
+  'bloomberg.com',
+  'reuters.com',
+  'infobae.com',
+  'businesswire.com',
+  'prnewswire.com',
+  'valoraanalitik.com',
 ]);
 
 // Patrones de ruta que indican artículo o blog
@@ -1093,6 +1104,66 @@ export function classifySearchResult(result: {
     shouldKeep: true,
     reason: 'Dominio sin patrones de ruido — candidato a sitio oficial de empresa',
   };
+}
+
+// ─── Sentence / phrase name detection (Hito 16AB.43.20) ─────────────────────
+//
+// Rechaza nombres inferidos que son oraciones, frases o titulares periodísticos
+// en lugar de nombres de empresa. Estos escapan al filtro de dominio porque el
+// dominio es corporativo pero el título Tavily contiene texto editorial.
+//
+// Ejemplos de la Corrida 1 que deben rechazarse:
+//   "Trabajamos por fortalecer y repr..."  → verbo conjugado al inicio
+//   "Colaboramos con empresas lide..."     → verbo conjugado al inicio
+//   "Fortaleciendo el ecosistema EdT..."   → gerundio al inicio
+//   "La fintech Cobre será la primera"     → titular noticioso
+//   "Fintech y pagos masivos: inclusi..."  → categoría con dos puntos
+//   "Guía y reseñas"                       → sección de contenido
+
+/** Verbos conjugados (1ª/3ª persona plural) y gerundios típicos de misiones corporativas. */
+const SENTENCE_VERB_PREFIXES_RE = /^(trabajamos|colaboramos|fortalecemos|fomentamos|impulsamos|brindamos|ofrecemos|ayudamos|apoyamos|conectamos|desarrollamos|creemos|creamos|construimos|gestionamos|promovemos|transformamos|innovamos|integramos|facilitamos|fortaleciendo|trabajando|colaborando|impulsando|conectando|desarrollando|promoviendo|construyendo|aprendiendo|mejorando)\b/i;
+
+/** Marcadores de titular periodístico que no aparecen en nombres de empresa reales. */
+const NEWS_HEADLINE_FRAGMENT_RE = /\b(ser[aá] la|ser[aá] el|fue la|fue el|lanz[oó]|anunci[oó]|firm[oó]|present[oó]|anuncia|lanza)\b/i;
+
+/** Palabras de inicio de sección de contenido (no nombres de empresa). */
+const CONTENT_SECTION_START_RE = /^(gu[ií]a|aprende|c[oó]mo|descubre|conoce|explora|reseñas?|tips?|aprende|tutoriales?|noticias?)\b/i;
+
+/**
+ * Detecta si un nombre inferido es una oración, frase o titular en lugar de
+ * un nombre de empresa prospectable.
+ *
+ * Retorna `true` cuando el nombre debe rechazarse (es frase/oración).
+ * Retorna `false` cuando el nombre parece un nombre de empresa válido.
+ *
+ * Sin IA ni llamadas externas. Determinístico.
+ */
+export function isSentenceOrPhraseName(name: string): boolean {
+  if (!name || name.trim().length === 0) return true;
+  const trimmed = name.trim();
+
+  // Más de 7 palabras sin sufijo legal reconocible → demasiado largo para nombre de empresa
+  const legalSuffixRe = /\b(S\.A\.S\.?|SAS|S\.A\.?|Ltda\.?|E\.U\.?|Corp\.?|Inc\.?|LLC|S\.R\.L\.?)\b/i;
+  if (!legalSuffixRe.test(trimmed) && trimmed.split(/\s+/).length > 7) return true;
+
+  // Comienza con verbo conjugado o gerundio
+  if (SENTENCE_VERB_PREFIXES_RE.test(trimmed)) return true;
+
+  // Contiene marcador de titular periodístico
+  if (NEWS_HEADLINE_FRAGMENT_RE.test(trimmed)) return true;
+
+  // Comienza con palabra de sección de contenido
+  if (CONTENT_SECTION_START_RE.test(trimmed)) return true;
+
+  // Contiene ": " con más de 5 palabras en total → título de artículo o sección
+  if (trimmed.includes(': ') && trimmed.split(/\s+/).length > 5) return true;
+
+  // Empieza con artículo + > 4 palabras → posible titular ("La fintech Cobre...")
+  // Solo si hay > 4 palabras (preserva "La Polar", "El País", "Los Alpes S.A.")
+  const startsWithArticle = /^(la|el|los|las|un|una|unos|unas)\s/i.test(trimmed);
+  if (startsWithArticle && trimmed.split(/\s+/).length > 4) return true;
+
+  return false;
 }
 
 /**
