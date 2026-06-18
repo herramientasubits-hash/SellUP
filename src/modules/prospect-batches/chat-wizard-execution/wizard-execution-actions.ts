@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import { isProspectChatWizardExecutionEnabled } from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
@@ -75,10 +76,23 @@ export type WizardExecutionDeps = {
 
 const BOGOTA_TIMEZONE = 'America/Bogota';
 
+// Budget RPC functions (try_reserve_wizard_credits, confirm_wizard_credits, release_wizard_credits)
+// and the wizard_budget_reservations table are REVOKE'd from the `authenticated` role — they require
+// service_role. The user-session client (publishable key) cannot call them.
+function createWizardBudgetClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Supabase service_role credentials required for wizard budget operations');
+  return createAdminClient(url, key);
+}
+
 export async function executeProspectWizardGenerationAction(
   request: unknown,
 ): Promise<WizardExecutionActionResult> {
   const supabase = await createClient();
+  // Budget operations need service_role: the RPC functions grant EXECUTE only to postgres/service_role,
+  // and wizard_budget_reservations has no authenticated RLS policy.
+  const budgetClient = createWizardBudgetClient();
 
   const deps: WizardExecutionDeps = {
     getActiveUserId: async () => {
@@ -92,7 +106,7 @@ export async function executeProspectWizardGenerationAction(
       const periodStart = getPilotBudgetPeriodStart(BOGOTA_TIMEZONE);
       const rpcResult = await reserveWizardPilotCredits(
         { userId, clientRequestId, requestedCredits, periodStart },
-        supabase as unknown as BudgetReservationsRpcClient,
+        budgetClient as unknown as BudgetReservationsRpcClient,
       );
       if (rpcResult.status === 'blocked') return rpcResult;
 
@@ -100,7 +114,7 @@ export async function executeProspectWizardGenerationAction(
       const record = await fetchWizardReservationRecord(
         userId,
         clientRequestId,
-        supabase as unknown as ReservationLookupClient,
+        budgetClient as unknown as ReservationLookupClient,
       );
       if (!record) {
         return { status: 'blocked', code: 'BUDGET_RESERVATION_FAILED', message: 'reservation_record_not_found' };
@@ -113,10 +127,10 @@ export async function executeProspectWizardGenerationAction(
     },
 
     confirmBudget: (input) =>
-      confirmWizardPilotCredits(input, supabase as unknown as BudgetReservationsRpcClient),
+      confirmWizardPilotCredits(input, budgetClient as unknown as BudgetReservationsRpcClient),
 
     releaseBudget: (input) =>
-      releaseWizardPilotCredits(input, supabase as unknown as BudgetReservationsRpcClient),
+      releaseWizardPilotCredits(input, budgetClient as unknown as BudgetReservationsRpcClient),
 
     readConsumedCredits: (batchId) =>
       readWizardConsumedCreditsFromDb(batchId, supabase as unknown as ConsumedCreditsDbClient),

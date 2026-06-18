@@ -343,6 +343,47 @@ describe('Section 3 — reserveWizardPilotCredits', () => {
     assert.ok(result.status === 'blocked');
     assert.equal(result.code, 'BUDGET_RESERVATION_FAILED');
   });
+
+  it('3.11: permission denied (authenticated role) → blocked with BUDGET_RESERVATION_FAILED', async () => {
+    // Regression test for 16AB.43.19: using the publishable-key client (authenticated role)
+    // causes PostgREST to return "permission denied for function try_reserve_wizard_credits".
+    // The wrapper must map this DB error to BUDGET_RESERVATION_FAILED.
+    const db = makeRpcClient(null, { message: 'permission denied for function try_reserve_wizard_credits' });
+    const result = await reserveWizardPilotCredits(
+      { userId: USER_A, clientRequestId: REQ_1, requestedCredits: 10, periodStart: PERIOD },
+      db,
+    );
+    assert.ok(result.status === 'blocked');
+    assert.equal(result.code, 'BUDGET_RESERVATION_FAILED');
+  });
+
+  it('3.12: RPC wrapper sends correct PostgreSQL parameter names (p_user_id, p_client_request_id, p_requested_credits, p_period_start)', async () => {
+    let capturedFn = '';
+    let capturedParams: Record<string, unknown> = {};
+    const db: BudgetReservationsRpcClient = {
+      rpc(fn: string, params: Record<string, unknown>) {
+        capturedFn = fn;
+        capturedParams = params;
+        return Promise.resolve({ data: 'reserved', error: null });
+      },
+    } as unknown as BudgetReservationsRpcClient;
+
+    await reserveWizardPilotCredits(
+      { userId: USER_A, clientRequestId: REQ_1, requestedCredits: 10, periodStart: PERIOD },
+      db,
+    );
+
+    assert.equal(capturedFn, 'try_reserve_wizard_credits');
+    assert.equal(capturedParams['p_user_id'],           USER_A,  'p_user_id must be userId');
+    assert.equal(capturedParams['p_client_request_id'], REQ_1,   'p_client_request_id must be clientRequestId');
+    assert.equal(capturedParams['p_requested_credits'], 10,      'p_requested_credits must be requestedCredits');
+    assert.equal(capturedParams['p_period_start'],      PERIOD,  'p_period_start must be periodStart');
+    // Confirm no camelCase leakage (these would fail with "could not find parameter named X")
+    assert.equal(capturedParams['userId'],           undefined, 'userId must not be sent as camelCase');
+    assert.equal(capturedParams['clientRequestId'],  undefined);
+    assert.equal(capturedParams['requestedCredits'], undefined);
+    assert.equal(capturedParams['periodStart'],      undefined);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════

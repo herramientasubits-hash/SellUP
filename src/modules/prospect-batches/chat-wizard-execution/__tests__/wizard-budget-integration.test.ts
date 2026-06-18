@@ -605,3 +605,85 @@ describe('Guardrail blocking codes — each propagates as ok:false with correct 
     });
   }
 });
+
+// ── §16AB.43.19 — Anti-regression: service_role client, identity, no residuos ─
+
+describe('§16AB.43.19 — Anti-regression: identity, periodStart, no residuos', () => {
+  // Root cause of the production bug: executeProspectWizardGenerationAction was using
+  // the user-session client (publishable key / authenticated role) for budget operations.
+  // try_reserve_wizard_credits and wizard_budget_reservations REVOKE ALL from authenticated.
+  // Fix: budget deps now use a service_role client (createWizardBudgetClient).
+  //
+  // This test suite verifies the observable consequences of the fix at the dep-injection level.
+
+  it('16AB.43.19.1: reserveBudget receives internal_users.id, not auth_user_id', async () => {
+    await withFlagAsync(true, async () => {
+      // These are the real production IDs from the incident report.
+      const INTERNAL_USER_ID = '5a8fb462-eecb-41f2-bfab-2c8fb6e3f73c'; // internal_users.id
+      const AUTH_USER_ID     = '5b4a6a23-ec4d-4ca3-8587-24b09775acba'; // auth.users.id — must NOT be used
+
+      const deps = makeDeps({
+        getActiveUserId: async () => INTERNAL_USER_ID,
+      });
+      await executeProspectWizardGeneration(VALID_REQUEST, deps);
+
+      assert.equal(deps.budgetCalls.length, 1);
+      const userId = deps.budgetCalls[0]!.userId;
+      assert.equal(userId, INTERNAL_USER_ID, 'budget must use internal_users.id');
+      assert.notEqual(userId, AUTH_USER_ID,  'budget must never use auth_user_id');
+    });
+  });
+
+  it('16AB.43.19.2: periodStart for 2026-06-18 America/Bogota → 2026-06-01 (production date)', () => {
+    // 2026-06-18 in Bogotá (UTC-5): 2026-06-18T05:00:00Z is 2026-06-18T00:00:00 local.
+    const clock = () => new Date('2026-06-18T12:00:00Z');
+    assert.equal(getPilotBudgetPeriodStart('America/Bogota', clock), '2026-06-01');
+  });
+
+  it('16AB.43.19.3: requestedCredits is always 10 (server constant, never from client)', async () => {
+    await withFlagAsync(true, async () => {
+      const deps = makeDeps();
+      await executeProspectWizardGeneration(VALID_REQUEST, deps);
+      assert.equal(deps.budgetCalls[0]!.requestedCredits, 10);
+    });
+  });
+
+  it('16AB.43.19.4: budget blocked → slot=0, Tavily=0, candidates=0 (no residuos)', async () => {
+    await withFlagAsync(true, async () => {
+      const deps = makeDeps({
+        reserveBudget: async (input) => {
+          deps.budgetCalls.push(input);
+          return { status: 'blocked', code: 'BUDGET_RESERVATION_FAILED', message: 'permission denied for function try_reserve_wizard_credits' };
+        },
+      });
+      const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.code, 'BUDGET_RESERVATION_FAILED');
+      assert.equal(deps.slotCalls.length, 0,  'slot must not be called when budget blocked');
+      assert.equal(deps.tavilyCalls.length, 0, 'Tavily must not be called when budget blocked');
+      assert.equal(deps.confirmCalls.length, 0, 'confirm must not be called when budget blocked');
+      assert.equal(deps.releaseCalls.length, 0, 'release must not be called when budget blocked');
+    });
+  });
+
+  it('16AB.43.19.5: happy path with production participant → reserved and proceeds to slot', async () => {
+    await withFlagAsync(true, async () => {
+      const INTERNAL_USER_ID = '5a8fb462-eecb-41f2-bfab-2c8fb6e3f73c';
+
+      const deps = makeDeps({
+        getActiveUserId: async () => INTERNAL_USER_ID,
+        reserveBudget: async (input) => {
+          deps.budgetCalls.push(input);
+          return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 10 };
+        },
+      });
+      const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
+
+      assert.equal(result.ok, true);
+      assert.equal(deps.budgetCalls[0]!.userId, INTERNAL_USER_ID);
+      assert.equal(deps.budgetCalls[0]!.requestedCredits, 10);
+      assert.equal(deps.slotCalls.length, 1,  'slot must be called after successful reservation');
+      assert.equal(deps.tavilyCalls.length, 1, 'Tavily must execute after slot');
+    });
+  });
+});
