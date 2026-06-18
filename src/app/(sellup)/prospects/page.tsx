@@ -18,6 +18,7 @@ import {
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
 import { loadActiveCatalog } from '@/modules/industry-catalog/loader';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
+import { isProspectChatWizardExecutionEnabled } from '@/lib/feature-flags.server';
 
 interface PageProps {
   searchParams: Promise<{
@@ -36,10 +37,10 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
   // Feature flags: read server-side only — never NEXT_PUBLIC_
   const enableChatWizard = process.env.ENABLE_PROSPECT_CHAT_WIZARD === 'true';
   const enableV2 = process.env.ENABLE_EXPLORATORY_SEARCH_FORM_V2 === 'true';
-  const enableChatWizardExecution = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION === 'true';
-
-  // Execution only active when wizard is also active
-  const wizardExecutionEnabled = enableChatWizard && enableChatWizardExecution;
+  // Execution only active when wizard is also active — flag parsed by the
+  // canonical server-only helper (normalized: trim + toLowerCase).
+  const wizardExecutionEnabled =
+    enableChatWizard && isProspectChatWizardExecutionEnabled();
 
   // Load catalog only when any enhanced experience is on — zero Supabase queries otherwise
   let catalog: ActiveIndustryCatalog | null = null;

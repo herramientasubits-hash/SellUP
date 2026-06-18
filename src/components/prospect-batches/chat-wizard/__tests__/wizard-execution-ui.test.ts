@@ -431,6 +431,167 @@ describe('17.11 — No navigation to /prospect-batches/[batchId]', () => {
   });
 });
 
+// ── 17.13 Final screen — executionEnabled gate (16AB.43.18.1) ────────────────
+//
+// The component layer (wizard-conversation-summary.tsx) shows or hides the CTA
+// based solely on the `executionEnabled` prop. These tests verify the state
+// preconditions that determine what the component will render.
+
+describe('17.13 — Final screen: executionEnabled=true → CTA visible state', () => {
+  test('reaching validated step with valid config is sufficient for CTA when prop=true', () => {
+    // The state machine reaches 'validated' — the component will show the CTA
+    // if and only if executionEnabled=true is passed as a prop. No state field
+    // inside ProspectWizardState should suppress the CTA independently.
+    const s = advanceToValidated();
+    assert.equal(s.currentStep, 'validated');
+    assert.equal(s.executionError, null);
+    assert.equal(s.executionStatus, null);
+    // No legacy boolean that could override the prop:
+    assert.ok(!('isRealGenerationAvailable' in s), 'Legacy gate field must not exist');
+    assert.ok(!('mockOnly' in s), 'Legacy gate field must not exist');
+    assert.ok(!('executionMode' in s), 'Legacy gate field must not exist');
+    assert.ok(!('futureFeature' in s), 'Legacy gate field must not exist');
+  });
+
+  test('validated state does not contain fields that could silently suppress the CTA', () => {
+    const s = advanceToValidated();
+    const STATE_KEYS = Object.keys(s);
+    const LEGACY_GATE_FIELDS = [
+      'isRealGenerationAvailable',
+      'mockOnly',
+      'executionMode',
+      'futureFeature',
+      'validationOnly',
+      'generationLocked',
+    ];
+    for (const field of LEGACY_GATE_FIELDS) {
+      assert.ok(
+        !STATE_KEYS.includes(field),
+        `Legacy gate field "${field}" found in state — it could silently hide the CTA`,
+      );
+    }
+  });
+});
+
+describe('17.13 — Final screen: executionEnabled=false → message visible, no CTA', () => {
+  test('validated state has executionError=null and executionStatus=null by default', () => {
+    // When executionEnabled=false (prop), the component shows the disabled message.
+    // The state itself is identical — the difference is only the prop value.
+    const s = advanceToValidated();
+    assert.equal(s.currentStep, 'validated');
+    assert.equal(s.executionError, null);
+    assert.equal(s.executionStatus, null);
+  });
+
+  test('EXECUTION_DISABLED error code keeps wizard in validated (no CTA was shown)', () => {
+    // If the backend returns EXECUTION_DISABLED, the wizard stays in validated
+    // with an error — consistent with the "flag off" UI mode.
+    let s = advanceToSubmitting();
+    s = prospectWizardReducer(s, {
+      type: 'EXECUTION_FAILED',
+      errorCode: 'EXECUTION_DISABLED',
+      message: 'La generación real del wizard todavía no está habilitada.',
+      retryable: false,
+    });
+    assert.equal(s.currentStep, 'validated');
+    assert.equal(s.executionError?.code, 'EXECUTION_DISABLED');
+    assert.equal(s.executionError?.retryable, false);
+  });
+});
+
+// ── 17.14 Action gate (16AB.43.18.1) ─────────────────────────────────────────
+//
+// Simulates the effect of clicking "Generar prospectos": the reducer transitions
+// from validated → submitting exactly once.
+
+describe('17.14 — Action: BEGIN_EXECUTION from validated dispatches once', () => {
+  test('BEGIN_EXECUTION from validated moves to submitting (simulates CTA click)', () => {
+    const validated = advanceToValidated();
+    const submitting = prospectWizardReducer(validated, { type: 'BEGIN_EXECUTION' });
+    assert.equal(submitting.currentStep, 'submitting');
+    assert.equal(submitting.executionError, null);
+  });
+
+  test('second BEGIN_EXECUTION on submitting is a no-op (click guard)', () => {
+    const validated = advanceToValidated();
+    const first = prospectWizardReducer(validated, { type: 'BEGIN_EXECUTION' });
+    const second = prospectWizardReducer(first, { type: 'BEGIN_EXECUTION' });
+    assert.deepEqual(first, second);
+  });
+
+  test('BEGIN_EXECUTION from non-validated step is rejected (no accidental trigger)', () => {
+    // Matches the handleExecute guard: if (state.currentStep !== 'validated') return;
+    const notValidated = makeInitial();
+    const result = prospectWizardReducer(notValidated, { type: 'BEGIN_EXECUTION' });
+    assert.deepEqual(result, notValidated);
+  });
+});
+
+// ── 17.15 No exposure of flag to client bundle (16AB.43.18.1) ────────────────
+//
+// Structural: the flag helper must live in a server-only module and must not
+// use NEXT_PUBLIC_ prefixes. Verified by inspecting module source.
+
+describe('17.15 — No NEXT_PUBLIC variable, no process.env in client component', () => {
+  test('feature-flags.server.ts does not reference NEXT_PUBLIC_', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const path = require('node:path') as typeof import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/lib/feature-flags.server.ts'),
+      'utf8',
+    );
+    assert.ok(
+      !src.includes('NEXT_PUBLIC_'),
+      'feature-flags.server.ts must not reference NEXT_PUBLIC_ variables',
+    );
+  });
+
+  test('feature-flags.server.ts does not contain "use client"', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const path = require('node:path') as typeof import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/lib/feature-flags.server.ts'),
+      'utf8',
+    );
+    assert.ok(
+      !src.includes("'use client'") && !src.includes('"use client"'),
+      'feature-flags.server.ts must not be a client component',
+    );
+  });
+
+  test('generate-ai-batch-drawer.tsx (client component) does not call process.env directly', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const path = require('node:path') as typeof import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        'src/components/prospect-batches/generate-ai-batch-drawer.tsx',
+      ),
+      'utf8',
+    );
+    assert.ok(
+      !src.includes('process.env'),
+      'generate-ai-batch-drawer.tsx (client component) must not read process.env directly',
+    );
+  });
+
+  test('prospect-chat-wizard.tsx (client component) does not call process.env directly', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const path = require('node:path') as typeof import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        'src/components/prospect-batches/chat-wizard/prospect-chat-wizard.tsx',
+      ),
+      'utf8',
+    );
+    assert.ok(
+      !src.includes('process.env'),
+      'prospect-chat-wizard.tsx (client component) must not read process.env directly',
+    );
+  });
+});
+
 // ── 17.12 External guardrails — compile-time structural check ─────────────────
 
 describe('17.12 — External services not called in UI layer', () => {

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
+import { isProspectChatWizardExecutionEnabled } from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
@@ -67,9 +68,6 @@ export type WizardExecutionDeps = {
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
 };
 
-function isExecutionEnabled(): boolean {
-  return process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION === 'true';
-}
 
 // ── Public server action ──────────────────────────────────────────────────────
 // Thin entrypoint for Next.js. Builds real deps from server context, delegates
@@ -163,7 +161,7 @@ export async function executeProspectWizardGeneration(
   deps: WizardExecutionDeps,
 ): Promise<WizardExecutionActionResult> {
   // 1. Feature flag — hard env gate; if off, zero guardrail or DB calls
-  if (!isExecutionEnabled()) {
+  if (!isProspectChatWizardExecutionEnabled()) {
     return {
       ok: false,
       code: 'EXECUTION_DISABLED',
