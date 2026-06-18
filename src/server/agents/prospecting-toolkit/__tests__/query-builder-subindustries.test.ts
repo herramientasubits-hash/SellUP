@@ -21,8 +21,10 @@ import {
 describe('QB1: EdTech subindustry in R1 Colombia/Tecnología', () => {
   const queries = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia', ['EdTech']);
 
-  it('total query count is 5', () => {
-    assert.equal(queries.length, 5);
+  it('total query count is 4 (Colombia Fintech excluded for non-fintech subindustry)', () => {
+    // 16AB.43.23: Colombia Fintech source-guided is omitted when EdTech (non-fintech) is
+    // the only subindustry. 1 EdTech + 2 remaining base + 1 Fedesoft = 4.
+    assert.equal(queries.length, 4);
   });
 
   it('first query contains EdTech term', () => {
@@ -32,11 +34,15 @@ describe('QB1: EdTech subindustry in R1 Colombia/Tecnología', () => {
     );
   });
 
-  it('source-guided queries are preserved', () => {
-    const joined = queries.join(' ');
+  it('Fedesoft source-guided is preserved, Colombia Fintech is absent', () => {
+    const joined = queries.join(' ').toLowerCase();
     assert.ok(
-      joined.toLowerCase().includes('fedesoft') || joined.toLowerCase().includes('colombia fintech'),
-      'Source-guided queries (Fedesoft/ColombiaFintech) must be present',
+      joined.includes('fedesoft'),
+      'Fedesoft source-guided must be present for Colombia/Tech',
+    );
+    assert.ok(
+      !joined.includes('colombia fintech'),
+      'Colombia Fintech must NOT appear when subindustry is EdTech (non-fintech)',
     );
   });
 });

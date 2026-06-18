@@ -384,11 +384,12 @@ export async function executeProspectWizardGeneration(
   }
 
   // 14. Success
+  const hasNewCandidates = (pipelineResult.candidatesCreated ?? 0) > 0;
   return {
     ok: true,
-    status: 'created',
+    status: hasNewCandidates ? 'created' : 'no_new_candidates',
     batchId: reservedBatchId,
-    batchStatus: 'ready_for_review',
+    batchStatus: hasNewCandidates ? 'ready_for_review' : 'nothing_to_write',
     candidateCount: pipelineResult.candidatesCreated,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),

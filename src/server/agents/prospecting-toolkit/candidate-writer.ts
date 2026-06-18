@@ -681,17 +681,27 @@ export async function writeProspectingCandidates(
       needs_review_persisted: createdCandidateIds.length,
     };
 
-    await admin
-      .from("prospect_batches")
-      .update({
-        metadata: {
-          ...preMergedMetadata,
-          writer_summary: writerSummary,
-          novelty_summary: noveltySummary,
-          pipeline_summary_post_write: pipelineSummaryPostWrite,
-        },
-      })
-      .eq("id", batchId);
+    const finalMetadata = {
+      ...preMergedMetadata,
+      writer_summary: writerSummary,
+      novelty_summary: noveltySummary,
+      pipeline_summary_post_write: pipelineSummaryPostWrite,
+    };
+
+    if (candidatesCreated === 0 && errors.length === 0) {
+      // All candidates were intentionally skipped (novelty / quality) — no new
+      // content to review. Correct the status so the batch does not appear as
+      // ready_for_review when it has nothing in it.
+      await admin
+        .from("prospect_batches")
+        .update({ status: "nothing_to_write", metadata: finalMetadata })
+        .eq("id", batchId);
+    } else {
+      await admin
+        .from("prospect_batches")
+        .update({ metadata: finalMetadata })
+        .eq("id", batchId);
+    }
   } catch {
     // Non-critical: metadata update failure does not affect the writer result
   }

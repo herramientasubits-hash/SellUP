@@ -41,6 +41,7 @@ export async function runWizardTavilySearch(
     countryCode: input.resolved.country.code,
     industry: input.resolved.industry.name,
     subindustries: input.resolved.subindustries.map((s) => s.name),
+    additionalCriteria: input.resolved.additionalCriteria,
     webSearchProvider: 'tavily',
     targetInternal: WIZARD_TAVILY_TARGET_INTERNAL,
     existingBatchId: input.reservedBatchId,

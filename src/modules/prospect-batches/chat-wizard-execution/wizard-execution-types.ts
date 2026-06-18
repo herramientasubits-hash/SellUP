@@ -119,7 +119,7 @@ export type WizardGenerationCommand = {
 export type WizardExecutionActionResult =
   | {
       ok: true;
-      status: 'created' | 'already_started';
+      status: 'created' | 'already_started' | 'no_new_candidates';
       batchId: string;
       batchStatus: string;
       candidateCount?: number;

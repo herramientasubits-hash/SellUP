@@ -316,6 +316,12 @@ export async function runIncrementalProspectingSearch(
 
   const usefulCandidatesCount = allCandidates.filter(isUsefulCandidate).length;
 
+  const persistableAfterNovelty = lastNoveltyPrecheck?.persistable_candidates_count;
+  const noveltyExhausted =
+    lastNoveltyPrecheck !== null &&
+    usefulCandidatesCount > 0 &&
+    persistableAfterNovelty === 0;
+
   const metadata: IncrementalSearchMetadata = {
     rounds_executed: roundsMeta.length,
     stopped_reason: stoppedReason,
@@ -323,7 +329,7 @@ export async function runIncrementalProspectingSearch(
     total_candidates_accumulated: allCandidates.length,
     useful_candidates_count: usefulCandidatesCount,
     useful_candidates_count_before_novelty: usefulCandidatesCount,
-    estimated_persistable_after_novelty: lastNoveltyPrecheck?.persistable_candidates_count,
+    estimated_persistable_after_novelty: persistableAfterNovelty,
     estimated_novelty_skipped: lastNoveltyPrecheck?.novelty_skipped_estimated,
     novelty_precheck: lastNoveltyPrecheck
       ? {
@@ -332,6 +338,7 @@ export async function runIncrementalProspectingSearch(
           estimated_persistable_count: lastNoveltyPrecheck.persistable_candidates_count,
         }
       : undefined,
+    novelty_exhausted: noveltyExhausted || undefined,
     min_useful_candidates: minUsefulCandidates,
     target_internal: targetInternal,
     max_rounds: maxRounds,
@@ -399,6 +406,9 @@ export async function runIncrementalProspectingSearch(
         extraBatchMetadata: {
           incremental_search: metadata as Record<string, unknown>,
           search_mode: 'incremental_multi_round',
+          ...(input.additionalCriteria != null
+            ? { additional_criteria: input.additionalCriteria }
+            : {}),
         },
         existingBatchId: input.existingBatchId ?? null,
       });

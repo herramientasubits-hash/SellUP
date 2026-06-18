@@ -103,7 +103,7 @@ export type ProspectWizardState = {
   executionError: { code: string; message: string; retryable: boolean } | null;
   executionBatchId: string | null;
   executionRedirectPath: string | null;
-  executionStatus: 'created' | 'already_started' | null;
+  executionStatus: 'created' | 'already_started' | 'no_new_candidates' | null;
 };
 
 // ── Action contracts ──────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ export type ProspectWizardAction =
   | { type: 'RECONCILE_COUNTRY_SUBINDUSTRIES'; compatibleSubindustryIds: string[] }
   | { type: 'APPLY_CRITERIA_GUARD_RESULT'; rawValue: string; result: CriteriaGuardResult }
   | { type: 'BEGIN_EXECUTION' }
-  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: 'created' | 'already_started' }
+  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: 'created' | 'already_started' | 'no_new_candidates' }
   | { type: 'EXECUTION_FAILED'; errorCode: string; message: string; retryable: boolean };
 
 // ── Derived message contract ──────────────────────────────────────────────────

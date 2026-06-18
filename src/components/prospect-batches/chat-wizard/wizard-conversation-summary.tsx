@@ -63,6 +63,7 @@ export function WizardConversationSummary({
       <SuccessPanel
         status={state.executionStatus}
         onClose={onClose}
+        onEditSearch={onEditSearch}
       />
     );
   }
@@ -241,14 +242,23 @@ function SubmittingPanel() {
 // Does NOT navigate to a batch-detail route — that view no longer exists.
 
 type SuccessPanelProps = {
-  status: 'created' | 'already_started' | null;
+  status: 'created' | 'already_started' | 'no_new_candidates' | null;
   onClose: () => void;
+  onEditSearch: () => void;
 };
 
-function SuccessPanel({ status, onClose }: SuccessPanelProps) {
+function SuccessPanel({ status, onClose, onEditSearch }: SuccessPanelProps) {
   const router = useRouter();
 
   React.useEffect(() => {
+    if (status === 'no_new_candidates') {
+      // Do NOT auto-close — show the panel so the user can act.
+      toast.info('No se encontraron empresas nuevas.', {
+        description: 'Todos los resultados ya habían sido sugeridos recientemente.',
+      });
+      router.refresh();
+      return;
+    }
     if (status === 'already_started') {
       toast.info('Esta búsqueda ya había sido iniciada.', {
         description: 'Actualizamos el listado para mostrar los resultados disponibles.',
@@ -263,6 +273,37 @@ function SuccessPanel({ status, onClose }: SuccessPanelProps) {
   // onClose and router.refresh are stable references; status is captured once on mount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  if (status === 'no_new_candidates') {
+    return (
+      <div className="space-y-4 animate-su-fade-in" role="status">
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
+          <AlertCircle
+            className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              No encontramos empresas nuevas con estos criterios.
+            </p>
+            <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+              La búsqueda encontró resultados, pero todos ya habían sido sugeridos
+              recientemente o no pasaron los filtros de calidad.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={onEditSearch} className="gap-1.5">
+            <Pencil className="h-3.5 w-3.5" aria-hidden />
+            Editar búsqueda
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const heading =
     status === 'already_started'

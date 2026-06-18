@@ -51,6 +51,17 @@ const SOURCE_GUIDED_QUERIES_CO_TECH_R1 = [
   'fintech asociadas Colombia Fintech pagos Colombia empresa sitio oficial',
 ] as const;
 
+/**
+ * Devuelve true si al menos una subindustria corresponde a fintech.
+ * Usado para decidir si incluir la query source-guided de Colombia Fintech.
+ */
+function hasFintechSubindustry(subindustries: string[]): boolean {
+  return subindustries.some((s) => {
+    const lower = s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return lower.includes('fintech') || lower.includes('pagos') || lower.includes('payment');
+  });
+}
+
 const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_fedesoft', 'co_colombia_fintech'] as const;
 
 /** Ronda 2 — mix con buildExpandedMultiQueryDiscoveryQueries */
@@ -471,13 +482,24 @@ export function buildCleanMultiQueryDiscoveryQueries(
   if (isTech) {
     // Hito 16V.1 + 16Y.2: Colombia usa 3 subcluster + 2 source-guided (Ronda 1).
     // Hito 16AB.43.14: subindustrias inyectan hasta 2 queries reemplazando subclusters.
+    // Hito 16AB.43.23: fintech base query movida al último slot para que sea desplazada
+    // primero cuando se inyectan subindustrias no-fintech. La source-guided de Colombia
+    // Fintech se omite cuando hay subindustrias explícitas que no incluyen fintech.
     if (normalizeKey(country) === 'colombia') {
+      const normalized = normalizeSubindustries(subindustries ?? []);
       const baseQueries = [
-        'empresa fintech pagos Colombia clientes corporativos soluciones',
         'empresa software gestión RRHH nómina Colombia pymes corporativo',
         'empresa ciberseguridad Colombia protección datos empresas contacto',
+        'empresa fintech pagos Colombia clientes corporativos soluciones',
       ];
-      return injectSubindustryQueries(baseQueries, [...SOURCE_GUIDED_QUERIES_CO_TECH_R1], subindustries ?? [], country, 1);
+      // Incluir la query source-guided de Colombia Fintech solo cuando:
+      // (a) no hay subindustrias (búsqueda general de tech en Colombia), o
+      // (b) al menos una subindustria es fintech.
+      const includeFintech = normalized.length === 0 || hasFintechSubindustry(normalized);
+      const r1SourceGuided = includeFintech
+        ? [...SOURCE_GUIDED_QUERIES_CO_TECH_R1]
+        : [SOURCE_GUIDED_QUERIES_CO_TECH_R1[0]]; // Fedesoft only — skip Colombia Fintech
+      return injectSubindustryQueries(baseQueries, r1SourceGuided, subindustries ?? [], country, 1);
     }
     // Queries validadas en Hito 13D con Tavily basic mode (otros países/Tecnología).
     const baseQueries = [

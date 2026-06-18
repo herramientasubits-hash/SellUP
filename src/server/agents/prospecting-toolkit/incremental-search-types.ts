@@ -73,6 +73,13 @@ export type IncrementalSearchInput = {
    * roundNumber se asigna internamente por ronda.
    */
   usageInputContext?: TavilyUsageBaseContext | null;
+
+  /**
+   * Criterios adicionales ingresados por el usuario en el wizard.
+   * Provisto server-side — nunca controlado por el cliente directamente.
+   * Se persiste en el metadata del batch como snapshot y puede influir en queries.
+   */
+  additionalCriteria?: string | null;
 };
 
 // ─── Round metadata ───────────────────────────────────────────────────────────
@@ -125,6 +132,12 @@ export type IncrementalSearchMetadata = {
   estimated_persistable_after_novelty?: number;
   estimated_novelty_skipped?: number;
   novelty_precheck?: NoveltyPrecheckSummary;
+  /**
+   * True cuando el pre-check confirma que 0 candidatos útiles sobrevivirían el
+   * novelty filter. Señal de agotamiento de novedad — el universo de empresas
+   * disponibles con estas queries ya fue visitado recientemente.
+   */
+  novelty_exhausted?: boolean;
   min_useful_candidates: number;
   target_internal: number;
   max_rounds: number;
