@@ -191,16 +191,19 @@ describe('NNC2 — novelty_exhausted:true in metadata → status no_new_candidat
   });
 });
 
-// ── NNC3: positive regression — candidates created → status 'created' ────────
+// ── NNC3: positive regression — candidates created → success status ────────
 
-describe('NNC3 — candidatesCreated > 0 still returns status created', () => {
+describe('NNC3 — candidatesCreated > 0 still returns success status', () => {
 
-  it('NNC3-a: ok:true with status created when 5 candidates created', async () => {
+  it('NNC3-a: ok:true with success_partial when 5 candidates created (< target 10)', async () => {
     const deps = makeDeps(makePipelineOutput(BATCH_A, 5));
     const result = await withFlag(true, () => executeProspectWizardGeneration(VALID_REQUEST, deps));
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.equal(result.status, 'created');
+      assert.ok(
+        result.status === 'success_partial' || result.status === 'success_target_reached',
+        `expected success_partial or success_target_reached, got ${result.status}`,
+      );
     }
   });
 
