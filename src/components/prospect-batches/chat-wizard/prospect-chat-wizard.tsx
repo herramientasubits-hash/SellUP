@@ -338,6 +338,16 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false 
     dispatch(action);
   }
 
+  // ── Edit search from validated panel ─────────────────────────────────────
+  // Goes directly to additional_criteria (last data step) instead of summary,
+  // so auto-validation on summary is not immediately re-triggered in a loop.
+
+  function handleEditSearch() {
+    setCriteriaIntention('pending');
+    setCriteriaText('');
+    dispatch({ type: 'EDIT_STEP', step: 'additional_criteria' });
+  }
+
   // ── Composer submission (additional criteria) ─────────────────────────────
 
   function handleComposerSubmit() {
@@ -430,6 +440,30 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false 
       });
     }
   }
+
+  // ── Auto-validation when configuration is complete ────────────────────────
+  // Fires when the wizard reaches 'summary' with a valid config and message
+  // animations have finished. Replaces the removed manual "Validar" button.
+  //
+  // The ref is updated in a layout effect (runs after render, before effects)
+  // so the auto-validation effect always calls the latest handleValidate closure
+  // without adding it as a dep (which would cause the effect to re-run every render).
+
+  const handleValidateRef = React.useRef(handleValidate);
+  React.useLayoutEffect(() => {
+    handleValidateRef.current = handleValidate;
+  });
+
+  React.useEffect(() => {
+    if (state.currentStep !== 'summary') return;
+    if (isTyping) return;
+    if (!canValidateWizard(state)) return;
+    handleValidateRef.current();
+    // Re-runs only when currentStep or isTyping changes. Data-field changes
+    // always transition the step away from 'summary' first, so canValidateWizard
+    // is guaranteed to be re-evaluated on the next summary entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.currentStep, isTyping]);
 
   // ── Execution ─────────────────────────────────────────────────────────────
 
@@ -544,10 +578,10 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false 
                 state={state}
                 catalog={catalog}
                 dispatch={summaryDispatch}
-                onValidate={handleValidate}
                 onClose={onClose}
                 executionEnabled={executionEnabled}
                 onExecute={handleExecute}
+                onEditSearch={handleEditSearch}
               />
             ) : (
               <WizardActiveStep

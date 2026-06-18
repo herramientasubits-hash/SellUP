@@ -19,10 +19,10 @@ type WizardConversationSummaryProps = {
   state: ProspectWizardState;
   catalog: ActiveIndustryCatalog;
   dispatch: React.Dispatch<ProspectWizardAction>;
-  onValidate: () => void;
   onClose: () => void;
   executionEnabled: boolean;
   onExecute: () => void;
+  onEditSearch: () => void;
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -31,10 +31,10 @@ export function WizardConversationSummary({
   state,
   catalog,
   dispatch,
-  onValidate,
   onClose,
   executionEnabled,
   onExecute,
+  onEditSearch,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -48,6 +48,7 @@ export function WizardConversationSummary({
         executionEnabled={executionEnabled}
         onExecute={onExecute}
         executionError={state.executionError}
+        onEditSearch={onEditSearch}
       />
     );
   }
@@ -74,13 +75,12 @@ export function WizardConversationSummary({
     );
   }
 
-  // Default: summary step
+  // Default: summary step — auto-validation fires via useEffect in prospect-chat-wizard
   return (
     <SummaryPanel
       state={state}
       catalog={catalog}
       dispatch={dispatch}
-      onValidate={onValidate}
     />
   );
 }
@@ -95,7 +95,7 @@ function ValidatingPanel() {
       aria-live="polite"
     >
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
-      <p className="text-sm text-foreground">Estamos revisando la configuración…</p>
+      <p className="text-sm text-foreground">Verificando disponibilidad de generación…</p>
     </div>
   );
 }
@@ -108,9 +108,10 @@ type ValidatedPanelProps = {
   executionEnabled: boolean;
   onExecute: () => void;
   executionError: { code: string; message: string; retryable: boolean } | null;
+  onEditSearch: () => void;
 };
 
-function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, executionError }: ValidatedPanelProps) {
+function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, executionError, onEditSearch }: ValidatedPanelProps) {
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
       <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
@@ -155,7 +156,7 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
           variant="outline"
           size="sm"
           className="flex-1 gap-1.5"
-          onClick={() => dispatch({ type: 'GO_BACK' })}
+          onClick={onEditSearch}
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden />
           Editar búsqueda
@@ -317,10 +318,9 @@ type SummaryPanelProps = {
   state: ProspectWizardState;
   catalog: ActiveIndustryCatalog;
   dispatch: React.Dispatch<ProspectWizardAction>;
-  onValidate: () => void;
 };
 
-function SummaryPanel({ state, catalog, dispatch, onValidate }: SummaryPanelProps) {
+function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === state.countryCode);
   const industryEntry = catalog.industries.find((i) => i.id === state.industryId);
   const selectedSubs = catalog.subindustries.filter((s) =>
@@ -397,13 +397,6 @@ function SummaryPanel({ state, catalog, dispatch, onValidate }: SummaryPanelProp
       ))}
 
       <div className="flex flex-col gap-2">
-        <Button
-          type="button"
-          className="w-full gap-2"
-          onClick={onValidate}
-        >
-          Validar búsqueda
-        </Button>
         <Button
           type="button"
           variant="ghost"
