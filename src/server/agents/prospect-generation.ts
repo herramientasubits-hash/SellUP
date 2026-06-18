@@ -31,6 +31,7 @@ import {
 import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
 import { writeStructuredSourceCandidatesPreview } from './prospecting-toolkit/structured-source-candidate-writer';
 import { enrichBatchCandidatesWithWebAndAI } from './prospecting-toolkit/official-candidate-enricher';
+import { enrichCandidatesWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-candidates-with-validated-sources';
 import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 
 // ============================================================
@@ -1023,6 +1024,67 @@ export async function runProspectGenerationAgent(
           const msg = enrichErr instanceof Error ? enrichErr.message : 'enrichment error';
           console.warn('[agent-1] enrichment phase failed (non-blocking) for Colombia:', msg);
           enrichmentSummary = { enriched: 0, totalEstimatedCostUsd: 0, warnings: [`enrichment_exception: ${msg}`] };
+        }
+      }
+
+      // ─── SIIS Post-Discovery Enrichment (co_siis, snapshot-based, non-blocking) ─────
+      if (countryCode === 'CO') {
+        try {
+          const { data: candidatesForSiis } = await admin
+            .from('prospect_candidates')
+            .select('id, name, legal_name, tax_identifier, sector_description, metadata')
+            .eq('batch_id', ruesResult.batchId);
+
+          if (candidatesForSiis && candidatesForSiis.length > 0) {
+            const siisEnrichResult = await enrichCandidatesWithValidatedSources({
+              candidates: candidatesForSiis.map((c) => ({
+                name: (c.name ?? c.legal_name ?? '') as string,
+                taxId: (c.tax_identifier ?? null) as string | null,
+                countryCode: 'CO',
+                sector: (c.sector_description ?? null) as string | null,
+                existingMetadata: (c.metadata as Record<string, unknown>) ?? {},
+              })),
+              countryCode: 'CO',
+              stage: 'post_discovery_enrichment',
+            });
+
+            const siisSkipped = siisEnrichResult.sourcesSkipped.includes('co_siis');
+
+            if (siisSkipped) {
+              console.warn('[agent-1] co_siis enrichment skipped (no snapshot) for batch:', ruesResult.batchId);
+            } else {
+              const updateOps = siisEnrichResult.results
+                .filter((r) => r.sourceEnrichments['co_siis']?.status !== 'skipped')
+                .map((r) => {
+                  const candidate = candidatesForSiis[r.candidateIndex];
+                  if (!candidate) return Promise.resolve();
+                  const existingMeta = (candidate.metadata as Record<string, unknown>) ?? {};
+                  const updatedMeta = {
+                    ...existingMeta,
+                    source_enrichment: {
+                      ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+                      co_siis: r.enrichmentMetadata['co_siis'],
+                    },
+                  };
+                  return admin
+                    .from('prospect_candidates')
+                    .update({ metadata: updatedMeta })
+                    .eq('id', candidate.id as string);
+                });
+
+              await Promise.allSettled(updateOps);
+
+              const matched = siisEnrichResult.results.filter(
+                (r) => r.sourceEnrichments['co_siis']?.status === 'matched',
+              ).length;
+              const noMatch = siisEnrichResult.results.filter(
+                (r) => r.sourceEnrichments['co_siis']?.status === 'no_match',
+              ).length;
+              console.info('[agent-1] co_siis enrichment completed for batch:', ruesResult.batchId, { matched, noMatch });
+            }
+          }
+        } catch (siisErr: unknown) {
+          console.warn('[agent-1] co_siis enrichment failed (non-blocking):', siisErr instanceof Error ? siisErr.message : siisErr);
         }
       }
     }
