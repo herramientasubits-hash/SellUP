@@ -34,6 +34,11 @@ import {
 import { WizardChatComposer } from './wizard-chat-composer';
 import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils';
 
+// ── Error code → user-facing message mapping ──────────────────────────────────
+// Extracted to a separate module so tests can import without a DOM environment.
+
+import { mapExecutionError } from './wizard-execution-error-map';
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const SUMMARY_STEPS = new Set([
@@ -449,21 +454,23 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false 
           type: 'EXECUTION_SUCCEEDED',
           batchId: result.batchId,
           redirectPath: result.redirectPath,
+          status: result.status,
         });
       } else {
+        const mapped = mapExecutionError(result.code);
         dispatch({
           type: 'EXECUTION_FAILED',
           errorCode: result.code,
-          message: result.message,
-          retryable: result.retryable,
+          message: mapped.message,
+          retryable: mapped.retryable,
         });
       }
     } catch {
       dispatch({
         type: 'EXECUTION_FAILED',
         errorCode: 'GENERATION_FAILED',
-        message: 'Error al iniciar la generación. Inténtalo de nuevo.',
-        retryable: true,
+        message: 'No fue posible completar la generación de prospectos.',
+        retryable: false,
       });
     }
   }

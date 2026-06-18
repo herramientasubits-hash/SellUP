@@ -59,8 +59,8 @@ export function WizardConversationSummary({
   if (state.currentStep === 'success') {
     return (
       <SuccessPanel
-        batchId={state.executionBatchId}
-        redirectPath={state.executionRedirectPath}
+        status={state.executionStatus}
+        onClose={onClose}
       />
     );
   }
@@ -124,7 +124,7 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
           </p>
           <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
             {executionEnabled
-              ? 'Puedes iniciar la generación de prospectos.'
+              ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
               : 'La generación real todavía no está habilitada.'}
           </p>
         </div>
@@ -190,44 +190,60 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
 function SubmittingPanel() {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl bg-muted/40 px-5 py-4"
+      className="flex items-start gap-3 rounded-xl bg-muted/40 px-5 py-4"
       role="status"
       aria-live="polite"
     >
-      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
-      <p className="text-sm text-foreground">Generando prospectos…</p>
+      <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
+      <div className="space-y-0.5">
+        <p className="text-sm text-foreground">Generando empresas candidatas…</p>
+        <p className="text-xs text-muted-foreground">Estamos buscando, validando duplicados y preparando los resultados.</p>
+      </div>
     </div>
   );
 }
 
 // ── Success panel ─────────────────────────────────────────────────────────────
+// Closes the drawer and refreshes the global candidates list.
+// Does NOT navigate to a batch-detail route — that view no longer exists.
 
 type SuccessPanelProps = {
-  batchId: string | null;
-  redirectPath: string | null;
+  status: 'created' | 'already_started' | null;
+  onClose: () => void;
 };
 
-function SuccessPanel({ batchId, redirectPath }: SuccessPanelProps) {
+function SuccessPanel({ status, onClose }: SuccessPanelProps) {
   const router = useRouter();
 
   React.useEffect(() => {
-    if (redirectPath) {
-      router.push(redirectPath);
-    }
-  }, [redirectPath, router]);
+    router.refresh();
+    onClose();
+  // onClose is stable (defined in the parent render), router.refresh is stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const heading =
+    status === 'already_started'
+      ? 'Búsqueda ya iniciada'
+      : 'Candidatos generados';
+
+  const body =
+    status === 'already_started'
+      ? 'Esta búsqueda ya había sido iniciada. Actualizamos la lista para mostrar sus resultados.'
+      : 'Los candidatos fueron generados y ya están disponibles para revisión.';
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+    <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10 animate-su-fade-in">
       <CheckCircle2
         className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
         aria-hidden
       />
       <div className="space-y-1">
         <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-          ¡Lote creado correctamente!
+          {heading}
         </p>
         <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
-          {batchId ? `ID: ${batchId}` : 'Redirigiendo…'}
+          {body}
         </p>
       </div>
     </div>

@@ -35,6 +35,7 @@ export function createInitialProspectWizardState(
     executionError: null,
     executionBatchId: null,
     executionRedirectPath: null,
+    executionStatus: null,
   };
 }
 
@@ -451,6 +452,7 @@ export function prospectWizardReducer(
         currentStep: 'success',
         executionBatchId: action.batchId,
         executionRedirectPath: action.redirectPath,
+        executionStatus: action.status,
         executionError: null,
       };
     }
