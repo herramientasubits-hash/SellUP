@@ -181,23 +181,23 @@ const INDUSTRY_QUERY_STRATEGIES: Record<string, IndustryQueryStrategy> = {
   manufactura: {
     countryOverrides: {
       colombia: [
-        'empresa fabricante Colombia planta producción contacto nosotros',
+        'empresa fabricante Colombia planta producción certificaciones',
         'empresa metalmecánica Colombia manufactura fábrica corporativo',
         'empresa empaques plásticos Colombia fabricante producción',
         'empresa textil confección Colombia planta manufactura',
         'empresa alimentos Colombia fábrica producción certificaciones',
       ],
       mexico: [
-        'empresa fabricante México planta producción nosotros contacto',
-        'empresa maquiladora México manufactura fábrica contacto',
+        'empresa fabricante México planta producción industrial',
+        'empresa maquiladora México manufactura fábrica industrial',
         'empresa metalmecánica México Monterrey fabricante industrial',
         'empresa autopartes México Querétaro planta manufactura',
         'empresa plásticos empaques México fábrica producción corporativo',
-        'empresa alimentos bebidas México planta producción fábrica contacto',
+        'empresa alimentos bebidas México planta producción fábrica',
         'empresa química farmacéutica México planta manufactura industrial',
         'empresa electrónica electrodomésticos México Tijuana Juárez manufactura',
         'empresa textil confección México planta producción corporativo',
-        'empresa papel cartón envases México fábrica producción nosotros',
+        'empresa papel cartón envases México fábrica producción industrial',
       ],
     },
     genericFallback: (country: string) => [
@@ -503,10 +503,10 @@ export function buildCleanMultiQueryDiscoveryQueries(
     }
     // Queries validadas en Hito 13D con Tavily basic mode (otros países/Tecnología).
     const baseQueries = [
-      `empresa desarrollo software ${country} servicios contacto`,
-      `empresa tecnología ${country} soluciones empresariales contacto`,
+      `empresa desarrollo software ${country} servicios clientes`,
+      `empresa tecnología ${country} soluciones empresariales corporativo`,
       `empresa servicios tecnológicos ${country} clientes soluciones`,
-      `empresa software ${country} nosotros servicios`,
+      `empresa software ${country} clientes servicios`,
       `empresa TI ${country} outsourcing software clientes`,
     ];
     return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 1);
@@ -523,8 +523,8 @@ export function buildCleanMultiQueryDiscoveryQueries(
   const secondary = sectorTerms.secondary[0] ?? industry;
 
   const baseQueries = [
-    `${primary} ${country} servicios contacto nosotros`,
-    `empresas ${industry} ${country} corporativo soluciones contacto`,
+    `${primary} ${country} servicios corporativo`,
+    `empresas ${industry} ${country} corporativo soluciones`,
     `${secondary} ${country} empresa servicios`,
     `compañías ${industry} ${country} soluciones contacto`,
     `${primary} ${country} empresa corporativo`,
@@ -591,11 +591,11 @@ export function buildExpandedMultiQueryDiscoveryQueries(
   const sectorTerms = getSectorTerms(industry);
   const primary = sectorTerms.primary[0] ?? `empresas ${industry}`;
   const baseQueries = [
-    `${primary} ${country} empresas proveedores nosotros contacto`,
-    `empresas ${industry} ${country} servicios especializados contacto`,
-    `compañías ${industry} ${country} líderes del sector nosotros`,
+    `${primary} ${country} empresas proveedores líderes sector`,
+    `empresas ${industry} ${country} servicios especializados corporativo`,
+    `compañías ${industry} ${country} líderes del sector corporativo`,
     `${industry} empresas ${country} corporativo soluciones`,
-    `proveedores ${industry} ${country} empresas contacto corporativo`,
+    `proveedores ${industry} ${country} empresas soluciones corporativo`,
   ];
   return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 2);
 }

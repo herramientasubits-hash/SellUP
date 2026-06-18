@@ -262,12 +262,13 @@ export async function runIncrementalProspectingSearch(
       );
     } else if (round === 3) {
       // R3: partner/implementation angle — queries de ángulo implementador
+      // Hito 16AB.43.27: eliminadas "nosotros" y "contacto" para evitar páginas genéricas
       const r3Queries = [
-        `implementador ${input.industry} ${input.country} clientes corporativos nosotros contacto`,
-        `partner tecnológico ${input.industry} ${input.country} soluciones empresariales`,
+        `implementador ${input.industry} ${input.country} clientes corporativos casos de éxito`,
+        `partner ${input.industry} ${input.country} soluciones empresariales certificado`,
         `integrador ${input.industry} ${input.country} software empresa oficial corporativo`,
-        `consultor ${input.industry} ${input.country} transformación empresas corporativo`,
-        `proveedor especializado ${input.industry} ${input.country} contacto nosotros`,
+        `consultor ${input.industry} ${input.country} transformación digital empresas`,
+        `proveedor ${input.industry} ${input.country} software empresarial clientes`,
       ];
       queryOverrides = r3Queries.filter(q => !usedQueryTexts.has(q));
       if (queryOverrides.length === 0) {
@@ -276,11 +277,12 @@ export async function runIncrementalProspectingSearch(
       }
     } else if (round === 4) {
       // R4: case study/buyer angle — queries de ángulo caso de éxito
+      // Hito 16AB.43.27: eliminadas "nosotros" y "contacto" para evitar páginas genéricas
       const r4Queries = [
-        `caso de éxito ${input.industry} ${input.country} empresa B2B nosotros`,
+        `caso de éxito ${input.industry} ${input.country} empresa B2B implementación`,
         `${input.industry} ${input.country} empresa sector corporativo ecosistema`,
         `proveedor ${input.industry} ${input.country} transformación digital clientes`,
-        `${input.industry} empresa ${input.country} cartera clientes contacto nosotros`,
+        `${input.industry} empresa ${input.country} cartera clientes corporativo`,
         `${input.industry} ${input.country} empresa solución tecnológica corporativa`,
       ];
       queryOverrides = r4Queries.filter(q => !usedQueryTexts.has(q));
@@ -466,22 +468,40 @@ export async function runIncrementalProspectingSearch(
       : {}),
   };
 
-  const adaptiveDiscovery: AdaptiveDiscoveryMetadata = {
-    enabled: true,
-    target_persistible_candidates: targetPersistibleCandidates,
-    persisted_count: writerCandidatesCreated ?? 0,
-    persistible_estimate: lastNoveltyPrecheck?.persistable_candidates_count ?? 0,
-    remaining_to_target: Math.max(0, targetPersistibleCandidates - (writerCandidatesCreated ?? 0)),
-    max_rounds: maxRounds,
-    rounds_executed: roundsMeta.length,
-    stop_reason: stoppedReason === 'target_reached'
+  // ── Adaptive discovery — helper + placeholder (Hito 16AB.43.27) ─────────────
+  // persisted_count starts at 0 and is reconciled post-writer with actual count.
+
+  const adaptiveStopReason: AdaptiveDiscoveryMetadata['stop_reason'] =
+    stoppedReason === 'target_reached'
       ? 'target_reached'
       : stoppedReason === 'novelty_exhausted_no_diversification_available'
       ? 'novelty_exhausted_no_diversification_available'
       : stoppedReason === 'max_rounds_reached'
       ? 'max_rounds_reached'
-      : 'budget_cap_reached',
+      : 'budget_cap_reached';
+
+  const buildAdaptiveDiscovery = (persistedCount: number): AdaptiveDiscoveryMetadata => {
+    const remainingToTarget = Math.max(0, targetPersistibleCandidates - persistedCount);
+    const resultStatus: AdaptiveDiscoveryMetadata['result_status'] =
+      persistedCount >= targetPersistibleCandidates
+        ? 'success_target_reached'
+        : persistedCount > 0
+        ? 'success_partial'
+        : 'no_new_candidates';
+    return {
+      enabled: true,
+      target_persistible_candidates: targetPersistibleCandidates,
+      persisted_count: persistedCount,
+      persistible_estimate: lastNoveltyPrecheck?.persistable_candidates_count ?? 0,
+      remaining_to_target: remainingToTarget,
+      max_rounds: maxRounds,
+      rounds_executed: roundsMeta.length,
+      stop_reason: adaptiveStopReason,
+      result_status: resultStatus,
+    };
   };
+
+  const adaptiveDiscovery = buildAdaptiveDiscovery(0); // reconciled after writer
 
   const metadata: IncrementalSearchMetadata = {
     rounds_executed: roundsMeta.length,
@@ -569,10 +589,12 @@ export async function runIncrementalProspectingSearch(
         batchName: input.batchName ?? null,
         source: 'agent_1',
         dryRun: false,
+        targetPersistibleCandidates: targetPersistibleCandidates,
         extraBatchMetadata: {
           incremental_search: metadata as Record<string, unknown>,
           search_mode: 'incremental_multi_round',
           discovery_strategy: discoveryStrategy as Record<string, unknown>,
+          adaptive_discovery: adaptiveDiscovery as Record<string, unknown>,
           ...(input.additionalCriteria != null
             ? { additional_criteria: input.additionalCriteria }
             : {}),
@@ -585,6 +607,10 @@ export async function runIncrementalProspectingSearch(
       } else {
         writerBatchId = writerOutput.batchId;
         writerCandidatesCreated = writerOutput.candidatesCreated;
+
+        // Reconcile adaptive_discovery with actual persisted count (Hito 16AB.43.27)
+        const reconciledAdaptive = buildAdaptiveDiscovery(writerCandidatesCreated ?? 0);
+        metadata.adaptive_discovery = reconciledAdaptive;
       }
     }
   }

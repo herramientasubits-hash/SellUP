@@ -18,6 +18,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { runProspectingPipeline } from "./prospecting-pipeline";
 import { buildNoveltyIndex, evaluateCandidateNovelty, buildRecentIdentityKeySet } from "./novelty-checker";
 import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
+import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -567,7 +568,23 @@ export async function writeProspectingCandidates(
     samples: [] as IdentityGateSample[],
   };
 
-  // Crear candidatos
+  // Precision gate tracking (Hito 16AB.43.27)
+  const precisionGate = {
+    countryIncompatibleCount: 0,
+    genericNameCount: 0,
+    targetCapCount: 0,
+  };
+
+  // ── Pass 1: evaluate all candidates through gates → collect eligible ────────
+  type EligibleEntry = {
+    candidate: ProspectingPipelineCandidate;
+    candidateStatus: string;
+    domain: string | null;
+    countryCompatWeight: number;
+    noveltyResult: ReturnType<typeof evaluateCandidateNovelty>;
+  };
+  const eligibleEntries: EligibleEntry[] = [];
+
   for (const candidate of pipelineOutput.candidates) {
     const candidateStatus = mapQualityLabelToStatus(candidate.scoring.qualityLabel);
 
@@ -576,12 +593,18 @@ export async function writeProspectingCandidates(
       continue;
     }
 
-    // ── Canonical identity gate (Hito 16AB.43.25) ───────────────────────────
+    // ── Canonical identity gate (Hito 16AB.43.25 / 16AB.43.27) ─────────────
     const identity = buildCanonicalCompanyIdentity(candidate.name);
 
     if (identity.isNonCompanyPhrase) {
       skipped.push({ name: candidate.name, reason: "non_company_phrase", searchTrace: candidate.searchTrace ?? undefined });
       identityGate.nonCompanyPhraseCount++;
+      if (
+        identity.nonCompanyReason === 'page_title_not_company_name' ||
+        identity.nonCompanyReason === 'generic_commercial_label'
+      ) {
+        precisionGate.genericNameCount++;
+      }
       if (identityGate.samples.length < 10) {
         identityGate.samples.push({ name: candidate.name, reason: "non_company_phrase" });
       }
@@ -611,7 +634,16 @@ export async function writeProspectingCandidates(
       continue;
     }
 
-    // Novelty check: evita persistir candidatos ya sugeridos recientemente
+    // ── Country compatibility gate (Hito 16AB.43.27) ─────────────────────────
+    const urlToCheck = candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null);
+    const countryCompat = evaluateCountryCompatibility(urlToCheck, countryCode ?? 'CO');
+    if (!countryCompat.compatible) {
+      skipped.push({ name: candidate.name, reason: `country_incompatible:${countryCompat.reason}`, searchTrace: candidate.searchTrace ?? undefined });
+      precisionGate.countryIncompatibleCount++;
+      continue;
+    }
+
+    // ── Novelty check ─────────────────────────────────────────────────────────
     const noveltyResult = evaluateCandidateNovelty(
       { name: candidate.name, domain: candidate.domain, website: candidate.website },
       noveltyIndex,
@@ -628,11 +660,42 @@ export async function writeProspectingCandidates(
       continue;
     }
 
+    eligibleEntries.push({
+      candidate,
+      candidateStatus,
+      domain: effectiveDomain,
+      countryCompatWeight: countryCompatibilityRankWeight(countryCompat),
+      noveltyResult,
+    });
+  }
+
+  // ── Pass 2: rank eligible candidates by priority (Hito 16AB.43.27) ─────────
+  // Priority: 1) country compat weight desc, 2) confidence score desc
+  eligibleEntries.sort((a, b) => {
+    const countryDiff = b.countryCompatWeight - a.countryCompatWeight;
+    if (countryDiff !== 0) return countryDiff;
+    return (b.candidate.scoring.confidenceScore ?? 0) - (a.candidate.scoring.confidenceScore ?? 0);
+  });
+
+  // ── Pass 3: apply target cap (Hito 16AB.43.27) ───────────────────────────────
+  const targetCap = input.targetPersistibleCandidates ?? null;
+  const eligibleBeforeCap = eligibleEntries.length;
+  const toPersist =
+    targetCap != null && targetCap > 0 && eligibleBeforeCap > targetCap
+      ? eligibleEntries.slice(0, targetCap)
+      : eligibleEntries;
+  const cappedEntries = eligibleEntries.slice(toPersist.length);
+
+  for (const { candidate } of cappedEntries) {
+    skipped.push({ name: candidate.name, reason: "target_cap", searchTrace: candidate.searchTrace ?? undefined });
+    precisionGate.targetCapCount++;
+  }
+
+  // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
+  for (const { candidate, candidateStatus, domain, noveltyResult } of toPersist) {
     const dbDuplicateStatus = mapDuplicateStatus(
       candidate.duplicateCheck?.status ?? "unchecked"
     );
-
-    const domain = candidate.domain ?? extractDomain(candidate.website);
 
     // matched_account_id solo si es UUID válido de SellUp
     const sellupMatch = candidate.duplicateCheck?.matches.find(
@@ -805,12 +868,31 @@ export async function writeProspectingCandidates(
       samples: identityGate.samples,
     };
 
+    const precisionGateMetadata = {
+      enabled: true,
+      country_incompatible_exclusions: precisionGate.countryIncompatibleCount,
+      generic_name_exclusions: precisionGate.genericNameCount,
+      target_cap_exclusions: precisionGate.targetCapCount,
+    };
+
+    const targetCapMetadata = targetCap != null
+      ? {
+          enabled: true,
+          target: targetCap,
+          eligible_before_cap: eligibleBeforeCap,
+          persisted_after_cap: createdCandidateIds.length,
+          capped_count: precisionGate.targetCapCount,
+        }
+      : undefined;
+
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
       novelty_summary: noveltySummary,
       pipeline_summary_post_write: pipelineSummaryPostWrite,
       canonical_identity_gate: canonicalIdentityGate,
+      precision_gate: precisionGateMetadata,
+      ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
     };
 
     if (candidatesCreated === 0 && errors.length === 0) {

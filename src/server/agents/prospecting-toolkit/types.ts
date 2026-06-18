@@ -336,6 +336,12 @@ export type CandidateWriterInput = {
    * Internal-only — not exposed to any UI or external client.
    */
   existingBatchId?: string | null;
+  /**
+   * Maximum number of candidates to persist in this run (Hito 16AB.43.27).
+   * Candidates are ranked before applying the cap.
+   * When undefined, all eligible candidates are persisted (legacy behavior).
+   */
+  targetPersistibleCandidates?: number | null;
 };
 
 export type CandidateWriterSkipped = {

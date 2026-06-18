@@ -143,12 +143,21 @@ export type DiscoveryStrategyMetadata = {
   credits_saved_estimate?: number;
 };
 
-// ─── Adaptive discovery metadata (Hito 16AB.43.26) ──────────────────────────
+// ─── Adaptive discovery metadata (Hito 16AB.43.26 / 16AB.43.27) ─────────────
+
+export type AdaptiveDiscoveryResultStatus =
+  | 'success_target_reached'
+  | 'success_partial'
+  | 'no_new_candidates'
+  | 'insufficient_budget';
 
 export type AdaptiveDiscoveryMetadata = {
   enabled: boolean;
   target_persistible_candidates: number;
+  /** Actual candidates persisted by the writer (reconciled post-writer). */
   persisted_count: number;
+  /** Candidates estimated persistible before target cap (reconciled post-writer). */
+  eligible_before_cap?: number;
   persistible_estimate: number;
   remaining_to_target: number;
   max_rounds: number;
@@ -158,6 +167,27 @@ export type AdaptiveDiscoveryMetadata = {
     | 'max_rounds_reached'
     | 'budget_cap_reached'
     | 'novelty_exhausted_no_diversification_available';
+  /** High-level result status set after writer completes (Hito 16AB.43.27). */
+  result_status?: AdaptiveDiscoveryResultStatus;
+};
+
+// ─── Target cap metadata (Hito 16AB.43.27) ───────────────────────────────────
+
+export type TargetCapMetadata = {
+  enabled: boolean;
+  target: number;
+  eligible_before_cap: number;
+  persisted_after_cap: number;
+  capped_count: number;
+};
+
+// ─── Precision gate metadata (Hito 16AB.43.27) ───────────────────────────────
+
+export type PrecisionGateMetadata = {
+  enabled: boolean;
+  country_incompatible_exclusions: number;
+  generic_name_exclusions: number;
+  target_cap_exclusions: number;
 };
 
 // ─── Novelty pre-check ───────────────────────────────────────────────────────

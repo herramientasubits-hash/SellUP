@@ -23,6 +23,45 @@
  *   "Soluciones y tecnología"     → isNonCompanyPhrase: true
  */
 
+// ─── Page-title y etiquetas comerciales genéricas — nunca son nombres de empresa (Hito 16AB.43.27) ──
+
+/**
+ * Títulos de página que aparecen como "nombre" cuando Tavily extrae
+ * el título de una sección de un sitio web en lugar del nombre de la empresa.
+ * Ejemplos: itscolombia.net/nosotros → title "Nosotros"
+ */
+const PAGE_TITLE_EXACT = new Set([
+  'nosotros',
+  'quienes somos',
+  'quiénes somos',
+  'sobre nosotros',
+  'acerca de nosotros',
+  'about us',
+  'who we are',
+  'contacto',
+  'contact',
+  'inicio',
+  'home',
+]);
+
+/**
+ * Etiquetas comerciales genéricas que no son nombres de empresa real.
+ * Pueden aparecer como snippet o título de landing page de marketing.
+ */
+const GENERIC_COMMERCIAL_LABELS_EXACT = new Set([
+  'aliado elite',
+  'aliado élite',
+  'partner tecnologico',
+  'partner tecnológico',
+  'proveedor especializado',
+  'proveedor especializada',
+  'soluciones empresariales',
+  'consultoria en transformacion digital',
+  'consultoría en transformación digital',
+  'servicios tecnologicos',
+  'servicios tecnológicos',
+]);
+
 // ─── Sufijos legales (igual a normalization.ts para coherencia) ───────────────
 
 const LEGAL_SUFFIX_RE =
@@ -187,6 +226,27 @@ export function buildCanonicalCompanyIdentity(rawName: string): CanonicalCompany
 
   if (!name) {
     return { rawName, identityKey: '', isNonCompanyPhrase: true, nonCompanyReason: 'empty_name' };
+  }
+
+  // ── Detección page-title / etiqueta genérica (Hito 16AB.43.27) ────────────
+  const nameLower = normalizeForIdentity(name);
+
+  if (PAGE_TITLE_EXACT.has(nameLower)) {
+    return {
+      rawName,
+      identityKey: '',
+      isNonCompanyPhrase: true,
+      nonCompanyReason: 'page_title_not_company_name',
+    };
+  }
+
+  if (GENERIC_COMMERCIAL_LABELS_EXACT.has(nameLower)) {
+    return {
+      rawName,
+      identityKey: '',
+      isNonCompanyPhrase: true,
+      nonCompanyReason: 'generic_commercial_label',
+    };
   }
 
   // ── Detección de frase no-empresa ─────────────────────────────────────────
