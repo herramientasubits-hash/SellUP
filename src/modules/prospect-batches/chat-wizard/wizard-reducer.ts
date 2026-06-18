@@ -454,6 +454,8 @@ export function prospectWizardReducer(
         executionRedirectPath: action.redirectPath,
         executionStatus: action.status,
         executionNoveltyExhausted: action.noveltyExhausted ?? false,
+        executionTargetReached: action.targetReached ?? false,
+        executionTargetPersistibleCandidates: action.targetPersistibleCandidates,
         executionError: null,
       };
     }

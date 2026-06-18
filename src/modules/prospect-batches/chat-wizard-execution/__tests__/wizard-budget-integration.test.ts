@@ -34,6 +34,7 @@ import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolki
 import type { PilotGuardrailCode } from '../wizard-pilot-types';
 import {
   estimateWizardTavilyMaxCredits,
+  estimateWizardAdaptiveMaxCredits,
   getPilotBudgetPeriodStart,
 } from '../wizard-budget-reconciliation';
 import { wizardExecutionRequestSchema } from '../wizard-execution-schema';
@@ -181,28 +182,40 @@ async function withFlagAsync<T>(enabled: boolean, fn: () => Promise<T>): Promise
 // ── §24: Credit estimation (pure) ────────────────────────────────────────────
 
 describe('§24 — Credit estimation (pure helpers)', () => {
-  it('basic depth → 1 credit per query → 10 total', () => {
+  it('basic depth → 1 credit per query → 10 total (legacy 2-round)', () => {
     assert.equal(estimateWizardTavilyMaxCredits({ searchDepth: 'basic' }), 10);
   });
 
-  it('standard depth → 1 credit per query → 10 total', () => {
+  it('standard depth → 1 credit per query → 10 total (legacy 2-round)', () => {
     assert.equal(estimateWizardTavilyMaxCredits({ searchDepth: 'standard' }), 10);
   });
 
-  it('deep depth → 2 credits per query → 20 total', () => {
+  it('deep depth → 2 credits per query → 20 total (legacy 2-round)', () => {
     assert.equal(estimateWizardTavilyMaxCredits({ searchDepth: 'deep' }), 20);
   });
 
-  it('default (no args) → current pipeline config → 10', () => {
+  it('legacy default (no args) → current pipeline config → 10', () => {
     assert.equal(estimateWizardTavilyMaxCredits(), 10);
   });
 
-  it('requestedCredits in action is always server constant (10), never from client', async () => {
+  it('adaptive standard → 4 rounds × 5 queries × 1 credit = 20', () => {
+    assert.equal(estimateWizardAdaptiveMaxCredits({ searchDepth: 'standard' }), 20);
+  });
+
+  it('adaptive deep → uncapped=40, capped at 20', () => {
+    assert.equal(estimateWizardAdaptiveMaxCredits({ searchDepth: 'deep' }), 20);
+  });
+
+  it('adaptive default (no args) → 20', () => {
+    assert.equal(estimateWizardAdaptiveMaxCredits(), 20);
+  });
+
+  it('requestedCredits in action is always server constant (20), never from client', async () => {
     await withFlagAsync(true, async () => {
       const deps = makeDeps();
       await executeProspectWizardGeneration(VALID_REQUEST, deps);
       assert.equal(deps.budgetCalls.length, 1);
-      assert.equal(deps.budgetCalls[0]!.requestedCredits, 10);
+      assert.equal(deps.budgetCalls[0]!.requestedCredits, 20);
     });
   });
 });
@@ -264,7 +277,7 @@ describe('§25 — Identity: userId in reserveBudget = userId from getActiveUser
 
 // ── §27: Happy path — ordering and call counts ────────────────────────────────
 
-describe('§27 — Happy path: budget → slot → tavily → confirm(10)', () => {
+describe('§27 — Happy path: budget → slot → tavily → confirm(10 actual consumed)', () => {
   it('call order: budget, slot, tavily, confirm; releaseBudget = 0', async () => {
     await withFlagAsync(true, async () => {
       const order: string[] = [];
@@ -294,7 +307,10 @@ describe('§27 — Happy path: budget → slot → tavily → confirm(10)', () =
       const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
 
       assert.equal(result.ok, true);
-      if (result.ok) assert.equal(result.status, 'created');
+      if (result.ok) assert.ok(
+        ['success_partial', 'success_target_reached', 'created'].includes(result.status),
+        `Expected a success status, got: ${result.status}`,
+      );
       assert.deepEqual(order, ['budget', 'slot', 'tavily', 'confirm']);
       assert.equal(deps.tavilyCalls.length, 1);
       assert.equal(deps.confirmCalls.length, 1);
@@ -474,7 +490,10 @@ describe('§33 — Recovery: budget=already_reserved + slot=reserved → Tavily 
       });
       const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
       assert.equal(result.ok, true);
-      if (result.ok) assert.equal(result.status, 'created');
+      if (result.ok) assert.ok(
+        ['success_partial', 'success_target_reached', 'created'].includes(result.status),
+        `Expected a success status, got: ${result.status}`,
+      );
       assert.equal(deps.tavilyCalls.length, 1, 'Tavily must run exactly once');
       assert.equal(deps.confirmCalls.length, 1, 'confirmBudget must be called');
       assert.equal(deps.releaseCalls.length, 0);
@@ -496,7 +515,10 @@ describe('Reconciliation failure after success → ok=true + reconciliationWarni
       const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
       assert.equal(result.ok, true, 'must not convert success to failure on reconciliation error');
       if (result.ok) {
-        assert.equal(result.status, 'created');
+        assert.ok(
+          ['success_partial', 'success_target_reached', 'created'].includes(result.status),
+          `Expected a success status, got: ${result.status}`,
+        );
         assert.equal(result.reconciliationWarning, 'BUDGET_RECONCILIATION_FAILED');
       }
       assert.equal(deps.tavilyCalls.length, 1, 'Tavily ran once');
@@ -640,11 +662,11 @@ describe('§16AB.43.19 — Anti-regression: identity, periodStart, no residuos',
     assert.equal(getPilotBudgetPeriodStart('America/Bogota', clock), '2026-06-01');
   });
 
-  it('16AB.43.19.3: requestedCredits is always 10 (server constant, never from client)', async () => {
+  it('16AB.43.19.3: requestedCredits is always 20 (server constant = 4 rounds × 5 queries, never from client)', async () => {
     await withFlagAsync(true, async () => {
       const deps = makeDeps();
       await executeProspectWizardGeneration(VALID_REQUEST, deps);
-      assert.equal(deps.budgetCalls[0]!.requestedCredits, 10);
+      assert.equal(deps.budgetCalls[0]!.requestedCredits, 20);
     });
   });
 
@@ -674,14 +696,14 @@ describe('§16AB.43.19 — Anti-regression: identity, periodStart, no residuos',
         getActiveUserId: async () => INTERNAL_USER_ID,
         reserveBudget: async (input) => {
           deps.budgetCalls.push(input);
-          return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 10 };
+          return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 20 };
         },
       });
       const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
 
       assert.equal(result.ok, true);
       assert.equal(deps.budgetCalls[0]!.userId, INTERNAL_USER_ID);
-      assert.equal(deps.budgetCalls[0]!.requestedCredits, 10);
+      assert.equal(deps.budgetCalls[0]!.requestedCredits, 20);
       assert.equal(deps.slotCalls.length, 1,  'slot must be called after successful reservation');
       assert.equal(deps.tavilyCalls.length, 1, 'Tavily must execute after slot');
     });

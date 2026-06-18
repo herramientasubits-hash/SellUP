@@ -10,7 +10,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runWizardTavilySearch, WIZARD_TAVILY_TARGET_INTERNAL } from '../wizard-tavily-executor';
+import {
+  runWizardTavilySearch,
+  WIZARD_TAVILY_TARGET_INTERNAL,
+  WIZARD_ADAPTIVE_MAX_ROUNDS,
+  WIZARD_TARGET_PERSISTIBLE_CANDIDATES,
+} from '../wizard-tavily-executor';
 import type { WizardTavilyInput } from '../wizard-tavily-executor';
 import type { ResolvedWizardExecution } from '../wizard-execution-types';
 import type { IncrementalSearchInput, IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
@@ -267,6 +272,32 @@ describe('E9: subindustries are forwarded to the incremental search runner', () 
     const { runner, getCapture } = makeFakeRunner();
     await runWizardTavilySearch({ resolved: noSubResolved, reservedBatchId: BATCH_ID }, runner);
     assert.deepEqual(getCapture()!.subindustries, []);
+  });
+});
+
+// ── E10: maxRounds equals WIZARD_ADAPTIVE_MAX_ROUNDS (4) ─────────────────────
+
+describe('E10: maxRounds is fixed to WIZARD_ADAPTIVE_MAX_ROUNDS (4)', () => {
+  it('runner receives maxRounds: 4', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch(makeInput(), runner);
+    const captured = getCapture();
+    assert.ok(captured, 'runner must have been called');
+    assert.equal(captured!.maxRounds, WIZARD_ADAPTIVE_MAX_ROUNDS);
+    assert.equal(WIZARD_ADAPTIVE_MAX_ROUNDS, 4);
+  });
+});
+
+// ── E11: targetPersistibleCandidates equals WIZARD_TARGET_PERSISTIBLE_CANDIDATES (10) ──
+
+describe('E11: targetPersistibleCandidates is fixed to WIZARD_TARGET_PERSISTIBLE_CANDIDATES (10)', () => {
+  it('runner receives targetPersistibleCandidates: 10', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch(makeInput(), runner);
+    const captured = getCapture();
+    assert.ok(captured, 'runner must have been called');
+    assert.equal(captured!.targetPersistibleCandidates, WIZARD_TARGET_PERSISTIBLE_CANDIDATES);
+    assert.equal(WIZARD_TARGET_PERSISTIBLE_CANDIDATES, 10);
   });
 });
 

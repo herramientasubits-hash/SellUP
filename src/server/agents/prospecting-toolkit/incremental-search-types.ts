@@ -53,6 +53,11 @@ export type IncrementalSearchInput = {
    * Default: 0.15 */
   maxEstimatedCostUsd?: number;
 
+  /** Objetivo de candidatos persistibles (post-novelty) para detener la búsqueda.
+   * Cuando se alcanza, el orquestador para y marca targetReached=true en el output.
+   * Default: 10 */
+  targetPersistibleCandidates?: number;
+
   /** Cuando true (default en validación), no llama writeProspectingCandidates.
    * Default: true */
   dryRun?: boolean;
@@ -104,6 +109,7 @@ export type IncrementalSearchRoundMeta = {
 
 export type IncrementalSearchStoppedReason =
   | 'min_useful_reached'
+  | 'target_reached'
   | 'max_rounds_reached'
   | 'max_raw_exceeded'
   | 'cost_limit_exceeded'
@@ -135,6 +141,23 @@ export type DiscoveryStrategyMetadata = {
   round2_strategy?: string;
   early_stop_reason?: string;
   credits_saved_estimate?: number;
+};
+
+// ─── Adaptive discovery metadata (Hito 16AB.43.26) ──────────────────────────
+
+export type AdaptiveDiscoveryMetadata = {
+  enabled: boolean;
+  target_persistible_candidates: number;
+  persisted_count: number;
+  persistible_estimate: number;
+  remaining_to_target: number;
+  max_rounds: number;
+  rounds_executed: number;
+  stop_reason:
+    | 'target_reached'
+    | 'max_rounds_reached'
+    | 'budget_cap_reached'
+    | 'novelty_exhausted_no_diversification_available';
 };
 
 // ─── Novelty pre-check ───────────────────────────────────────────────────────
@@ -173,6 +196,8 @@ export type IncrementalSearchMetadata = {
   excluded_by_negative_memory_total?: number;
   /** Metadata del plan de discovery novelty-aware (Hito 16AB.43.24). */
   discovery_strategy?: DiscoveryStrategyMetadata;
+  /** Metadata del adaptive discovery budget (Hito 16AB.43.26). */
+  adaptive_discovery?: AdaptiveDiscoveryMetadata;
   min_useful_candidates: number;
   target_internal: number;
   max_rounds: number;
@@ -195,4 +220,8 @@ export type IncrementalSearchOutput = {
   warnings: string[];
   /** Set when dryRun=false and writeProspectingCandidates succeeds. */
   batchId?: string | null;
+  /** True when actual candidatesCreated >= targetPersistibleCandidates after writing. */
+  targetReached?: boolean;
+  /** The configured target (for UI display). */
+  targetPersistibleCandidates?: number;
 };

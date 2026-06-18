@@ -33,6 +33,26 @@ export function estimateWizardTavilyMaxCredits(opts?: { searchDepth?: string }):
   return WIZARD_DEFAULT_ROUNDS * WIZARD_DEFAULT_QUERIES_PER_ROUND * creditsForDepth(depth);
 }
 
+// ── Adaptive credit estimation (Hito 16AB.43.26) ─────────────────────────────
+
+export const WIZARD_ADAPTIVE_MAX_ROUNDS = 4;
+export const WIZARD_QUERIES_PER_ROUND = 5;
+export const WIZARD_MAX_CREDITS_PER_EXECUTION = 20; // 4 rounds × 5 queries × 1 credit
+
+/**
+ * Returns the max Tavily credits for an adaptive wizard execution (up to 4 rounds).
+ * Capped at WIZARD_MAX_CREDITS_PER_EXECUTION.
+ *
+ * Current config: 4 rounds × 5 queries × 1 credit = 20.
+ *
+ * @param opts.searchDepth - Optional override for testing. Defaults to 'standard' (1 credit/query).
+ */
+export function estimateWizardAdaptiveMaxCredits(opts?: { searchDepth?: string }): number {
+  const depth = opts?.searchDepth ?? 'standard';
+  const uncapped = WIZARD_ADAPTIVE_MAX_ROUNDS * WIZARD_QUERIES_PER_ROUND * creditsForDepth(depth);
+  return Math.min(uncapped, WIZARD_MAX_CREDITS_PER_EXECUTION);
+}
+
 // ── Period calculation ────────────────────────────────────────────────────────
 
 /**

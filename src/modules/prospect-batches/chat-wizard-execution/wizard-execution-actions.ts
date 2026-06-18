@@ -27,6 +27,7 @@ import {
 import type { BudgetReservationsRpcClient, ReservationLookupClient } from './wizard-budget-reservations';
 import {
   estimateWizardTavilyMaxCredits,
+  estimateWizardAdaptiveMaxCredits,
   getPilotBudgetPeriodStart,
   readWizardConsumedCreditsFromDb,
 } from './wizard-budget-reconciliation';
@@ -240,7 +241,7 @@ export async function executeProspectWizardGeneration(
   }
 
   // 6. Calculate max credits server-side — client cannot control this value
-  const requestedCredits = estimateWizardTavilyMaxCredits(); // = 10
+  const requestedCredits = estimateWizardAdaptiveMaxCredits(); // = 20 (4 rounds × 5 queries × 1 credit)
 
   // 7. Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency all checked by RPC
   const budgetResult = await deps.reserveBudget({
@@ -386,13 +387,20 @@ export async function executeProspectWizardGeneration(
   // 14. Success
   const hasNewCandidates = (pipelineResult.candidatesCreated ?? 0) > 0;
   const noveltyExhausted = pipelineResult.metadata?.novelty_exhausted === true;
+  const targetPersistibleCandidates = pipelineResult.targetPersistibleCandidates ?? 10;
+  const targetReached = pipelineResult.targetReached === true;
+  const executionStatus = hasNewCandidates
+    ? (targetReached ? 'success_target_reached' : 'success_partial')
+    : 'no_new_candidates';
   return {
     ok: true,
-    status: hasNewCandidates ? 'created' : 'no_new_candidates',
+    status: executionStatus,
     batchId: reservedBatchId,
     batchStatus: hasNewCandidates ? 'ready_for_review' : 'nothing_to_write',
     candidateCount: pipelineResult.candidatesCreated,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
+    targetPersistibleCandidates,
+    targetReached,
     ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
   };

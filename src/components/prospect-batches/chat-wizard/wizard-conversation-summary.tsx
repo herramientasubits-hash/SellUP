@@ -63,6 +63,8 @@ export function WizardConversationSummary({
       <SuccessPanel
         status={state.executionStatus}
         noveltyExhausted={state.executionNoveltyExhausted}
+        candidateCount={state.executionTargetPersistibleCandidates}
+        targetPersistibleCandidates={state.executionTargetPersistibleCandidates}
         onClose={onClose}
         onEditSearch={onEditSearch}
       />
@@ -243,13 +245,15 @@ function SubmittingPanel() {
 // Does NOT navigate to a batch-detail route — that view no longer exists.
 
 type SuccessPanelProps = {
-  status: 'created' | 'already_started' | 'no_new_candidates' | null;
+  status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached' | null;
   noveltyExhausted?: boolean;
+  candidateCount?: number;
+  targetPersistibleCandidates?: number;
   onClose: () => void;
   onEditSearch: () => void;
 };
 
-function SuccessPanel({ status, noveltyExhausted, onClose, onEditSearch }: SuccessPanelProps) {
+function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch }: SuccessPanelProps) {
   const router = useRouter();
 
   React.useEffect(() => {
@@ -264,6 +268,12 @@ function SuccessPanel({ status, noveltyExhausted, onClose, onEditSearch }: Succe
     if (status === 'already_started') {
       toast.info('Esta búsqueda ya había sido iniciada.', {
         description: 'Actualizamos el listado para mostrar los resultados disponibles.',
+      });
+    } else if (status === 'success_target_reached') {
+      toast.success('¡Objetivo alcanzado!', {
+        description: targetPersistibleCandidates
+          ? `Encontramos ${targetPersistibleCandidates} prospectos nuevos para revisar.`
+          : 'Prospectos generados correctamente.',
       });
     } else {
       toast.success('Prospectos generados correctamente.', {
@@ -313,11 +323,17 @@ function SuccessPanel({ status, noveltyExhausted, onClose, onEditSearch }: Succe
   const heading =
     status === 'already_started'
       ? 'Búsqueda ya iniciada'
+      : status === 'success_target_reached'
+      ? '¡Objetivo alcanzado!'
       : 'Candidatos generados';
 
   const body =
     status === 'already_started'
       ? 'Esta búsqueda ya había sido iniciada. Actualizamos la lista para mostrar sus resultados.'
+      : status === 'success_target_reached' && targetPersistibleCandidates
+      ? `Encontramos ${targetPersistibleCandidates} prospectos nuevos para revisar.`
+      : candidateCount
+      ? `Se generaron ${candidateCount} candidatos disponibles para revisión.`
       : 'Los candidatos fueron generados y ya están disponibles para revisión.';
 
   return (

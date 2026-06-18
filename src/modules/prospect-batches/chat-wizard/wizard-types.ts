@@ -103,9 +103,13 @@ export type ProspectWizardState = {
   executionError: { code: string; message: string; retryable: boolean } | null;
   executionBatchId: string | null;
   executionRedirectPath: string | null;
-  executionStatus: 'created' | 'already_started' | 'no_new_candidates' | null;
+  executionStatus: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached' | null;
   /** True when novelty pre-check confirms the universe of domains for these criteria is exhausted. */
   executionNoveltyExhausted?: boolean;
+  /** True when execution reached targetPersistibleCandidates. */
+  executionTargetReached?: boolean;
+  /** The target count of persistible candidates configured for the last execution. */
+  executionTargetPersistibleCandidates?: number;
 };
 
 // ── Action contracts ──────────────────────────────────────────────────────────
@@ -136,7 +140,7 @@ export type ProspectWizardAction =
   | { type: 'RECONCILE_COUNTRY_SUBINDUSTRIES'; compatibleSubindustryIds: string[] }
   | { type: 'APPLY_CRITERIA_GUARD_RESULT'; rawValue: string; result: CriteriaGuardResult }
   | { type: 'BEGIN_EXECUTION' }
-  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: 'created' | 'already_started' | 'no_new_candidates'; noveltyExhausted?: boolean }
+  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached'; noveltyExhausted?: boolean; targetPersistibleCandidates?: number; targetReached?: boolean }
   | { type: 'EXECUTION_FAILED'; errorCode: string; message: string; retryable: boolean };
 
 // ── Derived message contract ──────────────────────────────────────────────────

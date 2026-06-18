@@ -15,6 +15,8 @@ import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolki
 import type { ResolvedWizardExecution } from './wizard-execution-types';
 
 export const WIZARD_TAVILY_TARGET_INTERNAL = 25;
+export const WIZARD_ADAPTIVE_MAX_ROUNDS = 4;
+export const WIZARD_TARGET_PERSISTIBLE_CANDIDATES = 10;
 
 export type WizardTavilyInput = {
   resolved: ResolvedWizardExecution;
@@ -44,6 +46,8 @@ export async function runWizardTavilySearch(
     additionalCriteria: input.resolved.additionalCriteria,
     webSearchProvider: 'tavily',
     targetInternal: WIZARD_TAVILY_TARGET_INTERNAL,
+    maxRounds: WIZARD_ADAPTIVE_MAX_ROUNDS,
+    targetPersistibleCandidates: WIZARD_TARGET_PERSISTIBLE_CANDIDATES,
     existingBatchId: input.reservedBatchId,
     triggeredByUserId: input.resolved.userId,
     ownerId: input.resolved.userId,

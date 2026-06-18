@@ -185,7 +185,7 @@ describe('Section C — WizardExecutionActionResult type contract', () => {
     if (result.ok) {
       assert.ok(result.batchId);
       assert.ok(result.redirectPath);
-      assert.ok(['created', 'already_started'].includes(result.status));
+      assert.ok(['created', 'already_started', 'success_partial', 'success_target_reached'].includes(result.status));
     }
   });
 
@@ -517,7 +517,10 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
       const result = await executeProspectWizardGeneration(VALID_REQUEST_FULL, deps);
       assert.equal(result.ok, true);
       if (result.ok) {
-        assert.equal(result.status, 'created');
+        assert.ok(
+          ['success_partial', 'success_target_reached', 'created'].includes(result.status),
+          `Expected a success status, got: ${result.status}`,
+        );
         assert.equal(result.batchId, BATCH_A);
         assert.equal(result.batchStatus, 'ready_for_review');
         assert.ok(result.redirectPath.includes(BATCH_A));
@@ -658,8 +661,8 @@ describe('Section D — executeProspectWizardGeneration integration', () => {
       // Identity: userId sent to reserveBudget must equal userId from getActiveUserId
       assert.equal(deps.reserveBudgetCalls.length, 1);
       assert.equal(deps.reserveBudgetCalls[0]!.userId, FAKE_USER_ID, 'reserveBudget must receive userId from session');
-      // requestedCredits must not come from client — it is always 10 (server-side constant)
-      assert.equal(deps.reserveBudgetCalls[0]!.requestedCredits, 10, 'requestedCredits must be server-side constant');
+      // requestedCredits must not come from client — it is always 20 (server-side constant = 4 rounds × 5 queries)
+      assert.equal(deps.reserveBudgetCalls[0]!.requestedCredits, 20, 'requestedCredits must be server-side constant');
     } finally {
       if (saved !== undefined) process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = saved;
       else delete process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;

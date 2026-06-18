@@ -119,7 +119,7 @@ export type WizardGenerationCommand = {
 export type WizardExecutionActionResult =
   | {
       ok: true;
-      status: 'created' | 'already_started' | 'no_new_candidates';
+      status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached';
       batchId: string;
       batchStatus: string;
       candidateCount?: number;
@@ -128,6 +128,10 @@ export type WizardExecutionActionResult =
       reconciliationWarning?: 'BUDGET_RECONCILIATION_FAILED';
       /** True when novelty pre-check confirms no new candidates would survive the writer filter. */
       noveltyExhausted?: boolean;
+      /** The configured target count of persistible candidates. */
+      targetPersistibleCandidates?: number;
+      /** True when candidatesCreated >= targetPersistibleCandidates. */
+      targetReached?: boolean;
     }
   | {
       ok: false;

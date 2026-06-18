@@ -50,6 +50,7 @@ import type {
   IncrementalSearchRoundMeta,
   IncrementalSearchStoppedReason,
   DiscoveryStrategyMetadata,
+  AdaptiveDiscoveryMetadata,
 } from './incremental-search-types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
 
@@ -58,6 +59,7 @@ import type { TavilyUsageContext } from './tavily-usage-logging';
 const DEFAULT_MIN_USEFUL = 7;
 const DEFAULT_TARGET_INTERNAL = 10;
 const DEFAULT_MAX_ROUNDS = 2;
+const DEFAULT_TARGET_PERSISTIBLE = 10;
 const DEFAULT_MAX_RAW = 50;
 const DEFAULT_COOLDOWN_DAYS = 30;
 const DEFAULT_NEGATIVE_MEMORY_LOOKBACK_DAYS = 30;
@@ -179,11 +181,13 @@ export async function runIncrementalProspectingSearch(
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const maxTotalRawToEvaluate = input.maxTotalRawToEvaluate ?? DEFAULT_MAX_RAW;
   const dryRun = input.dryRun !== false;
+  const targetPersistibleCandidates = input.targetPersistibleCandidates ?? DEFAULT_TARGET_PERSISTIBLE;
 
   const allCandidates: ProspectingPipelineCandidate[] = [];
   const roundsMeta: IncrementalSearchRoundMeta[] = [];
   const warnings: string[] = [];
   const seenDomains = new Set<string>();
+  const usedQueryTexts = new Set<string>();
 
   let totalRawEvaluated = 0;
   let stoppedReason: IncrementalSearchStoppedReason = 'max_rounds_reached';
@@ -247,7 +251,7 @@ export async function runIncrementalProspectingSearch(
       queryOverrides = subindustries.length > 0
         ? buildCleanMultiQueryDiscoveryQueries(input.industry, input.country, subindustries)
         : undefined;
-    } else {
+    } else if (round === 2) {
       // R2: usar planner para obtener queries con SECOP gating correcto
       const excludeSources = basePlan.secop_excluded ? ['co_secop2'] : [];
       queryOverrides = buildExpandedMultiQueryDiscoveryQueries(
@@ -256,7 +260,38 @@ export async function runIncrementalProspectingSearch(
         subindustries,
         { excludeSources },
       );
+    } else if (round === 3) {
+      // R3: partner/implementation angle — queries de ángulo implementador
+      const r3Queries = [
+        `implementador ${input.industry} ${input.country} clientes corporativos nosotros contacto`,
+        `partner tecnológico ${input.industry} ${input.country} soluciones empresariales`,
+        `integrador ${input.industry} ${input.country} software empresa oficial corporativo`,
+        `consultor ${input.industry} ${input.country} transformación empresas corporativo`,
+        `proveedor especializado ${input.industry} ${input.country} contacto nosotros`,
+      ];
+      queryOverrides = r3Queries.filter(q => !usedQueryTexts.has(q));
+      if (queryOverrides.length === 0) {
+        stoppedReason = 'novelty_exhausted_no_diversification_available';
+        break;
+      }
+    } else if (round === 4) {
+      // R4: case study/buyer angle — queries de ángulo caso de éxito
+      const r4Queries = [
+        `caso de éxito ${input.industry} ${input.country} empresa B2B nosotros`,
+        `${input.industry} ${input.country} empresa sector corporativo ecosistema`,
+        `proveedor ${input.industry} ${input.country} transformación digital clientes`,
+        `${input.industry} empresa ${input.country} cartera clientes contacto nosotros`,
+        `${input.industry} ${input.country} empresa solución tecnológica corporativa`,
+      ];
+      queryOverrides = r4Queries.filter(q => !usedQueryTexts.has(q));
+      if (queryOverrides.length === 0) {
+        stoppedReason = 'novelty_exhausted_no_diversification_available';
+        break;
+      }
     }
+
+    // Record query texts used this round for deduplication across rounds
+    (queryOverrides ?? []).forEach(q => usedQueryTexts.add(q));
 
     const roundUsageContext: TavilyUsageContext | null = input.usageInputContext
       ? { ...input.usageInputContext, roundNumber: round }
@@ -359,8 +394,13 @@ export async function runIncrementalProspectingSearch(
       round1PersistableCount = effectivePersistable;
     }
 
-    if (effectivePersistable >= minUsefulCandidates) {
-      stoppedReason = 'min_useful_reached';
+    if (effectivePersistable >= targetPersistibleCandidates) {
+      stoppedReason = 'target_reached';
+      break;
+    }
+    // Fallback: if target is 0, keep old min_useful behavior
+    if (targetPersistibleCandidates === 0 && effectivePersistable >= minUsefulCandidates) {
+      stoppedReason = 'target_reached';
       break;
     }
 
@@ -400,6 +440,8 @@ export async function runIncrementalProspectingSearch(
     usefulCandidatesCount > 0 &&
     persistableAfterNovelty === 0;
 
+  const targetReached = !dryRun && (writerCandidatesCreated ?? 0) >= targetPersistibleCandidates;
+
   // ── Construir discovery_strategy metadata (Hito 16AB.43.24) ────────────────
   const allFamiliesUsed = [
     ...(roundsMeta.length >= 1 ? basePlan.families_r1 : []),
@@ -424,6 +466,23 @@ export async function runIncrementalProspectingSearch(
       : {}),
   };
 
+  const adaptiveDiscovery: AdaptiveDiscoveryMetadata = {
+    enabled: true,
+    target_persistible_candidates: targetPersistibleCandidates,
+    persisted_count: writerCandidatesCreated ?? 0,
+    persistible_estimate: lastNoveltyPrecheck?.persistable_candidates_count ?? 0,
+    remaining_to_target: Math.max(0, targetPersistibleCandidates - (writerCandidatesCreated ?? 0)),
+    max_rounds: maxRounds,
+    rounds_executed: roundsMeta.length,
+    stop_reason: stoppedReason === 'target_reached'
+      ? 'target_reached'
+      : stoppedReason === 'novelty_exhausted_no_diversification_available'
+      ? 'novelty_exhausted_no_diversification_available'
+      : stoppedReason === 'max_rounds_reached'
+      ? 'max_rounds_reached'
+      : 'budget_cap_reached',
+  };
+
   const metadata: IncrementalSearchMetadata = {
     rounds_executed: roundsMeta.length,
     stopped_reason: stoppedReason,
@@ -445,6 +504,7 @@ export async function runIncrementalProspectingSearch(
       ? totalExcludedByNegativeMemory
       : undefined,
     discovery_strategy: discoveryStrategy,
+    adaptive_discovery: adaptiveDiscovery,
     min_useful_candidates: minUsefulCandidates,
     target_internal: targetInternal,
     max_rounds: maxRounds,
@@ -538,5 +598,7 @@ export async function runIncrementalProspectingSearch(
     metadata,
     warnings,
     batchId: writerBatchId,
+    targetReached: dryRun ? undefined : targetReached,
+    targetPersistibleCandidates,
   };
 }
