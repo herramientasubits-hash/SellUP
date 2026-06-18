@@ -1,5 +1,5 @@
 /**
- * Incremental Search Orchestrator (Hito 16T.1 / 16T.3)
+ * Incremental Search Orchestrator (Hito 16T.1 / 16T.3 / 16AB.43.24)
  *
  * Ejecuta búsqueda incremental en hasta 2 rondas:
  *   Ronda 1: queries standard (buildCleanMultiQueryDiscoveryQueries)
@@ -10,6 +10,13 @@
  *   en lugar de usefulSoFar (pre-novelty). Esto evita el bug donde el
  *   orquestador creía tener N útiles pero el writer descartaba la mayoría
  *   por novelty, resultando en muy pocos candidatos persistidos.
+ *
+ * Hito 16AB.43.24 — Discovery novelty-aware.
+ *   - Carga memoria negativa de dominios ya sugeridos (agent_1, últimos 30 días).
+ *   - Registra cuántos candidatos por ronda estaban en memoria negativa.
+ *   - Detención temprana si R1 encontró 0 dominios nuevos Y no hay additionalCriteria
+ *     que abra un ángulo distinto.
+ *   - Persiste discovery_strategy en metadata del batch.
  *
  * REGLAS CRÍTICAS:
  * - No llama Tavily directamente (lo hace el pipeline con provider).
@@ -29,6 +36,12 @@ import {
   buildCleanMultiQueryDiscoveryQueries,
   buildExpandedMultiQueryDiscoveryQueries,
 } from './query-builder';
+import {
+  loadDiscoveryNegativeMemory,
+  emptyNegativeMemory,
+  countDomainsInNegativeMemory,
+} from './discovery-negative-memory';
+import { buildDiscoveryQueryPlan, hasDiversificationAvailable } from './query-planner';
 import type { ProspectingPipelineCandidate, ProspectingPipelineOutput, ProspectingPipelineSummary } from './types';
 import type {
   IncrementalSearchInput,
@@ -36,6 +49,7 @@ import type {
   IncrementalSearchMetadata,
   IncrementalSearchRoundMeta,
   IncrementalSearchStoppedReason,
+  DiscoveryStrategyMetadata,
 } from './incremental-search-types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
 
@@ -46,6 +60,7 @@ const DEFAULT_TARGET_INTERNAL = 10;
 const DEFAULT_MAX_ROUNDS = 2;
 const DEFAULT_MAX_RAW = 50;
 const DEFAULT_COOLDOWN_DAYS = 30;
+const DEFAULT_NEGATIVE_MEMORY_LOOKBACK_DAYS = 30;
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -175,6 +190,7 @@ export async function runIncrementalProspectingSearch(
   let lastPipelineOutput: ProspectingPipelineOutput | null = null;
   let writerBatchId: string | null = null;
   let writerCandidatesCreated: number | undefined = undefined;
+  let totalExcludedByNegativeMemory = 0;
 
   const allQueryTraceSummaryEntries: Array<{
     query_text: string;
@@ -186,23 +202,61 @@ export async function runIncrementalProspectingSearch(
   const writerFn = writerOverride ?? writeProspectingCandidates;
   const pipelineFn = pipelineOverride ?? runProspectingPipeline;
 
-  // Admin client para novelty pre-check (solo cuando dryRun=false)
+  // Admin client para novelty pre-check y negative memory (solo cuando dryRun=false)
   const adminSupabase: SupabaseClient | null = dryRun ? null : tryGetAdminClient();
   if (!dryRun && !adminSupabase) {
     warnings.push('novelty_precheck_unavailable: Supabase env vars not set; falling back to pre-novelty useful count for round decision.');
   }
 
+  // ── Carga memoria negativa (Hito 16AB.43.24) ─────────────────────────────────
+  // Dominios ya sugeridos en corridas previas de agent_1. Se usa para:
+  //   a) Registrar cuántos resultados por ronda ya estaban vistos.
+  //   b) Informar la decisión de early stop.
+  const negativeMemoryScope = {
+    countryCode: input.countryCode,
+    industryName: input.industry,
+    subindustryNames: input.subindustries ?? [],
+    lookbackDays: DEFAULT_NEGATIVE_MEMORY_LOOKBACK_DAYS,
+  };
+  const negativeMemory = adminSupabase
+    ? await loadDiscoveryNegativeMemory(adminSupabase, negativeMemoryScope).catch(() => {
+        warnings.push('negative_memory_load_error: fallback to empty memory');
+        return emptyNegativeMemory(negativeMemoryScope);
+      })
+    : emptyNegativeMemory(negativeMemoryScope);
+
+  // ── Query planner (Hito 16AB.43.24) ──────────────────────────────────────────
+  // Genera metadata de plan sin ejecutar queries. Se actualiza con el count de
+  // persistables de R1 antes de planificar R2.
+  const basePlan = buildDiscoveryQueryPlan({
+    industry: input.industry,
+    country: input.country,
+    subindustries: input.subindustries ?? [],
+    additionalCriteria: input.additionalCriteria ?? null,
+  });
+
   // Acumula el último resultado de pre-check para metadata
   let lastNoveltyPrecheck: NoveltyPrecheckResult | null = null;
+  let round1PersistableCount: number | undefined = undefined;
 
   for (let round = 1; round <= maxRounds; round++) {
     const subindustries = input.subindustries ?? [];
-    const queryOverrides =
-      round === 1
-        ? (subindustries.length > 0
-            ? buildCleanMultiQueryDiscoveryQueries(input.industry, input.country, subindustries)
-            : undefined)
-        : buildExpandedMultiQueryDiscoveryQueries(input.industry, input.country, subindustries);
+
+    let queryOverrides: string[] | undefined;
+    if (round === 1) {
+      queryOverrides = subindustries.length > 0
+        ? buildCleanMultiQueryDiscoveryQueries(input.industry, input.country, subindustries)
+        : undefined;
+    } else {
+      // R2: usar planner para obtener queries con SECOP gating correcto
+      const excludeSources = basePlan.secop_excluded ? ['co_secop2'] : [];
+      queryOverrides = buildExpandedMultiQueryDiscoveryQueries(
+        input.industry,
+        input.country,
+        subindustries,
+        { excludeSources },
+      );
+    }
 
     const roundUsageContext: TavilyUsageContext | null = input.usageInputContext
       ? { ...input.usageInputContext, roundNumber: round }
@@ -244,6 +298,12 @@ export async function runIncrementalProspectingSearch(
       newCandidates.push(c);
     }
 
+    // ── Memoria negativa: contar cuántos candidatos nuevos ya estaban vistos ─
+    const roundDomains = newCandidates.map((c) => c.domain ?? null);
+    const excludedByNegMemCount = countDomainsInNegativeMemory(roundDomains, negativeMemory);
+    const newAfterNegMemCount = newCandidates.length - excludedByNegMemCount;
+    totalExcludedByNegativeMemory += excludedByNegMemCount;
+
     // Anota round_number en searchTrace de cada candidato nuevo (Hito 16Z.3)
     const candidatesWithRound: ProspectingPipelineCandidate[] = newCandidates.map((c) => {
       if (!c.searchTrace) return c;
@@ -263,6 +323,8 @@ export async function runIncrementalProspectingSearch(
       usefulCandidatesAccumulated: usefulSoFar,
       seenDomainsAtRoundStart: seenDomainsAtStart,
       newDomainsFoundThisRound: seenDomains.size - seenDomainsAtStart,
+      excludedByNegativeMemoryCount: excludedByNegMemCount,
+      newAfterNegativeMemoryCount: newAfterNegMemCount,
     });
 
     lastPipelineOutput = pipelineOutput;
@@ -274,9 +336,6 @@ export async function runIncrementalProspectingSearch(
     }
 
     // ── Novelty pre-check (dryRun=false + Supabase disponible) ──────────────
-    // Estima cuántos candidatos útiles sobrevivirían el novelty filter del
-    // writer. Usa ese conteo para decidir si se necesita ronda 2, en lugar
-    // del conteo pre-novelty que causaba el bug de 16T.2.
     if (adminSupabase) {
       const usefulCandidates = allCandidates.filter(isUsefulCandidate);
       try {
@@ -291,15 +350,34 @@ export async function runIncrementalProspectingSearch(
     }
 
     // ── Criterio de parada: mínimo útiles alcanzado ──────────────────────────
-    // Si el pre-check está disponible: usa persistable post-novelty estimado.
-    // Si no está disponible (dryRun=true o error): usa usefulSoFar (pre-novelty).
     const effectivePersistable =
       lastNoveltyPrecheck !== null
         ? lastNoveltyPrecheck.persistable_candidates_count
         : usefulSoFar;
 
+    if (round === 1) {
+      round1PersistableCount = effectivePersistable;
+    }
+
     if (effectivePersistable >= minUsefulCandidates) {
       stoppedReason = 'min_useful_reached';
+      break;
+    }
+
+    // ── Early stop (Hito 16AB.43.24): sin dominios nuevos Y sin diversificación
+    // Condición: R1 produjo 0 dominios nuevos fuera de memoria negativa Y
+    //   persistable = 0 Y no hay additionalCriteria que abra un ángulo nuevo.
+    // Se evita la ronda 2 solo cuando hay evidencia fuerte de que produciría
+    // los mismos resultados (ahorro de créditos Tavily).
+    if (
+      round < maxRounds &&
+      newAfterNegMemCount === 0 &&
+      rawCount > 0 &&
+      effectivePersistable === 0 &&
+      !input.additionalCriteria &&
+      !hasDiversificationAvailable(basePlan)
+    ) {
+      stoppedReason = 'novelty_exhausted_no_diversification_available';
       break;
     }
 
@@ -322,6 +400,30 @@ export async function runIncrementalProspectingSearch(
     usefulCandidatesCount > 0 &&
     persistableAfterNovelty === 0;
 
+  // ── Construir discovery_strategy metadata (Hito 16AB.43.24) ────────────────
+  const allFamiliesUsed = [
+    ...(roundsMeta.length >= 1 ? basePlan.families_r1 : []),
+    ...(roundsMeta.length >= 2 ? basePlan.families_r2 : []),
+  ];
+
+  const discoveryStrategy: DiscoveryStrategyMetadata = {
+    version: 'novelty_aware_v1',
+    negative_memory_enabled: negativeMemory.excludedDomains.size > 0 || adminSupabase !== null,
+    excluded_domains_count: totalExcludedByNegativeMemory,
+    excluded_domains_sample: negativeMemory.excludedDomainsSample.slice(0, 10),
+    query_families_used: [...new Set(allFamiliesUsed)],
+    source_gating_applied: basePlan.secop_excluded || !basePlan.source_gating_decisions.find((d) => d.source_key === 'co_colombia_fintech')?.allowed,
+    source_gating_decisions: basePlan.source_gating_decisions,
+    secop_excluded: basePlan.secop_excluded,
+    ...(roundsMeta.length >= 2 ? { round2_strategy: basePlan.round2_strategy } : {}),
+    ...(stoppedReason === 'novelty_exhausted_no_diversification_available'
+      ? {
+          early_stop_reason: stoppedReason,
+          credits_saved_estimate: targetInternal > 0 ? Math.round(targetInternal / 5) : 5,
+        }
+      : {}),
+  };
+
   const metadata: IncrementalSearchMetadata = {
     rounds_executed: roundsMeta.length,
     stopped_reason: stoppedReason,
@@ -339,6 +441,10 @@ export async function runIncrementalProspectingSearch(
         }
       : undefined,
     novelty_exhausted: noveltyExhausted || undefined,
+    excluded_by_negative_memory_total: totalExcludedByNegativeMemory > 0
+      ? totalExcludedByNegativeMemory
+      : undefined,
+    discovery_strategy: discoveryStrategy,
     min_useful_candidates: minUsefulCandidates,
     target_internal: targetInternal,
     max_rounds: maxRounds,
@@ -406,6 +512,7 @@ export async function runIncrementalProspectingSearch(
         extraBatchMetadata: {
           incremental_search: metadata as Record<string, unknown>,
           search_mode: 'incremental_multi_round',
+          discovery_strategy: discoveryStrategy as Record<string, unknown>,
           ...(input.additionalCriteria != null
             ? { additional_criteria: input.additionalCriteria }
             : {}),

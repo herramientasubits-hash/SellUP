@@ -62,6 +62,7 @@ export function WizardConversationSummary({
     return (
       <SuccessPanel
         status={state.executionStatus}
+        noveltyExhausted={state.executionNoveltyExhausted}
         onClose={onClose}
         onEditSearch={onEditSearch}
       />
@@ -243,11 +244,12 @@ function SubmittingPanel() {
 
 type SuccessPanelProps = {
   status: 'created' | 'already_started' | 'no_new_candidates' | null;
+  noveltyExhausted?: boolean;
   onClose: () => void;
   onEditSearch: () => void;
 };
 
-function SuccessPanel({ status, onClose, onEditSearch }: SuccessPanelProps) {
+function SuccessPanel({ status, noveltyExhausted, onClose, onEditSearch }: SuccessPanelProps) {
   const router = useRouter();
 
   React.useEffect(() => {
@@ -275,6 +277,10 @@ function SuccessPanel({ status, onClose, onEditSearch }: SuccessPanelProps) {
   }, []);
 
   if (status === 'no_new_candidates') {
+    const noNewBody = noveltyExhausted
+      ? 'El universo de empresas disponibles con estos criterios ya fue explorado recientemente. Intenta cambiar la industria, el país o los criterios adicionales.'
+      : 'La búsqueda encontró resultados, pero todos ya habían sido sugeridos recientemente o no pasaron los filtros de calidad.';
+
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
@@ -287,8 +293,7 @@ function SuccessPanel({ status, onClose, onEditSearch }: SuccessPanelProps) {
               No encontramos empresas nuevas con estos criterios.
             </p>
             <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
-              La búsqueda encontró resultados, pero todos ya habían sido sugeridos
-              recientemente o no pasaron los filtros de calidad.
+              {noNewBody}
             </p>
           </div>
         </div>

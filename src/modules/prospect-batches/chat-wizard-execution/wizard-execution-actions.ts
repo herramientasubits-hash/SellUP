@@ -385,6 +385,7 @@ export async function executeProspectWizardGeneration(
 
   // 14. Success
   const hasNewCandidates = (pipelineResult.candidatesCreated ?? 0) > 0;
+  const noveltyExhausted = pipelineResult.metadata?.novelty_exhausted === true;
   return {
     ok: true,
     status: hasNewCandidates ? 'created' : 'no_new_candidates',
@@ -393,6 +394,7 @@ export async function executeProspectWizardGeneration(
     candidateCount: pipelineResult.candidatesCreated,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),
+    ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
   };
 }
 

@@ -546,23 +546,34 @@ function buildWebsiteDiscoveryQuery(industry: string, country: string): string {
  * Sin exclusiones -site: para maximizar cobertura en ronda de expansión.
  *
  * Hito 16T.1: primera versión para Colombia/Tecnología con fallback genérico.
+ * Hito 16AB.43.24: añadido options.excludeSources para gating de SECOP en contextos no-gobierno.
  */
 export function buildExpandedMultiQueryDiscoveryQueries(
   industry: string,
   country: string,
   subindustries?: string[],
+  options?: { excludeSources?: string[] },
 ): string[] {
   const countryKey = normalizeKey(country);
+  const excludeSources = options?.excludeSources ?? [];
 
   // Hito 16V.1 + 16Y.2: Colombia/Tech usa 3 ciudad+subindustria + 2 source-guided (Ronda 2).
   // Hito 16AB.43.14: subindustrias inyectan hasta 2 queries reemplazando queries base.
+  // Hito 16AB.43.24: si co_secop2 excluido (contexto no-gobierno), reemplaza por query de implementador.
   if (isTechSector(industry) && countryKey === 'colombia') {
     const baseQueries = [
       'empresa desarrollo software Medellín nearshore clientes internacionales',
       'empresa software Cali soluciones empresariales clientes nosotros',
       'empresa cloud infraestructura Colombia servicios TI corporativo',
     ];
-    return injectSubindustryQueries(baseQueries, [...SOURCE_GUIDED_QUERIES_CO_TECH_R2], subindustries ?? [], country, 2);
+    const secopExcluded = excludeSources.includes('co_secop2');
+    const r2SourceGuided = secopExcluded
+      ? [
+          SOURCE_GUIDED_QUERIES_CO_TECH_R2[0], // ANDICOM preservado
+          'implementador software empresarial Colombia SaaS ERP CRM sitio oficial corporativo', // reemplaza SECOP
+        ]
+      : [...SOURCE_GUIDED_QUERIES_CO_TECH_R2];
+    return injectSubindustryQueries(baseQueries, r2SourceGuided, subindustries ?? [], country, 2);
   }
 
   if (isTechSector(industry)) {

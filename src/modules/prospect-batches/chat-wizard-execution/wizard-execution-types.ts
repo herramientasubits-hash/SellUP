@@ -126,6 +126,8 @@ export type WizardExecutionActionResult =
       redirectPath: string;
       /** Present when budget reconciliation failed after a successful generation. */
       reconciliationWarning?: 'BUDGET_RECONCILIATION_FAILED';
+      /** True when novelty pre-check confirms no new candidates would survive the writer filter. */
+      noveltyExhausted?: boolean;
     }
   | {
       ok: false;

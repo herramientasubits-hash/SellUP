@@ -453,6 +453,7 @@ export function prospectWizardReducer(
         executionBatchId: action.batchId,
         executionRedirectPath: action.redirectPath,
         executionStatus: action.status,
+        executionNoveltyExhausted: action.noveltyExhausted ?? false,
         executionError: null,
       };
     }

@@ -94,6 +94,10 @@ export type IncrementalSearchRoundMeta = {
   usefulCandidatesAccumulated: number;
   seenDomainsAtRoundStart: number;
   newDomainsFoundThisRound: number;
+  /** Candidatos cuyo dominio ya estaba en la memoria negativa (corridas previas de agent_1). */
+  excludedByNegativeMemoryCount?: number;
+  /** Candidatos nuevos después de filtrar memoria negativa. */
+  newAfterNegativeMemoryCount?: number;
 };
 
 // ─── Stopped reason ───────────────────────────────────────────────────────────
@@ -104,7 +108,34 @@ export type IncrementalSearchStoppedReason =
   | 'max_raw_exceeded'
   | 'cost_limit_exceeded'
   | 'no_results_round_1'
+  | 'novelty_exhausted_no_diversification_available'
   | 'error';
+
+// ─── Discovery strategy metadata (Hito 16AB.43.24) ──────────────────────────
+
+export type SourceGatingDecisionSummary = {
+  source_key: string;
+  allowed: boolean;
+  reason: string;
+};
+
+/**
+ * Metadata del plan de discovery novelty-aware persistido en el batch.
+ * Documenta qué estrategia se usó, qué dominios se excluyeron y por qué.
+ */
+export type DiscoveryStrategyMetadata = {
+  version: 'novelty_aware_v1';
+  negative_memory_enabled: boolean;
+  excluded_domains_count: number;
+  excluded_domains_sample: string[];
+  query_families_used: string[];
+  source_gating_applied: boolean;
+  source_gating_decisions: SourceGatingDecisionSummary[];
+  secop_excluded: boolean;
+  round2_strategy?: string;
+  early_stop_reason?: string;
+  credits_saved_estimate?: number;
+};
 
 // ─── Novelty pre-check ───────────────────────────────────────────────────────
 
@@ -138,6 +169,10 @@ export type IncrementalSearchMetadata = {
    * disponibles con estas queries ya fue visitado recientemente.
    */
   novelty_exhausted?: boolean;
+  /** Total de candidatos excluidos por memoria negativa en todas las rondas. */
+  excluded_by_negative_memory_total?: number;
+  /** Metadata del plan de discovery novelty-aware (Hito 16AB.43.24). */
+  discovery_strategy?: DiscoveryStrategyMetadata;
   min_useful_candidates: number;
   target_internal: number;
   max_rounds: number;
