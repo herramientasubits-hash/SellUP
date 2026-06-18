@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { CheckCircle2, Pencil, RotateCcw, X, AlertTriangle, XCircle, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { AILoader } from '@/components/ai/ai-loader';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import type {
@@ -188,22 +187,53 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
   );
 }
 
+// ── Wizard generation overlay ─────────────────────────────────────────────────
+
+function WizardGenerationOverlay() {
+  return (
+    <div
+      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
+      role="status"
+      aria-live="polite"
+      aria-label="Generando empresas candidatas"
+      style={{
+        background:
+          'linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))',
+      }}
+    >
+      {/* Mirror shine sweep */}
+      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.06)_20%,rgba(255,255,255,0.35)_50%,rgba(255,255,255,0.06)_80%,transparent_100%)] animate-su-mirror-shine" />
+
+      {/* Sparkle icon */}
+      <div className="animate-su-float relative z-10">
+        <Sparkles className="h-12 w-12 text-white/80" strokeWidth={1.5} />
+      </div>
+
+      {/* Main label */}
+      <div className="relative z-10 text-center space-y-1">
+        <p className="text-lg font-bold text-white">Generando empresas candidatas</p>
+        <p className="text-sm text-white/70">Procesando búsqueda con IA</p>
+      </div>
+
+      {/* Body text */}
+      <p className="relative z-10 text-xs text-white/60 text-center max-w-[280px]">
+        Filtrando resultados y preparando candidatos para revisión
+      </p>
+
+      {/* Indeterminate progress bar */}
+      <div className="relative z-10 w-full max-w-[280px]">
+        <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
+          <div className="h-full w-2/3 rounded-full bg-white/80 animate-su-pulse" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Submitting panel ──────────────────────────────────────────────────────────
 
 function SubmittingPanel() {
-  return (
-    <div className="space-y-3" role="status" aria-live="polite">
-      <AILoader
-        variant="card"
-        status="generating"
-        label="Generando empresas candidatas…"
-        description="Estamos buscando, filtrando y preparando resultados para tu revisión."
-      />
-      <p className="text-center text-xs text-muted-foreground">
-        No cierres esta ventana mientras termina la generación.
-      </p>
-    </div>
-  );
+  return <WizardGenerationOverlay />;
 }
 
 // ── Success panel ─────────────────────────────────────────────────────────────

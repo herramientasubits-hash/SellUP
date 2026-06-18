@@ -97,6 +97,8 @@ export type FilteredSearchResults = {
   rawCount: number;
   keptCount: number;
   filteredCount: number;
+  /** Filtered-out counts broken down by result type — diagnostic for pipeline calibration. */
+  by_result_type: Partial<Record<WebSearchResultType, number>>;
 };
 
 // ─── Listas de dominios ruidosos ──────────────────────────────────────────────
@@ -1207,6 +1209,7 @@ export function isSentenceOrPhraseName(name: string): boolean {
 export function filterNoiseResults(results: WebSearchResult[]): FilteredSearchResults {
   const kept: WebSearchResult[] = [];
   const filtered: FilteredSearchResults['filtered'] = [];
+  const by_result_type: Partial<Record<WebSearchResultType, number>> = {};
 
   for (const result of results) {
     const classification = classifySearchResult(result);
@@ -1225,6 +1228,8 @@ export function filterNoiseResults(results: WebSearchResult[]): FilteredSearchRe
       kept.push(enriched);
     } else {
       filtered.push({ result: enriched, classification });
+      by_result_type[classification.resultType] =
+        (by_result_type[classification.resultType] ?? 0) + 1;
     }
   }
 
@@ -1234,5 +1239,6 @@ export function filterNoiseResults(results: WebSearchResult[]): FilteredSearchRe
     rawCount: results.length,
     keptCount: kept.length,
     filteredCount: filtered.length,
+    by_result_type,
   };
 }

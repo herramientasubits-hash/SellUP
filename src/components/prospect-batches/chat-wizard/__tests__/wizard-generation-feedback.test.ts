@@ -109,26 +109,40 @@ describe('20.A.2 — CTA is implicitly disabled during submitting (state invaria
   });
 });
 
-describe('20.A.3 — SubmittingPanel source uses AILoader card variant', () => {
-  it('wizard-conversation-summary.tsx imports AILoader from @/components/ai/ai-loader', () => {
+describe('20.A.3 — SubmittingPanel source uses full gradient overlay (Hito 16AB.43.22)', () => {
+  it('wizard-conversation-summary.tsx does NOT import AILoader (overlay replaces it)', () => {
     const src = readComponentSrc();
     assert.ok(
-      src.includes("import { AILoader } from '@/components/ai/ai-loader'"),
-      'AILoader import not found — SubmittingPanel may be missing the AI loader',
+      !src.includes("import { AILoader }"),
+      'AILoader import still present — SubmittingPanel must use WizardGenerationOverlay, not AILoader card',
     );
   });
 
-  it('SubmittingPanel renders AILoader with variant="card"', () => {
+  it('WizardGenerationOverlay is defined in wizard-conversation-summary.tsx', () => {
     const src = readComponentSrc();
     assert.ok(
-      src.includes('variant="card"'),
-      'variant="card" not found — SubmittingPanel is not using the card variant of AILoader',
+      src.includes('WizardGenerationOverlay'),
+      'WizardGenerationOverlay not found — full gradient overlay must be defined',
     );
   });
 
-  it('SubmittingPanel has role="status" and aria-live="polite" for accessibility', () => {
+  it('SubmittingPanel renders WizardGenerationOverlay (not AILoader card)', () => {
     const src = readComponentSrc();
-    // Check that both role=status and aria-live=polite appear in the SubmittingPanel block
+    const panelStart = src.indexOf('function SubmittingPanel');
+    const panelEnd = src.indexOf('\nfunction ', panelStart + 1);
+    const panelSrc = panelEnd > panelStart ? src.slice(panelStart, panelEnd) : src.slice(panelStart);
+    assert.ok(
+      panelSrc.includes('WizardGenerationOverlay'),
+      'SubmittingPanel does not render WizardGenerationOverlay — approved overlay must be used',
+    );
+    assert.ok(
+      !panelSrc.includes('AILoader'),
+      'AILoader still rendered inside SubmittingPanel — must be replaced with WizardGenerationOverlay',
+    );
+  });
+
+  it('WizardGenerationOverlay has role="status" and aria-live="polite" for accessibility', () => {
+    const src = readComponentSrc();
     assert.ok(
       src.includes('role="status"'),
       'role="status" missing — screen readers will not announce the loader',
@@ -136,14 +150,6 @@ describe('20.A.3 — SubmittingPanel source uses AILoader card variant', () => {
     assert.ok(
       src.includes('aria-live="polite"'),
       'aria-live="polite" missing — screen readers will not announce generation start',
-    );
-  });
-
-  it('SubmittingPanel includes status="generating" label for AILoader', () => {
-    const src = readComponentSrc();
-    assert.ok(
-      src.includes('status="generating"'),
-      'status="generating" not found in AILoader usage',
     );
   });
 });
@@ -349,55 +355,77 @@ describe('20.R — Error path regression after Block A/B changes', () => {
 
 // ── Block A: Approved loader copy text (21.A) — Hito 16AB.43.21 ──────────────
 
-describe('21.A.1 — SubmittingPanel uses exact approved description text', () => {
-  it('description contains approved copy without "duplicados" (Hito 16AB.43.21)', () => {
+describe('21.A.1 — SubmittingPanel uses approved overlay copy (Hito 16AB.43.22)', () => {
+  it('overlay contains "Filtrando resultados y preparando candidatos para revisión"', () => {
     const src = readComponentSrc();
     assert.ok(
-      src.includes('Estamos buscando, filtrando y preparando resultados para tu revisión.'),
-      'Approved description text not found — check SubmittingPanel description prop',
+      src.includes('Filtrando resultados y preparando candidatos para revisión'),
+      'Approved overlay body text not found in WizardGenerationOverlay',
     );
   });
 
-  it('description does NOT contain the old "filtrando duplicados" copy', () => {
+  it('overlay does NOT contain the old "filtrando duplicados" copy', () => {
     const src = readComponentSrc();
     assert.ok(
       !src.includes('filtrando duplicados'),
-      'Old copy "filtrando duplicados" found — must be replaced with approved text',
+      'Old copy "filtrando duplicados" found — must be replaced with approved overlay text',
+    );
+  });
+
+  it('overlay does NOT use AILoader description prop (no legacy card loader text)', () => {
+    const src = readComponentSrc();
+    assert.ok(
+      !src.includes('Estamos buscando, filtrando y preparando resultados para tu revisión.'),
+      'Legacy AILoader description text still present — SubmittingPanel must use the gradient overlay',
     );
   });
 });
 
-describe('21.A.2 — No bare Loader2 as primary feedback in SubmittingPanel', () => {
-  it('SubmittingPanel does not contain a standalone Loader2 spinner as primary feedback', () => {
+describe('21.A.2 — SubmittingPanel uses full gradient overlay, not bare spinner (Hito 16AB.43.22)', () => {
+  it('SubmittingPanel does not use a bare Loader2 as primary feedback', () => {
     const src = readComponentSrc();
-    // Extract SubmittingPanel function body (heuristic: between function SubmittingPanel and next function)
     const panelStart = src.indexOf('function SubmittingPanel');
     const panelEnd = src.indexOf('\nfunction ', panelStart + 1);
     const panelSrc = panelEnd > panelStart ? src.slice(panelStart, panelEnd) : src.slice(panelStart);
-    // AILoader must be present inside SubmittingPanel
-    assert.ok(
-      panelSrc.includes('AILoader'),
-      'AILoader not found in SubmittingPanel — approved AI loader must be used',
-    );
-    // The bare Loader2 spinner alone (without AILoader) must NOT be the only feedback
-    const hasAILoader = panelSrc.includes('AILoader');
-    const hasLoader2Only = panelSrc.includes('Loader2') && !hasAILoader;
-    assert.ok(!hasLoader2Only, 'SubmittingPanel uses bare Loader2 without AILoader — use AILoader variant="card"');
+    const hasLoader2Only = panelSrc.includes('Loader2') && !panelSrc.includes('WizardGenerationOverlay');
+    assert.ok(!hasLoader2Only, 'SubmittingPanel uses bare Loader2 without WizardGenerationOverlay — use full gradient overlay');
   });
 
-  it('AILoader uses variant="card" for the shimmer/gradient drawer style', () => {
+  it('WizardGenerationOverlay uses su-ai-stop gradient tokens (full gradient background)', () => {
     const src = readComponentSrc();
     assert.ok(
-      src.includes('variant="card"'),
-      'AILoader variant="card" not found — must use card variant for drawer shimmer style',
+      src.includes('su-ai-stop'),
+      'su-ai-stop gradient tokens not found in WizardGenerationOverlay — must use approved gradient background',
     );
   });
 
-  it('AILoader uses status="generating" during prospect generation', () => {
+  it('WizardGenerationOverlay shows "Generando empresas candidatas" copy', () => {
     const src = readComponentSrc();
     assert.ok(
-      src.includes('status="generating"'),
-      'AILoader status="generating" not found in SubmittingPanel',
+      src.includes('Generando empresas candidatas'),
+      '"Generando empresas candidatas" text not found in overlay',
+    );
+  });
+
+  it('WizardGenerationOverlay shows "Procesando búsqueda con IA" copy', () => {
+    const src = readComponentSrc();
+    assert.ok(
+      src.includes('Procesando búsqueda con IA'),
+      '"Procesando búsqueda con IA" text not found in overlay',
+    );
+  });
+
+  it('WizardGenerationOverlay includes a progress indicator', () => {
+    const src = readComponentSrc();
+    const hasProgressBar = src.includes('progress') || src.includes('h-2 w-full rounded-full');
+    assert.ok(hasProgressBar, 'No progress indicator found in WizardGenerationOverlay');
+  });
+
+  it('WizardGenerationOverlay includes mirror shine sweep animation (animate-su-mirror-shine)', () => {
+    const src = readComponentSrc();
+    assert.ok(
+      src.includes('animate-su-mirror-shine'),
+      'animate-su-mirror-shine not found — overlay must include mirror shine effect',
     );
   });
 });
