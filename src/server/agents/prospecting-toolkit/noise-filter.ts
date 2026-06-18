@@ -46,6 +46,17 @@
  *     /mejores-, /mejores_, /listado, /lista-, /listas-
  *   - RANKING_TITLE_RE: regex que detecta "Top N" y "Ranking YYYY" en títulos
  *     para bloquear homepages cuyo título revela contenido de lista/ranking
+ *
+ * Hito 16AB.43.21 — Loader aprobado + bloqueo de candidatos de título editorial:
+ *   - BLOG_PATH_PATTERNS ampliado: /help/, /support/, /docs/, /documentation/,
+ *     /academy/, /learn/, /learning/, /knowledge/ — bloqueados en cualquier dominio
+ *   - RANKING_TITLE_RE extendido: listicles "N ventajas/razones/beneficios/…"
+ *   - CONTENT_PAGE_TITLE_SIGNALS ampliado: "guía y", "soluciones y estrategia de",
+ *     "ventajas definitivas" — señales editoriales detectadas en Corrida 2
+ *   - EDITORIAL_TITLE_START_RE nuevo: títulos que inician con palabra de sección
+ *     editorial (guía, aprende, cómo, reseñas, beneficios, ventajas, tendencias…)
+ *   - classifySearchResult paso 13b-ext + isProspectableCompanyResult paso 8b-ext:
+ *     aplican EDITORIAL_TITLE_START_RE para bloquear títulos no empresariales
  */
 
 import type { WebSearchResult } from './types';
@@ -341,8 +352,16 @@ const BLOG_PATH_PATTERNS = [
   '/insights/',
   '/opinion/',
   '/opinión/',
-  'claves-sector',  // Hito 13B: slug de artículo "claves del sector" (teleone.com.co case)
-  '/cuales-son/',   // Hito 13B: artículos tipo "¿Cuáles son las mejores empresas de...?"
+  'claves-sector',    // Hito 13B: slug de artículo "claves del sector" (teleone.com.co case)
+  '/cuales-son/',     // Hito 13B: artículos tipo "¿Cuáles son las mejores empresas de...?"
+  '/help/',           // Hito 16AB.43.21: centros de ayuda (zendesk.es/help/...)
+  '/support/',        // Hito 16AB.43.21: páginas de soporte técnico
+  '/docs/',           // Hito 16AB.43.21: documentación técnica
+  '/documentation/',  // Hito 16AB.43.21: documentación técnica (variante larga)
+  '/academy/',        // Hito 16AB.43.21: contenido educativo de plataforma
+  '/learn/',          // Hito 16AB.43.21: rutas de aprendizaje
+  '/learning/',       // Hito 16AB.43.21: contenido de e-learning
+  '/knowledge/',      // Hito 16AB.43.21: base de conocimiento
 ];
 
 /**
@@ -370,6 +389,10 @@ const CONTENT_PAGE_TITLE_SIGNALS = [
   '| deloitte',
   '| pwc ',
   '| kpmg ',
+  // Hito 16AB.43.21: señales editoriales detectadas en Corrida 2
+  'guía y',                   // "Guía y reseñas" — sección de contenido editorial
+  'soluciones y estrategia de', // "Soluciones y estrategia de tecnología" — artículo, no empresa
+  'ventajas definitivas',     // "5 Ventajas Definitivas" — título listicle editorial
 ];
 
 /**
@@ -378,7 +401,16 @@ const CONTENT_PAGE_TITLE_SIGNALS = [
  * homepage pero el título revela que el contenido es una lista o ranking.
  * Ejemplos: "Top 10 empresas..." / "Ranking 2025" / "Mejores 5 apps"
  */
-const RANKING_TITLE_RE = /\btop\s+\d+\b|\branking\s+20\d{2}\b|\branking\s+de\b|\bmejores?\s+\d+\b/i;
+const RANKING_TITLE_RE =
+  /\btop\s+\d+\b|\branking\s+20\d{2}\b|\branking\s+de\b|\bmejores?\s+\d+\b|\b\d+\s+(ventajas|razones|beneficios|consejos|formas|pasos|claves|maneras|estrategias)\b/i;
+
+/**
+ * Títulos que comienzan con una palabra de sección editorial (guía, aprende, cómo…).
+ * Hito 16AB.43.21: complementa CONTENT_PAGE_TITLE_SIGNALS cuando el título empieza
+ * con una palabra típica de artículo y no hay señal en la URL.
+ */
+const EDITORIAL_TITLE_START_RE =
+  /^(gu[ií]a|aprende|c[oó]mo|descubre|conoce|explora|reseñas?|tips?|tutoriales?|noticias?|beneficios|ventajas|desventajas|tendencias)\b/i;
 
 // ─── Detección semántica de organizaciones no-empresa (Hito 16AB.43.14) ────────
 //
@@ -765,11 +797,12 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 8b. Título de artículo — página de contenido editorial (Hito 13B/13H)
+  // 8b. Título de artículo — página de contenido editorial (Hito 13B/13H/16AB.43.21)
   const titleLower = (result.title ?? '').toLowerCase();
   const isContentPageTitle = CONTENT_PAGE_TITLE_SIGNALS.some((s) => titleLower.includes(s));
   const isRankingTitle = RANKING_TITLE_RE.test(titleLower);
-  if (isContentPageTitle || isRankingTitle) {
+  const isEditorialTitleStart = EDITORIAL_TITLE_START_RE.test(titleLower); // Hito 16AB.43.21
+  if (isContentPageTitle || isRankingTitle || isEditorialTitleStart) {
     return {
       isProspectable: false,
       reason: 'Título indica página de contenido editorial o listado/ranking, no empresa prospectable',
@@ -1075,7 +1108,8 @@ export function classifySearchResult(result: {
     (s) => titleText.includes(s),
   );
   const isRankingTitle = RANKING_TITLE_RE.test(titleText);
-  if (isContentPageTitle || isRankingTitle) {
+  const isEditorialTitleStart = EDITORIAL_TITLE_START_RE.test(titleText); // Hito 16AB.43.21
+  if (isContentPageTitle || isRankingTitle || isEditorialTitleStart) {
     return {
       resultType: 'content_page',
       shouldKeep: false,

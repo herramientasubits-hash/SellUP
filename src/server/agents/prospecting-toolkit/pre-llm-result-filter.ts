@@ -74,6 +74,9 @@ const STRONG_ARTICLE_TITLE_SIGNALS = [
   'todo lo que debes saber',
   'lo que necesitas saber',
   'qué necesitas saber',
+  // Hito 16AB.43.21: señales editoriales de Corrida 2
+  'guía y',             // "Guía y reseñas" — sección de contenido
+  'ventajas definitivas', // "5 Ventajas Definitivas" — listicle editorial
 ];
 
 /**
@@ -110,6 +113,14 @@ const CONTENT_PATH_SIGNALS = [
   '/guide/',
   '/ranking/',
   '/directorio/',
+  // Hito 16AB.43.21: centros de ayuda, docs y aprendizaje — no son homepages corporativas
+  '/help/',
+  '/support/',
+  '/docs/',
+  '/documentation/',
+  '/academy/',
+  '/learn/',
+  '/knowledge/',
 ];
 
 /** Señales positivas de empresa en path — aumentan confianza de candidato. */

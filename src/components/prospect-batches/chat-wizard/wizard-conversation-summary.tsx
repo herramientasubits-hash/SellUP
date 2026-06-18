@@ -197,7 +197,7 @@ function SubmittingPanel() {
         variant="card"
         status="generating"
         label="Generando empresas candidatas…"
-        description="Estamos buscando, filtrando duplicados y preparando los resultados para revisión."
+        description="Estamos buscando, filtrando y preparando resultados para tu revisión."
       />
       <p className="text-center text-xs text-muted-foreground">
         No cierres esta ventana mientras termina la generación.

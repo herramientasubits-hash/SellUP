@@ -346,3 +346,87 @@ describe('20.R — Error path regression after Block A/B changes', () => {
     );
   });
 });
+
+// ── Block A: Approved loader copy text (21.A) — Hito 16AB.43.21 ──────────────
+
+describe('21.A.1 — SubmittingPanel uses exact approved description text', () => {
+  it('description contains approved copy without "duplicados" (Hito 16AB.43.21)', () => {
+    const src = readComponentSrc();
+    assert.ok(
+      src.includes('Estamos buscando, filtrando y preparando resultados para tu revisión.'),
+      'Approved description text not found — check SubmittingPanel description prop',
+    );
+  });
+
+  it('description does NOT contain the old "filtrando duplicados" copy', () => {
+    const src = readComponentSrc();
+    assert.ok(
+      !src.includes('filtrando duplicados'),
+      'Old copy "filtrando duplicados" found — must be replaced with approved text',
+    );
+  });
+});
+
+describe('21.A.2 — No bare Loader2 as primary feedback in SubmittingPanel', () => {
+  it('SubmittingPanel does not contain a standalone Loader2 spinner as primary feedback', () => {
+    const src = readComponentSrc();
+    // Extract SubmittingPanel function body (heuristic: between function SubmittingPanel and next function)
+    const panelStart = src.indexOf('function SubmittingPanel');
+    const panelEnd = src.indexOf('\nfunction ', panelStart + 1);
+    const panelSrc = panelEnd > panelStart ? src.slice(panelStart, panelEnd) : src.slice(panelStart);
+    // AILoader must be present inside SubmittingPanel
+    assert.ok(
+      panelSrc.includes('AILoader'),
+      'AILoader not found in SubmittingPanel — approved AI loader must be used',
+    );
+    // The bare Loader2 spinner alone (without AILoader) must NOT be the only feedback
+    const hasAILoader = panelSrc.includes('AILoader');
+    const hasLoader2Only = panelSrc.includes('Loader2') && !hasAILoader;
+    assert.ok(!hasLoader2Only, 'SubmittingPanel uses bare Loader2 without AILoader — use AILoader variant="card"');
+  });
+
+  it('AILoader uses variant="card" for the shimmer/gradient drawer style', () => {
+    const src = readComponentSrc();
+    assert.ok(
+      src.includes('variant="card"'),
+      'AILoader variant="card" not found — must use card variant for drawer shimmer style',
+    );
+  });
+
+  it('AILoader uses status="generating" during prospect generation', () => {
+    const src = readComponentSrc();
+    assert.ok(
+      src.includes('status="generating"'),
+      'AILoader status="generating" not found in SubmittingPanel',
+    );
+  });
+});
+
+describe('21.A.3 — CTA button absent in submitting state (double-submit prevention)', () => {
+  it('BEGIN_EXECUTION transitions state to submitting synchronously', () => {
+    const validated = advanceToValidated();
+    const submitting = prospectWizardReducer(validated, { type: 'BEGIN_EXECUTION' });
+    assert.equal(submitting.currentStep, 'submitting');
+  });
+
+  it('cannot dispatch BEGIN_EXECUTION again from submitting (guard prevents double-submit)', () => {
+    const submitting = advanceToSubmitting();
+    // Dispatching BEGIN_EXECUTION from submitting should not change step
+    // (the handleExecute guard checks currentStep === 'validated')
+    const stillSubmitting = prospectWizardReducer(submitting, { type: 'BEGIN_EXECUTION' });
+    assert.equal(stillSubmitting.currentStep, 'submitting');
+  });
+
+  it('state machine never returns to validated once submitting without explicit EXECUTION_FAILED', () => {
+    const submitting = advanceToSubmitting();
+    // Only EXECUTION_FAILED should take us back; success goes to success step
+    const success = prospectWizardReducer(submitting, {
+      type: 'EXECUTION_SUCCEEDED',
+      batchId: BATCH_ID,
+      redirectPath: '/prospects',
+      status: 'created',
+    });
+    assert.equal(success.currentStep, 'success');
+    assert.notEqual(success.currentStep, 'validated');
+  });
+});
