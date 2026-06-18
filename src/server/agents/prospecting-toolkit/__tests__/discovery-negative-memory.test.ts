@@ -74,15 +74,19 @@ function makeFakeClient(opts: {
         };
       }
       if (table === 'prospect_candidates') {
+        // Soporta tanto `await .in()` (nuevo flujo sin .not()) como
+        // `await .in().not()` (flujo legacy) devolviendo un thenable
+        // que además tiene el método .not() encadenado.
+        const resolved = {
+          data: candidateError ? null : candidates,
+          error: candidateError ? { message: 'db error' } : null,
+        };
+        const thenableIn = Object.assign(Promise.resolve(resolved), {
+          not: () => Promise.resolve(resolved),
+        });
         return {
           select: () => ({
-            in: () => ({
-              not: () =>
-                Promise.resolve({
-                  data: candidateError ? null : candidates,
-                  error: candidateError ? { message: 'db error' } : null,
-                }),
-            }),
+            in: () => thenableIn,
           }),
         };
       }

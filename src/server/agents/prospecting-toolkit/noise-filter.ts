@@ -170,6 +170,13 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'guiaempresas.universia.net.co',    // Hito 10B: guía empresas Universia CO
   'connectamericas.com',              // Hito 13B: marketplace/directorio de empresas BID
   'lasempresas.com.co',               // Hito 13B: directorio empresarial Colombia
+  // Hito 16AB.43.25: catálogos de software que no son sitios oficiales de empresa
+  'catalogodesoftware.com',           // catálogo software empresarial LATAM
+  'comparasoftware.co',               // variante .co de comparasoftware
+  'software.com.co',                  // directorio software Colombia
+  'softwareempresarial.com.co',       // directorio software empresarial CO
+  'directoriosoftware.com',           // directorio genérico de software
+  'misoftware.co',                    // portal catálogo software Colombia
 ]);
 
 /**

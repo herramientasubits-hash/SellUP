@@ -56,6 +56,8 @@ class ChainResult {
   eq(_col: string, _val: unknown): ChainResult { return this; }
   neq(_col: string, _val: unknown): ChainResult { return this; }
   in(_col: string, _vals: unknown[]): ChainResult { return this; }
+  not(_col: string, _op: string, _val: unknown): ChainResult { return this; }
+  gte(_col: string, _val: unknown): ChainResult { return this; }
   select(_cols: string): ChainResult { return this; }
 
   /** Makes the object directly awaitable (thenable). */
@@ -109,6 +111,12 @@ function makeFakeAdmin(
           select(_cols: string) {
             return {
               eq(_col: string, _val: unknown) {
+                // buildRecentIdentityKeySet uses .eq('source', ...).gte(...) — return ChainResult
+                // that is thenable (empty data → no identity keys) and also supports .single()
+                if (_col === 'source') {
+                  return new ChainResult({ data: [], error: null });
+                }
+                // Default: batch lookup by id → .single()
                 return {
                   single() {
                     if (config.batchSelectError) {

@@ -16,7 +16,8 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runProspectingPipeline } from "./prospecting-pipeline";
-import { buildNoveltyIndex, evaluateCandidateNovelty } from "./novelty-checker";
+import { buildNoveltyIndex, evaluateCandidateNovelty, buildRecentIdentityKeySet } from "./novelty-checker";
+import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -60,6 +61,67 @@ function getAdminClient() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Supabase service credentials not configured");
   return createAdminClient(url, key);
+}
+
+// ─── Official website gate ────────────────────────────────────────────────────
+//
+// Dominios que son directorios, catálogos, marketplaces o rankings.
+// Un candidato cuyo dominio de website sea uno de estos no debe persistirse
+// como empresa oficial, ya que no tiene sitio propio identificable.
+// Hito 16AB.43.25.
+
+const DIRECTORY_SOURCE_DOMAINS = new Set([
+  // Catálogos de software
+  'catalogodesoftware.com',
+  'comparasoftware.com',
+  'comparasoftware.co',
+  'capterra.com',
+  'capterra.co',
+  'g2.com',
+  'getapp.com',
+  'softwareadvice.com',
+  'trustradius.com',
+  'softwareworld.co',
+  'crozdesk.com',
+  'alternativeto.net',
+  'producthunt.com',
+  'techbehemoths.com',
+  'clutch.co',
+  'goodfirms.co',
+  'sortlist.com',
+  'designrush.com',
+  // Directorios empresariales
+  'guiatic.com',
+  'yelp.com',
+  'paginasamarillas.com.co',
+  'einforma.com',
+  'einforma.co',
+  'datacreditoempresas.com.co',
+  'lasempresas.com.co',
+  'connectamericas.com',
+  // Plataformas sociales
+  'linkedin.com',
+  'facebook.com',
+  'instagram.com',
+  'youtube.com',
+  // Portales de empleo
+  'computrabajo.com',
+  'indeed.com',
+  'glassdoor.com',
+]);
+
+/**
+ * Retorna true si el dominio pertenece a un directorio/catálogo/marketplace,
+ * lo que indica que el candidato no tiene sitio oficial propio identificable.
+ */
+function isDirectorySourceDomain(domain: string | null): boolean {
+  if (!domain) return false;
+  const d = domain.toLowerCase().replace(/^www\./, '');
+  if (DIRECTORY_SOURCE_DOMAINS.has(d)) return true;
+  for (const entry of DIRECTORY_SOURCE_DOMAINS) {
+    if (d.endsWith(`.${entry}`)) return true;
+  }
+  return false;
 }
 
 // ─── Mapeos ───────────────────────────────────────────────────────────────────
@@ -268,6 +330,10 @@ export async function writeProspectingCandidates(
     (c) => c.domain ?? extractDomain(c.website)
   );
   const noveltyIndex = await buildNoveltyIndex(admin, candidateDomains);
+
+  // Identity key index: carga identity keys de candidatos recientes para
+  // deduplicar semánticamente ("Siesa Enterprise" vs "Siesa"). Hito 16AB.43.25.
+  const recentIdentityKeys = await buildRecentIdentityKeySet(admin);
 
   const now = new Date();
   const { country, countryCode, industry } = pipelineOutput.input;
@@ -492,12 +558,56 @@ export async function writeProspectingCandidates(
     });
   }
 
+  // Canonical identity gate tracking (Hito 16AB.43.25)
+  type IdentityGateSample = { name: string; reason: string; matched_identity?: string };
+  const identityGate = {
+    nonCompanyPhraseCount: 0,
+    seenIdentityCount: 0,
+    nonOfficialDomainCount: 0,
+    samples: [] as IdentityGateSample[],
+  };
+
   // Crear candidatos
   for (const candidate of pipelineOutput.candidates) {
     const candidateStatus = mapQualityLabelToStatus(candidate.scoring.qualityLabel);
 
     if (candidateStatus === null) {
       skipped.push({ name: candidate.name, reason: "qualityLabel=discard", searchTrace: candidate.searchTrace ?? undefined });
+      continue;
+    }
+
+    // ── Canonical identity gate (Hito 16AB.43.25) ───────────────────────────
+    const identity = buildCanonicalCompanyIdentity(candidate.name);
+
+    if (identity.isNonCompanyPhrase) {
+      skipped.push({ name: candidate.name, reason: "non_company_phrase", searchTrace: candidate.searchTrace ?? undefined });
+      identityGate.nonCompanyPhraseCount++;
+      if (identityGate.samples.length < 10) {
+        identityGate.samples.push({ name: candidate.name, reason: "non_company_phrase" });
+      }
+      continue;
+    }
+
+    if (identity.identityKey && recentIdentityKeys.has(identity.identityKey)) {
+      skipped.push({ name: candidate.name, reason: "seen_identity_key_recently", searchTrace: candidate.searchTrace ?? undefined });
+      identityGate.seenIdentityCount++;
+      if (identityGate.samples.length < 10) {
+        identityGate.samples.push({
+          name: candidate.name,
+          reason: "seen_identity_key_recently",
+          matched_identity: identity.identityKey,
+        });
+      }
+      continue;
+    }
+
+    const effectiveDomain = candidate.domain ?? extractDomain(candidate.website);
+    if (isDirectorySourceDomain(effectiveDomain)) {
+      skipped.push({ name: candidate.name, reason: "non_official_source_domain", searchTrace: candidate.searchTrace ?? undefined });
+      identityGate.nonOfficialDomainCount++;
+      if (identityGate.samples.length < 10) {
+        identityGate.samples.push({ name: candidate.name, reason: "non_official_source_domain" });
+      }
       continue;
     }
 
@@ -642,12 +752,17 @@ export async function writeProspectingCandidates(
     ]);
     const noveltySkipped = skipped.filter((s) => noveltyReasons.has(s.reason));
     const qualitySkipped = skipped.filter((s) => s.reason === "qualityLabel=discard");
+    const identityGateTotal =
+      identityGate.nonCompanyPhraseCount +
+      identityGate.seenIdentityCount +
+      identityGate.nonOfficialDomainCount;
 
     const writerSummary = {
       actual_persisted_count: createdCandidateIds.length,
       actual_skipped_count: skipped.length,
       novelty_skipped_count: noveltySkipped.length,
       quality_skipped_count: qualitySkipped.length,
+      identity_gate_skipped_count: identityGateTotal,
       created_candidate_ids_count: createdCandidateIds.length,
       updated_at: new Date().toISOString(),
     };
@@ -681,11 +796,21 @@ export async function writeProspectingCandidates(
       needs_review_persisted: createdCandidateIds.length,
     };
 
+    const canonicalIdentityGate = {
+      enabled: true,
+      non_company_phrase_exclusions: identityGate.nonCompanyPhraseCount,
+      seen_identity_exclusions: identityGate.seenIdentityCount,
+      non_official_domain_exclusions: identityGate.nonOfficialDomainCount,
+      total_exclusions: identityGateTotal,
+      samples: identityGate.samples,
+    };
+
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
       novelty_summary: noveltySummary,
       pipeline_summary_post_write: pipelineSummaryPostWrite,
+      canonical_identity_gate: canonicalIdentityGate,
     };
 
     if (candidatesCreated === 0 && errors.length === 0) {

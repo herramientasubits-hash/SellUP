@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain } from './normalization';
+import { buildIdentityKey } from './canonical-company-identity';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -25,6 +26,14 @@ export type DiscoveryNegativeMemory = {
   excludedDomains: Set<string>;
   /** Muestra de dominios excluidos (máx 20) para metadata/trazabilidad. */
   excludedDomainsSample: string[];
+  /**
+   * Claves de identidad canónica de empresas ya sugeridas.
+   * Permite bloquear "Siesa Enterprise" cuando "Siesa" ya fue sugerida.
+   * Hito 16AB.43.25.
+   */
+  excludedIdentityKeys: Set<string>;
+  /** Muestra de identity keys excluidas (máx 20) para trazabilidad. */
+  excludedIdentityKeysSample: string[];
   previousCandidateCount: number;
   previousBatchCount: number;
   scope: DiscoveryNegativeMemoryScope;
@@ -36,6 +45,8 @@ export function emptyNegativeMemory(scope: DiscoveryNegativeMemoryScope): Discov
   return {
     excludedDomains: new Set(),
     excludedDomainsSample: [],
+    excludedIdentityKeys: new Set(),
+    excludedIdentityKeysSample: [],
     previousCandidateCount: 0,
     previousBatchCount: 0,
     scope,
@@ -57,6 +68,21 @@ export function isDomainInNegativeMemory(
 }
 
 /**
+ * Verifica si la identity key canónica de un nombre de empresa ya está en la
+ * memoria negativa (empresa ya sugerida con otro nombre/dominio).
+ * Hito 16AB.43.25.
+ */
+export function isIdentityKeyInNegativeMemory(
+  name: string | null,
+  memory: DiscoveryNegativeMemory,
+): boolean {
+  if (!name || memory.excludedIdentityKeys.size === 0) return false;
+  const key = buildIdentityKey(name);
+  if (!key) return false;
+  return memory.excludedIdentityKeys.has(key);
+}
+
+/**
  * Cuenta cuántos dominios de una lista de candidatos (domain | null) están en
  * la memoria negativa. Útil para tracking de round metadata.
  */
@@ -71,7 +97,7 @@ export function countDomainsInNegativeMemory(
 // ─── Carga desde Supabase ─────────────────────────────────────────────────────
 
 type BatchRow = { id: string };
-type CandidateRow = { domain: string | null };
+type CandidateRow = { domain: string | null; name: string | null };
 
 /**
  * Carga la memoria negativa de dominios ya sugeridos recientemente por agent_1.
@@ -110,12 +136,11 @@ export async function loadDiscoveryNegativeMemory(
 
   const batchIds = (batchRows as BatchRow[]).map((r) => r.id);
 
-  // Paso 2: obtener dominios de candidatos en esos batches
+  // Paso 2: obtener dominios y nombres de candidatos en esos batches
   const { data: candidateRows, error: candidateError } = await client
     .from('prospect_candidates')
-    .select('domain')
-    .in('batch_id', batchIds)
-    .not('domain', 'is', null);
+    .select('domain, name')
+    .in('batch_id', batchIds);
 
   if (candidateError || !candidateRows) {
     return emptyNegativeMemory(scope);
@@ -132,11 +157,23 @@ export async function loadDiscoveryNegativeMemory(
     }
   }
 
+  // Construir identity keys desde nombres previos (Hito 16AB.43.25)
+  const excludedIdentityKeys = new Set<string>();
+  for (const row of rows) {
+    if (row.name) {
+      const key = buildIdentityKey(row.name);
+      if (key) excludedIdentityKeys.add(key);
+    }
+  }
+
   const excludedDomainsSample = [...excludedDomains].slice(0, 20);
+  const excludedIdentityKeysSample = [...excludedIdentityKeys].slice(0, 20);
 
   return {
     excludedDomains,
     excludedDomainsSample,
+    excludedIdentityKeys,
+    excludedIdentityKeysSample,
     previousCandidateCount: rows.length,
     previousBatchCount: batchIds.length,
     scope,

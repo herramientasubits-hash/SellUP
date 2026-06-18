@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain } from './normalization';
+import { buildIdentityKey } from './canonical-company-identity';
 
 // ─── Cooldown default ─────────────────────────────────────────────────────────
 
@@ -308,4 +309,64 @@ export function evaluateCandidateNovelty(
       reason: 'Visto anteriormente pero sin restricción de novedad activa',
     },
   };
+}
+
+// ─── buildRecentIdentityKeySet ────────────────────────────────────────────────
+
+/**
+ * Carga el Set de identity keys canónicas de candidatos sugeridos por agent_1
+ * en los últimos lookbackDays días.
+ *
+ * Hito 16AB.43.25 — Usado por el writer como defensa final contra duplicados
+ * semánticos que cambian de nombre o de dominio entre corridas.
+ *
+ * Estrategia de consulta en dos pasos (igual que loadDiscoveryNegativeMemory):
+ *   1. IDs de batches agent_1 recientes.
+ *   2. Nombres de candidatos en esos batches.
+ *
+ * Graceful fallback: devuelve Set vacío ante cualquier error de Supabase.
+ * No hace writes. Solo SELECTs.
+ */
+export async function buildRecentIdentityKeySet(
+  supabase: SupabaseClient,
+  lookbackDays: number = DEFAULT_COOLDOWN_DAYS,
+): Promise<Set<string>> {
+  const empty = new Set<string>();
+
+  const lookbackDate = new Date();
+  lookbackDate.setDate(lookbackDate.getDate() - lookbackDays);
+  const lookbackIso = lookbackDate.toISOString();
+
+  type SupabaseBase = ReturnType<typeof import('@supabase/supabase-js').createClient>;
+  const client = supabase as unknown as SupabaseBase;
+
+  // Paso 1: IDs de batches agent_1 recientes
+  const { data: batchRows, error: batchError } = await client
+    .from('prospect_batches')
+    .select('id')
+    .eq('source', 'agent_1')
+    .gte('created_at', lookbackIso);
+
+  if (batchError || !batchRows || batchRows.length === 0) return empty;
+
+  const batchIds = batchRows.map((r: { id: string }) => r.id);
+
+  // Paso 2: nombres de candidatos en esos batches
+  const { data: candidateRows, error: candidateError } = await client
+    .from('prospect_candidates')
+    .select('name')
+    .in('batch_id', batchIds)
+    .not('name', 'is', null);
+
+  if (candidateError || !candidateRows) return empty;
+
+  const keys = new Set<string>();
+  for (const row of candidateRows as { name: string | null }[]) {
+    if (row.name) {
+      const key = buildIdentityKey(row.name);
+      if (key) keys.add(key);
+    }
+  }
+
+  return keys;
 }
