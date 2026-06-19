@@ -14,8 +14,14 @@ import {
   TYPE_LABELS,
   PRIORITY_LABELS,
   COUNTRY_LABELS,
+  SELLUP_USE_LABELS,
+  AI_FLOW_STATUS_LABELS,
+  CONNECTION_MODE_LABELS,
   operationalStatusBadgeClass,
   operationalStatusDotClass,
+  sellupUseBadgeClass,
+  aiFlowStatusBadgeClass,
+  connectionModeBadgeClass,
 } from '@/modules/source-catalog/labels';
 import {
   BATCH_STATUS_LABELS,
@@ -87,6 +93,24 @@ export function SourceDetailDrawer({
         </span>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${sellupUseBadgeClass(source.sellupUse)}`}
+        >
+          {SELLUP_USE_LABELS[source.sellupUse]}
+        </span>
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}
+        >
+          {AI_FLOW_STATUS_LABELS[source.aiFlowStatus]}
+        </span>
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${connectionModeBadgeClass(source.connectionMode)}`}
+        >
+          {CONNECTION_MODE_LABELS[source.connectionMode]}
+        </span>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         <SurfaceCard>
           <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">
@@ -104,6 +128,48 @@ export function SourceDetailDrawer({
                 País
               </dt>
               <dd className="text-foreground">{countryLabels}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                Uso en SellUp
+              </dt>
+              <dd>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sellupUseBadgeClass(source.sellupUse)}`}
+                >
+                  {SELLUP_USE_LABELS[source.sellupUse]}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                Estado flujo IA
+              </dt>
+              <dd>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}
+                >
+                  {AI_FLOW_STATUS_LABELS[source.aiFlowStatus]}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                Conexión
+              </dt>
+              <dd>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${connectionModeBadgeClass(source.connectionMode)}`}
+                >
+                  {CONNECTION_MODE_LABELS[source.connectionMode]}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                Siguiente acción
+              </dt>
+              <dd className="text-foreground">{source.nextAction}</dd>
             </div>
             {source.sectors.length > 0 && (
               <div>

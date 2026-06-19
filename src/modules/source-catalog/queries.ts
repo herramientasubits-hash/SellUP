@@ -1,10 +1,14 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { CATALOG_SOURCES } from '@/server/agents/prospecting-toolkit/source-catalog';
 import type {
+  AiFlowStatus,
   CatalogSource,
   CatalogSourceOperationalStatus,
+  ConnectionMode,
+  SellupUse,
   SourcePriority,
 } from '@/server/agents/prospecting-toolkit/types';
+import { resolveOperationalClassification } from './operational-classification';
 
 // ─── Admin client (service role — server-only) ─────────────────────────────
 
@@ -104,6 +108,10 @@ export type SourceViewModel = {
   recommendedUse: string;
   limitations: string[];
   riskNotes: string[];
+  sellupUse: SellupUse;
+  aiFlowStatus: AiFlowStatus;
+  connectionMode: ConnectionMode;
+  nextAction: string;
 };
 
 export type SourceCatalogMetrics = {
@@ -131,20 +139,27 @@ export type SourceCatalogViewModel = {
 };
 
 export function getSourceCatalogViewModel(): SourceCatalogViewModel {
-  const sources: SourceViewModel[] = CATALOG_SOURCES.map((s) => ({
-    key: s.key,
-    name: s.name,
-    countryCodes: s.countryCodes,
-    sectors: s.sectors,
-    type: s.type,
-    priority: s.priority,
-    automationLevel: s.automationLevel,
-    operationalStatus: s.operationalStatus,
-    url: s.url ?? null,
-    recommendedUse: s.recommendedUse,
-    limitations: s.limitations ?? [],
-    riskNotes: s.riskNotes ?? [],
-  }));
+  const sources: SourceViewModel[] = CATALOG_SOURCES.map((s) => {
+    const classification = resolveOperationalClassification(s);
+    return {
+      key: s.key,
+      name: s.name,
+      countryCodes: s.countryCodes,
+      sectors: s.sectors,
+      type: s.type,
+      priority: s.priority,
+      automationLevel: s.automationLevel,
+      operationalStatus: s.operationalStatus,
+      url: s.url ?? null,
+      recommendedUse: s.recommendedUse,
+      limitations: s.limitations ?? [],
+      riskNotes: s.riskNotes ?? [],
+      sellupUse: classification.sellupUse,
+      aiFlowStatus: classification.aiFlowStatus,
+      connectionMode: classification.connectionMode,
+      nextAction: classification.nextAction,
+    };
+  });
 
   const byOperationalStatus: Record<string, number> = {};
   const byPriority: Record<string, number> = {};

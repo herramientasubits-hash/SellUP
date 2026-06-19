@@ -71,6 +71,35 @@ export type SourcePriority = "P0" | "P1" | "P2";
  * - discarded_paid_or_tos: no usable por costo, ToS o riesgo legal.
  * - discarded_low_value: no recomendada por bajo volumen, baja calidad o ruido.
  */
+// ─── Catálogo operativo — clasificación funcional (Hito 16AK) ─────────────
+
+export type SellupUse =
+  | 'discovery'
+  | 'enrichment'
+  | 'legal_validation'
+  | 'commercial_signal'
+  | 'contextual_signal'
+  | 'technical_container'
+  | 'manual_reference'
+  | 'not_for_ai_flow';
+
+export type AiFlowStatus =
+  | 'connected'
+  | 'eligible_not_connected'
+  | 'partial_pending_data'
+  | 'source_guided'
+  | 'manual_only'
+  | 'paused'
+  | 'not_applicable';
+
+export type ConnectionMode =
+  | 'wizard_discovery'
+  | 'automatic_enrichment'
+  | 'source_guided_query'
+  | 'snapshot_pending'
+  | 'not_connected'
+  | 'not_applicable';
+
 export type CatalogSourceOperationalStatus =
   | 'operational_verified'
   | 'connection_required'
@@ -100,6 +129,14 @@ export type CatalogSource = {
   recommendedUse: string;
   limitations?: string[];
   riskNotes?: string[];
+  /** Clasificación funcional: para qué sirve la fuente en SellUp */
+  sellupUse?: SellupUse;
+  /** Estado de la fuente en el flujo IA */
+  aiFlowStatus?: AiFlowStatus;
+  /** Cómo se conecta la fuente al sistema */
+  connectionMode?: ConnectionMode;
+  /** Texto corto de siguiente acción para UI */
+  nextAction?: string;
 };
 
 export type CatalogContextInput = {
