@@ -125,7 +125,7 @@ export function mapRowToRecord(
   const prevYear = year - 1;
 
   const strVal = (key: string | undefined): string | undefined =>
-    key ? (row[key] ?? undefined) as string | undefined : undefined;
+    key ? (row[key] != null ? String(row[key]) : undefined) : undefined;
 
   const numVal = (key: string | undefined): number | null =>
     key ? parseSiisFinancialValue(row[key]) : null;
@@ -167,10 +167,82 @@ export function mapRowToRecord(
   };
 }
 
+// ─── Dynamic header detection ──────────────────────────────────────────────────
+
+/**
+ * Normaliza una celda de header: mayúsculas, sin tildes, espacios simples, sin asteriscos.
+ */
+export function normalizeSiisHeaderCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\*+/g, '')
+    .trim();
+}
+
+/**
+ * Busca la fila que contiene los headers reales del Excel SIIS.
+ * Scanea todas las filas como array de arrays, asigna un score según las
+ * señales de columna que encuentra (NIT, RAZÓN SOCIAL, CIIU, etc.) y
+ * retorna la fila con mayor score.
+ *
+ * Requiere al menos NIT + RAZÓN SOCIAL (score ≥ 200) para aceptar.
+ * Retorna -1 si no encuentra header.
+ */
+export function detectSiisHeaderRowIndex(rows: unknown[][]): number {
+  let bestRow = -1;
+  let bestScore = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    const cells = row.map((cell) => normalizeSiisHeaderCell(cell));
+
+    let score = 0;
+
+    const hasNit = cells.some((c) => /^NIT$/.test(c));
+    const hasRazonSocial = cells.some(
+      (c) => /^RAZ[OÓ]N\s+SOCIAL$/.test(c) || c === 'RAZON SOCIAL',
+    );
+    const hasCiiu = cells.some((c) => /^CIIU$/.test(c));
+    const hasMacrosector = cells.some((c) => /^MACROSECTOR$/.test(c));
+    const hasSupervisor = cells.some((c) => /^SUPERVISOR$/.test(c));
+    const hasIngresosOp = cells.some((c) => /^INGRESOS\s+OPERACIONALES/.test(c));
+    const hasTotalActivos = cells.some((c) => /^TOTAL\s+ACTIVOS/.test(c));
+    const hasTotalPasivos = cells.some((c) => /^TOTAL\s+PASIVOS/.test(c));
+
+    if (hasNit) score += 100;
+    if (hasRazonSocial) score += 100;
+    if (hasCiiu) score += 50;
+    if (hasMacrosector) score += 50;
+    if (hasSupervisor) score += 30;
+    if (hasIngresosOp) score += 30;
+    if (hasTotalActivos) score += 30;
+    if (hasTotalPasivos) score += 30;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestRow = i;
+    }
+  }
+
+  // Requerir al menos NIT + RAZÓN SOCIAL (200+)
+  if (bestScore >= 200) return bestRow;
+  return -1;
+}
+
 // ─── Excel parsing ────────────────────────────────────────────────────────────
 
 /**
  * Parsea el buffer de un Excel SIIS y devuelve registros financieros.
+ *
+ * Detecta dinámicamente la fila de headers (no asume fila 0) para tolerar
+ * filas preliminares que SIIS pueda incluir (notas, títulos, etc.).
+ *
  * Descarta filas sin NIT o sin Razón Social.
  */
 export function parseExcelRows(
@@ -180,9 +252,38 @@ export function parseExcelRows(
   const workbook = XLSX.read(buffer, { type: 'buffer' });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
 
-  return rawRows
+  // 1. Leer como matriz para detectar header
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: null,
+    blankrows: false,
+  }) as unknown[][];
+
+  const headerRowIndex = detectSiisHeaderRowIndex(rows);
+
+  if (headerRowIndex === -1) {
+    console.warn(
+      '[SIIS Snapshot ETL] Header row not detected — check Excel format.',
+    );
+    return [];
+  }
+
+  // 2. Normalizar headers (tolerar acentos, asteriscos, espacios extra)
+  const headers = rows[headerRowIndex].map((cell, idx) => {
+    const normalized = normalizeSiisHeaderCell(cell);
+    return normalized || `_col_${idx}`;
+  });
+
+  // 3. Leer filas de datos a partir de la fila siguiente al header
+  const dataRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    header: headers,
+    range: headerRowIndex + 1,
+    defval: null,
+    blankrows: false,
+  });
+
+  return dataRows
     .map((row) => mapRowToRecord(row, year))
     .filter((r): r is SiisCompanyFinancialRecord => r !== null);
 }

@@ -13,6 +13,8 @@ import {
   parseSiisFinancialValue,
   parseExcelRows,
   mapRowToRecord,
+  normalizeSiisHeaderCell,
+  detectSiisHeaderRowIndex,
 } from '../siis-snapshot-etl';
 import type { SiisCompanyFinancialRecord } from '../types';
 
@@ -25,6 +27,18 @@ function makeExcelBuffer(
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'SIIS');
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+}
+
+function makeExcelBufferWithPreamble(
+  preamble: unknown[][],
+  headers: unknown[],
+  rows: unknown[][],
+): Buffer {
+  const allRows = [...preamble, headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(allRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '2024');
   return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 }
 
@@ -233,7 +247,106 @@ describe('mapRowToRecord', () => {
   });
 });
 
-// ─── 5. parseExcelRows with real xlsx buffer ──────────────────────────────────
+// ─── 5. normalizeSiisHeaderCell ──────────────────────────────────────────────
+
+describe('normalizeSiisHeaderCell', () => {
+  it('normalizes accents', () => {
+    assert.equal(normalizeSiisHeaderCell('RAZÓN SOCIAL'), 'RAZON SOCIAL');
+  });
+
+  it('removes asterisks', () => {
+    assert.equal(normalizeSiisHeaderCell('INGRESOS OPERACIONALES 2024*'), 'INGRESOS OPERACIONALES 2024');
+  });
+
+  it('normalizes double spaces', () => {
+    assert.equal(normalizeSiisHeaderCell('TOTAL PASIVOS  2024'), 'TOTAL PASIVOS 2024');
+  });
+
+  it('normalizes triple spaces', () => {
+    assert.equal(normalizeSiisHeaderCell('TOTAL  PATRIMONIO   2024'), 'TOTAL PATRIMONIO 2024');
+  });
+
+  it('uppercases', () => {
+    assert.equal(normalizeSiisHeaderCell('nit'), 'NIT');
+  });
+
+  it('returns empty string for null', () => {
+    assert.equal(normalizeSiisHeaderCell(null), '');
+  });
+
+  it('returns empty string for undefined', () => {
+    assert.equal(normalizeSiisHeaderCell(undefined), '');
+  });
+
+  it('returns empty string for empty string', () => {
+    assert.equal(normalizeSiisHeaderCell(''), '');
+  });
+});
+
+// ─── 6. detectSiisHeaderRowIndex ──────────────────────────────────────────────
+
+describe('detectSiisHeaderRowIndex', () => {
+  it('finds header at row 0 with NIT and RAZÓN SOCIAL', () => {
+    const rows: unknown[][] = [
+      ['NIT', 'RAZÓN SOCIAL', 'CIIU', 'MACROSECTOR', 'INGRESOS OPERACIONALES 2024'],
+    ];
+    assert.equal(detectSiisHeaderRowIndex(rows), 0);
+  });
+
+  it('finds header at row 3 when preamble precedes it', () => {
+    const rows: unknown[][] = [
+      ['Nota: información en billones de pesos'],
+      ['Módulo SIIS Supersociedades'],
+      ['Billones de pesos', '2024', '2023'],
+      ['NIT', 'RAZÓN SOCIAL', 'CIIU', 'MACROSECTOR', 'TOTAL ACTIVOS 2024'],
+      ['900123456', 'Empresa A', '6201', 'Servicios', '1000000'],
+    ];
+    assert.equal(detectSiisHeaderRowIndex(rows), 3);
+  });
+
+  it('prefers row with higher score', () => {
+    const rows: unknown[][] = [
+      ['NIT', 'RAZÓN SOCIAL'],                    // score 200
+      ['NIT', 'RAZÓN SOCIAL', 'CIIU', 'MACROSECTOR'], // score 300
+    ];
+    assert.equal(detectSiisHeaderRowIndex(rows), 1);
+  });
+
+  it('returns -1 when no header found', () => {
+    const rows: unknown[][] = [
+      ['Nota al pie'],
+      ['Título del reporte'],
+    ];
+    assert.equal(detectSiisHeaderRowIndex(rows), -1);
+  });
+
+  it('returns -1 for empty rows', () => {
+    assert.equal(detectSiisHeaderRowIndex([]), -1);
+  });
+
+  it('handles headers with extra spaces', () => {
+    const rows: unknown[][] = [
+      ['NIT', 'RAZÓN SOCIAL', 'TOTAL PASIVOS  2024'],
+    ];
+    assert.equal(detectSiisHeaderRowIndex(rows), 0);
+  });
+
+  it('handles headers with asterisks', () => {
+    const rows: unknown[][] = [
+      ['NIT', 'RAZÓN SOCIAL', 'INGRESOS OPERACIONALES 2024*'],
+    ];
+    assert.equal(detectSiisHeaderRowIndex(rows), 0);
+  });
+
+  it('handles headers with null cells interspersed', () => {
+    const rows: unknown[][] = [
+      [null, 'RAZÓN SOCIAL', null, 'NIT', null, 'CIIU'],
+    ];
+    assert.equal(detectSiisHeaderRowIndex(rows), 0);
+  });
+});
+
+// ─── 7. parseExcelRows with real xlsx buffer ──────────────────────────────────
 
 describe('parseExcelRows', () => {
   it('parses a real Excel buffer with SIIS columns', () => {
@@ -302,9 +415,104 @@ describe('parseExcelRows', () => {
     const records = parseExcelRows(buffer, 2024);
     assert.equal(records.length, 0);
   });
+
+  it('parses Excel with 3 preamble rows before header at row 3', () => {
+    const preamble: unknown[][] = [
+      ['Nota: información en billones de pesos'],
+      ['Módulo SIIS Supersociedades'],
+      ['Billones de pesos', '2024', '2023'],
+    ];
+    const headers: unknown[] = [
+      'NIT',
+      'RAZÓN SOCIAL',
+      'SUPERVISOR',
+      'REGIÓN',
+      'DEPARTAMENTO DOMICILIO',
+      'CIUDAD DOMICILIO',
+      'CIIU',
+      'MACROSECTOR',
+      'INGRESOS OPERACIONALES 2024',
+      'GANANCIA (PÉRDIDA) 2024',
+    ];
+    const rows: unknown[][] = [
+      ['900.123.456-1', 'Tecnología Avanzada SAS', 'Supersociedades', 'Central', 'Cundinamarca', 'Bogotá', '6201', 'Servicios', 1234567000, 123456700],
+    ];
+
+    const buffer = makeExcelBufferWithPreamble(preamble, headers, rows);
+    const records = parseExcelRows(buffer, 2024);
+
+    assert.equal(records.length, 1);
+    assert.equal(records[0].taxId, '900.123.456-1');
+    assert.equal(records[0].legalName, 'Tecnología Avanzada SAS');
+    assert.equal(records[0].financials?.operatingRevenueCurrent, 1234567000);
+  });
+
+  it('parses header with extra spaces in column names', () => {
+    const headers: string[] = [
+      'NIT',
+      'RAZÓN SOCIAL',
+      'TOTAL PASIVOS  2024',
+      'TOTAL PATRIMONIO  2024',
+    ];
+    const rows: unknown[][] = [
+      ['900123456', 'Empresa X', 5000000, 3000000],
+    ];
+
+    const buffer = makeExcelBuffer(headers, rows);
+    const records = parseExcelRows(buffer, 2024);
+
+    assert.equal(records.length, 1);
+    assert.equal(records[0].taxId, '900123456');
+    assert.equal(records[0].financials?.totalLiabilitiesCurrent, 5000000);
+    assert.equal(records[0].financials?.totalEquityCurrent, 3000000);
+  });
+
+  it('parses header with asterisk in column name', () => {
+    const headers: string[] = [
+      'NIT',
+      'RAZÓN SOCIAL',
+      'INGRESOS OPERACIONALES 2024*',
+    ];
+    const rows: unknown[][] = [
+      ['900123456', 'Empresa Y', 10000000],
+    ];
+
+    const buffer = makeExcelBuffer(headers, rows);
+    const records = parseExcelRows(buffer, 2024);
+
+    assert.equal(records.length, 1);
+    assert.equal(records[0].financials?.operatingRevenueCurrent, 10000000);
+  });
+
+  it('parses header at row 0 (no preamble)', () => {
+    const headers = ['NIT', 'RAZÓN SOCIAL'];
+    const rows: unknown[][] = [
+      ['900123456', 'Empresa Z'],
+    ];
+
+    const buffer = makeExcelBuffer(headers, rows);
+    const records = parseExcelRows(buffer, 2024);
+
+    assert.equal(records.length, 1);
+    assert.equal(records[0].taxId, '900123456');
+  });
+
+  it('returns empty array when no header found', () => {
+    const rows: unknown[][] = [
+      ['Nota al pie'],
+      ['Título del reporte'],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '2024');
+    const buffer = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+
+    const records = parseExcelRows(buffer, 2024);
+    assert.equal(records.length, 0);
+  });
 });
 
-// ─── 6. Priority score (indirect via adapter logic snapshot row) ──────────────
+// ─── 8. Priority score (indirect via adapter logic snapshot row) ──────────────
 
 describe('snapshot row build (upsert payload expectation)', () => {
   it('produces expected normalized fields from a record', () => {
