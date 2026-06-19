@@ -38,7 +38,7 @@ import {
   type PreLLMFilterSummary,
 } from './pre-llm-result-filter';
 import { isSentenceOrPhraseName } from './noise-filter';
-import { buildSearchPlan } from './search-planner';
+import { buildSearchPlan, getExecutableQueriesFromSearchPlan } from './search-planner';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -255,9 +255,9 @@ export async function runProspectingPipeline(
     searchDepth,
   });
 
-  // ── Paso 1b: Search Plan v0 ───────────────────────────────────────────────────
-  // Planificación explícita antes de construir queries. Puramente determinístico.
-  // El plan queda en metadata para trazabilidad; no cambia el flujo de queries actual.
+  // ── Paso 1b: Search Plan v0 + Executable Queries v1 ─────────────────────────
+  // buildSearchPlan produce el plan estructurado (determinístico).
+  // getExecutableQueriesFromSearchPlan deriva queries ordenadas por prioridad del plan.
   const searchPlan = buildSearchPlan({
     country: input.country,
     countryCode: input.countryCode,
@@ -267,6 +267,9 @@ export async function runProspectingPipeline(
     targetCount,
     searchDepth,
   });
+  const executableQueries = getExecutableQueriesFromSearchPlan(searchPlan);
+  let plannerQueriesUsed = false;
+  let plannerFallbackReason = 'single_query_mode';
 
   // ── Paso 2: Query de búsqueda ─────────────────────────────────────────────────
   const searchQuery = buildCompanyDiscoveryQuery({
@@ -284,6 +287,19 @@ export async function runProspectingPipeline(
 
   const webSearch = useMultiQuery
     ? await (async () => {
+        const hasQueryOverrides = !!(input.queryOverrides && input.queryOverrides.length > 0);
+        const usesPlannerQueries = !hasQueryOverrides && executableQueries.length > 0;
+        plannerQueriesUsed = usesPlannerQueries;
+        if (!usesPlannerQueries) {
+          plannerFallbackReason = hasQueryOverrides ? 'query_overrides_provided' : 'planner_produced_no_queries';
+        }
+
+        const queriesForSearch = hasQueryOverrides
+          ? input.queryOverrides
+          : usesPlannerQueries
+            ? executableQueries.map(q => q.queryText)
+            : undefined;
+
         const mq = await runMultiQueryWebSearch({
           country: input.country,
           countryCode: input.countryCode,
@@ -292,25 +308,26 @@ export async function runProspectingPipeline(
           searchDepth,
           targetCount,
           maxResultsPerQuery: input.maxResultsPerQuery ?? 5,
-          queries: input.queryOverrides && input.queryOverrides.length > 0
-            ? input.queryOverrides
-            : undefined,
+          queries: queriesForSearch,
           usageContext: input.usageContext ?? null,
         });
-        const hasOverrides = !!(input.queryOverrides && input.queryOverrides.length > 0);
-        const sgMeta = hasOverrides
+        const sgMeta = hasQueryOverrides || usesPlannerQueries
           ? { enabled: false, sources_used: [] as string[] }
           : getSourceGuidedQueryMeta(input.country, input.industry, 1);
         multiQueryMeta = {
           search_mode: 'multi_query',
-          query_version: hasOverrides
+          query_version: hasQueryOverrides
             ? 'query_overrides'
-            : 'multi_query_basic_es_v1',
-          queries_source: hasOverrides
+            : usesPlannerQueries
+              ? 'search_planner_v1'
+              : 'multi_query_basic_es_v1',
+          queries_source: hasQueryOverrides
             ? 'overrides'
-            : sgMeta.enabled
-              ? 'source_guided_mix'
-              : 'standard',
+            : usesPlannerQueries
+              ? 'search_planner_v1'
+              : sgMeta.enabled
+                ? 'source_guided_mix'
+                : 'standard',
           source_guided_queries_enabled: sgMeta.enabled,
           source_guided_sources_used: sgMeta.sources_used,
           queries_executed: mq.queryResults.map((q) => q.query),
@@ -356,6 +373,19 @@ export async function runProspectingPipeline(
   if (webSearch.skipped) {
     warnings.push(`Web search fue omitida: ${webSearch.skipReason ?? 'razón desconocida'}`);
   }
+
+  // ── Search Plan v1 metadata ───────────────────────────────────────────────────
+  const searchPlanMeta = {
+    version: 'search_planner_v1',
+    queryFamilies: searchPlan.queryFamilies,
+    executableQueries,
+    usedForExecution: plannerQueriesUsed,
+    fallbackUsed: !plannerQueriesUsed,
+    executedQueryCount: plannerQueriesUsed ? executableQueries.length : 0,
+    querySelectionReason: plannerQueriesUsed
+      ? 'search_planner_v1_queries_available'
+      : plannerFallbackReason,
+  };
 
   // ── Paso 4: Enriquecer cada resultado ─────────────────────────────────────────
 
@@ -586,6 +616,7 @@ export async function runProspectingPipeline(
           cost_per_kept_candidate: llmEvaluation.usage.costPerKeptCandidate,
         },
         pre_llm_filter: preLLMFilterSummary,
+        search_plan: searchPlanMeta,
       },
     };
   }
@@ -703,7 +734,7 @@ export async function runProspectingPipeline(
       search_mode: input.mode ?? 'single_query',
       ...(multiQueryMeta ?? {}),
       name_quality_filtered_count: nameQualityFilteredCount,
-      search_plan: searchPlan,
+      search_plan: searchPlanMeta,
     },
   };
 }

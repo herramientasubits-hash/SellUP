@@ -186,6 +186,64 @@ function getQueryFamilyPriority(family: QueryFamily, round: 1 | 2): QueryFamilyP
   return 'low';
 }
 
+// ─── Executable Queries (Search Planner v1) ───────────────────────────────────
+
+/**
+ * Query ejecutable derivada del SearchPlanV0.
+ * Incluye metadata de familia, intención, prioridad y ronda.
+ */
+export type ExecutableQuery = {
+  queryText: string;
+  familyKey: string;
+  familyIntent: string;
+  priority: QueryFamilyPriority;
+  round: 1 | 2;
+  source: 'search_planner_v1';
+};
+
+const PRIORITY_ORDER: Record<QueryFamilyPriority, number> = { high: 0, medium: 1, low: 2 };
+
+function getMaxQueriesForDepth(depth: string): number {
+  if (depth === 'deep') return 18;
+  return 10;
+}
+
+/**
+ * Deriva queries ejecutables ordenadas desde un SearchPlanV0.
+ *
+ * Orden: Round 1 antes de Round 2; dentro de cada ronda, HIGH > MEDIUM > LOW.
+ * Aplica límite según searchDepth (standard=10, deep=18).
+ * Excluye familias sin queries.
+ * No modifica el plan original.
+ */
+export function getExecutableQueriesFromSearchPlan(plan: SearchPlanV0): ExecutableQuery[] {
+  const maxQueries = getMaxQueriesForDepth(plan.metadata.searchDepth);
+
+  const sorted = [...plan.queryFamilies].sort((a, b) => {
+    if (a.round !== b.round) return a.round - b.round;
+    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+  });
+
+  const result: ExecutableQuery[] = [];
+
+  for (const family of sorted) {
+    if (result.length >= maxQueries) break;
+    for (const queryText of family.queries) {
+      if (result.length >= maxQueries) break;
+      result.push({
+        queryText,
+        familyKey: family.key,
+        familyIntent: family.intent,
+        priority: family.priority,
+        round: family.round,
+        source: 'search_planner_v1',
+      });
+    }
+  }
+
+  return result;
+}
+
 // ─── Builder ──────────────────────────────────────────────────────────────────
 
 /**
