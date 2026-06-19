@@ -36,7 +36,9 @@
     "test:superfinanciera-adapter": "node --import tsx --test src/server/source-catalog/connectors/superfinanciera-colombia/__tests__/superfinanciera-enrichment-adapter.test.ts",
     "source:siis:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-siis-snapshot.ts",
     "test:siis-snapshot": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/siis-colombia/__tests__/siis-snapshot-etl.test.ts src/server/source-catalog/connectors/siis-colombia/__tests__/siis-snapshot-etl.integration.test.ts src/server/source-catalog/connectors/siis-colombia/__tests__/siis-client.test.ts",
-    "test:siis-adapter": "node --import tsx --test src/server/source-catalog/connectors/siis-colombia/__tests__/siis-enrichment-adapter.test.ts"
+    "test:siis-adapter": "node --import tsx --test src/server/source-catalog/connectors/siis-colombia/__tests__/siis-enrichment-adapter.test.ts",
+    "test:fedesoft": "node --import tsx --test src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-normalizers.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-client.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-connector.test.ts",
+    "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
