@@ -616,26 +616,64 @@ export function normalizeRepsRecord(
   record: RawRecord,
 ): NormalizedColombiaCompanySample {
   const meta = SOCRATA_COLOMBIA_DATASETS.reps;
+
+  const tipoid = str(record.tipoid);
+  const isCorporate = tipoid === 'NI';
+
+  // rawRecordId: prestador-level key (not sede-level). codigoprestador identifies
+  // the provider entity; codigohabilitacionsede identifies a specific site and must
+  // NOT drive account creation.
+  const nit = str(record.numeroidentificacion);
+  const codigoPrestador = str(record.codigoprestador);
+  const rawRecordId =
+    nit && codigoPrestador
+      ? `${nit}__${codigoPrestador}`
+      : nit ?? codigoPrestador ?? null;
+
+  // Personal-data guard: expose email/phone as principal contact only for
+  // corporate identifiers (NI = NIT). For natural persons (CC, CE, etc.)
+  // omit these from principal fields to avoid treating personal data as
+  // business contact data.
+  const email = isCorporate ? str(record.email_prestador) : null;
+  const phone = isCorporate ? str(record.telefonoprestador) : null;
+
+  const guardMetadata: Record<string, string | boolean | null> = isCorporate
+    ? {}
+    : {
+        personal_data_guard_applied: true,
+        personal_data_guard_reason: 'non_corporate_identifier',
+      };
+
   return {
     source: 'reps',
     sourceKey: meta.sourceKey,
     datasetId: meta.datasetId,
     companyName: str(record.nombreprestador),
-    taxId: str(record.numeroidentificacion),
-    legalStatus: str(record.estado),
+    taxId: nit,
+    // REPS does not publish an operational status field; set null rather than
+    // invent a value from a non-existent 'estado' column.
+    legalStatus: null,
     sectorCode: str(record.claseprestador),
-    sectorDescription: str(record.tipoprestador),
+    sectorDescription: str(record.claseprestador),
     city: str(record.municipioprestadordesc),
     department: str(record.departamentoprestadordesc),
     address: str(record.direccionprestador),
-    email: str(record.email_prestador),
-    phone: str(record.telefonoprestador),
+    email,
+    phone,
     website: null,
-    rawRecordId: str(record.codigoprestador) ?? str(record.id),
+    rawRecordId,
     sourceMetadata: {
-      naturaleza_juridica: str(record.naturalezajuridica),
-      tipo_id: str(record.tipoid),
-      clase_prestador: str(record.claseprestador),
+      reps_provider_code: codigoPrestador,
+      reps_site_code: str(record.codigohabilitacionsede),
+      provider_class: str(record.claseprestador),
+      legal_nature: str(record.naturalezajuridica),
+      is_ese: str(record.ese),
+      id_type: tipoid,
+      site_name: str(record.nombresede),
+      site_address: str(record.direcci_nsede),
+      site_email: str(record.email_sede),
+      site_phone: str(record.t_lefonosede),
+      ...guardMetadata,
     },
   };
 }
