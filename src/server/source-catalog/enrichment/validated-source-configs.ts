@@ -62,6 +62,23 @@ export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
     description:
       'Supersociedades SIIS — señales financieras y validación NIT para empresas medianas/grandes colombianas supervisadas. Solo desde snapshot/cache. No es fuente de discovery principal.',
   },
+  {
+    sourceKey: 'co_minsalud_reps',
+    countryCodes: ['CO'],
+    capabilities: [
+      'enrichment_after_discovery',
+      'tax_id_validation',
+      'commercial_signals',
+      'prioritization',
+    ],
+    wizardUsage: 'post_discovery_enrichment',
+    requiresSnapshot: false,
+    canRunLive: true,
+    adapterKey: 'co_minsalud_reps',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'MinSalud REPS — señal de prestador de salud registrado. Enriquecimiento post-discovery por NIT exacto. Consolida sedes en metadata.sites[]. No activa discovery sectorial salud. No reemplaza RUES. No crea cuentas por sede.',
+  },
 ];
 
 /**
