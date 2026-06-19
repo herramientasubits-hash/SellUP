@@ -68,6 +68,8 @@ const EXTERNAL_PLATFORM_BLOCKLIST: BlocklistEntry[] = [
 
   // Marketplaces
   { domain: 'b2bmarketplace.procolombia.co', type: 'marketplace' },
+  { domain: 'hubspot.com', type: 'marketplace', pathPattern: '/marketplace/' },
+  { domain: 'ecosystem.hubspot.com', type: 'marketplace' },
 
   // Review sites
   { domain: 'g2.com', type: 'review_site' },
@@ -146,6 +148,25 @@ const BLOCKED_PATH_PREFIXES: Array<{ prefix: string; type: ExternalPlatformType 
   { prefix: '/channel-partners/', type: 'directory' },
   { prefix: '/reviews/', type: 'review_site' },
   { prefix: '/compare/', type: 'review_site' },
+];
+
+// ─── Path-contained patterns (checked ANYWHERE in path) ───────────────────────────
+// Unlike BLOCKED_PATH_PREFIXES (which uses startsWith), these patterns are checked
+// via path.includes() to catch marketplace/directory URLs at any depth.
+// These patterns are unambiguous signals of external marketplaces or directories.
+
+const BLOCKED_PATH_CONTAINS: Array<{ pattern: string; type: ExternalPlatformType }> = [
+  { pattern: '/marketplace/', type: 'marketplace' },
+  { pattern: '/app-marketplace/', type: 'marketplace' },
+  { pattern: '/app-store/', type: 'marketplace' },
+  { pattern: '/solutions-directory/', type: 'directory' },
+  { pattern: '/partner-directory/', type: 'directory' },
+  { pattern: '/partners-directory/', type: 'directory' },
+  { pattern: '/technology-partners/', type: 'directory' },
+  { pattern: '/vendor-directory/', type: 'directory' },
+  { pattern: '/integration-marketplace/', type: 'marketplace' },
+  { pattern: '/partner-catalog/', type: 'directory' },
+  { pattern: '/vendor-catalog/', type: 'directory' },
 ];
 
 // ─── Popular SaaS / tech platforms that should not be treated as candidate companies ──
@@ -266,6 +287,19 @@ export function evaluateExternalPlatformGate(
         allowed: false,
         platformType: bp.type,
         reason: `Path blocked (${bp.type}): "${path.slice(0, 60)}"`,
+        matchedDomain: domain,
+      };
+    }
+  }
+
+  // ── 2b. Path-contained patterns (marketplaces/directories at any depth) ────
+  // These are unambiguous signals checked via path.includes() anywhere in the URL.
+  for (const bp of BLOCKED_PATH_CONTAINS) {
+    if (path.includes(bp.pattern)) {
+      return {
+        allowed: false,
+        platformType: bp.type,
+        reason: `Path contains marketplace/directory signal (${bp.type}): "${path.slice(0, 60)}"`,
         matchedDomain: domain,
       };
     }

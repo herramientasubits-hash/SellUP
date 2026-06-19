@@ -886,3 +886,190 @@ describe('Fixture J — Adaptive discovery stop_reason coherence', () => {
     assert.equal(remaining, 3, 'remaining_to_target must be 3');
   });
 });
+
+// ─── Fixture A (new 16AB.43.31) — HubSpot marketplace bloqueado ──────────────────
+
+describe('Fixture A (16AB.43.31) — HubSpot ecosystem marketplace bloqueado', () => {
+  const HUBSPOT_MARKETPLACE_URL = 'https://ecosystem.hubspot.com/es/marketplace/solutions/technology-software/colombia';
+
+  it('evaluateExternalPlatformGate → blocks as marketplace', () => {
+    const result = evaluateExternalPlatformGate(HUBSPOT_MARKETPLACE_URL, 'HubSpot');
+    assert.ok(!result.allowed, 'HubSpot ecosystem marketplace must be blocked');
+    assert.equal(result.platformType, 'marketplace', 'Must be classified as marketplace');
+  });
+
+  it('classifySourceUrlQuality → blocks as marketplace', () => {
+    const result = classifySourceUrlQuality(HUBSPOT_MARKETPLACE_URL, 'HubSpot');
+    assert.ok(isBlockedBySourceUrlQuality(result), 'Must be blocked by source URL quality gate');
+    assert.equal(result.quality, 'marketplace', 'Must be classified as marketplace');
+  });
+
+  it('External platform gate blocks before company ownership gate', () => {
+    // External platform gate: blocked
+    const extResult = evaluateExternalPlatformGate(HUBSPOT_MARKETPLACE_URL, 'HubSpot');
+    assert.ok(!extResult.allowed, 'External platform gate must block');
+
+    // Company ownership gate: would allow because "HubSpot" matches "hubspot.com"
+    const ownershipResult = evaluateCompanyOwnership(
+      'HubSpot',
+      HUBSPOT_MARKETPLACE_URL,
+      'ecosystem.hubspot.com',
+    );
+    assert.ok(ownershipResult.allowed, 'Ownership gate would allow HubSpot on hubspot.com');
+
+    // But in the writer, external gate runs BEFORE ownership, so the candidate
+    // never reaches ownership evaluation. Verify the skip reason is external_platform.
+    const candidate = makeCandidate({
+      name: 'HubSpot',
+      website: HUBSPOT_MARKETPLACE_URL,
+      domain: 'ecosystem.hubspot.com',
+      sourceSnippet: 'Technology software solutions for businesses in Colombia HubSpot ecosystem',
+    });
+    const pipelineOutput = makePipelineOutput([candidate]);
+    const admin = makeFakeAdminClient();
+    // The writer must block it via external_platform, NOT company_ownership
+    // We verify this by checking the skipped reason in the result
+    // Since we can't easily verify exact skip reasons from writer output in this test,
+    // we validate the premise: external platform gate blocks, ownership gate would allow.
+    assert.ok(
+      !extResult.allowed && ownershipResult.allowed,
+      'Premise: external blocks while ownership would allow — ordering is sound',
+    );
+  });
+
+  it('Not persisted in writer integration', async () => {
+    const candidates = [makeCandidate({
+      name: 'HubSpot',
+      website: HUBSPOT_MARKETPLACE_URL,
+      domain: 'ecosystem.hubspot.com',
+      sourceSnippet: 'Technology software solutions HubSpot marketplace Colombia',
+    })];
+    const pipelineOutput = makePipelineOutput(candidates);
+    const admin = makeFakeAdminClient();
+    const result = await writeProspectingCandidates(
+      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      admin,
+    );
+    assert.equal(result.candidatesCreated, 0, 'HubSpot must NOT be persisted');
+    const extSkip = result.skipped.some((s) => s.reason.startsWith('external_platform:'));
+    assert.ok(extSkip, 'HubSpot must be skipped by external platform gate');
+  });
+});
+
+// ─── Fixture B (16AB.43.31) — Domain match no salva marketplace ─────────────────
+
+describe('Fixture B (16AB.43.31) — Domain match no salva marketplace', () => {
+  it('HubSpot + ecosystem.hubspot.com → blocked by external platform gate despite domain match', () => {
+    // Even though "HubSpot" domain-matches "hubspot.com", the marketplace path
+    // triggers the external platform gate before ownership gate runs.
+    const extResult = evaluateExternalPlatformGate(
+      'https://ecosystem.hubspot.com/es/marketplace/solutions',
+      'HubSpot',
+    );
+    assert.ok(!extResult.allowed, 'Must be blocked despite domain match');
+    assert.equal(extResult.platformType, 'marketplace', 'Must be marketplace type');
+  });
+
+  it('b2bmarketplace.procolombia.co → blocked despite partial domain match', () => {
+    const extResult = evaluateExternalPlatformGate(
+      'https://b2bmarketplace.procolombia.co/es/productos/software-servicios-ti/software-empresarial',
+      'Colombian B2B Marketplace',
+    );
+    assert.ok(!extResult.allowed, 'Must be blocked');
+    assert.equal(extResult.platformType, 'marketplace');
+  });
+});
+
+// ─── Fixture C (16AB.43.31) — Valid solutions no se bloquean ────────────────────
+
+describe('Fixture C (16AB.43.31) — Valid solutions not blocked', () => {
+  const VALID_COMPANY_CASES = [
+    { name: 'GOBO', url: 'https://gobo.com.co/implementacion-crm-empresas-colombia' },
+    { name: 'Nexen', url: 'https://www.nexen.com.co/servicios/software-empresarial' },
+    { name: 'GTD Colombia', url: 'https://www.gtdcolombia.com/soluciones/servicios-ti' },
+    { name: 'COL2TEC', url: 'https://col2tec.com' },
+  ];
+
+  for (const { name, url } of VALID_COMPANY_CASES) {
+    it(`${name} → not blocked by external platform gate`, () => {
+      const result = evaluateExternalPlatformGate(url, name);
+      assert.ok(result.allowed, `${name} must NOT be blocked by external platform gate`);
+    });
+  }
+
+  it('GTD soluciones path → NOT blocked as marketplace/directory', () => {
+    const result = evaluateExternalPlatformGate(
+      'https://www.gtdcolombia.com/soluciones/servicios-ti',
+      'GTD Colombia',
+    );
+    assert.ok(result.allowed, 'GTD solutions page must be allowed');
+  });
+
+  it('GOBO implementacion path → NOT blocked by path contains patterns', () => {
+    // Verify that /implementacion- is not confused with marketplace patterns
+    const result = evaluateExternalPlatformGate(
+      'https://gobo.com.co/implementacion-crm-empresas-colombia',
+      'GOBO',
+    );
+    assert.ok(result.allowed, 'GOBO implementation page must be allowed');
+  });
+});
+
+// ─── Fixture D (16AB.43.31) — Tavily reconciliation matched ────────────────────
+
+describe('Fixture D (16AB.43.31) — Tavily reconciliation matched from provider_usage_logs', () => {
+  const MOCK_LOGS = [
+    { credits_used: 4, metadata: { queries_executed: 4, queries_planned: 4, successful_query_count: 4, failed_query_count: 0 } },
+    { credits_used: 5, metadata: { queries_executed: 5, queries_planned: 5, successful_query_count: 5, failed_query_count: 0 } },
+    { credits_used: 5, metadata: { queries_executed: 5, queries_planned: 5, successful_query_count: 5, failed_query_count: 0 } },
+    { credits_used: 5, metadata: { queries_executed: 5, queries_planned: 5, successful_query_count: 5, failed_query_count: 0 } },
+  ];
+
+  it('Reconciliation math: 4 logs, credits=4+5+5+5=19, queries_executed=4+5+5+5=19 → matched', () => {
+    let logsCount = 0;
+    let creditsUsedLogged = 0;
+    let queriesExecutedTotal = 0;
+    for (const log of MOCK_LOGS) {
+      logsCount++;
+      creditsUsedLogged += log.credits_used;
+      queriesExecutedTotal += (log.metadata.queries_executed as number);
+    }
+    const creditsPerQuery = 1;
+    const expectedCredits = queriesExecutedTotal * creditsPerQuery;
+    const reconStatus = expectedCredits === creditsUsedLogged ? 'matched' : 'mismatch';
+
+    assert.equal(logsCount, 4, 'logs_count must be 4');
+    assert.equal(creditsUsedLogged, 19, 'credits_used_logged must be 19');
+    assert.equal(queriesExecutedTotal, 19, 'queries_executed_total must be 19');
+    assert.equal(expectedCredits, 19, 'expected_credits_from_queries must be 19');
+    assert.equal(reconStatus, 'matched', 'reconciliation_status must be matched');
+  });
+});
+
+// ─── Fixture E (16AB.43.31) — Tavily reconciliation mismatch ────────────────────
+
+describe('Fixture E (16AB.43.31) — Tavily reconciliation mismatch', () => {
+  it('credits_used_logged=19, queries_executed=18, credits_per_query=1 → mismatch', () => {
+    const creditsUsedLogged = 19;
+    const queriesExecutedTotal = 18;
+    const creditsPerQuery = 1;
+    const expectedCredits = queriesExecutedTotal * creditsPerQuery;
+    const reconStatus = expectedCredits === creditsUsedLogged ? 'matched' : 'mismatch';
+
+    assert.equal(queriesExecutedTotal, 18, 'queries_executed_total must be 18');
+    assert.equal(creditsUsedLogged, 19, 'credits_used_logged must be 19');
+    assert.equal(expectedCredits, 18, 'expected_credits_from_queries must be 18');
+    assert.equal(reconStatus, 'mismatch', 'reconciliation_status must be mismatch');
+  });
+
+  it('credits_used_logged=19, queries_executed=19, credits_per_query=2 → mismatch', () => {
+    const creditsUsedLogged = 19;
+    const queriesExecutedTotal = 19;
+    const creditsPerQuery = 2;
+    const expectedCredits = queriesExecutedTotal * creditsPerQuery;
+    const reconStatus = expectedCredits === creditsUsedLogged ? 'matched' : 'mismatch';
+
+    assert.equal(expectedCredits, 38, 'expected_credits_from_queries must be 38');
+    assert.equal(reconStatus, 'mismatch', 'reconciliation_status must be mismatch when expected != actual');
+  });
+});

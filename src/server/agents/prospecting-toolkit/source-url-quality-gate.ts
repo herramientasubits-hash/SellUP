@@ -305,6 +305,28 @@ export function classifySourceUrlQuality(
     };
   }
 
+  // ── 2b. Marketplace / solutions catalog (checked anywhere in path) ────────────
+  // Paths containing /marketplace/ indicate a marketplace or solutions catalog,
+  // not a company's official website. Must be checked before solution/product paths
+  // to ensure marketplace URLs like ecosystem.hubspot.com/es/marketplace/solutions/
+  // are blocked as marketplace rather than allowed as official_solution_page.
+  if (
+    path.includes('/marketplace/') ||
+    path.includes('/app-marketplace/') ||
+    path.includes('/app-store/') ||
+    path.includes('/solutions-directory/') ||
+    path.includes('/vendor-directory/') ||
+    path.includes('/integration-marketplace/') ||
+    path.includes('/partner-catalog/')
+  ) {
+    return {
+      quality: 'marketplace',
+      blocked: true,
+      reason: `Path indica marketplace/directorio: ${path.slice(0, 60)}`,
+      rankingBonus: RANKING_BONUS.marketplace,
+    };
+  }
+
   // ── 3. Registro de partners ───────────────────────────────────────────────────
   // Detecta cuando el URL es del programa de partners del fabricante, no del partner.
   // Condición: path contiene /partner/ más al menos una señal de registro.

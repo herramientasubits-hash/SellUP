@@ -1272,35 +1272,82 @@ export async function writeProspectingCandidates(
       samples: companyOwnershipGateData.samples.slice(0, 5),
     };
 
-    // Tavily usage reconciliation metadata (Hito 16AB.43.30)
-    // Instrumentación para reconciliar manualmente el dashboard de Tavily
-    // con los provider_usage_logs de Supabase en la próxima corrida real.
-    const tavilyUsageReconciliation = (() => {
-      const queriesExecuted = (() => {
-        const qe = pipelineMeta?.queries_executed;
-        return Array.isArray(qe) ? (qe as string[]) : [];
-      })();
-      const queriesExecutedCount = queriesExecuted.length;
-      const creditsUsed = pipelineMeta?.tavily_credits_used != null
-        ? (pipelineMeta.tavily_credits_used as number)
-        : queriesExecutedCount;
-      const creditsPerQuery = queriesExecutedCount > 0
-        ? Math.round(creditsUsed / queriesExecutedCount)
+    // Tavily usage reconciliation metadata (Hito 16AB.43.30 / 16AB.43.31)
+    // Reconciliación basada en provider_usage_logs reales. Consulta la tabla
+    // provider_usage_logs por batch_id para obtener los valores reales de
+    // créditos consumidos y queries ejecutadas. Fallback a pipeline metadata
+    // si no hay logs disponibles o si la consulta falla.
+    const tavilyUsageReconciliation = await (async () => {
+      let logsCount = 0;
+      let creditsUsedLogged = 0;
+      let queriesPlannedTotal = 0;
+      let queriesExecutedTotal = 0;
+      let successfulQueryCountTotal = 0;
+      let failedQueryCountTotal = 0;
+      let logsAvailable = false;
+
+      try {
+        const { data: usageLogs, error: logsError } = await admin
+          .from('provider_usage_logs')
+          .select('credits_used, metadata')
+          .eq('batch_id', batchId);
+
+        if (!logsError && Array.isArray(usageLogs) && usageLogs.length > 0) {
+          logsAvailable = true;
+          logsCount = usageLogs.length;
+
+          for (const log of usageLogs) {
+            const credits = typeof log.credits_used === 'number' ? log.credits_used : 0;
+            creditsUsedLogged += credits;
+
+            const meta = (log.metadata ?? {}) as Record<string, unknown>;
+            const planned = typeof meta.queries_planned === 'number' ? meta.queries_planned : 0;
+            const executed = typeof meta.queries_executed === 'number' ? meta.queries_executed : 0;
+            const successful = typeof meta.successful_query_count === 'number' ? meta.successful_query_count : 0;
+            const failed = typeof meta.failed_query_count === 'number' ? meta.failed_query_count : 0;
+
+            queriesPlannedTotal += planned;
+            queriesExecutedTotal += executed;
+            successfulQueryCountTotal += successful;
+            failedQueryCountTotal += failed;
+          }
+        }
+      } catch {
+        // Non-critical: fall back to pipeline metadata
+      }
+
+      if (!logsAvailable) {
+        // Fallback: calculate from pipeline metadata
+        const queriesExecuted = (() => {
+          const qe = pipelineMeta?.queries_executed;
+          return Array.isArray(qe) ? (qe as string[]) : [];
+        })();
+        queriesExecutedTotal = queriesExecuted.length;
+        creditsUsedLogged = pipelineMeta?.tavily_credits_used != null
+          ? (pipelineMeta.tavily_credits_used as number)
+          : queriesExecutedTotal;
+        logsCount = pipelineMeta?.provider_usage_logs_count != null
+          ? (pipelineMeta.provider_usage_logs_count as number)
+          : queriesExecutedTotal;
+        queriesPlannedTotal = queriesExecutedTotal;
+        successfulQueryCountTotal = pipelineMeta?.successful_queries_count as number ?? queriesExecutedTotal;
+        failedQueryCountTotal = pipelineMeta?.failed_queries_count as number ?? 0;
+      }
+
+      const creditsPerQuery = queriesExecutedTotal > 0
+        ? Math.round(creditsUsedLogged / queriesExecutedTotal)
         : 1;
-      const expectedCredits = queriesExecutedCount * creditsPerQuery;
-      const usageLogsCount = pipelineMeta?.provider_usage_logs_count != null
-        ? (pipelineMeta.provider_usage_logs_count as number)
-        : queriesExecutedCount;
-      const reconStatus = expectedCredits === creditsUsed ? 'matched' : 'mismatch';
+      const expectedCredits = queriesExecutedTotal * creditsPerQuery;
+      const reconStatus = expectedCredits === creditsUsedLogged ? 'matched' : 'mismatch';
       return {
         enabled: true,
-        logs_count: usageLogsCount,
-        queries_planned_total: queriesExecutedCount,
-        queries_executed_total: queriesExecutedCount,
-        successful_query_count_total: pipelineMeta?.successful_queries_count as number ?? queriesExecutedCount,
-        failed_query_count_total: pipelineMeta?.failed_queries_count as number ?? 0,
+        logs_count: logsCount,
+        queries_planned_total: queriesPlannedTotal,
+        queries_executed_total: queriesExecutedTotal,
+        successful_query_count_total: successfulQueryCountTotal,
+        failed_query_count_total: failedQueryCountTotal,
         credits_per_query: creditsPerQuery,
-        credits_used_logged: creditsUsed,
+        credits_used_logged: creditsUsedLogged,
         expected_credits_from_queries: expectedCredits,
         reconciliation_status: reconStatus,
       };
