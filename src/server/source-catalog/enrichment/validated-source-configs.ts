@@ -79,6 +79,23 @@ export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
     description:
       'MinSalud REPS — señal de prestador de salud registrado. Enriquecimiento post-discovery por NIT exacto. Consolida sedes en metadata.sites[]. No activa discovery sectorial salud. No reemplaza RUES. No crea cuentas por sede.',
   },
+  {
+    sourceKey: 'co_superfinanciera',
+    countryCodes: ['CO'],
+    capabilities: [
+      'enrichment_after_discovery',
+      'tax_id_validation',
+      'commercial_signals',
+      'prioritization',
+    ],
+    wizardUsage: 'post_discovery_enrichment',
+    requiresSnapshot: false,
+    canRunLive: true,
+    adapterKey: 'co_superfinanciera',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'Superfinanciera SFC — señal de entidad vigilada por la Superintendencia Financiera de Colombia. Enriquecimiento post-discovery por NIT exacto. Confirma sector financiero y tipo de entidad SFC. NIT 0 (entidad extranjera) es omitido. No activa discovery sectorial financiero. No reemplaza RUES. No crea cuentas.',
+  },
 ];
 
 /**
