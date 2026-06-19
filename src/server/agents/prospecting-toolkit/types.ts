@@ -96,7 +96,6 @@ export type ConnectionMode =
   | 'wizard_discovery'
   | 'automatic_enrichment'
   | 'source_guided_query'
-  | 'snapshot_pending'
   | 'not_connected'
   | 'not_applicable';
 

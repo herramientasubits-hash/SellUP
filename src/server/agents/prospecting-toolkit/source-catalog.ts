@@ -101,7 +101,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     name: 'Supersociedades SIIS',
     sellupUse: 'enrichment',
     aiFlowStatus: 'partial_pending_data',
-    connectionMode: 'snapshot_pending',
+    connectionMode: 'automatic_enrichment',
     nextAction: 'Aplicar migration/snapshot SIIS para activar matches reales',
     countryCodes: ['CO'],
     sectors: [],

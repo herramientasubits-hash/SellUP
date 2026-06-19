@@ -200,7 +200,6 @@ export const CONNECTION_MODE_LABELS: Record<ConnectionMode, string> = {
   wizard_discovery: 'Wizard discovery',
   automatic_enrichment: 'Enrichment automático',
   source_guided_query: 'Source-guided query',
-  snapshot_pending: 'Snapshot pendiente',
   not_connected: 'No conectada',
   not_applicable: 'No aplica',
 };
@@ -213,8 +212,6 @@ export function connectionModeBadgeClass(mode: ConnectionMode): string {
       return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
     case 'source_guided_query':
       return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
-    case 'snapshot_pending':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
     case 'not_connected':
       return 'border-border/40 bg-muted/30 text-muted-foreground';
     case 'not_applicable':
