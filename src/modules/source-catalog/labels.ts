@@ -140,6 +140,7 @@ export const SELLUP_USE_LABELS: Record<SellupUse, string> = {
   technical_container: 'Contenedor técnico',
   manual_reference: 'Referencia manual',
   not_for_ai_flow: 'No usar IA',
+  pending_classification: 'Pendiente clasificación IA',
 };
 
 export function sellupUseBadgeClass(use: SellupUse): string {
@@ -160,6 +161,8 @@ export function sellupUseBadgeClass(use: SellupUse): string {
       return 'border-border/30 bg-muted/20 text-muted-foreground/70';
     case 'not_for_ai_flow':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
+    case 'pending_classification':
+      return 'border-border/40 bg-muted/30 text-muted-foreground';
   }
 }
 
@@ -173,6 +176,7 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   manual_only: 'Solo manual',
   paused: 'Pausada',
   not_applicable: 'No aplica',
+  pending_classification: 'Pendiente clasificación',
 };
 
 export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
@@ -191,6 +195,8 @@ export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'not_applicable':
       return 'border-border/30 bg-muted/20 text-muted-foreground/50';
+    case 'pending_classification':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
   }
 }
 

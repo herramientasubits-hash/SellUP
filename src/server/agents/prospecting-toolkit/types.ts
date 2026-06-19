@@ -81,7 +81,8 @@ export type SellupUse =
   | 'contextual_signal'
   | 'technical_container'
   | 'manual_reference'
-  | 'not_for_ai_flow';
+  | 'not_for_ai_flow'
+  | 'pending_classification';
 
 export type AiFlowStatus =
   | 'connected'
@@ -90,7 +91,8 @@ export type AiFlowStatus =
   | 'source_guided'
   | 'manual_only'
   | 'paused'
-  | 'not_applicable';
+  | 'not_applicable'
+  | 'pending_classification';
 
 export type ConnectionMode =
   | 'wizard_discovery'

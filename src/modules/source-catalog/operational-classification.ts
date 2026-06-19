@@ -8,10 +8,10 @@ export type OperationalClassification = {
 };
 
 const FALLBACK: OperationalClassification = {
-  sellupUse: 'manual_reference',
-  aiFlowStatus: 'manual_only',
+  sellupUse: 'pending_classification',
+  aiFlowStatus: 'pending_classification',
   connectionMode: 'not_connected',
-  nextAction: 'Pendiente clasificación operativa',
+  nextAction: 'Pendiente clasificación operativa por país',
 };
 
 export function resolveOperationalClassification(

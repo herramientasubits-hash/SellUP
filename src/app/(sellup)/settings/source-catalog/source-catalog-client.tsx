@@ -41,14 +41,15 @@ function filterTab(sources: Row[], tab: TabId): Row[] {
         return (
           s.sellupUse !== 'technical_container' &&
           s.sellupUse !== 'contextual_signal' &&
-          s.sellupUse !== 'manual_reference' &&
-          s.sellupUse !== 'not_for_ai_flow' &&
-          (
-            s.aiFlowStatus === 'connected' ||
-            s.aiFlowStatus === 'eligible_not_connected' ||
-            s.aiFlowStatus === 'partial_pending_data' ||
-            s.aiFlowStatus === 'source_guided'
-          )
+            s.sellupUse !== 'manual_reference' &&
+            s.sellupUse !== 'not_for_ai_flow' &&
+            (
+              s.aiFlowStatus === 'connected' ||
+              s.aiFlowStatus === 'eligible_not_connected' ||
+              s.aiFlowStatus === 'partial_pending_data' ||
+              s.aiFlowStatus === 'source_guided' ||
+              s.aiFlowStatus === 'pending_classification'
+            )
         );
       }
       case 'manuales': {
