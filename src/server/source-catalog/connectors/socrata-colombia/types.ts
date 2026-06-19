@@ -8,6 +8,7 @@
 export type ColombiaCompanySource =
   | 'rues'
   | 'secop2'
+  | 'secop2_proveedores'
   | 'reps'
   | 'superfinanciera';
 

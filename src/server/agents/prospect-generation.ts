@@ -1027,17 +1027,17 @@ export async function runProspectGenerationAgent(
         }
       }
 
-      // ─── SIIS Post-Discovery Enrichment (co_siis, snapshot-based, non-blocking) ─────
+      // ─── Post-Discovery Enrichment — validated sources (non-blocking) ──────────
       if (countryCode === 'CO') {
         try {
-          const { data: candidatesForSiis } = await admin
+          const { data: candidatesForEnrichment } = await admin
             .from('prospect_candidates')
             .select('id, name, legal_name, tax_identifier, sector_description, metadata')
             .eq('batch_id', ruesResult.batchId);
 
-          if (candidatesForSiis && candidatesForSiis.length > 0) {
-            const siisEnrichResult = await enrichCandidatesWithValidatedSources({
-              candidates: candidatesForSiis.map((c) => ({
+          if (candidatesForEnrichment && candidatesForEnrichment.length > 0) {
+            const enrichResult = await enrichCandidatesWithValidatedSources({
+              candidates: candidatesForEnrichment.map((c) => ({
                 name: (c.name ?? c.legal_name ?? '') as string,
                 taxId: (c.tax_identifier ?? null) as string | null,
                 countryCode: 'CO',
@@ -1048,43 +1048,49 @@ export async function runProspectGenerationAgent(
               stage: 'post_discovery_enrichment',
             });
 
-            const siisSkipped = siisEnrichResult.sourcesSkipped.includes('co_siis');
-
-            if (siisSkipped) {
+            if (enrichResult.sourcesSkipped.includes('co_siis')) {
               console.warn('[agent-1] co_siis enrichment skipped (no snapshot) for batch:', ruesResult.batchId);
-            } else {
-              const updateOps = siisEnrichResult.results
-                .filter((r) => r.sourceEnrichments['co_siis']?.status !== 'skipped')
-                .map((r) => {
-                  const candidate = candidatesForSiis[r.candidateIndex];
-                  if (!candidate) return Promise.resolve();
-                  const existingMeta = (candidate.metadata as Record<string, unknown>) ?? {};
-                  const updatedMeta = {
-                    ...existingMeta,
-                    source_enrichment: {
-                      ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
-                      co_siis: r.enrichmentMetadata['co_siis'],
-                    },
-                  };
-                  return admin
-                    .from('prospect_candidates')
-                    .update({ metadata: updatedMeta })
-                    .eq('id', candidate.id as string);
-                });
+            }
 
-              await Promise.allSettled(updateOps);
+            // Save all non-skipped enrichment results generically
+            const updateOps = enrichResult.results
+              .filter((r) => Object.values(r.sourceEnrichments).some((e) => e.status !== 'skipped'))
+              .map((r) => {
+                const candidate = candidatesForEnrichment[r.candidateIndex];
+                if (!candidate) return Promise.resolve();
+                const existingMeta = (candidate.metadata as Record<string, unknown>) ?? {};
+                const newSourceEnrichment = Object.fromEntries(
+                  Object.entries(r.enrichmentMetadata).filter(
+                    ([, v]) => (v as Record<string, unknown>)['status'] !== 'skipped',
+                  ),
+                );
+                const updatedMeta = {
+                  ...existingMeta,
+                  source_enrichment: {
+                    ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+                    ...newSourceEnrichment,
+                  },
+                };
+                return admin
+                  .from('prospect_candidates')
+                  .update({ metadata: updatedMeta })
+                  .eq('id', candidate.id as string);
+              });
 
-              const matched = siisEnrichResult.results.filter(
-                (r) => r.sourceEnrichments['co_siis']?.status === 'matched',
+            await Promise.allSettled(updateOps);
+
+            for (const sourceKey of enrichResult.sourcesApplied) {
+              const matched = enrichResult.results.filter(
+                (r) => r.sourceEnrichments[sourceKey]?.status === 'matched',
               ).length;
-              const noMatch = siisEnrichResult.results.filter(
-                (r) => r.sourceEnrichments['co_siis']?.status === 'no_match',
+              const noMatch = enrichResult.results.filter(
+                (r) => r.sourceEnrichments[sourceKey]?.status === 'no_match',
               ).length;
-              console.info('[agent-1] co_siis enrichment completed for batch:', ruesResult.batchId, { matched, noMatch });
+              console.info(`[agent-1] ${sourceKey} enrichment completed for batch:`, ruesResult.batchId, { matched, noMatch });
             }
           }
-        } catch (siisErr: unknown) {
-          console.warn('[agent-1] co_siis enrichment failed (non-blocking):', siisErr instanceof Error ? siisErr.message : siisErr);
+        } catch (enrichErr: unknown) {
+          console.warn('[agent-1] post-discovery enrichment failed (non-blocking):', enrichErr instanceof Error ? enrichErr.message : enrichErr);
         }
       }
     }

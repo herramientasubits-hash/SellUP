@@ -667,3 +667,31 @@ export function normalizeSuperfinancieraRecord(
     },
   };
 }
+
+export function normalizeSecop2ProveedoresRecord(
+  record: RawRecord,
+): NormalizedColombiaCompanySample {
+  const meta = SOCRATA_COLOMBIA_DATASETS.secop2_proveedores;
+  return {
+    source: 'secop2_proveedores',
+    sourceKey: meta.sourceKey,
+    datasetId: meta.datasetId,
+    companyName: str(record.nombre),
+    taxId: str(record.nit),
+    legalStatus: str(record.esta_activa),
+    sectorCode: str(record.codigo_categoria_principal),
+    sectorDescription: str(record.descripcion_categoria_principal),
+    city: str(record.municipio),
+    department: str(record.departamento),
+    address: str(record.direccion),
+    email: str(record.correo),
+    phone: str(record.telefono),
+    website: str(record.sitio_web),
+    rawRecordId: str(record.nit),
+    sourceMetadata: {
+      tipo_empresa: str(record.tipo_empresa),
+      espyme: str(record.espyme),
+      nombre_representante_legal: str(record.nombre_representante_legal),
+    },
+  };
+}

@@ -44,6 +44,13 @@ export const SOCRATA_COLOMBIA_DATASETS = {
     baseUrl: 'https://www.datos.gov.co/resource/sr9n-792w.json',
     primaryUse: 'financial_sector_discovery',
   },
+  secop2_proveedores: {
+    sourceKey: 'co_secop2_proveedores',
+    datasetId: 'qmzu-gj57',
+    name: 'SECOP II Proveedores Registrados',
+    baseUrl: 'https://www.datos.gov.co/resource/qmzu-gj57.json',
+    primaryUse: 'b2g_enrichment',
+  },
 } as const satisfies Record<ColombiaCompanySource, SocrataColombiaDataset>;
 
 export const SOCRATA_COLOMBIA_DATASET_KEYS = Object.keys(

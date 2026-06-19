@@ -9,7 +9,9 @@
 
 import type { SourceEnrichmentAdapter } from './types';
 import { siisEnrichmentAdapter } from '../connectors/siis-colombia/siis-enrichment-adapter';
+import { secop2ProveedoresEnrichmentAdapter } from '../connectors/secop2-proveedores-colombia/secop2-proveedores-enrichment-adapter';
 
 export const ENRICHMENT_ADAPTER_REGISTRY: Record<string, SourceEnrichmentAdapter> = {
   co_siis: siisEnrichmentAdapter,
+  co_secop2_proveedores: secop2ProveedoresEnrichmentAdapter,
 };

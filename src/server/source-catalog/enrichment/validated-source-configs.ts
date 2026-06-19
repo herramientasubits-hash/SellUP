@@ -11,6 +11,23 @@ import type { ValidatedSourceConfig, SourceCapability } from './types';
 
 export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
   {
+    sourceKey: 'co_secop2_proveedores',
+    countryCodes: ['CO'],
+    capabilities: [
+      'enrichment_after_discovery',
+      'tax_id_validation',
+      'commercial_signals',
+      'prioritization',
+    ],
+    wizardUsage: 'post_discovery_enrichment',
+    requiresSnapshot: false,
+    canRunLive: true,
+    adapterKey: 'co_secop2_proveedores',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'SECOP II Proveedores Registrados — señal comercial B2G. Indica si la empresa está registrada como proveedora del Estado colombiano. Solo por NIT exacto. No es fuente de discovery principal.',
+  },
+  {
     sourceKey: 'co_siis',
     countryCodes: ['CO'],
     capabilities: [
