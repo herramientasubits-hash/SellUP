@@ -600,6 +600,10 @@ export async function runIncrementalProspectingSearch(
           ...(input.additionalCriteria != null
             ? { additional_criteria: input.additionalCriteria }
             : {}),
+          // Hito 16AB.43.29: subindustrias pasadas al writer para el business-fit gate.
+          ...(input.subindustries != null && input.subindustries.length > 0
+            ? { subindustries: input.subindustries }
+            : {}),
         },
         existingBatchId: input.existingBatchId ?? null,
       });

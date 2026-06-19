@@ -29,7 +29,8 @@
     "test:feature-flags": "node --import tsx --test src/lib/__tests__/feature-flags.server.test.ts",
     "test:precision-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/precision-gate.test.ts",
     "test:content-page-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/content-page-gate-writer.test.ts",
-    "test:reps-normalizer": "node --import tsx --test src/server/source-catalog/connectors/socrata-colombia/__tests__/reps-normalizer.test.ts"
+    "test:reps-normalizer": "node --import tsx --test src/server/source-catalog/connectors/socrata-colombia/__tests__/reps-normalizer.test.ts",
+    "test:business-fit-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/business-fit-gate.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

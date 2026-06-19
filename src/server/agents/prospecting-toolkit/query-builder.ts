@@ -577,12 +577,14 @@ export function buildExpandedMultiQueryDiscoveryQueries(
   }
 
   if (isTechSector(industry)) {
+    // Hito 16AB.43.29: "transformación digital" reemplazado por términos de producto
+    // específico (ERP/CRM/LMS/SaaS) para evitar atraer páginas de contenido genérico.
     const baseQueries = [
       `empresa software empresarial ${country} soluciones corporativas clientes`,
       `proveedor SaaS B2B ${country} clientes empresas corporativo`,
-      `empresa automatización procesos ${country} ERP implementación`,
-      `compañía consultoría TI ${country} transformación digital`,
-      `empresa desarrollo aplicaciones ${country} clientes corporativos`,
+      `empresa automatización procesos ${country} ERP CRM implementación sitio oficial`,
+      `empresa software ERP CRM LMS ${country} clientes corporativos plataforma`,
+      `empresa desarrollo aplicaciones ${country} clientes corporativos software`,
     ];
     return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 2);
   }

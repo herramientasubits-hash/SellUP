@@ -19,6 +19,8 @@ import { runProspectingPipeline } from "./prospecting-pipeline";
 import { buildNoveltyIndex, evaluateCandidateNovelty, buildRecentIdentityKeySet } from "./novelty-checker";
 import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
 import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
+import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-url-quality-gate";
+import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -647,6 +649,34 @@ export async function writeProspectingCandidates(
     targetCapCount: 0,
   };
 
+  // Source URL quality gate tracking (Hito 16AB.43.29)
+  type SourceUrlQualitySample = { name: string; reason: string; url: string | null };
+  const sourceUrlQualityGate = {
+    blockedCount: 0,
+    blockedByType: {} as Record<string, number>,
+    samples: [] as SourceUrlQualitySample[],
+  };
+
+  // Business fit gate tracking (Hito 16AB.43.29)
+  type BusinessFitSample = { name: string; reason: string; url: string | null; fit: string };
+  const businessFitGateData = {
+    rejectedCount: 0,
+    lowFitCount: 0,
+    mediumFitCount: 0,
+    highFitCount: 0,
+    samples: [] as BusinessFitSample[],
+  };
+
+  // Subindustrias del contexto del batch (inyectadas desde el wizard a través de extraBatchMetadata).
+  const batchSubindustries = (() => {
+    const raw = (extraBatchMetadata as Record<string, unknown> | null)?.['subindustries'];
+    return Array.isArray(raw) ? (raw as string[]) : [];
+  })();
+  const batchAdditionalCriteria = (() => {
+    const raw = (extraBatchMetadata as Record<string, unknown> | null)?.['additional_criteria'];
+    return typeof raw === 'string' ? raw : null;
+  })();
+
   // ── Pass 1: evaluate all candidates through gates → collect eligible ────────
   type EligibleEntry = {
     candidate: ProspectingPipelineCandidate;
@@ -655,6 +685,8 @@ export async function writeProspectingCandidates(
     countryCompatWeight: number;
     noveltyResult: ReturnType<typeof evaluateCandidateNovelty>;
     identityKey: string | null;
+    sourceUrlRankingBonus: number;
+    businessFitRankingBonus: number;
   };
   const eligibleEntries: EligibleEntry[] = [];
 
@@ -724,6 +756,72 @@ export async function writeProspectingCandidates(
       continue;
     }
 
+    // ── Source URL quality gate (Hito 16AB.43.29) ────────────────────────────
+    // Bloquea URLs que son artículos, blogs, directorios de partners, registros
+    // de partners o páginas genéricas de transformación digital.
+    const urlToClassify = candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null);
+    const sourceUrlQualityResult = classifySourceUrlQuality(urlToClassify, candidate.name);
+    if (isBlockedBySourceUrlQuality(sourceUrlQualityResult)) {
+      skipped.push({
+        name: candidate.name,
+        reason: `source_url_quality:${sourceUrlQualityResult.quality}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      sourceUrlQualityGate.blockedCount++;
+      sourceUrlQualityGate.blockedByType[sourceUrlQualityResult.quality] =
+        (sourceUrlQualityGate.blockedByType[sourceUrlQualityResult.quality] ?? 0) + 1;
+      precisionGate.contentPageCount++; // contribuye al count de exclusiones de contenido
+      if (sourceUrlQualityGate.samples.length < 10) {
+        sourceUrlQualityGate.samples.push({
+          name: candidate.name,
+          reason: sourceUrlQualityResult.reason,
+          url: candidate.website ?? null,
+        });
+      }
+      continue;
+    }
+
+    // ── Business-fit gate (Hito 16AB.43.29) ──────────────────────────────────
+    // Evalúa si el candidato encaja con el segmento B2B SaaS/ERP/CRM/LMS/HR Tech.
+    // Bloquea agencias de marketing, BPO/staffing sin producto tech, y candidatos
+    // con señales negativas fuertes.
+    const businessFitResult = evaluateBusinessFit({
+      name: candidate.name,
+      website: candidate.website ?? null,
+      domain: effectiveDomain ?? null,
+      sourceSnippet: candidate.sourceSnippet ?? null,
+      sourceTitle: candidate.sourceTitle ?? null,
+      subindustries: batchSubindustries,
+      additionalCriteria: batchAdditionalCriteria,
+    });
+
+    if (businessFitResult.fit === 'high') {
+      businessFitGateData.highFitCount++;
+    } else if (businessFitResult.fit === 'medium') {
+      businessFitGateData.mediumFitCount++;
+    } else if (businessFitResult.fit === 'low') {
+      businessFitGateData.lowFitCount++;
+    } else {
+      businessFitGateData.rejectedCount++;
+    }
+
+    if (isBlockedByBusinessFit(businessFitResult)) {
+      skipped.push({
+        name: candidate.name,
+        reason: `business_fit:${businessFitResult.fit}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      if (businessFitGateData.samples.length < 10) {
+        businessFitGateData.samples.push({
+          name: candidate.name,
+          reason: businessFitResult.reasons.join('; '),
+          url: candidate.website ?? null,
+          fit: businessFitResult.fit,
+        });
+      }
+      continue;
+    }
+
     // ── Novelty check ─────────────────────────────────────────────────────────
     const noveltyResult = evaluateCandidateNovelty(
       { name: candidate.name, domain: candidate.domain, website: candidate.website },
@@ -748,15 +846,20 @@ export async function writeProspectingCandidates(
       countryCompatWeight: countryCompatibilityRankWeight(countryCompat),
       noveltyResult,
       identityKey: identity.identityKey ?? null,
+      sourceUrlRankingBonus: sourceUrlQualityResult.rankingBonus,
+      businessFitRankingBonus: businessFitResult.rankingBonus,
     });
   }
 
-  // ── Pass 2: rank eligible candidates by priority (Hito 16AB.43.27 / 16AB.43.28) ─
-  // Priority: 1) country compat weight desc, 2) confidence score desc,
+  // ── Pass 2: rank eligible candidates by priority (Hito 16AB.43.27 / 16AB.43.28 / 16AB.43.29) ─
+  // Priority: 1) composite fit score desc (business fit + URL quality + country compat),
+  //           2) confidence score desc,
   //           3) path depth asc (closer to root URL is better)
   eligibleEntries.sort((a, b) => {
-    const countryDiff = b.countryCompatWeight - a.countryCompatWeight;
-    if (countryDiff !== 0) return countryDiff;
+    const aComposite = a.businessFitRankingBonus + a.sourceUrlRankingBonus + a.countryCompatWeight * 10;
+    const bComposite = b.businessFitRankingBonus + b.sourceUrlRankingBonus + b.countryCompatWeight * 10;
+    const compositeDiff = bComposite - aComposite;
+    if (compositeDiff !== 0) return compositeDiff;
     const scoreDiff = (b.candidate.scoring.confidenceScore ?? 0) - (a.candidate.scoring.confidenceScore ?? 0);
     if (scoreDiff !== 0) return scoreDiff;
     return pathDepth(a.candidate.website) - pathDepth(b.candidate.website);
@@ -1024,6 +1127,24 @@ export async function writeProspectingCandidates(
         }
       : storedAdaptive;
 
+    // Source URL quality gate metadata (Hito 16AB.43.29)
+    const sourceUrlQualityGateMetadata = {
+      enabled: true,
+      blocked_count: sourceUrlQualityGate.blockedCount,
+      blocked_by_type: sourceUrlQualityGate.blockedByType,
+      samples: sourceUrlQualityGate.samples.slice(0, 5),
+    };
+
+    // Business fit gate metadata (Hito 16AB.43.29)
+    const businessFitGateMetadata = {
+      enabled: true,
+      rejected_count: businessFitGateData.rejectedCount,
+      low_fit_count: businessFitGateData.lowFitCount,
+      medium_fit_count: businessFitGateData.mediumFitCount,
+      high_fit_count: businessFitGateData.highFitCount,
+      samples: businessFitGateData.samples.slice(0, 5),
+    };
+
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
@@ -1031,6 +1152,8 @@ export async function writeProspectingCandidates(
       pipeline_summary_post_write: pipelineSummaryPostWrite,
       canonical_identity_gate: canonicalIdentityGate,
       precision_gate: precisionGateMetadata,
+      source_url_quality_gate: sourceUrlQualityGateMetadata,
+      business_fit_gate: businessFitGateMetadata,
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
     };
