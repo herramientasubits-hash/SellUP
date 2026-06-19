@@ -30,6 +30,7 @@
     "test:precision-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/precision-gate.test.ts",
     "test:content-page-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/content-page-gate-writer.test.ts",
     "test:reps-normalizer": "node --import tsx --test src/server/source-catalog/connectors/socrata-colombia/__tests__/reps-normalizer.test.ts",
+    "test:superfinanciera-normalizer": "node --import tsx --test src/server/source-catalog/connectors/socrata-colombia/__tests__/superfinanciera-normalizer.test.ts",
     "test:business-fit-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/business-fit-gate.test.ts"
   },
   "dependencies": {

@@ -680,28 +680,78 @@ export function normalizeRepsRecord(
 
 // ─── Superfinanciera ──────────────────────────────────────────────────────────
 
+/**
+ * Genera una etiqueta legible para el código de tipo de entidad SFC.
+ * No existe un mapeo validado en el repo, así que envuelve el código real
+ * en lugar de inventar categorías (banco, aseguradora, etc.).
+ */
+export function mapSuperfinancieraEntityType(code: string | null): string | null {
+  if (!code) return null;
+  return `Entidad vigilada SFC - tipo ${code}`;
+}
+
+/**
+ * Valida el campo uripaginaweb del dataset SFC.
+ * Rechaza valores placeholder como "Pendiente" y strings que no parecen URL.
+ * Aplica https:// a dominios que empiezan con www.
+ */
+export function normalizeSuperfinancieraWebsite(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (/^pendiente$/i.test(trimmed)) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('http://') || lower.startsWith('https://')) return trimmed;
+  if (lower.startsWith('www.')) return `https://${trimmed}`;
+  return null;
+}
+
 export function normalizeSuperfinancieraRecord(
   record: RawRecord,
 ): NormalizedColombiaCompanySample {
   const meta = SOCRATA_COLOMBIA_DATASETS.superfinanciera;
+
+  const rawNit = str(record.numeroidentificacion);
+  const codEntidad = str(record.cod_entidad);
+  const tipoEntidad = str(record.tipo_entidad);
+
+  // numeroidentificacion '0' signals a foreign entity without Colombian NIT.
+  const isForeignEntity = rawNit === '0';
+  const taxId = isForeignEntity ? null : rawNit;
+
+  const entityTypeLabel = mapSuperfinancieraEntityType(tipoEntidad);
+
+  const foreignEntityMetadata: Record<string, boolean> = isForeignEntity
+    ? { foreign_entity_without_colombian_tax_id: true }
+    : {};
+
   return {
     source: 'superfinanciera',
     sourceKey: meta.sourceKey,
     datasetId: meta.datasetId,
     companyName: str(record.razon_social),
-    taxId: str(record.numeroidentificacion) ?? str(record.nit),
-    legalStatus: str(record.estado),
-    sectorCode: str(record.tipo_entidad),
-    sectorDescription: str(record.actividad_economica),
+    taxId,
+    // SFC dataset does not publish an operational status field.
+    legalStatus: null,
+    sectorCode: tipoEntidad,
+    sectorDescription: entityTypeLabel,
     city: str(record.ciudad),
-    department: str(record.departamento),
+    // SFC dataset does not include a 'departamento' field.
+    department: null,
     address: str(record.direccion),
     email: str(record.emailprincipal),
-    phone: str(record.telefono),
-    website: str(record.uripaginaweb),
-    rawRecordId: str(record.id) ?? str(record.codigo_entidad),
+    // SFC dataset does not include a 'telefono' field.
+    phone: null,
+    website: normalizeSuperfinancieraWebsite(str(record.uripaginaweb)),
+    rawRecordId: codEntidad ?? rawNit,
     sourceMetadata: {
-      representante_legal: str(record.representante_legal),
+      sfc_entity_code: codEntidad,
+      sfc_entity_type_code: tipoEntidad,
+      sfc_entity_type_label: entityTypeLabel,
+      legal_representative_name: str(record.representante_legal),
+      legal_representative_role: str(record.nombrepublicocargo),
+      sfc_supervised_entity: true,
+      source_dataset_id: 'sr9n-792w',
+      ...foreignEntityMetadata,
     },
   };
 }
