@@ -14,9 +14,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain } from './normalization';
 import { buildIdentityKey } from './canonical-company-identity';
 
-// ─── Cooldown default ─────────────────────────────────────────────────────────
+// ─── Cooldown defaults ────────────────────────────────────────────────────────
 
 const DEFAULT_COOLDOWN_DAYS = 30;
+
+/**
+ * Ventana para bloquear candidatos discarded/rejected cuando reviewed_at es null.
+ * Usa updated_at o created_at como fecha de referencia (negative memory).
+ */
+const NEGATIVE_MEMORY_COOLDOWN_DAYS = 90;
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -31,7 +37,8 @@ export type NoveltyStatus =
 export type NoveltySkipReason =
   | 'seen_in_previous_batch_recently'
   | 'confirmed_duplicate_previous'
-  | 'rejected_recently';
+  | 'rejected_recently'
+  | 'negative_memory_rejected_recently';
 
 export type NoveltyCheckMetadata = {
   status: NoveltyStatus;
@@ -61,6 +68,7 @@ type PreviousCandidateRow = {
   status: string;
   duplicate_status: string;
   reviewed_at: string | null;
+  updated_at: string | null;
   created_at: string;
 };
 
@@ -123,7 +131,7 @@ export async function buildNoveltyIndex(
   let query = (supabase as ReturnType<typeof import('@supabase/supabase-js').createClient>)
     .from('prospect_candidates')
     .select(
-      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, created_at',
+      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at',
     )
     .in('domain', normalizedDomains);
 
@@ -241,6 +249,32 @@ export function evaluateCandidateNovelty(
         ...baseContext,
         status: 'rejected_recently',
         reason: `Descartado hace ${Math.floor(daysSince(recentlyDiscarded.reviewed_at!))} días (cooldown ${cooldownDays} días)`,
+        cooldown_until: cooldownUntil,
+      },
+    };
+  }
+
+  // Regla 4b: descartado con reviewed_at = null → usar COALESCE(updated_at, created_at)
+  // Cubre el caso en que el candidato fue descartado pero reviewed_at no se registró.
+  // Ventana fija de NEGATIVE_MEMORY_COOLDOWN_DAYS para no ser más permisivos que la Regla 4.
+  const recentlyDiscardedNullReview = previous.find((r) => {
+    if (r.status !== 'discarded') return false;
+    if (r.reviewed_at) return false; // ya cubierto por Regla 4
+    const fallbackDate = r.updated_at ?? r.created_at;
+    return daysSince(fallbackDate) < NEGATIVE_MEMORY_COOLDOWN_DAYS;
+  });
+  if (recentlyDiscardedNullReview) {
+    const fallbackDate =
+      recentlyDiscardedNullReview.updated_at ?? recentlyDiscardedNullReview.created_at;
+    const cooldownUntil = addDays(fallbackDate, NEGATIVE_MEMORY_COOLDOWN_DAYS);
+    return {
+      status: 'rejected_recently',
+      shouldSkip: true,
+      skipReason: 'negative_memory_rejected_recently',
+      noveltyMetadata: {
+        ...baseContext,
+        status: 'rejected_recently',
+        reason: `Descartado (sin fecha de revisión) hace ${Math.floor(daysSince(fallbackDate))} días — bloqueado por memoria negativa (${NEGATIVE_MEMORY_COOLDOWN_DAYS} días)`,
         cooldown_until: cooldownUntil,
       },
     };

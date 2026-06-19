@@ -34,6 +34,7 @@ export type SourceUrlQuality =
   | 'editorial_media'
   | 'forum_or_community'
   | 'review_site'
+  | 'landing_page'
   | 'unknown';
 
 export type SourceUrlQualityResult = {
@@ -59,6 +60,7 @@ const BLOCKED_QUALITIES = new Set<SourceUrlQuality>([
   'editorial_media',
   'forum_or_community',
   'review_site',
+  'landing_page',
 ]);
 
 // ─── Bonos de ranking por calidad ────────────────────────────────────────────
@@ -83,6 +85,7 @@ const RANKING_BONUS: Record<SourceUrlQuality, number> = {
   editorial_media: -90,
   forum_or_community: -90,
   review_site: -80,
+  landing_page: -70,
 };
 
 // ─── Dominios de directorios de partners ────────────────────────────────────
@@ -209,6 +212,13 @@ const TRANSFORMATION_DIGITAL_PATH_SIGNALS = [
   'transformacion_digital',
   'agencia-transformacion',
   'agencia-digital-transformation',
+];
+
+// Paths de landing pages de marketing/campaña — fuente primaria débil
+const LANDING_PAGE_PATH_SIGNALS = [
+  '/lp/',
+  '/landing/',
+  '/landing-page/',
 ];
 
 const ARTICLE_SLUG_SIGNALS = [
@@ -440,6 +450,18 @@ export function classifySourceUrlQuality(
       blocked: true,
       reason: `Path indica artículo de contenido: ${path.slice(0, 80)}`,
       rankingBonus: RANKING_BONUS.content_article,
+    };
+  }
+
+  // ── 7b. Landing page de marketing/campaña — fuente primaria débil ────────────
+  // Cubre patrones /lp/, /landing/, /landing-page/ que indican una página
+  // de campaña, no la homepage ni una página de producto oficial.
+  if (LANDING_PAGE_PATH_SIGNALS.some((s) => path.includes(s))) {
+    return {
+      quality: 'landing_page',
+      blocked: true,
+      reason: `Path indica landing page de marketing: ${path.slice(0, 80)}`,
+      rankingBonus: RANKING_BONUS.landing_page,
     };
   }
 
