@@ -137,7 +137,7 @@ function classifyQueryToFamily(queryText: string): QueryFamily {
  *   co_secop2           → solo si gobierno/contratación pública
  *   co_fedesoft         → permitido para tecnología/software
  *   co_andicom          → permitido para tecnología (con cuidado de ruido)
- *   co_microsoft_partners → permitido para SaaS/partner ecosystem
+ *   co_microsoft_partners → reclasificado manual_signal_only (sin NIT, sin API), no usar como source-guided query
  */
 export function buildDiscoveryQueryPlan(params: {
   industry: string;
