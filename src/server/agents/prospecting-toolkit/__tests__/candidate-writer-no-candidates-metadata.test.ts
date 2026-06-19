@@ -469,7 +469,7 @@ describe('Fixture A — 0 persisted via quality gates with existingBatchId', () 
     assert.equal(pspw['skipped'], candidates.length);
   });
 
-  it('A11 — batch status is nothing_to_write', async () => {
+  it('A11 — batch status is completed (0 candidates persisted)', async () => {
     const candidates = EXTERNAL_BLOCKED_CASES.map((c) =>
       makeCandidate({ name: c.name, website: c.url, domain: c.domain, sourceSnippet: 'Software empresarial' })
     );
@@ -481,13 +481,16 @@ describe('Fixture A — 0 persisted via quality gates with existingBatchId', () 
       admin,
     );
 
-    // At least one batch update must explicitly set status to nothing_to_write.
+    // At least one batch update must explicitly set status to 'completed'.
     // After the fix, a status-only correction runs before the full metadata write,
-    // guaranteeing nothing_to_write even if the metadata update later fails.
-    const nothingToWriteCall = stats.batchUpdateCalls.find(
-      (u) => u['status'] === 'nothing_to_write'
+    // guaranteeing 'completed' (not ready_for_review) even if the metadata update later fails.
+    // 'nothing_to_write' was never in the DB check constraint; 'completed' is the correct value.
+    const DB_ALLOWED_STATUSES = ['draft', 'generating', 'ready_for_review', 'in_review', 'completed', 'cancelled', 'failed'];
+    const completedCall = stats.batchUpdateCalls.find(
+      (u) => u['status'] === 'completed'
     );
-    assert.ok(nothingToWriteCall != null, 'At least one batch update must set status to nothing_to_write');
+    assert.ok(completedCall != null, 'At least one batch update must set status to completed');
+    assert.ok(DB_ALLOWED_STATUSES.includes(completedCall['status'] as string), 'status must be in DB-allowed set');
   });
 });
 
@@ -884,10 +887,11 @@ describe('Fixture F — Status correction independent of metadata computation (1
     },
   };
 
-  it('F1 — status nothing_to_write set even when full metadata update throws (simulates 7359ae23)', async () => {
+  it('F1 — status completed set even when full metadata update throws (simulates 7359ae23)', async () => {
     // The fakeAdmin is configured to reject the batch update that carries
     // writer_summary in metadata, replicating the silent-failure scenario seen
     // in the real batch. The status-correction step must still succeed.
+    // 'nothing_to_write' was never in the DB check constraint; 'completed' is used instead.
     const stats: FakeAdminStats = { batchInsertCalls: [], batchUpdateCalls: [], candidateInsertCalls: [], auditInsertCalls: [] };
     const admin = makeFakeAdmin(
       {
@@ -915,20 +919,21 @@ describe('Fixture F — Status correction independent of metadata computation (1
 
     assert.equal(result.candidatesCreated, 0);
 
-    // A status-only update with nothing_to_write must exist independently of
+    // A status-only update with 'completed' must exist independently of
     // the full metadata update, so the batch never stays at ready_for_review.
     const statusCorrectionCall = stats.batchUpdateCalls.find(
-      (u) => u['status'] === 'nothing_to_write' && !('metadata' in u)
+      (u) => u['status'] === 'completed' && !('metadata' in u)
     );
     assert.ok(
       statusCorrectionCall != null,
-      'A status-only correction to nothing_to_write must run before the full metadata write',
+      'A status-only correction to completed must run before the full metadata write',
     );
   });
 
-  it('F2 — status nothing_to_write present in at least one update when metadata succeeds', async () => {
+  it('F2 — status completed present in at least one update when metadata succeeds', async () => {
     // Happy path with incremental_multi_round extraBatchMetadata:
     // both the status-correction and the full metadata write succeed.
+    // 'nothing_to_write' was never in the DB check constraint; 'completed' is used instead.
     const stats: FakeAdminStats = { batchInsertCalls: [], batchUpdateCalls: [], candidateInsertCalls: [], auditInsertCalls: [] };
     const admin = makeFakeAdmin(
       { existingBatch: makeDraftBatch(), providerUsageLogs: FOUR_LOG_FIXTURE },
@@ -950,8 +955,8 @@ describe('Fixture F — Status correction independent of metadata computation (1
       admin,
     );
 
-    const nothingToWriteCall = stats.batchUpdateCalls.find((u) => u['status'] === 'nothing_to_write');
-    assert.ok(nothingToWriteCall != null, 'At least one update must set status to nothing_to_write');
+    const completedStatusCall = stats.batchUpdateCalls.find((u) => u['status'] === 'completed');
+    assert.ok(completedStatusCall != null, 'At least one update must set status to completed');
 
     // Full metadata must also be present in the final update
     const lastUpdate = stats.batchUpdateCalls[stats.batchUpdateCalls.length - 1];

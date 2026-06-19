@@ -1118,7 +1118,7 @@ export async function writeProspectingCandidates(
     try {
       await admin
         .from("prospect_batches")
-        .update({ status: "nothing_to_write" })
+        .update({ status: "completed" })
         .eq("id", batchId);
     } catch (err) {
       console.error("[candidate-writer] status correction failed for batch", batchId, err);
@@ -1399,7 +1399,7 @@ export async function writeProspectingCandidates(
       // ready_for_review when it has nothing in it.
       await admin
         .from("prospect_batches")
-        .update({ status: "nothing_to_write", metadata: finalMetadata })
+        .update({ status: "completed", metadata: finalMetadata })
         .eq("id", batchId);
     } else {
       await admin
@@ -1409,7 +1409,7 @@ export async function writeProspectingCandidates(
     }
   } catch (err) {
     // Non-critical: metadata update failure does not affect the writer result.
-    // Status was already corrected above (nothing_to_write) if candidatesCreated === 0.
+    // Status was already corrected above (completed) if candidatesCreated === 0.
     console.error("[candidate-writer] post-loop metadata update failed for batch", batchId, err);
   }
 
