@@ -358,16 +358,25 @@ export async function writeProspectingCandidates(
 
   // Guard: sin candidatos
   if (!pipelineOutput.candidates || pipelineOutput.candidates.length === 0) {
-    return {
-      dryRun: isDryRun,
-      batchId: null,
-      candidatesCreated: 0,
-      candidatesSkipped: 0,
-      createdCandidateIds: [],
-      skipped: [],
-      status: isDryRun ? "dry_run" : "failed",
-      errors: ["El pipeline no retornó candidatos para persistir"],
-    };
+    if (!existingBatchId) {
+      return {
+        dryRun: isDryRun,
+        batchId: null,
+        candidatesCreated: 0,
+        candidatesSkipped: 0,
+        createdCandidateIds: [],
+        skipped: [],
+        status: isDryRun ? "dry_run" : "failed",
+        errors: ["El pipeline no retornó candidatos para persistir"],
+      };
+    }
+    // With existingBatchId (wizard path), proceed through batch metadata update
+    // so gate metadata, tavily reconciliation, and adaptive discovery are persisted
+    // even when no candidates were generated.
+    // The rest of the function handles 0 candidates gracefully:
+    // - batch is updated (Path A)
+    // - gate loop produces zeroed-out summary metadata
+    // - post-loop block writes final metadata including tavily_usage_reconciliation
   }
 
   // ── Dry run ───────────────────────────────────────────────────────────────
