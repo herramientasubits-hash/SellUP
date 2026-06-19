@@ -74,6 +74,8 @@ const FOREIGN_COUNTRY_TLDS: Record<string, string> = {
   '.com.uy': 'UY',
   '.bo': 'BO',
   '.com.bo': 'BO',
+  '.es': 'ES',
+  '.com.es': 'ES',
 };
 
 // Path fragments that clearly indicate a specific foreign country

@@ -21,6 +21,8 @@ import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
 import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
 import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-url-quality-gate";
 import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate";
+import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
+import { evaluateCompanyOwnership, isBlockedByCompanyOwnership } from "./company-ownership-gate";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -667,6 +669,22 @@ export async function writeProspectingCandidates(
     samples: [] as BusinessFitSample[],
   };
 
+  // External platform gate tracking (Hito 16AB.43.30)
+  type ExternalPlatformSample = { name: string; url: string | null; reason: string; platformType: string };
+  const externalPlatformGateData = {
+    blockedCount: 0,
+    blockedByType: {} as Record<string, number>,
+    samples: [] as ExternalPlatformSample[],
+  };
+
+  // Company ownership gate tracking (Hito 16AB.43.30)
+  type CompanyOwnershipSample = { name: string; url: string | null; reason: string; confidence: string };
+  const companyOwnershipGateData = {
+    blockedCount: 0,
+    lowConfidenceCount: 0,
+    samples: [] as CompanyOwnershipSample[],
+  };
+
   // Subindustrias del contexto del batch (inyectadas desde el wizard a través de extraBatchMetadata).
   const batchSubindustries = (() => {
     const raw = (extraBatchMetadata as Record<string, unknown> | null)?.['subindustries'];
@@ -753,6 +771,66 @@ export async function writeProspectingCandidates(
     if (isContentPageUrl(candidate.website) || isContentPageName(candidate.name)) {
       skipped.push({ name: candidate.name, reason: 'content_page', searchTrace: candidate.searchTrace ?? undefined });
       precisionGate.contentPageCount++;
+      continue;
+    }
+
+    // ── External platform gate (Hito 16AB.43.30) ─────────────────────────────
+    // Bloquea fuentes externas: medios editoriales, foros, marketplaces,
+    // directorios, sitios de reseñas, redes sociales, glosarios, etc.
+    // Se ejecuta ANTES del business-fit gate para que business-fit no pueda
+    // "salvar" una fuente externa con buen snippet.
+    const externalPlatformResult = evaluateExternalPlatformGate(
+      candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null),
+      candidate.name,
+    );
+    if (!externalPlatformResult.allowed) {
+      skipped.push({
+        name: candidate.name,
+        reason: `external_platform:${externalPlatformResult.platformType ?? 'unknown'}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      externalPlatformGateData.blockedCount++;
+      const pt = externalPlatformResult.platformType ?? 'unknown_external_platform';
+      externalPlatformGateData.blockedByType[pt] =
+        (externalPlatformGateData.blockedByType[pt] ?? 0) + 1;
+      if (externalPlatformGateData.samples.length < 10) {
+        externalPlatformGateData.samples.push({
+          name: candidate.name,
+          url: candidate.website ?? null,
+          reason: externalPlatformResult.reason ?? 'blocked',
+          platformType: pt,
+        });
+      }
+      continue;
+    }
+
+    // ── Company ownership gate (Hito 16AB.43.30) ─────────────────────────────
+    // Evalúa si el dominio de la URL pertenece oficialmente a la empresa candidata.
+    // Se ejecuta ANTES del target cap para asegurar que solo empresas con sitio
+    // propio lleguen a la selección final.
+    const companyOwnershipResult = evaluateCompanyOwnership(
+      candidate.name,
+      candidate.website ?? null,
+      effectiveDomain,
+    );
+    if (isBlockedByCompanyOwnership(companyOwnershipResult)) {
+      skipped.push({
+        name: candidate.name,
+        reason: `company_ownership:${companyOwnershipResult.confidence}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      companyOwnershipGateData.blockedCount++;
+      if (companyOwnershipResult.confidence === 'low') {
+        companyOwnershipGateData.lowConfidenceCount++;
+      }
+      if (companyOwnershipGateData.samples.length < 10) {
+        companyOwnershipGateData.samples.push({
+          name: candidate.name,
+          url: candidate.website ?? null,
+          reason: companyOwnershipResult.reason,
+          confidence: companyOwnershipResult.confidence,
+        });
+      }
       continue;
     }
 
@@ -1033,7 +1111,17 @@ export async function writeProspectingCandidates(
       "rejected_recently",
     ]);
     const noveltySkipped = skipped.filter((s) => noveltyReasons.has(s.reason));
-    const qualitySkipped = skipped.filter((s) => s.reason === "qualityLabel=discard");
+    const qualitySkipped = skipped.filter((s) =>
+      s.reason === "qualityLabel=discard" ||
+      s.reason.startsWith("external_platform:") ||
+      s.reason.startsWith("company_ownership:") ||
+      s.reason.startsWith("source_url_quality:") ||
+      s.reason.startsWith("business_fit:") ||
+      s.reason === "content_page" ||
+      s.reason === "non_company_phrase" ||
+      s.reason === "non_official_source_domain" ||
+      s.reason === "country_incompatible" || s.reason.startsWith("country_incompatible:"),
+    );
     const identityGateTotal =
       identityGate.nonCompanyPhraseCount +
       identityGate.seenIdentityCount +
@@ -1112,19 +1200,42 @@ export async function writeProspectingCandidates(
     // Reconcile adaptive_discovery with actual persisted count (Hito 16AB.43.28).
     // extraBatchMetadata.adaptive_discovery was set as a placeholder before the writer ran.
     // Here we overwrite it with the real persisted count so the DB reflects truth.
+    // Hito 16AB.43.30: also fix stop_reason to be coherent with actual result.
     const storedAdaptive = (extraBatchMetadata as Record<string, unknown> | null)?.['adaptive_discovery'] as Record<string, unknown> | undefined;
     const reconciledAdaptiveForStorage = storedAdaptive != null && targetCap != null
-      ? {
-          ...storedAdaptive,
-          persisted_count: createdCandidateIds.length,
-          remaining_to_target: Math.max(0, targetCap - createdCandidateIds.length),
-          result_status:
-            createdCandidateIds.length >= targetCap
-              ? 'success_target_reached'
-              : createdCandidateIds.length > 0
-              ? 'success_partial'
-              : 'no_new_candidates',
-        }
+      ? (() => {
+          const persisted = createdCandidateIds.length;
+          const remaining = Math.max(0, targetCap - persisted);
+          const roundsExecuted = (storedAdaptive.rounds_executed as number) ?? 0;
+          const maxRounds = (storedAdaptive.max_rounds as number) ?? 0;
+
+          // Determine coherent stop_reason based on actual outcome
+          let coherentStopReason: string;
+          if (persisted >= targetCap) {
+            coherentStopReason = 'target_reached';
+          } else if (roundsExecuted >= maxRounds) {
+            coherentStopReason = 'max_rounds_exhausted';
+          } else {
+            coherentStopReason = (storedAdaptive.stop_reason as string) ?? 'max_rounds_exhausted';
+          }
+
+          let resultStatus: string;
+          if (persisted >= targetCap) {
+            resultStatus = 'success_target_reached';
+          } else if (persisted > 0) {
+            resultStatus = 'success_partial';
+          } else {
+            resultStatus = 'no_new_candidates';
+          }
+
+          return {
+            ...storedAdaptive,
+            persisted_count: persisted,
+            remaining_to_target: remaining,
+            stop_reason: coherentStopReason,
+            result_status: resultStatus,
+          };
+        })()
       : storedAdaptive;
 
     // Source URL quality gate metadata (Hito 16AB.43.29)
@@ -1145,6 +1256,56 @@ export async function writeProspectingCandidates(
       samples: businessFitGateData.samples.slice(0, 5),
     };
 
+    // External platform gate metadata (Hito 16AB.43.30)
+    const externalPlatformGateMetadata = {
+      enabled: true,
+      blocked_count: externalPlatformGateData.blockedCount,
+      blocked_by_type: externalPlatformGateData.blockedByType,
+      samples: externalPlatformGateData.samples.slice(0, 5),
+    };
+
+    // Company ownership gate metadata (Hito 16AB.43.30)
+    const companyOwnershipGateMetadata = {
+      enabled: true,
+      blocked_count: companyOwnershipGateData.blockedCount,
+      low_confidence_count: companyOwnershipGateData.lowConfidenceCount,
+      samples: companyOwnershipGateData.samples.slice(0, 5),
+    };
+
+    // Tavily usage reconciliation metadata (Hito 16AB.43.30)
+    // Instrumentación para reconciliar manualmente el dashboard de Tavily
+    // con los provider_usage_logs de Supabase en la próxima corrida real.
+    const tavilyUsageReconciliation = (() => {
+      const queriesExecuted = (() => {
+        const qe = pipelineMeta?.queries_executed;
+        return Array.isArray(qe) ? (qe as string[]) : [];
+      })();
+      const queriesExecutedCount = queriesExecuted.length;
+      const creditsUsed = pipelineMeta?.tavily_credits_used != null
+        ? (pipelineMeta.tavily_credits_used as number)
+        : queriesExecutedCount;
+      const creditsPerQuery = queriesExecutedCount > 0
+        ? Math.round(creditsUsed / queriesExecutedCount)
+        : 1;
+      const expectedCredits = queriesExecutedCount * creditsPerQuery;
+      const usageLogsCount = pipelineMeta?.provider_usage_logs_count != null
+        ? (pipelineMeta.provider_usage_logs_count as number)
+        : queriesExecutedCount;
+      const reconStatus = expectedCredits === creditsUsed ? 'matched' : 'mismatch';
+      return {
+        enabled: true,
+        logs_count: usageLogsCount,
+        queries_planned_total: queriesExecutedCount,
+        queries_executed_total: queriesExecutedCount,
+        successful_query_count_total: pipelineMeta?.successful_queries_count as number ?? queriesExecutedCount,
+        failed_query_count_total: pipelineMeta?.failed_queries_count as number ?? 0,
+        credits_per_query: creditsPerQuery,
+        credits_used_logged: creditsUsed,
+        expected_credits_from_queries: expectedCredits,
+        reconciliation_status: reconStatus,
+      };
+    })();
+
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
@@ -1154,6 +1315,9 @@ export async function writeProspectingCandidates(
       precision_gate: precisionGateMetadata,
       source_url_quality_gate: sourceUrlQualityGateMetadata,
       business_fit_gate: businessFitGateMetadata,
+      external_platform_gate: externalPlatformGateMetadata,
+      company_ownership_gate: companyOwnershipGateMetadata,
+      tavily_usage_reconciliation: tavilyUsageReconciliation,
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
     };

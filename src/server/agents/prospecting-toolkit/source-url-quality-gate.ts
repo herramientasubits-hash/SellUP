@@ -30,6 +30,10 @@ export type SourceUrlQuality =
   | 'partner_registration'
   | 'career_or_staffing_page'
   | 'generic_transformation_digital_page'
+  | 'glossary_or_educational_content'
+  | 'editorial_media'
+  | 'forum_or_community'
+  | 'review_site'
   | 'unknown';
 
 export type SourceUrlQualityResult = {
@@ -51,6 +55,10 @@ const BLOCKED_QUALITIES = new Set<SourceUrlQuality>([
   'partner_directory',
   'partner_registration',
   'generic_transformation_digital_page',
+  'glossary_or_educational_content',
+  'editorial_media',
+  'forum_or_community',
+  'review_site',
 ]);
 
 // ─── Bonos de ranking por calidad ────────────────────────────────────────────
@@ -71,6 +79,10 @@ const RANKING_BONUS: Record<SourceUrlQuality, number> = {
   partner_directory: -80,
   partner_registration: -80,
   generic_transformation_digital_page: -60,
+  glossary_or_educational_content: -80,
+  editorial_media: -90,
+  forum_or_community: -90,
+  review_site: -80,
 };
 
 // ─── Dominios de directorios de partners ────────────────────────────────────
@@ -319,7 +331,65 @@ export function classifySourceUrlQuality(
     };
   }
 
-  // ── 5. Guía o tutorial ───────────────────────────────────────────────────────
+  // ── 5a. Glosario / contenido educativo ──────────────────────────────────────────
+  // Detecta /glossary/, /glosario/, /es/glossary/, /hub/que-es
+  if (
+    path.includes('/glossary/') ||
+    path.includes('/glosario/') ||
+    path.includes('/hub/que-es')
+  ) {
+    return {
+      quality: 'glossary_or_educational_content',
+      blocked: true,
+      reason: `Path indica glosario/contenido educativo: ${path.slice(0, 60)}`,
+      rankingBonus: RANKING_BONUS.glossary_or_educational_content,
+    };
+  }
+
+  // ── 5b. Editorial media (crónica, noticia) ────────────────────────────────────
+  if (
+    path.includes('/cronica/') ||
+    path.includes('/noticia/') ||
+    path.includes('/noticias/') ||
+    path.includes('/edicion/')
+  ) {
+    return {
+      quality: 'editorial_media',
+      blocked: true,
+      reason: `Path indica contenido editorial/noticia: ${path.slice(0, 60)}`,
+      rankingBonus: RANKING_BONUS.editorial_media,
+    };
+  }
+
+  // ── 5c. Foro / comunidad ──────────────────────────────────────────────────────
+  if (
+    path.includes('/forum/') ||
+    path.includes('/forums/') ||
+    path.includes('/comments/')
+  ) {
+    return {
+      quality: 'forum_or_community',
+      blocked: true,
+      reason: `Path indica foro/comunidad: ${path.slice(0, 60)}`,
+      rankingBonus: RANKING_BONUS.forum_or_community,
+    };
+  }
+
+  // ── 5d. Review / compare site ──────────────────────────────────────────────────
+  if (
+    path.includes('/reviews/') ||
+    path.includes('/compare/') ||
+    path.includes('/comparar/')
+  ) {
+    return {
+      quality: 'review_site',
+      blocked: true,
+      reason: `Path indica sitio de reseñas/comparación: ${path.slice(0, 60)}`,
+      rankingBonus: RANKING_BONUS.review_site,
+    };
+  }
+
+  // ── 5e. Guía o tutorial ───────────────────────────────────────────────────────
   if (GUIDE_PATH_PATTERNS.some((s) => path.includes(s))) {
     return {
       quality: 'guide',
