@@ -263,8 +263,9 @@ export async function runIncrementalProspectingSearch(
     } else if (round === 3) {
       // R3: partner/implementation angle — queries de ángulo implementador
       // Hito 16AB.43.27: eliminadas "nosotros" y "contacto" para evitar páginas genéricas
+      // Hito 16AB.43.28: eliminado "casos de éxito" para evitar páginas de content/artículo
       const r3Queries = [
-        `implementador ${input.industry} ${input.country} clientes corporativos casos de éxito`,
+        `implementador ${input.industry} ${input.country} clientes corporativos empresa oficial`,
         `partner ${input.industry} ${input.country} soluciones empresariales certificado`,
         `integrador ${input.industry} ${input.country} software empresa oficial corporativo`,
         `consultor ${input.industry} ${input.country} transformación digital empresas`,
@@ -276,10 +277,11 @@ export async function runIncrementalProspectingSearch(
         break;
       }
     } else if (round === 4) {
-      // R4: case study/buyer angle — queries de ángulo caso de éxito
+      // R4: corporate buyer/ecosystem angle
       // Hito 16AB.43.27: eliminadas "nosotros" y "contacto" para evitar páginas genéricas
+      // Hito 16AB.43.28: eliminado "caso de éxito" para evitar páginas de content/artículo
       const r4Queries = [
-        `caso de éxito ${input.industry} ${input.country} empresa B2B implementación`,
+        `software empresarial ${input.industry} ${input.country} proveedor B2B corporativo`,
         `${input.industry} ${input.country} empresa sector corporativo ecosistema`,
         `proveedor ${input.industry} ${input.country} transformación digital clientes`,
         `${input.industry} empresa ${input.country} cartera clientes corporativo`,

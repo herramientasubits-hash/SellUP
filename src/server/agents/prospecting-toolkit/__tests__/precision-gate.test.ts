@@ -1,15 +1,16 @@
 /**
  * Tests — Precision Gate, Country Compatibility, Generic Name Gate,
- * Target Cap, Query Cleanup (Hito 16AB.43.27)
+ * Target Cap, Query Cleanup (Hito 16AB.43.27/16AB.43.28)
  *
  * Fixture A — Target cap: writer receives targetPersistibleCandidates from input
  * Fixture B — Country compatibility: .mx/.cl bloqueados para CO
  * Fixture C — Country compatibility: dominios CO + paths CO permitidos
  * Fixture D — Generic name gate: "Nosotros", "Quiénes Somos", "Aliado Élite" bloqueados
  * Fixture E — Legitimate company names pass through
- * Fixture F — Query cleanup: R3/R4 sin "nosotros"/"contacto"
+ * Fixture F — Query cleanup: R3/R4 sin "nosotros"/"contacto"/"casos de éxito"
  * Fixture G — Adaptive metadata reconciliation post-writer
  * Fixture H — countryCompatibilityRankWeight ordering
+ * Fixture I — Content-page URL/name gate (Hito 16AB.43.28)
  *
  * Uses Node.js built-in test runner. No Supabase, Tavily, or real I/O.
  */
@@ -23,6 +24,8 @@ import {
 } from '../country-compatibility';
 
 import { buildCanonicalCompanyIdentity } from '../canonical-company-identity';
+
+import { isContentPageUrl, isContentPageName } from '../candidate-writer';
 
 import { runIncrementalProspectingSearch } from '../incremental-search';
 import type { IncrementalSearchInput } from '../incremental-search-types';
@@ -359,10 +362,10 @@ describe('Fixture E — Legitimate company names are not blocked', () => {
   }
 });
 
-// ── Fixture F — Query cleanup: R3/R4 no contienen "nosotros"/"contacto" ────────
+// ── Fixture F — Query cleanup: R3/R4 libres de términos de content-page ────────
 
-describe('Fixture F — Query cleanup: R3/R4 templates are free of "nosotros"/"contacto"', () => {
-  it('R3/R4 query arrays contain no "nosotros" or standalone "contacto"', async () => {
+describe('Fixture F — Query cleanup: R3/R4 templates are free of "nosotros"/"contacto"/"casos de éxito"', () => {
+  it('R3/R4 query arrays contain no "nosotros", standalone "contacto", or case-study terms', async () => {
     const queriesByRound: Record<number, string[]> = {};
     let roundNumber = 0;
 
@@ -411,6 +414,14 @@ describe('Fixture F — Query cleanup: R3/R4 templates are free of "nosotros"/"c
       assert.ok(
         !/\bcontacto\b/.test(text),
         `R${round} queries must not contain standalone "contacto": ${queries.join(' | ')}`,
+      );
+      assert.ok(
+        !text.includes('casos de éxito') && !text.includes('casos de exito'),
+        `R${round} queries must not contain "casos de éxito": ${queries.join(' | ')}`,
+      );
+      assert.ok(
+        !text.includes('caso de éxito') && !text.includes('caso de exito'),
+        `R${round} queries must not contain "caso de éxito": ${queries.join(' | ')}`,
       );
     }
   });
@@ -576,4 +587,84 @@ describe('Fixture H — countryCompatibilityRankWeight ordering', () => {
     const noUrl = evaluateCountryCompatibility(null, 'CO');
     assert.ok(countryCompatibilityRankWeight(noUrl) > 0, 'No-URL candidates should get positive rank weight');
   });
+});
+
+// ── Fixture I — Content-page URL / name gate (Hito 16AB.43.28) ───────────────
+
+describe('Fixture I — isContentPageUrl blocks article/case-study/academy paths', () => {
+  const BLOCKED_URLS: Array<{ url: string; label: string }> = [
+    { url: 'https://pragma.com.co/academia/conceptos/transformacion-digital', label: '/academia/ path' },
+    { url: 'https://universidadviu.com/co/actualidad/nuestros-expertos/algo', label: '/actualidad/ path' },
+    { url: 'https://lineadatascan.com/nosotros/casos-exito', label: 'casos-exito slug' },
+    { url: 'https://n-ix.com/nearshore-software-development-colombia', label: 'nearshore-software-development slug' },
+    { url: 'https://paradigmasolutions.com/blog/3-casos-de-exito-transformacion', label: 'casos-de-exito slug' },
+    { url: 'https://acme.com/blog/articulo-de-prueba', label: '/blog/ path' },
+    { url: 'https://acme.com/article/how-we-did-it', label: '/article/ path' },
+    { url: 'https://acme.com/guide/erp-guide', label: '/guide/ path' },
+  ];
+
+  const ALLOWED_URLS: Array<{ url: string; label: string }> = [
+    { url: 'https://gtdcolombia.com/soluciones/servicios-ti', label: 'service path (not content)' },
+    { url: 'https://lasus.com.co/es', label: 'root + lang path' },
+    { url: 'https://pragma.com.co', label: 'root domain' },
+    { url: null as unknown as string, label: 'null URL' },
+  ];
+
+  for (const { url, label } of BLOCKED_URLS) {
+    it(`blocks ${label}: ${url}`, () => {
+      assert.equal(
+        isContentPageUrl(url),
+        true,
+        `Expected isContentPageUrl to return true for "${url}"`,
+      );
+    });
+  }
+
+  for (const { url, label } of ALLOWED_URLS) {
+    it(`allows ${label}: ${url}`, () => {
+      assert.equal(
+        isContentPageUrl(url),
+        false,
+        `Expected isContentPageUrl to return false for "${url}"`,
+      );
+    });
+  }
+});
+
+describe('Fixture I — isContentPageName blocks case-study and guide titles', () => {
+  const BLOCKED_NAMES: Array<{ name: string; label: string }> = [
+    { name: 'Casos de éxito Línea Datascan', label: 'case-study title with accent' },
+    { name: 'Caso de éxito Pragma', label: 'singular case-study' },
+    { name: 'Full guide', label: 'guide title' },
+    { name: '3 Casos de Exito en Transformación', label: 'numbered case-study' },
+    { name: 'Nearshore Software Development Colombia', label: 'nearshore pattern' },
+    { name: 'Fases y beneficios del ERP', label: 'phases/benefits pattern' },
+  ];
+
+  const ALLOWED_NAMES: Array<{ name: string; label: string }> = [
+    { name: 'Pragma', label: 'brand name alone' },
+    { name: 'Línea Datascan', label: 'company name' },
+    { name: 'GTD Colombia', label: 'company with country' },
+    { name: 'N-iX', label: 'company with hyphen' },
+  ];
+
+  for (const { name, label } of BLOCKED_NAMES) {
+    it(`blocks "${name}" (${label})`, () => {
+      assert.equal(
+        isContentPageName(name),
+        true,
+        `Expected isContentPageName to return true for "${name}"`,
+      );
+    });
+  }
+
+  for (const { name, label } of ALLOWED_NAMES) {
+    it(`allows "${name}" (${label})`, () => {
+      assert.equal(
+        isContentPageName(name),
+        false,
+        `Expected isContentPageName to return false for "${name}"`,
+      );
+    });
+  }
 });

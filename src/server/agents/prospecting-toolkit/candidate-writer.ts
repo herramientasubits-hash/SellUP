@@ -64,6 +64,76 @@ function getAdminClient() {
   return createAdminClient(url, key);
 }
 
+// ─── Content-page gate (Hito 16AB.43.28) ──────────────────────────────────────
+//
+// Detecta URLs cuyo path indica una página de contenido, artículo, caso de éxito
+// o blog en lugar de una homepage corporativa de una empresa real.
+// Operación completamente local — sin IA, sin llamadas externas.
+
+const CONTENT_PAGE_PATH_PATTERNS = [
+  'casos-exito',                          // /nosotros/casos-exito, /casos-exito
+  'caso-de-exito',                        // /caso-de-exito-...
+  'casos-de-exito',                       // /3-casos-de-exito-..., /casos-de-exito
+  '/academia/',                           // /academia/conceptos/...
+  '/actualidad/',                         // /actualidad/nuestros-expertos/...
+  '/nuestros-expertos/',                  // /nuestros-expertos/...
+  '/blog/',                               // artículos de blog
+  '/articulo/',                           // artículos editoriales
+  '/article/',                            // artículos en inglés
+  '/guide/',                              // guías
+  '/full-guide/',                         // guías completas
+  'nearshore-software-development',       // artículos tipo "nearshore software development Colombia"
+];
+
+const CONTENT_PAGE_NAME_PATTERNS = [
+  /^casos\s+de\s+[eé]xito/i,             // "Casos de éxito Línea Datascan"
+  /^caso\s+de\s+[eé]xito/i,              // "Caso de éxito ..."
+  /^full\s+guide$/i,                     // "Full guide"
+  /^fases\s+y\s+beneficios/i,            // "Fases y beneficios..."
+  /^\d+\s+casos\s+de\s+[eé]xito/i,       // "3 casos de éxito..."
+  /^nearshore\s+software/i,              // "Nearshore software development..."
+];
+
+/**
+ * Retorna true si la URL tiene un path que indica página de contenido/artículo,
+ * no una homepage corporativa.
+ */
+export function isContentPageUrl(website: string | null): boolean {
+  if (!website) return false;
+  try {
+    const url = website.startsWith('http') ? website : `https://${website}`;
+    const pathname = new URL(url).pathname.toLowerCase();
+    return CONTENT_PAGE_PATH_PATTERNS.some((p) => pathname.includes(p));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retorna true si el nombre del candidato parece un título de artículo/caso de éxito
+ * en lugar del nombre de una empresa real.
+ */
+export function isContentPageName(name: string): boolean {
+  return CONTENT_PAGE_NAME_PATTERNS.some((p) => p.test(name.trim()));
+}
+
+// ─── Path depth helper ────────────────────────────────────────────────────────
+
+/**
+ * Número de segmentos de path en la URL. Menor → más cercano a la raíz.
+ * Se usa como tiebreaker en el ordenamiento de elegibles.
+ */
+function pathDepth(website: string | null): number {
+  if (!website) return 999;
+  try {
+    const url = website.startsWith('http') ? website : `https://${website}`;
+    const { pathname } = new URL(url);
+    return pathname.split('/').filter((s) => s.length > 0).length;
+  } catch {
+    return 999;
+  }
+}
+
 // ─── Official website gate ────────────────────────────────────────────────────
 //
 // Dominios que son directorios, catálogos, marketplaces o rankings.
@@ -568,8 +638,10 @@ export async function writeProspectingCandidates(
     samples: [] as IdentityGateSample[],
   };
 
-  // Precision gate tracking (Hito 16AB.43.27)
+  // Precision gate tracking (Hito 16AB.43.27 / 16AB.43.28)
   const precisionGate = {
+    contentPageCount: 0,
+    intraBatchDuplicateCount: 0,
     countryIncompatibleCount: 0,
     genericNameCount: 0,
     targetCapCount: 0,
@@ -582,6 +654,7 @@ export async function writeProspectingCandidates(
     domain: string | null;
     countryCompatWeight: number;
     noveltyResult: ReturnType<typeof evaluateCandidateNovelty>;
+    identityKey: string | null;
   };
   const eligibleEntries: EligibleEntry[] = [];
 
@@ -643,6 +716,14 @@ export async function writeProspectingCandidates(
       continue;
     }
 
+    // ── Content-page gate (Hito 16AB.43.28) ──────────────────────────────────
+    // Bloquea páginas de contenido/artículo/caso de éxito que no son empresas.
+    if (isContentPageUrl(candidate.website) || isContentPageName(candidate.name)) {
+      skipped.push({ name: candidate.name, reason: 'content_page', searchTrace: candidate.searchTrace ?? undefined });
+      precisionGate.contentPageCount++;
+      continue;
+    }
+
     // ── Novelty check ─────────────────────────────────────────────────────────
     const noveltyResult = evaluateCandidateNovelty(
       { name: candidate.name, domain: candidate.domain, website: candidate.website },
@@ -666,25 +747,60 @@ export async function writeProspectingCandidates(
       domain: effectiveDomain,
       countryCompatWeight: countryCompatibilityRankWeight(countryCompat),
       noveltyResult,
+      identityKey: identity.identityKey ?? null,
     });
   }
 
-  // ── Pass 2: rank eligible candidates by priority (Hito 16AB.43.27) ─────────
-  // Priority: 1) country compat weight desc, 2) confidence score desc
+  // ── Pass 2: rank eligible candidates by priority (Hito 16AB.43.27 / 16AB.43.28) ─
+  // Priority: 1) country compat weight desc, 2) confidence score desc,
+  //           3) path depth asc (closer to root URL is better)
   eligibleEntries.sort((a, b) => {
     const countryDiff = b.countryCompatWeight - a.countryCompatWeight;
     if (countryDiff !== 0) return countryDiff;
-    return (b.candidate.scoring.confidenceScore ?? 0) - (a.candidate.scoring.confidenceScore ?? 0);
+    const scoreDiff = (b.candidate.scoring.confidenceScore ?? 0) - (a.candidate.scoring.confidenceScore ?? 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    return pathDepth(a.candidate.website) - pathDepth(b.candidate.website);
   });
+
+  // ── Pass 2.5: intra-batch identity deduplicate (Hito 16AB.43.28) ─────────────
+  // After ranking, keep only the first (best-ranked) entry per identity key.
+  // Prevents the same company from appearing twice in one batch with different URLs.
+  const seenBatchIdentityKeys = new Set<string>();
+  type IntraBatchDupeSample = { identity_key: string; kept_url: string | null; removed_url: string | null };
+  const intraBatchDupeSamples: IntraBatchDupeSample[] = [];
+  const eligibleAfterIntraDedupe: EligibleEntry[] = [];
+
+  for (const entry of eligibleEntries) {
+    const ik = entry.identityKey;
+    if (!ik) {
+      eligibleAfterIntraDedupe.push(entry);
+      continue;
+    }
+    if (!seenBatchIdentityKeys.has(ik)) {
+      seenBatchIdentityKeys.add(ik);
+      eligibleAfterIntraDedupe.push(entry);
+    } else {
+      precisionGate.intraBatchDuplicateCount++;
+      skipped.push({ name: entry.candidate.name, reason: 'intra_batch_identity_duplicate', searchTrace: entry.candidate.searchTrace ?? undefined });
+      if (intraBatchDupeSamples.length < 10) {
+        const keptEntry = eligibleAfterIntraDedupe.find((e) => e.identityKey === ik);
+        intraBatchDupeSamples.push({
+          identity_key: ik,
+          kept_url: keptEntry?.candidate.website ?? null,
+          removed_url: entry.candidate.website ?? null,
+        });
+      }
+    }
+  }
 
   // ── Pass 3: apply target cap (Hito 16AB.43.27) ───────────────────────────────
   const targetCap = input.targetPersistibleCandidates ?? null;
-  const eligibleBeforeCap = eligibleEntries.length;
+  const eligibleBeforeCap = eligibleAfterIntraDedupe.length;
   const toPersist =
     targetCap != null && targetCap > 0 && eligibleBeforeCap > targetCap
-      ? eligibleEntries.slice(0, targetCap)
-      : eligibleEntries;
-  const cappedEntries = eligibleEntries.slice(toPersist.length);
+      ? eligibleAfterIntraDedupe.slice(0, targetCap)
+      : eligibleAfterIntraDedupe;
+  const cappedEntries = eligibleAfterIntraDedupe.slice(toPersist.length);
 
   for (const { candidate } of cappedEntries) {
     skipped.push({ name: candidate.name, reason: "target_cap", searchTrace: candidate.searchTrace ?? undefined });
@@ -870,9 +986,14 @@ export async function writeProspectingCandidates(
 
     const precisionGateMetadata = {
       enabled: true,
+      content_page_exclusions: precisionGate.contentPageCount,
+      intra_batch_duplicates_removed: precisionGate.intraBatchDuplicateCount,
       country_incompatible_exclusions: precisionGate.countryIncompatibleCount,
       generic_name_exclusions: precisionGate.genericNameCount,
       target_cap_exclusions: precisionGate.targetCapCount,
+      ...(intraBatchDupeSamples.length > 0
+        ? { intra_batch_identity_dedupe: { enabled: true, duplicates_removed: precisionGate.intraBatchDuplicateCount, samples: intraBatchDupeSamples } }
+        : {}),
     };
 
     const targetCapMetadata = targetCap != null
@@ -885,6 +1006,24 @@ export async function writeProspectingCandidates(
         }
       : undefined;
 
+    // Reconcile adaptive_discovery with actual persisted count (Hito 16AB.43.28).
+    // extraBatchMetadata.adaptive_discovery was set as a placeholder before the writer ran.
+    // Here we overwrite it with the real persisted count so the DB reflects truth.
+    const storedAdaptive = (extraBatchMetadata as Record<string, unknown> | null)?.['adaptive_discovery'] as Record<string, unknown> | undefined;
+    const reconciledAdaptiveForStorage = storedAdaptive != null && targetCap != null
+      ? {
+          ...storedAdaptive,
+          persisted_count: createdCandidateIds.length,
+          remaining_to_target: Math.max(0, targetCap - createdCandidateIds.length),
+          result_status:
+            createdCandidateIds.length >= targetCap
+              ? 'success_target_reached'
+              : createdCandidateIds.length > 0
+              ? 'success_partial'
+              : 'no_new_candidates',
+        }
+      : storedAdaptive;
+
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
@@ -893,6 +1032,7 @@ export async function writeProspectingCandidates(
       canonical_identity_gate: canonicalIdentityGate,
       precision_gate: precisionGateMetadata,
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
+      ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
     };
 
     if (candidatesCreated === 0 && errors.length === 0) {

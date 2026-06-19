@@ -118,7 +118,7 @@ function buildSubindustryQuery(subindustry: string, country: string, round: 1 | 
   }
   return round === 1
     ? `empresa ${subindustry} ${country} soluciones clientes corporativos`
-    : `empresa ${subindustry} ${country} proveedores corporativo nosotros`;
+    : `empresa ${subindustry} ${country} proveedores corporativos clientes`;
 }
 
 /**
@@ -201,7 +201,7 @@ const INDUSTRY_QUERY_STRATEGIES: Record<string, IndustryQueryStrategy> = {
       ],
     },
     genericFallback: (country: string) => [
-      `empresa fabricante ${country} planta producción contacto`,
+      `empresa fabricante ${country} planta producción corporativo`,
       `empresa metalmecánica ${country} fabricante industrial`,
       `empresa empaques plásticos ${country} fábrica manufactura`,
       `empresa textil confección ${country} planta producción`,
@@ -421,7 +421,7 @@ function buildGeneralDiscoveryQuery(industry: string, country: string): string {
   if (isTech) {
     // Tech: 5 exclusiones (incluye facebook.com y datacreditoempresas.com.co de Hito 10B)
     const exclusions = buildNoiseExclusionTerms().slice(0, 5).join(' ');
-    return `empresas ${industry} ${country} servicios soluciones contacto ${exclusions}`.trim();
+    return `empresas ${industry} ${country} servicios soluciones corporativo ${exclusions}`.trim();
   }
 
   // No-tech: 4 exclusiones compactas
@@ -450,11 +450,11 @@ export function buildProspectableCompanyDiscoveryQueries(
   const siteExclusions = exclusions.filter((e) => e.startsWith('-site:')).slice(0, 5).join(' ');
 
   return [
-    // Variante 1: Lenguaje de servicios/contacto → atrae sitios corporativos operacionales
-    `empresas de ${industry} ${country} servicios tecnología contacto ${siteExclusions}`.trim(),
+    // Variante 1: Lenguaje de servicios/soluciones → atrae sitios corporativos operacionales
+    `empresas de ${industry} ${country} servicios tecnología corporativo ${siteExclusions}`.trim(),
 
     // Variante 2: Lenguaje de desarrollo/soluciones → evita portales sectoriales
-    `empresas desarrollo de ${industry} ${country} soluciones nosotros ${siteExclusions}`.trim(),
+    `empresas desarrollo de ${industry} ${country} soluciones clientes ${siteExclusions}`.trim(),
 
     // Variante 3: Consultoras IT → ángulo de servicios IT concreto
     `consultoras ${industry} ${country} servicios IT empresas -site:crunchbase.com -site:g2.com -site:capterra.com`.trim(),
@@ -489,7 +489,7 @@ export function buildCleanMultiQueryDiscoveryQueries(
       const normalized = normalizeSubindustries(subindustries ?? []);
       const baseQueries = [
         'empresa software gestión RRHH nómina Colombia pymes corporativo',
-        'empresa ciberseguridad Colombia protección datos empresas contacto',
+        'empresa ciberseguridad Colombia protección datos empresas corporativo',
         'empresa fintech pagos Colombia clientes corporativos soluciones',
       ];
       // Incluir la query source-guided de Colombia Fintech solo cuando:
@@ -526,7 +526,7 @@ export function buildCleanMultiQueryDiscoveryQueries(
     `${primary} ${country} servicios corporativo`,
     `empresas ${industry} ${country} corporativo soluciones`,
     `${secondary} ${country} empresa servicios`,
-    `compañías ${industry} ${country} soluciones contacto`,
+    `compañías ${industry} ${country} soluciones corporativas`,
     `${primary} ${country} empresa corporativo`,
   ];
   return injectSubindustryQueries(baseQueries, [], subindustries ?? [], country, 1);
@@ -535,7 +535,7 @@ export function buildCleanMultiQueryDiscoveryQueries(
 function buildWebsiteDiscoveryQuery(industry: string, country: string): string {
   const sectorTerms = getSectorTerms(industry);
   const primaryTerm = sectorTerms.primary[0];
-  return `${primaryTerm} ${country} sitio web contacto empresa`;
+  return `${primaryTerm} ${country} sitio web corporativo empresa`;
 }
 
 // ─── Expanded queries para búsqueda incremental (Hito 16T.1) ─────────────────
@@ -563,7 +563,7 @@ export function buildExpandedMultiQueryDiscoveryQueries(
   if (isTechSector(industry) && countryKey === 'colombia') {
     const baseQueries = [
       'empresa desarrollo software Medellín nearshore clientes internacionales',
-      'empresa software Cali soluciones empresariales clientes nosotros',
+      'empresa software Cali soluciones empresariales clientes corporativo',
       'empresa cloud infraestructura Colombia servicios TI corporativo',
     ];
     const secopExcluded = excludeSources.includes('co_secop2');
@@ -578,8 +578,8 @@ export function buildExpandedMultiQueryDiscoveryQueries(
 
   if (isTechSector(industry)) {
     const baseQueries = [
-      `empresa software empresarial ${country} soluciones corporativas contacto`,
-      `proveedor SaaS B2B ${country} clientes empresas nosotros`,
+      `empresa software empresarial ${country} soluciones corporativas clientes`,
+      `proveedor SaaS B2B ${country} clientes empresas corporativo`,
       `empresa automatización procesos ${country} ERP implementación`,
       `compañía consultoría TI ${country} transformación digital`,
       `empresa desarrollo aplicaciones ${country} clientes corporativos`,

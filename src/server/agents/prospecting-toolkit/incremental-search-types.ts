@@ -181,10 +181,14 @@ export type TargetCapMetadata = {
   capped_count: number;
 };
 
-// ─── Precision gate metadata (Hito 16AB.43.27) ───────────────────────────────
+// ─── Precision gate metadata (Hito 16AB.43.27 / 16AB.43.28) ─────────────────
 
 export type PrecisionGateMetadata = {
   enabled: boolean;
+  /** URLs classified as content/article/case-study pages (Hito 16AB.43.28). */
+  content_page_exclusions: number;
+  /** Candidates removed by intra-batch identity deduplification (Hito 16AB.43.28). */
+  intra_batch_duplicates_removed: number;
   country_incompatible_exclusions: number;
   generic_name_exclusions: number;
   target_cap_exclusions: number;
