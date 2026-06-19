@@ -38,6 +38,7 @@ import {
   type PreLLMFilterSummary,
 } from './pre-llm-result-filter';
 import { isSentenceOrPhraseName } from './noise-filter';
+import { buildSearchPlan } from './search-planner';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -251,6 +252,19 @@ export async function runProspectingPipeline(
     country: input.country,
     countryCode: input.countryCode,
     industry: input.industry,
+    searchDepth,
+  });
+
+  // ── Paso 1b: Search Plan v0 ───────────────────────────────────────────────────
+  // Planificación explícita antes de construir queries. Puramente determinístico.
+  // El plan queda en metadata para trazabilidad; no cambia el flujo de queries actual.
+  const searchPlan = buildSearchPlan({
+    country: input.country,
+    countryCode: input.countryCode,
+    industry: input.industry,
+    subindustries: (input as { subindustries?: string[] }).subindustries ?? [],
+    additionalCriteria: (input as { additionalCriteria?: string | null }).additionalCriteria ?? null,
+    targetCount,
     searchDepth,
   });
 
@@ -689,6 +703,7 @@ export async function runProspectingPipeline(
       search_mode: input.mode ?? 'single_query',
       ...(multiQueryMeta ?? {}),
       name_quality_filtered_count: nameQualityFilteredCount,
+      search_plan: searchPlan,
     },
   };
 }
