@@ -23,11 +23,11 @@ import type {
 
 // ─── Normalización ────────────────────────────────────────────────────────────
 
-/** Normaliza NIT: elimina puntos, guiones, espacios y dígito de verificación */
+/** Normaliza NIT: elimina DV, puntos, guiones, espacios */
 function normalizeNIT(nit: string): string {
   return nit
+    .replace(/-\d{1,2}$/, '')
     .replace(/[\.\-\s]/g, '')
-    .replace(/-\d$/, '')
     .trim();
 }
 
@@ -55,7 +55,7 @@ function getAdminSupabase() {
 
 // ─── Result builder ──────────────────────────────────────────────────────────
 
-function buildMatchResult(
+export function buildSiisMatchResult(
   row: Record<string, unknown>,
   matchedBy: 'tax_id' | 'normalized_name',
   confidence: number,
@@ -167,7 +167,7 @@ export const siisEnrichmentAdapter: SourceEnrichmentAdapter = {
           .maybeSingle();
 
         if (!error && data) {
-          return buildMatchResult(data as Record<string, unknown>, 'tax_id', 0.95);
+          return buildSiisMatchResult(data as Record<string, unknown>, 'tax_id', 0.95);
         }
       }
 
@@ -183,7 +183,7 @@ export const siisEnrichmentAdapter: SourceEnrichmentAdapter = {
           .maybeSingle();
 
         if (!nameErr && nameMatch) {
-          return buildMatchResult(nameMatch as Record<string, unknown>, 'normalized_name', 0.60);
+          return buildSiisMatchResult(nameMatch as Record<string, unknown>, 'normalized_name', 0.60);
         }
       }
 

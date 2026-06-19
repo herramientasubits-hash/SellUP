@@ -102,7 +102,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'enrichment',
     aiFlowStatus: 'partial_pending_data',
     connectionMode: 'automatic_enrichment',
-    nextAction: 'Aplicar migration/snapshot SIIS para activar matches reales',
+    nextAction: 'Ejecutar snapshot SIIS 2024 para activar matches reales: npm run source:siis:snapshot -- --year=2024 --commit',
     countryCodes: ['CO'],
     sectors: [],
     priority: 'P0',
