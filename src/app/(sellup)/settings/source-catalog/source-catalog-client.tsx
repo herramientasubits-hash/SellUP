@@ -133,7 +133,7 @@ function SourceTable({ data, columns, openDetail, handleRowReorder }: {
       enableColumnReorder
       enableRowReorder
       onRowReorder={handleRowReorder}
-      initialPageSize={20}
+      initialPageSize={10}
       fillHeight
       emptyState={
         <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -348,7 +348,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as TabId)}
-        className="w-full"
+        className="w-full flex-1 min-h-0"
       >
         <TabsList variant="segmented" className="mx-7 mt-1 mb-4">
           <TabsTrigger value="operativas">
