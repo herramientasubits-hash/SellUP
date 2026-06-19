@@ -124,6 +124,9 @@ type FakeAdminConfig = {
   existingBatchSelectError?: { message: string } | null;
   providerUsageLogs?: Array<Record<string, unknown>>;
   providerUsageLogsError?: { message: string } | null;
+  // When true, the batch update that includes a writer_summary in metadata rejects —
+  // simulating a DB failure on the full post-loop metadata write.
+  failOnFullMetadataUpdate?: boolean;
 };
 
 function makeFakeAdmin(config: FakeAdminConfig, stats: FakeAdminStats): SupabaseClient {
@@ -157,6 +160,14 @@ function makeFakeAdmin(config: FakeAdminConfig, stats: FakeAdminStats): Supabase
           },
           update(data: Record<string, unknown>) {
             stats.batchUpdateCalls.push({ ...data });
+            const hasWriterSummary =
+              config.failOnFullMetadataUpdate &&
+              typeof data['metadata'] === 'object' &&
+              data['metadata'] !== null &&
+              'writer_summary' in (data['metadata'] as Record<string, unknown>);
+            if (hasWriterSummary) {
+              return { eq: () => Promise.reject(new Error('Simulated DB failure on full metadata update')) };
+            }
             return { eq: () => Promise.resolve({ data: null, error: null }) };
           },
           insert(data: Record<string, unknown>) {
@@ -470,12 +481,13 @@ describe('Fixture A — 0 persisted via quality gates with existingBatchId', () 
       admin,
     );
 
-    const lastUpdate = stats.batchUpdateCalls[stats.batchUpdateCalls.length - 1];
-    assert.ok(lastUpdate['status'] === undefined || lastUpdate['status'] === 'nothing_to_write',
-      'Batch status should be nothing_to_write (or update may have been metadata-only)');
-    if (lastUpdate['status'] !== undefined) {
-      assert.equal(lastUpdate['status'], 'nothing_to_write');
-    }
+    // At least one batch update must explicitly set status to nothing_to_write.
+    // After the fix, a status-only correction runs before the full metadata write,
+    // guaranteeing nothing_to_write even if the metadata update later fails.
+    const nothingToWriteCall = stats.batchUpdateCalls.find(
+      (u) => u['status'] === 'nothing_to_write'
+    );
+    assert.ok(nothingToWriteCall != null, 'At least one batch update must set status to nothing_to_write');
   });
 });
 
@@ -839,5 +851,113 @@ describe('Fixture E — Regression: normal candidates still work with existingBa
     // Adaptive discovery present (preserved from existing batch metadata when
     // no extraBatchMetadata.adaptive_discovery is provided by incremental-search)
     assert.ok(meta['adaptive_discovery'] != null, 'adaptive_discovery must not be null');
+  });
+});
+
+// ============================================================================
+// Fixture F — Status correction guaranteed even when full metadata update fails
+// Regression for batch 7359ae23-1e64-4163-8785-2854a1103512:
+//   incremental_multi_round, 4 rounds, 0 persisted, status left at ready_for_review
+// ============================================================================
+
+describe('Fixture F — Status correction independent of metadata computation (16AB regression)', () => {
+  const INCREMENTAL_BLOCKED = [
+    makeCandidate({ name: 'Computerweekly', website: 'https://www.computerweekly.com/es/cronica', domain: 'computerweekly.com', sourceSnippet: 'Software empresarial' }),
+    makeCandidate({ name: 'Reddit r/ColombiaDevs', website: 'https://www.reddit.com/r/ColombiaDevs/comments/123', domain: 'reddit.com', sourceSnippet: 'Software recomendaciones' }),
+  ];
+
+  const INCREMENTAL_EXTRA_META = {
+    search_mode: 'incremental_multi_round',
+    adaptive_discovery: {
+      enabled: true,
+      max_rounds: 4,
+      rounds_executed: 4,
+      stop_reason: 'max_rounds_reached',
+      result_status: 'no_new_candidates',
+      persisted_count: 0,
+      remaining_to_target: 10,
+      persistible_estimate: 2,
+    },
+    incremental_search: {
+      excluded_by_negative_memory_total: 34,
+      estimated_persistable_after_novelty: 2,
+    },
+  };
+
+  it('F1 — status nothing_to_write set even when full metadata update throws (simulates 7359ae23)', async () => {
+    // The fakeAdmin is configured to reject the batch update that carries
+    // writer_summary in metadata, replicating the silent-failure scenario seen
+    // in the real batch. The status-correction step must still succeed.
+    const stats: FakeAdminStats = { batchInsertCalls: [], batchUpdateCalls: [], candidateInsertCalls: [], auditInsertCalls: [] };
+    const admin = makeFakeAdmin(
+      {
+        existingBatch: makeDraftBatch(),
+        providerUsageLogs: FOUR_LOG_FIXTURE,
+        failOnFullMetadataUpdate: true,
+      },
+      stats,
+    );
+    const pipelineOutput = makePipelineOutput(INCREMENTAL_BLOCKED);
+
+    const result = await writeProspectingCandidates(
+      {
+        pipelineOutput,
+        triggeredByUserId: USER_A,
+        ownerId: USER_A,
+        source: 'agent_1',
+        dryRun: false,
+        existingBatchId: EXISTING_BATCH_ID,
+        targetPersistibleCandidates: 10,
+        extraBatchMetadata: INCREMENTAL_EXTRA_META,
+      },
+      admin,
+    );
+
+    assert.equal(result.candidatesCreated, 0);
+
+    // A status-only update with nothing_to_write must exist independently of
+    // the full metadata update, so the batch never stays at ready_for_review.
+    const statusCorrectionCall = stats.batchUpdateCalls.find(
+      (u) => u['status'] === 'nothing_to_write' && !('metadata' in u)
+    );
+    assert.ok(
+      statusCorrectionCall != null,
+      'A status-only correction to nothing_to_write must run before the full metadata write',
+    );
+  });
+
+  it('F2 — status nothing_to_write present in at least one update when metadata succeeds', async () => {
+    // Happy path with incremental_multi_round extraBatchMetadata:
+    // both the status-correction and the full metadata write succeed.
+    const stats: FakeAdminStats = { batchInsertCalls: [], batchUpdateCalls: [], candidateInsertCalls: [], auditInsertCalls: [] };
+    const admin = makeFakeAdmin(
+      { existingBatch: makeDraftBatch(), providerUsageLogs: FOUR_LOG_FIXTURE },
+      stats,
+    );
+    const pipelineOutput = makePipelineOutput(INCREMENTAL_BLOCKED);
+
+    await writeProspectingCandidates(
+      {
+        pipelineOutput,
+        triggeredByUserId: USER_A,
+        ownerId: USER_A,
+        source: 'agent_1',
+        dryRun: false,
+        existingBatchId: EXISTING_BATCH_ID,
+        targetPersistibleCandidates: 10,
+        extraBatchMetadata: INCREMENTAL_EXTRA_META,
+      },
+      admin,
+    );
+
+    const nothingToWriteCall = stats.batchUpdateCalls.find((u) => u['status'] === 'nothing_to_write');
+    assert.ok(nothingToWriteCall != null, 'At least one update must set status to nothing_to_write');
+
+    // Full metadata must also be present in the final update
+    const lastUpdate = stats.batchUpdateCalls[stats.batchUpdateCalls.length - 1];
+    const meta = lastUpdate['metadata'] as Record<string, unknown>;
+    assert.ok(meta['writer_summary'] != null, 'writer_summary must be present in final metadata');
+    assert.ok(meta['tavily_usage_reconciliation'] != null, 'tavily_usage_reconciliation must be present');
+    assert.ok(meta['external_platform_gate'] != null, 'external_platform_gate must be present');
   });
 });

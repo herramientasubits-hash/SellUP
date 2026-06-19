@@ -1110,6 +1110,21 @@ export async function writeProspectingCandidates(
     status = "success";
   }
 
+  // ── Status correction (guaranteed) ───────────────────────────────────────
+  // A batch with 0 persisted candidates must NEVER remain ready_for_review.
+  // This runs in its own try-catch so it cannot be swallowed by the metadata
+  // computation below. The full metadata update repeats the status write later.
+  if (candidatesCreated === 0 && errors.length === 0) {
+    try {
+      await admin
+        .from("prospect_batches")
+        .update({ status: "nothing_to_write" })
+        .eq("id", batchId);
+    } catch (err) {
+      console.error("[candidate-writer] status correction failed for batch", batchId, err);
+    }
+  }
+
   // ── Post-loop metadata update ─────────────────────────────────────────────
   // Persist real write counts and novelty summary into the batch so the UI
   // can explain why fewer candidates appeared than the pipeline returned.
@@ -1392,8 +1407,10 @@ export async function writeProspectingCandidates(
         .update({ metadata: finalMetadata })
         .eq("id", batchId);
     }
-  } catch {
-    // Non-critical: metadata update failure does not affect the writer result
+  } catch (err) {
+    // Non-critical: metadata update failure does not affect the writer result.
+    // Status was already corrected above (nothing_to_write) if candidatesCreated === 0.
+    console.error("[candidate-writer] post-loop metadata update failed for batch", batchId, err);
   }
 
   return {
