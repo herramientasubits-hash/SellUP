@@ -28,6 +28,23 @@ export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
       'SECOP II Proveedores Registrados — señal comercial B2G. Indica si la empresa está registrada como proveedora del Estado colombiano. Solo por NIT exacto. No es fuente de discovery principal.',
   },
   {
+    sourceKey: 'co_personas_juridicas_cc',
+    countryCodes: ['CO'],
+    capabilities: [
+      'enrichment_after_discovery',
+      'tax_id_validation',
+      'commercial_signals',
+      'prioritization',
+    ],
+    wizardUsage: 'post_discovery_enrichment',
+    requiresSnapshot: false,
+    canRunLive: true,
+    adapterKey: 'co_personas_juridicas_cc',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'Personas Jurídicas Cámaras de Comercio — señal de matrícula activa y renovación reciente. Validación NIT y enriquecimiento con CIIU, cámara de comercio y organización jurídica. Cobertura parcial (cámaras que publican en datos.gov.co). No es fuente de discovery principal. No reemplaza RUES.',
+  },
+  {
     sourceKey: 'co_siis',
     countryCodes: ['CO'],
     capabilities: [

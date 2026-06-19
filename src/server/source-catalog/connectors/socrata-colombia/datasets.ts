@@ -51,6 +51,13 @@ export const SOCRATA_COLOMBIA_DATASETS = {
     baseUrl: 'https://www.datos.gov.co/resource/qmzu-gj57.json',
     primaryUse: 'b2g_enrichment',
   },
+  personas_juridicas_cc: {
+    sourceKey: 'co_personas_juridicas_cc',
+    datasetId: 'c82u-588k',
+    name: 'Personas Jurídicas Cámaras de Comercio',
+    baseUrl: 'https://www.datos.gov.co/resource/c82u-588k.json',
+    primaryUse: 'chamber_registry_enrichment',
+  },
 } as const satisfies Record<ColombiaCompanySource, SocrataColombiaDataset>;
 
 export const SOCRATA_COLOMBIA_DATASET_KEYS = Object.keys(

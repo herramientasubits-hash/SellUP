@@ -695,3 +695,41 @@ export function normalizeSecop2ProveedoresRecord(
     },
   };
 }
+
+// ─── Personas Jurídicas Cámaras de Comercio ──────────────────────────────────
+
+export function normalizePersonasJuridicasCCRecord(
+  record: RawRecord,
+): NormalizedColombiaCompanySample {
+  const meta = SOCRATA_COLOMBIA_DATASETS.personas_juridicas_cc;
+  const camaraRaw = str(record.camara_comercio);
+  const { city, department } = parseCamaraComercio(camaraRaw);
+  // Dataset uses cod_ciiu_act_econ_pri; accept also codigo_ciiu_act_econ_pri variant
+  const sectorCode =
+    str(record.codigo_ciiu_act_econ_pri) ?? str(record.cod_ciiu_act_econ_pri);
+  const sectorDescription = getCiiuSectorDescription(sectorCode);
+
+  return {
+    source: 'personas_juridicas_cc',
+    sourceKey: meta.sourceKey,
+    datasetId: meta.datasetId,
+    companyName: str(record.razon_social),
+    taxId: str(record.numero_identificacion),
+    legalStatus: str(record.estado_matricula),
+    sectorCode,
+    sectorDescription,
+    city,
+    department,
+    address: null,
+    email: null,
+    phone: null,
+    website: null,
+    rawRecordId: str(record.numero_identificacion),
+    sourceMetadata: {
+      organizacion_juridica: str(record.organizacion_juridica),
+      categoria_matricula: str(record.categoria_matricula),
+      camara_comercio: camaraRaw,
+      ultimo_ano_renovado: str(record.ultimo_ano_renovado),
+    },
+  };
+}

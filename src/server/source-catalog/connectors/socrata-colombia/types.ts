@@ -10,7 +10,8 @@ export type ColombiaCompanySource =
   | 'secop2'
   | 'secop2_proveedores'
   | 'reps'
-  | 'superfinanciera';
+  | 'superfinanciera'
+  | 'personas_juridicas_cc';
 
 /** Registro normalizado para muestra de validación — no es un prospect_candidate. */
 export type NormalizedColombiaCompanySample = {

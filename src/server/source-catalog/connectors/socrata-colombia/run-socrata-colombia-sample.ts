@@ -12,6 +12,7 @@ import {
   normalizeRepsRecord,
   normalizeSuperfinancieraRecord,
   normalizeSecop2ProveedoresRecord,
+  normalizePersonasJuridicasCCRecord,
 } from './normalizers';
 import { SOCRATA_COLOMBIA_DATASET_KEYS } from './datasets';
 import type {
@@ -34,6 +35,7 @@ const DATASET_WHERE_FILTERS: Record<ColombiaCompanySource, string> = {
   secop2_proveedores: "esta_activa='Si'",
   reps: "tipoid='NI'",
   superfinanciera: '',
+  personas_juridicas_cc: "estado_matricula='ACTIVA' AND organizacion_juridica IS NOT NULL",
 };
 
 type RawRecord = Record<string, unknown>;
@@ -48,6 +50,7 @@ function normalizeRecord(
     case 'secop2_proveedores': return normalizeSecop2ProveedoresRecord(record);
     case 'reps': return normalizeRepsRecord(record);
     case 'superfinanciera': return normalizeSuperfinancieraRecord(record);
+    case 'personas_juridicas_cc': return normalizePersonasJuridicasCCRecord(record);
   }
 }
 
