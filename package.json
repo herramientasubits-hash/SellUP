@@ -34,8 +34,8 @@
     "test:business-fit-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/business-fit-gate.test.ts",
     "test:external-platform-ownership-gate": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/external-platform-ownership-gate.test.ts",
     "test:superfinanciera-adapter": "node --import tsx --test src/server/source-catalog/connectors/superfinanciera-colombia/__tests__/superfinanciera-enrichment-adapter.test.ts",
-    "source:siis:snapshot": "node --import tsx scripts/source-catalog/load-siis-snapshot.ts",
-    "test:siis-snapshot": "node --import tsx --test src/server/source-catalog/connectors/siis-colombia/__tests__/siis-snapshot-etl.test.ts",
+    "source:siis:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-siis-snapshot.ts",
+    "test:siis-snapshot": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/siis-colombia/__tests__/siis-snapshot-etl.test.ts src/server/source-catalog/connectors/siis-colombia/__tests__/siis-snapshot-etl.integration.test.ts",
     "test:siis-adapter": "node --import tsx --test src/server/source-catalog/connectors/siis-colombia/__tests__/siis-enrichment-adapter.test.ts"
   },
   "dependencies": {

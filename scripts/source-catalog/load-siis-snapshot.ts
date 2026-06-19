@@ -5,8 +5,12 @@
  *   npm run source:siis:snapshot -- --year=2024 --limit=10000 --dry-run
  *   npm run source:siis:snapshot -- --year=2024 --limit=10000 --commit
  *
- * Requiere SUPABASE_SERVICE_ROLE_KEY en .env.local
+ * Requiere SUPABASE_SERVICE_ROLE_KEY en .env.local para commit real.
+ * Dry-run no requiere claves de Supabase.
  */
+
+import { loadEnvConfig } from '@next/env';
+loadEnvConfig(process.cwd());
 
 import { runSiisSnapshotEtl } from '../../src/server/source-catalog/connectors/siis-colombia/siis-snapshot-etl';
 
@@ -43,20 +47,28 @@ async function main() {
   console.log('═'.repeat(60));
   console.log('  SIIS Snapshot Loader');
   console.log('═'.repeat(60));
-  console.log(`  Año:      ${year}`);
-  console.log(`  Límite:   ${limit}`);
-  console.log(`  Modo:     ${commit ? 'COMMIT (escribe en DB)' : 'DRY RUN (solo parsea)'}`);
+  console.log(`  Año:            ${year}`);
+  console.log(`  Límite:         ${limit}`);
+  console.log(`  dryRun:         ${!commit}`);
+  if (commit) {
+    console.log('  Supabase writes: enabled');
+    console.log('  Requiere SUPABASE_SERVICE_ROLE_KEY');
+  } else {
+    console.log('  Supabase writes: disabled (No Supabase writes will be performed)');
+  }
   console.log('─'.repeat(60));
 
   const result = await runSiisSnapshotEtl(year, limit, { dryRun: !commit });
 
   console.log('');
   console.log('  Resultado:');
-  console.log(`  OK:       ${result.ok}`);
-  console.log(`  Año:      ${result.year}`);
-  console.log(`  Encontrados:  ${result.recordsFound}`);
-  console.log(`  Insertados:   ${result.recordsUpserted}`);
-  console.log(`  Run ID:       ${result.runId ?? '(dry run)'}`);
+  console.log(`  OK:             ${result.ok}`);
+  console.log(`  Año:            ${result.year}`);
+  console.log(`  Descargados:    ${result.recordsFound} filas (desde Excel)`);
+  console.log(`  Válidos:        ${result.recordsFound}`);
+  console.log(`  Omitidos:       ${result.recordsFound > 0 ? result.recordsFound - result.recordsUpserted : 0}`);
+  console.log(`  Insertados:     ${result.recordsUpserted}`);
+  console.log(`  Run ID:         ${result.runId ?? '(N/A — dry run)'}`);
 
   if (result.warnings.length > 0) {
     console.log('');
@@ -74,7 +86,8 @@ async function main() {
 
   if (!commit && result.recordsFound > 0) {
     console.log('');
-    console.log('  ✅ DRY RUN completado. Para ejecutar commit real:');
+    console.log('  ✅ DRY RUN completado — No se escribió nada en Supabase.');
+    console.log('  Para ejecutar commit real:');
     console.log(`  npm run source:siis:snapshot -- --year=${year} --limit=${limit} --commit`);
   }
 

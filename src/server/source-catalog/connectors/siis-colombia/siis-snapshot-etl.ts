@@ -261,13 +261,16 @@ export async function runSiisSnapshotEtl(
     };
   }
 
-  const sb = getAdminSupabase();
   const errors: string[] = [];
   const warnings: string[] = [];
   let runId: string | undefined;
   const dryRun = options?.dryRun ?? false;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let sb: any;
+
   if (!dryRun) {
+    sb = getAdminSupabase();
     try {
       const { data: runData } = await sb
         .from('source_snapshot_runs')
@@ -346,7 +349,7 @@ export async function runSiisSnapshotEtl(
         imported_at: new Date().toISOString(),
       }));
 
-      const { error: upsertErr } = await sb
+      const { error: upsertErr } = await sb!
         .from('source_company_snapshots')
         .upsert(rows, { onConflict: 'source_key,country_code,source_year,normalized_tax_id' });
 
@@ -357,7 +360,7 @@ export async function runSiisSnapshotEtl(
       }
     }
 
-    await finishRun(sb, runId, 'completed', {
+    await finishRun(sb!, runId, 'completed', {
       records_found: recordsFound,
       records_upserted: recordsUpserted,
     });
