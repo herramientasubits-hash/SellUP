@@ -646,6 +646,14 @@ export function CandidateDetailSheet({
   const evidenceUsed = (aiEval?.evidence_used as string[] | undefined) ?? [];
   const hasAiEval = fitStatus !== null || fitScore !== null || aiSummary !== null;
 
+  // Agent 1 evidence fields — v1.9
+  const searchTrace = candidate?.metadata?.search_trace as Record<string, unknown> | undefined;
+  const sourceTitle = candidate?.metadata?.source_title as string | undefined;
+  const sourceSnippet = candidate?.metadata?.source_snippet as string | undefined;
+  const countryEvidence = candidate?.metadata?.country_evidence as Record<string, unknown> | undefined;
+  const websiteVerification = candidate?.metadata?.website_verification as Record<string, unknown> | undefined;
+  const scoringMeta = candidate?.metadata?.scoring as Record<string, unknown> | undefined;
+
   const sortedRisks = React.useMemo(() => {
     if (!risks) return [];
     const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -972,6 +980,137 @@ export function CandidateDetailSheet({
                 <p className="text-xs text-muted-foreground leading-relaxed italic">
                   &ldquo;{isChileOfficialCandidate ? sanitizeTextForChile(aiSummary) : aiSummary}&rdquo;
                 </p>
+              </div>
+            )}
+
+            {/* Por qué fue encontrado */}
+            {!!(searchTrace ?? sourceTitle ?? sourceSnippet) && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-su-brand shrink-0" />
+                  <SectionHeader>Por qué fue encontrado</SectionHeader>
+                </div>
+                <div className="space-y-2">
+                  {!!searchTrace?.query_text && (
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Query de búsqueda</p>
+                      <p className="text-xs text-foreground/90 leading-snug font-mono break-words bg-muted/30 rounded-md px-2.5 py-1.5">
+                        {String(searchTrace.query_text)}
+                      </p>
+                    </div>
+                  )}
+                  {sourceTitle && (
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Título encontrado</p>
+                      <p className="text-xs text-foreground/90 leading-snug">{sourceTitle}</p>
+                    </div>
+                  )}
+                  {sourceSnippet && (
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Fragmento</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed italic">&ldquo;{sourceSnippet}&rdquo;</p>
+                    </div>
+                  )}
+                  {!!searchTrace && (
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/20">
+                      {searchTrace.round_number !== undefined && (
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Ronda</p>
+                          <p className="text-xs text-foreground/90">#{String(searchTrace.round_number)}</p>
+                        </div>
+                      )}
+                      {searchTrace.provider_rank !== undefined && (
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Ranking</p>
+                          <p className="text-xs text-foreground/90">#{String(searchTrace.provider_rank)}</p>
+                        </div>
+                      )}
+                      {!!searchTrace.query_type && (
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Tipo</p>
+                          <p className="text-xs text-foreground/90 capitalize">{String(searchTrace.query_type)}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Decisión recomendada */}
+            {!!scoringMeta?.recommended_action && (
+              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <SectionHeader>Decisión recomendada</SectionHeader>
+                {(() => {
+                  const action = scoringMeta.recommended_action as string;
+                  const actionLabels: Record<string, string> = {
+                    review_manually: 'Revisar manualmente',
+                    approve: 'Aprobar',
+                    discard: 'Descartar',
+                    needs_enrichment: 'Enriquecer antes de decidir',
+                  };
+                  const actionStyles: Record<string, string> = {
+                    review_manually: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20',
+                    approve: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
+                    discard: 'bg-destructive/10 text-destructive border-destructive/20',
+                    needs_enrichment: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20',
+                  };
+                  const label = actionLabels[action] ?? action;
+                  const style = actionStyles[action] ?? 'bg-muted text-muted-foreground border-border/30';
+
+                  const fitScoreVal = candidate.fit_score ?? null;
+                  const confidenceVal = candidate.confidence_score ?? null;
+                  const completenessVal = candidate.data_completeness_score ?? null;
+
+                  let reason = '';
+                  if (action === 'review_manually') {
+                    const lowParts: string[] = [];
+                    if (fitScoreVal !== null && fitScoreVal < 60) lowParts.push('encaje comercial');
+                    if (completenessVal !== null && completenessVal < 70) lowParts.push('completitud de datos');
+                    reason = lowParts.length > 0
+                      ? `Buen match técnico, pero faltan ${lowParts.join(' y ')} antes de aprobar.`
+                      : 'Requiere validación manual antes de convertirse en cuenta.';
+                  } else if (action === 'approve') {
+                    reason = 'El candidato cumple con los criterios de calidad para ser aprobado.';
+                  } else if (action === 'discard') {
+                    reason = 'El candidato no cumple con los criterios mínimos de calidad.';
+                  } else if (action === 'needs_enrichment') {
+                    reason = 'Se necesita información adicional antes de tomar una decisión.';
+                  }
+
+                  return (
+                    <div className="space-y-2">
+                      <div className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold ${style}`}>
+                        {label}
+                      </div>
+                      {reason && (
+                        <p className="text-xs text-muted-foreground leading-relaxed">{reason}</p>
+                      )}
+                      {(fitScoreVal !== null || confidenceVal !== null || completenessVal !== null) && (
+                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/20">
+                          {fitScoreVal !== null && (
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Encaje</p>
+                              <p className="text-xs font-semibold text-foreground/90">{fitScoreVal}/100</p>
+                            </div>
+                          )}
+                          {confidenceVal !== null && (
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Confianza</p>
+                              <p className="text-xs font-semibold text-foreground/90">{confidenceVal}%</p>
+                            </div>
+                          )}
+                          {completenessVal !== null && (
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Completitud</p>
+                              <p className="text-xs font-semibold text-foreground/90">{completenessVal}%</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -1701,8 +1840,8 @@ export function CandidateDetailSheet({
                       <div className="flex items-start gap-2.5">
                         <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                         <div className="space-y-1">
-                          <p className="text-xs font-semibold text-foreground/90">Faltan datos comerciales.</p>
-                          <p className="text-[11px] text-muted-foreground">Este candidato tiene información inicial insuficiente para su revisión comercial.</p>
+                          <p className="text-xs font-semibold text-foreground/90">Faltan datos para aprobación.</p>
+                          <p className="text-[11px] text-muted-foreground">Este candidato puede revisarse comercialmente, pero necesita enriquecimiento antes de convertirse en cuenta.</p>
                         </div>
                       </div>
                       <AIButton onClick={handleEnrich} size="sm" loading={isEnriching} type="button" className="w-full">
@@ -1996,6 +2135,182 @@ export function CandidateDetailSheet({
               </CollapsibleSection>
             )}
 
+            {/* Evidencia de País */}
+            {!!countryEvidence && (
+              <CollapsibleSection title="Evidencia de País" defaultOpen>
+              <SurfaceCard>
+                <SurfaceCardHeader title="Evidencia de País" />
+                {(() => {
+                  const level = countryEvidence.evidence_level as string | undefined;
+                  const sources = countryEvidence.evidence_sources as string[] | undefined;
+                  const warning = countryEvidence.warning as string | undefined;
+
+                  const levelConfig = {
+                    strong: { label: 'Fuerte', style: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
+                    weak: { label: 'Débil', style: 'bg-amber-500/10 text-amber-700 dark:text-amber-400', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
+                    query_only: { label: 'Solo en query', style: 'bg-destructive/10 text-destructive', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
+                  };
+                  const cfg = level ? (levelConfig[level as keyof typeof levelConfig] ?? { label: level, style: 'bg-muted text-muted-foreground', icon: <Info className="h-3.5 w-3.5 shrink-0" /> }) : null;
+
+                  return (
+                    <div className="space-y-3">
+                      {cfg && (
+                        <div className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${cfg.style}`}>
+                          {cfg.icon}
+                          Nivel: {cfg.label}
+                        </div>
+                      )}
+                      {sources && sources.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Señales detectadas</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {sources.map((s, i) => (
+                              <span key={i} className="inline-flex items-center rounded-md bg-muted/50 px-2 py-0.5 text-[10px] font-mono text-foreground/80 border border-border/30">
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                          {level === 'strong' && sources.some(s => s.includes('.com.co')) && (
+                            <p className="text-[10px] text-muted-foreground/70 italic pt-0.5">
+                              El dominio .com.co indica presencia en Colombia.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {level === 'query_only' && (
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 flex items-start gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                          <p className="text-xs text-destructive">
+                            El país solo aparece en la búsqueda, no está confirmado por la fuente.
+                          </p>
+                        </div>
+                      )}
+                      {level === 'weak' && (
+                        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 flex items-start gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Evidencia de país débil. Requiere revisión manual.
+                          </p>
+                        </div>
+                      )}
+                      {warning && level !== 'query_only' && level !== 'weak' && (
+                        <p className="text-xs text-muted-foreground/70 italic">{warning}</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </SurfaceCard>
+              </CollapsibleSection>
+            )}
+
+            {/* Validación de Sitio Web */}
+            {!!websiteVerification && (
+              <CollapsibleSection title="Validación de Sitio Web" defaultOpen>
+              <SurfaceCard>
+                <SurfaceCardHeader title="Validación de Sitio Web" />
+                {(() => {
+                  const wvStatus = websiteVerification.status as string | undefined;
+                  const wvDomain = websiteVerification.domain as string | undefined;
+                  const wvConfidence = websiteVerification.confidence as number | undefined;
+                  const wvHttpStatus = websiteVerification.http_status as number | undefined;
+                  const wvSkipped = websiteVerification.skipped as boolean | undefined;
+
+                  if (wvSkipped) {
+                    return (
+                      <p className="text-xs text-muted-foreground/60 italic">
+                        La verificación del sitio web fue omitida para este candidato.
+                      </p>
+                    );
+                  }
+
+                  const statusConfig: Record<string, { label: string; style: string; icon: React.ReactNode }> = {
+                    verified: { label: 'Verificado', style: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
+                    inferred: { label: 'Inferido', style: 'bg-blue-500/10 text-blue-700 dark:text-blue-400', icon: <Info className="h-3.5 w-3.5 shrink-0" /> },
+                    mismatch: { label: 'No coincide', style: 'bg-amber-500/10 text-amber-700 dark:text-amber-400', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
+                    not_found: { label: 'No encontrado', style: 'bg-muted text-muted-foreground/70', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
+                    error: { label: 'Error', style: 'bg-destructive/10 text-destructive', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
+                  };
+                  const cfg = wvStatus ? (statusConfig[wvStatus] ?? { label: wvStatus, style: 'bg-muted text-muted-foreground', icon: <Info className="h-3.5 w-3.5" /> }) : null;
+
+                  return (
+                    <div className="space-y-3">
+                      {cfg && (
+                        <div className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${cfg.style}`}>
+                          {cfg.icon}
+                          {cfg.label}
+                        </div>
+                      )}
+                      <FieldGrid>
+                        {wvDomain && <Field label="Dominio" value={wvDomain} mono />}
+                        {wvConfidence !== undefined && <Field label="Confianza" value={`${wvConfidence}%`} />}
+                        {wvHttpStatus !== undefined && (
+                          <Field
+                            label="HTTP Status"
+                            value={
+                              <span className={wvHttpStatus === 200 ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-amber-600 dark:text-amber-400 font-semibold'}>
+                                {wvHttpStatus}
+                              </span>
+                            }
+                          />
+                        )}
+                      </FieldGrid>
+                    </div>
+                  );
+                })()}
+              </SurfaceCard>
+              </CollapsibleSection>
+            )}
+
+            {/* Motivos de Revisión */}
+            {!!(scoringMeta?.reasons || scoringMeta?.warnings) && (
+              <CollapsibleSection title="Motivos de Revisión" defaultOpen>
+              <SurfaceCard>
+                <SurfaceCardHeader title="Motivos de Revisión del Agente 1" />
+                <div className="space-y-3">
+                  {Array.isArray(scoringMeta.reasons) && (scoringMeta.reasons as string[]).length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Razones positivas</p>
+                      <ul className="space-y-1">
+                        {(scoringMeta.reasons as string[]).map((r, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                            <span>{r}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {Array.isArray(scoringMeta.warnings) && (scoringMeta.warnings as string[]).length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Advertencias</p>
+                      <ul className="space-y-1">
+                        {(scoringMeta.warnings as string[]).map((w, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                            <span>{w}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {Array.isArray(scoringMeta.blockers) && (scoringMeta.blockers as string[]).length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Bloqueadores</p>
+                      <ul className="space-y-1">
+                        {(scoringMeta.blockers as string[]).map((b, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-xs text-destructive">
+                            <XCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+                            <span>{b}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </SurfaceCard>
+              </CollapsibleSection>
+            )}
+
             {/* Datos de Validación (Claves normalizadas) */}
             {validationMetaSheet && (
               <CollapsibleSection title="Claves Normalizadas">
@@ -2085,14 +2400,26 @@ export function CandidateDetailSheet({
               )}
             </SurfaceCard>
 
-            {candidate.source_trace && (
-              <SurfaceCard>
-                <SurfaceCardHeader title="Source Trace Raw JSON" />
-                <pre className="text-[9px] text-muted-foreground/80 overflow-auto max-h-48 leading-relaxed font-mono bg-muted/40 p-2.5 rounded-lg border border-border/20">
-                  {JSON.stringify(candidate.source_trace, null, 2)}
-                </pre>
-              </SurfaceCard>
-            )}
+            <SurfaceCard>
+              <SurfaceCardHeader title="Source Trace Raw JSON" />
+              {(() => {
+                const hasSourceTrace = candidate.source_trace && Object.keys(candidate.source_trace).length > 0;
+                const hasSearchTrace = searchTrace && Object.keys(searchTrace).length > 0;
+                const rawTrace = hasSourceTrace ? candidate.source_trace : hasSearchTrace ? searchTrace : null;
+                if (!rawTrace) {
+                  return (
+                    <p className="text-xs text-muted-foreground/60 italic">
+                      No hay trazabilidad de búsqueda disponible para este candidato.
+                    </p>
+                  );
+                }
+                return (
+                  <pre className="text-[9px] text-muted-foreground/80 overflow-auto max-h-48 leading-relaxed font-mono bg-muted/40 p-2.5 rounded-lg border border-border/20">
+                    {JSON.stringify(rawTrace, null, 2)}
+                  </pre>
+                );
+              })()}
+            </SurfaceCard>
             </CollapsibleSection>
           </TabsContent>
         </Tabs>
