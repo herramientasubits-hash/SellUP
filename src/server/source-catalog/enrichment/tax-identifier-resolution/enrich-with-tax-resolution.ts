@@ -69,6 +69,8 @@ async function resolveAndPersistForCandidate(
         tax_identifier_resolution: {
           status: 'ambiguous',
           confidence: result.confidence,
+          matched_by: result.matchedBy ?? null,
+          source_key: result.sourceKey ?? null,
           candidates: (result.candidates ?? []).map(c => ({
             tax_identifier: c.taxIdentifier,
             legal_name: c.legalName,

@@ -6,6 +6,7 @@ import {
 } from '../normalize-name';
 import {
   isNameTooGeneric,
+  hasDomainSignal,
   buildCandidate,
   findExactMatch,
   findPartialMatches,
@@ -153,9 +154,123 @@ describe('isNameTooGeneric', () => {
   it('returns false for longer meaningful name', () => {
     assert.ok(!isNameTooGeneric(['tecnologia', 'avanzada', 'colombia']));
   });
+
+  // ─── Single-token brand names with domain signals ─────────────────
+
+  it('returns false for Softland single-token brand with domain softland.com', () => {
+    assert.ok(!isNameTooGeneric(['softland'], 'softland.com'));
+  });
+
+  it('returns false for Kaizen single-token brand with domain containing kaizen', () => {
+    assert.ok(!isNameTooGeneric(['kaizen'], 'kaizenempresarial.com'));
+  });
+
+  it('returns false for Cegid single-token brand with domain cegid.com', () => {
+    assert.ok(!isNameTooGeneric(['cegid'], 'cegid.com'));
+  });
+
+  it('returns false for Loggro single-token brand with domain loggro.com', () => {
+    assert.ok(!isNameTooGeneric(['loggro'], 'loggro.com'));
+  });
+
+  it('returns false for Softland with long token (>=5) even without domain', () => {
+    assert.ok(!isNameTooGeneric(['softland']));
+  });
+
+  it('returns false for Buk with domain buk.com', () => {
+    assert.ok(!isNameTooGeneric(['buk'], 'buk.com'));
+  });
+
+  // ─── Single-token short name without domain ───────────────────────
+
+  it('returns true for single short token without domain signal', () => {
+    assert.ok(isNameTooGeneric(['acti']));
+  });
+
+  // ─── Known generic keywords still skipped ─────────────────────────
+
+  it('returns true for "software" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['software']));
+  });
+
+  it('returns true for "servicios" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['servicios']));
+  });
+
+  it('returns true for "tecnologia" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['tecnologia']));
+  });
+
+  it('returns true for "consultoria" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['consultoria']));
+  });
+
+  it('returns true for "soluciones" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['soluciones']));
+  });
+
+  it('returns true for "enterprise" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['enterprise']));
+  });
+
+  it('returns true for "colombia" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['colombia']));
+  });
+
+  it('returns true for "erp" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['erp']));
+  });
+
+  it('returns true for "crm" single-token generic', () => {
+    assert.ok(isNameTooGeneric(['crm']));
+  });
+
+  it('returns true for generic "software" even with domain', () => {
+    assert.ok(isNameTooGeneric(['software'], 'software.com'));
+  });
 });
 
-// ─── 3. buildCandidate ────────────────────────────────────────────────────────
+// ─── 3. hasDomainSignal ─────────────────────────────────────────────────────────
+
+describe('hasDomainSignal', () => {
+  it('returns true when domain root matches token', () => {
+    assert.ok(hasDomainSignal('softland', 'softland.com', null));
+  });
+
+  it('returns true when domain root matches token exact by root only', () => {
+    assert.ok(hasDomainSignal('softland', 'https://softland.com', null));
+  });
+
+  it('returns true when domain contains token', () => {
+    assert.ok(hasDomainSignal('kaizen', 'kaizenempresarial.com', null));
+  });
+
+  it('returns true when website contains token', () => {
+    assert.ok(hasDomainSignal('cegid', null, 'https://cegid.com/co'));
+  });
+
+  it('returns false when domain is null and website is null', () => {
+    assert.ok(!hasDomainSignal('softland', null, null));
+  });
+
+  it('returns false when domain is undefined', () => {
+    assert.ok(!hasDomainSignal('softland', undefined, undefined));
+  });
+
+  it('returns false when domain has no relation to token', () => {
+    assert.ok(!hasDomainSignal('softland', 'google.com', null));
+  });
+
+  it('is case insensitive', () => {
+    assert.ok(hasDomainSignal('SoftLand', 'SOFTLAND.COM.CO', null));
+  });
+
+  it('handles www prefix in domain', () => {
+    assert.ok(hasDomainSignal('softland', 'www.softland.com', null));
+  });
+});
+
+// ─── 4. buildCandidate ────────────────────────────────────────────────────────
 
 describe('buildCandidate', () => {
   it('builds candidate from snapshot row', () => {
@@ -196,7 +311,7 @@ describe('buildCandidate', () => {
   });
 });
 
-// ─── 4. findExactMatch ────────────────────────────────────────────────────────
+// ─── 5. findExactMatch ────────────────────────────────────────────────────────
 
 describe('findExactMatch', () => {
   it('returns candidate for single exact match', () => {
@@ -235,7 +350,7 @@ describe('findExactMatch', () => {
   });
 });
 
-// ─── 5. findPartialMatches ────────────────────────────────────────────────────
+// ─── 6. findPartialMatches ────────────────────────────────────────────────────
 
 describe('findPartialMatches', () => {
   it('returns single candidate for 80%+ token overlap', () => {
@@ -285,7 +400,7 @@ describe('findPartialMatches', () => {
   });
 });
 
-// ─── 6. Resolver guard clauses ────────────────────────────────────────────────
+// ─── 7. Resolver guard clauses ────────────────────────────────────────────────
 
 describe('resolveCandidateTaxIdentifierForColombia — guard clauses', () => {
   it('returns skipped for non-CO country', async () => {
@@ -323,12 +438,77 @@ describe('resolveCandidateTaxIdentifierForColombia — guard clauses', () => {
     // If no key, getSupabaseClient returns null — this is expected
     if (!client) {
       const { resolveCandidateTaxIdentifierForColombia } = await import('../resolve-candidate-tax-identifier-colombia');
+      // Use a name that passes the generic check but still needs Supabase
       const result = await resolveCandidateTaxIdentifierForColombia({
-        name: 'Acti SAS',
+        name: 'Rappi Colombia SAS',
         countryCode: 'CO',
       });
       assert.equal(result.status, 'error');
       assert.equal(result.confidence, 0);
     }
+  });
+});
+
+// ─── 8. Resolver — single-token brand domain flow ────────────────────────────
+
+describe('resolveCandidateTaxIdentifierForColombia — single-token brand names', () => {
+  it('does not return skipped for Softland with domain softland.com (generic check bypassed)', async () => {
+    const { resolveCandidateTaxIdentifierForColombia } = await import('../resolve-candidate-tax-identifier-colombia');
+    const result = await resolveCandidateTaxIdentifierForColombia({
+      name: 'Softland',
+      domain: 'softland.com',
+      countryCode: 'CO',
+    });
+    // It should NOT be skipped due to "Name too generic" — it may go further
+    // (to 'error' if Supabase not available, or to actual resolution if configured)
+    assert.notEqual(result.status, 'skipped');
+  });
+
+  it('does not return skipped for Kaizen with domain containing kaizen', async () => {
+    const { resolveCandidateTaxIdentifierForColombia } = await import('../resolve-candidate-tax-identifier-colombia');
+    const result = await resolveCandidateTaxIdentifierForColombia({
+      name: 'Kaizen',
+      domain: 'kaizenempresarial.com',
+      countryCode: 'CO',
+    });
+    assert.notEqual(result.status, 'skipped');
+  });
+
+  it('does not return skipped for Cegid with domain cegid.com', async () => {
+    const { resolveCandidateTaxIdentifierForColombia } = await import('../resolve-candidate-tax-identifier-colombia');
+    const result = await resolveCandidateTaxIdentifierForColombia({
+      name: 'Cegid',
+      domain: 'cegid.com',
+      countryCode: 'CO',
+    });
+    assert.notEqual(result.status, 'skipped');
+  });
+
+  it('does not return skipped for Long single-token brand (>=5 chars) without domain', async () => {
+    const { resolveCandidateTaxIdentifierForColombia } = await import('../resolve-candidate-tax-identifier-colombia');
+    const result = await resolveCandidateTaxIdentifierForColombia({
+      name: 'Softland',
+      countryCode: 'CO',
+    });
+    assert.notEqual(result.status, 'skipped');
+  });
+
+  it('does return skipped for single-token generic keyword (Software)', async () => {
+    const { resolveCandidateTaxIdentifierForColombia } = await import('../resolve-candidate-tax-identifier-colombia');
+    const result = await resolveCandidateTaxIdentifierForColombia({
+      name: 'Software',
+      countryCode: 'CO',
+    });
+    assert.equal(result.status, 'skipped');
+  });
+
+  it('does return skipped for single-token generic keyword with even with domain signal', async () => {
+    const { resolveCandidateTaxIdentifierForColombia } = await import('../resolve-candidate-tax-identifier-colombia');
+    const result = await resolveCandidateTaxIdentifierForColombia({
+      name: 'Software',
+      domain: 'software.com',
+      countryCode: 'CO',
+    });
+    assert.equal(result.status, 'skipped');
   });
 });

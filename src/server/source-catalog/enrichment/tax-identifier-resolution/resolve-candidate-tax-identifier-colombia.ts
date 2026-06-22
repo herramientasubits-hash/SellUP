@@ -9,9 +9,84 @@ import { normalizeColombiaCompanyName, normalizeColombiaCompanyNameExact } from 
 
 export const GENERIC_THRESHOLD = 2;
 
-export function isNameTooGeneric(tokens: string[]): boolean {
+export const GENERIC_KEYWORDS = new Set([
+  'software',
+  'servicios', 'servicio',
+  'tecnologia', 'tecnologias', 'tecnologica', 'tecnologicos',
+  'consultoria', 'consultorias',
+  'soluciones', 'solucion',
+  'enterprise',
+  'colombia',
+  'erp',
+  'crm',
+  'recursos',
+  'humanos',
+  'b2b',
+  'sistemas',
+  'industria', 'industrial',
+  'negocios',
+  'gestion',
+  'comercial', 'comercializadora',
+  'corporacion', 'corporativo',
+  'internacional',
+  'compania', 'compania_acento',
+  'grupo',
+  'logistica',
+  'digital', 'digitales',
+  'inteligencia',
+  'procesos',
+  'productos',
+  'proveedora',
+  'sociedad',
+  'marketing',
+  'publicidad',
+  'estrategia',
+  'mercadeo',
+]);
+
+export function hasDomainSignal(
+  token: string,
+  domain: string | null | undefined,
+  website: string | null | undefined,
+): boolean {
+  const tokenLower = token.toLowerCase();
+  const urls = [domain, website].filter(Boolean) as string[];
+  if (urls.length === 0) return false;
+
+  for (const url of urls) {
+    const clean = url.toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '');
+    const domainRoot = clean.split('.')[0];
+    if (domainRoot === tokenLower) return true;
+    if (clean.includes(tokenLower)) return true;
+  }
+  return false;
+}
+
+export function isNameTooGeneric(
+  tokens: string[],
+  domain: string | null | undefined = undefined,
+  website: string | null | undefined = undefined,
+): boolean {
   const meaningful = tokens.filter(t => t.length >= 4);
-  return meaningful.length < GENERIC_THRESHOLD;
+
+  if (meaningful.length >= GENERIC_THRESHOLD) {
+    return false;
+  }
+
+  const singleToken = meaningful.length > 0 ? meaningful[0] : tokens[0];
+  if (!singleToken) return true;
+
+  const lower = singleToken.toLowerCase();
+
+  if (GENERIC_KEYWORDS.has(lower)) return true;
+
+  if (hasDomainSignal(singleToken, domain, website)) return false;
+
+  if (singleToken.length >= 5) return false;
+
+  return true;
 }
 
 export function getSupabaseClient(): SupabaseClient | null {
@@ -145,15 +220,6 @@ export async function resolveCandidateTaxIdentifierForColombia(
     };
   }
 
-  const sb = getSupabaseClient();
-  if (!sb) {
-    return {
-      status: 'error',
-      confidence: 0,
-      metadata: { warning: 'Supabase client not available' },
-    };
-  }
-
   try {
     const exactNormalized = normalizeColombiaCompanyNameExact(name);
     const searchNormalized = normalizeColombiaCompanyName(name);
@@ -167,7 +233,7 @@ export async function resolveCandidateTaxIdentifierForColombia(
     }
 
     const searchTokens = searchNormalized.split(' ').filter(t => t.length > 0);
-    if (isNameTooGeneric(searchTokens)) {
+    if (isNameTooGeneric(searchTokens, input.domain, input.website)) {
       return {
         status: 'skipped',
         confidence: 0,
@@ -175,6 +241,15 @@ export async function resolveCandidateTaxIdentifierForColombia(
           normalizedSearchName: searchNormalized,
           warning: 'Name too generic to resolve reliably',
         },
+      };
+    }
+
+    const sb = getSupabaseClient();
+    if (!sb) {
+      return {
+        status: 'error',
+        confidence: 0,
+        metadata: { warning: 'Supabase client not available' },
       };
     }
 
@@ -207,6 +282,8 @@ export async function resolveCandidateTaxIdentifierForColombia(
       return {
         status: 'ambiguous',
         confidence: 0.72,
+        matchedBy: 'normalized_name',
+        sourceKey: 'co_siis',
         candidates,
         metadata: {
           normalizedSearchName: searchNormalized,
@@ -233,6 +310,8 @@ export async function resolveCandidateTaxIdentifierForColombia(
       return {
         status: 'ambiguous',
         confidence: 0.60,
+        matchedBy: 'partial_normalized_name',
+        sourceKey: 'co_siis',
         candidates: mediumConfidence,
         metadata: {
           normalizedSearchName: searchNormalized,
@@ -246,6 +325,8 @@ export async function resolveCandidateTaxIdentifierForColombia(
       return {
         status: 'ambiguous',
         confidence: 0.65,
+        matchedBy: 'partial_normalized_name',
+        sourceKey: 'co_siis',
         candidates: mediumConfidence,
         metadata: {
           normalizedSearchName: searchNormalized,
