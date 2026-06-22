@@ -35,6 +35,7 @@ const emptyBuffer = makeExcelBuffer(['NIT', 'RAZÓN SOCIAL'], []);
 // ─── Module-scoped mock buffer (mutated before each test) ──────────────────────
 
 let mockBuffer = fakeBuffer;
+let downloadSiisExcelCallCount = 0;
 
 before(() => {
   mock.module('@supabase/supabase-js', {
@@ -58,10 +59,13 @@ before(() => {
 
   mock.module('../siis-client', {
     namedExports: {
-      downloadSiisExcel: async () => ({
-        ok: true,
-        buffer: mockBuffer,
-      }),
+      downloadSiisExcel: async () => {
+        downloadSiisExcelCallCount++;
+        return {
+          ok: true,
+          buffer: mockBuffer,
+        };
+      },
       SIIS_CONFIRMED_YEARS: [2024, 2023, 2022],
     },
   });
@@ -114,6 +118,66 @@ describe('runSiisSnapshotEtl (dry-run flow)', () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.recordsFound, 0);
+  });
+
+  it('with excelBuffer does not call downloadSiisExcel', async () => {
+    mockBuffer = fakeBuffer;
+    downloadSiisExcelCallCount = 0;
+    const { runSiisSnapshotEtl } = await import('../siis-snapshot-etl');
+    const result = await runSiisSnapshotEtl(2024, 1000, {
+      dryRun: true,
+      excelBuffer: fakeBuffer,
+      sourceMode: 'local_file',
+      sourceFilePath: 'siis_2024_10000.xlsx',
+    });
+
+    assert.equal(downloadSiisExcelCallCount, 0);
+    assert.equal(result.ok, true);
+    assert.equal(result.recordsFound, 3);
+  });
+
+  it('with excelBuffer parses rows correctly in local mode', async () => {
+    mockBuffer = fakeBuffer;
+    downloadSiisExcelCallCount = 0;
+    const { runSiisSnapshotEtl } = await import('../siis-snapshot-etl');
+    const result = await runSiisSnapshotEtl(2024, 1000, {
+      dryRun: true,
+      excelBuffer: fakeBuffer,
+      sourceMode: 'local_file',
+      sourceFilePath: 'siis_2024_10000.xlsx',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.recordsFound, 3);
+    assert.equal(result.recordsUpserted, 0);
+    assert.equal(result.runId, undefined);
+    assert.equal(downloadSiisExcelCallCount, 0);
+  });
+
+  it('without excelBuffer still calls downloadSiisExcel', async () => {
+    mockBuffer = fakeBuffer;
+    downloadSiisExcelCallCount = 0;
+    const { runSiisSnapshotEtl } = await import('../siis-snapshot-etl');
+    const result = await runSiisSnapshotEtl(2024, 1000, { dryRun: true });
+
+    assert.equal(downloadSiisExcelCallCount, 1);
+    assert.equal(result.ok, true);
+    assert.equal(result.recordsFound, 3);
+  });
+
+  it('local_file mode includes source mode and file path in warnings', async () => {
+    mockBuffer = fakeBuffer;
+    downloadSiisExcelCallCount = 0;
+    const { runSiisSnapshotEtl } = await import('../siis-snapshot-etl');
+    const result = await runSiisSnapshotEtl(2024, 1000, {
+      dryRun: true,
+      excelBuffer: fakeBuffer,
+      sourceMode: 'local_file',
+      sourceFilePath: 'siis_2024_10000.xlsx',
+    });
+
+    assert.ok(result.warnings.some((w) => w.includes('Source mode: local_file')), 'warning should mention source mode');
+    assert.ok(result.warnings.some((w) => w.includes('siis_2024_10000.xlsx')), 'warning should mention file name');
   });
 });
 

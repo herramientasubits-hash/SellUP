@@ -4,6 +4,11 @@
  * Uso:
  *   npm run source:siis:snapshot -- --year=2024 --limit=10000 --dry-run
  *   npm run source:siis:snapshot -- --year=2024 --limit=10000 --commit
+ *   npm run source:siis:snapshot -- --year=2024 --file=siis_2024_10000.xlsx --dry-run
+ *   npm run source:siis:snapshot -- --year=2024 --file=siis_2024_10000.xlsx --commit
+ *
+ * Con --file: carga desde archivo Excel local (sin depender del endpoint SIIS).
+ * Sin --file: descarga remota desde endpoint SIIS (comportamiento actual).
  *
  * Requiere SUPABASE_SERVICE_ROLE_KEY en .env.local para commit real.
  * Dry-run no requiere claves de Supabase.
@@ -12,15 +17,23 @@
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { runSiisSnapshotEtl } from '../../src/server/source-catalog/connectors/siis-colombia/siis-snapshot-etl';
+
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const ALLOWED_EXTENSIONS = ['.xlsx', '.xls'];
 
 // ─── CLI argument parser ─────────────────────────────────────────────────────
 
-function parseArgs(): { year: number; limit: 1000 | 10000; commit: boolean } {
+function parseArgs(): { year: number; limit: 1000 | 10000; commit: boolean; file?: string } {
   const args = process.argv.slice(2);
   let year = 2024;
   let limit: 1000 | 10000 = 10000;
   let commit = false;
+  let file: string | undefined;
 
   for (const arg of args) {
     if (arg.startsWith('--year=')) {
@@ -32,16 +45,75 @@ function parseArgs(): { year: number; limit: 1000 | 10000; commit: boolean } {
       else limit = 10000;
     } else if (arg === '--commit') {
       commit = true;
+    } else if (arg.startsWith('--file=')) {
+      file = arg.replace('--file=', '');
     }
   }
 
-  return { year, limit, commit };
+  return { year, limit, commit, file };
+}
+
+// ─── File validation ───────────────────────────────────────────────────────────
+
+function validateFilePath(filePath: string): { resolved: string; relative: string } {
+  if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+    console.error('');
+    console.error('  ✖ Error: Use remote download mode instead of --file for URLs.');
+    console.error('    (Omit --file to download from the SIIS endpoint)');
+    console.error('');
+    process.exit(1);
+  }
+
+  const resolved = path.resolve(process.cwd(), filePath);
+  const ext = path.extname(resolved).toLowerCase();
+
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    console.error('');
+    console.error(`  ✖ Error: Invalid file extension "${ext}". Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
+    console.error('');
+    process.exit(1);
+  }
+
+  try {
+    const stat = fs.statSync(resolved);
+    if (!stat.isFile()) {
+      console.error('');
+      console.error(`  ✖ Error: Path is not a file: ${filePath}`);
+      console.error('');
+      process.exit(1);
+    }
+  } catch {
+    console.error('');
+    console.error(`  ✖ Error: File not found: ${filePath}`);
+    console.error(`    Resolved: ${resolved}`);
+    console.error('');
+    process.exit(1);
+  }
+
+  return { resolved, relative: filePath };
+}
+
+function readExcelFile(filePath: string): Buffer {
+  return fs.readFileSync(filePath);
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { year, limit, commit } = parseArgs();
+  const { year, limit, commit, file } = parseArgs();
+
+  const sourceMode = file ? 'local_file' : 'remote_download';
+  let excelBuffer: Buffer | undefined;
+  let sourceFilePath: string | undefined;
+
+  if (file) {
+    const { resolved, relative } = validateFilePath(file);
+    console.log('');
+    console.log(`  Source mode:    local_file`);
+    console.log(`  File:           ${relative}`);
+    excelBuffer = readExcelFile(resolved);
+    sourceFilePath = file; // relative path for metadata
+  }
 
   console.log('');
   console.log('═'.repeat(60));
@@ -50,6 +122,10 @@ async function main() {
   console.log(`  Año:            ${year}`);
   console.log(`  Límite:         ${limit}`);
   console.log(`  dryRun:         ${!commit}`);
+  console.log(`  Source mode:    ${sourceMode}`);
+  if (sourceMode === 'local_file') {
+    console.log(`  File:           ${sourceFilePath}`);
+  }
   if (commit) {
     console.log('  Supabase writes: enabled');
     console.log('  Requiere SUPABASE_SERVICE_ROLE_KEY');
@@ -58,7 +134,12 @@ async function main() {
   }
   console.log('─'.repeat(60));
 
-  const result = await runSiisSnapshotEtl(year, limit, { dryRun: !commit });
+  const result = await runSiisSnapshotEtl(year, limit, {
+    dryRun: !commit,
+    excelBuffer,
+    sourceMode,
+    sourceFilePath,
+  });
 
   console.log('');
   console.log('  Resultado:');
@@ -88,7 +169,8 @@ async function main() {
     console.log('');
     console.log('  ✅ DRY RUN completado — No se escribió nada en Supabase.');
     console.log('  Para ejecutar commit real:');
-    console.log(`  npm run source:siis:snapshot -- --year=${year} --limit=${limit} --commit`);
+    const extra = sourceMode === 'local_file' ? ` --file=${sourceFilePath}` : '';
+    console.log(`  npm run source:siis:snapshot -- --year=${year} --limit=${limit}${extra} --commit`);
   }
 
   if (commit && result.ok && result.recordsUpserted > 0) {

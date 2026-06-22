@@ -27,6 +27,14 @@ export type SiisSnapshotEtlResult = {
   warnings: string[];
 };
 
+export type SiisSnapshotEtlOptions = {
+  dryRun?: boolean;
+  signal?: AbortSignal;
+  excelBuffer?: Buffer;
+  sourceMode?: 'remote_download' | 'local_file';
+  sourceFilePath?: string;
+};
+
 // ─── Normalization helpers (exported for testing) ─────────────────────────────
 
 /** Normaliza NIT colombiano: elimina DV, puntos, espacios */
@@ -345,11 +353,14 @@ async function finishRun(
  * @param n      Cantidad de registros: 1000 o 10000.
  * @param options.dryRun  Si es true, parsea pero no escribe en DB ni registra run.
  * @param options.signal  AbortSignal opcional.
+ * @param options.excelBuffer  Buffer de Excel pre-cargado (modo local_file).
+ * @param options.sourceMode   'remote_download' (default) o 'local_file'.
+ * @param options.sourceFilePath  Path del archivo local (para metadata).
  */
 export async function runSiisSnapshotEtl(
   year: number,
   n: 1000 | 10000 = 10000,
-  options?: { dryRun?: boolean; signal?: AbortSignal },
+  options?: SiisSnapshotEtlOptions,
 ): Promise<SiisSnapshotEtlResult> {
   if (!SIIS_CONFIRMED_YEARS.includes(year)) {
     return {
@@ -370,7 +381,17 @@ export async function runSiisSnapshotEtl(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let sb: any;
 
+  const sourceMode = options?.sourceMode ?? 'remote_download';
+  const sourceFilePath = options?.sourceFilePath;
+  const excelBuffer = options?.excelBuffer;
+
   if (!dryRun) {
+    const runMetadata: Record<string, unknown> = { n };
+    if (sourceMode === 'local_file' && sourceFilePath) {
+      runMetadata.source_mode = sourceMode;
+      runMetadata.source_file_path = sourceFilePath;
+    }
+
     sb = getAdminSupabase();
     try {
       const { data: runData } = await sb
@@ -381,7 +402,7 @@ export async function runSiisSnapshotEtl(
           status: 'running',
           started_at: new Date().toISOString(),
           source_year: year,
-          metadata: { n },
+          metadata: runMetadata,
         })
         .select('id')
         .single();
@@ -392,18 +413,26 @@ export async function runSiisSnapshotEtl(
   }
 
   try {
-    const downloadResult = await downloadSiisExcel(year, n, options?.signal);
+    let excelBufferToUse: Buffer | undefined;
 
-    if (!downloadResult.ok || !downloadResult.buffer) {
-      const err = downloadResult.error ?? 'Download failed';
-      errors.push(err);
-      if (!dryRun) {
-        await finishRun(sb, runId, 'failed', { records_found: 0, records_upserted: 0, error: err });
+    if (excelBuffer) {
+      excelBufferToUse = excelBuffer;
+    } else {
+      const downloadResult = await downloadSiisExcel(year, n, options?.signal);
+
+      if (!downloadResult.ok || !downloadResult.buffer) {
+        const err = downloadResult.error ?? 'Download failed';
+        errors.push(err);
+        if (!dryRun) {
+          await finishRun(sb, runId, 'failed', { records_found: 0, records_upserted: 0, error: err });
+        }
+        return { ok: false, year, recordsFound: 0, recordsUpserted: 0, runId, errors, warnings };
       }
-      return { ok: false, year, recordsFound: 0, recordsUpserted: 0, runId, errors, warnings };
+
+      excelBufferToUse = downloadResult.buffer;
     }
 
-    const records = parseExcelRows(downloadResult.buffer, year);
+    const records = parseExcelRows(excelBufferToUse, year);
     const recordsFound = records.length;
 
     if (recordsFound === 0) {
@@ -415,6 +444,9 @@ export async function runSiisSnapshotEtl(
     }
 
     if (dryRun) {
+      const modeMsg = sourceMode === 'local_file'
+        ? `Source mode: local_file — file: ${sourceFilePath ?? 'N/A'}. `
+        : '';
       return {
         ok: true,
         year,
@@ -422,7 +454,7 @@ export async function runSiisSnapshotEtl(
         recordsUpserted: 0,
         runId: undefined,
         errors,
-        warnings: [...warnings, `DRY RUN — ${recordsFound} records parsed, no writes performed.`],
+        warnings: [...warnings, `${modeMsg}DRY RUN — ${recordsFound} records parsed, no writes performed.`],
       };
     }
 
