@@ -31,7 +31,7 @@ import {
 import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
 import { writeStructuredSourceCandidatesPreview } from './prospecting-toolkit/structured-source-candidate-writer';
 import { enrichBatchCandidatesWithWebAndAI } from './prospecting-toolkit/official-candidate-enricher';
-import { enrichCandidatesWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-candidates-with-validated-sources';
+import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
 import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 
 // ============================================================
@@ -1027,67 +1027,22 @@ export async function runProspectGenerationAgent(
         }
       }
 
-      // ─── Post-Discovery Enrichment — validated sources (non-blocking) ──────────
+      // ─── Post-Discovery Enrichment — tax resolution + validated sources (non-blocking) ─
       if (countryCode === 'CO') {
         try {
-          const { data: candidatesForEnrichment } = await admin
-            .from('prospect_candidates')
-            .select('id, name, legal_name, tax_identifier, sector_description, metadata')
-            .eq('batch_id', ruesResult.batchId);
+          const enrichResult = await enrichBatchCandidatesWithTaxResolution(
+            admin,
+            ruesResult.batchId,
+            countryCode,
+          );
 
-          if (candidatesForEnrichment && candidatesForEnrichment.length > 0) {
-            const enrichResult = await enrichCandidatesWithValidatedSources({
-              candidates: candidatesForEnrichment.map((c) => ({
-                name: (c.name ?? c.legal_name ?? '') as string,
-                taxId: (c.tax_identifier ?? null) as string | null,
-                countryCode: 'CO',
-                sector: (c.sector_description ?? null) as string | null,
-                existingMetadata: (c.metadata as Record<string, unknown>) ?? {},
-              })),
-              countryCode: 'CO',
-              stage: 'post_discovery_enrichment',
+          if (enrichResult.sourcesApplied.length > 0) {
+            console.info('[agent-1] enrichment completed for batch:', ruesResult.batchId, {
+              sourcesApplied: enrichResult.sourcesApplied,
+              candidatesProcessed: enrichResult.candidatesProcessed,
+              taxResolved: enrichResult.taxResolutionStatus.resolved_count,
+              taxAmbiguous: enrichResult.taxResolutionStatus.ambiguous_count,
             });
-
-            if (enrichResult.sourcesSkipped.includes('co_siis')) {
-              console.warn('[agent-1] co_siis enrichment skipped (no snapshot) for batch:', ruesResult.batchId);
-            }
-
-            // Save all non-skipped enrichment results generically
-            const updateOps = enrichResult.results
-              .filter((r) => Object.values(r.sourceEnrichments).some((e) => e.status !== 'skipped'))
-              .map((r) => {
-                const candidate = candidatesForEnrichment[r.candidateIndex];
-                if (!candidate) return Promise.resolve();
-                const existingMeta = (candidate.metadata as Record<string, unknown>) ?? {};
-                const newSourceEnrichment = Object.fromEntries(
-                  Object.entries(r.enrichmentMetadata).filter(
-                    ([, v]) => (v as Record<string, unknown>)['status'] !== 'skipped',
-                  ),
-                );
-                const updatedMeta = {
-                  ...existingMeta,
-                  source_enrichment: {
-                    ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
-                    ...newSourceEnrichment,
-                  },
-                };
-                return admin
-                  .from('prospect_candidates')
-                  .update({ metadata: updatedMeta })
-                  .eq('id', candidate.id as string);
-              });
-
-            await Promise.allSettled(updateOps);
-
-            for (const sourceKey of enrichResult.sourcesApplied) {
-              const matched = enrichResult.results.filter(
-                (r) => r.sourceEnrichments[sourceKey]?.status === 'matched',
-              ).length;
-              const noMatch = enrichResult.results.filter(
-                (r) => r.sourceEnrichments[sourceKey]?.status === 'no_match',
-              ).length;
-              console.info(`[agent-1] ${sourceKey} enrichment completed for batch:`, ruesResult.batchId, { matched, noMatch });
-            }
           }
         } catch (enrichErr: unknown) {
           console.warn('[agent-1] post-discovery enrichment failed (non-blocking):', enrichErr instanceof Error ? enrichErr.message : enrichErr);

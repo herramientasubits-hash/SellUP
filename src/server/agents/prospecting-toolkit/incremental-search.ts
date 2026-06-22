@@ -59,7 +59,7 @@ import type {
 } from './incremental-search-types';
 import type { SearchStrategyV1 } from './types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
-import { enrichCandidatesWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-candidates-with-validated-sources';
+import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -179,83 +179,37 @@ export async function estimatePersistableAfterNovelty(params: {
   };
 }
 
-// ─── Enrichment post-discovery (Hito FIX-P0) ──────────────────────────────────
+// ─── Enrichment post-discovery (Hito FIX-P0 + P1.1) ──────────────────────────
 
 /**
  * Ejecuta enrichment post-discovery para candidatos del batch.
  * Solo para Colombia (CO). Non-blocking — nunca revienta el batch.
  *
- * Lee candidatos desde la BD, llama el hook de enrichment y persiste
- * resultados en metadata de candidatos y batch.
+ * Hito P1.1: resuelve NIT desde source_company_snapshots (SIIS) antes del
+ * enrichment, para que fuentes que requieren tax_identifier puedan matchear.
+ *
+ * Lee candidatos desde la BD, resuelve tax_identifier si es posible,
+ * persiste tax_identifier_resolution y tax_identifier, ejecuta enrichment
+ * con el NIT resuelto, y persiste source_enrichment.
  */
 export async function enrichBatchCandidates(
   supabase: SupabaseClient,
   batchId: string,
   countryCode: string,
-): Promise<{ candidatesProcessed: number; sourcesApplied: string[]; warnings: string[]; errors: string[] }> {
+): Promise<{ candidatesProcessed: number; sourcesApplied: string[]; warnings: string[]; errors: string[]; taxResolutionStatus?: import('@/server/source-catalog/enrichment/tax-identifier-resolution/types').TaxIdentifierResolutionBatchMetadata }> {
   if (countryCode !== 'CO') {
     return { candidatesProcessed: 0, sourcesApplied: [], warnings: [], errors: [] };
   }
 
   try {
-    const { data: candidatesForEnrichment, error: queryError } = await supabase
-      .from('prospect_candidates')
-      .select('id, name, legal_name, tax_identifier, sector_description, metadata')
-      .eq('batch_id', batchId);
-
-    if (queryError || !candidatesForEnrichment || candidatesForEnrichment.length === 0) {
-      return { candidatesProcessed: 0, sourcesApplied: [], warnings: [], errors: queryError ? [queryError.message] : [] };
-    }
-
-    const enrichResult = await enrichCandidatesWithValidatedSources({
-      candidates: candidatesForEnrichment.map((c) => ({
-        name: (c.name ?? c.legal_name ?? '') as string,
-        taxId: (c.tax_identifier ?? null) as string | null,
-        countryCode: 'CO',
-        sector: (c.sector_description ?? null) as string | null,
-        existingMetadata: (c.metadata as Record<string, unknown>) ?? {},
-      })),
-      countryCode: 'CO',
-      stage: 'post_discovery_enrichment',
-    });
-
-    // Persist non-skipped enrichment results in candidate metadata
-    const updateOps = enrichResult.results
-      .filter((r) => Object.values(r.sourceEnrichments).some((e) => e.status !== 'skipped'))
-      .map((r) => {
-        const candidate = candidatesForEnrichment[r.candidateIndex];
-        if (!candidate) return Promise.resolve();
-        const existingMeta = (candidate.metadata as Record<string, unknown>) ?? {};
-        const newSourceEnrichment = Object.fromEntries(
-          Object.entries(r.enrichmentMetadata).filter(
-            ([, v]) => (v as Record<string, unknown>)['status'] !== 'skipped',
-          ),
-        );
-        return supabase
-          .from('prospect_candidates')
-          .update({
-            metadata: {
-              ...existingMeta,
-              source_enrichment: {
-                ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
-                ...newSourceEnrichment,
-              },
-            },
-          })
-          .eq('id', candidate.id as string);
-      });
-
-    await Promise.allSettled(updateOps);
-
-    const nonSkippedCount = enrichResult.results.filter(
-      (r) => Object.values(r.sourceEnrichments).some((e) => e.status !== 'skipped'),
-    ).length;
+    const result = await enrichBatchCandidatesWithTaxResolution(supabase, batchId, countryCode);
 
     return {
-      candidatesProcessed: nonSkippedCount,
-      sourcesApplied: enrichResult.sourcesApplied,
-      warnings: enrichResult.warnings,
-      errors: enrichResult.errors,
+      candidatesProcessed: result.candidatesProcessed,
+      sourcesApplied: result.sourcesApplied,
+      warnings: result.warnings,
+      errors: result.errors,
+      taxResolutionStatus: result.taxResolutionStatus,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -897,7 +851,7 @@ export async function runIncrementalProspectingSearch(
             input.countryCode,
           );
 
-          // Update batch metadata with enrichment status
+          // Update batch metadata with enrichment status and tax resolution status
           try {
             const { data: currentBatch } = await adminSupabase
               .from('prospect_batches')
@@ -920,14 +874,18 @@ export async function runIncrementalProspectingSearch(
                     reason: enrichmentResult.errors.length > 0 ? 'enrichment_error' : 'no_match',
                   };
 
+              const updatedBatchMeta: Record<string, unknown> = {
+                ...batchMeta,
+                source_enrichment_status: enrichmentStatus,
+              };
+
+              if (enrichmentResult.taxResolutionStatus) {
+                updatedBatchMeta['tax_identifier_resolution_status'] = enrichmentResult.taxResolutionStatus;
+              }
+
               await adminSupabase
                 .from('prospect_batches')
-                .update({
-                  metadata: {
-                    ...batchMeta,
-                    source_enrichment_status: enrichmentStatus,
-                  },
-                })
+                .update({ metadata: updatedBatchMeta })
                 .eq('id', writerBatchId);
             }
           } catch (batchUpdateErr: unknown) {
