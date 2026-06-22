@@ -23,8 +23,8 @@ describe('buildSiisMatchResult', () => {
       city: 'Bogotá',
       department: 'Cundinamarca',
       financials: {
-        operatingRevenueCurrent: 50_000_000_000,
-        profitLossCurrent: 5_000_000_000,
+        operatingRevenueCurrent: 50,
+        profitLossCurrent: 5,
       },
       signals: { supervisor: 'Supersociedades', ciiu: '6201' },
     };
@@ -41,31 +41,58 @@ describe('buildSiisMatchResult', () => {
     assert.equal((result.signals as Record<string, unknown>)['city'], 'Bogotá');
   });
 
-  it('priority boost 3 for revenue > 100B', () => {
+  it('priority boost 3 for revenue > 100B COP', () => {
     const result = buildSiisMatchResult(
-      { financials: { operatingRevenueCurrent: 200_000_000_000 } },
+      { financials: { operatingRevenueCurrent: 200 } },
       'tax_id',
       0.95,
     );
     assert.equal(result.priorityBoost, 3);
   });
 
-  it('priority boost 1 for revenue between 1B and 10B', () => {
+  it('priority boost 2 for revenue > 10B COP', () => {
     const result = buildSiisMatchResult(
-      { financials: { operatingRevenueCurrent: 5_000_000_000 } },
+      { financials: { operatingRevenueCurrent: 24.75 } },
+      'tax_id',
+      0.95,
+    );
+    assert.equal(result.priorityBoost, 2);
+  });
+
+  it('priority boost 1 for revenue > 1B COP', () => {
+    const result = buildSiisMatchResult(
+      { financials: { operatingRevenueCurrent: 5 } },
       'tax_id',
       0.95,
     );
     assert.equal(result.priorityBoost, 1);
   });
 
-  it('priority boost 0 for revenue < 1B', () => {
+  it('priority boost 0 for revenue <= 1B COP', () => {
     const result = buildSiisMatchResult(
-      { financials: { operatingRevenueCurrent: 500_000_000 } },
+      { financials: { operatingRevenueCurrent: 0.5 } },
       'tax_id',
       0.95,
     );
     assert.equal(result.priorityBoost, 0);
+  });
+
+  it('ECOPETROL-like: 113.92 → priority boost 3', () => {
+    const result = buildSiisMatchResult(
+      { financials: { operatingRevenueCurrent: 113.92 } },
+      'tax_id',
+      0.95,
+    );
+    assert.equal(result.priorityBoost, 3);
+  });
+
+  it('D1-like: 19.44 → priority boost 2', () => {
+    const result = buildSiisMatchResult(
+      { financials: { operatingRevenueCurrent: 19.44 } },
+      'tax_id',
+      0.95,
+    );
+    assert.equal(result.priorityBoost, 2);
   });
 
   it('priority boost 0 when no revenue', () => {
@@ -78,7 +105,7 @@ describe('buildSiisMatchResult', () => {
       legal_name: 'Empresa Test',
       normalized_tax_id: '800123456',
       priority_score: 5,
-      financials: { operatingRevenueCurrent: 2_000_000_000 },
+      financials: { operatingRevenueCurrent: 2 },
       signals: { supervisor: 'Test', ciiu: '1234' },
     };
 

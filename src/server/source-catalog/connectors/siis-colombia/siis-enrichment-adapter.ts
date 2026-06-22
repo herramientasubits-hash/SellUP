@@ -69,9 +69,10 @@ export function buildSiisMatchResult(
     (financials['operatingRevenueCurrent'] as number | undefined) ??
     (financials['operating_revenue_current'] as number | undefined);
   if (typeof revenue === 'number') {
-    if (revenue > 100_000_000_000) priorityBoost = 3;      // > 100B COP
-    else if (revenue > 10_000_000_000) priorityBoost = 2;  // > 10B COP
-    else if (revenue > 1_000_000_000) priorityBoost = 1;   // > 1B COP
+    // SIIS financials stored in billions of COP (e.g., 113.92 for ECOPETROL)
+    if (revenue > 100) priorityBoost = 3;
+    else if (revenue > 10) priorityBoost = 2;
+    else if (revenue > 1) priorityBoost = 1;
   }
 
   return {
