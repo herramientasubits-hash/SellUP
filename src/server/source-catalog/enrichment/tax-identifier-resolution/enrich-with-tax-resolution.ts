@@ -273,30 +273,56 @@ export async function enrichBatchCandidatesWithTaxResolution(
     }
 
     if (countryCode === 'MX') {
+      const { denueEnrichmentAdapter } = await import(
+        '../../connectors/denue-mexico/denue-enrichment-adapter'
+      );
+
       const updateOps: Array<Promise<unknown>> = [];
 
       for (const candidate of candidates) {
         const existingMeta = (candidate['metadata'] as Record<string, unknown>) ?? {};
         const candidateId = candidate['id'] as string;
         const resolutionMeta = resolutionMetaMap.get(candidateId);
+        const candidateName = (candidate['name'] as string) ?? (candidate['legal_name'] as string) ?? '';
+
+        const updatedMeta: Record<string, unknown> = { ...existingMeta };
 
         if (resolutionMeta) {
-          const updatedMeta: Record<string, unknown> = { ...existingMeta };
           Object.assign(updatedMeta, resolutionMeta);
-
-          const op = supabase
-            .from('prospect_candidates')
-            .update({ metadata: updatedMeta })
-            .eq('id', candidateId);
-          updateOps.push(op as unknown as Promise<unknown>);
         }
+
+        try {
+          const denueOutput = await denueEnrichmentAdapter.enrichCandidate({
+            candidateName,
+            candidateTaxId: null,
+            countryCode: 'MX',
+            sector: (candidate['sector_description'] as string | null) ?? null,
+            existingMetadata: existingMeta,
+            capability: 'enrichment_after_discovery',
+          });
+
+          if (denueOutput.metadata) {
+            updatedMeta['source_enrichment'] = {
+              ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+              mx_denue: denueOutput.metadata,
+            };
+          }
+        } catch {
+          // DENUE enrichment never breaks pipeline
+        }
+
+        const op = supabase
+          .from('prospect_candidates')
+          .update({ metadata: updatedMeta })
+          .eq('id', candidateId);
+        updateOps.push(op as unknown as Promise<unknown>);
       }
 
       await Promise.allSettled(updateOps);
 
       return {
         candidatesProcessed: batchStatus.candidates_processed,
-        sourcesApplied: ['mx_tax_resolution'],
+        sourcesApplied: ['mx_tax_resolution', 'mx_denue'],
         warnings: [],
         errors: batchStatus.errors,
         taxResolutionStatus: batchStatus,

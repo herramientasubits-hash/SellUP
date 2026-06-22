@@ -13,6 +13,7 @@ import { secop2ProveedoresEnrichmentAdapter } from '../connectors/secop2-proveed
 import { personasJuridicasCCEnrichmentAdapter } from '../connectors/personas-juridicas-cc-colombia/personas-juridicas-cc-enrichment-adapter';
 import { minsaludRepsEnrichmentAdapter } from '../connectors/minsalud-reps-colombia/minsalud-reps-enrichment-adapter';
 import { superfinancieraEnrichmentAdapter } from '../connectors/superfinanciera-colombia/superfinanciera-enrichment-adapter';
+import { denueEnrichmentAdapter } from '../connectors/denue-mexico/denue-enrichment-adapter';
 
 export const ENRICHMENT_ADAPTER_REGISTRY: Record<string, SourceEnrichmentAdapter> = {
   co_siis: siisEnrichmentAdapter,
@@ -20,4 +21,5 @@ export const ENRICHMENT_ADAPTER_REGISTRY: Record<string, SourceEnrichmentAdapter
   co_personas_juridicas_cc: personasJuridicasCCEnrichmentAdapter,
   co_minsalud_reps: minsaludRepsEnrichmentAdapter,
   co_superfinanciera: superfinancieraEnrichmentAdapter,
+  mx_denue: denueEnrichmentAdapter,
 };

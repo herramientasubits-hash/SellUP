@@ -96,6 +96,20 @@ export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
     description:
       'Superfinanciera SFC — señal de entidad vigilada por la Superintendencia Financiera de Colombia. Enriquecimiento post-discovery por NIT exacto. Confirma sector financiero y tipo de entidad SFC. NIT 0 (entidad extranjera) es omitido. No activa discovery sectorial financiero. No reemplaza RUES. No crea cuentas.',
   },
+  {
+    sourceKey: 'mx_denue',
+    countryCodes: ['MX'],
+    capabilities: [
+      'enrichment_after_discovery',
+    ],
+    wizardUsage: 'post_discovery_enrichment',
+    requiresSnapshot: false,
+    canRunLive: true,
+    adapterKey: 'mx_denue',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'DENUE INEGI — señal contextual de establecimiento activo en México. Enriquecimiento post-discovery por nombre. No contiene RFC. No reemplaza resolución fiscal. Solo contexto operativo para revisión humana.',
+  },
 ];
 
 /**

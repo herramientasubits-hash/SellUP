@@ -18,6 +18,9 @@ export type {
   DenueCandidateDryRunReport,
 } from './run-denue-candidate-dry-run';
 
+export { denueEnrichmentAdapter, enrichCandidateImpl } from './denue-enrichment-adapter';
+export type { DenueMatch, DenueEnrichmentMetadata } from './denue-enrichment-adapter';
+
 export type {
   MexicoCompanySource,
   DenueEstablishmentRaw,
