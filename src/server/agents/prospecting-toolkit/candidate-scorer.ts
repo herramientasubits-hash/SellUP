@@ -185,6 +185,10 @@ function computeConfidenceScore(input: CandidateScoringInput): ConfidenceResult 
 const ERP_HIGH_SIGNALS = [
   'software erp', 'sistema erp', 'plataforma erp', 'erp para empresas',
   'erp cloud', 'netsuite', 'sap s4', 'sap hana',
+  // v1.13: Manufacturing ERP
+  'factory erp', 'erp manufactura', 'manufactura erp', 'modulo de manufactura',
+  'módulo de manufactura', 'erp industrial', 'planta industrial erp',
+  'software de manufactura erp', 'manufacturing erp', 'erp para manufactura',
 ];
 
 const HR_HIGH_SIGNALS = [
@@ -207,6 +211,12 @@ const IMPLEMENTATION_SIGNALS = [
   'software administrativo', 'facturacion erp', 'facturación erp',
   'partner erp', 'partner crm', 'consultoria erp', 'consultoría erp',
   'servicios erp', 'servicios crm', 'integracion de sistemas', 'integración de sistemas',
+  // v1.13: Partner consulting, billing, enterprise services
+  'facturacion electronica', 'facturación electrónica',
+  'consultoria para empresas', 'consultoría para empresas',
+  'desarrollo e implementacion', 'desarrollo e implementación',
+  'implementacion de soluciones', 'implementación de soluciones',
+  'consulting erp', 'consulting crm', 'enterprise software consulting',
 ];
 
 const DIGITAL_SERVICES_SIGNALS = [
@@ -220,10 +230,29 @@ const GENERIC_AGENCY_SIGNALS = [
   'marketing digital', 'agencia de software', 'aplicaciones moviles', 'aplicaciones móviles',
 ];
 
+// v1.13: Odoo ecosystem partners — implementation partners, not direct ERP vendors
+const ODOO_PARTNER_SIGNALS = [
+  'odoo partner', 'partner odoo', 'implementacion odoo', 'implementación odoo',
+  'implementation odoo', 'development odoo', 'consulting odoo',
+  'implementador odoo', 'socio odoo', 'odoo gold partner', 'odoo silver partner',
+  'odoo consulting', 'odoo implementation',
+];
+
+// v1.13: Zoho ecosystem partners
+const ZOHO_PARTNER_SIGNALS = [
+  'zoho partner', 'partner zoho', 'partners de zoho', 'zoho partners',
+  'premium partner zoho', 'zoho premium', 'zoho premium partner',
+  'partner autorizado zoho', 'implementacion zoho', 'implementación zoho',
+  'zoho consultant', 'zoho consulting',
+];
+
 const B2B_HIGH_SIGNALS = ['b2b'];
 const B2B_MED_SIGNALS = [
   'para empresas', 'clientes corporativos', 'clientes empresariales',
   'soluciones empresariales', 'empresas en colombia', 'empresas en chile',
+  // v1.13: enterprise context signals
+  'entornos empresariales', 'sector empresarial', 'para el sector empresarial',
+  'clientes empresa', 'empresas del sector',
 ];
 
 type CommercialSignals = {
@@ -278,6 +307,8 @@ function computeCommercialSignals(input: CandidateScoringInput): CommercialSigna
   let productFit = 0;
   const erpHit = firstMatch(ERP_HIGH_SIGNALS, combined);
   const hrHit = firstMatch(HR_HIGH_SIGNALS, combined);
+  const odooHit = firstMatch(ODOO_PARTNER_SIGNALS, combined);
+  const zohoHit = firstMatch(ZOHO_PARTNER_SIGNALS, combined);
   const otherHit = firstMatch(OTHER_HIGH_SIGNALS, combined);
   const implHit = firstMatch(IMPLEMENTATION_SIGNALS, combined);
   const digitalHit = firstMatch(DIGITAL_SERVICES_SIGNALS, combined);
@@ -288,6 +319,14 @@ function computeCommercialSignals(input: CandidateScoringInput): CommercialSigna
   } else if (hrHit) {
     productFit = 22;
     fitReasons.push(`product_hr: ${hrHit}`);
+  } else if (odooHit) {
+    // v1.13: Odoo implementation partner — ecosystem fit, not direct ERP vendor
+    productFit = 20;
+    fitReasons.push(`odoo_partner: ${odooHit}`);
+  } else if (zohoHit) {
+    // v1.13: Zoho implementation partner
+    productFit = 18;
+    fitReasons.push(`zoho_partner: ${zohoHit}`);
   } else if (otherHit) {
     productFit = 20;
     fitReasons.push(`product_saas: ${otherHit}`);
