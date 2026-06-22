@@ -35,7 +35,9 @@ import { buildNoveltyIndex, evaluateCandidateNovelty } from './novelty-checker';
 import {
   buildCleanMultiQueryDiscoveryQueries,
   buildExpandedMultiQueryDiscoveryQueries,
+  classifyQuery,
 } from './query-builder';
+import { buildSearchStrategyFromCatalog } from './search-strategy-builder';
 import {
   loadDiscoveryNegativeMemory,
   emptyNegativeMemory,
@@ -52,7 +54,10 @@ import type {
   DiscoveryStrategyMetadata,
   AdaptiveDiscoveryMetadata,
   IncrementalSearchPlanMeta,
+  SearchStrategyRuntimeMetadata,
+  BlockedQuerySample,
 } from './incremental-search-types';
+import type { SearchStrategyV1 } from './types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
 import { enrichCandidatesWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-candidates-with-validated-sources';
 
@@ -258,6 +263,58 @@ export async function enrichBatchCandidates(
   }
 }
 
+// ─── Strategy query filter (Hito v1.8.1) ────────────────────────────────────
+
+type StrategyFilterResult = {
+  allowed: string[];
+  blockedSamples: BlockedQuerySample[];
+  sourceGuidedAllowed: number;
+  sourceGuidedBlocked: number;
+  fallbackAllowed: number;
+};
+
+/**
+ * Filtra queries usando SearchStrategyV1.
+ * Bloquea source-guided queries cuyo querySourceKey está en blockedSourceKeys.
+ * Standard queries (querySourceKey=null) siempre pasan como fallback_web_query.
+ */
+function filterQueriesByStrategy(
+  queries: string[],
+  strategy: SearchStrategyV1,
+  country: string,
+  industry: string,
+): StrategyFilterResult {
+  const allowed: string[] = [];
+  const blockedSamples: BlockedQuerySample[] = [];
+  let sourceGuidedAllowed = 0;
+  let sourceGuidedBlocked = 0;
+  let fallbackAllowed = 0;
+
+  for (const q of queries) {
+    const { queryType, querySourceKey } = classifyQuery(q, country, industry);
+    if (queryType === 'source_guided' && querySourceKey !== null) {
+      if (strategy.queryStrategy.blockedSourceKeys.includes(querySourceKey)) {
+        sourceGuidedBlocked++;
+        if (blockedSamples.length < 3) {
+          blockedSamples.push({
+            query_text: q,
+            query_source_key: querySourceKey,
+            reason: `source_key_${querySourceKey}_blocked_by_search_strategy`,
+          });
+        }
+      } else {
+        sourceGuidedAllowed++;
+        allowed.push(q);
+      }
+    } else {
+      fallbackAllowed++;
+      allowed.push(q);
+    }
+  }
+
+  return { allowed, blockedSamples, sourceGuidedAllowed, sourceGuidedBlocked, fallbackAllowed };
+}
+
 // ─── Orquestador principal ────────────────────────────────────────────────────
 
 export async function runIncrementalProspectingSearch(
@@ -337,6 +394,22 @@ export async function runIncrementalProspectingSearch(
     additionalCriteria: input.additionalCriteria ?? null,
   });
 
+  // ── Search strategy (Hito v1.8.1) ───────────────────────────────────────────
+  // Materializa SearchStrategyV1 para filtrar source-guided queries en runtime.
+  const searchStrategy: SearchStrategyV1 = buildSearchStrategyFromCatalog({
+    countryCode: input.countryCode,
+    country: input.country,
+    industry: input.industry,
+    subindustries: input.subindustries ?? [],
+    additionalCriteria: input.additionalCriteria ?? null,
+  });
+
+  // Runtime counters — acumulados a lo largo de todas las rondas
+  let strategySourceGuidedAllowed = 0;
+  let strategySourceGuidedBlocked = 0;
+  let strategyFallbackAllowed = 0;
+  const allBlockedSamples: BlockedQuerySample[] = [];
+
   // Acumula el último resultado de pre-check para metadata
   let lastNoveltyPrecheck: NoveltyPrecheckResult | null = null;
   let round1PersistableCount: number | undefined = undefined;
@@ -397,6 +470,25 @@ export async function runIncrementalProspectingSearch(
       if (queryOverrides.length === 0) {
         stoppedReason = 'novelty_exhausted_no_diversification_available';
         break;
+      }
+    }
+
+    // ── Strategy filter (Hito v1.8.1) ────────────────────────────────────────
+    // Bloquea source-guided queries cuyos sourceKey están en blockedSourceKeys.
+    // Se aplica antes del query cap para que el cap opere sobre el conjunto ya filtrado.
+    if (queryOverrides !== undefined) {
+      const filterResult = filterQueriesByStrategy(
+        queryOverrides,
+        searchStrategy,
+        input.country,
+        input.industry,
+      );
+      queryOverrides = filterResult.allowed;
+      strategySourceGuidedAllowed += filterResult.sourceGuidedAllowed;
+      strategySourceGuidedBlocked += filterResult.sourceGuidedBlocked;
+      strategyFallbackAllowed += filterResult.fallbackAllowed;
+      if (filterResult.blockedSamples.length > 0 && allBlockedSamples.length < 3) {
+        allBlockedSamples.push(...filterResult.blockedSamples.slice(0, 3 - allBlockedSamples.length));
       }
     }
 
@@ -691,6 +783,16 @@ export async function runIncrementalProspectingSearch(
     rounds: roundsMeta,
   };
 
+  // ── Search strategy runtime metadata (Hito v1.8.1) ──────────────────────────
+  // Built outside dryRun so tests can verify it without needing a real writer.
+  const searchStrategyRuntime: SearchStrategyRuntimeMetadata = {
+    enabled: true,
+    source_guided_queries_allowed: strategySourceGuidedAllowed,
+    source_guided_queries_blocked: strategySourceGuidedBlocked,
+    fallback_queries_allowed: strategyFallbackAllowed,
+    blocked_samples: allBlockedSamples,
+  };
+
   // ── Writer (Hito 16T.2) ──────────────────────────────────────────────────────
   if (!dryRun) {
     if (!lastPipelineOutput) {
@@ -759,6 +861,8 @@ export async function runIncrementalProspectingSearch(
           search_mode: 'incremental_multi_round',
           discovery_strategy: discoveryStrategy as Record<string, unknown>,
           adaptive_discovery: adaptiveDiscovery as Record<string, unknown>,
+          search_strategy: searchStrategy as Record<string, unknown>,
+          search_strategy_runtime: searchStrategyRuntime as Record<string, unknown>,
           ...(input.additionalCriteria != null
             ? { additional_criteria: input.additionalCriteria }
             : {}),
@@ -845,5 +949,6 @@ export async function runIncrementalProspectingSearch(
     batchId: writerBatchId,
     targetReached: dryRun ? undefined : targetReached,
     targetPersistibleCandidates,
+    searchStrategyRuntime,
   };
 }

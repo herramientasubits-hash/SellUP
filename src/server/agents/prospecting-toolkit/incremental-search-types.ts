@@ -218,6 +218,30 @@ export type PrecisionGateMetadata = {
   target_cap_exclusions: number;
 };
 
+// ─── Search Strategy Runtime metadata (Hito v1.8.1) ──────────────────────────
+
+/**
+ * Sample de una query bloqueada por la estrategia de búsqueda.
+ * Permite auditar qué se filtró y por qué.
+ */
+export type BlockedQuerySample = {
+  query_text: string;
+  query_source_key: string;
+  reason: string;
+};
+
+/**
+ * Métricas de runtime del filtro de estrategia de búsqueda.
+ * Persisted in batch metadata under 'search_strategy_runtime'.
+ */
+export type SearchStrategyRuntimeMetadata = {
+  enabled: true;
+  source_guided_queries_allowed: number;
+  source_guided_queries_blocked: number;
+  fallback_queries_allowed: number;
+  blocked_samples: BlockedQuerySample[];
+};
+
 // ─── Novelty pre-check ───────────────────────────────────────────────────────
 
 /** Resultado del pre-check estimado antes de la decisión de ronda 2. */
@@ -282,4 +306,6 @@ export type IncrementalSearchOutput = {
   targetReached?: boolean;
   /** The configured target (for UI display). */
   targetPersistibleCandidates?: number;
+  /** Runtime stats from the search strategy filter (Hito v1.8.1). Always present. */
+  searchStrategyRuntime?: SearchStrategyRuntimeMetadata;
 };
