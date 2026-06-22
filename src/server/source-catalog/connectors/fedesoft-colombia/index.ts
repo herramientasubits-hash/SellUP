@@ -4,6 +4,9 @@ export { normalizeFedesoftCompanyName, normalizeFedesoftNit } from './normalizer
 
 export { buildFedesoftCompanies, runFedesoftConnector } from './fedesoft-connector';
 
+export { runFedesoftSnapshotEtl, getFedesoftPriorityScore, buildFedesoftSnapshotRow, buildFedesoftSnapshotRows } from './fedesoft-snapshot-etl';
+export type { FedesoftSnapshotEtlResult, FedesoftSnapshotEtlOptions } from './fedesoft-snapshot-etl';
+
 export type { BuildFedesoftCompaniesInput } from './fedesoft-connector';
 export type {
   FedesoftSourceKey,
