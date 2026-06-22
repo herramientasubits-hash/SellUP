@@ -21,10 +21,9 @@ import {
 describe('QB1: EdTech subindustry in R1 Colombia/Tecnología', () => {
   const queries = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia', ['EdTech']);
 
-  it('total query count is 4 (Colombia Fintech excluded for non-fintech subindustry)', () => {
-    // 16AB.43.23: Colombia Fintech source-guided is omitted when EdTech (non-fintech) is
-    // the only subindustry. 1 EdTech + 2 remaining base + 1 Fedesoft = 4.
-    assert.equal(queries.length, 4);
+  it('total query count is 3 (Fedesoft removed fix-p0, Colombia Fintech excluded for non-fintech)', () => {
+    // Hito FIX-P0: Fedesoft removida. 1 EdTech + 2 remaining base = 3.
+    assert.equal(queries.length, 3);
   });
 
   it('first query contains EdTech term', () => {
@@ -34,11 +33,11 @@ describe('QB1: EdTech subindustry in R1 Colombia/Tecnología', () => {
     );
   });
 
-  it('Fedesoft source-guided is preserved, Colombia Fintech is absent', () => {
+  it('Fedesoft is absent (removed fix-p0), Colombia Fintech is absent', () => {
     const joined = queries.join(' ').toLowerCase();
     assert.ok(
-      joined.includes('fedesoft'),
-      'Fedesoft source-guided must be present for Colombia/Tech',
+      !joined.includes('fedesoft'),
+      'Fedesoft must NOT appear (paused/not_connected fix-p0)',
     );
     assert.ok(
       !joined.includes('colombia fintech'),
@@ -53,8 +52,8 @@ describe('QB2: EdTech subindustry in R2 Colombia/Tecnología — different from 
   const r1 = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia', ['EdTech']);
   const r2 = buildExpandedMultiQueryDiscoveryQueries('Tecnología', 'Colombia', ['EdTech']);
 
-  it('R2 total query count is 5', () => {
-    assert.equal(r2.length, 5);
+  it('R2 total query count is 4 (SECOP query removed fix-p0)', () => {
+    assert.equal(r2.length, 4);
   });
 
   it('R2 first query contains EdTech term', () => {
@@ -112,12 +111,12 @@ describe('QB4: Multiple subindustries — max 2 injected', () => {
   const r1 = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia', fiveSubindustries);
   const r2 = buildExpandedMultiQueryDiscoveryQueries('Tecnología', 'Colombia', fiveSubindustries);
 
-  it('R1 total count stays at 5', () => {
-    assert.equal(r1.length, 5);
+  it('R1 total count is 4 (Fedesoft removed fix-p0, Colombia Fintech added for fintech)', () => {
+    assert.equal(r1.length, 4);
   });
 
-  it('R2 total count stays at 5', () => {
-    assert.equal(r2.length, 5);
+  it('R2 total count is 4 (SECOP query removed fix-p0)', () => {
+    assert.equal(r2.length, 4);
   });
 
   it('R1 first two queries contain subindustry terms', () => {
@@ -147,10 +146,10 @@ describe('QB5: No subindustries — backward compatibility', () => {
     assert.deepEqual(withUndefined, withoutParam);
   });
 
-  it('R1 Colombia Tech without subindustries has 4 queries (Colombia Fintech excluida sin señal)', () => {
-    // v1.1: Colombia Fintech requiere señal explícita (subindustria o criteria). Base = 4.
+  it('R1 Colombia Tech without subindustries has 3 queries (Fedesoft removida fix-p0, Colombia Fintech excluida sin señal)', () => {
+    // Hito FIX-P0: Fedesoft removida. Sin Fedesoft ni Colombia Fintech sin señal → solo baseQueries.
     const queries = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia');
-    assert.equal(queries.length, 4);
+    assert.equal(queries.length, 3);
   });
 });
 

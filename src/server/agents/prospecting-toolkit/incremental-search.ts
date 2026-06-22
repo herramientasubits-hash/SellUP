@@ -54,6 +54,7 @@ import type {
   IncrementalSearchPlanMeta,
 } from './incremental-search-types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
+import { enrichCandidatesWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-candidates-with-validated-sources';
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -171,6 +172,90 @@ export async function estimatePersistableAfterNovelty(params: {
     confirmed_duplicate_count: confirmedDuplicate,
     rejected_recently_count: rejectedRecently,
   };
+}
+
+// ─── Enrichment post-discovery (Hito FIX-P0) ──────────────────────────────────
+
+/**
+ * Ejecuta enrichment post-discovery para candidatos del batch.
+ * Solo para Colombia (CO). Non-blocking — nunca revienta el batch.
+ *
+ * Lee candidatos desde la BD, llama el hook de enrichment y persiste
+ * resultados en metadata de candidatos y batch.
+ */
+export async function enrichBatchCandidates(
+  supabase: SupabaseClient,
+  batchId: string,
+  countryCode: string,
+): Promise<{ candidatesProcessed: number; sourcesApplied: string[]; warnings: string[]; errors: string[] }> {
+  if (countryCode !== 'CO') {
+    return { candidatesProcessed: 0, sourcesApplied: [], warnings: [], errors: [] };
+  }
+
+  try {
+    const { data: candidatesForEnrichment, error: queryError } = await supabase
+      .from('prospect_candidates')
+      .select('id, name, legal_name, tax_identifier, sector_description, metadata')
+      .eq('batch_id', batchId);
+
+    if (queryError || !candidatesForEnrichment || candidatesForEnrichment.length === 0) {
+      return { candidatesProcessed: 0, sourcesApplied: [], warnings: [], errors: queryError ? [queryError.message] : [] };
+    }
+
+    const enrichResult = await enrichCandidatesWithValidatedSources({
+      candidates: candidatesForEnrichment.map((c) => ({
+        name: (c.name ?? c.legal_name ?? '') as string,
+        taxId: (c.tax_identifier ?? null) as string | null,
+        countryCode: 'CO',
+        sector: (c.sector_description ?? null) as string | null,
+        existingMetadata: (c.metadata as Record<string, unknown>) ?? {},
+      })),
+      countryCode: 'CO',
+      stage: 'post_discovery_enrichment',
+    });
+
+    // Persist non-skipped enrichment results in candidate metadata
+    const updateOps = enrichResult.results
+      .filter((r) => Object.values(r.sourceEnrichments).some((e) => e.status !== 'skipped'))
+      .map((r) => {
+        const candidate = candidatesForEnrichment[r.candidateIndex];
+        if (!candidate) return Promise.resolve();
+        const existingMeta = (candidate.metadata as Record<string, unknown>) ?? {};
+        const newSourceEnrichment = Object.fromEntries(
+          Object.entries(r.enrichmentMetadata).filter(
+            ([, v]) => (v as Record<string, unknown>)['status'] !== 'skipped',
+          ),
+        );
+        return supabase
+          .from('prospect_candidates')
+          .update({
+            metadata: {
+              ...existingMeta,
+              source_enrichment: {
+                ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+                ...newSourceEnrichment,
+              },
+            },
+          })
+          .eq('id', candidate.id as string);
+      });
+
+    await Promise.allSettled(updateOps);
+
+    const nonSkippedCount = enrichResult.results.filter(
+      (r) => Object.values(r.sourceEnrichments).some((e) => e.status !== 'skipped'),
+    ).length;
+
+    return {
+      candidatesProcessed: nonSkippedCount,
+      sourcesApplied: enrichResult.sourcesApplied,
+      warnings: enrichResult.warnings,
+      errors: enrichResult.errors,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { candidatesProcessed: 0, sourcesApplied: [], warnings: [], errors: [msg] };
+  }
 }
 
 // ─── Orquestador principal ────────────────────────────────────────────────────
@@ -694,6 +779,57 @@ export async function runIncrementalProspectingSearch(
         // Reconcile adaptive_discovery with actual persisted count (Hito 16AB.43.27)
         const reconciledAdaptive = buildAdaptiveDiscovery(writerCandidatesCreated ?? 0);
         metadata.adaptive_discovery = reconciledAdaptive;
+
+        // ── Post-writer enrichment (Hito FIX-P0) ─────────────────────────────
+        if (
+          writerBatchId &&
+          (writerCandidatesCreated ?? 0) > 0 &&
+          input.countryCode === 'CO' &&
+          adminSupabase
+        ) {
+          const enrichmentResult = await enrichBatchCandidates(
+            adminSupabase,
+            writerBatchId,
+            input.countryCode,
+          );
+
+          // Update batch metadata with enrichment status
+          try {
+            const { data: currentBatch } = await adminSupabase
+              .from('prospect_batches')
+              .select('metadata')
+              .eq('id', writerBatchId)
+              .single();
+
+            if (currentBatch) {
+              const batchMeta = (currentBatch.metadata as Record<string, unknown>) ?? {};
+              const enrichmentStatus = enrichmentResult.candidatesProcessed > 0
+                ? {
+                    attempted: true,
+                    candidates_processed: enrichmentResult.candidatesProcessed,
+                    sources_applied: enrichmentResult.sourcesApplied,
+                    warnings: enrichmentResult.warnings.length > 0 ? enrichmentResult.warnings : undefined,
+                    errors: enrichmentResult.errors.length > 0 ? enrichmentResult.errors : undefined,
+                  }
+                : {
+                    attempted: false,
+                    reason: enrichmentResult.errors.length > 0 ? 'enrichment_error' : 'no_match',
+                  };
+
+              await adminSupabase
+                .from('prospect_batches')
+                .update({
+                  metadata: {
+                    ...batchMeta,
+                    source_enrichment_status: enrichmentStatus,
+                  },
+                })
+                .eq('id', writerBatchId);
+            }
+          } catch (batchUpdateErr: unknown) {
+            console.warn('[incremental-search] batch enrichment status update failed:', batchUpdateErr instanceof Error ? batchUpdateErr.message : batchUpdateErr);
+          }
+        }
       }
     }
   }

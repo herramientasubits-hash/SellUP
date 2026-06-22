@@ -46,8 +46,8 @@ export type SourceGuidedQueryMeta = {
 // cualquier dominio de fuente que escape como guardrail adicional.
 
 /** Ronda 1 — mix con buildCleanMultiQueryDiscoveryQueries */
+// Hito FIX-P0: co_fedesoft removida — fuente pausada por bloqueo upstream.
 const SOURCE_GUIDED_QUERIES_CO_TECH_R1 = [
-  'empresas miembros Fedesoft software Colombia sitio oficial corporativo',
   'fintech asociadas Colombia Fintech pagos Colombia empresa sitio oficial',
 ] as const;
 
@@ -76,18 +76,18 @@ function hasFintechCriteria(additionalCriteria: string | null | undefined): bool
   ].some((t) => lower.includes(t));
 }
 
-const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_fedesoft', 'co_colombia_fintech'] as const;
+// Hito FIX-P0: co_fedesoft removida — fuente pausada por bloqueo upstream.
+const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_colombia_fintech'] as const;
 
 /** Ronda 2 — mix con buildExpandedMultiQueryDiscoveryQueries */
-// Hito 16Z.1: SECOP II actúa como señal contextual de proveedores tech del Estado (solo contexto gobierno).
-// Hito 16AD.1.1: ANDICOM removido — alto riesgo de traer páginas del evento, no empresas.
-// R2 default usa empresa software empresarial como señal de descubrimiento corporativo.
+// Hito FIX-P0: co_secop2 removida — fuente manual_only / not_connected.
+// co_secop2_proveedores (connected, enrichment) no se ve afectada.
+// co_software_empresarial permanece como virtual query intent (no es fuente real).
 const SOURCE_GUIDED_QUERIES_CO_TECH_R2 = [
   'empresa software empresarial Colombia clientes corporativos sitio oficial',
-  'proveedores tecnología Colombia SECOP II software servicios TI sitio oficial',
 ] as const;
 
-const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_software_empresarial', 'co_secop2'] as const;
+const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_software_empresarial'] as const;
 
 // ─── Subindustrias: normalización y construcción de queries (Hito 16AB.43.14) ──
 
@@ -516,9 +516,10 @@ export function buildCleanMultiQueryDiscoveryQueries(
           ? 'empresa fintech pagos Colombia clientes corporativos soluciones'
           : 'proveedor SaaS empresarial Colombia ERP CRM soluciones sitio oficial',
       ];
+      // Hito FIX-P0: sin Fedesoft (pausada). Source-guided solo con Colombia Fintech.
       const r1SourceGuided = includeFintech
         ? [...SOURCE_GUIDED_QUERIES_CO_TECH_R1]
-        : [SOURCE_GUIDED_QUERIES_CO_TECH_R1[0]]; // Fedesoft only — skip Colombia Fintech
+        : []; // Sin Fedesoft ni Colombia Fintech — solo queries base + subindustrias
       return injectSubindustryQueries(baseQueries, r1SourceGuided, subindustries ?? [], country, 1);
     }
     // Queries validadas en Hito 13D con Tavily basic mode (otros países/Tecnología).
@@ -586,11 +587,13 @@ export function buildExpandedMultiQueryDiscoveryQueries(
       'empresa software Cali soluciones empresariales clientes corporativo',
       'empresa cloud infraestructura Colombia servicios TI corporativo',
     ];
+    // Hito FIX-P0: co_secop2 removida de source-guided (manual_only/not_connected).
+    // El reemplazo implementador se agrega solo en contexto no-gobierno.
     const secopExcluded = excludeSources.includes('co_secop2');
     const r2SourceGuided = secopExcluded
       ? [
-          SOURCE_GUIDED_QUERIES_CO_TECH_R2[0], // empresa software empresarial (reemplazó ANDICOM en v1.1)
-          'implementador software empresarial Colombia SaaS ERP CRM sitio oficial corporativo', // reemplaza SECOP
+          ...SOURCE_GUIDED_QUERIES_CO_TECH_R2,
+          'implementador software empresarial Colombia SaaS ERP CRM sitio oficial corporativo',
         ]
       : [...SOURCE_GUIDED_QUERIES_CO_TECH_R2];
     return injectSubindustryQueries(baseQueries, r2SourceGuided, subindustries ?? [], country, 2);

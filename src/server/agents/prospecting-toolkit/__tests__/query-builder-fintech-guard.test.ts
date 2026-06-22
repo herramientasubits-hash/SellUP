@@ -43,17 +43,16 @@ describe('FG1 — EdTech + Software Empresarial subindustries: no fintech in R1 
     );
   });
 
-  it('FG1-c: Fedesoft source-guided query IS still included', () => {
+  it('FG1-c: Fedesoft source-guided query IS NOT included (fix-p0: paused/not_connected)', () => {
     assert.ok(
-      joined.includes('fedesoft'),
-      `Expected Fedesoft source-guided to be preserved, got:\n${queries.join('\n')}`,
+      !joined.includes('fedesoft'),
+      `Expected Fedesoft source-guided to be removed, got:\n${queries.join('\n')}`,
     );
   });
 
-  it('FG1-d: total query count is 4 (Colombia Fintech excluded → one fewer source-guided)', () => {
-    // 2 subindustry queries + 1 remaining base + 1 Fedesoft = 4.
-    // Colombia Fintech source-guided is omitted for non-fintech subindustries.
-    assert.equal(queries.length, 4);
+  it('FG1-d: total query count is 3 (Colombia Fintech + Fedesoft excluded → no source-guided R1)', () => {
+    // 2 subindustry queries + 1 remaining base = 3. No source-guided for non-fintech.
+    assert.equal(queries.length, 3);
   });
 
   it('FG1-e: EdTech query is present', () => {
@@ -105,15 +104,15 @@ describe('FG3 — Fintech subindustry: Colombia Fintech source-guided IS include
     );
   });
 
-  it('FG3-b: Fedesoft source-guided also present', () => {
+  it('FG3-b: Fedesoft source-guided NOT present (fix-p0: paused/not_connected)', () => {
     assert.ok(
-      joined.includes('fedesoft'),
-      `Expected Fedesoft source-guided to be preserved, got:\n${queries.join('\n')}`,
+      !joined.includes('fedesoft'),
+      `Expected Fedesoft removed, got:\n${queries.join('\n')}`,
     );
   });
 
-  it('FG3-c: total query count is still 5', () => {
-    assert.equal(queries.length, 5);
+  it('FG3-c: total query count is 4 (Colombia Fintech present, Fedesoft gone)', () => {
+    assert.equal(queries.length, 4);
   });
 });
 
@@ -130,16 +129,16 @@ describe('FG4 — No subindustries: Colombia Fintech NOT included without fintec
     );
   });
 
-  it('FG4-b: Fedesoft source-guided still present', () => {
+  it('FG4-b: Fedesoft source-guided NOT present (fix-p0)', () => {
     assert.ok(
-      joined.includes('fedesoft'),
-      `Expected Fedesoft source-guided, got:\n${queries.join('\n')}`,
+      !joined.includes('fedesoft'),
+      `Expected Fedesoft removed, got:\n${queries.join('\n')}`,
     );
   });
 
-  it('FG4-c: total query count is 4 (Colombia Fintech excluded → one fewer source-guided)', () => {
-    // baseQueries(3) + Fedesoft only = 4. Colombia Fintech omitted (no fintech signal).
-    assert.equal(queries.length, 4);
+  it('FG4-c: total query count is 3 (no source-guided R1 without fintech signal)', () => {
+    // baseQueries(3) + no source-guided = 3. Fedesoft and Colombia Fintech both excluded.
+    assert.equal(queries.length, 3);
   });
 
   it('FG4-d: Colombia Fintech IS present when additionalCriteria mentions fintech', () => {
@@ -178,8 +177,8 @@ describe('FG5 — EdTech + Fintech mixed: Colombia Fintech source-guided present
     );
   });
 
-  it('FG5-b: total query count is still 5', () => {
-    assert.equal(queries.length, 5);
+  it('FG5-b: total query count is 4 (Fedesoft removed fix-p0)', () => {
+    assert.equal(queries.length, 4);
   });
 });
 
@@ -205,8 +204,8 @@ describe('FG7 — v1.2: no fintech base query when no fintech signal (Colombia +
     );
   });
 
-  it('FG7-c: R1 count is still 4 (3 base + 1 Fedesoft, same as before)', () => {
-    assert.equal(queries.length, 4);
+  it('FG7-c: R1 count is 3 (3 base, no Fedesoft fix-p0)', () => {
+    assert.equal(queries.length, 3);
   });
 
   it('FG7-d: replacement query contains ERP/CRM/SaaS signal', () => {
@@ -217,10 +216,10 @@ describe('FG7 — v1.2: no fintech base query when no fintech signal (Colombia +
     );
   });
 
-  it('FG7-e: Fedesoft source-guided still present', () => {
+  it('FG7-e: Fedesoft source-guided NOT present (fix-p0)', () => {
     assert.ok(
-      joined.includes('fedesoft'),
-      `Fedesoft source-guided must still be present, got:\n${queries.join('\n')}`,
+      !joined.includes('fedesoft'),
+      `Fedesoft must not appear, got:\n${queries.join('\n')}`,
     );
   });
 
@@ -282,7 +281,7 @@ describe('FG6 — R2 queries (expanded): no fintech drift when EdTech selected',
     );
   });
 
-  it('FG6-c: R2 total query count is 5', () => {
-    assert.equal(r2.length, 5);
+  it('FG6-c: R2 total query count is 4 (SECOP query removed fix-p0)', () => {
+    assert.equal(r2.length, 4);
   });
 });

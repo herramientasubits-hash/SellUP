@@ -53,6 +53,17 @@ function byPriority(a: CatalogSource, b: CatalogSource): number {
   return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
 }
 
+/**
+ * True si la fuente está habilitada para flujo automático del Agente 1.
+ * Excluye fuentes pausadas, manuales, no conectadas o no aptas.
+ */
+function isSourceEnabledForAutomatedFlow(source: CatalogSource): boolean {
+  if (source.connectionMode === 'not_connected') return false;
+  if (source.aiFlowStatus === 'connected') return true;
+  if (source.aiFlowStatus === 'source_guided') return true;
+  return false;
+}
+
 // ─── Selección de fuentes ─────────────────────────────────────────────────────
 
 function buildRecommendedSources(
@@ -61,7 +72,10 @@ function buildRecommendedSources(
   searchDepth: SearchDepth
 ): CatalogSource[] {
   const countryPool = CATALOG_SOURCES.filter(
-    (s) => s.key !== LUSHA_KEY && s.countryCodes.includes(countryCode)
+    (s) =>
+      s.key !== LUSHA_KEY &&
+      s.countryCodes.includes(countryCode) &&
+      isSourceEnabledForAutomatedFlow(s)
   );
 
   // Sector-matched country sources (relevant to the industry)

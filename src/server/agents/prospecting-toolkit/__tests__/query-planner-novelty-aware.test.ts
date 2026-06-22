@@ -37,13 +37,13 @@ function buildPlan(subindustries: string[], additionalCriteria: string | null = 
 
 // ─── Source Gating Tests ──────────────────────────────────────────────────────
 
-describe('Source gating — SECOP exclusion', () => {
+describe('Source gating — SECOP exclusion (Hito FIX-P0)', () => {
   it('excludes SECOP for EdTech subindustry without government context', () => {
     const plan = buildPlan(['EdTech', 'Plataformas SaaS']);
     assert.equal(plan.secop_excluded, true);
     const decision = getGatingDecision(plan, 'co_secop2');
     assert.equal(decision?.allowed, false);
-    assert.ok(decision?.reason.includes('non_government'));
+    assert.ok(decision?.reason.includes('fix_p0'));
   });
 
   it('excludes SECOP for general SaaS context', () => {
@@ -51,23 +51,25 @@ describe('Source gating — SECOP exclusion', () => {
     assert.equal(plan.secop_excluded, true);
   });
 
-  it('allows SECOP when subindustry mentions gobierno', () => {
+  it('SECOP always excluded even when subindustry mentions gobierno', () => {
     const plan = buildPlan(['Software para gobierno', 'ERP']);
-    assert.equal(plan.secop_excluded, false);
+    assert.equal(plan.secop_excluded, false); // secop_excluded still triggers for gov context (queryBuilder gating)
     const decision = getGatingDecision(plan, 'co_secop2');
-    assert.equal(decision?.allowed, true);
+    assert.equal(decision?.allowed, false); // source_gating always false fix-p0
   });
 
-  it('allows SECOP when additionalCriteria mentions contratacion', () => {
+  it('SECOP always excluded even when additionalCriteria mentions contratacion', () => {
     const plan = buildPlan(['Tecnología'], 'empresas que trabajan con contratacion pública');
     assert.equal(plan.secop_excluded, false);
     const decision = getGatingDecision(plan, 'co_secop2');
-    assert.equal(decision?.allowed, true);
+    assert.equal(decision?.allowed, false);
   });
 
-  it('allows SECOP when additionalCriteria mentions secop', () => {
+  it('SECOP always excluded even when additionalCriteria mentions secop', () => {
     const plan = buildPlan(['Tecnología'], 'proveedores registrados en SECOP');
     assert.equal(plan.secop_excluded, false);
+    const decision = getGatingDecision(plan, 'co_secop2');
+    assert.equal(decision?.allowed, false);
   });
 });
 
@@ -99,11 +101,11 @@ describe('Source gating — Fintech inclusion', () => {
   });
 });
 
-describe('Source gating — Fedesoft and Andicom always allowed', () => {
-  it('fedesoft is allowed for EdTech context', () => {
+describe('Source gating — Fedesoft and Andicom (Hito FIX-P0)', () => {
+  it('fedesoft is NOT allowed (paused/not_connected fix-p0)', () => {
     const plan = buildPlan(['EdTech']);
     const decision = getGatingDecision(plan, 'co_fedesoft');
-    assert.equal(decision?.allowed, true);
+    assert.equal(decision?.allowed, false);
   });
 
   it('andicom is NOT allowed (removed from default queries in v1.1)', () => {
@@ -113,16 +115,23 @@ describe('Source gating — Fedesoft and Andicom always allowed', () => {
     assert.equal(decision?.allowed, false);
   });
 
-  it('co_software_empresarial is allowed (reemplaza ANDICOM en R2)', () => {
+  it('co_software_empresarial is allowed (virtual query intent)', () => {
     const plan = buildPlan(['SaaS']);
     const decision = getGatingDecision(plan, 'co_software_empresarial');
     assert.equal(decision?.allowed, true);
   });
 
-  it('fedesoft is allowed when no subindustries', () => {
+  it('fedesoft NOT allowed even when no subindustries (fix-p0)', () => {
     const plan = buildPlan([]);
     const decision = getGatingDecision(plan, 'co_fedesoft');
-    assert.equal(decision?.allowed, true);
+    assert.equal(decision?.allowed, false);
+  });
+
+  it('co_secop2 is NOT allowed (manual_only/not_connected fix-p0)', () => {
+    const plan = buildPlan(['Tecnología']);
+    const decision = getGatingDecision(plan, 'co_secop2');
+    assert.equal(decision?.allowed, false);
+    assert.ok(decision?.reason.includes('fix_p0'));
   });
 });
 
@@ -137,12 +146,12 @@ describe('R2 queries when SECOP excluded', () => {
     assert.equal(hasSecop, false, `Expected no SECOP in R2 queries, got: ${r2Texts.join(', ')}`);
   });
 
-  it('R2 queries may contain secop when secop_excluded=false', () => {
+  it('R2 queries never contain secop (removed from source-guided queries fix-p0)', () => {
     const plan = buildPlan(['Software gobierno', 'ERP público']);
     assert.equal(plan.secop_excluded, false);
     const r2Texts = plan.round2_queries.map((q) => q.query_text.toLowerCase());
     const hasSecop = r2Texts.some((t) => t.includes('secop'));
-    assert.equal(hasSecop, true, `Expected SECOP in R2 queries when government context, got: ${r2Texts.join(', ')}`);
+    assert.equal(hasSecop, false, `SECOP query may still be referenced in source_gating_decisions but is no longer generated in R2 queries, got: ${r2Texts.join(', ')}`);
   });
 });
 

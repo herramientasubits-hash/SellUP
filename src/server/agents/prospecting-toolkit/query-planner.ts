@@ -143,10 +143,10 @@ function classifyQueryToFamily(queryText: string): QueryFamily {
  * y buildExpandedMultiQueryDiscoveryQueries. El planner añade metadata semántica
  * sin cambiar los textos base.
  *
- * Decisiones de source gating:
+ * Decisiones de source gating (Hito FIX-P0):
  *   co_colombia_fintech → solo si fintech subindustry
- *   co_secop2           → solo si gobierno/contratación pública
- *   co_fedesoft         → permitido para tecnología/software
+ *   co_secop2           → siempre false (manual_only/not_connection — removida de todo flujo automático)
+ *   co_fedesoft         → siempre false (paused/not_connected — removida de todo flujo automático)
  *   co_andicom          → permitido para tecnología (con cuidado de ruido)
  *   co_microsoft_partners → reclasificado manual_signal_only (sin NIT, sin API), no usar como source-guided query
  */
@@ -183,15 +183,13 @@ export function buildDiscoveryQueryPlan(params: {
     },
     {
       source_key: 'co_secop2',
-      allowed: includeSecop,
-      reason: includeSecop
-        ? 'government_context_detected'
-        : 'non_government_subindustry_default_exclude',
+      allowed: false,
+      reason: 'manual_only_not_connected_removed_from_all_automated_queries_fix_p0',
     },
     {
       source_key: 'co_fedesoft',
-      allowed: true,
-      reason: 'tech_software_industry_always_allowed',
+      allowed: false,
+      reason: 'paused_upstream_blocked_removed_from_source_guided_queries_fix_p0',
     },
     {
       source_key: 'co_andicom',
