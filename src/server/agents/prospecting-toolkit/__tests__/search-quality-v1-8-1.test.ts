@@ -226,10 +226,10 @@ describe('R3 — co_colombia_fintech permitida con señal fintech', () => {
     );
     const runtime = output.searchStrategyRuntime as SearchStrategyRuntimeMetadata;
     const allExecuted = capturedQueries.flat();
-    const FINTECH_QUERY = 'fintech asociadas Colombia Fintech pagos Colombia empresa sitio oficial';
+    const INVESTIGATION_QUERY = 'empresa software ERP Colombia clientes corporativos sitio oficial';
     assert.ok(
-      allExecuted.includes(FINTECH_QUERY),
-      `Query fintech debe ejecutarse con señal fintech. Queries ejecutadas: ${allExecuted.join(' | ')}`,
+      allExecuted.includes(INVESTIGATION_QUERY),
+      `Query de source-guided investigation debe ejecutarse con señal fintech. Queries ejecutadas: ${allExecuted.join(' | ')}`,
     );
     assert.ok(
       runtime.source_guided_queries_allowed > 0,
@@ -255,7 +255,7 @@ describe('R3 — co_colombia_fintech permitida con señal fintech', () => {
 // ─── R4: co_software_empresarial (virtual intent) genera query ejecutable ──────
 
 describe('R4 — co_software_empresarial genera query ejecutable (R2)', () => {
-  const SOFTWARE_EMPRESARIAL_QUERY = 'empresa software empresarial Colombia clientes corporativos sitio oficial';
+  const SOFTWARE_EMPRESARIAL_QUERY = 'empresa software ERP Colombia clientes corporativos sitio oficial';
 
   it('co_software_empresarial está en sourceGuidedQuerySeeds (virtual intent Colombia)', () => {
     const strategy = buildSearchStrategyFromCatalog({

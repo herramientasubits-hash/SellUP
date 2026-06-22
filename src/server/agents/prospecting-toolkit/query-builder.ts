@@ -47,6 +47,7 @@ export type SourceGuidedQueryMeta = {
 
 /** Ronda 1 — mix con buildCleanMultiQueryDiscoveryQueries */
 // Hito FIX-P0: co_fedesoft removida — fuente pausada por bloqueo upstream.
+// Hito v1.12: expandidas con queries de software empresarial desde source-guided investigation.
 const SOURCE_GUIDED_QUERIES_CO_TECH_R1 = [
   'fintech asociadas Colombia Fintech pagos Colombia empresa sitio oficial',
 ] as const;
@@ -83,11 +84,62 @@ const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_colombia_fintech'] as const;
 // Hito FIX-P0: co_secop2 removida — fuente manual_only / not_connected.
 // co_secop2_proveedores (connected, enrichment) no se ve afectada.
 // co_software_empresarial permanece como virtual query intent (no es fuente real).
+// Hito v1.12: expandidas con queries de alta precisión desde source-guided investigation.
+// Incluye todos los textos de source-guided-investigation.ts para que classifyQuery
+// los reconozca y el strategy filter los clasifique correctamente.
 const SOURCE_GUIDED_QUERIES_CO_TECH_R2 = [
+  // Originales + expandidas v1.12
   'empresa software empresarial Colombia clientes corporativos sitio oficial',
+  'implementador software empresarial Colombia SaaS ERP CRM sitio oficial corporativo',
+  'plataforma LMS corporativa Colombia empresas aprendizaje sitio oficial',
+  'proveedor SaaS empresarial Colombia ERP CRM soluciones sitio oficial',
+  'software administrativo facturacion Colombia empresas corporativo sitio oficial',
+  'empresa software gestion talento nomina Colombia plataforma sitio oficial',
+  'empresa software facturacion electronica Colombia clientes corporativos sitio oficial',
+  'empresa BI business intelligence Colombia soluciones corporativas sitio oficial',
+  // source-guided investigation v1.12 — software empresarial
+  'empresa software ERP Colombia clientes corporativos sitio oficial',
+  'implementador ERP CRM Colombia servicios implementacion sitio oficial',
+  'software nomina recursos humanos Colombia empresas plataforma sitio oficial',
+  'software empresarial Colombia casos clientes corporativos sitio oficial',
+  // fintech (source-guided investigation)
+  'fintech pagos Colombia empresa plataforma transacciones sitio oficial',
+  'open banking Colombia plataforma API financiera empresa sitio oficial',
+  'empresa fintech Colombia prestamos digitales creditos plataforma sitio oficial',
+  // B2G (source-guided investigation)
+  'proveedor tecnologia sector publico Colombia software gobierno sitio oficial',
+  'empresa contratacion publica Colombia software licitaciones gobierno sitio oficial',
+  // ANDICOM (source-guided investigation)
+  'expositor ANDICOM CINTEL Colombia TIC empresa software sitio oficial',
+  'sponsor ANDICOM CINTEL congreso TIC Colombia empresa tecnologia sitio oficial',
 ] as const;
 
-const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_software_empresarial'] as const;
+const SOURCE_GUIDED_KEYS_CO_TECH_R2 = [
+  // Originales + expandidas v1.12 → co_software_empresarial
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  // source-guided investigation v1.12 — software empresarial
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  'co_software_empresarial',
+  // fintech
+  'co_colombia_fintech',
+  'co_colombia_fintech',
+  'co_colombia_fintech',
+  // B2G
+  'co_secop2_proveedores',
+  'co_secop2_proveedores',
+  // ANDICOM
+  'co_andicom',
+  'co_andicom',
+] as const;
 
 // ─── Subindustrias: normalización y construcción de queries (Hito 16AB.43.14) ──
 
@@ -588,14 +640,9 @@ export function buildExpandedMultiQueryDiscoveryQueries(
       'empresa cloud infraestructura Colombia servicios TI corporativo',
     ];
     // Hito FIX-P0: co_secop2 removida de source-guided (manual_only/not_connected).
-    // El reemplazo implementador se agrega solo en contexto no-gobierno.
+    // Hito v1.12: SOURCE_GUIDED_QUERIES_CO_TECH_R2 ya incluye todas las queries de alta precisión.
     const secopExcluded = excludeSources.includes('co_secop2');
-    const r2SourceGuided = secopExcluded
-      ? [
-          ...SOURCE_GUIDED_QUERIES_CO_TECH_R2,
-          'implementador software empresarial Colombia SaaS ERP CRM sitio oficial corporativo',
-        ]
-      : [...SOURCE_GUIDED_QUERIES_CO_TECH_R2];
+    const r2SourceGuided = [...SOURCE_GUIDED_QUERIES_CO_TECH_R2];
     return injectSubindustryQueries(baseQueries, r2SourceGuided, subindustries ?? [], country, 2);
   }
 

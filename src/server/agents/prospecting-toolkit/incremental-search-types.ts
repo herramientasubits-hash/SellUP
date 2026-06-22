@@ -218,6 +218,32 @@ export type PrecisionGateMetadata = {
   target_cap_exclusions: number;
 };
 
+// ─── Source-Guided Investigation metadata (Hito v1.12) ───────────────────────
+
+export type SourceGuidedQueryPackMetadata = {
+  source_key: string;
+  intent: string;
+  query_text: string;
+  priority: 'high' | 'medium' | 'low';
+};
+
+/**
+ * Metadata del investigation source-guided v1.12.
+ * Documenta cuántas queries source-guided se generaron, cuántas pasaron
+ * el filtro de estrategia, y qué fuentes quedaron bloqueadas.
+ */
+export type SourceGuidedInvestigationMetadata = {
+  enabled: boolean;
+  version: 'source_guided_investigation_v1_12';
+  generated_query_count: number;
+  selected_query_count: number;
+  source_guided_selected_count: number;
+  fallback_selected_count: number;
+  query_packs: SourceGuidedQueryPackMetadata[];
+  blocked_source_query_count: number;
+  blocked_sources: string[];
+};
+
 // ─── Search Strategy Runtime metadata (Hito v1.8.1) ──────────────────────────
 
 /**
@@ -280,6 +306,8 @@ export type IncrementalSearchMetadata = {
   discovery_strategy?: DiscoveryStrategyMetadata;
   /** Metadata del adaptive discovery budget (Hito 16AB.43.26). */
   adaptive_discovery?: AdaptiveDiscoveryMetadata;
+  /** Metadata del source-guided investigation v1.12. */
+  source_guided_investigation?: SourceGuidedInvestigationMetadata;
   min_useful_candidates: number;
   target_internal: number;
   max_rounds: number;

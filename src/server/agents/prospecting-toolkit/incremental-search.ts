@@ -481,9 +481,7 @@ export async function runIncrementalProspectingSearch(
         input.industry,
       );
       queryOverrides = filterResult.allowed;
-      strategySourceGuidedAllowed += filterResult.sourceGuidedAllowed;
       strategySourceGuidedBlocked += filterResult.sourceGuidedBlocked;
-      strategyFallbackAllowed += filterResult.fallbackAllowed;
       if (filterResult.blockedSamples.length > 0 && allBlockedSamples.length < 3) {
         allBlockedSamples.push(...filterResult.blockedSamples.slice(0, 3 - allBlockedSamples.length));
       }
@@ -506,6 +504,19 @@ export async function runIncrementalProspectingSearch(
       if (allowedThisRound <= 0) {
         stoppedReason = 'max_rounds_reached';
         break;
+      }
+    }
+
+    // ── Post-cap counting for runtime metadata ─────────────────────────────
+    // Count only queries that survive the cap, so metadata reflects actual execution.
+    if (queryOverrides !== undefined) {
+      for (const q of queryOverrides) {
+        const { queryType, querySourceKey } = classifyQuery(q, input.country, input.industry);
+        if (queryType === 'source_guided' && querySourceKey !== null) {
+          strategySourceGuidedAllowed++;
+        } else {
+          strategyFallbackAllowed++;
+        }
       }
     }
 
