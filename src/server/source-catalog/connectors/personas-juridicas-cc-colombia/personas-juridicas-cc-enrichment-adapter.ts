@@ -199,7 +199,7 @@ export async function enrichCandidateImpl(
       'fecha_cancelacion',
       'fecha_vigencia',
       'ultimo_ano_renovado',
-      'codigo_ciiu_act_econ_pri',
+      'cod_ciiu_act_econ_pri',
     ].join(','),
   });
 

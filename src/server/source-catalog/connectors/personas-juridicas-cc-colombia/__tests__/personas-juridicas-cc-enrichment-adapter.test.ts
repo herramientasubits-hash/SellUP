@@ -109,11 +109,11 @@ describe('calculateRegistrationSignals', () => {
     assert.equal(signals.recent_renewal, true);
   });
 
-  it('extracts camara_comercio and primary_ciiu_code', () => {
+  it('extracts camara_comercio and primary_ciiu_code with dataset real column name', () => {
     const signals = calculateRegistrationSignals({
       estado_matricula: 'ACTIVA',
       camara_comercio: 'BOGOTA',
-      codigo_ciiu_act_econ_pri: '6201',
+      cod_ciiu_act_econ_pri: '6201',
     }, FIXED_YEAR);
     assert.equal(signals.chamber_of_commerce, 'BOGOTA');
     assert.equal(signals.primary_ciiu_code, '6201');
@@ -180,7 +180,7 @@ describe('buildMatchResultFromCCRecord', () => {
       camara_comercio: 'BOGOTA',
       organizacion_juridica: 'SOCIEDAD POR ACCIONES SIMPLIFICADA',
       categoria_matricula: 'PRINCIPAL',
-      codigo_ciiu_act_econ_pri: '6201',
+      cod_ciiu_act_econ_pri: '6201',
     }, FIXED_YEAR);
 
     assert.equal(result.status, 'matched');
@@ -297,7 +297,7 @@ describe('enrichCandidateImpl — Socrata paths', () => {
         camara_comercio: 'MEDELLIN',
         organizacion_juridica: 'SOCIEDAD POR ACCIONES SIMPLIFICADA',
         categoria_matricula: 'PRINCIPAL',
-        codigo_ciiu_act_econ_pri: '6201',
+        cod_ciiu_act_econ_pri: '6201',
       }],
     });
     const result = await enrichCandidateImpl(
@@ -376,7 +376,7 @@ describe('enrichCandidateImpl — Socrata paths', () => {
         camara_comercio: 'BOGOTA',
         organizacion_juridica: 'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
         categoria_matricula: 'PRINCIPAL',
-        codigo_ciiu_act_econ_pri: '7110',
+        cod_ciiu_act_econ_pri: '7110',
         fecha_matricula: '2010-03-15T00:00:00.000',
         fecha_vigencia: '2026-12-31T00:00:00.000',
         ultimo_ano_renovado: String(FIXED_YEAR),
