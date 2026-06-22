@@ -32,7 +32,9 @@ export type NoveltyStatus =
   | 'cooldown_expired'
   | 'rejected_recently'
   | 'confirmed_duplicate'
-  | 'related_company';
+  | 'related_company'
+  /** v1.10: candidato descartado en batch de prueba/QA — no cuenta como negative memory. */
+  | 'soft_memory_qa_cleanup';
 
 export type NoveltySkipReason =
   | 'seen_in_previous_batch_recently'
@@ -70,6 +72,8 @@ type PreviousCandidateRow = {
   reviewed_at: string | null;
   updated_at: string | null;
   created_at: string;
+  /** v1.10: metadata del candidato — usado para detectar qa_cleanup soft memory. */
+  metadata?: Record<string, unknown> | null;
 };
 
 // ─── NoveltyIndex ─────────────────────────────────────────────────────────────
@@ -131,7 +135,7 @@ export async function buildNoveltyIndex(
   let query = (supabase as ReturnType<typeof import('@supabase/supabase-js').createClient>)
     .from('prospect_candidates')
     .select(
-      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at',
+      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at, metadata',
     )
     .in('domain', normalizedDomains);
 
@@ -250,6 +254,27 @@ export function evaluateCandidateNovelty(
         status: 'rejected_recently',
         reason: `Descartado hace ${Math.floor(daysSince(recentlyDiscarded.reviewed_at!))} días (cooldown ${cooldownDays} días)`,
         cooldown_until: cooldownUntil,
+      },
+    };
+  }
+
+  // Regla 4a: descartado con qa_cleanup en metadata → soft memory (v1.10)
+  // Candidatos descartados durante limpieza de batch de prueba no deben bloquear
+  // empresas legítimas en corridas reales. Se permite re-evaluación con advertencia.
+  const qaCleanupDiscarded = previous.find((r) => {
+    if (r.status !== 'discarded') return false;
+    if (r.reviewed_at) return false; // descartado con revisión real → ya manejado en Regla 4
+    return !!(r.metadata as Record<string, unknown> | null)?.qa_cleanup;
+  });
+  if (qaCleanupDiscarded) {
+    return {
+      status: 'soft_memory_qa_cleanup',
+      shouldSkip: false,
+      noveltyMetadata: {
+        ...baseContext,
+        status: 'soft_memory_qa_cleanup',
+        reason:
+          'Descartado en batch de prueba/QA (qa_cleanup) — re-evaluación permitida con advertencia',
       },
     };
   }
@@ -386,11 +411,15 @@ export async function buildRecentIdentityKeySet(
   const batchIds = batchRows.map((r: { id: string }) => r.id);
 
   // Paso 2: nombres de candidatos en esos batches
+  // v1.10: Excluir candidatos con status='discarded' del identity key set.
+  // Los descartados ya son manejados por el domain-level novelty check (buildNoveltyIndex).
+  // Solo candidatos activos (needs_review, approved, converted) deben bloquear por identidad semántica.
   const { data: candidateRows, error: candidateError } = await client
     .from('prospect_candidates')
     .select('name')
     .in('batch_id', batchIds)
-    .not('name', 'is', null);
+    .not('name', 'is', null)
+    .neq('status', 'discarded');
 
   if (candidateError || !candidateRows) return empty;
 

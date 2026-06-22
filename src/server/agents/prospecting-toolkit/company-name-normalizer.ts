@@ -105,6 +105,17 @@ const GENERIC_SERVICE_PHRASES: readonly string[] = [
   'gestion de recursos humanos',
   'software de gestion de personal',
   'plataforma de nomina',             // plataforma de nómina
+  // v1.10 — Recall Recovery: títulos de página que Tavily devuelve como nombre de empresa
+  'software de talento humano',       // F1: heinsohn.co → "Software de talento humano en la nube"
+  'gestion humana y nomina',          // variante HR colombiana
+  'gestion humana',                   // variante HR colombiana broader
+  'consultoria erp crm',              // F2: dinamicacd.com.co → "Consultoría ERP, CRM, HCM"
+  'consultoria erp',                  // F2 broader (substring del anterior)
+  'somos integradores',               // F3: tticol.com → "Somos Integradores de Tecnología"
+  'integradores de tecnologia',       // F3 variante
+  'integrador de tecnologia',         // F3 singular
+  'somos especialistas en',           // patrón similar
+  'equipos corporativos',             // F4 variante (también capturado por regex "en colombia")
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────

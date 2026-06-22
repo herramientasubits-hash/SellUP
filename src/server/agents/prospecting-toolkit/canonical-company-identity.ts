@@ -42,6 +42,10 @@ const PAGE_TITLE_EXACT = new Set([
   'contact',
   'inicio',
   'home',
+  // v1.10 — partner/listing page titles extracted by Tavily from /partners paths
+  'partners',
+  'partner',
+  'socios',
 ]);
 
 /**

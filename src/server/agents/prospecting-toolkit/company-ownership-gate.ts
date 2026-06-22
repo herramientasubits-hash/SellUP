@@ -15,7 +15,7 @@
  * Sin IA. Sin llamadas externas. Determinístico.
  */
 
-export type CompanyOwnershipConfidence = 'high' | 'medium' | 'low' | 'reject';
+export type CompanyOwnershipConfidence = 'high' | 'medium' | 'low' | 'reject' | 'domain_inferred';
 
 export type CompanyOwnershipResult = {
   allowed: boolean;
@@ -25,6 +25,10 @@ export type CompanyOwnershipResult = {
   domainIdentityKey: string;
   matchedSignals: string[];
   missingSignals: string[];
+  /** v1.10: Nombre inferido desde dominio cuando el nombre detectado era un título genérico. */
+  domainInferredName?: string;
+  /** v1.10: Nombre original detectado por Tavily (título de página genérico). */
+  originalDetectedName?: string;
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────

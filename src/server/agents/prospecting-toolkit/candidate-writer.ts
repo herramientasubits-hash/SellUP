@@ -24,6 +24,7 @@ import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate
 import type { BusinessFitResult } from "./business-fit-gate";
 import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
 import { evaluateCompanyOwnership, isBlockedByCompanyOwnership } from "./company-ownership-gate";
+import { normalizeProspectCompanyName } from "./company-name-normalizer";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
@@ -698,6 +699,16 @@ export async function writeProspectingCandidates(
     samples: [] as CompanyOwnershipSample[],
   };
 
+  // Recall recovery gate tracking (v1.10)
+  type RecallRecoverySample = { name: string; inferred_name: string; url: string | null };
+  const recallRecoveryGate = {
+    domain_inferred_identity_count: 0,
+    ownership_recovered_count: 0,
+    soft_memory_allowed_count: 0,
+    hard_negative_memory_blocked_count: 0,
+    samples: [] as RecallRecoverySample[],
+  };
+
   // Subindustrias del contexto del batch (inyectadas desde el wizard a través de extraBatchMetadata).
   const batchSubindustries = (() => {
     const raw = (extraBatchMetadata as Record<string, unknown> | null)?.['subindustries'];
@@ -717,6 +728,15 @@ export async function writeProspectingCandidates(
   };
 
   // ── Pass 1: evaluate all candidates through gates → collect eligible ────────
+  type IdentityResolutionMeta = {
+    original_detected_name: string;
+    inferred_company_name: string;
+    identity_source: 'domain_inferred';
+    reason: string;
+    ownership_gate_decision: string;
+    warning: string;
+  };
+
   type EligibleEntry = {
     candidate: ProspectingPipelineCandidate;
     candidateStatus: string;
@@ -728,6 +748,8 @@ export async function writeProspectingCandidates(
     businessFitRankingBonus: number;
     countryEvidenceResult: CountryEvidenceResult;
     businessFitResult: BusinessFitResult;
+    /** v1.10: Metadatos de resolución de identidad cuando el nombre fue inferido desde dominio. */
+    identityResolution: IdentityResolutionMeta | null;
   };
   const eligibleEntries: EligibleEntry[] = [];
 
@@ -827,15 +849,52 @@ export async function writeProspectingCandidates(
       continue;
     }
 
-    // ── Company ownership gate (Hito 16AB.43.30) ─────────────────────────────
+    // ── Company ownership gate (Hito 16AB.43.30 / v1.10 Recall Recovery) ─────
     // Evalúa si el dominio de la URL pertenece oficialmente a la empresa candidata.
-    // Se ejecuta ANTES del target cap para asegurar que solo empresas con sitio
-    // propio lleguen a la selección final.
-    const companyOwnershipResult = evaluateCompanyOwnership(
+    // v1.10: Si Tavily devolvió un título genérico como nombre, se infiere el nombre
+    // real desde el dominio antes de evaluar la propiedad.
+    const nameNormResult = normalizeProspectCompanyName(
       candidate.name,
+      candidate.website ?? candidate.domain ?? undefined,
+    );
+    const domainInferredForOwnership =
+      nameNormResult.normalizationReason === 'seo_phrase_replaced_by_domain';
+    const nameForOwnership = domainInferredForOwnership
+      ? nameNormResult.name
+      : candidate.name;
+
+    const companyOwnershipResult = evaluateCompanyOwnership(
+      nameForOwnership,
       candidate.website ?? null,
       effectiveDomain,
     );
+
+    // Build identity resolution metadata when domain inference was applied
+    const identityResolutionForEntry: IdentityResolutionMeta | null =
+      domainInferredForOwnership && !isBlockedByCompanyOwnership(companyOwnershipResult)
+        ? {
+            original_detected_name: nameNormResult.originalName,
+            inferred_company_name: nameNormResult.name,
+            identity_source: 'domain_inferred',
+            reason: 'detected_name_looked_like_generic_service_title',
+            ownership_gate_decision: 'allow_with_domain_inferred_identity',
+            warning:
+              'Nombre inferido desde dominio porque la fuente devolvió un título genérico.',
+          }
+        : null;
+
+    if (domainInferredForOwnership && !isBlockedByCompanyOwnership(companyOwnershipResult)) {
+      recallRecoveryGate.domain_inferred_identity_count++;
+      recallRecoveryGate.ownership_recovered_count++;
+      if (recallRecoveryGate.samples.length < 10) {
+        recallRecoveryGate.samples.push({
+          name: nameNormResult.originalName,
+          inferred_name: nameNormResult.name,
+          url: candidate.website ?? null,
+        });
+      }
+    }
+
     if (isBlockedByCompanyOwnership(companyOwnershipResult)) {
       skipped.push({
         name: candidate.name,
@@ -964,6 +1023,7 @@ export async function writeProspectingCandidates(
       businessFitRankingBonus: businessFitResult.rankingBonus,
       countryEvidenceResult,
       businessFitResult,
+      identityResolution: identityResolutionForEntry,
     });
   }
 
@@ -1027,7 +1087,7 @@ export async function writeProspectingCandidates(
   }
 
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
-  for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult } of toPersist) {
+  for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution } of toPersist) {
     // ── Evidence persistence policy (Hito v1.5) ─────────────────────────────
     const evidencePolicy = computeEvidencePersistencePolicy({
       countryEvidence: countryEvidenceResult,
@@ -1116,6 +1176,7 @@ export async function writeProspectingCandidates(
       metadata: {
         ...buildCandidateMetadata(candidate),
         novelty_check: noveltyResult.noveltyMetadata,
+        ...(identityResolution ? { identity_resolution: identityResolution } : {}),
         country_evidence: {
           evidence_level: countryEvidenceResult.evidenceLevel,
           evidence_sources: countryEvidenceResult.evidenceSources,
@@ -1466,6 +1527,15 @@ export async function writeProspectingCandidates(
       };
     })();
 
+    const recallRecoveryGateMetadata = {
+      enabled: true,
+      domain_inferred_identity_count: recallRecoveryGate.domain_inferred_identity_count,
+      ownership_recovered_count: recallRecoveryGate.ownership_recovered_count,
+      soft_memory_allowed_count: recallRecoveryGate.soft_memory_allowed_count,
+      hard_negative_memory_blocked_count: recallRecoveryGate.hard_negative_memory_blocked_count,
+      samples: recallRecoveryGate.samples.slice(0, 10),
+    };
+
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
@@ -1478,6 +1548,7 @@ export async function writeProspectingCandidates(
       external_platform_gate: externalPlatformGateMetadata,
       company_ownership_gate: companyOwnershipGateMetadata,
       evidence_policy_gate: evidencePolicyGateMetadata,
+      recall_recovery_gate: recallRecoveryGateMetadata,
       tavily_usage_reconciliation: tavilyUsageReconciliation,
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
