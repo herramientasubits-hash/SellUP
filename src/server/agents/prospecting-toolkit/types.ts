@@ -506,3 +506,79 @@ export type MultiQueryWebSearchOutput = {
   estimatedCreditCount: number;
   metadata?: Record<string, unknown>;
 };
+
+// ============================================================
+// Search Strategy v1.8 — Source Catalog vs Search Strategy Separation
+// ============================================================
+
+/**
+ * Rol de discovery asignado a una fuente del catálogo.
+ *
+ * - discovery_seed: fuente primaria de discovery (genera candidatos directamente)
+ * - sector_signal: señal sectorial válida, puede guiar queries de búsqueda
+ * - validation_only: solo para validar empresas ya encontradas (alias de legal_registry para fuentes no legales)
+ * - enrichment_only: solo para enriquecer post-discovery, no genera prospectos
+ * - legal_registry: registro legal/NIT, no discovery comercial
+ * - contextual_signal: señal contextual/gremial, puede orientar queries pero no es seed
+ * - manual_signal_only: solo uso manual, no automático
+ * - blocked_from_discovery: excluida explícitamente del discovery
+ */
+export type SourceDiscoveryRole =
+  | 'discovery_seed'
+  | 'sector_signal'
+  | 'validation_only'
+  | 'enrichment_only'
+  | 'legal_registry'
+  | 'contextual_signal'
+  | 'manual_signal_only'
+  | 'blocked_from_discovery';
+
+export type SourceRoleDecision = {
+  sourceKey: string;
+  sourceName: string;
+  role: SourceDiscoveryRole;
+  /** True solo para discovery_seed — puede generar prospectos directamente */
+  allowedForDiscovery: boolean;
+  /** True para discovery_seed, sector_signal y contextual_signal no pausados */
+  allowedForSourceGuidedQueries: boolean;
+  reason: string;
+};
+
+/**
+ * Estrategia de búsqueda materializada para una combinación país/industria/subindustria.
+ * Separa explícitamente qué fuentes sirven para discovery vs enrichment vs validación.
+ */
+export type SearchStrategyV1 = {
+  version: 'search_strategy_v1_8';
+  countryCode: string;
+  industry: string;
+  subindustries: string[];
+  fintechSignal: boolean;
+  b2gSignal: boolean;
+  sourceRoles: {
+    discovery_seed: string[];
+    sector_signal: string[];
+    validation_only: string[];
+    enrichment_only: string[];
+    legal_registry: string[];
+    contextual_signal: string[];
+    manual_signal_only: string[];
+    blocked_from_discovery: string[];
+  };
+  sourceDecisions: SourceRoleDecision[];
+  queryStrategy: {
+    /** Source keys (catálogo + intents virtuales) permitidos para source-guided queries */
+    sourceGuidedQuerySeeds: string[];
+    /** Source keys bloqueados de cualquier generación de queries */
+    blockedSourceKeys: string[];
+    fintechGated: boolean;
+    b2gConditional: boolean;
+  };
+  evidenceRequirements: {
+    requiresOfficialCompanySite: boolean;
+    requiresCountryEvidence: boolean;
+    allowsQueryOnlyCountry: boolean;
+    queryOnlyConfidenceCap: number;
+    blocksMediaDirectoriesMarketplaces: boolean;
+  };
+};

@@ -16,8 +16,9 @@
  */
 
 import { buildDiscoveryQueryPlan } from './query-planner';
+import { buildSearchStrategyFromCatalog } from './search-strategy-builder';
 import type { QueryFamily } from './query-planner';
-import type { SearchDepth } from './types';
+import type { SearchDepth, SearchStrategyV1 } from './types';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -121,6 +122,8 @@ export type SearchPlanV0 = {
   negativeMemoryPolicy: NegativeMemoryPolicy;
   sizePolicy: SizePolicy;
   metadata: SearchPlanMetadata;
+  /** Estrategia de búsqueda v1.8 — roles de fuentes para este country/industry/subindustries */
+  searchStrategy: SearchStrategyV1;
 };
 
 export type SearchPlanInput = {
@@ -316,6 +319,14 @@ export function buildSearchPlan(input: SearchPlanInput): SearchPlanV0 {
 
   const queryFamilies = Array.from(familyPlanMap.values());
 
+  const searchStrategy = buildSearchStrategyFromCatalog({
+    countryCode,
+    country,
+    industry,
+    subindustries,
+    additionalCriteria,
+  });
+
   return {
     mode: 'exploratory',
     countryCode,
@@ -369,5 +380,6 @@ export function buildSearchPlan(input: SearchPlanInput): SearchPlanV0 {
       queryFamiliesR1: discoveryPlan.families_r1,
       queryFamiliesR2: discoveryPlan.families_r2,
     },
+    searchStrategy,
   };
 }
