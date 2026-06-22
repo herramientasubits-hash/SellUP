@@ -65,13 +65,14 @@ function hasFintechSubindustry(subindustries: string[]): boolean {
 /**
  * Devuelve true si additionalCriteria menciona explícitamente fintech o pagos.
  * Hito 16AD.1.1: Colombia Fintech solo se activa con señal explícita en subindustria o criteria.
+ * Hito v1.2: términos ampliados — open banking, wallet, adquirenci.
  */
 function hasFintechCriteria(additionalCriteria: string | null | undefined): boolean {
   if (!additionalCriteria) return false;
   const lower = additionalCriteria.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   return [
-    'fintech', 'pago', 'open finance', 'banking-as-a-service',
-    'infraestructura financiera', 'payment',
+    'fintech', 'pago', 'open finance', 'open banking', 'banking-as-a-service',
+    'infraestructura financiera', 'payment', 'wallet', 'adquirenci',
   ].some((t) => lower.includes(t));
 }
 
@@ -502,15 +503,19 @@ export function buildCleanMultiQueryDiscoveryQueries(
     // Fintech se omite cuando hay subindustrias explícitas que no incluyen fintech.
     if (normalizeKey(country) === 'colombia') {
       const normalized = normalizeSubindustries(subindustries ?? []);
+      // Hito 16AD.1.1: Colombia Fintech solo si subindustria o criteria menciona fintech/pagos.
+      // Hito v1.2: también la base query fintech se gatea — sin señal, se reemplaza por query B2B tech.
+      const includeFintech = hasFintechSubindustry(normalized) || hasFintechCriteria(options?.additionalCriteria);
       const baseQueries = [
         // Hito 16AD.1.1: "pymes" → "clientes corporativos B2B" para evitar atraer Siigo/Alegra/micro.
         'empresa software gestión talento nómina Colombia clientes corporativos B2B',
         'empresa ciberseguridad Colombia protección datos empresas corporativo',
-        'empresa fintech pagos Colombia clientes corporativos soluciones',
+        // Hito v1.2: fintech base query solo cuando hay señal fintech explícita.
+        // Sin señal: query ERP/CRM/SaaS corporativo para búsquedas generales de Tecnología.
+        includeFintech
+          ? 'empresa fintech pagos Colombia clientes corporativos soluciones'
+          : 'proveedor SaaS empresarial Colombia ERP CRM soluciones sitio oficial',
       ];
-      // Hito 16AD.1.1: Colombia Fintech solo si subindustria o criteria menciona fintech/pagos.
-      // subindustries=[] sin criteria → NO incluir Colombia Fintech automáticamente.
-      const includeFintech = hasFintechSubindustry(normalized) || hasFintechCriteria(options?.additionalCriteria);
       const r1SourceGuided = includeFintech
         ? [...SOURCE_GUIDED_QUERIES_CO_TECH_R1]
         : [SOURCE_GUIDED_QUERIES_CO_TECH_R1[0]]; // Fedesoft only — skip Colombia Fintech

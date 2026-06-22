@@ -183,6 +183,77 @@ describe('FG5 — EdTech + Fintech mixed: Colombia Fintech source-guided present
   });
 });
 
+// ── FG7: v1.2 — no fintech BASE query when no fintech signal ─────────────────
+// Verifies the new guard: the third base query slot is replaced by a B2B ERP/CRM query
+// when subindustries and additionalCriteria carry no fintech signal.
+
+describe('FG7 — v1.2: no fintech base query when no fintech signal (Colombia + Tecnología general)', () => {
+  const queries = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia', []);
+  const joined = queries.join(' ').toLowerCase();
+
+  it('FG7-a: no query contains the word "fintech"', () => {
+    assert.ok(
+      !joined.includes('fintech'),
+      `Expected no "fintech" in any query (base or source-guided), got:\n${queries.join('\n')}`,
+    );
+  });
+
+  it('FG7-b: no query contains the word "pagos" (fintech payment family)', () => {
+    assert.ok(
+      !joined.includes('pagos'),
+      `Expected no "pagos" in any query without fintech signal, got:\n${queries.join('\n')}`,
+    );
+  });
+
+  it('FG7-c: R1 count is still 4 (3 base + 1 Fedesoft, same as before)', () => {
+    assert.equal(queries.length, 4);
+  });
+
+  it('FG7-d: replacement query contains ERP/CRM/SaaS signal', () => {
+    const hasErpCrmSaas = joined.includes('erp') || joined.includes('crm') || joined.includes('saas');
+    assert.ok(
+      hasErpCrmSaas,
+      `Replacement query must carry ERP/CRM/SaaS signal, got:\n${queries.join('\n')}`,
+    );
+  });
+
+  it('FG7-e: Fedesoft source-guided still present', () => {
+    assert.ok(
+      joined.includes('fedesoft'),
+      `Fedesoft source-guided must still be present, got:\n${queries.join('\n')}`,
+    );
+  });
+
+  it('FG7-f: software gestión talento query still present', () => {
+    assert.ok(
+      joined.includes('gestión talento') || joined.includes('gestion talento'),
+      `HR/talent query must still be present, got:\n${queries.join('\n')}`,
+    );
+  });
+
+  it('FG7-g: fintech base query IS present when additionalCriteria has fintech signal', () => {
+    const withFintech = buildCleanMultiQueryDiscoveryQueries(
+      'Tecnología', 'Colombia', [],
+      { additionalCriteria: 'empresas de fintech y pagos B2B Colombia' },
+    );
+    assert.ok(
+      withFintech.join(' ').toLowerCase().includes('fintech'),
+      `With fintech criteria, fintech base query must be present:\n${withFintech.join('\n')}`,
+    );
+  });
+
+  it('FG7-h: fintech base query IS present when additionalCriteria mentions open banking', () => {
+    const withOpenBanking = buildCleanMultiQueryDiscoveryQueries(
+      'Tecnología', 'Colombia', [],
+      { additionalCriteria: 'open banking APIs para empresas corporativas' },
+    );
+    assert.ok(
+      withOpenBanking.join(' ').toLowerCase().includes('fintech'),
+      `With open banking criteria, fintech base query must be present:\n${withOpenBanking.join('\n')}`,
+    );
+  });
+});
+
 // ── FG6: R2 queries — no fintech drift when EdTech selected ──────────────────
 
 describe('FG6 — R2 queries (expanded): no fintech drift when EdTech selected', () => {

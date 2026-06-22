@@ -78,13 +78,14 @@ function hasFintechSubindustry(subindustries: string[]): boolean {
   });
 }
 
-/** True si additionalCriteria menciona explícitamente fintech o pagos. */
+/** True si additionalCriteria menciona explícitamente fintech o pagos.
+ * Hito v1.2: términos ampliados — open banking, wallet, adquirenci. */
 function hasFintechCriteria(additionalCriteria: string | null): boolean {
   if (!additionalCriteria) return false;
   const lower = normalizeForDetection(additionalCriteria);
   return [
-    'fintech', 'pago', 'open finance', 'banking-as-a-service',
-    'infraestructura financiera', 'payment',
+    'fintech', 'pago', 'open finance', 'open banking', 'banking-as-a-service',
+    'infraestructura financiera', 'payment', 'wallet', 'adquirenci',
   ].some((t) => lower.includes(t));
 }
 
