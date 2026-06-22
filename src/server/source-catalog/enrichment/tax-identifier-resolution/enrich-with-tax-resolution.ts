@@ -1,11 +1,39 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveCandidateTaxIdentifierForColombia } from './resolve-candidate-tax-identifier-colombia';
+import { resolveCandidateTaxIdentifierForMexico } from './resolve-candidate-tax-identifier-mexico';
 import { enrichCandidatesWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-candidates-with-validated-sources';
 import type { TaxIdentifierResolutionBatchMetadata } from './types';
+
+async function resolveForCandidateByCountry(
+  name: string,
+  candidate: Record<string, unknown>,
+  countryCode: string,
+) {
+  if (countryCode === 'MX') {
+    return resolveCandidateTaxIdentifierForMexico({
+      name,
+      domain: (candidate['domain'] as string | null) ?? null,
+      website: (candidate['website'] as string | null) ?? null,
+      countryCode: 'MX',
+      sector: (candidate['sector_description'] as string | null) ?? null,
+      existingMetadata: (candidate['metadata'] as Record<string, unknown>) ?? {},
+    });
+  }
+
+  return resolveCandidateTaxIdentifierForColombia({
+    name,
+    domain: (candidate['domain'] as string | null) ?? null,
+    website: (candidate['website'] as string | null) ?? null,
+    countryCode: 'CO',
+    sector: (candidate['sector_description'] as string | null) ?? null,
+    existingMetadata: (candidate['metadata'] as Record<string, unknown>) ?? {},
+  });
+}
 
 async function resolveAndPersistForCandidate(
   supabase: SupabaseClient,
   candidate: Record<string, unknown>,
+  countryCode: string,
 ): Promise<{ taxId: string | null; resolutionMeta: Record<string, unknown> | null }> {
   const name = (candidate['name'] as string) ?? (candidate['legal_name'] as string) ?? '';
   const existingTaxId = (candidate['tax_identifier'] as string | null) ?? null;
@@ -14,14 +42,7 @@ async function resolveAndPersistForCandidate(
     return { taxId: existingTaxId, resolutionMeta: null };
   }
 
-  const result = await resolveCandidateTaxIdentifierForColombia({
-    name,
-    domain: (candidate['domain'] as string | null) ?? null,
-    website: (candidate['website'] as string | null) ?? null,
-    countryCode: 'CO',
-    sector: (candidate['sector_description'] as string | null) ?? null,
-    existingMetadata: (candidate['metadata'] as Record<string, unknown>) ?? {},
-  });
+  const result = await resolveForCandidateByCountry(name, candidate, countryCode);
 
   if (result.status === 'error') {
     return {
@@ -85,6 +106,23 @@ async function resolveAndPersistForCandidate(
     };
   }
 
+  if (result.status === 'not_resolvable_automatically') {
+    return {
+      taxId: null,
+      resolutionMeta: {
+        tax_identifier_resolution: {
+          status: 'not_resolvable_automatically',
+          confidence: 0,
+          source_key: 'mx_rfc_manual_review',
+          human_review_required: true,
+          reason: result.metadata?.reason ?? 'Mexico RFC cannot be resolved automatically from public MVP sources',
+          recommended_next_step: result.metadata?.recommended_next_step ?? 'Human reviewer must provide RFC before fiscal enrichment or HubSpot sync',
+          contextual_sources_available: result.metadata?.contextual_sources_available ?? ['mx_denue'],
+        },
+      },
+    };
+  }
+
   if (result.status === 'resolved' && result.confidence >= 0.85 && result.taxIdentifier) {
     await supabase
       .from('prospect_candidates')
@@ -126,10 +164,12 @@ export async function resolveAndPersistTaxIdentifiersForBatch(
     ambiguous_count: 0,
     not_found_count: 0,
     skipped_count: 0,
+    not_resolvable_automatically_count: 0,
+    human_review_required_count: 0,
     errors: [],
   };
 
-  if (countryCode !== 'CO') {
+  if (countryCode !== 'CO' && countryCode !== 'MX') {
     return { candidates: [], resolutionMetaMap: new Map(), batchStatus: empty };
   }
 
@@ -150,20 +190,25 @@ export async function resolveAndPersistTaxIdentifiersForBatch(
     ambiguous_count: 0,
     not_found_count: 0,
     skipped_count: 0,
+    not_resolvable_automatically_count: 0,
+    human_review_required_count: 0,
     errors: [],
   };
 
   for (const candidate of candidates) {
     try {
-      const { taxId, resolutionMeta } = await resolveAndPersistForCandidate(supabase, candidate);
+      const { taxId, resolutionMeta } = await resolveAndPersistForCandidate(supabase, candidate, countryCode);
       if (resolutionMeta) {
         resolutionMetaMap.set(candidate['id'] as string, resolutionMeta);
         const resolution = resolutionMeta['tax_identifier_resolution'] as Record<string, unknown> | undefined;
         const rstatus = resolution?.['status'] as string | undefined;
+        const humanReviewRequired = resolution?.['human_review_required'] as boolean | undefined;
         if (rstatus === 'resolved') batchStatus.resolved_count++;
         else if (rstatus === 'ambiguous') batchStatus.ambiguous_count++;
         else if (rstatus === 'not_found') batchStatus.not_found_count++;
         else if (rstatus === 'skipped' || rstatus === 'error') batchStatus.skipped_count++;
+        else if (rstatus === 'not_resolvable_automatically') batchStatus.not_resolvable_automatically_count++;
+        if (humanReviewRequired) batchStatus.human_review_required_count++;
       }
 
       if (taxId) {
@@ -178,6 +223,20 @@ export async function resolveAndPersistTaxIdentifiersForBatch(
   return { candidates: candidates as Array<Record<string, unknown>>, resolutionMetaMap, batchStatus };
 }
 
+function emptyBatchStatus(): TaxIdentifierResolutionBatchMetadata {
+  return {
+    attempted: false,
+    candidates_processed: 0,
+    resolved_count: 0,
+    ambiguous_count: 0,
+    not_found_count: 0,
+    skipped_count: 0,
+    not_resolvable_automatically_count: 0,
+    human_review_required_count: 0,
+    errors: [],
+  };
+}
+
 export async function enrichBatchCandidatesWithTaxResolution(
   supabase: SupabaseClient,
   batchId: string,
@@ -189,21 +248,13 @@ export async function enrichBatchCandidatesWithTaxResolution(
   errors: string[];
   taxResolutionStatus: TaxIdentifierResolutionBatchMetadata;
 }> {
-  if (countryCode !== 'CO') {
+  if (countryCode !== 'CO' && countryCode !== 'MX') {
     return {
       candidatesProcessed: 0,
       sourcesApplied: [],
       warnings: [],
       errors: [],
-      taxResolutionStatus: {
-        attempted: false,
-        candidates_processed: 0,
-        resolved_count: 0,
-        ambiguous_count: 0,
-        not_found_count: 0,
-        skipped_count: 0,
-        errors: [],
-      },
+      taxResolutionStatus: emptyBatchStatus(),
     };
   }
 
@@ -217,6 +268,37 @@ export async function enrichBatchCandidatesWithTaxResolution(
         sourcesApplied: [],
         warnings: [],
         errors: [],
+        taxResolutionStatus: batchStatus,
+      };
+    }
+
+    if (countryCode === 'MX') {
+      const updateOps: Array<Promise<unknown>> = [];
+
+      for (const candidate of candidates) {
+        const existingMeta = (candidate['metadata'] as Record<string, unknown>) ?? {};
+        const candidateId = candidate['id'] as string;
+        const resolutionMeta = resolutionMetaMap.get(candidateId);
+
+        if (resolutionMeta) {
+          const updatedMeta: Record<string, unknown> = { ...existingMeta };
+          Object.assign(updatedMeta, resolutionMeta);
+
+          const op = supabase
+            .from('prospect_candidates')
+            .update({ metadata: updatedMeta })
+            .eq('id', candidateId);
+          updateOps.push(op as unknown as Promise<unknown>);
+        }
+      }
+
+      await Promise.allSettled(updateOps);
+
+      return {
+        candidatesProcessed: batchStatus.candidates_processed,
+        sourcesApplied: ['mx_tax_resolution'],
+        warnings: [],
+        errors: batchStatus.errors,
         taxResolutionStatus: batchStatus,
       };
     }
@@ -300,6 +382,8 @@ export async function enrichBatchCandidatesWithTaxResolution(
         ambiguous_count: 0,
         not_found_count: 0,
         skipped_count: 0,
+        not_resolvable_automatically_count: 0,
+        human_review_required_count: 0,
         errors: [msg],
       },
     };

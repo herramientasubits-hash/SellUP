@@ -16,7 +16,7 @@ export interface TaxIdentifierCandidate {
 }
 
 export interface ResolveTaxIdentifierOutput {
-  status: 'resolved' | 'ambiguous' | 'not_found' | 'skipped' | 'error';
+  status: 'resolved' | 'ambiguous' | 'not_found' | 'skipped' | 'error' | 'not_resolvable_automatically';
   taxIdentifier?: string;
   confidence: number;
   matchedBy?: 'exact_name' | 'normalized_name' | 'partial_normalized_name' | 'source_cross_match';
@@ -27,6 +27,10 @@ export interface ResolveTaxIdentifierOutput {
     matchedLegalName?: string;
     sourceYear?: number;
     warning?: string;
+    human_review_required?: boolean;
+    reason?: string;
+    recommended_next_step?: string;
+    contextual_sources_available?: string[];
   };
 }
 
@@ -49,5 +53,7 @@ export interface TaxIdentifierResolutionBatchMetadata {
   ambiguous_count: number;
   not_found_count: number;
   skipped_count: number;
+  not_resolvable_automatically_count: number;
+  human_review_required_count: number;
   errors: string[];
 }

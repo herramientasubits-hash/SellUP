@@ -44,6 +44,11 @@ import {
   countDomainsInNegativeMemory,
 } from './discovery-negative-memory';
 import { buildDiscoveryQueryPlan, hasDiversificationAvailable } from './query-planner';
+import {
+  buildSourceGuidedInvestigationQueries,
+  getSourceGuidedQueriesForRound,
+} from './source-guided-investigation';
+import type { SourceGuidedInvestigationOutput } from './source-guided-investigation';
 import type { ProspectingPipelineCandidate, ProspectingPipelineOutput, ProspectingPipelineSummary } from './types';
 import type {
   IncrementalSearchInput,
@@ -56,6 +61,7 @@ import type {
   IncrementalSearchPlanMeta,
   SearchStrategyRuntimeMetadata,
   BlockedQuerySample,
+  SourceGuidedInvestigationMetadata,
 } from './incremental-search-types';
 import type { SearchStrategyV1 } from './types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
@@ -197,7 +203,7 @@ export async function enrichBatchCandidates(
   batchId: string,
   countryCode: string,
 ): Promise<{ candidatesProcessed: number; sourcesApplied: string[]; warnings: string[]; errors: string[]; taxResolutionStatus?: import('@/server/source-catalog/enrichment/tax-identifier-resolution/types').TaxIdentifierResolutionBatchMetadata }> {
-  if (countryCode !== 'CO') {
+  if (countryCode !== 'CO' && countryCode !== 'MX') {
     return { candidatesProcessed: 0, sourcesApplied: [], warnings: [], errors: [] };
   }
 
@@ -364,6 +370,22 @@ export async function runIncrementalProspectingSearch(
   let strategyFallbackAllowed = 0;
   const allBlockedSamples: BlockedQuerySample[] = [];
 
+  // ── Source-Guided Investigation (Hito v1.12) ──────────────────────────────
+  // Genera query packs de alta precisión antes del loop de rondas.
+  // Los packs se integran al queryOverrides de cada ronda con prioridad alta.
+  const sourceGuidedInvestigationOutput: SourceGuidedInvestigationOutput = buildSourceGuidedInvestigationQueries({
+    countryCode: input.countryCode,
+    country: input.country,
+    industry: input.industry,
+    subindustries: input.subindustries ?? [],
+    searchStrategy,
+    additionalCriteria: input.additionalCriteria ?? null,
+  });
+
+  let investigationSourceGuidedAdded = 0;
+  let investigationSourceGuidedBlocked = 0;
+  let investigationFallbackAdded = 0;
+
   // Acumula el último resultado de pre-check para metadata
   let lastNoveltyPrecheck: NoveltyPrecheckResult | null = null;
   let round1PersistableCount: number | undefined = undefined;
@@ -424,6 +446,27 @@ export async function runIncrementalProspectingSearch(
       if (queryOverrides.length === 0) {
         stoppedReason = 'novelty_exhausted_no_diversification_available';
         break;
+      }
+    }
+
+    // ── Source-Guided Investigation injection (Hito v1.12) ───────────────────
+    // Pre-pende queries de alta precisión del investigation pack antes del
+    // strategy filter. Así las source-guided se priorizan sobre fallback.
+    // Máximo 2 por ronda para no saturar el per-round cap (4) y dejar espacio
+    // a queries de subindustria, fintech, y otras señales contextuales.
+    if (queryOverrides !== undefined && sourceGuidedInvestigationOutput.enabled) {
+      const MAX_INVESTIGATION_PER_ROUND = 2;
+      const roundInvestigationQueries = getSourceGuidedQueriesForRound(
+        sourceGuidedInvestigationOutput,
+        round as 1 | 2,
+      );
+      const cappedInvestigation = roundInvestigationQueries.slice(0, MAX_INVESTIGATION_PER_ROUND);
+      if (cappedInvestigation.length > 0) {
+        const beforeLen = queryOverrides.length;
+        queryOverrides = [...cappedInvestigation, ...queryOverrides];
+        investigationSourceGuidedAdded += cappedInvestigation.length;
+        const addedCount = queryOverrides.length - beforeLen;
+        investigationFallbackAdded += beforeLen;
       }
     }
 
@@ -729,6 +772,24 @@ export async function runIncrementalProspectingSearch(
       : undefined,
     discovery_strategy: discoveryStrategy,
     adaptive_discovery: adaptiveDiscovery,
+    source_guided_investigation: sourceGuidedInvestigationOutput.enabled
+      ? {
+          enabled: true,
+          version: 'source_guided_investigation_v1_12' as const,
+          generated_query_count: sourceGuidedInvestigationOutput.generated_query_count,
+          selected_query_count: sourceGuidedInvestigationOutput.selected_query_count,
+          source_guided_selected_count: sourceGuidedInvestigationOutput.source_guided_selected_count,
+          fallback_selected_count: sourceGuidedInvestigationOutput.fallback_selected_count,
+          query_packs: sourceGuidedInvestigationOutput.query_packs.map((q) => ({
+            source_key: q.query_source_key,
+            intent: q.intent,
+            query_text: q.query_text,
+            priority: q.priority,
+          })),
+          blocked_source_query_count: sourceGuidedInvestigationOutput.blocked_source_query_count,
+          blocked_sources: sourceGuidedInvestigationOutput.blocked_sources,
+        }
+      : undefined,
     min_useful_candidates: minUsefulCandidates,
     target_internal: targetInternal,
     max_rounds: maxRounds,
@@ -817,6 +878,7 @@ export async function runIncrementalProspectingSearch(
           adaptive_discovery: adaptiveDiscovery as Record<string, unknown>,
           search_strategy: searchStrategy as Record<string, unknown>,
           search_strategy_runtime: searchStrategyRuntime as Record<string, unknown>,
+          source_guided_investigation: metadata.source_guided_investigation as Record<string, unknown> | undefined,
           ...(input.additionalCriteria != null
             ? { additional_criteria: input.additionalCriteria }
             : {}),
