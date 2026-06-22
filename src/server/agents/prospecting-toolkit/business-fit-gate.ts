@@ -156,6 +156,20 @@ const PORTAL_MEDIA_REJECT_CONTENT_SIGNALS = [
   'ecosistema de startups',
   'marketplace de soluciones',
   'marketplace de software',
+  // Directorios de software / comparadores / plataformas de reseñas — v1.7
+  'lee reseñas',
+  'reseñas de usuarios',
+  'user reviews',
+  'pricing and reviews',
+  'directorio de software',
+  'catálogo de software',
+  'comparativa de software',
+  'ranking de software',
+  'review platform',
+  'software marketplace',
+  'compara funcionalidades',
+  'compara proveedores de software',
+  'mejores software',
 ];
 
 /** Señales de bajo fit: consultoras/agencias generales sin producto propio. */
