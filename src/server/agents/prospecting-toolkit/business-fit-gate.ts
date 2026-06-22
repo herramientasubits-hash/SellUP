@@ -106,6 +106,10 @@ const REJECT_SNIPPET_SIGNALS = [
   'recuperación de cartera', 'cobranza extrajudicial', 'cobro de cartera',
   'suministro de personal', 'temporal de personal', 'selección de personal',
   'outsourcing de personal', 'hunting de personal',
+  // Freelance / micro providers — Hito v1.4: no son ICP corporativo
+  'desarrolladores freelancer', 'desarrollador freelancer',
+  'software a la medida de tu presupuesto', 'a la medida de tu presupuesto',
+  'emprendimiento personal', 'portafolio personal',
 ];
 
 /** Señales de bajo fit: consultoras/agencias generales sin producto propio. */
@@ -123,6 +127,9 @@ const LOW_FIT_SNIPPET_SIGNALS = [
   'servicios de aseo', 'servicios de limpieza',
   'construcción de obras', 'contratista de obras',
   'distribución de productos', 'distribuidora de',
+  // Micro/low-budget providers — Hito v1.4
+  'software barato', 'páginas web baratas', 'paginas web baratas',
+  'servicios económicos', 'servicios economicos',
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

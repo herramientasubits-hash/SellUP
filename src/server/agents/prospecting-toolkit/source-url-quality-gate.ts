@@ -453,6 +453,22 @@ export function classifySourceUrlQuality(
     };
   }
 
+  // ── 7a. Slug con prefijo numérico editorial (e.g. /1-110-startups-...) ────────
+  // Paths en profundidad 1 cuyo primer segmento inicia con dígitos + guion + letra
+  // indican artículos o posts generados por CMS (WordPress, Drupal, HubSpot, etc.).
+  // Patrón: /1-110-startups-..., /5-razones-..., /2024-informe-...
+  if (depth === 1) {
+    const slug = path.slice(1); // quitar el '/' inicial
+    if (/^\d[\d-]*-[a-z]/i.test(slug)) {
+      return {
+        quality: 'content_article',
+        blocked: true,
+        reason: `Slug con prefijo numérico indica artículo/post editorial: ${path.slice(0, 80)}`,
+        rankingBonus: RANKING_BONUS.content_article,
+      };
+    }
+  }
+
   // ── 7b. Landing page de marketing/campaña — fuente primaria débil ────────────
   // Cubre patrones /lp/, /landing/, /landing-page/ que indican una página
   // de campaña, no la homepage ni una página de producto oficial.

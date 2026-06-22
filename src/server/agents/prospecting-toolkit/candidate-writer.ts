@@ -23,6 +23,8 @@ import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-
 import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate";
 import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
 import { evaluateCompanyOwnership, isBlockedByCompanyOwnership } from "./company-ownership-gate";
+import { evaluateCountryEvidence } from "./country-evidence-gate";
+import type { CountryEvidenceResult } from "./country-evidence-gate";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -714,6 +716,7 @@ export async function writeProspectingCandidates(
     identityKey: string | null;
     sourceUrlRankingBonus: number;
     businessFitRankingBonus: number;
+    countryEvidenceResult: CountryEvidenceResult;
   };
   const eligibleEntries: EligibleEntry[] = [];
 
@@ -926,6 +929,19 @@ export async function writeProspectingCandidates(
       continue;
     }
 
+    // ── Country evidence gate (Hito v1.4) ────────────────────────────────────
+    // Evalúa si hay evidencia real del país en URL/dominio/snippet/título,
+    // o si el país solo se infirió de la query de búsqueda.
+    const queryText = candidate.searchTrace?.query_text ?? null;
+    const countryEvidenceResult = evaluateCountryEvidence({
+      website: candidate.website ?? null,
+      domain: effectiveDomain,
+      sourceSnippet: candidate.sourceSnippet ?? null,
+      sourceTitle: candidate.sourceTitle ?? null,
+      queryText,
+      targetCountryCode: countryCode ?? null,
+    });
+
     eligibleEntries.push({
       candidate,
       candidateStatus,
@@ -935,6 +951,7 @@ export async function writeProspectingCandidates(
       identityKey: identity.identityKey ?? null,
       sourceUrlRankingBonus: sourceUrlQualityResult.rankingBonus,
       businessFitRankingBonus: businessFitResult.rankingBonus,
+      countryEvidenceResult,
     });
   }
 
@@ -998,7 +1015,7 @@ export async function writeProspectingCandidates(
   }
 
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
-  for (const { candidate, candidateStatus, domain, noveltyResult } of toPersist) {
+  for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult } of toPersist) {
     const dbDuplicateStatus = mapDuplicateStatus(
       candidate.duplicateCheck?.status ?? "unchecked"
     );
@@ -1055,6 +1072,13 @@ export async function writeProspectingCandidates(
       metadata: {
         ...buildCandidateMetadata(candidate),
         novelty_check: noveltyResult.noveltyMetadata,
+        country_evidence: {
+          evidence_level: countryEvidenceResult.evidenceLevel,
+          evidence_sources: countryEvidenceResult.evidenceSources,
+          ...(countryEvidenceResult.warning
+            ? { warning: countryEvidenceResult.warning }
+            : {}),
+        },
       },
     };
 

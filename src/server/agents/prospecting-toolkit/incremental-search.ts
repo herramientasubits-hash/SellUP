@@ -295,7 +295,9 @@ export async function runIncrementalProspectingSearch(
       // Hito 16AB.43.28: eliminado "caso de éxito" para evitar páginas de content/artículo
       const r4Queries = [
         `software empresarial ${input.industry} ${input.country} proveedor B2B corporativo`,
-        `${input.industry} ${input.country} empresa sector corporativo ecosistema`,
+        // Hito v1.4: reemplaza "empresa sector corporativo ecosistema" — demasiado genérica,
+        // atraía artículos/medios de contenido en lugar de empresas candidato.
+        `implementador ERP CRM ${input.country} empresa oficial clientes corporativos`,
         `proveedor ${input.industry} ${input.country} transformación digital clientes`,
         `${input.industry} empresa ${input.country} cartera clientes corporativo`,
         `${input.industry} ${input.country} empresa solución tecnológica corporativa`,
