@@ -78,6 +78,16 @@ function hasFintechSubindustry(subindustries: string[]): boolean {
   });
 }
 
+/** True si additionalCriteria menciona explícitamente fintech o pagos. */
+function hasFintechCriteria(additionalCriteria: string | null): boolean {
+  if (!additionalCriteria) return false;
+  const lower = normalizeForDetection(additionalCriteria);
+  return [
+    'fintech', 'pago', 'open finance', 'banking-as-a-service',
+    'infraestructura financiera', 'payment',
+  ].some((t) => lower.includes(t));
+}
+
 /** True si hay contexto de gobierno/contratación pública en subindustrias o criteria. */
 function hasGovernmentContext(subindustries: string[], additionalCriteria: string | null): boolean {
   const governmentTerms = [
@@ -106,16 +116,16 @@ function classifyQueryToFamily(queryText: string): QueryFamily {
 
   if (q.includes('fedesoft')) return 'source_guided_industry_assoc';
   if (q.includes('colombia fintech') || q.includes('fintech asociadas')) return 'source_guided_industry_assoc';
-  if (q.includes('andicom')) return 'partner_ecosystem';
   if (q.includes('secop')) return 'source_guided_government_proc';
 
   if (q.includes('lms') || q.includes('aprendizaje corporativo') || q.includes('tecnologia educativa') || q.includes('e-learning')) return 'lms_corporate_training';
+  // implementation_provider antes de erp_crm_provider: "implementador ERP CRM" debe clasificar como implementador, no proveedor
+  if (q.includes('implementador') || q.includes('implementaci') || q.includes('software empresarial')) return 'implementation_provider';
   if (q.includes('erp') || q.includes('crm') || q.includes('nomina') || q.includes('gestion')) return 'erp_crm_provider';
   if (q.includes('ciberseguridad') || q.includes('cibersecurity') || q.includes('proteccion datos')) return 'enterprise_use_case';
   if (q.includes('cloud') || q.includes('infraestructura') || q.includes('servicios ti')) return 'enterprise_use_case';
   if (q.includes('medellin') || q.includes('cali') || q.includes('bogota') || q.includes('barranquilla')) return 'regional_city';
   if (q.includes('caso') || q.includes('case') || q.includes('caso de exito')) return 'case_study';
-  if (q.includes('implementador') || q.includes('implementaci')) return 'implementation_provider';
   if (q.includes('hr tech') || q.includes('hr-tech') || q.includes('recursos humanos')) return 'hr_learning_tech';
   if (q.includes('nearshore') || q.includes('offshore') || q.includes('fabrica')) return 'software_factory';
   if (q.includes('saas') || q.includes('plataforma') || q.includes('partner')) return 'platform_vendor';
@@ -156,7 +166,8 @@ export function buildDiscoveryQueryPlan(params: {
     minPersistableThreshold = 3,
   } = params;
 
-  const includeFintech = subindustries.length === 0 || hasFintechSubindustry(subindustries);
+  // Hito 16AD.1.1: Colombia Fintech solo si subindustria o criteria menciona fintech/pagos.
+  const includeFintech = hasFintechSubindustry(subindustries) || hasFintechCriteria(additionalCriteria);
   const includeSecop = hasGovernmentContext(subindustries, additionalCriteria);
   const secopExcluded = !includeSecop;
 
@@ -183,8 +194,13 @@ export function buildDiscoveryQueryPlan(params: {
     },
     {
       source_key: 'co_andicom',
+      allowed: false,
+      reason: 'removed_from_default_queries_high_event_noise_risk_v1_1',
+    },
+    {
+      source_key: 'co_software_empresarial',
       allowed: true,
-      reason: 'tech_industry_allowed_with_event_noise_filter',
+      reason: 'enterprise_software_query_replaces_andicom_r2',
     },
   ];
 
@@ -197,7 +213,7 @@ export function buildDiscoveryQueryPlan(params: {
     : 'standard_second_round';
 
   // Generar queries R1 (usa builder existente con gating de SECOP implícito via excluir SECOP de R1)
-  const r1Texts = buildCleanMultiQueryDiscoveryQueries(industry, country, subindustries);
+  const r1Texts = buildCleanMultiQueryDiscoveryQueries(industry, country, subindustries, { additionalCriteria });
   const round1Queries: PlannedQuery[] = r1Texts.map((q) => ({
     query_text: q,
     query_type: (q.toLowerCase().includes('fedesoft') || q.toLowerCase().includes('colombia fintech'))
@@ -219,9 +235,9 @@ export function buildDiscoveryQueryPlan(params: {
   const round2Queries: PlannedQuery[] = r2Texts.map((q) => ({
     query_text: q,
     query_type: (
-      q.toLowerCase().includes('andicom') ||
       q.toLowerCase().includes('secop') ||
-      q.toLowerCase().includes('implementador software')
+      q.toLowerCase().includes('implementador software') ||
+      q.toLowerCase().includes('software empresarial colombia')
     )
       ? 'source_guided'
       : 'standard',

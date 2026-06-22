@@ -181,8 +181,10 @@ function getQueryFamilyPriority(family: QueryFamily, round: 1 | 2): QueryFamilyP
     if (family === 'enterprise_use_case') return 'high';
     return 'medium';
   }
-  // Round 2 is broader/diversification — generally lower priority
+  // Round 2 — diversification queries
   if (family === 'regional_city') return 'medium';
+  if (family === 'software_factory') return 'medium';        // nearshore / desarrollo software
+  if (family === 'implementation_provider') return 'medium'; // implementador ERP/CRM/SaaS
   return 'low';
 }
 

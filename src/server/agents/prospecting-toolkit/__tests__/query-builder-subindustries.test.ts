@@ -72,11 +72,12 @@ describe('QB2: EdTech subindustry in R2 Colombia/Tecnología — different from 
     );
   });
 
-  it('R2 source-guided queries are preserved (ANDICOM/SECOP II)', () => {
+  it('R2 source-guided queries are preserved (empresa software empresarial or implementador)', () => {
+    // v1.1: ANDICOM removido. R2 usa empresa software empresarial + implementador como source-guided.
     const joined = r2.join(' ');
     assert.ok(
-      joined.toLowerCase().includes('andicom') || joined.toLowerCase().includes('secop'),
-      'R2 source-guided queries (ANDICOM/SECOP) must be present',
+      joined.toLowerCase().includes('software empresarial') || joined.toLowerCase().includes('implementador'),
+      'R2 source-guided queries (software empresarial / implementador) must be present',
     );
   });
 });
@@ -146,9 +147,10 @@ describe('QB5: No subindustries — backward compatibility', () => {
     assert.deepEqual(withUndefined, withoutParam);
   });
 
-  it('R1 Colombia Tech without subindustries has 5 queries', () => {
+  it('R1 Colombia Tech without subindustries has 4 queries (Colombia Fintech excluida sin señal)', () => {
+    // v1.1: Colombia Fintech requiere señal explícita (subindustria o criteria). Base = 4.
     const queries = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia');
-    assert.equal(queries.length, 5);
+    assert.equal(queries.length, 4);
   });
 });
 
@@ -212,21 +214,25 @@ describe('QB8: Server-side canonical subindustry names used verbatim', () => {
 
 // ── QB9: Total de queries nunca supera el original ────────────────────────────
 
-describe('QB9: Query count never exceeds original count', () => {
+describe('QB9: Query count never exceeds original count (non-fintech subindustries)', () => {
+  // v1.1: se usa ['EdTech', 'SaaS'] en lugar de ['EdTech', 'Fintech', 'SaaS'].
+  // Fintech como subindustria activa Colombia Fintech source-guided y puede cambiar el count
+  // en Colombia/Tecnología — ese comportamiento es correcto e intencional (ver CA4).
+  // Este test verifica el invariante para subindustrias que NO activan el gating de fintech.
   const industries = ['Tecnología', 'Manufactura', 'Salud', 'Logística'];
   const countries = ['Colombia', 'México', 'Chile'];
 
   for (const industry of industries) {
     for (const country of countries) {
-      it(`R1 count with subindustries ≤ R1 count without — ${industry}/${country}`, () => {
+      it(`R1 count with non-fintech subindustries === R1 count without — ${industry}/${country}`, () => {
         const baseline = buildCleanMultiQueryDiscoveryQueries(industry, country);
-        const withSubs = buildCleanMultiQueryDiscoveryQueries(industry, country, ['EdTech', 'Fintech', 'SaaS']);
+        const withSubs = buildCleanMultiQueryDiscoveryQueries(industry, country, ['EdTech', 'SaaS']);
         assert.equal(withSubs.length, baseline.length);
       });
 
-      it(`R2 count with subindustries ≤ R2 count without — ${industry}/${country}`, () => {
+      it(`R2 count with non-fintech subindustries === R2 count without — ${industry}/${country}`, () => {
         const baseline = buildExpandedMultiQueryDiscoveryQueries(industry, country);
-        const withSubs = buildExpandedMultiQueryDiscoveryQueries(industry, country, ['EdTech', 'Fintech', 'SaaS']);
+        const withSubs = buildExpandedMultiQueryDiscoveryQueries(industry, country, ['EdTech', 'SaaS']);
         assert.equal(withSubs.length, baseline.length);
       });
     }

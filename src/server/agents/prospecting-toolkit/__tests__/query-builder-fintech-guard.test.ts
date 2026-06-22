@@ -117,28 +117,51 @@ describe('FG3 — Fintech subindustry: Colombia Fintech source-guided IS include
   });
 });
 
-// ── FG4: No subindustries → Colombia Fintech source-guided IS included ─────────
+// ── FG4: No subindustries → Colombia Fintech NO se incluye (v1.1) ──────────────
 
-describe('FG4 — No subindustries: Colombia Fintech source-guided preserved (general Tech search)', () => {
+describe('FG4 — No subindustries: Colombia Fintech NOT included without fintech signal (v1.1 rule)', () => {
   const queries = buildCleanMultiQueryDiscoveryQueries('Tecnología', 'Colombia', []);
   const joined = queries.join(' ').toLowerCase();
 
-  it('FG4-a: Colombia Fintech source-guided present when no subindustries specified', () => {
+  it('FG4-a: Colombia Fintech NOT included when no subindustries and no criteria', () => {
     assert.ok(
-      joined.includes('colombia fintech'),
-      `Expected Colombia Fintech when no subindustries, got:\n${queries.join('\n')}`,
+      !joined.includes('colombia fintech'),
+      `Expected NO Colombia Fintech without subindustry signal, got:\n${queries.join('\n')}`,
     );
   });
 
-  it('FG4-b: Fedesoft source-guided also present', () => {
+  it('FG4-b: Fedesoft source-guided still present', () => {
     assert.ok(
       joined.includes('fedesoft'),
       `Expected Fedesoft source-guided, got:\n${queries.join('\n')}`,
     );
   });
 
-  it('FG4-c: total query count is 5', () => {
-    assert.equal(queries.length, 5);
+  it('FG4-c: total query count is 4 (Colombia Fintech excluded → one fewer source-guided)', () => {
+    // baseQueries(3) + Fedesoft only = 4. Colombia Fintech omitted (no fintech signal).
+    assert.equal(queries.length, 4);
+  });
+
+  it('FG4-d: Colombia Fintech IS present when additionalCriteria mentions fintech', () => {
+    const withCriteria = buildCleanMultiQueryDiscoveryQueries(
+      'Tecnología', 'Colombia', [],
+      { additionalCriteria: 'empresas de fintech y pagos Colombia' },
+    );
+    assert.ok(
+      withCriteria.join(' ').toLowerCase().includes('colombia fintech'),
+      `Expected Colombia Fintech when criteria mentions fintech:\n${withCriteria.join('\n')}`,
+    );
+  });
+
+  it('FG4-e: Colombia Fintech IS present when additionalCriteria mentions pagos', () => {
+    const withPagos = buildCleanMultiQueryDiscoveryQueries(
+      'Tecnología', 'Colombia', [],
+      { additionalCriteria: 'plataformas de medios de pago empresariales' },
+    );
+    assert.ok(
+      withPagos.join(' ').toLowerCase().includes('colombia fintech'),
+      `Expected Colombia Fintech when criteria mentions pagos:\n${withPagos.join('\n')}`,
+    );
   });
 });
 
@@ -166,18 +189,25 @@ describe('FG6 — R2 queries (expanded): no fintech drift when EdTech selected',
   const r2 = buildExpandedMultiQueryDiscoveryQueries('Tecnología', 'Colombia', ['EdTech']);
   const joined = r2.join(' ').toLowerCase();
 
-  it('FG6-a: R2 does not contain fintech in any query', () => {
-    // R2 uses ANDICOM + SECOP2, not Colombia Fintech — should always be fintech-free
+  it('FG6-a: R2 does not contain Colombia Fintech source-guided', () => {
+    // R2 never uses Colombia Fintech — should always be fintech-free
     assert.ok(
       !joined.includes('colombia fintech'),
       `R2 must not contain Colombia Fintech source-guided, got:\n${r2.join('\n')}`,
     );
   });
 
-  it('FG6-b: R2 contains ANDICOM or SECOP source-guided', () => {
+  it('FG6-a2: R2 does not contain ANDICOM (removed in v1.1)', () => {
     assert.ok(
-      joined.includes('andicom') || joined.includes('secop'),
-      `R2 must contain ANDICOM/SECOP source-guided, got:\n${r2.join('\n')}`,
+      !joined.includes('andicom'),
+      `R2 must not contain ANDICOM after v1.1 removal, got:\n${r2.join('\n')}`,
+    );
+  });
+
+  it('FG6-b: R2 contains empresa software empresarial or implementador (replaced ANDICOM)', () => {
+    assert.ok(
+      joined.includes('software empresarial') || joined.includes('implementador'),
+      `R2 must contain software empresarial or implementador source-guided, got:\n${r2.join('\n')}`,
     );
   });
 

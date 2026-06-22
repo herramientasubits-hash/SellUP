@@ -41,7 +41,7 @@ export type SourceGuidedQueryMeta = {
 // Pendiente integración directa desde catalog-context-retriever en rondas futuras.
 
 // Hito 16Y.3: queries sin site: para evitar que la fuente misma aparezca como candidato.
-// Las fuentes (Fedesoft, Colombia Fintech, ANDICOM, Ruta N) actúan como señales de contexto
+// Las fuentes (Fedesoft, Colombia Fintech) actúan como señales de contexto
 // — indican dónde buscar, no qué empresa devolver. El pre-llm-result-filter bloquea
 // cualquier dominio de fuente que escape como guardrail adicional.
 
@@ -62,17 +62,31 @@ function hasFintechSubindustry(subindustries: string[]): boolean {
   });
 }
 
+/**
+ * Devuelve true si additionalCriteria menciona explícitamente fintech o pagos.
+ * Hito 16AD.1.1: Colombia Fintech solo se activa con señal explícita en subindustria o criteria.
+ */
+function hasFintechCriteria(additionalCriteria: string | null | undefined): boolean {
+  if (!additionalCriteria) return false;
+  const lower = additionalCriteria.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return [
+    'fintech', 'pago', 'open finance', 'banking-as-a-service',
+    'infraestructura financiera', 'payment',
+  ].some((t) => lower.includes(t));
+}
+
 const SOURCE_GUIDED_KEYS_CO_TECH_R1 = ['co_fedesoft', 'co_colombia_fintech'] as const;
 
 /** Ronda 2 — mix con buildExpandedMultiQueryDiscoveryQueries */
-// Hito 16Z.1: SECOP II reemplaza Ruta N (Medellín-céntrico → cobertura nacional B2G).
-// Query sin site: — SECOP II actúa como señal contextual de proveedores tech del Estado.
+// Hito 16Z.1: SECOP II actúa como señal contextual de proveedores tech del Estado (solo contexto gobierno).
+// Hito 16AD.1.1: ANDICOM removido — alto riesgo de traer páginas del evento, no empresas.
+// R2 default usa empresa software empresarial como señal de descubrimiento corporativo.
 const SOURCE_GUIDED_QUERIES_CO_TECH_R2 = [
-  'empresas expositoras ANDICOM tecnología Colombia software sitio oficial',
+  'empresa software empresarial Colombia clientes corporativos sitio oficial',
   'proveedores tecnología Colombia SECOP II software servicios TI sitio oficial',
 ] as const;
 
-const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_andicom', 'co_secop2'] as const;
+const SOURCE_GUIDED_KEYS_CO_TECH_R2 = ['co_software_empresarial', 'co_secop2'] as const;
 
 // ─── Subindustrias: normalización y construcción de queries (Hito 16AB.43.14) ──
 
@@ -476,6 +490,7 @@ export function buildCleanMultiQueryDiscoveryQueries(
   industry: string,
   country: string,
   subindustries?: string[],
+  options?: { additionalCriteria?: string | null },
 ): string[] {
   const isTech = isTechSector(industry);
 
@@ -488,14 +503,14 @@ export function buildCleanMultiQueryDiscoveryQueries(
     if (normalizeKey(country) === 'colombia') {
       const normalized = normalizeSubindustries(subindustries ?? []);
       const baseQueries = [
-        'empresa software gestión RRHH nómina Colombia pymes corporativo',
+        // Hito 16AD.1.1: "pymes" → "clientes corporativos B2B" para evitar atraer Siigo/Alegra/micro.
+        'empresa software gestión talento nómina Colombia clientes corporativos B2B',
         'empresa ciberseguridad Colombia protección datos empresas corporativo',
         'empresa fintech pagos Colombia clientes corporativos soluciones',
       ];
-      // Incluir la query source-guided de Colombia Fintech solo cuando:
-      // (a) no hay subindustrias (búsqueda general de tech en Colombia), o
-      // (b) al menos una subindustria es fintech.
-      const includeFintech = normalized.length === 0 || hasFintechSubindustry(normalized);
+      // Hito 16AD.1.1: Colombia Fintech solo si subindustria o criteria menciona fintech/pagos.
+      // subindustries=[] sin criteria → NO incluir Colombia Fintech automáticamente.
+      const includeFintech = hasFintechSubindustry(normalized) || hasFintechCriteria(options?.additionalCriteria);
       const r1SourceGuided = includeFintech
         ? [...SOURCE_GUIDED_QUERIES_CO_TECH_R1]
         : [SOURCE_GUIDED_QUERIES_CO_TECH_R1[0]]; // Fedesoft only — skip Colombia Fintech
@@ -569,7 +584,7 @@ export function buildExpandedMultiQueryDiscoveryQueries(
     const secopExcluded = excludeSources.includes('co_secop2');
     const r2SourceGuided = secopExcluded
       ? [
-          SOURCE_GUIDED_QUERIES_CO_TECH_R2[0], // ANDICOM preservado
+          SOURCE_GUIDED_QUERIES_CO_TECH_R2[0], // empresa software empresarial (reemplazó ANDICOM en v1.1)
           'implementador software empresarial Colombia SaaS ERP CRM sitio oficial corporativo', // reemplaza SECOP
         ]
       : [...SOURCE_GUIDED_QUERIES_CO_TECH_R2];

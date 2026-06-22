@@ -78,10 +78,12 @@ describe('Source gating — Fintech inclusion', () => {
     assert.equal(decision?.allowed, true);
   });
 
-  it('allows fintech when no specific subindustries (general search)', () => {
+  it('does NOT allow fintech when no specific subindustries and no criteria (v1.1 rule)', () => {
+    // v1.1: subindustries=[] sin criteria fintech → Colombia Fintech excluida por default.
     const plan = buildPlan([]);
     const decision = getGatingDecision(plan, 'co_colombia_fintech');
-    assert.equal(decision?.allowed, true);
+    assert.equal(decision?.allowed, false);
+    assert.ok(decision?.reason.includes('subindustry_not_fintech'), `Expected subindustry_not_fintech reason, got: ${decision?.reason}`);
   });
 
   it('excludes fintech source for EdTech subindustry', () => {
@@ -104,9 +106,16 @@ describe('Source gating — Fedesoft and Andicom always allowed', () => {
     assert.equal(decision?.allowed, true);
   });
 
-  it('andicom is allowed for SaaS context', () => {
+  it('andicom is NOT allowed (removed from default queries in v1.1)', () => {
+    // v1.1: ANDICOM removido por alto riesgo de ruido editorial. co_software_empresarial lo reemplaza.
     const plan = buildPlan(['SaaS']);
     const decision = getGatingDecision(plan, 'co_andicom');
+    assert.equal(decision?.allowed, false);
+  });
+
+  it('co_software_empresarial is allowed (reemplaza ANDICOM en R2)', () => {
+    const plan = buildPlan(['SaaS']);
+    const decision = getGatingDecision(plan, 'co_software_empresarial');
     assert.equal(decision?.allowed, true);
   });
 
@@ -209,14 +218,15 @@ describe('Plan metadata', () => {
     assert.ok(typeof plan.secop_excluded === 'boolean');
   });
 
-  it('source_gating_decisions contains exactly 4 entries', () => {
+  it('source_gating_decisions contains exactly 5 entries (v1.1: co_software_empresarial añadido)', () => {
     const plan = buildPlan(['SaaS']);
-    assert.equal(plan.source_gating_decisions.length, 4);
+    assert.equal(plan.source_gating_decisions.length, 5);
     const keys = plan.source_gating_decisions.map((d) => d.source_key);
     assert.ok(keys.includes('co_colombia_fintech'));
     assert.ok(keys.includes('co_secop2'));
     assert.ok(keys.includes('co_fedesoft'));
-    assert.ok(keys.includes('co_andicom'));
+    assert.ok(keys.includes('co_andicom'));           // presente pero allowed=false
+    assert.ok(keys.includes('co_software_empresarial')); // nuevo en v1.1
   });
 
   it('round2_strategy is broaden_angle when round1PersistableCount below threshold', () => {
