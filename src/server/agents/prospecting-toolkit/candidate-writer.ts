@@ -21,10 +21,12 @@ import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
 import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
 import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-url-quality-gate";
 import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate";
+import type { BusinessFitResult } from "./business-fit-gate";
 import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
 import { evaluateCompanyOwnership, isBlockedByCompanyOwnership } from "./company-ownership-gate";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
+import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -706,6 +708,14 @@ export async function writeProspectingCandidates(
     return typeof raw === 'string' ? raw : null;
   })();
 
+  // Evidence persistence policy gate tracking (Hito v1.5)
+  type EvidencePolicySample = { name: string; reason: string; url: string | null };
+  const evidencePolicyGateData = {
+    blockedCount: 0,
+    confidenceCapCount: 0,
+    samples: [] as EvidencePolicySample[],
+  };
+
   // ── Pass 1: evaluate all candidates through gates → collect eligible ────────
   type EligibleEntry = {
     candidate: ProspectingPipelineCandidate;
@@ -717,6 +727,7 @@ export async function writeProspectingCandidates(
     sourceUrlRankingBonus: number;
     businessFitRankingBonus: number;
     countryEvidenceResult: CountryEvidenceResult;
+    businessFitResult: BusinessFitResult;
   };
   const eligibleEntries: EligibleEntry[] = [];
 
@@ -952,6 +963,7 @@ export async function writeProspectingCandidates(
       sourceUrlRankingBonus: sourceUrlQualityResult.rankingBonus,
       businessFitRankingBonus: businessFitResult.rankingBonus,
       countryEvidenceResult,
+      businessFitResult,
     });
   }
 
@@ -1015,7 +1027,39 @@ export async function writeProspectingCandidates(
   }
 
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
-  for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult } of toPersist) {
+  for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult } of toPersist) {
+    // ── Evidence persistence policy (Hito v1.5) ─────────────────────────────
+    const evidencePolicy = computeEvidencePersistencePolicy({
+      countryEvidence: countryEvidenceResult,
+      businessFit: businessFitResult,
+    });
+
+    if (evidencePolicy.decision === 'blocked') {
+      skipped.push({
+        name: candidate.name,
+        reason: `evidence_policy:${evidencePolicy.primaryReason}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      evidencePolicyGateData.blockedCount++;
+      if (evidencePolicyGateData.samples.length < 10) {
+        evidencePolicyGateData.samples.push({
+          name: candidate.name,
+          reason: evidencePolicy.primaryReason,
+          url: candidate.website ?? null,
+        });
+      }
+      continue;
+    }
+
+    const effectiveConfidenceScore =
+      evidencePolicy.confidenceCap !== null
+        ? Math.min(candidate.scoring.confidenceScore, evidencePolicy.confidenceCap)
+        : candidate.scoring.confidenceScore;
+
+    if (evidencePolicy.confidenceCap !== null) {
+      evidencePolicyGateData.confidenceCapCount++;
+    }
+
     const dbDuplicateStatus = mapDuplicateStatus(
       candidate.duplicateCheck?.status ?? "unchecked"
     );
@@ -1064,7 +1108,7 @@ export async function writeProspectingCandidates(
       duplicate_status: dbDuplicateStatus,
       matched_account_id: matchedAccountId,
       matched_hubspot_company_id: matchedHubspotId,
-      confidence_score: candidate.scoring.confidenceScore,
+      confidence_score: effectiveConfidenceScore,
       fit_score: candidate.scoring.fitScore,
       data_completeness_score: candidate.scoring.dataCompletenessScore,
       status: candidateStatus,
@@ -1079,6 +1123,19 @@ export async function writeProspectingCandidates(
             ? { warning: countryEvidenceResult.warning }
             : {}),
         },
+        ...(evidencePolicy.decision !== 'ok' || evidencePolicy.warnings.length > 0
+          ? {
+              evidence_policy: {
+                decision: evidencePolicy.decision,
+                primary_reason: evidencePolicy.primaryReason,
+                force_review_manually: evidencePolicy.forceReviewManually,
+                confidence_cap: evidencePolicy.confidenceCap,
+                original_confidence: candidate.scoring.confidenceScore,
+                effective_confidence: effectiveConfidenceScore,
+                warnings: evidencePolicy.warnings,
+              },
+            }
+          : {}),
       },
     };
 
@@ -1304,6 +1361,14 @@ export async function writeProspectingCandidates(
       samples: businessFitGateData.samples.slice(0, 5),
     };
 
+    // Evidence persistence policy gate metadata (Hito v1.5)
+    const evidencePolicyGateMetadata = {
+      enabled: true,
+      blocked_count: evidencePolicyGateData.blockedCount,
+      confidence_capped_count: evidencePolicyGateData.confidenceCapCount,
+      samples: evidencePolicyGateData.samples.slice(0, 5),
+    };
+
     // External platform gate metadata (Hito 16AB.43.30)
     const externalPlatformGateMetadata = {
       enabled: true,
@@ -1412,6 +1477,7 @@ export async function writeProspectingCandidates(
       business_fit_gate: businessFitGateMetadata,
       external_platform_gate: externalPlatformGateMetadata,
       company_ownership_gate: companyOwnershipGateMetadata,
+      evidence_policy_gate: evidencePolicyGateMetadata,
       tavily_usage_reconciliation: tavilyUsageReconciliation,
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),

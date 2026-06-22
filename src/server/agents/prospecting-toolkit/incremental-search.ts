@@ -281,7 +281,9 @@ export async function runIncrementalProspectingSearch(
         `implementador ${input.industry} ${input.country} clientes corporativos empresa oficial`,
         `partner ${input.industry} ${input.country} soluciones empresariales certificado`,
         `integrador ${input.industry} ${input.country} software empresa oficial corporativo`,
-        `consultor ${input.industry} ${input.country} transformación digital empresas`,
+        // Hito v1.5: reemplaza "consultor {industry} {country} transformación digital empresas"
+        // — demasiado genérica, atraía artículos de consultoría/medios.
+        `consultor ERP CRM ${input.country} implementación empresas`,
         `proveedor ${input.industry} ${input.country} software empresarial clientes`,
       ];
       queryOverrides = r3Queries.filter(q => !usedQueryTexts.has(q));
@@ -298,9 +300,13 @@ export async function runIncrementalProspectingSearch(
         // Hito v1.4: reemplaza "empresa sector corporativo ecosistema" — demasiado genérica,
         // atraía artículos/medios de contenido en lugar de empresas candidato.
         `implementador ERP CRM ${input.country} empresa oficial clientes corporativos`,
-        `proveedor ${input.industry} ${input.country} transformación digital clientes`,
+        // Hito v1.5: reemplaza "proveedor {industry} {country} transformación digital clientes"
+        // — "transformación digital" atraía contenido/medios genéricos.
+        `proveedor software ${input.industry} ${input.country} B2B clientes corporativos`,
         `${input.industry} empresa ${input.country} cartera clientes corporativo`,
-        `${input.industry} ${input.country} empresa solución tecnológica corporativa`,
+        // Hito v1.5: reemplaza "{industry} {country} empresa solución tecnológica corporativa"
+        // — demasiado genérica; esta versión ancla a productos concretos (ERP/SaaS).
+        `${input.industry} ${input.country} empresa software ERP SaaS oficial`,
       ];
       queryOverrides = r4Queries.filter(q => !usedQueryTexts.has(q));
       if (queryOverrides.length === 0) {
