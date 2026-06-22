@@ -320,3 +320,79 @@ Se cierra oficialmente el bloque Colombia del catálogo de fuentes IA. Las 6 fue
 ### Próximo paso recomendado
 
 Avanzar a la clasificación y conexión de fuentes del siguiente país en el roadmap (México o Brasil), replicando el mismo patrón: auditoría → clasificación → conexión de adaptadores → validación en catálogo visual.
+
+---
+
+## Cierre Colombia — Agente 1 MVP operativo
+
+**Fecha:** 2026-06-22
+**Commits:**
+- `2689f67` — fix(agent1): align Colombia source gating and enrichment
+- `80ff264` — feat(agent1): resolve Colombia tax identifiers before enrichment
+- `33b6b7f` — fix(agent1): allow Colombia brand names in tax resolution
+
+### 1. Estado final
+
+- Colombia operativo para MVP del Agente 1.
+- Enrichment conectado y persistente.
+- Resolución inicial de NIT conectada.
+- Validación sin Tavily completada (smoke test).
+- Source gating respeta clasificación operativa.
+- Enrichment incremental post-discovery funcional.
+
+### 2. Fuentes automáticas activas
+
+| Fuente | Rol |
+|--------|-----|
+| `co_rues` | Discovery estructurado inicial |
+| `co_siis` | Enrichment financiero post-discovery |
+| `co_personas_juridicas_cc` | Validación legal / NIT |
+| `co_secop2_proveedores` | Señal B2G / proveedor SECOP II |
+| `co_minsalud_reps` | Enrichment sector salud |
+| `co_superfinanciera` | Enrichment sector financiero regulado |
+
+### 3. Fuentes excluidas del flujo automático
+
+| Fuente | Estado | Motivo |
+|--------|--------|--------|
+| `co_fedesoft` | paused / manual_signal_only / not_connected | Bloqueo upstream por captcha/protección SiteGround. No debe correr automáticamente. |
+| `co_secop2` | manual_only / not_for_ai_flow / not_connected | Fuente contextual genérica. Para enrichment automático usar `co_secop2_proveedores`. |
+
+### 4. Resultado técnico
+
+- `catalog_sources` ya respeta clasificación operativa en flujo IA.
+- Source-guided queries ya no usan Fedesoft ni SECOP2 genérico.
+- Enrichment post-discovery corre en pipeline incremental con RUES.
+- `tax_identifier_resolution` corre antes del enrichment.
+- `source_enrichment_status` se persiste en metadata.
+- `source_enrichment` se persiste en metadata.
+
+### 5. Resultado funcional
+
+- Si hay NIT resuelto con confianza alta → se guarda `tax_identifier`.
+- Si hay match parcial → queda `ambiguous` para revisión.
+- Si no hay match → queda `not_found` sin romper enrichment.
+- Si el nombre es genérico real (ej: "Software") → queda `skipped`.
+- Marcas de una palabra ya no quedan skipped automáticamente.
+- No se escribe `tax_identifier` con confianza baja.
+- `source_enrichment` sigue corriendo incluso sin NIT.
+
+### 6. Limitaciones actuales
+
+- Resolver inicial usa principalmente `source_company_snapshots` / `co_siis`.
+- No se auto-asigna NIT con confianza baja.
+- Para mejorar resolución legal completa, falta agregar búsqueda por razón social en `co_personas_juridicas_cc` y posiblemente SECOP proveedores.
+
+### 7. Pendientes recomendados
+
+| Prioridad | Pendiente | Descripción |
+|-----------|-----------|-------------|
+| P1.3 | Ampliar resolver Colombia | Agregar `co_personas_juridicas_cc` por razón social |
+| P1.4 | Evaluar `co_secop2_proveedores` | Revisar si puede apoyar resolución por nombre |
+| P2 | UI para ambiguous candidates | Exponer candidates en UI para revisión humana |
+
+### 8. Decisión
+
+- No hacer más corridas Colombia por ahora.
+- Colombia queda lista para servir como patrón técnico para Brasil / México / Chile / Perú.
+- Siguiente país recomendado: Brasil o México según prioridad del proyecto.
