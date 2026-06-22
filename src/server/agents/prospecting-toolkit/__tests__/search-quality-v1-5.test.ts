@@ -359,6 +359,70 @@ describe('F7 — Brettec: query_only evidence → needs_review, confidence cappe
   });
 });
 
+// ─── F8: Portal ERP bloqueado por portal/media/aggregator gate ───────────────
+
+describe('F8 — Portal ERP bloqueado por portal/media/aggregator gate', () => {
+  const portalErpFit = evaluateBusinessFit({
+    name: 'Portal ERP',
+    website: 'https://portalerp.com/co',
+    domain: 'portalerp.com',
+    sourceSnippet:
+      'Portal ERP es el mayor portal de noticias, análisis, entrevistas y soluciones de gestión empresarial (ERP, CRM, BI) de América Latina.',
+    sourceTitle: 'Portal ERP — Noticias, Análisis y Soluciones ERP — Colombia',
+  });
+
+  it('Portal ERP → fit = reject (portal_media_aggregator)', () => {
+    assert.equal(
+      portalErpFit.fit,
+      'reject',
+      `fit debería ser reject, got: ${portalErpFit.fit}`,
+    );
+  });
+
+  it('Portal ERP → isBlockedByBusinessFit = true', () => {
+    assert.ok(
+      isBlockedByBusinessFit(portalErpFit),
+      'Portal ERP debe quedar bloqueado por business-fit gate',
+    );
+  });
+
+  it('Portal ERP → reason contiene portal_media_aggregator', () => {
+    const hasPortalReason = portalErpFit.reasons.some((r) =>
+      r.includes('portal_media_aggregator'),
+    );
+    assert.ok(
+      hasPortalReason,
+      `reasons debe contener portal_media_aggregator, got: ${JSON.stringify(portalErpFit.reasons)}`,
+    );
+  });
+
+  it('Portal ERP bloqueado antes de llegar a evidence-policy (URL gate pasa, business-fit bloquea)', () => {
+    // El URL gate clasifica portalerp.com/co como official_homepage (profundidad 1, locale).
+    // El business-fit gate es quien bloquea al detectar el candidato como portal/medio.
+    const urlResult = classifySourceUrlQuality('https://portalerp.com/co', 'Portal ERP');
+    assert.equal(urlResult.blocked, false, 'URL gate no bloquea portalerp.com/co');
+    assert.ok(
+      isBlockedByBusinessFit(portalErpFit),
+      'business-fit gate sí bloquea Portal ERP',
+    );
+  });
+
+  it('Mi-ERP NO queda bloqueado (empresa legítima implementadora Odoo)', () => {
+    const miErpFit = evaluateBusinessFit({
+      name: 'Mi-ERP',
+      website: 'https://www.mi-erp.app',
+      domain: 'mi-erp.app',
+      sourceSnippet:
+        'Somos un equipo especializado en consultoría, implementación y desarrollo Odoo. Automatizamos, integramos y escalamos tu operación.',
+      sourceTitle: 'Mi-ERP — Expertos en Odoo en Colombia | Partner Odoo',
+    });
+    assert.ok(
+      !isBlockedByBusinessFit(miErpFit),
+      `Mi-ERP no debe quedar bloqueado, got fit: ${miErpFit.fit}, reasons: ${JSON.stringify(miErpFit.reasons)}`,
+    );
+  });
+});
+
 // ─── Invariantes de política (reglas adicionales) ─────────────────────────────
 
 describe('Invariantes de computeEvidencePersistencePolicy', () => {

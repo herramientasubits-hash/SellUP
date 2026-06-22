@@ -112,6 +112,52 @@ const REJECT_SNIPPET_SIGNALS = [
   'emprendimiento personal', 'portafolio personal',
 ];
 
+/**
+ * Rechazo por portal / medio / agregador.
+ * Bloquea candidatos que se presentan como portales de noticias, directorios,
+ * comparadores o agregadores, aunque mencionen ERP/CRM/SaaS/Colombia.
+ * No bloquea empresas legítimas que simplemente tienen un blog.
+ */
+const PORTAL_MEDIA_REJECT_NAME_SIGNALS = [
+  'portal erp',
+  'portal crm',
+  'portal de noticias',
+  'portal de tecnologia',
+  'noticias erp',
+  'noticias crm',
+  'directorio erp',
+  'directorio crm',
+  'comparador de software',
+];
+
+const PORTAL_MEDIA_REJECT_CONTENT_SIGNALS = [
+  // Portal de noticias/análisis/entrevistas
+  'portal de noticias, analisis',
+  'portal de noticias analisis',
+  'portal de noticias y',
+  'mayor portal de noticias',
+  'mayor portal de',
+  'noticias, analisis, entrevistas',
+  'noticias analisis entrevistas',
+  // Medios/revistas especializadas
+  'medio especializado en',
+  'revista de tecnologia',
+  // Directorios, rankings y comparadores
+  'directorio de proveedores',
+  'ranking de mejores',
+  'comparador de software',
+  'catalogo de soluciones',
+  'catalogo de proveedores',
+  'guia de proveedores',
+  'listado de proveedores',
+  'listado de soluciones',
+  // Comunidades y marketplaces de contenido
+  'comunidad de proveedores',
+  'ecosistema de startups',
+  'marketplace de soluciones',
+  'marketplace de software',
+];
+
 /** Señales de bajo fit: consultoras/agencias generales sin producto propio. */
 const LOW_FIT_NAME_SIGNALS = [
   'consultora', 'consultores', 'consulting', 'consultoría',
@@ -195,6 +241,27 @@ export function evaluateBusinessFit(input: BusinessFitInput): BusinessFitResult 
       fit: 'reject',
       reasons,
       matchedSignals: [rejectSnippetSignal],
+      missingSignals,
+      rankingBonus: RANKING_BONUS.reject,
+    };
+  }
+
+  // ── 2b. Rechazo por portal / medio / agregador ────────────────────────────────
+  // Bloquea cuando nombre, snippet o title se presentan como portal de noticias,
+  // directorio, comparador o agregador, aunque mencionen ERP/CRM/SaaS/Colombia.
+  const portalNameSignal = anySignalIn(PORTAL_MEDIA_REJECT_NAME_SIGNALS, normalizedName);
+  const portalContentSignal =
+    anySignalIn(PORTAL_MEDIA_REJECT_CONTENT_SIGNALS, normalizedSnippet) ??
+    anySignalIn(PORTAL_MEDIA_REJECT_CONTENT_SIGNALS, normalizedTitle);
+  const portalSignal = portalNameSignal ?? portalContentSignal;
+  if (portalSignal) {
+    reasons.push(
+      `portal_media_aggregator: candidato identificado como portal/medio/agregador ("${portalSignal}")`,
+    );
+    return {
+      fit: 'reject',
+      reasons,
+      matchedSignals: [portalSignal],
       missingSignals,
       rankingBonus: RANKING_BONUS.reject,
     };
