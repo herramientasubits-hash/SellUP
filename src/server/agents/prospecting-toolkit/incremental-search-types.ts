@@ -171,6 +171,30 @@ export type AdaptiveDiscoveryMetadata = {
   result_status?: AdaptiveDiscoveryResultStatus;
 };
 
+// ─── Query cap metadata (Hito v1.3) ─────────────────────────────────────────
+
+export type QueryCapMetadata = {
+  searchDepth: 'standard' | 'deep';
+  totalQueryCap: number;
+  perRoundCap: number;
+  queryCapApplied: boolean;
+  queriesGeneratedBeforeCap: number;
+  queriesExecutedAfterCap: number;
+  skippedByQueryCap: number;
+};
+
+// ─── Incremental search plan (Hito v1.3) ────────────────────────────────────
+
+export type IncrementalSearchPlanMeta = {
+  version: 'search_planner_v1_3';
+  usedForExecution: true;
+  fallbackUsed: false;
+  querySelectionReason: 'incremental_multi_round';
+  queryCap: QueryCapMetadata;
+  queryFamilies: string[];
+  sourceStrategy: SourceGatingDecisionSummary[];
+};
+
 // ─── Target cap metadata (Hito 16AB.43.27) ───────────────────────────────────
 
 export type TargetCapMetadata = {

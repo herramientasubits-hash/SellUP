@@ -51,6 +51,7 @@ import type {
   IncrementalSearchStoppedReason,
   DiscoveryStrategyMetadata,
   AdaptiveDiscoveryMetadata,
+  IncrementalSearchPlanMeta,
 } from './incremental-search-types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
 
@@ -63,6 +64,13 @@ const DEFAULT_TARGET_PERSISTIBLE = 10;
 const DEFAULT_MAX_RAW = 50;
 const DEFAULT_COOLDOWN_DAYS = 30;
 const DEFAULT_NEGATIVE_MEMORY_LOOKBACK_DAYS = 30;
+
+// ─── Query cap constants (Hito v1.3) ─────────────────────────────────────────
+// Standard: máximo 16 queries totales, 4 por ronda. Deep: 36 totales.
+// El cap se aplica solo cuando queryOverrides es definido (controlable desde aquí).
+export const STANDARD_TOTAL_QUERY_CAP = 16;
+export const STANDARD_PER_ROUND_CAP = 4;
+export const DEEP_TOTAL_QUERY_CAP = 36;
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -196,6 +204,11 @@ export async function runIncrementalProspectingSearch(
   let writerCandidatesCreated: number | undefined = undefined;
   let totalExcludedByNegativeMemory = 0;
 
+  // ─── Query cap tracking (Hito v1.3) ─────────────────────────────────────────
+  let totalQueriesExecuted = 0;
+  let totalQueriesGenerated = 0;
+  let totalQueriesSkippedByCap = 0;
+
   const allQueryTraceSummaryEntries: Array<{
     query_text: string;
     query_type: string;
@@ -294,6 +307,26 @@ export async function runIncrementalProspectingSearch(
       }
     }
 
+    // ── Query cap application (Hito v1.3) ─────────────────────────────────────
+    // Cap applies only to explicitly defined queryOverrides (controllable from here).
+    // When queryOverrides is undefined, the pipeline uses its own defaults (uncontrolled).
+    const hasExplicitOverrides = queryOverrides !== undefined;
+    if (hasExplicitOverrides) {
+      const rawLen = queryOverrides!.length;
+      totalQueriesGenerated += rawLen;
+      const remainingBudget = Math.max(0, STANDARD_TOTAL_QUERY_CAP - totalQueriesExecuted);
+      const allowedThisRound = Math.min(STANDARD_PER_ROUND_CAP, remainingBudget);
+      if (rawLen > allowedThisRound) {
+        totalQueriesSkippedByCap += rawLen - allowedThisRound;
+        queryOverrides = queryOverrides!.slice(0, allowedThisRound);
+      }
+      // If no budget remains, stop before calling the pipeline.
+      if (allowedThisRound <= 0) {
+        stoppedReason = 'max_rounds_reached';
+        break;
+      }
+    }
+
     // Record query texts used this round for deduplication across rounds
     (queryOverrides ?? []).forEach(q => usedQueryTexts.add(q));
 
@@ -314,6 +347,14 @@ export async function runIncrementalProspectingSearch(
 
     const rawCount = pipelineOutput.webSearch.resultsCount;
     totalRawEvaluated += rawCount;
+
+    // ── Track actual queries executed (Hito v1.3) ─────────────────────────────
+    const executedQueriesThisRound = extractQueriesFromMeta(pipelineOutput.metadata);
+    totalQueriesExecuted += executedQueriesThisRound.length;
+    // For uncontrolled rounds (undefined overrides), generated equals executed.
+    if (!hasExplicitOverrides) {
+      totalQueriesGenerated += executedQueriesThisRound.length;
+    }
 
     // Acumula query_trace_summary de esta ronda anotado con round_number (Hito 16Z.3)
     const roundPipelineMeta = pipelineOutput.metadata ?? {};
@@ -354,7 +395,7 @@ export async function runIncrementalProspectingSearch(
 
     roundsMeta.push({
       round,
-      queriesUsed: extractQueriesFromMeta(pipelineOutput.metadata),
+      queriesUsed: executedQueriesThisRound,
       rawResultsCount: rawCount,
       candidatesEvaluated: pipelineOutput.candidates.length,
       candidatesNewAfterDomainFilter: newCandidates.length,
@@ -468,6 +509,28 @@ export async function runIncrementalProspectingSearch(
           credits_saved_estimate: targetInternal > 0 ? Math.round(targetInternal / 5) : 5,
         }
       : {}),
+  };
+
+  // ── Incremental search plan (Hito v1.3) ──────────────────────────────────────
+  // Persisted as top-level search_plan in extraBatchMetadata so it lands in
+  // prospect_batches.metadata->'search_plan' for SQL querying.
+  const queryCapApplied = totalQueriesSkippedByCap > 0;
+  const incrementalSearchPlan: IncrementalSearchPlanMeta = {
+    version: 'search_planner_v1_3',
+    usedForExecution: true,
+    fallbackUsed: false,
+    querySelectionReason: 'incremental_multi_round',
+    queryCap: {
+      searchDepth: 'standard',
+      totalQueryCap: STANDARD_TOTAL_QUERY_CAP,
+      perRoundCap: STANDARD_PER_ROUND_CAP,
+      queryCapApplied,
+      queriesGeneratedBeforeCap: totalQueriesGenerated,
+      queriesExecutedAfterCap: totalQueriesExecuted,
+      skippedByQueryCap: totalQueriesSkippedByCap,
+    },
+    queryFamilies: [...new Set([...basePlan.families_r1, ...basePlan.families_r2])],
+    sourceStrategy: basePlan.source_gating_decisions,
   };
 
   // ── Adaptive discovery — helper + placeholder (Hito 16AB.43.27) ─────────────
@@ -584,6 +647,11 @@ export async function runIncrementalProspectingSearch(
         },
       };
 
+      // Strip adaptive_discovery from the nested incremental_search object (Hito v1.3).
+      // Top-level adaptive_discovery (reconciled post-writer) is the source of truth.
+      // The placeholder with persisted_count=0 inside incremental_search contradicted it.
+      const { adaptive_discovery: _adNested, ...metadataForNestedStorage } = metadata;
+
       const writerOutput = await writerFn({
         pipelineOutput: syntheticPipelineOutput,
         triggeredByUserId: input.triggeredByUserId ?? null,
@@ -593,7 +661,8 @@ export async function runIncrementalProspectingSearch(
         dryRun: false,
         targetPersistibleCandidates: targetPersistibleCandidates,
         extraBatchMetadata: {
-          incremental_search: metadata as Record<string, unknown>,
+          incremental_search: metadataForNestedStorage as Record<string, unknown>,
+          search_plan: incrementalSearchPlan as Record<string, unknown>,
           search_mode: 'incremental_multi_round',
           discovery_strategy: discoveryStrategy as Record<string, unknown>,
           adaptive_discovery: adaptiveDiscovery as Record<string, unknown>,

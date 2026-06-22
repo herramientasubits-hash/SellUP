@@ -40,6 +40,7 @@
     "test:fedesoft": "node --import tsx --test src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-normalizers.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-client.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-connector.test.ts",
     "test:fedesoft-snapshot": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-snapshot-etl.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-snapshot-etl.integration.test.ts",
     "test:search-planner-v1": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-planner-v1.test.ts",
+    "test:search-planner-v1-3": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-planner-v1-3.test.ts",
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts"
   },
