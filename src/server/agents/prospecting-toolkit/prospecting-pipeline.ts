@@ -39,6 +39,7 @@ import {
 } from './pre-llm-result-filter';
 import { isSentenceOrPhraseName } from './noise-filter';
 import { buildSearchPlan, getExecutableQueriesFromSearchPlan } from './search-planner';
+import { evaluateCountryEvidence } from './country-evidence-gate';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -505,6 +506,10 @@ export async function runProspectingPipeline(
         countryCode: input.countryCode,
       });
 
+      // Trazabilidad query→candidato (Hito 16Z.2)
+      const matchingRawInput = rawInputs.find((ri) => ri.idx === evaluated.idx);
+      const originQueryText = matchingRawInput?.query ?? searchQuery;
+
       const scoring = scoreCandidate({
         name,
         country: input.country,
@@ -520,6 +525,16 @@ export async function runProspectingPipeline(
           catalogContext.recommendedSources.length > 0
             ? catalogContext.recommendedSources[0].priority
             : null,
+        sourceTitle: rawResult?.title ?? null,
+        sourceSnippet: rawResult?.snippet ?? null,
+        countryEvidenceLevel: evaluateCountryEvidence({
+          website: rawResult?.url ?? website ?? '',
+          domain: normalizeDomain(rawResult?.url ?? website ?? '') ?? '',
+          sourceSnippet: rawResult?.snippet ?? null,
+          sourceTitle: rawResult?.title ?? null,
+          queryText: originQueryText,
+          targetCountryCode: input.countryCode,
+        }).evidenceLevel,
       });
 
       // Review candidates get an explicit flag so humans can distinguish them
@@ -536,10 +551,6 @@ export async function runProspectingPipeline(
         provider: llmEvaluation!.usage.provider,
         model: llmEvaluation!.usage.model,
       });
-
-      // Trazabilidad query→candidato (Hito 16Z.2)
-      const matchingRawInput = rawInputs.find((ri) => ri.idx === evaluated.idx);
-      const originQueryText = matchingRawInput?.query ?? searchQuery;
       const { queryType, querySourceKey } = classifyQuery(originQueryText, input.country, input.industry);
       const searchTrace: SearchTrace = {
         query_text: originQueryText,
@@ -694,6 +705,16 @@ export async function runProspectingPipeline(
           catalogContext.recommendedSources.length > 0
             ? catalogContext.recommendedSources[0].priority
             : null,
+        sourceTitle: result.title,
+        sourceSnippet: result.snippet ?? null,
+        countryEvidenceLevel: evaluateCountryEvidence({
+          website: result.url,
+          domain: domain ?? '',
+          sourceSnippet: result.snippet ?? null,
+          sourceTitle: result.title,
+          queryText: originQueryText,
+          targetCountryCode: input.countryCode,
+        }).evidenceLevel,
       });
 
       return {

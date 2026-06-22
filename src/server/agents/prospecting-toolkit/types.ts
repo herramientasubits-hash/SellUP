@@ -251,6 +251,12 @@ export type CandidateScoringInput = {
   websiteVerification?: WebsiteVerificationOutput | null;
   duplicateCheck?: DuplicateCheckResult | null;
   catalogContext?: CatalogContextResult | null;
+  /** Source title from search result — used for commercial fit calibration (v1.11) */
+  sourceTitle?: string | null;
+  /** Source snippet from search result — used for commercial fit calibration (v1.11) */
+  sourceSnippet?: string | null;
+  /** Country evidence level — used for commercial fit calibration (v1.11) */
+  countryEvidenceLevel?: 'strong' | 'weak' | 'query_only' | null;
 };
 
 export type CandidateScoreBreakdown = {
@@ -263,6 +269,21 @@ export type CandidateScoreBreakdown = {
   penalties: number;
 };
 
+/** Commercial fit calibration breakdown — v1.11 */
+export type FitBreakdown = {
+  product_fit: number;
+  country_fit: number;
+  b2b_signal: number;
+  duplicate_penalty: number;
+  country_evidence_penalty: number;
+  generic_agency_penalty: number;
+  commercial_calibration_delta: number;
+  final_fit_score: number;
+  fit_label: 'high' | 'medium' | 'low' | 'reject';
+  fit_reasons: string[];
+  fit_penalties: string[];
+};
+
 export type CandidateScoringOutput = {
   confidenceScore: number;
   fitScore: number;
@@ -273,6 +294,7 @@ export type CandidateScoringOutput = {
   reasons: string[];
   warnings: string[];
   blockers: string[];
+  fitBreakdown?: FitBreakdown | null;
   metadata?: Record<string, unknown>;
 };
 

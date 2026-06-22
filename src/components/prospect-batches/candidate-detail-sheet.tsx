@@ -1064,12 +1064,13 @@ export function CandidateDetailSheet({
 
                   let reason = '';
                   if (action === 'review_manually') {
-                    const lowParts: string[] = [];
-                    if (fitScoreVal !== null && fitScoreVal < 60) lowParts.push('encaje comercial');
-                    if (completenessVal !== null && completenessVal < 70) lowParts.push('completitud de datos');
-                    reason = lowParts.length > 0
-                      ? `Buen match técnico, pero faltan ${lowParts.join(' y ')} antes de aprobar.`
-                      : 'Requiere validación manual antes de convertirse en cuenta.';
+                    if (fitScoreVal !== null && fitScoreVal >= 70) {
+                      reason = 'Candidato con buen encaje preliminar. Validar datos faltantes antes de aprobar.';
+                    } else if (fitScoreVal !== null && fitScoreVal >= 50) {
+                      reason = 'Candidato con señales comerciales relevantes. Requiere enriquecimiento antes de aprobar.';
+                    } else {
+                      reason = 'Candidato requiere revisión. Tiene algunas señales útiles, pero aún falta validar encaje comercial, tamaño y datos clave.';
+                    }
                   } else if (action === 'approve') {
                     reason = 'El candidato cumple con los criterios de calidad para ser aprobado.';
                   } else if (action === 'discard') {

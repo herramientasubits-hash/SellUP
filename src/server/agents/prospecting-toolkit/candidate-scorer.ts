@@ -20,6 +20,7 @@ import type {
   CandidateQualityLabel,
   CandidateRecommendedAction,
   CandidateScoreBreakdown,
+  FitBreakdown,
 } from './types';
 
 // ─── Constantes de scoring ────────────────────────────────────────────────────
@@ -177,12 +178,187 @@ function computeConfidenceScore(input: CandidateScoringInput): ConfidenceResult 
   return { score, signals: raw, penalties, reasons, warnings, blockers };
 }
 
+// ─── Commercial Fit Calibration v1.11 ────────────────────────────────────────
+// Señales de producto/servicio que determinan el nivel de encaje comercial.
+// Opera sobre sourceSnippet + sourceTitle + reasonForFit del candidato.
+
+const ERP_HIGH_SIGNALS = [
+  'software erp', 'sistema erp', 'plataforma erp', 'erp para empresas',
+  'erp cloud', 'netsuite', 'sap s4', 'sap hana',
+];
+
+const HR_HIGH_SIGNALS = [
+  'software de nomina', 'software de nómina', 'nomina empresarial', 'nómina empresarial',
+  'software de recursos humanos', 'software de gestion de recursos humanos',
+  'software de gestión de recursos humanos', 'plataforma rrhh', 'plataforma de recursos humanos',
+  'software rrhh', 'software hr', 'plataforma hr', 'hcm', 'hrm', 'hris', 'workday',
+];
+
+const OTHER_HIGH_SIGNALS = [
+  'software crm', 'plataforma crm', 'sistema crm', 'crm para empresas',
+  'software lms', 'plataforma lms', 'e-learning empresarial', 'lms para empresas',
+  'software de gestion empresarial', 'software de gestión empresarial',
+  'saas empresarial', 'software como servicio', 'software de formacion', 'software de formación',
+];
+
+const IMPLEMENTATION_SIGNALS = [
+  'implementacion erp', 'implementación erp', 'implementacion crm', 'implementación crm',
+  'implementacion de software', 'implementación de software',
+  'software administrativo', 'facturacion erp', 'facturación erp',
+  'partner erp', 'partner crm', 'consultoria erp', 'consultoría erp',
+  'servicios erp', 'servicios crm', 'integracion de sistemas', 'integración de sistemas',
+];
+
+const DIGITAL_SERVICES_SIGNALS = [
+  'soluciones digitales', 'transformacion digital', 'transformación digital',
+  'inteligencia artificial', 'automatizacion de procesos', 'automatización de procesos',
+  'desarrollo de software', 'software a medida', 'rpa ',
+];
+
+const GENERIC_AGENCY_SIGNALS = [
+  'desarrollo web', 'diseño web', 'diseno web', 'paginas web', 'páginas web',
+  'marketing digital', 'agencia de software', 'aplicaciones moviles', 'aplicaciones móviles',
+];
+
+const B2B_HIGH_SIGNALS = ['b2b'];
+const B2B_MED_SIGNALS = [
+  'para empresas', 'clientes corporativos', 'clientes empresariales',
+  'soluciones empresariales', 'empresas en colombia', 'empresas en chile',
+];
+
+type CommercialSignals = {
+  productFit: number;
+  b2bSignal: number;
+  countryFitBonus: number;
+  countryEvidencePenalty: number;
+  duplicatePenalty: number;
+  genericAgencyPenalty: number;
+  fitReasons: string[];
+  fitPenalties: string[];
+};
+
+function normalizeCommercialText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function firstMatch(signals: string[], text: string): string | null {
+  for (const s of signals) {
+    if (text.includes(s)) return s;
+  }
+  return null;
+}
+
+function computeCommercialSignals(input: CandidateScoringInput): CommercialSignals | null {
+  // Only activate when at least one calibration field is present
+  if (
+    input.sourceSnippet == null &&
+    input.sourceTitle == null &&
+    input.countryEvidenceLevel == null
+  ) {
+    return null;
+  }
+
+  const combined = normalizeCommercialText([
+    input.name ?? '',
+    input.sourceSnippet ?? '',
+    input.sourceTitle ?? '',
+    input.reasonForFit ?? '',
+  ].join(' '));
+
+  const fitReasons: string[] = [];
+  const fitPenalties: string[] = [];
+
+  // ── Product type signal ──────────────────────────────────────────────────
+  let productFit = 0;
+  const erpHit = firstMatch(ERP_HIGH_SIGNALS, combined);
+  const hrHit = firstMatch(HR_HIGH_SIGNALS, combined);
+  const otherHit = firstMatch(OTHER_HIGH_SIGNALS, combined);
+  const implHit = firstMatch(IMPLEMENTATION_SIGNALS, combined);
+  const digitalHit = firstMatch(DIGITAL_SERVICES_SIGNALS, combined);
+
+  if (erpHit) {
+    productFit = 25;
+    fitReasons.push(`product_erp: ${erpHit}`);
+  } else if (hrHit) {
+    productFit = 22;
+    fitReasons.push(`product_hr: ${hrHit}`);
+  } else if (otherHit) {
+    productFit = 20;
+    fitReasons.push(`product_saas: ${otherHit}`);
+  } else if (implHit) {
+    productFit = 12;
+    fitReasons.push(`implementation_services: ${implHit}`);
+  } else if (digitalHit) {
+    productFit = 5;
+    fitReasons.push(`digital_services: ${digitalHit}`);
+  }
+
+  // ── B2B signal ───────────────────────────────────────────────────────────
+  let b2bSignal = 0;
+  if (firstMatch(B2B_HIGH_SIGNALS, combined)) {
+    b2bSignal = 8;
+    fitReasons.push('b2b_explicit');
+  } else if (firstMatch(B2B_MED_SIGNALS, combined)) {
+    b2bSignal = 6;
+    fitReasons.push('b2b_signal');
+  }
+
+  // ── Country fit ──────────────────────────────────────────────────────────
+  let countryFitBonus = 0;
+  let countryEvidencePenalty = 0;
+  if (input.countryEvidenceLevel === 'strong') {
+    countryFitBonus = 5;
+    fitReasons.push('country_strong_evidence');
+  } else if (input.countryEvidenceLevel === 'query_only') {
+    countryEvidencePenalty = 15;
+    fitPenalties.push('country_evidence_query_only: -15');
+  } else if (input.countryEvidenceLevel === 'weak') {
+    countryEvidencePenalty = 5;
+    fitPenalties.push('country_evidence_weak: -5');
+  }
+
+  // ── Duplicate penalty ────────────────────────────────────────────────────
+  let duplicatePenalty = 0;
+  if (input.duplicateCheck?.status === 'possible_duplicate') {
+    duplicatePenalty = 5;
+    fitPenalties.push('possible_duplicate: -5');
+  }
+
+  // ── Generic agency penalty (only when no strong product signal) ──────────
+  let genericAgencyPenalty = 0;
+  if (productFit <= 5) {
+    const agencyHit = firstMatch(GENERIC_AGENCY_SIGNALS, combined);
+    if (agencyHit) {
+      genericAgencyPenalty = agencyHit === 'marketing digital' ? 8 : 5;
+      fitPenalties.push(`generic_agency: -${genericAgencyPenalty} (${agencyHit})`);
+    }
+  }
+
+  return {
+    productFit,
+    b2bSignal,
+    countryFitBonus,
+    countryEvidencePenalty,
+    duplicatePenalty,
+    genericAgencyPenalty,
+    fitReasons,
+    fitPenalties,
+  };
+}
+
 // ─── Fit Score ────────────────────────────────────────────────────────────────
 
 type FitResult = {
   score: number;
   reasons: string[];
   warnings: string[];
+  commercialSignals?: CommercialSignals | null;
 };
 
 function computeFitScore(input: CandidateScoringInput): FitResult {
@@ -244,8 +420,17 @@ function computeFitScore(input: CandidateScoringInput): FitResult {
     raw += 5;
   }
 
+  // Commercial Fit Calibration v1.11
+  const commercial = computeCommercialSignals(input);
+  if (commercial) {
+    raw += commercial.productFit + commercial.b2bSignal + commercial.countryFitBonus;
+    fitPenalties += commercial.countryEvidencePenalty + commercial.duplicatePenalty + commercial.genericAgencyPenalty;
+    reasons.push(...commercial.fitReasons);
+    warnings.push(...commercial.fitPenalties);
+  }
+
   const score = clamp(raw - fitPenalties, 0, 100);
-  return { score, reasons, warnings };
+  return { score, reasons, warnings, commercialSignals: commercial };
 }
 
 // ─── Data Completeness Score ──────────────────────────────────────────────────
@@ -433,6 +618,37 @@ export function scoreCandidate(input: CandidateScoringInput): CandidateScoringOu
     penalties: confidence.penalties,
   };
 
+  // Build FitBreakdown from commercial signals
+  const commercial = fit.commercialSignals;
+  let fitBreakdown: FitBreakdown | null = null;
+  if (commercial) {
+    const delta =
+      commercial.productFit +
+      commercial.b2bSignal +
+      commercial.countryFitBonus -
+      commercial.countryEvidencePenalty -
+      commercial.duplicatePenalty -
+      commercial.genericAgencyPenalty;
+    const fitLabel: FitBreakdown['fit_label'] =
+      fitScore >= 70 ? 'high'
+      : fitScore >= 50 ? 'medium'
+      : fitScore >= 30 ? 'low'
+      : 'reject';
+    fitBreakdown = {
+      product_fit: commercial.productFit,
+      country_fit: commercial.countryFitBonus,
+      b2b_signal: commercial.b2bSignal,
+      duplicate_penalty: commercial.duplicatePenalty,
+      country_evidence_penalty: commercial.countryEvidencePenalty,
+      generic_agency_penalty: commercial.genericAgencyPenalty,
+      commercial_calibration_delta: delta,
+      final_fit_score: fitScore,
+      fit_label: fitLabel,
+      fit_reasons: commercial.fitReasons,
+      fit_penalties: commercial.fitPenalties,
+    };
+  }
+
   return {
     confidenceScore,
     fitScore,
@@ -443,6 +659,7 @@ export function scoreCandidate(input: CandidateScoringInput): CandidateScoringOu
     reasons,
     warnings,
     blockers: labelBlockers,
+    fitBreakdown,
     metadata: {
       name: input.name,
       duplicateStatus: input.duplicateCheck?.status ?? null,

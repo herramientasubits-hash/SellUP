@@ -346,6 +346,7 @@ function buildCandidateMetadata(
       reasons: scoring.reasons,
       warnings: scoring.warnings,
       blockers: scoring.blockers,
+      fit_breakdown: scoring.fitBreakdown ?? null,
     },
   };
 }
