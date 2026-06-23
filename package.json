@@ -76,6 +76,7 @@
     "agent1:smoke:linkedin-found-canary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-known-linkedin-found-canary.ts",
     "agent1:smoke:linkedin-supabase-controlled": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-controlled-supabase-linkedin-smoke.ts",
     "agent1:smoke:linkedin-v1-15-8": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-linkedin-smoke-v1-15-8.ts",
+    "agent1:smoke:rich-profile-enrichment-write": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-rich-profile-enrichment-write.ts",
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts"
   },
