@@ -168,3 +168,58 @@ export interface SunatBulkParseOutput {
   warnings: SunatBulkParserWarning[];
   errors: string[];
 }
+
+// ─── ZIP Probe Types ─────────────────────────────────────────────────────────────
+
+export type SunatZipProbeInput = {
+  maxTailBytes?: number;
+};
+
+export type SunatZipCentralDirectoryEntry = {
+  fileName: string;
+  compressedSizeBytes?: number;
+  uncompressedSizeBytes?: number;
+  compressionMethod?: number;
+  lastModifiedRaw?: string;
+  likelyTextFile: boolean;
+  likelyCsvFile: boolean;
+  likelyLargeFile: boolean;
+};
+
+export type SunatZipProbeWarning =
+  | 'no_content_length'
+  | 'no_range_support'
+  | 'eocd_not_found'
+  | 'central_directory_truncated'
+  | 'range_exceeds_maximum'
+  | 'fetch_error'
+  | 'empty_response';
+
+export type SunatZipProbeStats = {
+  entriesDetected: number;
+  totalCompressedSizeBytes?: number;
+  totalUncompressedSizeBytes?: number;
+  eocdFound: boolean;
+  centralDirectoryParsed: boolean;
+};
+
+export type SunatZipProbeStatus = 'probed' | 'partial' | 'blocked' | 'error';
+
+export type SunatZipProbeOutput = {
+  sourceKey: 'pe_sunat_bulk';
+  mode: 'zip_structure_probe';
+  status: SunatZipProbeStatus;
+  metadata: SunatBulkHttpMetadata;
+  probe: {
+    attempted: boolean;
+    method: 'range_tail';
+    requestedBytes: number;
+    eocdFound: boolean;
+    centralDirectoryParsed: boolean;
+    entries: SunatZipCentralDirectoryEntry[];
+  };
+  stats: SunatZipProbeStats;
+  guard: SunatBulkDownloadGuard;
+  warnings: SunatZipProbeWarning[];
+  errors: string[];
+};

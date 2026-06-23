@@ -25,6 +25,8 @@ export { runSunatBulkDryRun } from './run-sunat-bulk-dry-run';
 
 export { parseSunatBulkLines } from './sunat-bulk-parser';
 
+export { probeSunatZipStructure } from './sunat-zip-probe';
+
 export {
   createDefaultPipeConfig,
   createTabConfig,
@@ -51,6 +53,12 @@ export type {
   SunatBulkLineParseResult,
   SunatBulkParserWarning,
   SunatBulkParserStats,
+  SunatZipProbeInput,
+  SunatZipProbeOutput,
+  SunatZipCentralDirectoryEntry,
+  SunatZipProbeWarning,
+  SunatZipProbeStats,
+  SunatZipProbeStatus,
 } from './types';
 
 export {
