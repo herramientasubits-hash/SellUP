@@ -817,47 +817,100 @@ Chile queda cerrado para el MVP activo del Agente 1 con **`cl_res` como única f
 
 ---
 
-## Decisión Chile — INAPI datos abiertos (post-MVP)
+## Decisión Chile — INAPI Datos Abiertos (post-MVP signal)
 
 **Fecha:** 2026-06-23
-**HEAD:** `af0c079` (v1.15.4)
+**HEAD inicial:** `af0c079` (v1.15.4) → `48902753b1acf1aed394a46434fc84013f770d2e`
+**HEAD actual:** `48902753b1acf1aed394a46434fc84013f770d2e` (v1.15.8)
 
 ### Veredicto
 
-`cl_inapi` — INAPI datos abiertos → **NOT_PRESENT_NO_ACTION_REQUIRED**
+`cl_inapi` — INAPI Datos Abiertos → **CONNECTABLE_WITH_LIMITATIONS**
 
-INAPI no existe en el repositorio (no hay entrada en `CATALOG_SOURCES`, no hay connector, adapter, config, resolver ni referencia documental). No requiere cambios en código ni catálogo.
+INAPI no está en `CATALOG_SOURCES`, no se agrega al catálogo activo, no entra al MVP. Pero tras spike técnico aislado se confirma que **sí tiene recursos consumibles vía CKAN/datos.gob.cl** sin auth. Queda como señal post-MVP de innovación/propiedad industrial.
 
-### Evidencia técnica
+### Estado
 
-1. **No aparece en `CATALOG_SOURCES`** (`source-catalog.ts`) — búsqueda `inapi|INAPI|cl_inapi` sin resultados.
-2. **No aparece en `connector-registry.ts`**, `enrichment-adapter-registry.ts`, `validated-source-configs.ts`, `tax-identifier-resolution/` ni `source-discovery-preflight.ts`.
-3. **No aparece en documentación** (`docs/AGENTE_1_CATALOG_CONTEXT_RETRIEVER.md`, `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md`, `AUDITORIA-FUENTES-IA.md`).
-4. **No aparece en worktrees ni commits anteriores** — búsqueda global en repo sin resultados.
+- `post-MVP signal`
+- No fuente MVP activa
+- No fuente principal de discovery
+- No construir connector todavía
 
-### Evidencia documental ligera
+### Evidencia técnica del spike
 
-- **INAPI datos abiertos** (`inapi.cl/datos-abiertos`) publica 4 datasets en `datos.gob.cl`:
-  1. `solicitudes-de-marcas` — solicitudes de marcas (2009-presente), archivos XLSX por año.
-  2. `registros-de-marcas` — marcas registradas (2009-presente).
-  3. `solicitudes-de-patentes` — solicitudes de patentes, modelos de utilidad y diseños industriales.
-  4. `registros-de-patentes` — patentes registradas.
-- **Datos que entrega:** número de solicitud/registro, nombre de marca, nombre del solicitante (persona natural o jurídica, con prefijo de país), clases Niza, fechas, estado. **No entrega RUT como campo estructurado** — el campo `Applicants` puede incluir RUT en el texto libre del nombre (ej: `(CL) MARTIN LARRAIN CARLOS...`), pero no es un campo normalizado ni obligatorio.
-- **Cobertura temática:** exclusivamente propiedad industrial (marcas y patentes). No cubre el universo general de empresas chilenas.
-- **Valor para Agente 1:** no sirve como discovery primario de empresas (no tiene RUT estructurado, razón social, sector ni datos de contacto). Podría servir post-MVP como señal secundaria de innovación/propiedad intelectual para empresas ya identificadas por `cl_res`.
+**Plataforma:** CKAN API pública (`datos.gob.cl`)
+
+**Datasets identificados:**
+
+1. `solicitudes-de-marcas` — solicitudes de marcas (2009-presente)
+2. `registros-de-marcas` — marcas registradas (2009-presente)
+3. `solicitudes-de-patentes` — solicitudes de patentes, modelos de utilidad y diseños industriales
+4. `registros-de-patentes` — patentes registradas
+
+**Acceso:**
+
+- `package_show?id={dataset-name}` — metadata del dataset
+- `datastore_search?resource_id={id}&limit=N&offset=N` — datos en JSON paginado
+- Sin login, sin token, sin captcha, sin sesión, sin scraping
+- XLSX descargables por año como alternativa offline
+
+**Campos útiles por dataset:**
+
+- `ApplicationNumber`
+- `RegistrationNumber`
+- `BrandName` / `Title`
+- `Applicants`
+- `NizaClasses` / `IPC`
+- `FilingDate`
+- `RegistrationDate`
+- `Status`
+- `Country` / `LocationApplicants` / `StateApplicants`
+
+### Valor para SellUp
+
+| Señal | Dataset fuente | Uso potencial |
+|-------|---------------|---------------|
+| Marca registrada | registros-de-marcas | Formalidad comercial — empresa con marca registrada es formal, opera con nombre protegido |
+| Múltiples marcas | registros-de-marcas | Expansión de portafolio — diversificación de líneas de negocio |
+| Solicitud de patente | solicitudes-de-patentes | Innovación / I+D — empresas tecnológicas o con actividad inventiva |
+| Clase Niza | registros-de-marcas | Categoría de producto/servicio — señal de sector/industria |
+| Clase IPC | registros-de-patentes | Categoría tecnológica — señal de dominio técnico |
+
+**Uso recomendado:** `enrichment_signal` — señal secundaria post-discovery para empresas ya identificadas por `cl_res`.
+
+### Limitaciones
+
+- **Sin RUT/RUN/tax_identifier estructurado** — el campo no existe como columna normalizada.
+- **`Applicants` es texto libre** con formato tipo `(CL) NOMBRE`. Puede contener RUT incidental en el nombre, pero no es parseable de forma determinista.
+- **Matching no determinista con `cl_res`** — cualquier cruce requeriría fuzzy matching por nombre, con riesgo de falsos positivos/negativos.
+- **No usar como discovery principal** — sin RUT no se puede crear un candidate viable directamente.
+- **Alto riesgo si se usa para crear empresas** — el matching por nombre no es confiable para determinación de identidad legal.
 
 ### Decisión
 
-- **No se agrega al catálogo MVP activo.**
-- **No requiere cambios en código ni catálogo** — INAPI no existe en el repositorio.
-- **Queda documentada como señal post-MVP** por si en el futuro se requiere evaluar propiedad industrial como señal de innovación.
-- **Chile permanece cerrado** para el MVP con `cl_res` como única fuente activa. No se reabre Chile.
-- **Colombia, México, Perú y `cl_res` no fueron tocados.**
+- **No se agrega a `CATALOG_SOURCES`** — no crear `cl_inapi` en el repositorio.
+- **No construir connector, adapter, resolver ni validated-source-config.**
+- **No es fuente activa del MVP.**
+- **Chile permanece cerrado** para el MVP con `cl_res` como única fuente activa.
+- **Queda documentada como señal post-MVP** de innovación / propiedad industrial.
+- **Cruce con `cl_res`** requeriría fuzzy matching y no debe implementarse sin caso de uso explícito post-MVP.
+
+### Arquitectura futura sugerida (post-MVP)
+
+| Atributo | Valor |
+|----------|-------|
+| `source key` | `cl_inapi` |
+| `sellupUse` | `enrichment_signal` |
+| `aiFlowStatus` | `post_mvp` |
+| `connectionMode` | `not_connected` |
+| `operationalStatus` | `post_mvp_candidate` |
+| `type` | `intellectual_property_registry` |
+| Uso | enrichment / señal secundaria, nunca P0 discovery |
 
 ### No modificado
 
+- `CATALOG_SOURCES` intacto — INAPI no se agregó
 - `cl_res` intacto
-- `CATALOG_SOURCES` intacto (INAPI nunca estuvo)
 - `connector-registry.ts` intacto
 - `enrichment-adapter-registry.ts` intacto
 - `validated-source-configs.ts` intacto
