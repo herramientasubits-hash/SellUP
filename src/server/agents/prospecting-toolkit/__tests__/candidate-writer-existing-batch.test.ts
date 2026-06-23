@@ -197,14 +197,14 @@ function makeFakeAdmin(
 function makePipelineOutput(candidateCount = 1) {
   const candidates = Array.from({ length: candidateCount }, (_, i) => ({
     name: `Empresa Test ${i + 1}`,
-    website: `https://empresa-test-${i + 1}.co`,
-    domain: `empresa-test-${i + 1}.co`,
+    website: `https://empresa-test-${i + 1}.com.co`,
+    domain: `empresa-test-${i + 1}.com.co`,
     country: 'Colombia',
     countryCode: 'CO',
     industry: 'EdTech',
     sourceUrl: `https://source-${i + 1}.com`,
-    sourceTitle: `Source ${i + 1}`,
-    sourceSnippet: null,
+    sourceTitle: `Empresa Test ${i + 1} - Software empresarial en Colombia`,
+    sourceSnippet: `Empresa colombiana de software empresarial para clientes corporativos en Colombia.`,
     inferredNameSource: null,
     searchTrace: null,
     llmEvaluation: null,
@@ -212,7 +212,7 @@ function makePipelineOutput(candidateCount = 1) {
     duplicateCheck: {
       status: 'new_candidate' as const,
       confidence: 1,
-      input: { name: `Empresa Test ${i + 1}`, website: `https://empresa-test-${i + 1}.co`, domain: `empresa-test-${i + 1}.co` },
+      input: { name: `Empresa Test ${i + 1}`, website: `https://empresa-test-${i + 1}.com.co`, domain: `empresa-test-${i + 1}.com.co` },
       checkedSources: ['sellup' as const],
       summary: 'No match',
       matches: [],
