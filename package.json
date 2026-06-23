@@ -62,6 +62,7 @@
     "agent1:smoke:linkedin-company-search": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-linkedin-company-search.ts",
     "agent1:smoke:linkedin-pipeline-mock": "NODE_ENV=development node --import tsx scripts/agent1/run-controlled-linkedin-pipeline-smoke.ts",
     "agent1:smoke:linkedin-tavily-readonly": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-real-tavily-linkedin-readonly-smoke.ts",
+    "agent1:smoke:linkedin-found-canary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-known-linkedin-found-canary.ts",
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts"
   },
