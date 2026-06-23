@@ -221,6 +221,8 @@ México tiene la mejor fuente pública de prospección de LatAm: el **DENUE (INE
 
 ## 9. Chile
 
+> **Nota MVP:** Este catálogo documenta la investigación completa de fuentes Chile identificadas durante la fase de descubrimiento (v0.2). Para el MVP activo del Agente 1, solo `cl_res` (RES / datos.gob.cl) es la fuente conectada. Las fuentes SII, ChileCompra, SOFOFA, SENCE, CCS, CMF, CORFO y Startup Chile fueron evaluadas y descartadas del catálogo activo. Ver `AUDITORIA-FUENTES-IA.md` → «Cierre Chile — Agente 1 MVP operativo» para la decisión completa.
+
 ### Lectura general
 
 Chile tiene un ecosistema de datos públicos maduro. El Registro de Empresas y Sociedades (RES) en datos.gob.cl ofrece descarga CSV gratuita de alta calidad. ChileCompra es la mejor señal comercial B2G de la región junto con SECOP II. El SII tiene captcha agresivo — la ruta práctica para validación masiva es mediante APIs de terceros de pago (ej. BaseAPI.cl). SENCE-OTEC es la mejor fuente para el sector de formación corporativa en LatAm.

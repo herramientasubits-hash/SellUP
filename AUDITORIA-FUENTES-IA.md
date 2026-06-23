@@ -751,44 +751,66 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 
 ---
 
-## Decisión: cl_startup_chile — Startup Chile (CORFO)
+## Cierre Chile — Agente 1 MVP operativo
 
-**Veredicto: REMOVE_FROM_MVP_CATALOG**
+**Fecha:** 2026-06-23
+**HEAD:** `18ea5ac` (v1.15.3.1)
+**Último commit Chile:** `4df9ce7` — chore(source-catalog): remove Startup Chile from MVP catalog
 
-### Por qué se elimina
+### 1. Estado final
 
-1. **No tiene connector** registrado en `connector-registry.ts`.
-2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
-3. **No tiene validated-source-config** en `validated-source-configs.ts`.
-4. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
-5. **`connectionMode: 'not_connected'`**, **`aiFlowStatus: 'manual_only'`**, **`sellupUse: 'manual_reference'`** — no es una fuente conectada ni automatizable.
-6. **`operationalStatus: 'pending_validation'`** — estado pendiente desde creación del catálogo, sin conector que permita validación.
-7. **`priority: 'P2'`** — baja prioridad dentro del catálogo.
+Chile queda cerrado para el MVP activo del Agente 1 con **`cl_res` como única fuente conectada**.
 
-### Evidencia documental
+| Aspecto | Detalle |
+|---------|---------|
+| Fuente activa | `cl_res` — RES / datos.gob.cl |
+| Tipo | Discovery estructurado oficial |
+| Modo | `wizard_discovery` |
+| Estado | `operational_verified` |
+| Uso | `enrichment` |
+| Datos que entrega | RUT, razón social, región, ciudad, fecha constitución, tipo societario, capital |
+| Origen | datos.gob.cl / Registro de Empresas y Sociedades (RES) |
 
-- **Startup Chile** (`startupchile.org`) es una aceleradora pública de CORFO. Su sitio web es un portal de marketing y postulación para startups. La página de portafolio carga dinámicamente (JS) y no expone API pública estructurada ni dataset descargable. Intentos de acceder a endpoints REST (`/wp-json/`) resultaron en 404.
-- **No existe dataset en datos.gob.cl** para "startup" — 0 resultados. Los datasets de CORFO en datos.gob.cl son de 2012-2013 y cubren créditos con garantía, becas de inglés y beneficiarios de innovación, **no** específicamente el programa Startup Chile.
-- **No entrega RUT ni razón social estructurada.** El portafolio solo muestra nombre de startup, categoría de programa (Build/Ignite/Growth) y año.
-- **Universo acotado:** ~2.500 startups desde 2010. Startup Chile acelera startups **globales** — muchas son internacionales sin RUT chileno. No garantiza cobertura de empresas chilenas.
-- **`cl_res` ya es la fuente P0 para Chile:** RUT estructurado, cobertura de millones de empresas, descarga CSV directa desde datos.gob.cl y actualización periódica.
+### 2. Limitaciones aceptadas de `cl_res`
 
-### Cambios realizados
+- **No entrega sector, giro, CIIU ni actividad económica** — requiere validación posterior de industria/fit.
+- **No entrega contactos** — no incluye correos, teléfonos ni decisores.
+- **Incluye microempresas y sociedades de bajo capital** — puede requerir filtros posteriores.
+- **Incluye EIRL** donde el RUT puede ser de persona natural — requiere revisión.
+- **No debe usarse como fuente única** para priorización comercial sin señales adicionales.
+- **No existe aún enrichment adapter Chile ni resolvedor automático de RUT** en SellUp.
 
-| Archivo | Cambio |
-|---------|--------|
-| `source-catalog.ts` | Eliminada entrada `cl_startup_chile` de CATALOG_SOURCES |
-| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+### 3. Fuentes descartadas del MVP activo
 
-### No modificado
+| Fuente | Razón de exclusión |
+|--------|-------------------|
+| `cl_chilecompra` | Requiere ticket/API key, cobertura B2G limitada, no representa universo empresarial general |
+| `cl_sii` | Sin API oficial pública, captcha en consulta individual, scraping prohibido por ToS |
+| `cl_sence_otec` | Universo acotado a OTEC (formación/capacitación), sin API pública, descarga manual |
+| `cl_cmf` | Universo financiero regulado acotado, sin dataset público descargable con RUT |
+| `cl_corfo` | Universo acotado a beneficiarios de programas públicos de innovación/emprendimiento |
+| `cl_sofofa` | Directorio gremial manual, sin API ni RUT estructurado, cobertura acotada a afiliados |
+| `cl_ccs` | Directorio cerrado/manual, portal de socios sin API pública, cobertura regional RM |
+| `cl_startup_chile` | Startups/programa público, sin RUT ni API general, universo acotado ~2.500 startups |
 
-- `cl_res` intacto
-- `connector-registry.ts` intacto
-- `enrichment-adapter-registry.ts` intacto
-- `validated-source-configs.ts` intacto
-- `tax-identifier-resolution/` intacto (solo CO y MX)
-- `source-discovery-preflight.ts` intacto
-- `labels.ts` intacto
-- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
-- Prompts de agente intactos
-- Colombia, México y demás países intactos
+### 4. Decisión
+
+- **No quedan fuentes Chile manuales o pendientes** en catálogo activo.
+- **Cualquier fuente Chile secundaria** podrá reconsiderarse post-MVP solo con necesidad explícita, API/dataset oficial y valor comercial claro.
+- **`cl_res` queda como única fuente Chile activa** para el flujo del Agente 1.
+- **Colombia y México no fueron modificados** en este proceso de cierre.
+
+### 5. Validaciones realizadas
+
+- [x] `CATALOG_SOURCES` solo contiene `cl_res` para `countryCodes: ['CL']`
+- [x] Ninguna de las 8 fuentes removidas permanece en `CATALOG_SOURCES`
+- [x] `source-discovery-preflight.ts` usa CL → `cl_res` exclusivamente
+- [x] `SOURCE_DISCOVERY_REGISTRY` tiene solo `cl_res` para Chile (sin `cl_chilecompra`)
+- [x] `ALLOWED_SOURCE_KEYS` tiene solo `['cl_res', 'mx_denue', 'co_rues']`
+- [x] No hay referencias UI activas a fuentes Chile removidas
+- [x] `cl_res` mantiene `sellupUse: 'enrichment'`, `aiFlowStatus: 'connected'`, `connectionMode: 'wizard_discovery'`, `operationalStatus: 'operational_verified'`
+- [x] Colombia no fue tocado (fuentes CO intactas en CATALOG_SOURCES)
+- [x] México no fue tocado (fuentes MX intactas en CATALOG_SOURCES)
+- [x] `npm run typecheck` — sin errores
+- [x] `npm run build` — build exitoso
+- [x] `git diff --check` — sin espacios en blanco conflictivos
