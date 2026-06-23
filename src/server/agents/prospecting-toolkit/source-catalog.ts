@@ -963,28 +963,6 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Solo sector manufactura'],
   },
 
-  // ── Perú — Cámara de Comercio ───────────────────────────────────────────────
-  {
-    key: 'pe_camara_lima',
-    name: 'Cámara de Comercio de Lima',
-    countryCodes: ['PE'],
-    sectors: [],
-    priority: 'P2',
-    operationalStatus: 'pending_validation',
-    type: 'industry_association',
-    url: 'https://www.camaralima.org.pe/',
-    automationLevel: 'manual',
-    recommendedUse: 'Directorio de empresas asociadas a la Cámara de Comercio de Lima. Señal de empresa peruana activa y formalmente registrada. Pendiente validación de acceso al directorio público.',
-    limitations: [
-      'Solo empresas afiliadas a la CCL — no representa el universo empresarial peruano',
-      'Directorio web; sin API — consulta manual',
-      'Pendiente validación de estructura y acceso al directorio',
-    ],
-    riskNotes: [
-      'Verificar disponibilidad y estructura del directorio antes de integrar en producción',
-    ],
-  },
-
   // ── Ecuador ─────────────────────────────────────────────────────────────────
   {
     key: 'ec_scvs',

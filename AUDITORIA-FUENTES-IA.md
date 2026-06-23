@@ -866,3 +866,64 @@ INAPI no existe en el repositorio (no hay entrada en `CATALOG_SOURCES`, no hay c
 - `docs/AGENTE_1_CATALOG_CONTEXT_RETRIEVER.md` intacto
 - `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
 - Colombia, México, Perú intactos
+
+---
+
+## Decisión Perú — Cámara de Comercio de Lima (pe_camara_lima)
+
+**Fecha:** 2026-06-23
+**HEAD:** `a3e926a` (docs(agent1): classify INAPI as post-MVP Chile signal)
+
+### Veredicto
+
+`pe_camara_lima` — Cámara de Comercio de Lima → **REMOVED_FROM_MVP_CATALOG**
+
+Fuente gremial/manual sin API ni dataset público estructurado. Requiere membresía y navegación manual. Sin conector implementado. Redundante frente a `pe_sunat_bulk` (P0, oficial) y `pe_seace` (P1, oficial). Removida del catálogo MVP activo.
+
+### Evidencia técnica
+
+1. **En `CATALOG_SOURCES`** (`source-catalog.ts:968`):
+   - `priority: 'P2'` — prioridad mínima
+   - `operationalStatus: 'pending_validation'` — no validada
+   - `automationLevel: 'manual'` — sin automatización
+   - `type: 'industry_association'` — gremial
+   - Limitaciones: "Solo empresas afiliadas a la CCL", "sin API — consulta manual", "pendiente validación"
+   - riskNotes: "Verificar disponibilidad y estructura del directorio"
+
+2. **No aparece en `connector-registry.ts`** — sin conector implementado. Registry solo tiene: `cl_res`, `mx_denue`, `co_rues`.
+
+3. **No aparece en `enrichment-adapter-registry.ts`** — sin adapter de enriquecimiento.
+
+4. **No aparece en `validated-source-configs.ts`** — no está validada.
+
+5. **No aparece en `source-discovery-preflight.ts`** — no recomendada automáticamente. COUNTRY_SOURCE_MAP solo tiene: CO, MX, CL.
+
+6. **Solo referencia:** búsqueda global `grep -rn "pe_camara_lima"` devuelve solo la definición en `source-catalog.ts:968`. Sin referencias operacionales.
+
+### Evidencia documental ligera
+
+- **URL:** `https://www.camaralima.org.pe/` — directorio web sin API pública.
+- **Tipo:** Directorio de empresas afiliadas a la Cámara de Comercio de Lima (gremial).
+- **Cobertura:** Solo empresas afiliadas a la CCL — no representa el universo empresarial peruano.
+- **Acceso:** Requiere afiliación/membresía. Sin datos abiertos/bulk export documentado.
+- **RUC:** No estructurado. Afiliados solo.
+
+### Decisión
+
+- **Removida de `CATALOG_SOURCES`** (`source-catalog.ts`) — entrada completa eliminada.
+- **Razón:** Fuente manual/gremial/sin API/sin dataset público validado. Baja prioridad (P2). No validada. Sin conector. Redundante frente a fuentes oficiales Perú (P0 y P1).
+- **Perú permanece activo** con fuentes verificadas: `pe_sunat_bulk` (P0, oficial), `pe_sunat` (P0, validation_only), `pe_seace` (P1, oficial), `pe_produce` (P1, manufactura).
+- **Colombia, México, Chile, INAPI no fueron tocados.**
+
+### Archivos modificados
+
+- `src/server/agents/prospecting-toolkit/source-catalog.ts` — Removida entrada `pe_camara_lima` (líneas 966-986).
+
+### No modificado
+
+- `connector-registry.ts` intacto (nunca tuvo adapter para pe_camara_lima)
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `source-discovery-preflight.ts` intacto
+- `pe_sunat_bulk`, `pe_sunat`, `pe_seace`, `pe_produce` intactos
+- Colombia, México, Chile intactos
