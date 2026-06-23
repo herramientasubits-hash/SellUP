@@ -268,6 +268,82 @@ Esto permite que cuando se agregue una fuente a `VALIDATED_SOURCE_CONFIGS`, el V
 
 ---
 
+## Hito cerrado — Perú.1B: Investigación formal de conectabilidad de fuentes y APIs Perú
+
+**Fecha:** 2026-06-23
+**HEAD inicial:** `03d1a27` feat(source-catalog): add SUNAT Peru bulk availability connector
+**HEAD actual:** commit de cierre
+
+### Veredicto
+
+Investigación completada. Se evaluaron 20+ fuentes y proveedores para Perú. La base del MVP sigue siendo `pe_sunat_bulk` (SUNAT Padrón RUC Bulk). Se identificaron 3 fuentes post-MVP prioritarias: OpenRUC (fallback gratuito), Latinfo (enriquecimiento multi-fuente con score KYB) y Migo API (representantes legales). Se rechazaron 7 fuentes por riesgo legal, falta de documentación o falta de encaje con Agente 1.
+
+### Fuentes confirmadas para MVP
+
+| Fuente | Rol | Recomendación |
+|--------|-----|---------------|
+| `pe_sunat_bulk` | Discovery + validación RUC masiva | ✅ Conectar ahora (Perú.2) |
+| `pe_sunat` | Validación individual complementaria | ✅ Mantener en catálogo |
+| `pe_seace` | Señal B2G | ✅ Mantener en catálogo |
+| `pe_produce` | Señal manufactura | ✅ Mantener en catálogo |
+
+### Fuentes post-MVP (priorizadas)
+
+| Prioridad | Fuente | Valor |
+|-----------|--------|-------|
+| P1 | Latinfo | Enriquecimiento multi-fuente (SUNAT+OSCE+OEFA+SEACE+RNP) + score KYB. 1,000 créditos/mes gratis. Cubre 6 países LatAm. |
+| P1 | OpenRUC | Fallback validación RUC. Gratis, sin auth, open source. |
+| P2 | Migo API | Representantes legales + locales anexos. S/15–25/mes. Trial 7 días. |
+| P2 | OSCE/SEACE adapter | Señal B2G automática |
+| P3 | RNP | Proveedores habilitados Estado |
+
+### Fuentes rechazadas para MVP
+
+| Fuente | Motivo |
+|--------|--------|
+| APIS.net.pe/Decolecta | Proveedor individual, datos parciales, sin garantías empresariales |
+| Excel Negocios | Scraping SUNAT, datos de contacto sin verificación legal |
+| PhantomBuster | Riesgo legal alto (LinkedIn ToS) |
+| Sales Navigator (automático) | ToS prohíbe automatización |
+| Verifica.id | Fuera de alcance (KYC/AML, no prospección B2B) |
+| Kaspr | Sin evidencia de cobertura Perú |
+| Apify/Octoparse/Thunderbit | Sin caso de uso que justifique scraping |
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md` | Creado — investigación formal (20+ fuentes, tabla comparativa, recomendación arquitectura) |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+| `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` | Actualizada sección Perú con nuevas fuentes |
+
+### No modificado
+
+- `source-catalog.ts` intacto — CATALOG_SOURCES no tocado
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `source-discovery-preflight.ts` intacto
+- `SOURCE_DISCOVERY_REGISTRY` intacto
+- `package.json` / `package-lock.json` intactos
+- Supabase no tocado
+- Colombia, México, Chile, INAPI intactos
+
+### Validaciones
+
+*(Resultados se completarán después de ejecución)*
+
+### Siguiente hito recomendado
+
+**Perú.2** — Construir pipeline de disponibilidad masiva con `pe_sunat_bulk`:
+1. Completar normalización de datos SUNAT.
+2. Conectar wizard discovery para Perú.
+3. Configurar source-discovery-preflight.
+4. Registrar en SOURCE_DISCOVERY_REGISTRY.
+5. Probar corrida de discovery controlada.
+
+---
+
 *Auditoría completada: 2026-06-19*
 *Clasificación Colombia alineada con la decisión funcional aprobada.*
 
