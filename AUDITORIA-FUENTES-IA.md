@@ -739,7 +739,50 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 ### No modificado
 
 - `cl_res` intacto
-- `cl_startup_chile` intacto (pendiente de validación)
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto (solo CO y MX)
+- `source-discovery-preflight.ts` intacto
+- `labels.ts` intacto
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
+- Prompts de agente intactos
+- Colombia, México y demás países intactos
+
+---
+
+## Decisión: cl_startup_chile — Startup Chile (CORFO)
+
+**Veredicto: REMOVE_FROM_MVP_CATALOG**
+
+### Por qué se elimina
+
+1. **No tiene connector** registrado en `connector-registry.ts`.
+2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
+3. **No tiene validated-source-config** en `validated-source-configs.ts`.
+4. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
+5. **`connectionMode: 'not_connected'`**, **`aiFlowStatus: 'manual_only'`**, **`sellupUse: 'manual_reference'`** — no es una fuente conectada ni automatizable.
+6. **`operationalStatus: 'pending_validation'`** — estado pendiente desde creación del catálogo, sin conector que permita validación.
+7. **`priority: 'P2'`** — baja prioridad dentro del catálogo.
+
+### Evidencia documental
+
+- **Startup Chile** (`startupchile.org`) es una aceleradora pública de CORFO. Su sitio web es un portal de marketing y postulación para startups. La página de portafolio carga dinámicamente (JS) y no expone API pública estructurada ni dataset descargable. Intentos de acceder a endpoints REST (`/wp-json/`) resultaron en 404.
+- **No existe dataset en datos.gob.cl** para "startup" — 0 resultados. Los datasets de CORFO en datos.gob.cl son de 2012-2013 y cubren créditos con garantía, becas de inglés y beneficiarios de innovación, **no** específicamente el programa Startup Chile.
+- **No entrega RUT ni razón social estructurada.** El portafolio solo muestra nombre de startup, categoría de programa (Build/Ignite/Growth) y año.
+- **Universo acotado:** ~2.500 startups desde 2010. Startup Chile acelera startups **globales** — muchas son internacionales sin RUT chileno. No garantiza cobertura de empresas chilenas.
+- **`cl_res` ya es la fuente P0 para Chile:** RUT estructurado, cobertura de millones de empresas, descarga CSV directa desde datos.gob.cl y actualización periódica.
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `source-catalog.ts` | Eliminada entrada `cl_startup_chile` de CATALOG_SOURCES |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+
+### No modificado
+
+- `cl_res` intacto
 - `connector-registry.ts` intacto
 - `enrichment-adapter-registry.ts` intacto
 - `validated-source-configs.ts` intacto

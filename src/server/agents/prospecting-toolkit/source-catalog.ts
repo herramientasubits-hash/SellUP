@@ -850,30 +850,6 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'No escribir RUT como tax_identifier fuera de un flujo controlado y auditado.',
     ],
   },
-  // ── Chile — Innovación / Startups ───────────────────────────────────────────
-  {
-    key: 'cl_startup_chile',
-    name: 'Startup Chile (CORFO)',
-    sellupUse: 'manual_reference',
-    aiFlowStatus: 'manual_only',
-    connectionMode: 'not_connected',
-    countryCodes: ['CL'],
-    sectors: ['tecnologia', 'startups', 'innovacion', 'technology', 'startup_ecosystem', 'innovation'],
-    priority: 'P2',
-    operationalStatus: 'pending_validation',
-    type: 'other',
-    url: 'https://www.startupchile.org/',
-    automationLevel: 'low',
-    recommendedUse: 'Lista de startups beneficiarias del programa Startup Chile de CORFO. Señal de empresa tech/innovadora activa en Chile. Pendiente validación de URL de directorio público estructurado.',
-    limitations: [
-      'Solo startups beneficiarias del programa — universo acotado',
-      'Directorio web público; estructura y formato de acceso pendiente de validación',
-    ],
-    riskNotes: [
-      'Fuente pública de CORFO (Estado chileno) — sin costo ni ToS restrictivo',
-      'Validar URL de directorio o endpoint de descarga antes de integrar en producción',
-    ],
-  },
 
   // ── República Dominicana ────────────────────────────────────────────────────
   {
