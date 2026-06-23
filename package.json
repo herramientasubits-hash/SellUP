@@ -65,6 +65,7 @@
   "test:search-quality-v1-15-7-1": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-15-7-1.test.ts",
   "test:search-quality-v1-15-8-pre": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-15-8-pre.test.ts",
   "test:search-quality-v1-15-9": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-15-9.test.ts",
+  "test:search-quality-v1-16-a": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-a.test.ts",
     "agent1:smoke:linkedin-recall-canary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-linkedin-recall-canary.ts",
     "agent1:dry-run:source-guided": "NODE_ENV=development node --import tsx scripts/agent1/dry-run-source-guided-investigation.ts",
     "agent1:smoke:linkedin-company-search": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-linkedin-company-search.ts",

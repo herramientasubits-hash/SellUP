@@ -1444,7 +1444,7 @@ export async function writeProspectingCandidates(
     // result when the feature is enabled and the candidate was eligible.
     const linkedInEnrichment = preComputedLinkedInEnrichments[_entryIdx];
 
-    // ── Rich Profile (v1.15.9) ────────────────────────────────────────────────
+    // ── Rich Profile (v1.16A) ─────────────────────────────────────────────────
     const richProfile = buildCandidateRichProfileV1({
       name: candidate.name,
       website: candidate.website,
@@ -1453,6 +1453,7 @@ export async function writeProspectingCandidates(
       countryCode: candidate.countryCode,
       industry: candidate.industry,
       sourceUrl: candidate.sourceUrl,
+      sourceTitle: candidate.sourceTitle ?? null,
       sourceSnippet: candidate.sourceSnippet,
       confidenceScore: effectiveConfidenceScore,
       fitScore: candidate.scoring.fitScore,
