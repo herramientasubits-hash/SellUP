@@ -212,6 +212,9 @@ export async function runControlledLinkedInCompanySearch(
   providerFn: LinkedInSearchProviderFn,
   checkedAt: string,
 ): Promise<RunControlledLinkedInSearchOutput> {
+  // Apply hard cap: never exceed 5 searches per batch, even if config requests more
+  const effectiveMaxPerBatch = Math.min(config.maxPerBatch, 5);
+
   const batchMeta: LinkedInBatchSearchMetadata = {
     enabled: config.enabled,
     attempted_count: 0,
@@ -220,7 +223,7 @@ export async function runControlledLinkedInCompanySearch(
     ambiguous_count: 0,
     rejected_count: 0,
     not_found_count: 0,
-    max_per_batch: config.maxPerBatch,
+    max_per_batch: effectiveMaxPerBatch,
     provider: config.provider,
     samples: [],
   };
@@ -243,8 +246,8 @@ export async function runControlledLinkedInCompanySearch(
       continue;
     }
 
-    // Check batch cap
-    if (batchMeta.attempted_count >= config.maxPerBatch) {
+    // Check batch cap (hard cap 5)
+    if (batchMeta.attempted_count >= effectiveMaxPerBatch) {
       batchMeta.skipped_count++;
       results.push({
         candidateName: candidate.name,
