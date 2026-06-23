@@ -1303,7 +1303,7 @@ export async function writeProspectingCandidates(
       nowIso,
       {
         usageContext: linkedInSearchOverride?.usageContext ?? {
-          batchId: existingBatchId ?? null,
+          batchId: batchId,
           userId: triggeredByUserId ?? null,
           dryRun: isDryRun,
         },

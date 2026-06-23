@@ -154,6 +154,20 @@ export type LinkedInBatchSearchMetadata = {
   estimated_cost_usd: number | null;
   /** true si usageLoggerFn fue invocado por cada provider call (no dryRun). (v1.15.7) */
   usage_logged: boolean;
+  /** Total de llamadas a usageLoggerFn intentadas (v1.15.7.1) */
+  usage_log_attempted_count: number;
+  /** Total de llamadas a usageLoggerFn exitosas (v1.15.7.1) */
+  usage_log_success_count: number;
+  /** Total de llamadas a usageLoggerFn fallidas (v1.15.7.1) */
+  usage_log_failed_count: number;
+  /** Payloads diferidos pendientes de flush (v1.15.7.1) — actualmente siempre 0 */
+  usage_log_deferred_count: number;
+  /** Payloads diferidos ya flusheados con batch_id real (v1.15.7.1) — actualmente siempre 0 */
+  usage_log_flushed_count: number;
+  /** Errores sanitizados del usageLoggerFn (v1.15.7.1) */
+  usage_log_errors: string[];
+  /** Razón por la que usage logging fue omitido o búsqueda fue bloqueada (v1.15.7.1) */
+  skipped_reason: string | null;
 };
 
 // ─── Eligibility ──────────────────────────────────────────────────────────────
@@ -470,7 +484,56 @@ export async function runControlledLinkedInCompanySearch(
     samples: [],
     estimated_cost_usd: null,
     usage_logged: false,
+    usage_log_attempted_count: 0,
+    usage_log_success_count: 0,
+    usage_log_failed_count: 0,
+    usage_log_deferred_count: 0,
+    usage_log_flushed_count: 0,
+    usage_log_errors: [],
+    skipped_reason: null,
   };
+
+  // ── v1.15.7.1: Fail-safe guards ──────────────────────────────────────────────
+  // Guard A: Tavily real mode requires usageLoggerFn for trazabilidad.
+  // Running real Tavily calls without a usage logger in production is not allowed.
+  if (config.provider === 'tavily' && config.enabled && !isDryRun && !usageLoggerFn) {
+    batchMeta.skipped_reason = 'missing_usage_logger';
+    batchMeta.skipped_count = candidates.length;
+    return {
+      results: candidates.map((c) => ({
+        candidateName: c.name,
+        attempted: false,
+        skipReason: 'missing_usage_logger',
+        enrichment: c.currentEnrichment,
+        query: null,
+      })),
+      batchMetadata: batchMeta,
+      usagePayloads: [],
+    };
+  }
+
+  // Guard C: Tavily real mode with a logger requires a real batch_id.
+  // Usage logs with batch_id=null cannot be traced back to a batch.
+  if (config.provider === 'tavily' && config.enabled && !isDryRun && usageLoggerFn && (usageCtx?.batchId == null)) {
+    batchMeta.skipped_reason = 'missing_batch_id';
+    batchMeta.skipped_count = candidates.length;
+    return {
+      results: candidates.map((c) => ({
+        candidateName: c.name,
+        attempted: false,
+        skipReason: 'missing_batch_id',
+        enrichment: c.currentEnrichment,
+        query: null,
+      })),
+      batchMetadata: batchMeta,
+      usagePayloads: [],
+    };
+  }
+
+  let usageLogAttemptedCount = 0;
+  let usageLogSuccessCount = 0;
+  let usageLogFailedCount = 0;
+  const usageLogErrors: string[] = [];
 
   const results: ControlledLinkedInSearchResult[] = [];
 
@@ -574,10 +637,7 @@ export async function runControlledLinkedInCompanySearch(
       finalEnrichment = selection.enrichment;
       lastQuery = query;
 
-      // ── Usage logging (v1.15.7) ──────────────────────────────────────────────
-      // Log each provider call when usageLoggerFn is provided and not dryRun.
-      // Mock provider calls (config.provider === 'mock') are also logged in tests
-      // to validate the logging path, but never hit real Supabase.
+      // ── Usage logging (v1.15.7 + v1.15.7.1 hardening) ──────────────────────────
       if (!isDryRun) {
         const callCostUsd = unitCostUsd !== null ? unitCostUsd : null;
         if (callCostUsd !== null) totalEstimatedCostUsd += callCostUsd;
@@ -605,11 +665,14 @@ export async function runControlledLinkedInCompanySearch(
         usagePayloads.push(payload);
 
         if (usageLoggerFn) {
+          usageLogAttemptedCount++;
           try {
             await usageLoggerFn(payload);
-            batchMeta.usage_logged = true;
-          } catch {
-            // Non-critical: usage logging failure does not abort the search.
+            usageLogSuccessCount++;
+          } catch (err: unknown) {
+            usageLogFailedCount++;
+            const rawMsg = err instanceof Error ? err.message : 'unknown_logger_error';
+            if (usageLogErrors.length < 5) usageLogErrors.push(rawMsg.slice(0, 200));
           }
         }
       }
@@ -646,10 +709,22 @@ export async function runControlledLinkedInCompanySearch(
     });
   }
 
-  // Finalise batch metadata with accumulated cost and dry-run indicator
+  // Finalise batch metadata (v1.15.7 + v1.15.7.1)
   batchMeta.estimated_cost_usd = unitCostUsd !== null ? totalEstimatedCostUsd : null;
+  batchMeta.usage_log_attempted_count = usageLogAttemptedCount;
+  batchMeta.usage_log_success_count = usageLogSuccessCount;
+  batchMeta.usage_log_failed_count = usageLogFailedCount;
+  batchMeta.usage_log_deferred_count = 0;
+  batchMeta.usage_log_flushed_count = 0;
+  batchMeta.usage_log_errors = usageLogErrors;
+  batchMeta.usage_logged =
+    usageLogAttemptedCount > 0 && usageLogFailedCount === 0 && usageLogSuccessCount === usageLogAttemptedCount;
+
   if (isDryRun && batchMeta.attempted_query_count > 0) {
     batchMeta.usage_logged = false;
+    if (config.provider === 'tavily') {
+      batchMeta.skipped_reason = 'dry_run';
+    }
   }
 
   return { results, batchMetadata: batchMeta, usagePayloads };
