@@ -52,6 +52,7 @@
   "test:search-quality-v1-13": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-13.test.ts",
   "test:search-quality-v1-13-1": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-13-1.test.ts",
   "test:search-quality-v1-14": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-14.test.ts",
+  "test:search-quality-v1-15": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-15.test.ts",
     "agent1:dry-run:source-guided": "NODE_ENV=development node --import tsx scripts/agent1/dry-run-source-guided-investigation.ts",
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts"

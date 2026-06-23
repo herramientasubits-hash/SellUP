@@ -299,6 +299,44 @@ export type CandidateScoringOutput = {
 };
 
 // ============================================================
+// LinkedIn Company Enrichment — tipos (Hito v1.15)
+// ============================================================
+
+export type LinkedInEnrichmentStatus =
+  | 'not_found'
+  | 'found'
+  | 'ambiguous'
+  | 'rejected'
+  | 'skipped';
+
+export type LinkedInEnrichmentSignals = {
+  name_match: boolean;
+  domain_match: boolean;
+  country_match: boolean;
+  is_company_page: boolean;
+};
+
+export type LinkedInEnrichmentSource =
+  | 'provided_search_result'
+  | 'existing_candidate_metadata'
+  | 'manual_input'
+  | 'future_provider'
+  | 'none';
+
+export type LinkedInEnrichmentMetadata = {
+  enabled: boolean;
+  status: LinkedInEnrichmentStatus;
+  company_url?: string | null;
+  normalized_company_slug?: string | null;
+  confidence: number;
+  match_reason?: string | null;
+  signals?: LinkedInEnrichmentSignals | null;
+  warnings: string[];
+  source: LinkedInEnrichmentSource;
+  checked_at: string;
+};
+
+// ============================================================
 // Prospecting Pipeline — tipos (Hito 4)
 // ============================================================
 

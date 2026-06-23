@@ -22,6 +22,10 @@ import type {
   CandidateScoreBreakdown,
   FitBreakdown,
 } from './types';
+import {
+  normalizeLinkedInCompanyUrl,
+  evaluateLinkedInCompanyMatch,
+} from './linkedin-company-enrichment';
 
 // ─── Constantes de scoring ────────────────────────────────────────────────────
 
@@ -466,6 +470,39 @@ function computeFitScore(input: CandidateScoringInput): FitResult {
     fitPenalties += commercial.countryEvidencePenalty + commercial.duplicatePenalty + commercial.genericAgencyPenalty;
     reasons.push(...commercial.fitReasons);
     warnings.push(...commercial.fitPenalties);
+  }
+
+  // LinkedIn enrichment signal (v1.15)
+  // Suma señal pequeña (+5) cuando el enrichment confirma página de empresa (status=found).
+  // "found" ya implica confianza ≥65 (name_match + domain_match como mínimo).
+  // No reemplaza evidencia de país. No anula duplicate guard. No aprueba query_only.
+  if (input.linkedinCompanyUrl?.trim()) {
+    const liNorm = normalizeLinkedInCompanyUrl(input.linkedinCompanyUrl);
+    if (!liNorm.rejected && liNorm.normalized && liNorm.slug) {
+      const liMatch = evaluateLinkedInCompanyMatch(
+        {
+          candidateName: input.name,
+          candidateDomain: input.domain,
+          countryCode: input.countryCode,
+          sourceTitle: input.sourceTitle,
+          sourceSnippet: input.sourceSnippet,
+        },
+        {
+          url: input.linkedinCompanyUrl,
+          normalized: liNorm.normalized,
+          slug: liNorm.slug,
+          foundIn: 'source_url',
+        },
+      );
+      if (liMatch.status === 'found') {
+        raw += 5;
+        reasons.push('linkedin_company_verified');
+      } else if (liMatch.status === 'ambiguous') {
+        warnings.push(
+          `LinkedIn company page ambiguous: ${liMatch.warnings.slice(0, 1).join('; ')}`,
+        );
+      }
+    }
   }
 
   const score = clamp(raw - fitPenalties, 0, 100);
