@@ -29,6 +29,7 @@ import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
 import { checkActiveCandidateDuplicate } from "./active-candidate-identity-guard";
+import { buildLinkedInEnrichmentMetadata } from "./linkedin-company-enrichment";
 import type { ActiveCandidateRecord, DuplicateGuardInput } from "./active-candidate-identity-guard";
 import type {
   CandidateWriterInput,
@@ -1324,6 +1325,48 @@ export async function writeProspectingCandidates(
         ? `Datos insuficientes. Blockers: ${candidate.scoring.blockers.join(", ")}`
         : null;
 
+    // ── LinkedIn Enrichment (v1.15.1) ─────────────────────────────────────────
+    // Detecta URLs de LinkedIn ya presentes en la evidencia del candidato.
+    // Sin llamadas externas. Sin Tavily. Sin scraping. Sin LLM.
+    const linkedInEnrichment = buildLinkedInEnrichmentMetadata({
+      candidateName: candidate.name,
+      candidateDomain: domain,
+      countryCode: candidate.countryCode,
+      sourceTitle: candidate.sourceTitle ?? undefined,
+      sourceSnippet: candidate.sourceSnippet ?? undefined,
+      sourceUrl: candidate.sourceUrl ?? undefined,
+      website: candidate.website ?? undefined,
+      source: 'provided_search_result',
+      checkedAt: now.toISOString(),
+    });
+
+    const linkedInVerified =
+      linkedInEnrichment.status === 'found' && linkedInEnrichment.confidence >= 70;
+    const effectiveFitScore = Math.min(100, candidate.scoring.fitScore + (linkedInVerified ? 5 : 0));
+
+    const baseFitBreakdown = candidate.scoring.fitBreakdown ?? null;
+    const adjustedFitBreakdown = linkedInVerified
+      ? baseFitBreakdown
+        ? {
+            ...baseFitBreakdown,
+            fit_reasons: [...(baseFitBreakdown.fit_reasons ?? []), 'linkedin_company_verified'],
+            final_fit_score: effectiveFitScore,
+          }
+        : {
+            product_fit: 0,
+            country_fit: 0,
+            b2b_signal: 0,
+            duplicate_penalty: 0,
+            country_evidence_penalty: 0,
+            generic_agency_penalty: 0,
+            commercial_calibration_delta: 5,
+            final_fit_score: effectiveFitScore,
+            fit_label: 'medium' as const,
+            fit_reasons: ['linkedin_company_verified'],
+            fit_penalties: [],
+          }
+      : baseFitBreakdown;
+
     const candidateInsert = {
       batch_id: batchId,
       name: candidate.name,
@@ -1351,12 +1394,24 @@ export async function writeProspectingCandidates(
       matched_account_id: matchedAccountId,
       matched_hubspot_company_id: matchedHubspotId,
       confidence_score: effectiveConfidenceScore,
-      fit_score: candidate.scoring.fitScore,
+      fit_score: effectiveFitScore,
       data_completeness_score: candidate.scoring.dataCompletenessScore,
       status: candidateStatus,
       review_notes: reviewNotes,
       metadata: {
         ...buildCandidateMetadata(candidate),
+        scoring: {
+          confidence_score: candidate.scoring.confidenceScore,
+          fit_score: effectiveFitScore,
+          data_completeness: candidate.scoring.dataCompletenessScore,
+          quality_label: candidate.scoring.qualityLabel,
+          recommended_action: candidate.scoring.recommendedAction,
+          reasons: candidate.scoring.reasons,
+          warnings: candidate.scoring.warnings,
+          blockers: candidate.scoring.blockers,
+          fit_breakdown: adjustedFitBreakdown,
+        },
+        linkedin_enrichment: linkedInEnrichment,
         novelty_check: noveltyResult.noveltyMetadata,
         ...(identityResolution ? { identity_resolution: identityResolution } : {}),
         country_evidence: {
