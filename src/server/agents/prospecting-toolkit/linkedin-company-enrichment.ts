@@ -77,6 +77,19 @@ function normalizeText(s: string): string {
     .trim();
 }
 
+/**
+ * Normalización compacta: remueve espacios, acentos, y caracteres especiales.
+ * Útil para comparar "Loggro Enterprise" (loggroenterprise) con slug "loggroenterprise".
+ */
+function compactNormalize(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
 function slugToWords(slug: string): string {
   return slug.replace(/[-_]/g, ' ').toLowerCase().trim();
 }
@@ -297,16 +310,32 @@ export function evaluateLinkedInCompanyMatch(
   const normalizedName = normalizeText(candidate.candidateName);
   const normalizedSlug = normalizeText(slugWords);
 
+  // Compact matching: remove spaces for concatenated slugs like "loggroenterprise" vs "Loggro Enterprise"
+  const compactName = compactNormalize(candidate.candidateName);
+  const compactSlug = compactNormalize(slug);
+
   const nameTokens = normalizedName.split(' ').filter((t) => t.length > 0);
   const slugTokens = normalizedSlug.split(' ').filter((t) => t.length > 0);
 
   const exactMatch = normalizedName === normalizedSlug;
+  const compactMatch = compactName === compactSlug;
   const nameContainsSlug = normalizedSlug.length > 2 && normalizedName.includes(normalizedSlug);
   const slugContainsName = normalizedName.length > 2 && normalizedSlug.includes(normalizedName);
   const sharedTokens = nameTokens.filter((t) => t.length > 2 && slugTokens.includes(t));
   const tokenMatchRatio = nameTokens.length > 0 ? sharedTokens.length / nameTokens.length : 0;
 
-  signals.name_match = exactMatch || nameContainsSlug || slugContainsName || tokenMatchRatio >= 0.5;
+  // Guard: avoid false positives with short generic names if only compact match
+  const isGenericName = /^(tech|factory|global|solutions|software|digital|group|enterprise|services)$/i.test(
+    candidate.candidateName.trim(),
+  );
+  const shouldCountCompactMatch = !isGenericName || nameTokens.length > 1;
+
+  signals.name_match =
+    exactMatch ||
+    (compactMatch && shouldCountCompactMatch) ||
+    nameContainsSlug ||
+    slugContainsName ||
+    tokenMatchRatio >= 0.5;
 
   // ── Domain match: slug vs domain base ────────────────────────────────────
   if (candidate.candidateDomain) {

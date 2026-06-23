@@ -118,7 +118,7 @@ export function isEligibleForLinkedInSearch(
  *
  * Reglas:
  *   - Siempre usa comillas alrededor del nombre exacto.
- *   - Si hay dominio válido, añade el base domain como señal adicional.
+ *   - Si hay dominio válido, añade el dominio completo como señal adicional.
  *   - NO busca por sector, país, keywords genéricas, ni industria.
  *   - Siempre termina en site:linkedin.com/company.
  */
@@ -130,9 +130,8 @@ export function buildLinkedInSearchQuery(
 
   if (domain) {
     const cleanDomain = domain.replace(/^www\./, '');
-    const baseDomain = cleanDomain.split('.')[0] ?? '';
-    if (baseDomain.length > 2) {
-      return `${escapedName} "${baseDomain}" site:linkedin.com/company`;
+    if (cleanDomain.length > 2) {
+      return `${escapedName} "${cleanDomain}" site:linkedin.com/company`;
     }
   }
 
