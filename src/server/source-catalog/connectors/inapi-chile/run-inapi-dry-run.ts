@@ -7,7 +7,7 @@ import type {
   InapiTrademarkRawRecord,
   InapiPatentRawRecord,
 } from './types';
-import { fetchInapiResourceIds, fetchInapiRecords } from './inapi-client';
+import { fetchInapiResourceIds, queryInapiByName } from './inapi-client';
 import {
   normalizeTrademarkRawRecord,
   normalizePatentRawRecord,
@@ -171,7 +171,7 @@ export async function runInapiChileDryRun(
       continue;
     }
 
-    const recordsResult = await fetchInapiRecords(resourceId, limitPerDataset, 0);
+    const recordsResult = await queryInapiByName(resourceId, searchName, limitPerDataset);
     if (!recordsResult.ok) {
       errors.push(`[${CKAN_NAME_MAP[config.datasetId] ?? config.datasetId}] ${recordsResult.error}`);
       continue;
