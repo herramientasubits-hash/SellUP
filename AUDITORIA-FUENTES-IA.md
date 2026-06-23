@@ -514,3 +514,54 @@ mx_denue (DENUE/INEGI API) → identity resolver (nombre→establecimiento)
 Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa, restricciones legales (secreto fiscal Art. 69 CFF, LFPDPPP 2025), y análisis detallado por fuente.
 
 ---
+
+## Decisión Chile — SENCE OTEC descartado del MVP activo
+
+**Fecha:** 2026-06-23
+**HEAD:** `250610e` → commit actual (después de eliminación)
+
+### Veredicto
+
+`cl_sence_otec` — SENCE OTEC Chile → **REMOVE_FROM_MVP_CATALOG**
+
+### Evidencia técnica
+
+1. **No tiene connector** registrado en `connector-registry.ts`.
+2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
+3. **No tiene validated-source-config** en `validated-source-configs.ts`.
+4. **No tiene tax identifier resolver** para Chile — solo CO y MX.
+5. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
+6. **`connectionMode: 'not_connected'`**, **`aiFlowStatus: 'manual_only'`**, **`sellupUse: 'manual_reference'`** — no es una fuente conectada ni automatizable.
+7. **`operationalStatus: 'pending_validation'`** — estado que debe resolverse; no tiene conector que permita validación.
+8. **`limitations: ['Sin API pública']`** — no existe API oficial. La descarga XLSX desde `sence.gob.cl/organismos/otec` es manual.
+
+### Evidencia documental
+
+- **SENCE OTEC** ofrece un archivo XLSX descargable (`otec_vigentes_al_19_05_2026.xlsx`) con OTEC activos (RUT, nombre, región). El sitio SENCE carga sin captcha ni login.
+- **No tiene API** pública ni mecanismo de consulta programática.
+- **Valor comercial limitado:** OTEC son organismos de capacitación (oferta de formación), no empresas ICP típicas de SellUp (demanda de servicios digitales). Universo reducido a un solo sector.
+- **`cl_res`** ya es la fuente P0 para Chile con RUT estructurado, cobertura multisectorial y descarga CSV directa.
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `source-catalog.ts` | Eliminada entrada `cl_sence_otec` de CATALOG_SOURCES |
+| `catalog-context-retriever.ts` | Eliminada regla CL específica para SENCE OTEC |
+| `AGENTE_1_CATALOG_CONTEXT_RETRIEVER.md` | Eliminada fila SENCE OTEC de tabla Chile |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+
+### No modificado
+
+- `cl_res` intacto
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto (solo CO y MX)
+- `source-discovery-preflight.ts` intacto (nunca incluyó SENCE)
+- `labels.ts` intacto
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto (documento general)
+- Prompts de agente intactos
+- Colombia y México intactos
+
+---

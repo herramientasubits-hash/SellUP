@@ -170,12 +170,6 @@ function getSectorRules(normalizedIndustry: string, countryCode: string): string
     rules.push('Validar que la empresa realmente presta servicios tech — muchas tienen objeto social genérico.');
   }
 
-  if (/capacitac|training|formacion|\bhr\b|recursos humanos/.test(normalizedIndustry)) {
-    if (countryCode === 'CL') {
-      rules.push('Usar SENCE OTEC como fuente primaria de capacitadoras en Chile.');
-    }
-  }
-
   return rules.slice(0, 3);
 }
 

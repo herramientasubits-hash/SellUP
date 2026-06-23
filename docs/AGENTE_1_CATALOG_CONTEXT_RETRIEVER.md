@@ -97,7 +97,6 @@ type CatalogContextResult = {
 | Fuente | Clave | Prioridad | Tipo | Sectores |
 |---|---|---|---|---|
 | RES / datos.gob.cl | `cl_res` | P0 | official_registry | Todos |
-| SENCE OTEC | `cl_sence_otec` | P1 | official_registry | Capacitación/HR |
 
 ### Perú (PE)
 
