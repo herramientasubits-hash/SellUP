@@ -83,8 +83,8 @@ export type CandidateRichProfileV1 = {
     generated_at: string;
     generated_by: 'agent_1';
     enrichment_level: 'basic' | 'controlled' | 'deep';
-    external_calls_used: false;
-    cost_usd: 0;
+    external_calls_used: boolean;
+    cost_usd: number;
   };
 };
 

@@ -473,10 +473,10 @@ describe('F17 — provenance actualizado', () => {
 
     assert.equal(result.enrichedProfiles.length, 1);
     const enriched = result.enrichedProfiles[0].enrichedProfile;
-    const prov = enriched.provenance as { enrichment_level: string; external_calls_used: boolean; cost_usd: number };
-    assert.equal(prov.enrichment_level, 'controlled');
-    assert.equal(prov.external_calls_used, true);
-    assert.ok(prov.cost_usd > 0, 'cost_usd debe ser mayor a 0');
+    // No cast needed: external_calls_used is boolean in the type
+    assert.equal(enriched.provenance.enrichment_level, 'controlled');
+    assert.equal(enriched.provenance.external_calls_used, true);
+    assert.ok(enriched.provenance.cost_usd > 0, 'cost_usd debe ser mayor a 0');
   });
 
   it('enrichment_level=basic, external_calls_used=false en path default (sin enrichment)', () => {
@@ -484,6 +484,76 @@ describe('F17 — provenance actualizado', () => {
     assert.equal(profile.provenance.enrichment_level, 'basic');
     assert.equal(profile.provenance.external_calls_used, false);
     assert.equal(profile.provenance.cost_usd, 0);
+  });
+});
+
+// ─── v1.16B.1 — Provenance Type Hardening ────────────────────────────────────
+
+describe('v1.16B.1 — Provenance Type Hardening', () => {
+  it('F1 — builder básico: external_calls_used=false, cost_usd=0', () => {
+    const profile = buildProfile();
+    assert.strictEqual(profile.provenance.external_calls_used, false);
+    assert.strictEqual(profile.provenance.cost_usd, 0);
+    assert.strictEqual(profile.provenance.enrichment_level, 'basic');
+  });
+
+  it('F2 — merge enrichment controlled: external_calls_used=true, cost_usd>0', () => {
+    const profile = buildProfile();
+    const providerResult: RichProfileEnrichmentProviderResult = {
+      status: 'found',
+      city: 'Bogotá',
+      size_range: '51-200',
+      evidence_url: 'https://acmecorp.com/about',
+      confidence: 80,
+    };
+
+    const merged = mergeRichProfileEnrichmentResult(profile, providerResult, {
+      externalCallUsed: true,
+      estimatedCostUsd: 0.05,
+    });
+
+    assert.strictEqual(merged.provenance.external_calls_used, true);
+    assert.ok(merged.provenance.cost_usd > 0, 'cost_usd debe ser >0');
+    assert.strictEqual(merged.provenance.cost_usd, 0.05);
+    assert.strictEqual(merged.provenance.enrichment_level, 'controlled');
+  });
+
+  it('F3 — sin cast: external_calls_used es boolean accesible sin as', () => {
+    const profile = buildProfile();
+    // Acceso directo sin cast — si el tipo fuera literal false esto no compilaría
+    const externalCalls: boolean = profile.provenance.external_calls_used;
+    assert.strictEqual(externalCalls, false);
+
+    const merged = mergeRichProfileEnrichmentResult(
+      profile,
+      { status: 'found', city: 'Medellín', confidence: 70 },
+      { externalCallUsed: true, estimatedCostUsd: 0.01 },
+    );
+    const externalCallsAfter: boolean = merged.provenance.external_calls_used;
+    assert.strictEqual(externalCallsAfter, true);
+  });
+
+  it('F4 — metadata serializable: rich_profile serializa y deserializa sin pérdida', () => {
+    const profile = buildProfile();
+    const serialized = JSON.stringify(profile);
+    const deserialized = JSON.parse(serialized) as typeof profile;
+
+    assert.strictEqual(deserialized.provenance.external_calls_used, false);
+    assert.strictEqual(deserialized.provenance.cost_usd, 0);
+    assert.strictEqual(deserialized.schema_version, 'candidate_rich_profile_v1');
+    assert.strictEqual(deserialized.company.name, 'Acme Corp');
+  });
+
+  it('F5 — schema_version no cambia: candidate_rich_profile_v1 en basic y controlled', () => {
+    const profile = buildProfile();
+    assert.strictEqual(profile.schema_version, 'candidate_rich_profile_v1');
+
+    const merged = mergeRichProfileEnrichmentResult(
+      profile,
+      { status: 'found', city: 'Cali', confidence: 75 },
+      { externalCallUsed: true, estimatedCostUsd: 0.02 },
+    );
+    assert.strictEqual(merged.schema_version, 'candidate_rich_profile_v1');
   });
 });
 

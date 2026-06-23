@@ -365,21 +365,10 @@ export function mergeRichProfileEnrichmentResult(
   };
 
   // Provenance — cost_usd accumulated
-  const prevCostUsd = profile.provenance.cost_usd ?? 0;
-  const newCostUsd = (prevCostUsd as number) + estimatedCostUsd;
+  const newCostUsd = profile.provenance.cost_usd + estimatedCostUsd;
 
-  // TypeScript doesn't allow partial overwrite of discriminated literal types easily,
-  // so we cast provenance to a wider type for the merge.
-  type FlexProvenance = {
-    generated_at: string;
-    generated_by: 'agent_1';
-    enrichment_level: 'basic' | 'controlled' | 'deep';
-    external_calls_used: boolean;
-    cost_usd: number;
-  };
-
-  const newProvenance: FlexProvenance = {
-    ...(profile.provenance as FlexProvenance),
+  const newProvenance: CandidateRichProfileV1['provenance'] = {
+    ...profile.provenance,
     enrichment_level: 'controlled',
     external_calls_used: externalCallUsed,
     cost_usd: newCostUsd,
@@ -392,7 +381,7 @@ export function mergeRichProfileEnrichmentResult(
     description: newDescription,
     evidence: newEvidence,
     notes: newNotes,
-    provenance: newProvenance as CandidateRichProfileV1['provenance'],
+    provenance: newProvenance,
   };
 }
 
