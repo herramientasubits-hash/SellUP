@@ -834,6 +834,21 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://datos.gob.cl/',
     automationLevel: 'high',
     recommendedUse: 'Discovery principal en Chile. Portal de datos abiertos con datasets de empresas activas por sector.',
+    limitations: [
+      'No incluye sector, giro, CIIU ni actividad económica; requiere validación posterior de industria/fit.',
+      'No incluye contactos comerciales, correos, teléfonos ni decisores.',
+      'Puede incluir empresas recién constituidas, microempresas o sociedades con capital muy bajo.',
+      'Puede incluir EIRL u otros tipos donde el RUT asociado requiera revisión para no confundir persona natural con empresa.',
+      'No debe usarse como fuente única para priorización comercial sin señales adicionales.',
+      'No existe aún enrichment adapter Chile ni resolvedor automático de RUT en SellUp.',
+    ],
+    riskNotes: [
+      'Usar como discovery estructurado inicial de empresas chilenas, no como validación completa de ICP.',
+      'No inferir sector ni tamaño comercial únicamente desde RES.',
+      'Requiere revisión humana o señales complementarias para industria, fit y prioridad comercial.',
+      'No usar como sustituto del SII para validación tributaria.',
+      'No escribir RUT como tax_identifier fuera de un flujo controlado y auditado.',
+    ],
   },
   {
     key: 'cl_chilecompra',
