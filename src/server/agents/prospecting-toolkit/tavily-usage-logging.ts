@@ -25,6 +25,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { LogProviderUsageInput, ProviderUsageStatus } from '@/modules/usage-tracking/types';
 import type { ActivePricingConfig } from '@/modules/usage-tracking/provider-pricing';
 import type { WebSearchInput, WebSearchOutput, WebSearchProviderKey, MultiQueryQueryResult } from './types';
+import type { LinkedInUsageLogPayload, LinkedInUsageLoggerFn } from './linkedin-company-search';
 
 // ─── Tipos de contexto ────────────────────────────────────────────────────────
 
@@ -202,4 +203,68 @@ export async function realLogTavilyUsage(input: LogProviderUsageInput): Promise<
       error: err instanceof Error ? err.message : 'unknown logging error',
     };
   }
+}
+
+// ─── LinkedIn Usage Logger Adapter (v1.15.8-pre) ─────────────────────────────
+
+/**
+ * Fábrica que retorna un LinkedInUsageLoggerFn conectado a realLogTavilyUsage.
+ *
+ * Mapea LinkedInUsageLogPayload → LogProviderUsageInput y delega en el logger
+ * real (o en el override inyectado para tests).
+ *
+ * Reglas:
+ *   - batch_id null → lanza error antes de llamar al logger (Guard pre-call).
+ *   - already_logged → resuelve sin lanzar (idempotencia 23505).
+ *   - failed → lanza error sanitizado; el caller (runControlledLinkedInCompanySearch)
+ *     lo captura y registra en batchMeta.usage_log_errors.
+ *   - query completa NO se persiste; solo query_length (evita ruido/sensibilidad).
+ *
+ * TODO(v1.15.8): verificar que provider_pricing_config tenga row activa con
+ *   operation_key='linkedin_company_search' o reutilizar 'multi_query_web_search'.
+ *   unitCostUsd se resuelve en el caller vía usageContext, no en este adapter.
+ *
+ * @param userId  Fallback de triggered_by cuando payload.user_id es null/undefined.
+ * @param logUsageOverride  Inyectable solo para tests — omitir en producción.
+ */
+export function createLinkedInUsageLoggerFn(
+  userId?: string | null,
+  logUsageOverride?: (input: LogProviderUsageInput) => Promise<UsageLogResult>,
+): LinkedInUsageLoggerFn {
+  const logUsage = logUsageOverride ?? realLogTavilyUsage;
+
+  return async (payload: LinkedInUsageLogPayload): Promise<void> => {
+    if (!payload.batch_id) {
+      throw new Error('missing_batch_id_for_linkedin_usage_log');
+    }
+
+    const input: LogProviderUsageInput = {
+      batch_id: payload.batch_id,
+      usage_key: payload.usage_key,
+      provider_key: payload.provider,
+      operation_key: payload.feature,
+      results_returned: payload.result_count,
+      estimated_cost_usd: payload.estimated_cost_usd ?? 0,
+      status: payload.status === 'success' ? 'success' : 'error',
+      triggered_by: payload.user_id ?? userId ?? undefined,
+      metadata: {
+        feature: payload.feature,
+        agent: payload.agent,
+        candidate_name: payload.candidate_name,
+        candidate_domain: payload.candidate_domain,
+        search_depth: payload.search_depth,
+        max_results: payload.max_results,
+        selected_status: payload.selected_status,
+        selected_url: payload.selected_url,
+        query_length: payload.query.length,
+      },
+    };
+
+    const result = await logUsage(input);
+
+    if (result.kind === 'failed') {
+      throw new Error(`linkedin_usage_log_failed: ${result.error.slice(0, 100)}`);
+    }
+    // 'logged' and 'already_logged' both resolve successfully
+  };
 }
