@@ -27,6 +27,8 @@ export { parseSunatBulkLines } from './sunat-bulk-parser';
 
 export { probeSunatZipStructure } from './sunat-zip-probe';
 
+export { extractSunatBulkSample } from './sunat-sample-extractor';
+
 export {
   createDefaultPipeConfig,
   createTabConfig,
@@ -59,6 +61,12 @@ export type {
   SunatZipProbeWarning,
   SunatZipProbeStats,
   SunatZipProbeStatus,
+  SunatBulkSampleExtractionInput,
+  SunatBulkSampleExtractionOutput,
+  SunatBulkSampleLine,
+  SunatBulkSampleExtractionStats,
+  SunatBulkSampleExtractionWarning,
+  SunatBulkDelimiterInference,
 } from './types';
 
 export {

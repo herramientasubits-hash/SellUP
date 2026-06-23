@@ -127,6 +127,7 @@ function parseCentralDirectoryEntries(
     const compressionMethod = parseUint16LE(buffer, offset + 10);
     const compressedSize = parseUint32LE(buffer, offset + 20);
     const uncompressedSize = parseUint32LE(buffer, offset + 24);
+    const localHeaderOffset = parseUint32LE(buffer, offset + 42);
 
     const fileNameBytes = buffer.slice(offset + 46, offset + 46 + fileNameLength);
     const fileName = new TextDecoder().decode(fileNameBytes);
@@ -136,6 +137,9 @@ function parseCentralDirectoryEntries(
       compressedSizeBytes: compressedSize,
       uncompressedSizeBytes: uncompressedSize,
       compressionMethod,
+      localHeaderOffset,
+      fileNameLength,
+      extraFieldLength,
       likelyTextFile: fileName.endsWith('.txt'),
       likelyCsvFile: fileName.endsWith('.csv'),
       likelyLargeFile: (uncompressedSize ?? 0) > LARGE_ENTRY_THRESHOLD,

@@ -181,6 +181,9 @@ export type SunatZipCentralDirectoryEntry = {
   uncompressedSizeBytes?: number;
   compressionMethod?: number;
   lastModifiedRaw?: string;
+  localHeaderOffset?: number;
+  fileNameLength?: number;
+  extraFieldLength?: number;
   likelyTextFile: boolean;
   likelyCsvFile: boolean;
   likelyLargeFile: boolean;
@@ -221,5 +224,63 @@ export type SunatZipProbeOutput = {
   stats: SunatZipProbeStats;
   guard: SunatBulkDownloadGuard;
   warnings: SunatZipProbeWarning[];
+  errors: string[];
+};
+
+// ─── Sample Extraction Types ─────────────────────────────────────────────────────
+
+export type SunatBulkSampleExtractionInput = {
+  maxCompressedBytes?: number;
+  maxDecompressedBytes?: number;
+  maxLines?: number;
+};
+
+export type SunatBulkSampleLine = {
+  lineNumber: number;
+  columnCount?: number;
+  redactedPreview: string;
+};
+
+export type SunatBulkSampleExtractionStats = {
+  compressedBytesRead: number;
+  decompressedBytesRead: number;
+  linesDetected: number;
+  linesReturned: number;
+  truncated: boolean;
+};
+
+export type SunatBulkSampleExtractionWarning = {
+  code: string;
+  message: string;
+};
+
+export type SunatBulkDelimiterInference = 'pipe' | 'tab' | 'comma' | 'unknown';
+
+export type SunatBulkSampleExtractionOutput = {
+  sourceKey: 'pe_sunat_bulk';
+  mode: 'controlled_sample_extraction';
+  status: 'sampled' | 'partial' | 'blocked' | 'error';
+  entry: {
+    fileName: string;
+    compressedSizeBytes?: number;
+    uncompressedSizeBytes?: number;
+    compressionMethod?: number;
+    compressedDataStartOffset?: number;
+  };
+  guard: {
+    fullDownloadAllowed: false;
+    maxCompressedBytesToRead: number;
+    maxDecompressedBytesToRead: number;
+    maxLinesToReturn: number;
+    reason: string;
+  };
+  sample: {
+    lines: SunatBulkSampleLine[];
+    inferredDelimiter?: SunatBulkDelimiterInference;
+    inferredColumnCount?: number;
+    parserConfigSuggestion?: string;
+  };
+  stats: SunatBulkSampleExtractionStats;
+  warnings: SunatBulkSampleExtractionWarning[];
   errors: string[];
 };
