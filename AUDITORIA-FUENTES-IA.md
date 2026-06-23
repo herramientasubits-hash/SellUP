@@ -396,3 +396,73 @@ Avanzar a la clasificación y conexión de fuentes del siguiente país en el roa
 - No hacer más corridas Colombia por ahora.
 - Colombia queda lista para servir como patrón técnico para Brasil / México / Chile / Perú.
 - Siguiente país recomendado: Brasil o México según prioridad del proyecto.
+
+---
+
+## Cierre México — Agente 1 MVP operativo
+
+**Fecha:** 2026-06-22
+**HEAD actual:** `main` (commit `9208ba1` — último commit Colombia closure)
+
+### 1. Veredicto general
+
+México validado como país operativo para el MVP del Agente 1 con **una sola fuente conectada al flujo IA** (`mx_denue`). México **no tiene resolución automática de RFC** en MVP. Cualquier RFC mexicano requiere revisión humana o fuente comercial/post-MVP.
+
+### 2. Tabla de fuentes México — Clasificación final
+
+| Source Key | Nombre | Clasificación final | Estado en flujo IA | Uso permitido | Uso NO permitido |
+|------------|--------|---------------------|-------------------|---------------|------------------|
+| `mx_denue` | DENUE / INEGI API | **Operativa IA** | `CONNECTED_CONTEXTUAL_VALIDATED` | Discovery estructurado, enrichment contextual, validación existencia establecimientos, actividad/giro/ubicación/tamaño aproximado | Resolución RFC, escritura tax_identifier, identidad fiscal, reemplazo revisión humana |
+| `mx_datos_gob` | datos.gob.mx | **Contenedor técnico** | `TECHNICAL_CONTAINER_VALIDATED` | Contenedor de datasets, referencia estructural | Fuente directa, discovery, enrichment, validación |
+| `mx_siem` | SIEM | **Señal manual** | `MANUAL_SIGNAL_ONLY_VALIDATED` | Señal contextual de registro empresarial | Flujo automático, API, bulk data |
+| `mx_canaive` | CANAIVE | **Señal manual** | `MANUAL_SIGNAL_ONLY_VALIDATED` | Señal sectorial cuero/calzado | Flujo automático, API, bulk data |
+| `mx_amia` | AMIA | **Señal manual** | `MANUAL_SIGNAL_ONLY_VALIDATED` | Señal sectorial automotriz | Flujo automático, API, bulk data |
+| `mx_amiti` | AMITI | **Señal manual** | `MANUAL_SIGNAL_ONLY_VALIDATED` | Señal sectorial tecnología | Flujo automático, API, bulk data |
+| `mx_fintech_mx` | Fintech México | **Señal manual** | `MANUAL_SIGNAL_ONLY_VALIDATED` | Señal sectorial fintech | Flujo automático, API, bulk data |
+| `mx_compranet` | CompraNet / Compras MX | **Pausada / Señal B2G futura** | `PAUSED_B2G_SIGNAL_VALIDATED` | Posible señal B2G post-MVP | Flujo automático actual, discovery, enrichment |
+
+### 3. Decisiones clave
+
+1. **Solo `mx_denue` queda conectada** al flujo IA del Agente 1.
+2. **México no tiene resolución automática de RFC en MVP.** El resolver debe retornar:
+   - `tax_identifier = null`
+   - `tax_identifier_resolution.status = not_resolvable_automatically`
+   - `human_review_required = true`
+   - `contextual_sources_available = ['mx_denue']`
+3. **Cualquier RFC mexicano requiere revisión humana** o fuente comercial/post-MVP.
+4. **`mx_compranet` queda pausada** como posible señal B2G futura, no como fuente conectada actual.
+5. **Cámaras/asociaciones** (`mx_siem`, `mx_canaive`, `mx_amia`, `mx_amiti`, `mx_fintech_mx`) quedan como **señales manuales**, no fuentes automáticas.
+6. **`mx_datos_gob` queda como contenedor técnico**, no fuente directa.
+7. **No se corrió Tavily, LLM, HubSpot ni wizard** para esta validación.
+8. **No se modificó Colombia** en este proceso.
+
+### 4. Flujo México MVP
+
+```
+candidato (nombre, dominio, linkedin)
+  ↓
+mx_denue (DENUE/INEGI API) → identity resolver (nombre→establecimiento)
+  ↓
+¿Match en DENUE?
+  ├── Sí → enrichment con datos DENUE (ubicación, giro, empleados)
+  │         → flag human_review_required para RFC
+  │         → humano provee RFC → validación contra SAT (post-MVP)
+  │         → enrichment fiscal completo → HubSpot
+  └── No → señal débil
+            → flag human_review_required
+            → revisión manual profunda
+```
+
+### 5. Próximos pasos recomendados (post-MVP)
+
+| Prioridad | Acción | Descripción |
+|-----------|--------|-------------|
+| P1 | Evaluar Infodata Mexico | Proveedor comercial doméstico con 2M+ registros RFC-based |
+| P2 | Evaluar D&B Mexico | Opción global con cobertura MX |
+| P3 | Implementar validación SAT | Cuando humano provee RFC, validar contra SAT |
+
+### 6. Referencia cruzada
+
+Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa, restricciones legales (secreto fiscal Art. 69 CFF, LFPDPPP 2025), y análisis detallado por fuente.
+
+---

@@ -263,6 +263,26 @@ DENUE API → identity resolver (nombre→establecimiento)
 
 ---
 
+## Cierre México — Agente 1 MVP operativo (Referencia cruzada)
+
+**Fecha:** 2026-06-22
+
+Esta investigación queda **cerrada oficialmente** para el MVP del Agente 1. La decisión funcional está documentada en `AUDITORIA-FUENTES-IA.md` (sección **Cierre México — Agente 1 MVP operativo**).
+
+### Resumen del cierre
+
+- **Fuente conectada al flujo IA:** `mx_denue` (DENUE/INEGI API)
+- **Sin resolución automática de RFC:** `tax_identifier = null`, `status = not_resolvable_automatically`, `human_review_required = true`
+- **Fuentes manuales:** `mx_siem`, `mx_canaive`, `mx_amia`, `mx_amiti`, `mx_fintech_mx`
+- **Contenedor técnico:** `mx_datos_gob`
+- **Pausada B2G:** `mx_compranet`
+- **No se ejecutó:** Tavily, LLM, HubSpot, wizard
+- **No se modificó:** Colombia
+
+Ver `AUDITORIA-FUENTES-IA.md` para tabla completa de clasificación, decisiones clave, flujo MVP y próximos pasos post-MVP.
+
+---
+
 ## Referencias
 
 - [SAT Validador RFC](https://portalsat.plataforma.sat.gob.mx/ConsultaRFC/)
