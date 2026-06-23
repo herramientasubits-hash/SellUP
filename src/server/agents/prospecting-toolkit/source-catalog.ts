@@ -823,6 +823,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_res',
     name: 'RES / datos.gob.cl',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected',
+    connectionMode: 'wizard_discovery',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P0',
@@ -835,6 +838,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_chilecompra',
     name: 'ChileCompra (Mercado Público)',
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P1',
@@ -848,6 +854,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_sence_otec',
     name: 'SENCE OTEC',
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: ['capacitacion', 'educacion', 'training', 'hr', 'recursos humanos', 'capital humano', 'formacion'],
     priority: 'P1',
@@ -861,6 +870,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_sii',
     name: 'SII Chile (Validación tributaria)',
+    sellupUse: 'validation_only',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P1',
@@ -875,6 +887,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_corfo',
     name: 'CORFO Chile (Corporación de Fomento)',
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: ['manufactura', 'tecnologia', 'agronegocio', 'pesca', 'turismo', 'manufacturing', 'technology', 'agribusiness', 'fishing', 'tourism'],
     priority: 'P1',
@@ -888,6 +903,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_cmf',
     name: 'CMF Chile (Comisión para el Mercado Financiero)',
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: ['financiero', 'seguros', 'inversión', 'fondos mutuos', 'financial', 'insurance', 'investment', 'mutual funds', 'fiduciaria'],
     priority: 'P1',
@@ -901,6 +919,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_sofofa',
     name: 'SOFOFA Chile (Sociedad de Fomento Fabril)',
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: ['manufactura', 'industrial', 'fabricacion', 'manufacturing', 'industrial production', 'factory'],
     priority: 'P1',
@@ -914,6 +935,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_ccs',
     name: 'CCS Chile (Cámara de Comercio de Santiago)',
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P1',
@@ -929,6 +953,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'cl_startup_chile',
     name: 'Startup Chile (CORFO)',
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
     countryCodes: ['CL'],
     sectors: ['tecnologia', 'startups', 'innovacion', 'technology', 'startup_ecosystem', 'innovation'],
     priority: 'P2',

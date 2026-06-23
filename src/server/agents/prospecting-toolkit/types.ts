@@ -77,6 +77,7 @@ export type SellupUse =
   | 'discovery'
   | 'enrichment'
   | 'legal_validation'
+  | 'validation_only'
   | 'commercial_signal'
   | 'contextual_signal'
   | 'technical_container'

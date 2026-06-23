@@ -135,6 +135,7 @@ export const SELLUP_USE_LABELS: Record<SellupUse, string> = {
   discovery: 'Discovery',
   enrichment: 'Enrichment',
   legal_validation: 'Validación legal/NIT',
+  validation_only: 'Solo validación',
   commercial_signal: 'Señal comercial',
   contextual_signal: 'Señal contextual',
   technical_container: 'Contenedor técnico',
@@ -151,6 +152,8 @@ export function sellupUseBadgeClass(use: SellupUse): string {
       return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
     case 'legal_validation':
       return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
+    case 'validation_only':
+      return 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400';
     case 'commercial_signal':
       return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
     case 'contextual_signal':
