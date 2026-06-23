@@ -1,5 +1,5 @@
 /**
- * LinkedIn Company Controlled Search — Hito v1.15.6
+ * LinkedIn Company Controlled Search — Hito v1.15.7
  *
  * Búsqueda controlada de LinkedIn Company URL para candidatos donde
  * linkedin_enrichment.status === 'not_found', usando el proveedor de
@@ -10,6 +10,14 @@
  *   - max 5 queries totales por batch (configurable, hard cap 5)
  *   - max_results = 1 por defecto, 3 en modo recall test (configurable)
  *   - Se detiene por candidato en cuanto encuentra status=found
+ *
+ * v1.15.7 — Controlled LinkedIn Enablement + Usage Logging:
+ *   - Usage logging inyectable por llamada al provider (LinkedInUsageLoggerFn)
+ *   - Contexto de trazabilidad: batchId, userId, dryRun, unitCostUsd
+ *   - estimated_cost_usd en batch metadata (null si no hay pricing)
+ *   - usage_logged en batch metadata
+ *   - usagePayloads en output para flush diferido por el caller
+ *   - DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled sigue false
  *
  * Query variants por candidato:
  *   Q1: "<company_name>" "<domain>" site:linkedin.com/company  (si hay dominio)
@@ -46,6 +54,60 @@ export const DEFAULT_LINKEDIN_SEARCH_CONFIG: LinkedInSearchConfig = {
   maxQueriesPerCandidate: 2,
   maxResultsPerQuery: 1,
 };
+
+// ─── Usage logging (v1.15.7) ─────────────────────────────────────────────────
+
+/** Payload de trazabilidad por cada llamada real al provider para LinkedIn Search. */
+export type LinkedInUsageLogPayload = {
+  usage_key: string;
+  provider: 'tavily';
+  feature: 'linkedin_company_search';
+  agent: 'agent_1';
+  batch_id: string | null;
+  user_id: string | null;
+  candidate_name: string;
+  candidate_domain: string | null;
+  query: string;
+  search_depth: 'basic';
+  max_results: number;
+  estimated_cost_usd: number | null;
+  status: 'success' | 'failed' | 'skipped';
+  result_count: number;
+  selected_status: 'found' | 'ambiguous' | 'rejected' | 'not_found' | 'skipped';
+  selected_url: string | null;
+  created_at: string;
+};
+
+/**
+ * Logger inyectable por llamada al provider.
+ * En tests: captura payloads sin tocar Supabase.
+ * En prod real: escribe a provider_usage_logs.
+ * En dryRun: no se invoca.
+ */
+export type LinkedInUsageLoggerFn = (payload: LinkedInUsageLogPayload) => Promise<void>;
+
+/** Contexto de trazabilidad para las llamadas LinkedIn Search. */
+export type LinkedInUsageContext = {
+  batchId?: string | null;
+  userId?: string | null;
+  dryRun?: boolean;
+  /** Costo por crédito Tavily basic (1 crédito/llamada). null = sin pricing disponible. */
+  unitCostUsd?: number | null;
+};
+
+/**
+ * Clave determinística por llamada LinkedIn Search para deduplicación.
+ * Formato: tavily:linkedin_search:{batchId}:{nameSlug}:{queryIndex}
+ */
+export function buildLinkedInUsageKey(
+  batchId: string | null | undefined,
+  candidateName: string,
+  queryIndex: number,
+): string {
+  const safeId = (batchId ?? 'no_batch').slice(0, 36);
+  const safeSlug = candidateName.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 30);
+  return `tavily:linkedin_search:${safeId}:${safeSlug}:q${queryIndex}`;
+}
 
 // ─── Batch metadata ───────────────────────────────────────────────────────────
 
@@ -88,6 +150,10 @@ export type LinkedInBatchSearchMetadata = {
   stopped_after_found: boolean;
   provider: string;
   samples: LinkedInSearchSample[];
+  /** Costo estimado total (USD) de las llamadas LinkedIn Search en el batch. null si sin pricing. (v1.15.7) */
+  estimated_cost_usd: number | null;
+  /** true si usageLoggerFn fue invocado por cada provider call (no dryRun). (v1.15.7) */
+  usage_logged: boolean;
 };
 
 // ─── Eligibility ──────────────────────────────────────────────────────────────
@@ -251,6 +317,8 @@ export type ControlledLinkedInSearchResult = {
 export type RunControlledLinkedInSearchOutput = {
   results: ControlledLinkedInSearchResult[];
   batchMetadata: LinkedInBatchSearchMetadata;
+  /** Payloads de usage acumulados durante la corrida. Vacío si feature disabled o dryRun. (v1.15.7) */
+  usagePayloads: LinkedInUsageLogPayload[];
 };
 
 // ─── Multi-result selection ───────────────────────────────────────────────────
@@ -350,12 +418,21 @@ function selectBestEnrichmentFromUrls(
  *   - Soporta múltiples resultados por query: elige el mejor (found > ambiguous > rest).
  *   - Rechaza /in/, /jobs/, /school/, /feed/, /posts/ via pipeline de enrichment.
  *   - checkedAt debe ser un ISO timestamp fijo para reproducibilidad en tests.
+ *
+ * v1.15.7 — Usage logging:
+ *   - options.usageLoggerFn: si se provee y no es dryRun, se invoca por cada provider call.
+ *   - options.usageContext: contexto de trazabilidad (batchId, userId, dryRun, unitCostUsd).
+ *   - El output incluye usagePayloads acumulados para flush diferido por el caller.
  */
 export async function runControlledLinkedInCompanySearch(
   candidates: ControlledLinkedInSearchCandidate[],
   config: LinkedInSearchConfig,
   providerFn: LinkedInSearchProviderFn,
   checkedAt: string,
+  options?: {
+    usageContext?: LinkedInUsageContext;
+    usageLoggerFn?: LinkedInUsageLoggerFn;
+  },
 ): Promise<RunControlledLinkedInSearchOutput> {
   // Hard cap: nunca exceder 5 queries totales por batch, aunque config pida más
   const effectiveMaxPerBatch = Math.min(config.maxPerBatch, 5);
@@ -366,6 +443,14 @@ export async function runControlledLinkedInCompanySearch(
 
   const resolvedSource: LinkedInEnrichmentSource =
     config.provider === 'mock' ? 'mock_linkedin_search' : 'tavily_linkedin_search';
+
+  const usageCtx = options?.usageContext;
+  const usageLoggerFn = options?.usageLoggerFn;
+  const isDryRun = usageCtx?.dryRun ?? false;
+  const unitCostUsd = usageCtx?.unitCostUsd ?? null;
+
+  const usagePayloads: LinkedInUsageLogPayload[] = [];
+  let totalEstimatedCostUsd = 0;
 
   const batchMeta: LinkedInBatchSearchMetadata = {
     enabled: config.enabled,
@@ -383,6 +468,8 @@ export async function runControlledLinkedInCompanySearch(
     stopped_after_found: false,
     provider: config.provider,
     samples: [],
+    estimated_cost_usd: null,
+    usage_logged: false,
   };
 
   const results: ControlledLinkedInSearchResult[] = [];
@@ -487,6 +574,46 @@ export async function runControlledLinkedInCompanySearch(
       finalEnrichment = selection.enrichment;
       lastQuery = query;
 
+      // ── Usage logging (v1.15.7) ──────────────────────────────────────────────
+      // Log each provider call when usageLoggerFn is provided and not dryRun.
+      // Mock provider calls (config.provider === 'mock') are also logged in tests
+      // to validate the logging path, but never hit real Supabase.
+      if (!isDryRun) {
+        const callCostUsd = unitCostUsd !== null ? unitCostUsd : null;
+        if (callCostUsd !== null) totalEstimatedCostUsd += callCostUsd;
+
+        const payload: LinkedInUsageLogPayload = {
+          usage_key: buildLinkedInUsageKey(usageCtx?.batchId, candidate.name, qi),
+          provider: 'tavily',
+          feature: 'linkedin_company_search',
+          agent: 'agent_1',
+          batch_id: usageCtx?.batchId ?? null,
+          user_id: usageCtx?.userId ?? null,
+          candidate_name: candidate.name,
+          candidate_domain: candidate.domain,
+          query,
+          search_depth: 'basic',
+          max_results: maxResultsPerQuery,
+          estimated_cost_usd: callCostUsd,
+          status: 'success',
+          result_count: urls.length,
+          selected_status: selection.enrichment.status,
+          selected_url: selection.enrichment.company_url ?? null,
+          created_at: checkedAt,
+        };
+
+        usagePayloads.push(payload);
+
+        if (usageLoggerFn) {
+          try {
+            await usageLoggerFn(payload);
+            batchMeta.usage_logged = true;
+          } catch {
+            // Non-critical: usage logging failure does not abort the search.
+          }
+        }
+      }
+
       if (selection.enrichment.status === 'found') {
         // Detener búsqueda para este candidato al encontrar found
         if (qi < queryVariants.length - 1) {
@@ -519,5 +646,11 @@ export async function runControlledLinkedInCompanySearch(
     });
   }
 
-  return { results, batchMetadata: batchMeta };
+  // Finalise batch metadata with accumulated cost and dry-run indicator
+  batchMeta.estimated_cost_usd = unitCostUsd !== null ? totalEstimatedCostUsd : null;
+  if (isDryRun && batchMeta.attempted_query_count > 0) {
+    batchMeta.usage_logged = false;
+  }
+
+  return { results, batchMetadata: batchMeta, usagePayloads };
 }

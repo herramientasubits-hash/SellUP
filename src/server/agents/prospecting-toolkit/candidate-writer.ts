@@ -39,6 +39,8 @@ import type {
   LinkedInSearchProviderFn,
   LinkedInBatchSearchMetadata,
   ControlledLinkedInSearchCandidate,
+  LinkedInUsageContext,
+  LinkedInUsageLoggerFn,
 } from "./linkedin-company-search";
 import type { ActiveCandidateRecord, DuplicateGuardInput } from "./active-candidate-identity-guard";
 import type {
@@ -455,6 +457,10 @@ function buildCandidateMetadata(
 export type LinkedInSearchOverride = {
   config: LinkedInSearchConfig;
   providerFn?: LinkedInSearchProviderFn;
+  /** Contexto de trazabilidad para usage logging (v1.15.7). */
+  usageContext?: LinkedInUsageContext;
+  /** Logger inyectable por llamada real al provider (v1.15.7). En prod: escribe a provider_usage_logs. */
+  usageLoggerFn?: LinkedInUsageLoggerFn;
 };
 
 export async function writeProspectingCandidates(
@@ -1295,6 +1301,14 @@ export async function writeProspectingCandidates(
       linkedInSearchConfig,
       linkedInSearchProviderFn,
       nowIso,
+      {
+        usageContext: linkedInSearchOverride?.usageContext ?? {
+          batchId: existingBatchId ?? null,
+          userId: triggeredByUserId ?? null,
+          dryRun: isDryRun,
+        },
+        usageLoggerFn: linkedInSearchOverride?.usageLoggerFn,
+      },
     );
 
     linkedInBatchSearchMetadata = searchOutput.batchMetadata;
