@@ -614,3 +614,48 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 - `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto (documento general; CMF mencionado como regulador contextual, no como fuente)
 - Prompts de agente intactos
 - Colombia, México y demás países intactos
+
+---
+
+## Decisión: cl_corfo — CORFO Chile
+
+**Veredicto: REMOVE_FROM_MVP_CATALOG**
+
+### Por qué se elimina
+
+1. **No tiene connector** registrado en `connector-registry.ts`.
+2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
+3. **No tiene validated-source-config** en `validated-source-configs.ts`.
+4. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
+5. **`connectionMode: 'not_connected'`**, **`aiFlowStatus: 'manual_only'`**, **`sellupUse: 'manual_reference'`** — no es una fuente conectada ni automatizable.
+6. **`operationalStatus: 'pending_validation'`** — estado pendiente desde creación del catálogo, sin conector que permita validación.
+
+### Evidencia documental
+
+- CORFO publica datos en **datainnovacion.cl** (API REST pública con RUT de beneficiarios) y **dataemprendimiento.corfo.gob.cl** (visualizaciones), pero ambos cubren exclusivamente programas de innovación/emprendimiento (~5.760 empresas, ~10.340 proyectos desde 2010).
+- En **datos.gob.cl** existen 6 datasets de CORFO, pero el más reciente es de 2015 (datos de 2012-2013).
+- El portal **sgp.corfo.cl** requiere búsqueda web manual con formulario; no hay API pública masiva.
+- **No existe un dataset público descargable** que cubra el universo completo de empresas relacionadas con CORFO con RUT, razón social y estado actualizado.
+- **Su universo es acotado:** solo beneficiarios de programas públicos (innovación, emprendimiento, créditos con garantía). No representa discovery empresarial multisectorial.
+- **`cl_res`** ya es la fuente P0 para Chile con RUT estructurado, cobertura multisectorial (millones de empresas), descarga CSV directa desde datos.gob.cl y actualización periódica.
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `source-catalog.ts` | Eliminada entrada `cl_corfo` de CATALOG_SOURCES |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+
+### No modificado
+
+- `cl_res` intacto
+- `cl_sofofa`, `cl_ccs`, `cl_startup_chile` intactos
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto (solo CO y MX)
+- `source-discovery-preflight.ts` intacto
+- `labels.ts` intacto
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
+- Prompts de agente intactos
+- Colombia, México y demás países intactos
