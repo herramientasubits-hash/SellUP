@@ -247,6 +247,7 @@ export type SunatBulkSampleExtractionStats = {
   linesDetected: number;
   linesReturned: number;
   truncated: boolean;
+  rangeRequestMode: 'open_ended_stream_capped' | 'bounded_range';
 };
 
 export type SunatBulkSampleExtractionWarning = {

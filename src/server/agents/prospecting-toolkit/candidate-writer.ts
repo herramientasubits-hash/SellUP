@@ -54,6 +54,7 @@ import type {
   ProspectingPipelineOutput,
   ProspectingPipelineWriteOutput,
 } from "./types";
+import { buildCandidateRichProfileV1 } from "./candidate-rich-profile";
 
 // ─── Batch validation error ───────────────────────────────────────────────────
 
@@ -1443,6 +1444,27 @@ export async function writeProspectingCandidates(
     // result when the feature is enabled and the candidate was eligible.
     const linkedInEnrichment = preComputedLinkedInEnrichments[_entryIdx];
 
+    // ── Rich Profile (v1.15.9) ────────────────────────────────────────────────
+    const richProfile = buildCandidateRichProfileV1({
+      name: candidate.name,
+      website: candidate.website,
+      domain: candidate.domain,
+      country: candidate.country,
+      countryCode: candidate.countryCode,
+      industry: candidate.industry,
+      sourceUrl: candidate.sourceUrl,
+      sourceSnippet: candidate.sourceSnippet,
+      confidenceScore: effectiveConfidenceScore,
+      fitScore: candidate.scoring.fitScore,
+      fitLabel: candidate.scoring.fitBreakdown?.fit_label ?? null,
+      fitReasons: candidate.scoring.fitBreakdown?.fit_reasons ?? null,
+      linkedInEnrichment,
+      countryEvidenceLevel: countryEvidenceResult.evidenceLevel,
+      countryEvidenceSources: countryEvidenceResult.evidenceSources,
+      countryEvidenceWarning: countryEvidenceResult.warning ?? null,
+      evidencePolicyWarnings: evidencePolicy.warnings,
+    });
+
     const linkedInVerified =
       linkedInEnrichment.status === 'found' && linkedInEnrichment.confidence >= 70;
     const effectiveFitScore = Math.min(100, candidate.scoring.fitScore + (linkedInVerified ? 5 : 0));
@@ -1548,6 +1570,7 @@ export async function writeProspectingCandidates(
               },
             }
           : {}),
+        rich_profile: richProfile,
       },
     };
 
