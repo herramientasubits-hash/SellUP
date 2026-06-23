@@ -904,6 +904,10 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'pe_sunat_bulk',
     name: 'SUNAT Padrón RUC Bulk (Descarga masiva)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'eligible_not_connected',
+    connectionMode: 'not_connected',
+    nextAction: 'Requiere conector para descarga masiva y normalización de 11-14M registros RUC',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P0',
@@ -925,6 +929,10 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'pe_sunat',
     name: 'SUNAT Padrón RUC',
+    sellupUse: 'validation_only',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
+    nextAction: 'Consulta web individual RUC para verificación tributaria, no discovery masivo',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P0',
@@ -939,6 +947,10 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'pe_seace',
     name: 'OSCE / SEACE (Contrataciones del Estado)',
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
+    nextAction: 'Señal B2G futura — requiere validación de acceso a datos abiertos OSCE/SEACE',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -952,6 +964,10 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'pe_produce',
     name: 'PRODUCE Manufactura',
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_connected',
+    nextAction: 'Pendiente validación — fuente sectorial manufactura peruana sin API confirmada',
     countryCodes: ['PE'],
     sectors: ['manufactura', 'manufacturing', 'industria', 'industrial', 'produccion', 'production', 'planta'],
     priority: 'P1',
