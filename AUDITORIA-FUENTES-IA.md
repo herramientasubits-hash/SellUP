@@ -814,3 +814,55 @@ Chile queda cerrado para el MVP activo del Agente 1 con **`cl_res` como única f
 - [x] `npm run typecheck` — sin errores
 - [x] `npm run build` — build exitoso
 - [x] `git diff --check` — sin espacios en blanco conflictivos
+
+---
+
+## Decisión Chile — INAPI datos abiertos (post-MVP)
+
+**Fecha:** 2026-06-23
+**HEAD:** `af0c079` (v1.15.4)
+
+### Veredicto
+
+`cl_inapi` — INAPI datos abiertos → **NOT_PRESENT_NO_ACTION_REQUIRED**
+
+INAPI no existe en el repositorio (no hay entrada en `CATALOG_SOURCES`, no hay connector, adapter, config, resolver ni referencia documental). No requiere cambios en código ni catálogo.
+
+### Evidencia técnica
+
+1. **No aparece en `CATALOG_SOURCES`** (`source-catalog.ts`) — búsqueda `inapi|INAPI|cl_inapi` sin resultados.
+2. **No aparece en `connector-registry.ts`**, `enrichment-adapter-registry.ts`, `validated-source-configs.ts`, `tax-identifier-resolution/` ni `source-discovery-preflight.ts`.
+3. **No aparece en documentación** (`docs/AGENTE_1_CATALOG_CONTEXT_RETRIEVER.md`, `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md`, `AUDITORIA-FUENTES-IA.md`).
+4. **No aparece en worktrees ni commits anteriores** — búsqueda global en repo sin resultados.
+
+### Evidencia documental ligera
+
+- **INAPI datos abiertos** (`inapi.cl/datos-abiertos`) publica 4 datasets en `datos.gob.cl`:
+  1. `solicitudes-de-marcas` — solicitudes de marcas (2009-presente), archivos XLSX por año.
+  2. `registros-de-marcas` — marcas registradas (2009-presente).
+  3. `solicitudes-de-patentes` — solicitudes de patentes, modelos de utilidad y diseños industriales.
+  4. `registros-de-patentes` — patentes registradas.
+- **Datos que entrega:** número de solicitud/registro, nombre de marca, nombre del solicitante (persona natural o jurídica, con prefijo de país), clases Niza, fechas, estado. **No entrega RUT como campo estructurado** — el campo `Applicants` puede incluir RUT en el texto libre del nombre (ej: `(CL) MARTIN LARRAIN CARLOS...`), pero no es un campo normalizado ni obligatorio.
+- **Cobertura temática:** exclusivamente propiedad industrial (marcas y patentes). No cubre el universo general de empresas chilenas.
+- **Valor para Agente 1:** no sirve como discovery primario de empresas (no tiene RUT estructurado, razón social, sector ni datos de contacto). Podría servir post-MVP como señal secundaria de innovación/propiedad intelectual para empresas ya identificadas por `cl_res`.
+
+### Decisión
+
+- **No se agrega al catálogo MVP activo.**
+- **No requiere cambios en código ni catálogo** — INAPI no existe en el repositorio.
+- **Queda documentada como señal post-MVP** por si en el futuro se requiere evaluar propiedad industrial como señal de innovación.
+- **Chile permanece cerrado** para el MVP con `cl_res` como única fuente activa. No se reabre Chile.
+- **Colombia, México, Perú y `cl_res` no fueron tocados.**
+
+### No modificado
+
+- `cl_res` intacto
+- `CATALOG_SOURCES` intacto (INAPI nunca estuvo)
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto
+- `source-discovery-preflight.ts` intacto
+- `docs/AGENTE_1_CATALOG_CONTEXT_RETRIEVER.md` intacto
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
+- Colombia, México, Perú intactos
