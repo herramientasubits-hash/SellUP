@@ -385,6 +385,36 @@ export function evaluateLinkedInCompanyMatch(
 
 // ─── buildLinkedInEnrichmentMetadata ─────────────────────────────────────────
 
+// ─── Detección de LinkedIn no-company en campos de entrada (Part E, v1.15.2) ──
+
+const LINKEDIN_HOSTNAME_RE = /(?:^|\.)linkedin\.com$/i;
+
+/**
+ * Retorna el rejectReason si la URL es de LinkedIn pero NO es una company page.
+ * Retorna null si la URL no es LinkedIn, o si sí es una company page válida.
+ */
+function detectLinkedInNonCompanyUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  let parsed: URL;
+  try {
+    const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    parsed = new URL(withProto);
+  } catch {
+    return null;
+  }
+  const hostname = parsed.hostname.replace(/^www\./, '').toLowerCase();
+  if (!LINKEDIN_HOSTNAME_RE.test(hostname)) return null;
+  // Es una URL de LinkedIn — verificar si es company válida
+  const result = normalizeLinkedInCompanyUrl(trimmed);
+  if (result.rejected && result.rejectReason) {
+    return result.rejectReason;
+  }
+  return null;
+}
+
+// ─── buildLinkedInEnrichmentMetadata ─────────────────────────────────────────
+
 /**
  * Construye el objeto completo de metadata linkedin_enrichment para persistir
  * en candidate.metadata.linkedin_enrichment.
@@ -396,6 +426,23 @@ export function buildLinkedInEnrichmentMetadata(
 ): LinkedInEnrichmentMetadata {
   const checkedAt = input.checkedAt ?? new Date().toISOString();
   const requestedSource: LinkedInEnrichmentSource = input.source ?? 'none';
+
+  // Part E (v1.15.2): Si sourceUrl o website es una URL de LinkedIn pero NO es
+  // una company page, marcar como rejected (no not_found) para distinguir
+  // la presencia explícita de un path inválido de la ausencia total.
+  const nonCompanyReason =
+    detectLinkedInNonCompanyUrl(input.sourceUrl) ??
+    detectLinkedInNonCompanyUrl(input.website);
+  if (nonCompanyReason) {
+    return {
+      enabled: true,
+      status: 'rejected',
+      confidence: 0,
+      warnings: [`rejected_path:${nonCompanyReason}`],
+      source: requestedSource,
+      checked_at: checkedAt,
+    };
+  }
 
   // Extraer candidatos LinkedIn desde los textos disponibles
   const extractedCandidates = extractLinkedInCompanyCandidates({

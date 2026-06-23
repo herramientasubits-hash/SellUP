@@ -30,6 +30,16 @@ import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
 import { checkActiveCandidateDuplicate } from "./active-candidate-identity-guard";
 import { buildLinkedInEnrichmentMetadata } from "./linkedin-company-enrichment";
+import {
+  runControlledLinkedInCompanySearch,
+  DEFAULT_LINKEDIN_SEARCH_CONFIG,
+} from "./linkedin-company-search";
+import type {
+  LinkedInSearchConfig,
+  LinkedInSearchProviderFn,
+  LinkedInBatchSearchMetadata,
+  ControlledLinkedInSearchCandidate,
+} from "./linkedin-company-search";
 import type { ActiveCandidateRecord, DuplicateGuardInput } from "./active-candidate-identity-guard";
 import type {
   CandidateWriterInput,
@@ -442,11 +452,19 @@ function buildCandidateMetadata(
 
 // ─── Función principal ────────────────────────────────────────────────────────
 
+export type LinkedInSearchOverride = {
+  config: LinkedInSearchConfig;
+  providerFn?: LinkedInSearchProviderFn;
+};
+
 export async function writeProspectingCandidates(
   input: CandidateWriterInput,
   // For testing only: inject an admin client instead of reading env vars.
   // Production callers always omit this parameter.
   adminClientOverride?: SupabaseClient,
+  // For testing only: override LinkedIn search config and provider.
+  // Production callers always omit this parameter (feature disabled by default).
+  linkedInSearchOverride?: LinkedInSearchOverride,
 ): Promise<CandidateWriterOutput> {
   const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata, existingBatchId } = input;
   const isDryRun = dryRun ?? false;
@@ -1206,8 +1224,89 @@ export async function writeProspectingCandidates(
     countryCode ?? null,
   );
 
+  // ── Pre-Pass: Controlled LinkedIn Search (v1.15.2) ────────────────────────
+  // Pre-compute LinkedIn enrichments for all candidates in toPersist.
+  // When the feature is enabled (via linkedInSearchOverride), candidates with
+  // not_found enrichment and confidenceScore >= minConfidenceScore get a
+  // controlled search attempt. All real search runs behind a feature flag —
+  // production callers omit linkedInSearchOverride so the feature is disabled.
+  // No real API calls happen unless explicitly enabled via the override.
+  const nowIso = now.toISOString();
+  const linkedInSearchConfig = linkedInSearchOverride?.config ?? DEFAULT_LINKEDIN_SEARCH_CONFIG;
+  const linkedInSearchProviderFn: LinkedInSearchProviderFn =
+    linkedInSearchOverride?.providerFn ?? (async () => []);
+
+  // Build initial enrichments from existing evidence (v1.15.1 behavior)
+  const preComputedLinkedInEnrichments = toPersist.map(({ candidate, domain: d }) =>
+    buildLinkedInEnrichmentMetadata({
+      candidateName: candidate.name,
+      candidateDomain: d,
+      countryCode: candidate.countryCode,
+      sourceTitle: candidate.sourceTitle ?? undefined,
+      sourceSnippet: candidate.sourceSnippet ?? undefined,
+      sourceUrl: candidate.sourceUrl ?? undefined,
+      website: candidate.website ?? undefined,
+      source: 'provided_search_result',
+      checkedAt: nowIso,
+    }),
+  );
+
+  let linkedInBatchSearchMetadata: LinkedInBatchSearchMetadata | null = null;
+
+  if (linkedInSearchConfig.enabled) {
+    const searchCandidates: ControlledLinkedInSearchCandidate[] = toPersist.map(
+      ({ candidate, domain: d, countryEvidenceResult: cer, businessFitResult: bfr, identityResolution: ir }, i) => {
+        // Pre-check duplicate guard: same_active_domain or same_inferred_identity
+        // would block this candidate in the write loop — skip LinkedIn search for them.
+        const preGuardName = ir?.inferred_company_name ?? candidate.name;
+        const preGuardInput: DuplicateGuardInput = {
+          name: candidate.name,
+          domain: d,
+          website: candidate.website ?? null,
+          inferredCompanyName: preGuardName,
+          normalizedName: normalizeName(preGuardName),
+        };
+        const preGuardMatch = checkActiveCandidateDuplicate(preGuardInput, activeCandidatesForGuard);
+        const isBlockedByDuplicateGuard =
+          preGuardMatch.matched &&
+          (preGuardMatch.reason === 'same_active_domain' ||
+            preGuardMatch.reason === 'same_inferred_identity');
+
+        // Pre-check evidence persistence policy: blocked candidates won't be inserted.
+        const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
+        const isBlockedByEvidencePolicy = prePolicy.decision === 'blocked';
+
+        return {
+          name: candidate.name,
+          domain: d,
+          countryCode: candidate.countryCode ?? null,
+          sourceTitle: candidate.sourceTitle ?? null,
+          sourceSnippet: candidate.sourceSnippet ?? null,
+          confidenceScore: candidate.scoring.confidenceScore,
+          currentEnrichment: preComputedLinkedInEnrichments[i],
+          isBlockedByDuplicateGuard,
+          isBlockedByEvidencePolicy,
+        };
+      },
+    );
+
+    const searchOutput = await runControlledLinkedInCompanySearch(
+      searchCandidates,
+      linkedInSearchConfig,
+      linkedInSearchProviderFn,
+      nowIso,
+    );
+
+    linkedInBatchSearchMetadata = searchOutput.batchMetadata;
+
+    // Replace enrichments with search-updated results (aligned by index)
+    for (let i = 0; i < searchOutput.results.length; i++) {
+      preComputedLinkedInEnrichments[i] = searchOutput.results[i].enrichment;
+    }
+  }
+
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
-  for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution } of toPersist) {
+  for (const [_entryIdx, { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution }] of toPersist.entries()) {
     // ── Active Duplicate Guard (v1.13.1 / v1.14) ─────────────────────────────
     // Best identity priority for guard input:
     //   1. identity_resolution.inferred_company_name — resolved from generic service title
@@ -1325,20 +1424,10 @@ export async function writeProspectingCandidates(
         ? `Datos insuficientes. Blockers: ${candidate.scoring.blockers.join(", ")}`
         : null;
 
-    // ── LinkedIn Enrichment (v1.15.1) ─────────────────────────────────────────
-    // Detecta URLs de LinkedIn ya presentes en la evidencia del candidato.
-    // Sin llamadas externas. Sin Tavily. Sin scraping. Sin LLM.
-    const linkedInEnrichment = buildLinkedInEnrichmentMetadata({
-      candidateName: candidate.name,
-      candidateDomain: domain,
-      countryCode: candidate.countryCode,
-      sourceTitle: candidate.sourceTitle ?? undefined,
-      sourceSnippet: candidate.sourceSnippet ?? undefined,
-      sourceUrl: candidate.sourceUrl ?? undefined,
-      website: candidate.website ?? undefined,
-      source: 'provided_search_result',
-      checkedAt: now.toISOString(),
-    });
+    // ── LinkedIn Enrichment (v1.15.1 + v1.15.2) ──────────────────────────────
+    // Pre-computed in the LinkedIn pre-pass above. Includes controlled search
+    // result when the feature is enabled and the candidate was eligible.
+    const linkedInEnrichment = preComputedLinkedInEnrichments[_entryIdx];
 
     const linkedInVerified =
       linkedInEnrichment.status === 'found' && linkedInEnrichment.confidence >= 70;
@@ -1807,6 +1896,7 @@ export async function writeProspectingCandidates(
       recall_recovery_gate: recallRecoveryGateMetadata,
       duplicate_guard: duplicateGuardMetadata,
       tavily_usage_reconciliation: tavilyUsageReconciliation,
+      ...(linkedInBatchSearchMetadata ? { linkedin_search: linkedInBatchSearchMetadata } : {}),
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
     };

@@ -306,7 +306,7 @@ describe('F2 — sourceSnippet contiene LinkedIn company URL', () => {
 // ─── F3 — LinkedIn personal profile → rejected ───────────────────────────────
 
 describe('F3 — LinkedIn personal profile → rejected, sin boost', () => {
-  it('buildLinkedInEnrichmentMetadata retorna not_found cuando sourceUrl es perfil personal', () => {
+  it('buildLinkedInEnrichmentMetadata retorna rejected cuando sourceUrl es perfil personal (Part E v1.15.2)', () => {
     const result = buildLinkedInEnrichmentMetadata({
       candidateName: 'Persona García',
       candidateDomain: null,
@@ -315,10 +315,11 @@ describe('F3 — LinkedIn personal profile → rejected, sin boost', () => {
       checkedAt: '2026-06-23T10:00:00.000Z',
     });
 
-    // URL personal en sourceUrl no es /company/ → no se extrae como candidato
-    // El regex LINKEDIN_URL_REGEX solo captura /company/
-    assert.equal(result.status, 'not_found');
+    // Part E (v1.15.2): URL de LinkedIn con path /in/ → rejected (no not_found).
+    // Distingue la presencia explícita de un path inválido de la ausencia total.
+    assert.equal(result.status, 'rejected');
     assert.equal(result.confidence, 0);
+    assert.ok(result.warnings.some((w) => w.includes('rejected_path')));
   });
 
   it('providedLinkedInUrl personal → rejected', () => {
@@ -335,7 +336,7 @@ describe('F3 — LinkedIn personal profile → rejected, sin boost', () => {
     assert.ok(result.warnings.some((w) => w.includes('rechazada')));
   });
 
-  it('writer no aplica boost cuando status es not_found', async () => {
+  it('writer no aplica boost cuando sourceUrl es LinkedIn personal (status rejected, Part E v1.15.2)', async () => {
     const stats: FakeAdminStats = { candidateInsertCalls: [], batchInsertCalls: [], batchUpdateCalls: [] };
     const admin = makeFakeAdmin(stats);
 
@@ -354,7 +355,8 @@ describe('F3 — LinkedIn personal profile → rejected, sin boost', () => {
       const metadata = inserted['metadata'] as Record<string, unknown>;
       const li = metadata['linkedin_enrichment'] as Record<string, unknown>;
       assert.ok(li, 'linkedin_enrichment debe existir');
-      assert.equal(li['status'], 'not_found');
+      // Part E: sourceUrl /in/ → rejected (no not_found)
+      assert.equal(li['status'], 'rejected');
       // fit_score no debe haberse incrementado por LinkedIn
       const scoring = metadata['scoring'] as Record<string, unknown>;
       assert.equal(scoring['fit_score'], candidate.scoring.fitScore);

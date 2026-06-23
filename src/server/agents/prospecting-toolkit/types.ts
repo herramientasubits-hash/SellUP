@@ -321,6 +321,9 @@ export type LinkedInEnrichmentSource =
   | 'provided_search_result'
   | 'existing_candidate_metadata'
   | 'manual_input'
+  | 'tavily_linkedin_search'
+  | 'mock_linkedin_search'
+  | 'controlled_linkedin_search'
   | 'future_provider'
   | 'none';
 
