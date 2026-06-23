@@ -48,7 +48,7 @@ import type { LinkedInEnrichmentMetadata } from '../../src/server/agents/prospec
 
 const SMOKE_TYPE = 'linkedin_search_v1_15_8';
 const SCRIPT_NAME = 'run-linkedin-smoke-v1-15-8';
-const SMOKE_USER_ID = 'smoke_v1_15_8_script';
+const SMOKE_USER_ID = null; // triggered_by is UUID in provider_usage_logs; null for smoke
 const MAX_BATCH = 1;
 const MAX_CANDIDATES = 3;
 const HARD_CAP = 3;
