@@ -148,6 +148,26 @@ export type RichProfileEnrichmentUsagePayload = {
   created_at: string;
 };
 
+export type RichProfileEnrichmentUsageLoggerFn = (
+  payload: RichProfileEnrichmentUsagePayload,
+) => Promise<void>;
+
+// ─── Usage key builder ────────────────────────────────────────────────────────
+
+/**
+ * Clave determinística de uso por candidato.
+ * Formato: {provider}:rich_profile_enrichment:{batchId}:{candidateSlug}:q
+ * Mismo candidato + mismo lote + mismo provider → misma clave. Idempotente.
+ */
+export function buildRichProfileEnrichmentUsageKey(
+  provider: RichProfileEnrichmentProvider,
+  batchId: string,
+  candidateName: string,
+): string {
+  const slug = candidateName.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 30);
+  return `${provider}:rich_profile_enrichment:${batchId}:${slug}:q`;
+}
+
 // ─── Eligibility gate ─────────────────────────────────────────────────────────
 
 export type EligibilitySkipReason =
@@ -159,7 +179,10 @@ export type EligibilitySkipReason =
   | 'missing_domain_or_website'
   | 'no_rich_profile'
   | 'city_and_size_already_known'
-  | 'non_sales_relationship';
+  | 'non_sales_relationship'
+  | 'guard_missing_batch_id'
+  | 'guard_missing_usage_logger'
+  | 'guard_missing_unit_cost';
 
 export type EligibilityResult =
   | { eligible: true }
@@ -387,8 +410,6 @@ export function mergeRichProfileEnrichmentResult(
 
 // ─── Usage payload builder ────────────────────────────────────────────────────
 
-let _usageKeyCounter = 0;
-
 export function buildRichProfileEnrichmentUsagePayload(opts: {
   candidate: RichProfileEnrichmentCandidate;
   query: string;
@@ -398,6 +419,7 @@ export function buildRichProfileEnrichmentUsagePayload(opts: {
   batchId: string | null;
   userId: string | null;
   createdAt: string;
+  maxResults?: number;
 }): RichProfileEnrichmentUsagePayload {
   const { candidate, query, config, providerResult, estimatedCostUsd, batchId, userId, createdAt } = opts;
 
@@ -410,12 +432,8 @@ export function buildRichProfileEnrichmentUsagePayload(opts: {
   const selectedStatus: RichProfileEnrichmentUsagePayload['selected_status'] =
     providerResult === null ? 'skipped' : providerResult.status;
 
-  _usageKeyCounter++;
-  const slug = candidate.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '_')
-    .slice(0, 30);
-  const usageKey = `${config.provider}:rich_profile_enrichment:${batchId ?? 'no_batch'}:${slug}:${_usageKeyCounter}`;
+  const effectiveBatchId = batchId ?? 'no_batch';
+  const usageKey = buildRichProfileEnrichmentUsageKey(config.provider, effectiveBatchId, candidate.name);
 
   return {
     usage_key: usageKey,
@@ -429,7 +447,7 @@ export function buildRichProfileEnrichmentUsagePayload(opts: {
     query_type: 'company_profile',
     query,
     search_depth: 'basic',
-    max_results: 1,
+    max_results: opts.maxResults ?? 3,
     estimated_cost_usd: estimatedCostUsd,
     status,
     result_count: providerResult && providerResult.status !== 'failed' ? 1 : 0,
@@ -542,6 +560,8 @@ export type RichProfileEnrichmentRunnerOpts = {
   batchId?: string | null;
   userId?: string | null;
   clockFn?: () => string;
+  dryRun?: boolean;
+  usageLoggerFn?: RichProfileEnrichmentUsageLoggerFn;
 };
 
 export type RichProfileEnrichmentRunnerOutput = {
@@ -573,6 +593,40 @@ export async function runRichProfileEnrichmentBatch(
 ): Promise<RichProfileEnrichmentRunnerOutput> {
   const { config, providerFn, unitCostUsd = 0, batchId = null, userId = null } = opts;
   const clock = opts.clockFn ?? (() => new Date().toISOString());
+
+  // ─── Production guards for Tavily ─────────────────────────────────────────
+  if (config.enabled && config.provider === 'tavily' && !opts.dryRun) {
+    const guardReason: EligibilitySkipReason | null =
+      !batchId ? 'guard_missing_batch_id' :
+      !opts.usageLoggerFn ? 'guard_missing_usage_logger' :
+      (opts.unitCostUsd === undefined || opts.unitCostUsd === null) ? 'guard_missing_unit_cost' :
+      null;
+
+    if (guardReason) {
+      const skippedAll = candidates.map((c) => ({ candidate: c, reason: guardReason }));
+      const reasons: Record<string, number> = { [guardReason]: candidates.length };
+      return {
+        enrichedProfiles: [],
+        skipped: skippedAll,
+        usagePayloads: [],
+        batchMetadata: {
+          enabled: config.enabled,
+          provider: config.provider,
+          attempted_candidate_count: 0,
+          attempted_query_count: 0,
+          found_count: 0,
+          partial_count: 0,
+          not_found_count: 0,
+          skipped_count: candidates.length,
+          failed_count: 0,
+          estimated_cost_usd: 0,
+          usage_logged: false,
+          skipped_reasons: reasons,
+          samples: [],
+        },
+      };
+    }
+  }
 
   const enrichedProfiles: RichProfileEnrichmentRunnerOutput['enrichedProfiles'] = [];
   const skipped: RichProfileEnrichmentRunnerOutput['skipped'] = [];
