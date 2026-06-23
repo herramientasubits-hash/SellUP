@@ -659,3 +659,47 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 - `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
 - Prompts de agente intactos
 - Colombia, México y demás países intactos
+
+---
+
+## Decisión: cl_sofofa — SOFOFA Chile
+
+**Veredicto: REMOVE_FROM_MVP_CATALOG**
+
+### Por qué se elimina
+
+1. **No tiene connector** registrado en `connector-registry.ts`.
+2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
+3. **No tiene validated-source-config** en `validated-source-configs.ts`.
+4. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
+5. **`connectionMode: 'not_connected'`**, **`aiFlowStatus: 'manual_only'`**, **`sellupUse: 'manual_reference'`** — no es una fuente conectada ni automatizable.
+6. **`operationalStatus: 'manual_signal_only'`** — solo señal manual desde creación del catálogo.
+
+### Evidencia documental
+
+- SOFOFA es una federación gremial que agrupa ~7.000 empresas afiliadas, 42 gremios sectoriales y 21 gremios regionales. Su membresía se limita a socios del sector industrial chileno.
+- El directorio de empresas socias (`/empresas-socias/`) es una lista plana por categoría (Energía, Manufactura, Alimentos, Retail, etc.) sin RUT, sin razón social estructurada, sin sector codificado y sin descarga masiva.
+- **No existe API pública** ni dataset descargable. La consulta es manual, página por página, y solo muestra nombre comercial + enlace web.
+- **La cobertura es acotada a afiliados**, no al universo empresarial chileno. No representa discovery multisectorial útil para Agente 1.
+- **`cl_res` ya es la fuente P0 para Chile**: RUT estructurado, cobertura de millones de empresas, descarga CSV directa desde datos.gob.cl y actualización periódica.
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `source-catalog.ts` | Eliminada entrada `cl_sofofa` de CATALOG_SOURCES |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+
+### No modificado
+
+- `cl_res` intacto
+- `cl_ccs`, `cl_startup_chile` intactos
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto (solo CO y MX)
+- `source-discovery-preflight.ts` intacto
+- `labels.ts` intacto
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
+- Prompts de agente intactos
+- Colombia, México y demás países intactos
