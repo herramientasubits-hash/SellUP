@@ -1946,19 +1946,24 @@ export async function runAndWriteProspectingPipeline(
     batchName?: string | null;
     dryRun?: boolean;
     extraBatchMetadata?: Record<string, unknown> | null;
+    linkedInSearchOverride?: LinkedInSearchOverride;
   }
 ): Promise<ProspectingPipelineWriteOutput> {
   const pipelineOutput: ProspectingPipelineOutput = await runProspectingPipeline(input);
 
-  const writer = await writeProspectingCandidates({
-    pipelineOutput,
-    triggeredByUserId: input.triggeredByUserId ?? null,
-    ownerId: input.ownerId ?? null,
-    batchName: input.batchName ?? null,
-    source: "agent_1",
-    dryRun: input.dryRun ?? false,
-    extraBatchMetadata: input.extraBatchMetadata ?? null,
-  });
+  const writer = await writeProspectingCandidates(
+    {
+      pipelineOutput,
+      triggeredByUserId: input.triggeredByUserId ?? null,
+      ownerId: input.ownerId ?? null,
+      batchName: input.batchName ?? null,
+      source: "agent_1",
+      dryRun: input.dryRun ?? false,
+      extraBatchMetadata: input.extraBatchMetadata ?? null,
+    },
+    undefined,
+    input.linkedInSearchOverride,
+  );
 
   return { pipeline: pipelineOutput, writer };
 }

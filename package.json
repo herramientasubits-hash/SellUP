@@ -60,6 +60,7 @@
   "test:search-quality-v1-15-4": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-15-4.test.ts",
     "agent1:dry-run:source-guided": "NODE_ENV=development node --import tsx scripts/agent1/dry-run-source-guided-investigation.ts",
     "agent1:smoke:linkedin-company-search": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-linkedin-company-search.ts",
+    "agent1:smoke:linkedin-pipeline-mock": "NODE_ENV=development node --import tsx scripts/agent1/run-controlled-linkedin-pipeline-smoke.ts",
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts"
   },
