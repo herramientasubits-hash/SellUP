@@ -28,7 +28,11 @@ export type ActiveCandidateRecord = {
 };
 
 export type DuplicateGuardInput = {
+  /** v1.14: original candidate name — used for metadata/logging only, not for matching */
+  name?: string | null;
   domain?: string | null;
+  /** v1.14: full website URL — used for metadata/logging only, not for matching */
+  website?: string | null;
   inferredCompanyName?: string | null;
   normalizedName?: string | null;
 };

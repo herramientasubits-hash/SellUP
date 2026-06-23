@@ -29,7 +29,7 @@ import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
 import { checkActiveCandidateDuplicate } from "./active-candidate-identity-guard";
-import type { ActiveCandidateRecord } from "./active-candidate-identity-guard";
+import type { ActiveCandidateRecord, DuplicateGuardInput } from "./active-candidate-identity-guard";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -820,6 +820,8 @@ export async function writeProspectingCandidates(
   type DuplicateGuardSample = {
     candidate_name: string;
     candidate_domain: string | null;
+    /** v1.14: inferred company name when identity_resolution was applied */
+    candidate_inferred_name?: string | null;
     reason: string;
     matched_candidate_id: string;
     matched_name: string;
@@ -1205,11 +1207,20 @@ export async function writeProspectingCandidates(
 
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
   for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution } of toPersist) {
-    // ── Active Duplicate Guard (v1.13.1) ─────────────────────────────────────
-    // Runs before any DB write. Skips candidates that duplicate active SellUp entries.
-    const guardInferredName = identityResolution?.inferred_company_name ?? candidate.name;
-    const guardInput = {
+    // ── Active Duplicate Guard (v1.13.1 / v1.14) ─────────────────────────────
+    // Best identity priority for guard input:
+    //   1. identity_resolution.inferred_company_name — resolved from generic service title
+    //      (e.g. "Software ERP CRM y RRHH en Colombia" → "Softland" via domain inference)
+    //   2. candidate.name — raw name as fallback
+    // When identity_resolution.reason indicates a generic service title
+    // (detected_name_looked_like_generic_service_title, domain_inferred, title_generic,
+    // service_title), inferred_company_name takes precedence over the raw name.
+    const resolvedInferredName = identityResolution?.inferred_company_name ?? null;
+    const guardInferredName = resolvedInferredName ?? candidate.name;
+    const guardInput: DuplicateGuardInput = {
+      name: candidate.name,
       domain,
+      website: candidate.website ?? null,
       inferredCompanyName: guardInferredName,
       normalizedName: normalizeName(guardInferredName),
     };
@@ -1232,6 +1243,7 @@ export async function writeProspectingCandidates(
           duplicateGuardData.samples.push({
             candidate_name: candidate.name,
             candidate_domain: domain ?? null,
+            candidate_inferred_name: resolvedInferredName,
             reason: guardMatch.reason!,
             matched_candidate_id: guardMatch.matchedCandidateId ?? '',
             matched_name: guardMatch.matchedName ?? '',
@@ -1247,6 +1259,7 @@ export async function writeProspectingCandidates(
         duplicateGuardData.samples.push({
           candidate_name: candidate.name,
           candidate_domain: domain ?? null,
+          candidate_inferred_name: resolvedInferredName,
           reason: guardMatch.reason!,
           matched_candidate_id: guardMatch.matchedCandidateId ?? '',
           matched_name: guardMatch.matchedName ?? '',
