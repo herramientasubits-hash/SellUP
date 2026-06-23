@@ -97,7 +97,6 @@ type CatalogContextResult = {
 | Fuente | Clave | Prioridad | Tipo | Sectores |
 |---|---|---|---|---|
 | RES / datos.gob.cl | `cl_res` | P0 | official_registry | Todos |
-| ChileCompra | `cl_chilecompra` | P1 | procurement | Todos |
 | SENCE OTEC | `cl_sence_otec` | P1 | official_registry | Capacitación/HR |
 | SII Chile | `cl_sii` | P1 | official_registry | Todos (validación) |
 
@@ -227,7 +226,7 @@ Reglas:
 1. **Cobertura MVP**: solo 6 países (CO, MX, CL, PE, EC, BR). Los 11 países restantes del catálogo completo retornan fallback global.
 2. **Industria por keywords**: la detección de sector es por coincidencia de texto normalizado. Si el usuario escribe una industria muy atípica, puede no matchear fuentes sectoriales.
 3. **Sin validación de disponibilidad de fuentes**: la tool no verifica si las URLs están activas ni si las APIs tienen límites actuales.
-4. **Salud en Chile**: no existe equivalente al REPS colombiano. La cobertura sectorial de salud en CL es genérica (RES + ChileCompra).
+4. **Salud en Chile**: no existe equivalente al REPS colombiano. La cobertura sectorial de salud en CL es genérica (RES). `cl_chilecompra` fue descartada del MVP activo por requerir ticket/API key, tener cobertura limitada a proveedores B2G y no representar el universo empresarial chileno. Puede reconsiderarse post-MVP si existe una necesidad explícita de discovery B2G.
 5. **Datos estáticos**: el catálogo no se actualiza dinámicamente. Los cambios en fuentes externas requieren actualizar `source-catalog.ts`.
 
 ---

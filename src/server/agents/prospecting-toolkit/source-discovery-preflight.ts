@@ -14,7 +14,7 @@
  *   NO toca HubSpot. NO toca Tavily. NO activa Agente 1.
  *   Solo lectura. Solo reporte en memoria. Siempre mode=dry_run.
  *   Límite máximo preflight: 5 candidatos.
- *   cl_chilecompra NO se selecciona automáticamente (falta ticket).
+ *   cl_chilecompra descartado del MVP (requiere ticket, cobertura B2G limitada).
  */
 
 import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
@@ -65,8 +65,8 @@ export interface SourceDiscoveryPreflightResult {
 
 // ── Mapa estático país → fuente ────────────────────────────────────────────────
 //
-// cl_chilecompra está excluido intencionalmente: falta ticket (pendiente 16AJ.4+).
-// Cuando se combine con cl_res en el siguiente hito, se actualizará este mapa.
+// cl_chilecompra descartado del MVP: requiere ticket/API key, cobertura B2G limitada.
+// No pertenece al catálogo activo. Solo cl_res para CL en MVP.
 
 const COUNTRY_SOURCE_MAP: Record<string, string> = {
   CO: 'co_rues',

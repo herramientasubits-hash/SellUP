@@ -303,6 +303,6 @@ const socrataSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
 export const SOURCE_DISCOVERY_REGISTRY: Record<string, SourceDiscoveryAdapter> = {
   cl_res: clResSourceDiscoveryAdapter,
   mx_denue: denueSourceDiscoveryAdapter,
-  cl_chilecompra: chileCompraSourceDiscoveryAdapter,
+  // cl_chilecompra: descartado del MVP (requiere ticket, cobertura B2G limitada)
   co_rues: socrataSourceDiscoveryAdapter,
 };
