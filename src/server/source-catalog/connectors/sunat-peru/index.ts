@@ -23,6 +23,17 @@ export {
 
 export { runSunatBulkDryRun } from './run-sunat-bulk-dry-run';
 
+export { parseSunatBulkLines } from './sunat-bulk-parser';
+
+export {
+  createDefaultPipeConfig,
+  createTabConfig,
+  PIPE_COLUMN_MAPPING,
+  PIPE_DELIMITER,
+  TAB_DELIMITER,
+  COMMA_DELIMITER,
+} from './sunat-bulk-parser-config';
+
 export type {
   SunatBulkAvailabilityStatus,
   SunatBulkHttpMetadata,
@@ -32,6 +43,14 @@ export type {
   SunatBulkNormalizedCompany,
   SunatBulkValidationWarning,
   SunatBulkDownloadGuard,
+  SunatBulkDelimiter,
+  SunatBulkColumnMapping,
+  SunatBulkParserConfig,
+  SunatBulkParseInput,
+  SunatBulkParseOutput,
+  SunatBulkLineParseResult,
+  SunatBulkParserWarning,
+  SunatBulkParserStats,
 } from './types';
 
 export {

@@ -39,7 +39,7 @@
     "test:siis-adapter": "node --import tsx --test src/server/source-catalog/connectors/siis-colombia/__tests__/siis-enrichment-adapter.test.ts",
     "test:fedesoft": "node --import tsx --test src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-normalizers.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-client.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-connector.test.ts",
     "test:fedesoft-snapshot": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-snapshot-etl.test.ts src/server/source-catalog/connectors/fedesoft-colombia/__tests__/fedesoft-snapshot-etl.integration.test.ts",
-    "test:sunat-peru": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/sunat-bulk.test.ts",
+    "test:sunat-peru": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/sunat-bulk.test.ts src/server/source-catalog/connectors/sunat-peru/__tests__/sunat-bulk-parser.test.ts",
     "test:inapi": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/inapi-chile/__tests__/inapi-name-matcher.test.ts src/server/source-catalog/enrichment/__tests__/cl-inapi.test.ts",
     "test:inapi-safety": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/enrichment/__tests__/inapi-safety.test.ts",
     "test:search-planner-v1": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-planner-v1.test.ts",

@@ -66,6 +66,10 @@ export type SunatBulkParsedRecord = {
   taxpayerStatus?: string;
   domicileCondition?: string;
   ubigeo?: string;
+  department?: string;
+  province?: string;
+  district?: string;
+  address?: string;
 };
 
 /**
@@ -82,6 +86,10 @@ export type SunatBulkNormalizedCompany = {
   taxpayerStatus?: string;
   domicileCondition?: string;
   ubigeo?: string;
+  department?: string;
+  province?: string;
+  district?: string;
+  address?: string;
   isActiveTaxpayer?: boolean;
   isLikelyCompany?: boolean;
   exclusionReasons: string[];
@@ -97,3 +105,66 @@ export type SunatBulkValidationWarning =
   | 'partial_zip_no_records'
   | 'unexpected_file_format'
   | 'empty_sample_response';
+
+// ─── Line Parser Types ───────────────────────────────────────────────────────────
+
+export type SunatBulkDelimiter = '|' | '\t' | ',';
+
+export interface SunatBulkColumnMapping {
+  ruc: number;
+  legalName: number;
+  taxpayerStatus?: number;
+  domicileCondition?: number;
+  ubigeo?: number;
+  department?: number;
+  province?: number;
+  district?: number;
+  address?: number;
+}
+
+export interface SunatBulkParserConfig {
+  delimiter: SunatBulkDelimiter;
+  columnMapping: SunatBulkColumnMapping;
+  skipEmptyLines: boolean;
+  maxLineLength: number;
+  strictMode: boolean;
+}
+
+export interface SunatBulkParseInput {
+  lines: string[];
+  config: SunatBulkParserConfig;
+}
+
+export interface SunatBulkParserWarning {
+  code: string;
+  message: string;
+  lineNumber: number;
+  redactedLinePreview?: string;
+}
+
+export interface SunatBulkParserStats {
+  inputLines: number;
+  parsedLines: number;
+  validCompanies: number;
+  invalidLines: number;
+  skippedNaturalPersons: number;
+  activeCompanies: number;
+  inactiveCompanies: number;
+}
+
+export interface SunatBulkLineParseResult {
+  lineNumber: number;
+  success: boolean;
+  company?: SunatBulkNormalizedCompany;
+  warning?: SunatBulkParserWarning;
+  error?: string;
+}
+
+export interface SunatBulkParseOutput {
+  sourceKey: 'pe_sunat_bulk';
+  mode: 'line_parser';
+  companies: SunatBulkNormalizedCompany[];
+  stats: SunatBulkParserStats;
+  warnings: SunatBulkParserWarning[];
+  errors: string[];
+}
