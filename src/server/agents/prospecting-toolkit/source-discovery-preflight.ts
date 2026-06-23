@@ -72,7 +72,6 @@ const COUNTRY_SOURCE_MAP: Record<string, string> = {
   CO: 'co_rues',
   MX: 'mx_denue',
   CL: 'cl_res',
-  PE: 'pe_sunat_bulk',
 };
 
 const PREFLIGHT_LIMIT = 5; // máximo hard en este hito

@@ -14,7 +14,6 @@ import { runClResDryRun } from './connectors/datos-gob-chile/run-cl-res-dry-run'
 import { runDenueCandidateDryRun } from './connectors/denue-mexico/run-denue-candidate-dry-run';
 import { runChileCompraDryRun } from './connectors/chilecompra-chile/run-chilecompra-dry-run';
 import { runSocrataCandidateDryRun } from './connectors/socrata-colombia/run-socrata-candidate-dry-run';
-import { runSunatBulkDryRun } from './connectors/sunat-peru/run-sunat-bulk-dry-run';
 import { resolveSourceCredential } from './source-connection-resolver';
 import type { NormalizedChileCompraSupplier } from './connectors/chilecompra-chile/types';
 
@@ -299,46 +298,6 @@ const socrataSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
   };
 };
 
-// ── Adapter: pe_sunat_bulk ──────────────────────────────────────────────────────
-
-const peSunatBulkSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
-  input: SourceDiscoveryInput,
-): Promise<SourceDiscoveryOutput> => {
-  const report = await runSunatBulkDryRun({ mode: 'availability_check' });
-
-  const isAvailable = report.status === 'available';
-  const warnings = [...report.warnings];
-  const errors = [...report.errors];
-
-  if (!isAvailable) {
-    errors.push(
-      `SUNAT Padrón RUC no disponible: status=${report.status}. ` +
-        `Verificar conectividad con ${report.metadata.url}`,
-    );
-  }
-
-  return {
-    sourceKey: 'pe_sunat_bulk',
-    sourceProvider: 'sunat_peru',
-    countryCode: 'PE',
-    mode: input.mode ?? 'dry_run',
-    recordsRead: 0,
-    candidates: [],
-    acceptedCount: 0,
-    lowPriorityCount: 0,
-    filteredOutCount: 0,
-    warnings,
-    errors,
-    qualitySummary: {
-      withTaxId: 0,
-      withSector: 0,
-      sectorUnknown: 0,
-      withRegion: 0,
-      withWebsite: 0,
-    },
-  };
-};
-
 // ── Registry ───────────────────────────────────────────────────────────────────
 
 export const SOURCE_DISCOVERY_REGISTRY: Record<string, SourceDiscoveryAdapter> = {
@@ -346,5 +305,4 @@ export const SOURCE_DISCOVERY_REGISTRY: Record<string, SourceDiscoveryAdapter> =
   mx_denue: denueSourceDiscoveryAdapter,
   // cl_chilecompra: descartado del MVP (requiere ticket, cobertura B2G limitada)
   co_rues: socrataSourceDiscoveryAdapter,
-  pe_sunat_bulk: peSunatBulkSourceDiscoveryAdapter,
 };
