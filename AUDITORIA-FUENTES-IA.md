@@ -273,6 +273,54 @@ Esto permite que cuando se agregue una fuente a `VALIDATED_SOURCE_CONFIGS`, el V
 
 ---
 
+## Decisión Chile — SII descartado del MVP activo
+
+**Fecha:** 2026-06-23
+**HEAD:** `afb7370` → `8371998`
+
+### Veredicto
+
+`cl_sii` — SII Chile (Servicio de Impuestos Internos) → **REMOVE_FROM_MVP_CATALOG**
+
+### Evidencia técnica
+
+1. **No tiene connector** registrado en `connector-registry.ts`.
+2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
+3. **No tiene validated-source-config** en `validated-source-configs.ts`.
+4. **No tiene tax identifier resolver** para Chile — solo CO y MX tienen resolvedores.
+5. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
+6. **No aparece en recommendedSources** — `connectionMode='not_connected'`, `aiFlowStatus='manual_only'`.
+7. **Connection test strategy:** `validation_input_required` (no automatable).
+
+### Evidencia documental
+
+- **SII no tiene API oficial pública** para consulta masiva o validación programática de RUT.
+- **SII tiene captcha agresivo** en consulta individual — documentado en `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md`.
+- **SII prohíbe scraping automatizado** — documentado en misma fuente.
+- **Alternativa:** API de terceros (BaseAPI.cl) es de pago y no está en scope MVP.
+- **`cl_res`** (RES / datos.gob.cl) ya es la fuente activa para Chile con RUT estructurado.
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `source-catalog.ts` | Eliminada entrada `cl_sii` de CATALOG_SOURCES |
+| `AGENTE_1_CATALOG_CONTEXT_RETRIEVER.md` | Eliminada fila SII Chile de tabla Chile |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+
+### No modificado
+
+- `cl_res` intacto
+- COUNTRY_RISKS para CL intacto (mención de SII es nota contextual general)
+- Labels (son genéricos, no fuente-específicos)
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto
+- `strategy-resolver.ts` intacto (regla `validation_only` es genérica)
+
+---
+
 ## Hito cerrado — Colombia MVP: fuentes clasificadas y conectadas
 
 **Fecha:** 2026-06-22

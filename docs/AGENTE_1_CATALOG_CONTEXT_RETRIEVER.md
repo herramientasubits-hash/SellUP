@@ -98,7 +98,6 @@ type CatalogContextResult = {
 |---|---|---|---|---|
 | RES / datos.gob.cl | `cl_res` | P0 | official_registry | Todos |
 | SENCE OTEC | `cl_sence_otec` | P1 | official_registry | Capacitación/HR |
-| SII Chile | `cl_sii` | P1 | official_registry | Todos (validación) |
 
 ### Perú (PE)
 
