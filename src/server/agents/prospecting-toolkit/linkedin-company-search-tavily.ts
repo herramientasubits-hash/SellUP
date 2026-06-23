@@ -1,12 +1,12 @@
 /**
- * LinkedIn Company Search — Tavily Provider (v1.15.5B)
+ * LinkedIn Company Search — Tavily Provider (v1.15.6)
  *
  * Implementa LinkedInSearchProviderFn usando la Tavily Search API.
  * Solo busca URLs de empresa LinkedIn. Sin scraping. Sin login.
  * Sin Sales Navigator. Sin contactos. Sin decisores.
  *
  * Parámetros fijos (conservadores):
- *   max_results    = 1
+ *   max_results    = 1 por defecto, configurable para recall test (max 5)
  *   search_depth   = basic
  *   include_domains = ['linkedin.com']
  *
@@ -21,7 +21,6 @@ import type { LinkedInSearchProviderFn } from './linkedin-company-search';
 
 const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 const REQUEST_TIMEOUT_MS = 15_000;
-const MAX_RESULTS = 1;
 
 type TavilyResultItem = {
   url?: string;
@@ -47,9 +46,16 @@ function isValidHttpUrl(url: string | undefined): url is string {
  * Cada llamada hace exactamente 1 request POST a Tavily.
  * Sin retry. Sin cache. Sin estado interno.
  *
+ * @param maxResultsPerQuery Número de resultados a solicitar a Tavily (1-5). Default 1.
+ *   Usar 3 en modo recall test para evaluar múltiples candidatos por query.
+ *   El orchestrator selecciona el mejor resultado entre los retornados.
  * @returns La función proveedora. Si no hay key disponible, retorna [] sin error fatal.
  */
-export function createTavilyLinkedInSearchProvider(): LinkedInSearchProviderFn {
+export function createTavilyLinkedInSearchProvider(
+  maxResultsPerQuery: number = 1,
+): LinkedInSearchProviderFn {
+  const effectiveMaxResults = Math.max(1, Math.min(maxResultsPerQuery, 5));
+
   return async (query: string): Promise<string[]> => {
     let apiKey: string | null;
 
@@ -78,7 +84,7 @@ export function createTavilyLinkedInSearchProvider(): LinkedInSearchProviderFn {
         },
         body: JSON.stringify({
           query,
-          max_results: MAX_RESULTS,
+          max_results: effectiveMaxResults,
           search_depth: 'basic',
           include_domains: ['linkedin.com'],
           include_raw_content: false,
@@ -100,7 +106,7 @@ export function createTavilyLinkedInSearchProvider(): LinkedInSearchProviderFn {
         .map((item) => item.url)
         .filter(isValidHttpUrl);
 
-      return urls.slice(0, MAX_RESULTS);
+      return urls.slice(0, effectiveMaxResults);
     } catch (err: unknown) {
       clearTimeout(timeoutId);
       const isTimeout = err instanceof Error && err.name === 'AbortError';
