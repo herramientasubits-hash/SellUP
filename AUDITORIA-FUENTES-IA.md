@@ -610,7 +610,7 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 - `tax-identifier-resolution/` intacto (solo CO y MX)
 - `source-discovery-preflight.ts` intacto (nunca incluyó CMF)
 - `labels.ts` intacto
-- `source-catalog.ts` — solo eliminada entrada cl_cmf; cl_res, cl_corfo, cl_sofofa, cl_ccs, cl_startup_chile intactos
+- `source-catalog.ts` — solo eliminada entrada cl_cmf; cl_res, cl_corfo, cl_sofofa, cl_startup_chile intactos
 - `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto (documento general; CMF mencionado como regulador contextual, no como fuente)
 - Prompts de agente intactos
 - Colombia, México y demás países intactos
@@ -649,7 +649,7 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 ### No modificado
 
 - `cl_res` intacto
-- `cl_sofofa`, `cl_ccs`, `cl_startup_chile` intactos
+- `cl_sofofa`, `cl_startup_chile` intactos
 - `connector-registry.ts` intacto
 - `enrichment-adapter-registry.ts` intacto
 - `validated-source-configs.ts` intacto
@@ -693,7 +693,53 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 ### No modificado
 
 - `cl_res` intacto
-- `cl_ccs`, `cl_startup_chile` intactos
+- `cl_startup_chile` intactos
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto (solo CO y MX)
+- `source-discovery-preflight.ts` intacto
+- `labels.ts` intacto
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto
+- Prompts de agente intactos
+- Colombia, México y demás países intactos
+
+---
+
+## Decisión: cl_ccs — CCS Chile (Cámara de Comercio de Santiago)
+
+**Veredicto: REMOVE_FROM_MVP_CATALOG**
+
+### Por qué se elimina
+
+1. **No tiene connector** registrado en `connector-registry.ts`.
+2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
+3. **No tiene validated-source-config** en `validated-source-configs.ts`.
+4. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
+5. **`connectionMode: 'not_connected'`**, **`aiFlowStatus: 'manual_only'`**, **`sellupUse: 'manual_reference'`** — no es una fuente conectada ni automatizable.
+6. **`operationalStatus: 'manual_signal_only'`** — solo señal manual desde creación del catálogo.
+
+### Evidencia documental
+
+- CCS es un gremio empresarial con ~2.300 socios afiliados, principalmente del sector comercio y retail de la Región Metropolitana.
+- El directorio de socios está detrás del portal cerrado (`portalsociosccs.cl`) con acceso solo para miembros. **No hay API pública ni dataset descargable.**
+- El sitio web público de CCS (`ccs.cl`) no expone directorio estructurado con RUT, razón social, sector codificado ni descarga masiva.
+- **No existe API oficial** ni dataset en datos.gob.cl asociado a CCS.
+- **Su universo es acotado a afiliados (~2.300 empresas)** del comercio/retail de Santiago. No representa discovery empresarial multisectorial para Agente 1.
+- **La cobertura es regional (Región Metropolitana)**, no nacional.
+- **`cl_res` ya es la fuente P0 para Chile**: RUT estructurado, cobertura de millones de empresas, descarga CSV directa desde datos.gob.cl y actualización periódica.
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `source-catalog.ts` | Eliminada entrada `cl_ccs` de CATALOG_SOURCES |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+
+### No modificado
+
+- `cl_res` intacto
+- `cl_startup_chile` intacto (pendiente de validación)
 - `connector-registry.ts` intacto
 - `enrichment-adapter-registry.ts` intacto
 - `validated-source-configs.ts` intacto

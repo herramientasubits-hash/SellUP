@@ -850,23 +850,6 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'No escribir RUT como tax_identifier fuera de un flujo controlado y auditado.',
     ],
   },
-  {
-    key: 'cl_ccs',
-    name: 'CCS Chile (Cámara de Comercio de Santiago)',
-    sellupUse: 'manual_reference',
-    aiFlowStatus: 'manual_only',
-    connectionMode: 'not_connected',
-    countryCodes: ['CL'],
-    sectors: [],
-    priority: 'P1',
-    operationalStatus: 'manual_signal_only',
-    type: 'industry_association',
-    url: 'https://www.ccs.cl/',
-    automationLevel: 'manual',
-    recommendedUse: 'Directorio de comercios y empresas asociadas en Santiago. Amplia cobertura en Región Metropolitana.',
-    limitations: ['Solo afiliados CCS', 'Sin API pública'],
-  },
-
   // ── Chile — Innovación / Startups ───────────────────────────────────────────
   {
     key: 'cl_startup_chile',
