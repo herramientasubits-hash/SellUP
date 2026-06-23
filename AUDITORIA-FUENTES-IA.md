@@ -565,3 +565,52 @@ Ver `docs/RESEARCH_MEXICO_RFC_RESOLVER.md` para investigación técnica completa
 - Colombia y México intactos
 
 ---
+
+## Decisión Chile — CMF descartado del MVP activo
+
+**Fecha:** 2026-06-23
+**HEAD:** commit actual (después de eliminación)
+
+### Veredicto
+
+`cl_cmf` — CMF Chile (Comisión para el Mercado Financiero) → **REMOVE_FROM_MVP_CATALOG**
+
+### Evidencia técnica
+
+1. **No tiene connector** registrado en `connector-registry.ts`.
+2. **No tiene enrichment adapter** en `enrichment-adapter-registry.ts`.
+3. **No tiene validated-source-config** en `validated-source-configs.ts`.
+4. **No tiene tax identifier resolver** para Chile — solo CO y MX tienen resolvedores.
+5. **No participa en source-discovery-preflight** — CL apunta a `cl_res`.
+6. **`connectionMode: 'not_connected'`**, **`aiFlowStatus: 'manual_only'`**, **`sellupUse: 'manual_reference'`** — no es una fuente conectada ni automatizable.
+7. **`operationalStatus: 'pending_validation'`** — estado que debe resolverse; no tiene conector que permita validación.
+8. **`limitations: ['Consultas manuales o mediante solicitud']`** — no existe API oficial pública. No hay evidencia de dataset descargable estructurado con RUT.
+
+### Evidencia documental
+
+- **CMF Chile** no tiene API oficial pública documentada en el código ni referenciada en docs. El sitio cmfchile.cl tiene información institucional, pero el acceso a datos estructurados de entidades reguladas requiere consulta web individual o solicitud manual.
+- **No hay dataset público descargable** identificado (CSV, JSON, XLSX con RUT y razón social de entidades reguladas).
+- **Su universo es regulatorio/acotado:** solo entidades financieras vigiladas (bancos, aseguradoras, fondos, corredoras). No representa discovery multisectorial.
+- **`cl_res`** ya es la fuente P0 para Chile con RUT estructurado, cobertura multisectorial y descarga CSV directa desde datos.gob.cl.
+- CMF mencionado como referencia en `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` en el contexto del sector financiero (a través de AACH), no como fuente propia conectable.
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---------|--------|
+| `source-catalog.ts` | Eliminada entrada `cl_cmf` de CATALOG_SOURCES |
+| `AUDITORIA-FUENTES-IA.md` | Este documento (decisión) |
+
+### No modificado
+
+- `cl_res` intacto
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `tax-identifier-resolution/` intacto (solo CO y MX)
+- `source-discovery-preflight.ts` intacto (nunca incluyó CMF)
+- `labels.ts` intacto
+- `source-catalog.ts` — solo eliminada entrada cl_cmf; cl_res, cl_corfo, cl_sofofa, cl_ccs, cl_startup_chile intactos
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` intacto (documento general; CMF mencionado como regulador contextual, no como fuente)
+- Prompts de agente intactos
+- Colombia, México y demás países intactos
