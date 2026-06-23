@@ -203,7 +203,7 @@ export async function enrichBatchCandidates(
   batchId: string,
   countryCode: string,
 ): Promise<{ candidatesProcessed: number; sourcesApplied: string[]; warnings: string[]; errors: string[]; taxResolutionStatus?: import('@/server/source-catalog/enrichment/tax-identifier-resolution/types').TaxIdentifierResolutionBatchMetadata }> {
-  if (countryCode !== 'CO' && countryCode !== 'MX') {
+  if (countryCode !== 'CO' && countryCode !== 'MX' && countryCode !== 'CL') {
     return { candidatesProcessed: 0, sourcesApplied: [], warnings: [], errors: [] };
   }
 

@@ -110,6 +110,18 @@ export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
     description:
       'DENUE INEGI — señal contextual de establecimiento activo en México. Enriquecimiento post-discovery por nombre. No contiene RFC. No reemplaza resolución fiscal. Solo contexto operativo para revisión humana.',
   },
+  {
+    sourceKey: 'cl_inapi',
+    countryCodes: ['CL'],
+    capabilities: ['manual_signal'],
+    wizardUsage: 'manual_signal_only',
+    requiresSnapshot: false,
+    canRunLive: true,
+    adapterKey: 'cl_inapi',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'INAPI Chile — señal contextual de propiedad intelectual (marcas y patentes). Enriquecimiento post-discovery por nombre (razón social). No contiene RUT. No reemplaza cl_res. Solo señal contextual para revisión humana.',
+  },
 ];
 
 /**

@@ -248,6 +248,87 @@ export async function enrichBatchCandidatesWithTaxResolution(
   errors: string[];
   taxResolutionStatus: TaxIdentifierResolutionBatchMetadata;
 }> {
+  // Chile: INAPI signal enrichment only (no tax resolution, no discovery)
+  if (countryCode === 'CL') {
+    try {
+      const { data: candidates, error } = await supabase
+        .from('prospect_candidates')
+        .select('id, name, legal_name, metadata, sector_description')
+        .eq('batch_id', batchId);
+
+      if (error || !candidates || candidates.length === 0) {
+        return {
+          candidatesProcessed: 0,
+          sourcesApplied: [],
+          warnings: [],
+          errors: [],
+          taxResolutionStatus: emptyBatchStatus(),
+        };
+      }
+
+      const { inapiChileEnrichmentAdapter } = await import(
+        '../../enrichment/adapters/cl-inapi'
+      );
+
+      const updateOps: Array<Promise<unknown>> = [];
+      let processedCount = 0;
+
+      for (const candidate of candidates) {
+        const existingMeta = (candidate['metadata'] as Record<string, unknown>) ?? {};
+        const candidateId = candidate['id'] as string;
+        const candidateName = (candidate['name'] as string) ?? (candidate['legal_name'] as string) ?? '';
+
+        const updatedMeta: Record<string, unknown> = { ...existingMeta };
+
+        try {
+          const inapiOutput = await inapiChileEnrichmentAdapter.enrichCandidate({
+            candidateName,
+            candidateTaxId: null,
+            countryCode: 'CL',
+            sector: (candidate['sector_description'] as string | null) ?? null,
+            existingMetadata: existingMeta,
+            capability: 'manual_signal',
+          });
+
+          processedCount++;
+          if (inapiOutput.metadata) {
+            updatedMeta['source_enrichment'] = {
+              ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+              cl_inapi: inapiOutput.metadata,
+            };
+          }
+        } catch {
+          // INAPI never breaks the pipeline
+        }
+
+        const op = supabase
+          .from('prospect_candidates')
+          .update({ metadata: updatedMeta })
+          .eq('id', candidateId);
+        updateOps.push(op as unknown as Promise<unknown>);
+      }
+
+      await Promise.allSettled(updateOps);
+
+      return {
+        candidatesProcessed: processedCount,
+        sourcesApplied: processedCount > 0 ? ['cl_inapi'] : [],
+        warnings: [],
+        errors: [],
+        taxResolutionStatus: emptyBatchStatus(),
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        candidatesProcessed: 0,
+        sourcesApplied: [],
+        warnings: [],
+        errors: [msg],
+        taxResolutionStatus: emptyBatchStatus(),
+      };
+    }
+  }
+
   if (countryCode !== 'CO' && countryCode !== 'MX') {
     return {
       candidatesProcessed: 0,

@@ -289,8 +289,13 @@ export async function enrichCandidateImpl(
       ? result.warnings.join('; ')
       : undefined,
     metadata: {
-      ...result.metadata,
+      status: result.status,
+      enrichmentType: result.enrichmentType,
+      matchMethod: result.matchMethod,
+      confidenceSummary: result.confidenceSummary,
+      signals: result.signals,
       warnings: result.warnings,
+      metadata: result.metadata,
     },
   };
 }

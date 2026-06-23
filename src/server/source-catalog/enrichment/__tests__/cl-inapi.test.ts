@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   enrichCandidateWithInapiSignal,
   enrichCandidateImpl,
+  inapiChileEnrichmentAdapter,
 } from '../adapters/cl-inapi';
+import { ENRICHMENT_ADAPTER_REGISTRY } from '../enrichment-adapter-registry';
+import { VALIDATED_SOURCE_CONFIGS } from '../validated-source-configs';
 import type { InapiDryRunOutput, InapiNormalizedSignal } from '../../connectors/inapi-chile/types';
 
 // ─── Factory helpers ───────────────────────────────────────────────────────────
@@ -439,7 +442,12 @@ describe('enrichCandidateImpl — standard adapter wrapper', () => {
     assert.equal(result.confidence, 0.95);
     assert.ok(result.signals);
     assert.ok(result.metadata);
-    assert.equal((result.metadata as Record<string, unknown>)['canResolveTaxIdentifier'], false);
+
+    const meta = result.metadata as Record<string, unknown>;
+    assert.equal(meta['status'], 'matched');
+    assert.equal(meta['enrichmentType'], 'intellectual_property_signal');
+    const nestedMeta = meta['metadata'] as Record<string, unknown>;
+    assert.equal(nestedMeta['canResolveTaxIdentifier'], false);
   });
 
   it('passes legalName from existingMetadata', async () => {
@@ -477,5 +485,88 @@ describe('enrichCandidateImpl — standard adapter wrapper', () => {
 
     assert.equal(result.status, 'skipped');
     assert.ok(result.reason);
+  });
+});
+
+// ─── Integration: Registry & Pipeline Configuration ──────────────────────────
+
+describe('ENRICHMENT_ADAPTER_REGISTRY — cl_inapi registration', () => {
+  it('includes cl_inapi in the registry', () => {
+    assert.ok(ENRICHMENT_ADAPTER_REGISTRY['cl_inapi']);
+    assert.equal(ENRICHMENT_ADAPTER_REGISTRY['cl_inapi'].sourceKey, 'cl_inapi');
+  });
+
+  it('registered adapter is the INAPI adapter instance', () => {
+    assert.equal(ENRICHMENT_ADAPTER_REGISTRY['cl_inapi'], inapiChileEnrichmentAdapter);
+  });
+
+  it('adapter supports manual_signal capability', () => {
+    const adapter = ENRICHMENT_ADAPTER_REGISTRY['cl_inapi'];
+    assert.ok(adapter.supportedCapabilities.includes('manual_signal'));
+    assert.equal(adapter.supportedCapabilities.includes('enrichment_after_discovery'), false);
+    assert.equal(adapter.supportedCapabilities.includes('discovery_primary'), false);
+    assert.equal(adapter.supportedCapabilities.includes('discovery_secondary'), false);
+  });
+});
+
+describe('VALIDATED_SOURCE_CONFIGS — cl_inapi config', () => {
+  const config = VALIDATED_SOURCE_CONFIGS.find((c) => c.sourceKey === 'cl_inapi');
+
+  it('cl_inapi is present in validated-source-configs', () => {
+    assert.ok(config, 'cl_inapi config should exist in VALIDATED_SOURCE_CONFIGS');
+  });
+
+  it('is configured only for Chile (CL)', () => {
+    assert.deepEqual(config!.countryCodes, ['CL']);
+  });
+
+  it('has manual_signal capability only (not enrichment_after_discovery)', () => {
+    assert.ok(config!.capabilities.includes('manual_signal'));
+    assert.equal(config!.capabilities.includes('enrichment_after_discovery'), false);
+  });
+
+  it('uses manual_signal_only wizard usage (not post_discovery_enrichment)', () => {
+    assert.equal(config!.wizardUsage, 'manual_signal_only');
+  });
+
+  it('has skip_without_blocking fallback behavior', () => {
+    assert.equal(config!.fallbackBehavior, 'skip_without_blocking');
+  });
+
+  it('adapterKey resolves to existing adapter in registry', () => {
+    assert.ok(ENRICHMENT_ADAPTER_REGISTRY[config!.adapterKey]);
+    assert.equal(config!.adapterKey, 'cl_inapi');
+  });
+});
+
+describe('Guardrails — INAPI is NOT in CATALOG_SOURCES or discovery preflight', () => {
+  it('CATALOG_SOURCES does not contain cl_inapi', async () => {
+    const { CATALOG_SOURCES } = await import('@/server/agents/prospecting-toolkit/source-catalog');
+    const found = CATALOG_SOURCES.find((s) => s.key === 'cl_inapi');
+    assert.equal(found, undefined, 'INAPI must not appear in CATALOG_SOURCES');
+  });
+
+  it('INAPI never returns tax_identifier', async () => {
+    const fetchFn = mock.fn<() => Promise<InapiDryRunOutput>>(async () => {
+      return makeMockDryRunOutput({
+        signals: [makeMockSignal({ confidenceScore: 0.95 })],
+      });
+    });
+
+    const result = await enrichCandidateWithInapiSignal(
+      { countryCode: 'CL', companyName: 'Test' },
+      fetchFn,
+    );
+
+    assert.equal(result.metadata.canResolveTaxIdentifier, false);
+    assert.equal(result.metadata.canCreateCompany, false);
+    assert.equal(result.metadata.deterministicIdentity, false);
+
+    for (const signal of result.signals) {
+      assert.equal('taxIdentifier' in signal, false);
+      assert.equal('tax_id' in signal, false);
+      assert.equal('tax_identifier' in signal, false);
+      assert.equal('rut' in signal, false);
+    }
   });
 });

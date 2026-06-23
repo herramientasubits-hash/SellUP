@@ -14,6 +14,7 @@ import { personasJuridicasCCEnrichmentAdapter } from '../connectors/personas-jur
 import { minsaludRepsEnrichmentAdapter } from '../connectors/minsalud-reps-colombia/minsalud-reps-enrichment-adapter';
 import { superfinancieraEnrichmentAdapter } from '../connectors/superfinanciera-colombia/superfinanciera-enrichment-adapter';
 import { denueEnrichmentAdapter } from '../connectors/denue-mexico/denue-enrichment-adapter';
+import { inapiChileEnrichmentAdapter } from './adapters/cl-inapi';
 
 export const ENRICHMENT_ADAPTER_REGISTRY: Record<string, SourceEnrichmentAdapter> = {
   co_siis: siisEnrichmentAdapter,
@@ -22,4 +23,5 @@ export const ENRICHMENT_ADAPTER_REGISTRY: Record<string, SourceEnrichmentAdapter
   co_minsalud_reps: minsaludRepsEnrichmentAdapter,
   co_superfinanciera: superfinancieraEnrichmentAdapter,
   mx_denue: denueEnrichmentAdapter,
+  cl_inapi: inapiChileEnrichmentAdapter,
 };
