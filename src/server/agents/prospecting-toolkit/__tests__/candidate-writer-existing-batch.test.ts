@@ -58,6 +58,7 @@ class ChainResult {
   in(_col: string, _vals: unknown[]): ChainResult { return this; }
   not(_col: string, _op: string, _val: unknown): ChainResult { return this; }
   gte(_col: string, _val: unknown): ChainResult { return this; }
+  limit(_n: number): ChainResult { return this; }
   select(_cols: string): ChainResult { return this; }
 
   /** Makes the object directly awaitable (thenable). */

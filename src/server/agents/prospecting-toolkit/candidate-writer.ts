@@ -28,6 +28,8 @@ import { normalizeProspectCompanyName } from "./company-name-normalizer";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
+import { checkActiveCandidateDuplicate } from "./active-candidate-identity-guard";
+import type { ActiveCandidateRecord } from "./active-candidate-identity-guard";
 import type {
   CandidateWriterInput,
   CandidateWriterOutput,
@@ -202,6 +204,92 @@ function isDirectorySourceDomain(domain: string | null): boolean {
     if (d.endsWith(`.${entry}`)) return true;
   }
   return false;
+}
+
+// ─── Active duplicate guard — prefetch helper ─────────────────────────────────
+
+const ACTIVE_STATUSES_FOR_GUARD = [
+  'needs_review', 'approved', 'converted', 'ready_for_review',
+  'draft', 'generating', 'pending', 'active', 'ready', 'in_progress',
+];
+
+/**
+ * Carga candidatos activos relevantes desde Supabase para el Active Duplicate Guard.
+ *
+ * Hace dos consultas acotadas:
+ *   1. Por dominio exacto (para detectar same_active_domain cross-country)
+ *   2. Por country_code (para detectar same_inferred_identity dentro del país)
+ *
+ * Diseñado para degradar silenciosamente si la query falla o si el cliente
+ * no soporta el método (e.g., fake admin en tests) — retorna [] en ese caso.
+ */
+async function fetchActiveCandidatesForGuard(
+  admin: SupabaseClient,
+  batchDomains: string[],
+  countryCode: string | null,
+): Promise<ActiveCandidateRecord[]> {
+  try {
+    const result: ActiveCandidateRecord[] = [];
+    const seenIds = new Set<string>();
+
+    function mapRow(row: Record<string, unknown>): ActiveCandidateRecord {
+      const meta = (row['metadata'] ?? {}) as Record<string, unknown>;
+      const ir = (meta['identity_resolution'] ?? {}) as Record<string, unknown>;
+      return {
+        id: row['id'] as string,
+        name: row['name'] as string,
+        domain: (row['domain'] as string | null) ?? null,
+        normalizedName: (row['normalized_name'] as string | null) ?? null,
+        inferredCompanyName: (ir['inferred_company_name'] as string | null) ?? null,
+        status: row['status'] as string,
+      };
+    }
+
+    // Primary: by domain (catches same_active_domain globally, cross-country)
+    if (batchDomains.length > 0) {
+      const { data: byDomain } = await (admin as ReturnType<typeof import('@supabase/supabase-js').createClient>)
+        .from('prospect_candidates')
+        .select('id, name, domain, normalized_name, metadata, status')
+        .in('status', ACTIVE_STATUSES_FOR_GUARD)
+        .in('domain', batchDomains)
+        .limit(500);
+
+      if (Array.isArray(byDomain)) {
+        for (const row of byDomain as Record<string, unknown>[]) {
+          const rec = mapRow(row);
+          if (!seenIds.has(rec.id)) {
+            seenIds.add(rec.id);
+            result.push(rec);
+          }
+        }
+      }
+    }
+
+    // Secondary: by country (catches same_inferred_identity within country, bounded)
+    if (countryCode) {
+      const { data: byCountry } = await (admin as ReturnType<typeof import('@supabase/supabase-js').createClient>)
+        .from('prospect_candidates')
+        .select('id, name, domain, normalized_name, metadata, status')
+        .in('status', ACTIVE_STATUSES_FOR_GUARD)
+        .eq('country_code', countryCode)
+        .limit(500);
+
+      if (Array.isArray(byCountry)) {
+        for (const row of byCountry as Record<string, unknown>[]) {
+          const rec = mapRow(row);
+          if (!seenIds.has(rec.id)) {
+            seenIds.add(rec.id);
+            result.push(rec);
+          }
+        }
+      }
+    }
+
+    return result;
+  } catch {
+    // Non-critical: guard degrades gracefully if prefetch fails
+    return [];
+  }
 }
 
 // ─── Mapeos ───────────────────────────────────────────────────────────────────
@@ -728,6 +816,22 @@ export async function writeProspectingCandidates(
     samples: [] as EvidencePolicySample[],
   };
 
+  // Active Duplicate Guard tracking (v1.13.1)
+  type DuplicateGuardSample = {
+    candidate_name: string;
+    candidate_domain: string | null;
+    reason: string;
+    matched_candidate_id: string;
+    matched_name: string;
+    matched_domain: string | null;
+  };
+  const duplicateGuardData = {
+    checkedCount: 0,
+    skippedCount: 0,
+    possibleDuplicateCount: 0,
+    samples: [] as DuplicateGuardSample[],
+  };
+
   // ── Pass 1: evaluate all candidates through gates → collect eligible ────────
   type IdentityResolutionMeta = {
     original_detected_name: string;
@@ -1087,8 +1191,70 @@ export async function writeProspectingCandidates(
     precisionGate.targetCapCount++;
   }
 
+  // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
+  // Fetches existing active candidates once before the write loop to avoid
+  // re-inserting companies already in SellUp (e.g., Softland case).
+  const guardBatchDomains = toPersist
+    .map((e) => e.domain)
+    .filter((d): d is string => d !== null && d.length > 0);
+  const activeCandidatesForGuard = await fetchActiveCandidatesForGuard(
+    admin,
+    guardBatchDomains,
+    countryCode ?? null,
+  );
+
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
   for (const { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution } of toPersist) {
+    // ── Active Duplicate Guard (v1.13.1) ─────────────────────────────────────
+    // Runs before any DB write. Skips candidates that duplicate active SellUp entries.
+    const guardInferredName = identityResolution?.inferred_company_name ?? candidate.name;
+    const guardInput = {
+      domain,
+      inferredCompanyName: guardInferredName,
+      normalizedName: normalizeName(guardInferredName),
+    };
+    const guardMatch = checkActiveCandidateDuplicate(guardInput, activeCandidatesForGuard);
+    duplicateGuardData.checkedCount++;
+
+    if (guardMatch.matched) {
+      const isStrongMatch =
+        guardMatch.reason === 'same_active_domain' ||
+        guardMatch.reason === 'same_inferred_identity';
+
+      if (isStrongMatch) {
+        skipped.push({
+          name: candidate.name,
+          reason: `duplicate_guard:${guardMatch.reason}`,
+          searchTrace: candidate.searchTrace ?? undefined,
+        });
+        duplicateGuardData.skippedCount++;
+        if (duplicateGuardData.samples.length < 10) {
+          duplicateGuardData.samples.push({
+            candidate_name: candidate.name,
+            candidate_domain: domain ?? null,
+            reason: guardMatch.reason!,
+            matched_candidate_id: guardMatch.matchedCandidateId ?? '',
+            matched_name: guardMatch.matchedName ?? '',
+            matched_domain: guardMatch.matchedDomain ?? null,
+          });
+        }
+        continue;
+      }
+
+      // same_canonical_identity: persist as possible_duplicate and annotate
+      duplicateGuardData.possibleDuplicateCount++;
+      if (duplicateGuardData.samples.length < 10) {
+        duplicateGuardData.samples.push({
+          candidate_name: candidate.name,
+          candidate_domain: domain ?? null,
+          reason: guardMatch.reason!,
+          matched_candidate_id: guardMatch.matchedCandidateId ?? '',
+          matched_name: guardMatch.matchedName ?? '',
+          matched_domain: guardMatch.matchedDomain ?? null,
+        });
+      }
+    }
+
     // ── Evidence persistence policy (Hito v1.5) ─────────────────────────────
     const evidencePolicy = computeEvidencePersistencePolicy({
       countryEvidence: countryEvidenceResult,
@@ -1121,9 +1287,11 @@ export async function writeProspectingCandidates(
       evidencePolicyGateData.confidenceCapCount++;
     }
 
-    const dbDuplicateStatus = mapDuplicateStatus(
-      candidate.duplicateCheck?.status ?? "unchecked"
-    );
+    // Guard override: same_canonical_identity → mark as possible_duplicate
+    const dbDuplicateStatus =
+      guardMatch.matched && guardMatch.reason === 'same_canonical_identity'
+        ? 'possible_duplicate'
+        : mapDuplicateStatus(candidate.duplicateCheck?.status ?? "unchecked");
 
     // matched_account_id solo si es UUID válido de SellUp
     const sellupMatch = candidate.duplicateCheck?.matches.find(
@@ -1195,6 +1363,17 @@ export async function writeProspectingCandidates(
                 original_confidence: candidate.scoring.confidenceScore,
                 effective_confidence: effectiveConfidenceScore,
                 warnings: evidencePolicy.warnings,
+              },
+            }
+          : {}),
+        ...(guardMatch.matched && guardMatch.reason === 'same_canonical_identity'
+          ? {
+              duplicate_guard: {
+                matched: true,
+                reason: guardMatch.reason,
+                matched_candidate_id: guardMatch.matchedCandidateId,
+                matched_domain: guardMatch.matchedDomain,
+                matched_name: guardMatch.matchedName,
               },
             }
           : {}),
@@ -1537,6 +1716,14 @@ export async function writeProspectingCandidates(
       samples: recallRecoveryGate.samples.slice(0, 10),
     };
 
+    const duplicateGuardMetadata = {
+      enabled: true,
+      checked_count: duplicateGuardData.checkedCount,
+      skipped_count: duplicateGuardData.skippedCount,
+      possible_duplicate_count: duplicateGuardData.possibleDuplicateCount,
+      samples: duplicateGuardData.samples.slice(0, 10),
+    };
+
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
@@ -1550,6 +1737,7 @@ export async function writeProspectingCandidates(
       company_ownership_gate: companyOwnershipGateMetadata,
       evidence_policy_gate: evidencePolicyGateMetadata,
       recall_recovery_gate: recallRecoveryGateMetadata,
+      duplicate_guard: duplicateGuardMetadata,
       tavily_usage_reconciliation: tavilyUsageReconciliation,
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
