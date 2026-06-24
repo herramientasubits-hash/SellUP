@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Smoke — Rich Profile Flow Write v1.16F
+ * Smoke — Rich Profile Flow Write
  *
  * PROPÓSITO:
  *   Validar el flujo real de escritura de candidatos con rich_profile_enrichment
@@ -19,15 +19,17 @@
  *   - DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled permanece false
  *   - batch metadata: smoke_test=true, cleanup_mode=logical_only
  *
- * CANDIDATO SINTÉTICO:
- *   name: Sofka | domain: sofka.com.co | country: Colombia
- *   Verificado en preflight: active_count=0 para sofka.com.co
+ * CANDIDATO:
+ *   Configurable vía env vars (ver resolveWriteSmokeConfig).
+ *   Defaults: Sofka | sofka.com.co | Colombia (backwards compat).
+ *   Globant: usar npm run agent1:smoke:rich-profile-flow-write:globant
  *
  * EJECUCIÓN (requiere autorización explícita):
- *   npm run agent1:smoke:rich-profile-flow-write
+ *   npm run agent1:smoke:rich-profile-flow-write              ← Sofka (default)
+ *   npm run agent1:smoke:rich-profile-flow-write:globant      ← Globant
  *
  * NOTA: Este script requiere que el usuario haya revisado y autorizado
- *       explícitamente el Preflight Report de v1.16F antes de ejecutar.
+ *       explícitamente el Preflight Report antes de ejecutar.
  */
 
 import { execSync } from 'child_process';
@@ -41,30 +43,30 @@ import {
 import { createTavilyRichProfileEnrichmentProvider } from '../../src/server/agents/prospecting-toolkit/rich-profile-enrichment-tavily';
 import { createRichProfileEnrichmentUsageLoggerFn } from '../../src/server/agents/prospecting-toolkit/rich-profile-enrichment-usage-logging';
 import { DEFAULT_LINKEDIN_SEARCH_CONFIG } from '../../src/server/agents/prospecting-toolkit/linkedin-company-search';
+import { resolveWriteSmokeConfig } from '../../src/server/agents/prospecting-toolkit/rich-profile-calibration-config';
 import type {
   ProspectingPipelineOutput,
   ProspectingPipelineCandidate,
   CandidateWriterInput,
+  SearchDepth,
 } from '../../src/server/agents/prospecting-toolkit/types';
+
+// ─── Resolve config from env vars ────────────────────────────────────────────
+
+const CONFIG = resolveWriteSmokeConfig(process.env);
+
+// Tavily uses 'basic'|'advanced'; pipeline SearchDepth is 'basic'|'standard'|'deep'
+const PIPELINE_SEARCH_DEPTH: SearchDepth = CONFIG.searchDepth === 'advanced' ? 'deep' : 'basic';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SMOKE_TYPE = 'rich_profile_flow_v1_16f';
-const SCRIPT_NAME = 'v1_16f_rich_profile_flow_write_smoke';
+const SMOKE_TYPE = CONFIG.smokeType;
+const SCRIPT_NAME = CONFIG.scriptName;
 const UNIT_COST_USD = 0.008;         // Tavily basic search — per provider_pricing_config
-const MAX_RESULTS_PER_QUERY = 3;
 const HARD_CAP_TAVILY_CALLS = 1;
 
 // userId real — egarcia@ubits.co (verificado en preflight)
 const AUTHORIZED_USER_ID = '5a8fb462-eecb-41f2-bfab-2c8fb6e3f73c';
-
-// Dominio seleccionado — active_count=0 verificado en preflight
-const SMOKE_DOMAIN = 'sofka.com.co';
-const SMOKE_COMPANY_NAME = 'Sofka';
-const SMOKE_WEBSITE = 'https://www.sofka.com.co';
-const SMOKE_COUNTRY = 'Colombia';
-const SMOKE_COUNTRY_CODE = 'CO';
-const SMOKE_INDUSTRY = 'Tecnología';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -85,23 +87,25 @@ function getGitInfo() {
 
 function printPreflight(git: ReturnType<typeof getGitInfo>) {
   console.log('\n╔══════════════════════════════════════════════════════════════════╗');
-  console.log('║  PREFLIGHT — Rich Profile Flow Write Smoke v1.16F                 ║');
+  console.log(`║  PREFLIGHT — Rich Profile Flow Write Smoke                        ║`);
   console.log('╚══════════════════════════════════════════════════════════════════╝');
   console.log(`  branch:                               ${git.branch}`);
   console.log(`  HEAD local:                           ${git.headLocal}`);
   console.log(`  HEAD origin/main:                     ${git.headRemote}`);
   console.log(`  working_tree:                         ${git.clean ? 'clean ✓' : 'DIRTY (continúa igual)'}`);
   console.log(`  smoke_type:                           ${SMOKE_TYPE}`);
+  console.log(`  script_name:                          ${SCRIPT_NAME}`);
   console.log(`  DEFAULT_RICH_PROFILE.enabled:         ${DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG.enabled}`);
   console.log(`  DEFAULT_LINKEDIN.enabled:             ${DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled}`);
-  console.log(`  candidato:                            ${SMOKE_COMPANY_NAME} | ${SMOKE_DOMAIN} | ${SMOKE_COUNTRY}`);
+  console.log(`  candidato:                            ${CONFIG.candidateName} | ${CONFIG.domain} | ${CONFIG.country}`);
   console.log(`  provider:                             tavily`);
   console.log(`  maxPerBatch:                          1`);
   console.log(`  maxQueriesPerCandidate:               1`);
   console.log(`  minConfidenceScore:                   60`);
   console.log(`  unit_cost_usd:                        ${UNIT_COST_USD}`);
   console.log(`  hard_cap_tavily_calls:                ${HARD_CAP_TAVILY_CALLS}`);
-  console.log(`  max_results_per_query:                ${MAX_RESULTS_PER_QUERY}`);
+  console.log(`  max_results_per_query:                ${CONFIG.maxResults}`);
+  console.log(`  search_depth:                         ${CONFIG.searchDepth}`);
   console.log(`  dryRun:                               false (WRITES REALES)`);
   console.log(`  userId:                               ${AUTHORIZED_USER_ID}`);
   console.log(`  discovery_tavily:                     0 (pipeline web search skipped)`);
@@ -109,10 +113,10 @@ function printPreflight(git: ReturnType<typeof getGitInfo>) {
   console.log(`  hard_delete:                          false`);
   console.log(`  cleanup_mode:                         logical_only`);
   console.log('\n  Expected writes:');
-  console.log('    [1] INSERT prospect_batches (1 row, smoke_test=true)');
-  console.log('    [2] INSERT prospect_candidates (1 row, Sofka, smoke_test=true)');
-  console.log('    [3] INSERT provider_usage_logs (1 row, via usageLoggerFn interna)');
-  console.log('    [4] UPDATE prospect_batches metadata (rich_profile_enrichment summary)');
+  console.log(`    [1] INSERT prospect_batches (1 row, smoke_test=true)`);
+  console.log(`    [2] INSERT prospect_candidates (1 row, ${CONFIG.candidateName}, smoke_test=true)`);
+  console.log(`    [3] INSERT provider_usage_logs (1 row, via usageLoggerFn interna)`);
+  console.log(`    [4] UPDATE prospect_batches metadata (rich_profile_enrichment summary)`);
   console.log('══════════════════════════════════════════════════════════════════\n');
 }
 
@@ -200,10 +204,10 @@ SET
   metadata = jsonb_set(
     metadata,
     '{logical_cleanup}',
-    '{"cleanup_type":"smoke_v1_16f","reason":"Smoke test completado; candidato debe ser ignorado en producción."}'::jsonb
+    '{"cleanup_type":"${SMOKE_TYPE}","reason":"Smoke test completado; candidato debe ser ignorado en producción."}'::jsonb
   )
 WHERE batch_id = '${batchId}'
-  AND lower(domain) = '${SMOKE_DOMAIN}';`);
+  AND lower(domain) = '${CONFIG.domain}';`);
 
   console.log('\n-- 2. Batch smoke → completed + logical_cleanup:');
   console.log(`UPDATE public.prospect_batches
@@ -212,7 +216,7 @@ SET
   metadata = jsonb_set(
     metadata,
     '{logical_cleanup}',
-    '{"cleanup_type":"rich_profile_flow_smoke_cleanup_v1_16f","reason":"Smoke test completado; batch debe ser ignorado en producción."}'::jsonb
+    '{"cleanup_type":"${SMOKE_TYPE}_cleanup","reason":"Smoke test completado; batch debe ser ignorado en producción."}'::jsonb
   )
 WHERE id = '${batchId}'
   AND metadata->>'smoke_type' = '${SMOKE_TYPE}';`);
@@ -275,7 +279,11 @@ async function main(): Promise<void> {
 
   // ─── Provider con hard cap ────────────────────────────────────────────────────
 
-  const baseProvider = createTavilyRichProfileEnrichmentProvider(MAX_RESULTS_PER_QUERY);
+  const baseProvider = createTavilyRichProfileEnrichmentProvider(
+    CONFIG.maxResults,
+    undefined,
+    CONFIG.searchDepth,
+  );
 
   const guardedProviderFn: typeof baseProvider = async (candidate, query) => {
     tavilyCallCount++;
@@ -290,33 +298,30 @@ async function main(): Promise<void> {
   };
 
   // ─── Usage logger ─────────────────────────────────────────────────────────────
-  // El writer llama a usageLoggerFn internamente cuando provider='tavily' y dryRun=false.
-  // El batchId ya está resuelto cuando se llama (creado en Path B antes del pre-pass).
 
   const usageLoggerFn = createRichProfileEnrichmentUsageLoggerFn(AUTHORIZED_USER_ID);
 
   // ─── Candidato sintético ─────────────────────────────────────────────────────
-  // Construido en memoria — el candidate writer lo insertará si pasa todas las gates.
 
   const nowIso = new Date().toISOString();
 
   const syntheticCandidate: ProspectingPipelineCandidate = {
-    name: SMOKE_COMPANY_NAME,
-    website: SMOKE_WEBSITE,
-    domain: SMOKE_DOMAIN,
-    country: SMOKE_COUNTRY,
-    countryCode: SMOKE_COUNTRY_CODE,
-    industry: SMOKE_INDUSTRY,
-    sourceUrl: SMOKE_WEBSITE,
-    sourceTitle: 'Sofka | Transformación digital y software empresarial',
+    name: CONFIG.candidateName,
+    website: CONFIG.website,
+    domain: CONFIG.domain,
+    country: CONFIG.country,
+    countryCode: CONFIG.countryCode,
+    industry: CONFIG.industry,
+    sourceUrl: CONFIG.website,
+    sourceTitle: `${CONFIG.candidateName} | ${CONFIG.industry} — ${CONFIG.country}`,
     sourceSnippet:
-      'Sofka es una empresa colombiana de tecnología especializada en soluciones de software, transformación digital y servicios TI para empresas B2B.',
+      `${CONFIG.candidateName} es una empresa de ${CONFIG.industry.toLowerCase()} con presencia B2B en ${CONFIG.country}. Candidato sintético para smoke test de rich profile enrichment.`,
     websiteVerification: {
       status: 'verified',
-      website: SMOKE_WEBSITE,
-      domain: SMOKE_DOMAIN,
-      finalUrl: SMOKE_WEBSITE,
-      finalDomain: SMOKE_DOMAIN,
+      website: CONFIG.website,
+      domain: CONFIG.domain,
+      finalUrl: CONFIG.website,
+      finalDomain: CONFIG.domain,
       httpStatus: 200,
       redirected: false,
       redirectChain: [],
@@ -328,14 +333,14 @@ async function main(): Promise<void> {
       status: 'new_candidate',
       confidence: 90,
       input: {
-        name: SMOKE_COMPANY_NAME,
-        website: SMOKE_WEBSITE,
-        domain: SMOKE_DOMAIN,
-        country: SMOKE_COUNTRY,
-        countryCode: SMOKE_COUNTRY_CODE,
+        name: CONFIG.candidateName,
+        website: CONFIG.website,
+        domain: CONFIG.domain,
+        country: CONFIG.country,
+        countryCode: CONFIG.countryCode,
       },
       matches: [],
-      summary: 'No duplicates found (smoke test v1.16F)',
+      summary: `No duplicates found (smoke test ${SMOKE_TYPE})`,
       checkedSources: ['sellup', 'hubspot'],
     },
     scoring: {
@@ -366,46 +371,44 @@ async function main(): Promise<void> {
         commercial_calibration_delta: 0,
         final_fit_score: 75,
         fit_label: 'medium',
-        fit_reasons: ['tech_company', 'colombia_co_domain', 'b2b_software'],
+        fit_reasons: ['tech_company', `${CONFIG.countryCode.toLowerCase()}_domain`, 'b2b_software'],
         fit_penalties: [],
       },
     },
   };
 
   // ─── Pipeline output sintético ────────────────────────────────────────────────
-  // web_search skipped=true → 0 discovery Tavily calls.
-  // provider='mock' → batchMetadata incluirá generation_mode='mock' (expected para smoke).
 
   const syntheticPipelineOutput: ProspectingPipelineOutput = {
     input: {
-      country: SMOKE_COUNTRY,
-      countryCode: SMOKE_COUNTRY_CODE,
-      industry: SMOKE_INDUSTRY,
-      searchDepth: 'basic',
+      country: CONFIG.country,
+      countryCode: CONFIG.countryCode,
+      industry: CONFIG.industry,
+      searchDepth: PIPELINE_SEARCH_DEPTH,
       targetCount: 1,
       mode: 'single_query',
     },
     catalogContext: {
-      country: SMOKE_COUNTRY,
-      countryCode: SMOKE_COUNTRY_CODE,
-      industry: SMOKE_INDUSTRY,
-      searchDepth: 'basic',
-      fiscalIdentifierLabel: 'NIT',
+      country: CONFIG.country,
+      countryCode: CONFIG.countryCode,
+      industry: CONFIG.industry,
+      searchDepth: PIPELINE_SEARCH_DEPTH,
+      fiscalIdentifierLabel: CONFIG.countryCode === 'CO' ? 'NIT' : 'TIN',
       recommendedSources: [],
       sectorSources: [],
       risks: [],
       operatingRules: [],
       coverageNotes: [],
-      promptContext: 'smoke_test_v1_16f',
+      promptContext: `smoke_test_${SMOKE_TYPE}`,
     },
-    searchQuery: 'empresas de tecnología Colombia software B2B',
+    searchQuery: `empresas de ${CONFIG.industry.toLowerCase()} ${CONFIG.country} software B2B`,
     webSearch: {
       provider: 'mock',
-      query: 'empresas de tecnología Colombia software B2B',
+      query: `empresas de ${CONFIG.industry.toLowerCase()} ${CONFIG.country} software B2B`,
       results: [],
       resultsCount: 0,
       skipped: true,
-      skipReason: 'smoke_test_synthetic_pipeline_v1_16f',
+      skipReason: `smoke_test_synthetic_pipeline_${SMOKE_TYPE}`,
     },
     candidates: [syntheticCandidate],
     summary: {
@@ -419,10 +422,10 @@ async function main(): Promise<void> {
       discarded: 0,
       unchecked: 0,
     },
-    warnings: ['smoke_test_synthetic_pipeline_v1_16f'],
+    warnings: [`smoke_test_synthetic_pipeline_${SMOKE_TYPE}`],
     metadata: {
       provider: 'mock',
-      pipelineVersion: 'v1.16F-smoke',
+      pipelineVersion: `${SMOKE_TYPE}-smoke`,
       search_mode: 'single_query',
       executedAt: nowIso,
     },
@@ -446,7 +449,7 @@ async function main(): Promise<void> {
     pipelineOutput: syntheticPipelineOutput,
     triggeredByUserId: AUTHORIZED_USER_ID,
     ownerId: AUTHORIZED_USER_ID,
-    batchName: `SellUp Smoke Rich Profile Flow v1.16F — ${nowIso.slice(0, 19)}Z`,
+    batchName: `SellUp Smoke Rich Profile Flow ${SMOKE_TYPE} — ${nowIso.slice(0, 19)}Z`,
     source: 'agent_1',
     dryRun: false,
     extraBatchMetadata,
@@ -454,8 +457,6 @@ async function main(): Promise<void> {
   };
 
   // ─── RichProfileEnrichmentOverride ───────────────────────────────────────────
-  // batchId se crea DENTRO de writeProspectingCandidates (Path B) ANTES del pre-pass.
-  // usageLoggerFn es llamada internamente por el writer cuando shouldLogUsage=true.
 
   const richProfileEnrichmentOverride = {
     config: smokeConfig,
@@ -466,7 +467,7 @@ async function main(): Promise<void> {
 
   // ─── Ejecutar writeProspectingCandidates ──────────────────────────────────────
 
-  console.log('[smoke] Iniciando writeProspectingCandidates con rich_profile_enrichment override...');
+  console.log(`[smoke] Iniciando writeProspectingCandidates — candidato=${CONFIG.candidateName} smoke_type=${SMOKE_TYPE}`);
   console.log('[smoke] 1 Tavily call esperado (enrichment). 0 discovery. 0 LLM.\n');
 
   const startTs = Date.now();
@@ -483,7 +484,7 @@ async function main(): Promise<void> {
   // ─── Reporte ──────────────────────────────────────────────────────────────────
 
   console.log('\n╔══════════════════════════════════════════════════════════════════╗');
-  console.log('║  REPORTE — Rich Profile Flow Write Smoke v1.16F                   ║');
+  console.log(`║  REPORTE — Rich Profile Flow Write Smoke                          ║`);
   console.log('╚══════════════════════════════════════════════════════════════════╝');
 
   console.log('\n--- Writer output ---');
@@ -522,7 +523,7 @@ async function main(): Promise<void> {
     printLogicalCleanupSql(writerOutput.batchId);
   }
 
-  console.log('=== FIN SMOKE v1.16F ===\n');
+  console.log(`=== FIN SMOKE ${SMOKE_TYPE} ===\n`);
 
 } // end main
 

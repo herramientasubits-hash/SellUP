@@ -1,8 +1,8 @@
 /**
- * Pure helper — resolve dry-run calibration candidate config from env vars.
+ * Pure helpers — resolve dry-run calibration and write-smoke config from env vars.
  * Extracted for testability; no side effects on import.
  *
- * Env vars (all optional — Sofka defaults):
+ * Shared env vars (all optional — Sofka defaults):
  *   RICH_PROFILE_CANDIDATE_NAME
  *   RICH_PROFILE_DOMAIN
  *   RICH_PROFILE_WEBSITE
@@ -11,6 +11,10 @@
  *   RICH_PROFILE_INDUSTRY
  *   RICH_PROFILE_MAX_RESULTS
  *   RICH_PROFILE_SEARCH_DEPTH
+ *
+ * Additional env vars for write smoke (resolveWriteSmokeConfig):
+ *   RICH_PROFILE_SMOKE_TYPE   — batch metadata smoke_type (default: rich_profile_flow_v1_16f)
+ *   RICH_PROFILE_SCRIPT_NAME  — batch metadata created_by_script (default: v1_16f_rich_profile_flow_write_smoke)
  */
 
 export interface CandidateCalibrationConfig {
@@ -41,5 +45,23 @@ export function resolveCalibrationConfig(env: Record<string, string | undefined>
     industry: env['RICH_PROFILE_INDUSTRY'] ?? 'Tecnología',
     maxResults: resolvedMaxResults,
     searchDepth: resolvedDepth,
+  };
+}
+
+// ── Write smoke config ────────────────────────────────────────────────────────
+
+const DEFAULT_SMOKE_TYPE = 'rich_profile_flow_v1_16f';
+const DEFAULT_SCRIPT_NAME = 'v1_16f_rich_profile_flow_write_smoke';
+
+export interface WriteSmokeConfig extends CandidateCalibrationConfig {
+  smokeType: string;
+  scriptName: string;
+}
+
+export function resolveWriteSmokeConfig(env: Record<string, string | undefined>): WriteSmokeConfig {
+  return {
+    ...resolveCalibrationConfig(env),
+    smokeType: env['RICH_PROFILE_SMOKE_TYPE'] ?? DEFAULT_SMOKE_TYPE,
+    scriptName: env['RICH_PROFILE_SCRIPT_NAME'] ?? DEFAULT_SCRIPT_NAME,
   };
 }
