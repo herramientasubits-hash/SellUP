@@ -105,24 +105,40 @@
 
 ---
 
-### 1.5 PRODUCE — Directorio de Grandes Empresas Manufactureras — `pe_produce`
+### 1.5 PRODUCE — Directorio MiPyme / Manufactura — `pe_produce`
 
 | Atributo | Valor |
 |---|---|
 | Tipo | `official_registry` |
 | País | Perú (PE) |
-| Sector | Manufactura |
+| Sector | Manufactura / MiPyme |
 | Datos | RUC, razón social, CIIU, UBIGEO |
-| Acceso | Descarga CSV directa |
-| Auth | No |
-| Documentación técnica | Sí — datosabiertos.gob.pe |
-| Costo | Gratuito |
-| Riesgos | Bajo |
-| Encaje | `enrichment` — para empresas manufactureras |
-| Recomendación | `connect_now` |
-| Source key | `pe_produce` (ya en catálogo) |
+| Acceso | **WAF-bloqueado** — ninguna URL estática machine-readable verificada |
+| Auth | No aplica (acceso bloqueado) |
+| Documentación técnica | Sí — datosabiertos.gob.pe (403 WAF) |
+| Costo | Gratuito (cuando accesible manualmente) |
+| Riesgos | **Alto** — portal bloqueado por CloudFront WAF para acceso programático |
+| Encaje | `enrichment` — bloqueado hasta resolución institucional |
+| Recomendación | **`POST_MVP_BLOCKED_BY_WAF`** |
+| Source key | `pe_produce` (en catálogo; sin conector activo) |
 
-**Justificación:** Fuente oficial para el sector manufactura. Ya existe en catálogo. Útil como señal sectorial complementaria.
+**Hallazgos — Hito Perú.3L-2A (2026-06-24):**
+
+Investigación segura de URL estática. Sin bypass, sin spoofing, sin cookies.
+
+| Portal | CIIU | Formato | URL Estática | Estado |
+|---|---|---|---|---|
+| datosabiertos.gob.pe (CKAN) | Sí | CSV/XLSX | Desconocida (403 WAF) | Bloqueado |
+| transparencia.produce.gob.pe (Google Drive) | Sí (5 dígitos) | CSV | Sí (Google Drive) | **2015 — desactualizado** |
+| ogeiee.produce.gob.pe Directorio | Sí | Formulario interactivo | No — formulario | ECONNREFUSED |
+| producempresarial.pe PDFs | Solo agregados | PDF | Sí | No machine-readable |
+| GitHub / Kaggle mirrors | — | — | Ninguno encontrado | — |
+
+**Verdict:** `PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL`
+
+La única URL estática sin auth confirmada (`transparencia.produce.gob.pe` → Google Drive) tiene datos de 2015 — inutilizable para MVP. Todos los accesos 2022+ son WAF-bloqueados o formularios interactivos.
+
+**Siguiente paso recomendado:** Evaluar **Migo API** como fuente CIIU fallback (RUC lookup → CIIU en tiempo real, sin descarga bulk).
 
 ---
 
@@ -530,7 +546,7 @@
 | Latinfo | `private_api` | API REST | API key | RUC + sanciones + deuda + SEACE + RNP + score KYB | Free: 1,000 créditos/mes | Medio | `evaluate_commercially` | `pe_latinfo` |
 | Verifica.id | `private_api` | API REST | API key | RUC + KYC/AML | Enterprise | Medio | `reject_for_mvp` | N/A |
 | OSCE/SEACE | `procurement_signal` | Portal/Datos abiertos | No | Contratos, proveedores, montos | Gratuito | Bajo | `connect_now` | `pe_seace` |
-| PRODUCE | `official_registry` | CSV descarga | No | RUC, CIIU, manufactura | Gratuito | Bajo | `connect_now` | `pe_produce` |
+| PRODUCE | `official_registry` | WAF-bloqueado | No | RUC, CIIU, manufactura | Gratuito | **Alto** | `POST_MVP_BLOCKED_BY_WAF` | `pe_produce` |
 | RNP | `official_registry` | Web manual | No | Proveedores habilitados Estado | Gratuito | Medio | `evaluate_commercially` | `pe_rnp` |
 | SUNARP | `official_registry` | Web manual | No | Representantes legales, sociedades | Gratuito | Medio | `manual_only` | N/A |
 | PNDA | `public_dataset` | CKAN | No | Múltiples datasets | Gratuito | Bajo | `manual_only` | N/A (contenedor) |
@@ -552,7 +568,7 @@
 | ✅ **SUNAT Padrón RUC Bulk (`pe_sunat_bulk`):** BASE DEL MVP PERÚ. Conector implementado. Proceder con Perú.2. |
 | ✅ **SUNAT Consulta Individual (`pe_sunat`):** Ya en catálogo como `validation_only`. Mantener. |
 | ✅ **OSCE/SEACE (`pe_seace`):** Fuente B2G oficial. Mantener en catálogo. Conectar post-MVP. |
-| ✅ **PRODUCE (`pe_produce`):** Señal manufactura. Mantener en catálogo como complemento. |
+| 🚫 **PRODUCE (`pe_produce`):** WAF-bloqueado. Sin URL estática machine-readable para datos 2022+. Verdict: `POST_MVP_BLOCKED_BY_WAF`. Evaluar Migo API como fallback CIIU. |
 | ⏸️ **RNP (`pe_rnp`):** Evaluar post-MVP. Sin API pública. |
 | ⏸️ **SUNARP:** Solo consulta manual. No conectar en MVP. |
 | ⏸️ **PNDA:** Contenedor técnico. No es fuente directa. |
