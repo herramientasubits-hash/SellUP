@@ -33,6 +33,8 @@ export { extractSunatBulkSample } from './sunat-sample-extractor';
 
 export { runSunatBulkSampleParseDryRun } from './sunat-sample-parse-dry-run';
 
+export { runSunatLocalDeeperScan } from './sunat-local-deeper-scan';
+
 export {
   createDefaultPipeConfig,
   createTabConfig,
@@ -82,6 +84,19 @@ export type {
   SunatBulkB2bSampleStatus,
   SunatBulkDryRunRecommendation,
   SunatBulkSampleParseDryRunStatus,
+  SunatLocalDeeperScanInput,
+  SunatLocalDeeperScanOutput,
+  SunatLocalDeeperScanStatus,
+  SunatLocalDeeperScanEnvironment,
+  SunatLocalDeeperScanDownload,
+  SunatLocalDeeperScanZipEntry,
+  SunatLocalDeeperScanStopReason,
+  SunatLocalDeeperScanSampleCompany,
+  SunatLocalDeeperScanDistributionItem,
+  SunatLocalDeeperScanDistributions,
+  SunatLocalDeeperScanHeader,
+  SunatLocalDeeperScanRecommendation,
+  SunatLocalDeeperScanScan,
 } from './types';
 
 export {

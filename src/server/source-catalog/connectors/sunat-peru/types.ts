@@ -4,6 +4,8 @@
  * Tipos para el conector seguro del Padrón Reducido RUC de SUNAT.
  * Solo disponibilidad y metadata HTTP. Sin descarga completa.
  * Sin writes. Sin candidatos.
+ *
+ * local/offline/development-only — No ejecutar en Vercel ni production.
  */
 
 export const SUNAT_BULK_SOURCE_KEY = 'pe_sunat_bulk';
@@ -375,4 +377,120 @@ export type SunatBulkSampleExtractionOutput = {
   stats: SunatBulkSampleExtractionStats;
   warnings: SunatBulkSampleExtractionWarning[];
   errors: string[];
+}
+
+// ─── Local Deeper Scan Types ──────────────────────────────────────────────────────
+// local/offline/development-only
+// No ejecutar en Vercel ni production.
+
+export type SunatLocalDeeperScanInput = {
+  tempDir?: string;
+  targetCompanyCount?: number;
+  maxLinesToScan?: number;
+  maxDecompressedBytes?: number;
+  maxDurationMs?: number;
+  downloadIfMissing?: boolean;
+  requireAck?: boolean;
 };
+
+export type SunatLocalDeeperScanStatus =
+  | 'completed'
+  | 'completed_no_companies'
+  | 'blocked'
+  | 'error';
+
+export type SunatLocalDeeperScanEnvironment = {
+  localOnly: true;
+  vercelDetected: boolean;
+  productionDetected: boolean;
+  ackProvided: boolean;
+  tempDirIgnoredByGit: boolean;
+};
+
+export type SunatLocalDeeperScanDownload = {
+  attempted: boolean;
+  reusedExistingFile: boolean;
+  zipPath?: string;
+  contentLengthBytes?: number;
+  bytesWritten?: number;
+  completed: boolean;
+};
+
+export type SunatLocalDeeperScanZipEntry = {
+  fileName: string;
+  compressedSizeBytes?: number;
+  uncompressedSizeBytes?: number;
+  compressionMethod?: number;
+  compressedDataStartOffset?: number;
+};
+
+export type SunatLocalDeeperScanStopReason =
+  | 'target_company_count_reached'
+  | 'max_lines_reached'
+  | 'max_decompressed_bytes_reached'
+  | 'max_duration_reached'
+  | 'end_of_file'
+  | 'error';
+
+export type SunatLocalDeeperScanSampleCompany = {
+  taxIdentifier: string;
+  legalName: string;
+  taxpayerStatus?: string;
+  domicileCondition?: string;
+  ubigeo?: string;
+  isActiveTaxpayer?: boolean;
+  redactedPreview?: string;
+};
+
+export type SunatLocalDeeperScanDistributionItem = {
+  value: string;
+  count: number;
+};
+
+export type SunatLocalDeeperScanDistributions = {
+  taxpayerStatusTop?: SunatLocalDeeperScanDistributionItem[];
+  domicileConditionTop?: SunatLocalDeeperScanDistributionItem[];
+  ubigeoTop?: SunatLocalDeeperScanDistributionItem[];
+  departmentTop?: SunatLocalDeeperScanDistributionItem[];
+};
+
+export type SunatLocalDeeperScanHeader = {
+  detected: boolean;
+  columns: string[];
+  columnCount: number;
+};
+
+export type SunatLocalDeeperScanRecommendation =
+  | 'ready_for_candidate_preview_design'
+  | 'needs_full_local_snapshot_strategy'
+  | 'blocked'
+  | 'error';
+
+export type SunatLocalDeeperScanScan = {
+  linesScanned: number;
+  decompressedBytesRead: number;
+  headerRowsSkipped: number;
+  naturalPersonsSkipped: number;
+  unsupportedRucSkipped: number;
+  invalidLines: number;
+  companiesFound: number;
+  firstCompanyLineNumber?: number;
+  stoppedBecause: SunatLocalDeeperScanStopReason;
+};
+
+export type SunatLocalDeeperScanOutput = {
+  sourceKey: 'pe_sunat_bulk';
+  mode: 'local_deeper_scan';
+  status: SunatLocalDeeperScanStatus;
+  environment: SunatLocalDeeperScanEnvironment;
+  download: SunatLocalDeeperScanDownload;
+  zipEntry: SunatLocalDeeperScanZipEntry;
+  scan: SunatLocalDeeperScanScan;
+  sampleCompanies: SunatLocalDeeperScanSampleCompany[];
+  distributions: SunatLocalDeeperScanDistributions;
+  header: SunatLocalDeeperScanHeader;
+  ciiuAvailability: string;
+  recommendation: SunatLocalDeeperScanRecommendation;
+  warnings: string[];
+  errors: string[];
+};;
