@@ -31,6 +31,8 @@ export { probeSunatZipStructure } from './sunat-zip-probe';
 
 export { extractSunatBulkSample } from './sunat-sample-extractor';
 
+export { runSunatBulkSampleParseDryRun } from './sunat-sample-parse-dry-run';
+
 export {
   createDefaultPipeConfig,
   createTabConfig,
@@ -71,6 +73,15 @@ export type {
   SunatBulkSampleExtractionStats,
   SunatBulkSampleExtractionWarning,
   SunatBulkDelimiterInference,
+  SunatBulkSampleParseDryRunInput,
+  SunatBulkSampleParseDryRunOutput,
+  SunatBulkSampleParseDryRunExtraction,
+  SunatBulkSampleParseDryRunParsing,
+  SunatBulkSampleParseDryRunSampleCompany,
+  SunatBulkSampleParseDryRunObservation,
+  SunatBulkB2bSampleStatus,
+  SunatBulkDryRunRecommendation,
+  SunatBulkSampleParseDryRunStatus,
 } from './types';
 
 export {

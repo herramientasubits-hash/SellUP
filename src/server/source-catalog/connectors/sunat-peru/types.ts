@@ -255,6 +255,82 @@ export type SunatBulkSampleExtractionStats = {
   rangeRequestMode: 'open_ended_stream_capped' | 'bounded_range';
 };
 
+// ─── Sample Parse Dry-Run Types ────────────────────────────────────────────────────
+
+export interface SunatBulkSampleParseDryRunInput {
+  maxCompressedBytesToRead?: number;
+  maxDecompressedBytesToRead?: number;
+  maxLinesToReturn?: number;
+  includeNaturalPersons?: boolean;
+}
+
+export type SunatBulkB2bSampleStatus =
+  | 'companies_found'
+  | 'only_natural_persons_in_head_sample'
+  | 'no_parseable_lines'
+  | 'blocked'
+  | 'error';
+
+export type SunatBulkDryRunRecommendation =
+  | 'ready_for_candidate_preview'
+  | 'needs_deeper_local_scan'
+  | 'needs_full_local_snapshot_strategy'
+  | 'blocked';
+
+export interface SunatBulkSampleParseDryRunExtraction {
+  status: string;
+  fileName?: string;
+  compressedBytesRead: number;
+  decompressedBytesRead: number;
+  linesDetected: number;
+  linesReturned: number;
+  inferredDelimiter?: string;
+  inferredColumnCount?: number;
+  streamCancelled: boolean;
+  fullDownloadPrevented: boolean;
+}
+
+export interface SunatBulkSampleParseDryRunParsing {
+  inputLines: number;
+  headerRowsSkipped: number;
+  validCompanies: number;
+  skippedNaturalPersons: number;
+  skippedNonCompanyRuc: number;
+  invalidLines: number;
+  activeCompanies: number;
+  inactiveCompanies: number;
+}
+
+export interface SunatBulkSampleParseDryRunSampleCompany {
+  taxIdentifier: string;
+  legalName: string;
+  taxpayerStatus?: string;
+  domicileCondition?: string;
+  ubigeo?: string;
+  isActiveTaxpayer?: boolean;
+  isLikelyCompany?: boolean;
+}
+
+export interface SunatBulkSampleParseDryRunObservation {
+  b2bSampleStatus: SunatBulkB2bSampleStatus;
+  recommendation: SunatBulkDryRunRecommendation;
+  reason: string;
+}
+
+export type SunatBulkSampleParseDryRunStatus = 'parsed' | 'sampled_no_companies' | 'blocked' | 'error';
+
+export interface SunatBulkSampleParseDryRunOutput {
+  sourceKey: 'pe_sunat_bulk';
+  mode: 'sample_parse_dry_run';
+  status: SunatBulkSampleParseDryRunStatus;
+  extraction: SunatBulkSampleParseDryRunExtraction;
+  parsing: SunatBulkSampleParseDryRunParsing;
+  sampleCompanies: SunatBulkSampleParseDryRunSampleCompany[];
+  sampleObservation: SunatBulkSampleParseDryRunObservation;
+  warnings: string[];
+  errors: string[];
+}
+
 export type SunatBulkSampleExtractionWarning = {
   code: string;
   message: string;
@@ -282,6 +358,7 @@ export type SunatBulkSampleExtractionOutput = {
   };
   sample: {
     lines: SunatBulkSampleLine[];
+    fullSampleLines: string[];
     inferredDelimiter?: SunatBulkDelimiterInference;
     inferredColumnCount?: number;
     parserConfigSuggestion?: string;

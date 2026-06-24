@@ -188,7 +188,7 @@ function buildEmptyOutput(
     status,
     entry,
     guard: buildGuard(maxCompressedBytes, maxDecompressedBytes, maxLines),
-    sample: { lines: [] },
+    sample: { lines: [], fullSampleLines: [] },
     stats: {
       compressedBytesRead: 0,
       decompressedBytesRead: 0,
@@ -502,7 +502,8 @@ export async function extractSunatBulkSample(
   const allLines = text.split('\n').map(l => l.replace(/\r$/, ''));
   const linesDetected = allLines.length;
 
-  const lines: SunatBulkSampleLine[] = allLines
+  const fullSampleLines = allLines.slice(0, maxLines);
+  const lines: SunatBulkSampleLine[] = fullSampleLines
     .slice(0, maxLines)
     .map((line, i) => ({
       lineNumber: i + 1,
@@ -541,6 +542,7 @@ export async function extractSunatBulkSample(
     guard: buildGuard(maxCompressedBytes, maxDecompressedBytes, maxLines),
     sample: {
       lines,
+      fullSampleLines,
       inferredDelimiter:
         delimiterInference.delimiter === 'unknown'
           ? undefined
