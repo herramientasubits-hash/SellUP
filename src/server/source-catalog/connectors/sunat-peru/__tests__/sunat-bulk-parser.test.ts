@@ -2,7 +2,8 @@
  * SUNAT Peru Bulk — Line Parser Tests
  *
  * Tests para el parser de líneas del Padrón Reducido RUC.
- * Usa fixtures inline pequeños. No descarga ZIP. No guarda archivos.
+ * Usa fixtures inline pequeños con datos reales sanitizados.
+ * No descarga ZIP. No guarda archivos.
  * No referencia Supabase, registry, preflight ni wizard.
  */
 
@@ -12,8 +13,7 @@ import assert from 'node:assert/strict';
 import { parseSunatBulkLines } from '../sunat-bulk-parser';
 import {
   createDefaultPipeConfig,
-  createTabConfig,
-  PIPE_COLUMN_MAPPING,
+  SUNAT_PADRON_REDUCIDO_REAL_CONFIG,
 } from '../sunat-bulk-parser-config';
 import type { SunatBulkColumnMapping, SunatBulkParserConfig } from '../types';
 
@@ -37,11 +37,274 @@ function makePipeLine(
 const COMPANY_RUC_20 = '20123456789';
 const NATURAL_RUC_10 = '10123456789';
 const INVALID_RUC = '12345';
-const SHORT_RUC = '20123456';
 
-// ─── Tests ───────────────────────────────────────────────────────────────────────
+// Real header detectada por extractor controlado (Perú.3E)
+const REAL_HEADER = 'RUC|NOMBRE O RAZÓN SOCIAL|ESTADO DEL CONTRIBUYENTE|CONDICIÓN DE DOMICILIO|UBIGEO|DEPARTAMENTO|PROVINCIA|DISTRITO|DIRECCIÓN|OTRO1|OTRO2|OTRO3|OTRO4|OTRO5|OTRO6|OTRO7';
 
-describe('parseSunatBulkLines — pipe delimiter', () => {
+// Línea real sanitizada tipo RUC 20 (empresa)
+const REAL_COMPANY_LINE = '20123456789|EMPRESA DE PRUEBA SAC|ACTIVO|HABIDO|150101|LIMA|LIMA|LIMA|AV PRUEBA 123|||||||||';
+
+// Línea real sanitizada tipo RUC 10 (persona natural)
+const REAL_NATURAL_LINE = '10452159428|GARCIA CHANCO CARLOS AUGUSTO|ACTIVO|HABIDO|-|||||||||||';
+
+// Línea real con 16 columnas
+const REAL_SIXTEEN_COL_LINE = '10706792126|HUAYANAY JUAREZ ARIEL ABRAHAM|ACTIVO|HABIDO|-|||||||||||';
+
+// Línea con RUC prefijo no soportado
+const UNSUPPORTED_RUC_LINE = '15123456789|ENTIDAD GOBIERNO|ACTIVO|HABIDO|150101|||||||||||';
+
+// ─── Tests: Config real del padrón ────────────────────────────────────────────────
+
+describe('SUNAT_PADRON_REDUCIDO_REAL_CONFIG', () => {
+  const config = SUNAT_PADRON_REDUCIDO_REAL_CONFIG;
+
+  it('usa delimiter pipe', () => {
+    assert.equal(config.delimiter, '|');
+  });
+
+  it('tiene hasHeaderRow: true', () => {
+    assert.equal(config.hasHeaderRow, true);
+  });
+
+  it('expectedColumnCount es 16', () => {
+    assert.equal(config.expectedColumnCount, 16);
+  });
+
+  it('includeNaturalPersons es false por defecto', () => {
+    assert.equal(config.includeNaturalPersons, false);
+  });
+
+  it('mapea RUC en columna 0', () => {
+    assert.equal(config.columnMapping.ruc, 0);
+  });
+
+  it('mapea legalName en columna 1', () => {
+    assert.equal(config.columnMapping.legalName, 1);
+  });
+
+  it('mapea taxpayerStatus en columna 2', () => {
+    assert.equal(config.columnMapping.taxpayerStatus, 2);
+  });
+
+  it('mapea domicileCondition en columna 3', () => {
+    assert.equal(config.columnMapping.domicileCondition, 3);
+  });
+
+  it('mapea ubigeo en columna 4', () => {
+    assert.equal(config.columnMapping.ubigeo, 4);
+  });
+
+  it('no mapea columnas 5-15 (sin confirmar)', () => {
+    assert.equal(config.columnMapping.department, undefined);
+    assert.equal(config.columnMapping.province, undefined);
+    assert.equal(config.columnMapping.district, undefined);
+    assert.equal(config.columnMapping.address, undefined);
+  });
+});
+
+// ─── Tests: Header row ────────────────────────────────────────────────────────────
+
+describe('header row detection', () => {
+  const config = SUNAT_PADRON_REDUCIDO_REAL_CONFIG;
+
+  it('detecta y salta header real RUC|NOMBRE O RAZÓN SOCIAL|...', () => {
+    const lines = [REAL_HEADER, REAL_COMPANY_LINE];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.headerRowsSkipped, 1);
+    assert.equal(output.stats.validCompanies, 1);
+    assert.equal(output.stats.inputLines, 2);
+    assert.equal(output.stats.invalidLines, 0);
+    assert.ok(output.warnings.some(w => w.code === 'header_row_skipped'));
+  });
+
+  it('header no cuenta como invalidLine', () => {
+    const lines = [REAL_HEADER, REAL_COMPANY_LINE];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.invalidLines, 0);
+    assert.equal(output.stats.parsedLines, 1);
+  });
+
+  it('no detecta header si primera columna no es RUC', () => {
+    const configNoHeader: SunatBulkParserConfig = { ...config, hasHeaderRow: false };
+    const lines = [REAL_COMPANY_LINE];
+    const output = parseSunatBulkLines({ lines, config: configNoHeader });
+
+    assert.equal(output.stats.headerRowsSkipped, 0);
+    assert.equal(output.stats.validCompanies, 1);
+  });
+
+  it('reporta headerRowsSkipped en stats', () => {
+    const lines = [REAL_HEADER, REAL_COMPANY_LINE];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.headerRowsSkipped, 1);
+  });
+});
+
+// ─── Tests: Parser con columnas reales ────────────────────────────────────────────
+
+describe('parseSunatBulkLines pipe delimiter — real schema', () => {
+  const config = SUNAT_PADRON_REDUCIDO_REAL_CONFIG;
+
+  it('parsea línea con 16 columnas reales correctamente', () => {
+    const output = parseSunatBulkLines({ lines: [REAL_SIXTEEN_COL_LINE], config });
+
+    assert.equal(output.stats.validCompanies, 0);
+    assert.equal(output.stats.skippedNaturalPersons, 1);
+  });
+
+  it('mapea RUC, legalName, estado, condición, ubigeo desde columnas reales', () => {
+    const configAll = { ...createDefaultPipeConfig(), hasHeaderRow: false, includeNaturalPersons: true };
+    const output = parseSunatBulkLines({ lines: [REAL_COMPANY_LINE], config: configAll });
+
+    assert.equal(output.companies[0].taxIdentifier, '20123456789');
+    assert.equal(output.companies[0].legalName, 'EMPRESA DE PRUEBA SAC');
+    assert.equal(output.companies[0].taxpayerStatus, 'ACTIVO');
+    assert.equal(output.companies[0].domicileCondition, 'HABIDO');
+    assert.equal(output.companies[0].ubigeo, '150101');
+  });
+
+  it('usa delimiter pipe', () => {
+    assert.equal(config.delimiter, '|');
+  });
+
+  it('espera 16 columnas', () => {
+    assert.equal(config.expectedColumnCount, 16);
+  });
+
+  it('parsea correctamente usando pipe delimiter con 16 columnas', () => {
+    const configAll = { ...createDefaultPipeConfig(), hasHeaderRow: false, includeNaturalPersons: true };
+    const line = [
+      '20123456789',
+      'EMPRESA DE PRUEBA SAC',
+      'ACTIVO',
+      'HABIDO',
+      '150101',
+      'LIMA',
+      'LIMA',
+      'LIMA',
+      'AV PRUEBA 123',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ].join('|');
+    const output = parseSunatBulkLines({ lines: [line], config: configAll });
+
+    assert.equal(output.stats.validCompanies, 1);
+    assert.equal(output.companies[0].taxIdentifier, '20123456789');
+  });
+});
+
+// ─── Tests: B2B filtering ────────────────────────────────────────────────────────
+
+describe('B2B filtering — RUC 20 priority', () => {
+  const config = SUNAT_PADRON_REDUCIDO_REAL_CONFIG;
+
+  it('RUC 20 se incluye como empresa válida', () => {
+    const line = makePipeLine(COMPANY_RUC_20, 'EMPRESA SAC');
+    const output = parseSunatBulkLines({ lines: [line], config });
+
+    assert.equal(output.stats.validCompanies, 1);
+    assert.equal(output.stats.skippedNaturalPersons, 0);
+    assert.equal(output.companies[0].taxIdentifier, COMPANY_RUC_20);
+  });
+
+  it('RUC 10 se salta por defecto', () => {
+    const line = makePipeLine(NATURAL_RUC_10, 'JUAN PEREZ');
+    const output = parseSunatBulkLines({ lines: [line], config });
+
+    assert.equal(output.stats.validCompanies, 0);
+    assert.equal(output.stats.skippedNaturalPersons, 1);
+    assert.ok(output.warnings.some(w => w.code === 'natural_person_ruc_skipped'));
+  });
+
+  it('RUC 10 se puede incluir si includeNaturalPersons: true', () => {
+    const configAll = { ...config, includeNaturalPersons: true };
+    const line = makePipeLine(NATURAL_RUC_10, 'JUAN PEREZ');
+    const output = parseSunatBulkLines({ lines: [line], config: configAll });
+
+    assert.equal(output.stats.validCompanies, 1);
+    assert.equal(output.stats.skippedNaturalPersons, 1);
+    assert.equal(output.companies[0].taxIdentifier, NATURAL_RUC_10);
+  });
+
+  it('RUC con prefijo no soportado genera unsupported_ruc_prefix', () => {
+    const line = UNSUPPORTED_RUC_LINE;
+    const output = parseSunatBulkLines({ lines: [line], config });
+
+    assert.equal(output.stats.validCompanies, 0);
+    assert.equal(output.stats.skippedNonCompanyRuc, 1);
+    assert.ok(output.warnings.some(w => w.code === 'unsupported_ruc_prefix'));
+  });
+
+  it('línea con 16 columnas reales se parsea sin error', () => {
+    const configAll = { ...config, includeNaturalPersons: true };
+    const output = parseSunatBulkLines({ lines: [REAL_SIXTEEN_COL_LINE], config: configAll });
+
+    assert.equal(output.stats.parsedLines, 1);
+    assert.equal(output.stats.invalidLines, 0);
+    assert.equal(output.companies[0].taxIdentifier, '10706792126');
+  });
+});
+
+// ─── Tests: Stats ─────────────────────────────────────────────────────────────────
+
+describe('stats', () => {
+  const config = SUNAT_PADRON_REDUCIDO_REAL_CONFIG;
+
+  it('cuenta headerRowsSkipped', () => {
+    const lines = [REAL_HEADER, REAL_COMPANY_LINE];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.headerRowsSkipped, 1);
+  });
+
+  it('cuenta skippedNaturalPersons', () => {
+    const lines = [
+      REAL_HEADER,
+      REAL_COMPANY_LINE,
+      REAL_NATURAL_LINE,
+    ];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.skippedNaturalPersons, 1);
+    assert.equal(output.stats.validCompanies, 1);
+  });
+
+  it('cuenta validCompanies', () => {
+    const lines = [REAL_HEADER, REAL_COMPANY_LINE];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.validCompanies, 1);
+  });
+
+  it('cuenta skippedNonCompanyRuc para prefijos no soportados', () => {
+    const lines = [REAL_HEADER, REAL_COMPANY_LINE, UNSUPPORTED_RUC_LINE];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.skippedNonCompanyRuc, 1);
+    assert.equal(output.stats.validCompanies, 1);
+  });
+
+  it('cuenta inputLines incluyendo header y vacías', () => {
+    const lines = [REAL_HEADER, '', REAL_COMPANY_LINE, ''];
+    const output = parseSunatBulkLines({ lines, config });
+
+    assert.equal(output.stats.inputLines, 4);
+    assert.equal(output.stats.validCompanies, 1);
+    assert.equal(output.stats.parsedLines, 1);
+  });
+});
+
+// ─── Tests: Existing parser features (preserved) ──────────────────────────────────
+
+describe('parseSunatBulkLines — pipe delimiter (existing)', () => {
   const config = createDefaultPipeConfig();
 
   it('parses a valid pipe-delimited line with RUC 20', () => {
@@ -61,7 +324,13 @@ describe('parseSunatBulkLines — pipe delimiter', () => {
 
   it('parses line with tab delimiter when config uses tab', () => {
     const tabMapping: SunatBulkColumnMapping = { ruc: 0, legalName: 1, taxpayerStatus: 2 };
-    const tabConfig = createTabConfig(tabMapping);
+    const tabConfig: SunatBulkParserConfig = {
+      delimiter: '\t',
+      columnMapping: tabMapping,
+      skipEmptyLines: true,
+      maxLineLength: 10_000,
+      strictMode: false,
+    };
     const line = `${COMPANY_RUC_20}\tEMPRESA TAB\tACTIVO`;
     const output = parseSunatBulkLines({ lines: [line], config: tabConfig });
 
@@ -109,9 +378,10 @@ describe('parseSunatBulkLines — pipe delimiter', () => {
     assert.equal(output.companies[0].isLikelyCompany, true);
   });
 
-  it('marks RUC 10 as isLikelyCompany: false', () => {
+  it('marks RUC 10 as isLikelyCompany: false when includeNaturalPersons true', () => {
+    const configAll = { ...config, includeNaturalPersons: true };
     const line = makePipeLine(NATURAL_RUC_10, 'JUAN PEREZ');
-    const output = parseSunatBulkLines({ lines: [line], config });
+    const output = parseSunatBulkLines({ lines: [line], config: configAll });
 
     assert.equal(output.companies[0].isLikelyCompany, false);
   });
@@ -182,6 +452,7 @@ describe('parseSunatBulkLines — pipe delimiter', () => {
   });
 
   it('counts stats correctly with mixed input', () => {
+    const configAll = { ...createDefaultPipeConfig(), includeNaturalPersons: true };
     const lines = [
       makePipeLine(COMPANY_RUC_20, 'EMPRESA UNO', 'ACTIVO'),
       '',
@@ -189,7 +460,7 @@ describe('parseSunatBulkLines — pipe delimiter', () => {
       makePipeLine(COMPANY_RUC_20, 'EMPRESA INACTIVA', 'BAJA DEFINITIVA'),
       'invalid_line_without_pipes',
     ];
-    const output = parseSunatBulkLines({ lines, config });
+    const output = parseSunatBulkLines({ lines, config: configAll });
 
     assert.equal(output.stats.inputLines, 5);
     assert.equal(output.stats.parsedLines, 3);
@@ -198,6 +469,50 @@ describe('parseSunatBulkLines — pipe delimiter', () => {
     assert.equal(output.stats.activeCompanies, 2);
     assert.equal(output.stats.inactiveCompanies, 1);
     assert.equal(output.stats.skippedNaturalPersons, 1);
+  });
+});
+
+// ─── Tests: Warning codes ─────────────────────────────────────────────────────────
+
+describe('warning codes', () => {
+  const config = SUNAT_PADRON_REDUCIDO_REAL_CONFIG;
+
+  it('genera header_row_skipped con header real', () => {
+    const output = parseSunatBulkLines({ lines: [REAL_HEADER, REAL_COMPANY_LINE], config });
+    assert.ok(output.warnings.some(w => w.code === 'header_row_skipped'));
+  });
+
+  it('genera natural_person_ruc_skipped para RUC 10', () => {
+    const output = parseSunatBulkLines({ lines: [REAL_NATURAL_LINE], config });
+    assert.ok(output.warnings.some(w => w.code === 'natural_person_ruc_skipped'));
+  });
+
+  it('genera unsupported_ruc_prefix para prefijo no soportado', () => {
+    const output = parseSunatBulkLines({ lines: [UNSUPPORTED_RUC_LINE], config });
+    assert.ok(output.warnings.some(w => w.code === 'unsupported_ruc_prefix'));
+  });
+
+  it('genera unexpected_column_count si columnas no coinciden con expectedColumnCount', () => {
+    const output = parseSunatBulkLines({ lines: [REAL_HEADER, '20123456789|EMPRESA|ACTIVO'], config });
+    const unexpected = output.warnings.filter(w => w.code === 'unexpected_column_count');
+    assert.ok(unexpected.length > 0);
+  });
+});
+
+// ─── Tests: redactedLinePreview max 120 ───────────────────────────────────────────
+
+describe('redactedLinePreview length', () => {
+  const config = SUNAT_PADRON_REDUCIDO_REAL_CONFIG;
+
+  it('redactedLinePreview no excede 120 caracteres', () => {
+    const longLine = '20123456789|' + 'A'.repeat(200) + '|ACTIVO|HABIDO|150101|' + 'X'.repeat(100);
+    const output = parseSunatBulkLines({ lines: [longLine], config });
+
+    for (const w of output.warnings) {
+      if (w.redactedLinePreview) {
+        assert.ok(w.redactedLinePreview.length <= 123, `Warning ${w.code} tiene preview de ${w.redactedLinePreview.length} chars`);
+      }
+    }
   });
 });
 

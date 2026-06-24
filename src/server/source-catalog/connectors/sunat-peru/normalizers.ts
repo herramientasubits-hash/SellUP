@@ -14,6 +14,16 @@ import type {
 const COMPANY_RUC_PREFIXES = ['20'];
 const NATURAL_PERSON_RUC_PREFIXES = ['10'];
 
+export type RucCategory = 'company' | 'natural_person' | 'unsupported' | 'invalid';
+
+export function classifyRuc(ruc: string): RucCategory {
+  const normalized = normalizeRuc(ruc);
+  if (!isValidRuc(normalized)) return 'invalid';
+  if (COMPANY_RUC_PREFIXES.some((p) => normalized.startsWith(p))) return 'company';
+  if (NATURAL_PERSON_RUC_PREFIXES.some((p) => normalized.startsWith(p))) return 'natural_person';
+  return 'unsupported';
+}
+
 export function normalizeRuc(raw: string): string {
   return raw.replace(/[^0-9]/g, '');
 }

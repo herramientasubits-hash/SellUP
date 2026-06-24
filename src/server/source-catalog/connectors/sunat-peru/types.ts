@@ -128,6 +128,9 @@ export interface SunatBulkParserConfig {
   skipEmptyLines: boolean;
   maxLineLength: number;
   strictMode: boolean;
+  hasHeaderRow?: boolean;
+  includeNaturalPersons?: boolean;
+  expectedColumnCount?: number;
 }
 
 export interface SunatBulkParseInput {
@@ -148,6 +151,8 @@ export interface SunatBulkParserStats {
   validCompanies: number;
   invalidLines: number;
   skippedNaturalPersons: number;
+  skippedNonCompanyRuc: number;
+  headerRowsSkipped: number;
   activeCompanies: number;
   inactiveCompanies: number;
 }

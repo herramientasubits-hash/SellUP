@@ -2,7 +2,9 @@
  * SUNAT Peru Bulk — Line Parser
  *
  * Parser seguro de líneas del Padrón Reducido RUC.
- * Soporta separador configurable (pipe, tab, comma) y column mapping.
+ * Soporta separador configurable (pipe, tab, comma), column mapping,
+ * detección de header row, y filtro B2B (RUC 20).
+ *
  * No descarga ZIP. No guarda archivos. No escribe en DB.
  */
 
@@ -12,9 +14,9 @@ import type {
   SunatBulkParsedRecord,
   SunatBulkParserWarning,
   SunatBulkParserStats,
-  SunatBulkColumnMapping,
 } from './types';
-import { normalizeRuc, normalizeSunatRecord } from './normalizers';
+import { normalizeRuc, normalizeSunatRecord, classifyRuc } from './normalizers';
+import { SUNAT_REAL_EXPECTED_COLUMN_COUNT } from './sunat-bulk-parser-config';
 
 const MAX_PREVIEW_LENGTH = 120;
 
@@ -32,9 +34,33 @@ function getColumn(
   return val || undefined;
 }
 
+function isHeaderRow(
+  parts: string[],
+  rucIdx: number,
+): boolean {
+  if (rucIdx >= parts.length) return false;
+  return parts[rucIdx].trim().toUpperCase() === 'RUC';
+}
+
+function detectHeaderRow(lines: string[], delimiter: string, rucIdx: number): number {
+  if (lines.length === 0) return -1;
+  const parts = lines[0].split(delimiter);
+  if (isHeaderRow(parts, rucIdx)) return 0;
+  return -1;
+}
+
 export function parseSunatBulkLines(input: SunatBulkParseInput): SunatBulkParseOutput {
   const { lines, config } = input;
-  const { delimiter, columnMapping, skipEmptyLines, maxLineLength } = config;
+  const {
+    delimiter,
+    columnMapping,
+    skipEmptyLines,
+    maxLineLength,
+    strictMode,
+    hasHeaderRow,
+    includeNaturalPersons,
+    expectedColumnCount,
+  } = config;
 
   const companies: SunatBulkParseOutput['companies'] = [];
   const warnings: SunatBulkParserWarning[] = [];
@@ -43,12 +69,28 @@ export function parseSunatBulkLines(input: SunatBulkParseInput): SunatBulkParseO
   let parsedLines = 0;
   let invalidLines = 0;
   let skippedNaturalPersons = 0;
+  let skippedNonCompanyRuc = 0;
+  let headerRowsSkipped = 0;
   let activeCompanies = 0;
   let inactiveCompanies = 0;
 
-  const processedIndexes = new Set<number>();
+  const startIndex = hasHeaderRow
+    ? detectHeaderRow(lines, delimiter, columnMapping.ruc)
+    : -1;
 
-  for (let i = 0; i < lines.length; i++) {
+  if (startIndex >= 0) {
+    headerRowsSkipped++;
+    warnings.push({
+      code: 'header_row_skipped',
+      message: 'Header row detectada y omitida (primera columna: RUC)',
+      lineNumber: 1,
+      redactedLinePreview: truncateLine(lines[0]),
+    });
+  }
+
+  const effectiveStart = startIndex >= 0 ? startIndex + 1 : 0;
+
+  for (let i = effectiveStart; i < lines.length; i++) {
     const line = lines[i];
     const lineNumber = i + 1;
 
@@ -63,7 +105,7 @@ export function parseSunatBulkLines(input: SunatBulkParseInput): SunatBulkParseO
         lineNumber,
         redactedLinePreview: truncateLine(line),
       });
-      if (config.strictMode) {
+      if (strictMode) {
         invalidLines++;
         continue;
       }
@@ -71,6 +113,17 @@ export function parseSunatBulkLines(input: SunatBulkParseInput): SunatBulkParseO
 
     const parts = line.split(delimiter);
     const rucIdx = columnMapping.ruc;
+
+    const actualColumnCount = parts.length;
+
+    if (expectedColumnCount !== undefined && actualColumnCount !== expectedColumnCount) {
+      warnings.push({
+        code: 'unexpected_column_count',
+        message: `Línea ${lineNumber}: ${actualColumnCount} columnas (esperadas: ${expectedColumnCount})`,
+        lineNumber,
+        redactedLinePreview: truncateLine(line),
+      });
+    }
 
     if (rucIdx >= parts.length) {
       warnings.push({
@@ -111,19 +164,42 @@ export function parseSunatBulkLines(input: SunatBulkParseInput): SunatBulkParseO
 
     const normalized = normalizeSunatRecord(record);
     parsedLines++;
-    processedIndexes.add(i);
 
-    if (!normalized.isLikelyCompany) {
+    const rucCategory = classifyRuc(cleanedRuc);
+
+    if (rucCategory === 'company') {
+      companies.push(normalized);
+      if (normalized.isActiveTaxpayer === true) {
+        activeCompanies++;
+      } else if (normalized.isActiveTaxpayer === false) {
+        inactiveCompanies++;
+      }
+    } else if (rucCategory === 'natural_person') {
       skippedNaturalPersons++;
+      if (!includeNaturalPersons) {
+        warnings.push({
+          code: 'natural_person_ruc_skipped',
+          message: `Línea ${lineNumber}: RUC 10 (persona natural) omitida. Usar includeNaturalPersons: true para incluir`,
+          lineNumber,
+          redactedLinePreview: truncateLine(line),
+        });
+      } else {
+        companies.push(normalized);
+        if (normalized.isActiveTaxpayer === true) {
+          activeCompanies++;
+        } else if (normalized.isActiveTaxpayer === false) {
+          inactiveCompanies++;
+        }
+      }
+    } else {
+      skippedNonCompanyRuc++;
+      warnings.push({
+        code: 'unsupported_ruc_prefix',
+        message: `Línea ${lineNumber}: RUC con prefijo no soportado para B2B (${cleanedRuc.slice(0, 2)}...)`,
+        lineNumber,
+        redactedLinePreview: truncateLine(line),
+      });
     }
-
-    if (normalized.isActiveTaxpayer === true) {
-      activeCompanies++;
-    } else if (normalized.isActiveTaxpayer === false) {
-      inactiveCompanies++;
-    }
-
-    companies.push(normalized);
   }
 
   const stats: SunatBulkParserStats = {
@@ -132,6 +208,8 @@ export function parseSunatBulkLines(input: SunatBulkParseInput): SunatBulkParseO
     validCompanies: companies.length,
     invalidLines,
     skippedNaturalPersons,
+    skippedNonCompanyRuc,
+    headerRowsSkipped,
     activeCompanies,
     inactiveCompanies,
   };

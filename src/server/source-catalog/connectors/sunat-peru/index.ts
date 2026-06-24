@@ -16,10 +16,12 @@ export {
   isValidRuc,
   isLikelyCompanyRuc,
   isNaturalPersonRuc,
+  classifyRuc,
   normalizeLegalName,
   deriveTaxpayerStatus,
   normalizeSunatRecord,
 } from './normalizers';
+export type { RucCategory } from './normalizers';
 
 export { runSunatBulkDryRun } from './run-sunat-bulk-dry-run';
 
@@ -32,6 +34,8 @@ export { extractSunatBulkSample } from './sunat-sample-extractor';
 export {
   createDefaultPipeConfig,
   createTabConfig,
+  SUNAT_PADRON_REDUCIDO_REAL_CONFIG,
+  SUNAT_REAL_EXPECTED_COLUMN_COUNT,
   PIPE_COLUMN_MAPPING,
   PIPE_DELIMITER,
   TAB_DELIMITER,
