@@ -593,3 +593,117 @@ export type SunatLocalRuc20SnapshotOutput = {
   warnings: string[];
   errors: string[];
 };
+
+// ─── PRODUCE MiPyme Source Probe Types ───────────────────────────────────────
+// local/offline/development-only
+// No ejecutar en Vercel ni production. No escribe Supabase. No crea candidatos.
+
+export const PRODUCE_MIPYME_SOURCE_KEY = 'pe_produce_mipyme_sector';
+
+/** URL del dataset page en datosabiertos.gob.pe (CKAN). Documentada en Perú.3K. */
+export const PRODUCE_MIPYME_DATASET_PAGE_URL =
+  'https://www.datosabiertos.gob.pe/dataset/directorio-de-empresas-mipyme-por-sector-productivo-ministerio-de-la-producción-produce';
+
+/** ID CKAN normalizado a ASCII (sin tildes) para uso en la API. */
+export const PRODUCE_MIPYME_CKAN_DATASET_ID =
+  'directorio-de-empresas-mipyme-por-sector-productivo-ministerio-de-la-produccion-produce';
+
+/** URL base de la API CKAN de datosabiertos.gob.pe. */
+export const DATOSABIERTOS_CKAN_API_BASE =
+  'https://www.datosabiertos.gob.pe/api/3/action/package_show';
+
+export type ProduceMipymeVerdict =
+  | 'CONNECT_NOW'
+  | 'SPIKE_LOCAL_FIRST'
+  | 'USE_AS_REFERENCE_ONLY'
+  | 'POST_MVP'
+  | 'REJECT'
+  | 'UNKNOWN_NEEDS_MANUAL_REVIEW';
+
+export type ProduceMipymeProbeStatus = 'completed' | 'blocked' | 'error';
+export type ProduceMipymeAccessMode = 'public_download' | 'unknown';
+
+export interface ProduceMipymeSourceProbeInput {
+  sourceUrl?: string;
+  tempDir?: string;
+  localPath?: string;
+  reportPath?: string;
+  downloadIfMissing?: boolean;
+  requireAck?: boolean;
+  maxRowsToProfile?: number;
+  ruc20SnapshotPath?: string;
+}
+
+export interface ProduceMipymeSourceProfile {
+  url: string;
+  owner: 'PRODUCE';
+  accessMode: ProduceMipymeAccessMode;
+  requiresCredentials: boolean;
+  fileFormat?: string;
+  contentType?: string;
+  contentLengthBytes?: number;
+}
+
+export interface ProduceMipymeEnvironment {
+  localOnly: true;
+  vercelDetected: boolean;
+  productionDetected: boolean;
+  ackProvided: boolean;
+  tempDirIgnoredByGit: boolean;
+}
+
+export interface ProduceMipymeDownload {
+  attempted: boolean;
+  completed: boolean;
+  localPath?: string;
+  bytesWritten?: number;
+  reusedExistingFile: boolean;
+}
+
+export interface ProduceMipymeSchemaProfile {
+  detectedDelimiter?: string;
+  sheetNames?: string[];
+  columns: string[];
+  normalizedColumns: string[];
+  rowCountProfiled: number;
+  containsRuc: boolean;
+  containsCiiu: boolean;
+  containsActivityDescription: boolean;
+  containsSector: boolean;
+  rucColumnCandidates: string[];
+  ciiuColumnCandidates: string[];
+  activityDescriptionColumnCandidates: string[];
+  sectorColumnCandidates: string[];
+}
+
+export interface ProduceMipymeCoverageProfile {
+  produceRowsWithRuc: number;
+  produceRowsWithCiiu: number;
+  uniqueProduceRucsProfiled: number;
+  matchedRuc20SnapshotProfiled: number;
+  matchRateAgainstProfiledRuc20?: number;
+}
+
+export interface ProduceMipymeSampleRow {
+  ruc?: string;
+  ciiu?: string;
+  activityDescription?: string;
+  sector?: string;
+  redactedPreview: string;
+}
+
+export interface ProduceMipymeSourceProbeOutput {
+  sourceKey: 'pe_produce_mipyme_sector';
+  mode: 'local_source_probe';
+  status: ProduceMipymeProbeStatus;
+  source: ProduceMipymeSourceProfile;
+  environment: ProduceMipymeEnvironment;
+  download: ProduceMipymeDownload;
+  schemaProfile: ProduceMipymeSchemaProfile;
+  coverageProfile: ProduceMipymeCoverageProfile;
+  sampleRows: ProduceMipymeSampleRow[];
+  verdict: ProduceMipymeVerdict;
+  recommendation: string;
+  warnings: string[];
+  errors: string[];
+}

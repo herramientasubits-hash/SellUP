@@ -37,6 +37,8 @@ export { runSunatLocalDeeperScan } from './sunat-local-deeper-scan';
 
 export { runSunatLocalRuc20Snapshot } from './sunat-local-ruc20-snapshot';
 
+export { runProduceMipymeSourceProbe } from './produce-mipyme-source-probe';
+
 export {
   createDefaultPipeConfig,
   createTabConfig,
@@ -114,4 +116,25 @@ export {
   SUNAT_BULK_COUNTRY_CODE,
   SUNAT_BULK_URL,
   SUNAT_BULK_MAX_SAMPLE_BYTES,
+} from './types';
+
+export type {
+  ProduceMipymeSourceProbeInput,
+  ProduceMipymeSourceProbeOutput,
+  ProduceMipymeVerdict,
+  ProduceMipymeProbeStatus,
+  ProduceMipymeAccessMode,
+  ProduceMipymeSourceProfile,
+  ProduceMipymeEnvironment,
+  ProduceMipymeDownload,
+  ProduceMipymeSchemaProfile,
+  ProduceMipymeCoverageProfile,
+  ProduceMipymeSampleRow,
+} from './types';
+
+export {
+  PRODUCE_MIPYME_SOURCE_KEY,
+  PRODUCE_MIPYME_DATASET_PAGE_URL,
+  PRODUCE_MIPYME_CKAN_DATASET_ID,
+  DATOSABIERTOS_CKAN_API_BASE,
 } from './types';
