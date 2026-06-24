@@ -76,6 +76,7 @@
     "test:search-quality-v1-16-h-e-2": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-h-e-2.test.ts",
     "test:search-quality-v1-16-h-f": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-h-f.test.ts",
     "test:search-quality-v1-16-i": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-i.test.ts",
+    "test:search-quality-v1-16-i-a": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-i-a.test.ts",
     "agent1:smoke:linkedin-recall-canary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-linkedin-recall-canary.ts",
     "agent1:dry-run:source-guided": "NODE_ENV=development node --import tsx scripts/agent1/dry-run-source-guided-investigation.ts",
     "agent1:dry-run:rich-profile-quality-calibration": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/dry-run-rich-profile-quality-calibration.ts",
@@ -90,6 +91,7 @@
     "agent1:smoke:rich-profile-enrichment-write": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-rich-profile-enrichment-write.ts",
     "agent1:smoke:rich-profile-flow-write": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-rich-profile-flow-write.ts",
     "agent1:smoke:rich-profile-flow-write:globant": "NODE_ENV=development RICH_PROFILE_CANDIDATE_NAME=Globant RICH_PROFILE_DOMAIN=globant.com RICH_PROFILE_WEBSITE=https://www.globant.com RICH_PROFILE_COUNTRY=Argentina RICH_PROFILE_COUNTRY_CODE=AR RICH_PROFILE_INDUSTRY=Tecnología RICH_PROFILE_MAX_RESULTS=5 RICH_PROFILE_SEARCH_DEPTH=basic RICH_PROFILE_SMOKE_TYPE=rich_profile_flow_globant_v1_16h_e RICH_PROFILE_SCRIPT_NAME=v1_16h_e_globant_rich_profile_write_smoke node --env-file=.env.local --import tsx scripts/agent1/smoke-rich-profile-flow-write.ts",
+    "agent1:smoke:icp-size-gate-write": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-icp-size-gate-write.ts",
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts"
   },
