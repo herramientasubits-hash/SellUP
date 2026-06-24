@@ -2,7 +2,7 @@
  * SUNAT Peru Bulk — Controlled Sample TXT Extractor
  *
  * Extrae una muestra controlada del archivo interno del ZIP de SUNAT
- * usando Range requests parciales + inflate Raw streaming.
+ * usando Range abierto + stream capping + inflate Raw streaming.
  *
  * NO descarga ZIP completo.
  * NO extrae TXT completo.
@@ -26,6 +26,8 @@ import type {
   SunatBulkSampleLine,
   SunatBulkDelimiterInference,
 } from './types';
+
+const LOCAL_FILE_HEADER_SIZE = 30;
 
 const DEFAULT_MAX_COMPRESSED_BYTES = 2 * 1024 * 1024;
 const ABSOLUTE_MAX_COMPRESSED_BYTES = 5 * 1024 * 1024;
@@ -52,13 +54,43 @@ function buildGuard(
   };
 }
 
-function computeCompressedDataStartOffset(
+async function fetchLocalFileHeaderExtraLen(
+  localHeaderOffset: number,
+): Promise<number> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const resp = await fetch(SUNAT_BULK_URL, {
+      headers: {
+        'User-Agent': 'SellUp/0.1 data-source-audit',
+        Range: `bytes=${localHeaderOffset}-${localHeaderOffset + LOCAL_FILE_HEADER_SIZE - 1}`,
+      },
+      signal: controller.signal,
+    });
+    if (resp.status !== 206) return 0;
+    const reader = resp.body?.getReader();
+    if (!reader) return 0;
+    const { done, value } = await reader.read();
+    reader.cancel();
+    if (done || !value || value.length < LOCAL_FILE_HEADER_SIZE) return 0;
+    const view = new DataView(value.buffer, value.byteOffset, value.length);
+    if (view.getUint32(0, true) !== 0x04034b50) return 0;
+    return view.getUint16(28, true);
+  } catch {
+    return 0;
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+}
+
+async function computeCompressedDataStartOffset(
   entry: SunatZipCentralDirectoryEntry,
-): number | undefined {
+): Promise<number | undefined> {
   if (entry.localHeaderOffset === undefined) return undefined;
   const nameLen = entry.fileNameLength ?? Buffer.byteLength(entry.fileName, 'utf-8');
-  const extraLen = entry.extraFieldLength ?? 0;
-  return entry.localHeaderOffset + 30 + nameLen + extraLen;
+  const extraLen = await fetchLocalFileHeaderExtraLen(entry.localHeaderOffset);
+  return entry.localHeaderOffset + LOCAL_FILE_HEADER_SIZE + nameLen + extraLen;
 }
 
 function inflateRawWithMax(
@@ -92,13 +124,10 @@ function inflateRawWithMax(
     });
 
     inflater.on('end', finish);
+    inflater.on('close', finish);
     inflater.on('error', () => finish());
 
-    inflater.write(compressed);
-    setImmediate(() => {
-      finish();
-      inflater.destroy();
-    });
+    inflater.end(compressed);
   });
 }
 
@@ -145,7 +174,7 @@ function redactPreview(line: string): string {
 }
 
 function buildEmptyOutput(
-  status: 'blocked' | 'error',
+  status: 'blocked' | 'error' | 'partial',
   entry: SunatBulkSampleExtractionOutput['entry'],
   maxCompressedBytes: number,
   maxDecompressedBytes: number,
@@ -166,7 +195,7 @@ function buildEmptyOutput(
       linesDetected: 0,
       linesReturned: 0,
       truncated: false,
-      rangeRequestMode: 'bounded_range',
+      rangeRequestMode: 'open_ended_stream_capped',
     },
     warnings,
     errors,
@@ -182,11 +211,18 @@ function countColumns(line: string): number | undefined {
   return undefined;
 }
 
+function isHtmlResponse(headers: Headers): boolean {
+  const ct = headers.get('content-type') ?? '';
+  return ct.includes('text/html') || ct.includes('text/plain') && ct.includes('html');
+}
+
 /**
- * Extrae una muestra controlada del TXT interno del ZIP de SUNAT.
+ * Extrae una muestra controlada del TXT interno del ZIP de SUNAT
+ * usando Range abierto y stream capped.
  *
- * Lee solo los primeros bytes comprimidos, descomprime en streaming
- * hasta los límites configurados, y devuelve líneas de muestra.
+ * Lee el response body como stream, acumula máximo
+ * maxCompressedBytesToRead, cancela el reader al llegar al límite,
+ * y nunca llama a response.arrayBuffer en response de rango abierto.
  *
  * @param input - Opciones de extracción (todas opcionales con defaults seguros)
  * @returns SunatBulkSampleExtractionOutput con muestra, stats y guardrails
@@ -254,7 +290,7 @@ export async function extractSunatBulkSample(
     );
   }
 
-  const compressedDataStartOffset = computeCompressedDataStartOffset(textEntry);
+  const compressedDataStartOffset = await computeCompressedDataStartOffset(textEntry);
   if (compressedDataStartOffset === undefined) {
     return buildEmptyOutput(
       'blocked',
@@ -272,25 +308,21 @@ export async function extractSunatBulkSample(
     );
   }
 
-  const contentLength = probeOutput.metadata.contentLengthBytes ?? 0;
-  const compressedEnd = Math.min(
-    compressedDataStartOffset + maxCompressedBytes - 1,
-    compressedDataStartOffset + (textEntry.compressedSizeBytes ?? maxCompressedBytes) - 1,
-    Math.max(0, contentLength - 1),
-  );
+  const warnings: SunatBulkSampleExtractionOutput['warnings'] = [];
+  const errors: string[] = [];
 
   let response: Response;
+  const fetchController = new AbortController();
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), SUNAT_BULK_PROBE_TIMEOUT_MS);
+    const timeout = setTimeout(() => fetchController.abort(), SUNAT_BULK_PROBE_TIMEOUT_MS);
     try {
       response = await fetch(SUNAT_BULK_URL, {
         method: 'GET',
         headers: {
           ...HEADERS,
-          Range: `bytes=${compressedDataStartOffset}-${compressedEnd}`,
+          Range: `bytes=${compressedDataStartOffset}-`,
         },
-        signal: controller.signal,
+        signal: fetchController.signal,
       });
     } finally {
       clearTimeout(timeout);
@@ -314,10 +346,12 @@ export async function extractSunatBulkSample(
     );
   }
 
-  if (response.status !== 206) {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (isHtmlResponse(response.headers)) {
     await response.body?.cancel();
+    fetchController.abort();
     return buildEmptyOutput(
-      'error',
+      'blocked',
       {
         fileName: textEntry.fileName,
         compressedSizeBytes: textEntry.compressedSizeBytes,
@@ -328,15 +362,73 @@ export async function extractSunatBulkSample(
       maxCompressedBytes,
       maxDecompressedBytes,
       maxLines,
+      [{ code: 'html_response', message: 'Server returned HTML instead of binary data — connection may be blocked' }],
       [],
-      [`Server returned ${response.status} instead of 206 Partial Content`],
     );
   }
 
-  let arrayBuffer: ArrayBuffer;
+  if (response.status !== 206) {
+    warnings.push({
+      code: 'server_returned_200_for_range_request_but_stream_was_capped',
+      message: `Server returned ${response.status} for Range request — stream is capped at ${maxCompressedBytes} bytes`,
+    });
+  }
+
+  let compressedChunks: Uint8Array[];
+  let compressedBytesRead: number;
+  let streamCancelled = false;
+
   try {
-    arrayBuffer = await response.arrayBuffer();
-  } catch {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      return buildEmptyOutput(
+        'error',
+        {
+          fileName: textEntry.fileName,
+          compressedSizeBytes: textEntry.compressedSizeBytes,
+          uncompressedSizeBytes: textEntry.uncompressedSizeBytes,
+          compressionMethod: textEntry.compressionMethod,
+          compressedDataStartOffset,
+        },
+        maxCompressedBytes,
+        maxDecompressedBytes,
+        maxLines,
+        [],
+        ['Response body stream is not available'],
+      );
+    }
+
+    const chunks: Uint8Array[] = [];
+    let totalRead = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const remaining = maxCompressedBytes - totalRead;
+      if (value.length > remaining) {
+        chunks.push(new Uint8Array(value.buffer, value.byteOffset, remaining));
+        totalRead += remaining;
+        await reader.cancel();
+        streamCancelled = true;
+        break;
+      }
+
+      chunks.push(value);
+      totalRead += value.length;
+
+      if (totalRead >= maxCompressedBytes) {
+        await reader.cancel();
+        streamCancelled = true;
+        break;
+      }
+    }
+
+    compressedChunks = chunks;
+    compressedBytesRead = totalRead;
+  } catch (error: unknown) {
+    fetchController.abort();
+    const errorMsg = error instanceof Error ? error.message.slice(0, 200) : 'Stream read error';
     return buildEmptyOutput(
       'error',
       {
@@ -350,12 +442,37 @@ export async function extractSunatBulkSample(
       maxDecompressedBytes,
       maxLines,
       [],
-      ['Failed to read response data'],
+      [errorMsg],
     );
   }
 
-  const compressedBytes = new Uint8Array(arrayBuffer);
-  const compressedBytesRead = compressedBytes.length;
+  fetchController.abort();
+
+  if (compressedChunks.length === 0) {
+    return buildEmptyOutput(
+      'partial',
+      {
+        fileName: textEntry.fileName,
+        compressedSizeBytes: textEntry.compressedSizeBytes,
+        uncompressedSizeBytes: textEntry.uncompressedSizeBytes,
+        compressionMethod: textEntry.compressionMethod,
+        compressedDataStartOffset,
+      },
+      maxCompressedBytes,
+      maxDecompressedBytes,
+      maxLines,
+      [{ code: 'empty_stream', message: 'Stream returned zero bytes' }],
+      [],
+    );
+  }
+
+  const totalLength = compressedChunks.reduce((sum, c) => sum + c.length, 0);
+  const compressedBytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of compressedChunks) {
+    compressedBytes.set(chunk, offset);
+    offset += chunk.length;
+  }
 
   let decompressedBuffer: Buffer;
   try {
@@ -437,9 +554,9 @@ export async function extractSunatBulkSample(
       linesDetected,
       linesReturned: lines.length,
       truncated,
-      rangeRequestMode: 'bounded_range',
+      rangeRequestMode: 'open_ended_stream_capped',
     },
-    warnings: [],
-    errors: [],
+    warnings,
+    errors,
   };
 }

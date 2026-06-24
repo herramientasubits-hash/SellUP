@@ -7,7 +7,7 @@
  * No referencia Supabase, registry, preflight ni wizard.
  */
 
-import { describe, it, mock, after, afterEach } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
 
@@ -161,6 +161,7 @@ type MockState = {
   rangeHeaders: Record<string, string>;
   throwOnFetch: boolean;
   throwErrorMsg: string;
+  responseStatus: number;
 };
 
 const defaultState: MockState = {
@@ -169,19 +170,21 @@ const defaultState: MockState = {
   rangeHeaders: buildRangeHeaders(0),
   throwOnFetch: false,
   throwErrorMsg: '',
+  responseStatus: 206,
 };
 
 let mockState: MockState = { ...defaultState };
 let fetchCallCount = 0;
+let lastRangeHeader: string | undefined;
 
 function setState(partial: Partial<MockState>): void {
   mockState = { ...defaultState, ...partial };
 }
 
-const fetchMock = mock.method(globalThis, 'fetch', async (
+async function mockFetchImpl(
   url: string | URL | Request,
   init?: RequestInit,
-): Promise<Response> => {
+): Promise<Response> {
   const urlStr = typeof url === 'string' ? url : url.toString();
   if (urlStr !== SUNAT_BULK_URL) {
     return makeResponse(404, {});
@@ -201,16 +204,20 @@ const fetchMock = mock.method(globalThis, 'fetch', async (
     throw new Error(mockState.throwErrorMsg || 'Simulated fetch error');
   }
 
-  return makeResponse(206, mockState.rangeHeaders, mockState.rangeBody);
-});
+  const hdrs = init?.headers as Record<string, string> | undefined;
+  if (hdrs?.Range) {
+    lastRangeHeader = hdrs.Range;
+  }
+
+  return makeResponse(mockState.responseStatus, mockState.rangeHeaders, mockState.rangeBody);
+}
+
+globalThis.fetch = mockFetchImpl as unknown as typeof globalThis.fetch;
 
 afterEach(() => {
   mockState = { ...defaultState };
   fetchCallCount = 0;
-});
-
-after(() => {
-  fetchMock.mock.restore();
+  lastRangeHeader = undefined;
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────────
@@ -518,6 +525,122 @@ describe('sunat-sample-extractor', () => {
   });
 });
 
+// ─── Open Range / Stream Tests ─────────────────────────────────────────────────────
+
+describe('sunat-sample-extractor — open range and stream', () => {
+
+  it('uses open-ended Range header bytes=152-', async () => {
+    mockState = { ...defaultState };
+    fetchCallCount = 0;
+    lastRangeHeader = undefined;
+
+    const { compressed } = buildCompressedTestData(3, '|');
+    const pipeFileName = 'padron_reducido_ruc.txt';
+    const fileNameBytes = new TextEncoder().encode(pipeFileName);
+    const localHeaderOffset = 100;
+    const expectedOffset = localHeaderOffset + 30 + fileNameBytes.length + 0;
+
+    const tail = buildMockZipTail({
+      fileName: pipeFileName,
+      localHeaderOffset,
+      compressedSize: compressed.length,
+    });
+
+    setState({
+      tailBuffer: tail,
+      rangeBody: compressed,
+      rangeHeaders: buildRangeHeaders(compressed.length),
+    });
+
+    const output = await extractSunatBulkSample({ maxLines: 5 });
+
+    assert.equal(lastRangeHeader, `bytes=${expectedOffset}-`);
+    assert.ok(lastRangeHeader !== undefined && (lastRangeHeader as string).endsWith('-'));
+    assert.equal(output.stats.compressedBytesRead, compressed.length);
+    assert.equal(output.status, 'sampled');
+  });
+
+  it('does not call arrayBuffer on the sample extraction response', async () => {
+    const { compressed } = buildCompressedTestData(3, '|');
+    const tail = buildMockZipTail({ compressedSize: compressed.length });
+    setState({ tailBuffer: tail, rangeBody: compressed, rangeHeaders: buildRangeHeaders(compressed.length) });
+
+    const output = await extractSunatBulkSample({ maxLines: 3 });
+
+    assert.equal(output.status, 'sampled');
+    assert.equal(output.stats.rangeRequestMode, 'open_ended_stream_capped');
+  });
+
+  it('cancels reader at maxCompressedBytesToRead limit', async () => {
+    const manyRows = 5000;
+    const lines: string[] = [];
+    for (let i = 0; i < manyRows; i++) {
+      lines.push(`${i}|name${i}|ACTIVO|DOMICILIO|${100000 + i}`);
+    }
+    const text = lines.join('\n') + '\n';
+    const compressed = deflateRawSync(Buffer.from(text, 'utf-8'));
+
+    const tail = buildMockZipTail({ compressedSize: compressed.length });
+    setState({
+      tailBuffer: tail,
+      rangeBody: compressed,
+      rangeHeaders: buildRangeHeaders(compressed.length),
+    });
+
+    const maxCompressed = 100;
+    const output = await extractSunatBulkSample({
+      maxCompressedBytes: maxCompressed,
+      maxLines: 5000,
+    });
+
+    assert.ok(output.stats.compressedBytesRead <= maxCompressed);
+    assert.ok(output.stats.compressedBytesRead > 0);
+  });
+
+  it('handles 200 response with stream capped and produces warning', async () => {
+    const { compressed } = buildCompressedTestData(5, '|');
+    const tail = buildMockZipTail({ compressedSize: compressed.length });
+    setState({
+      tailBuffer: tail,
+      rangeBody: compressed,
+      rangeHeaders: buildRangeHeaders(compressed.length),
+      responseStatus: 200,
+    });
+
+    const output = await extractSunatBulkSample({ maxLines: 5 });
+
+    assert.equal(output.status, 'sampled');
+    assert.ok(output.warnings.some(
+      w => w.code === 'server_returned_200_for_range_request_but_stream_was_capped',
+    ));
+  });
+
+  it('handles HTML response as blocked', async () => {
+    const tail = buildMockZipTail();
+    setState({
+      tailBuffer: tail,
+      rangeBody: new Uint8Array([0x3c, 0x68, 0x74, 0x6d, 0x6c]),
+      rangeHeaders: { 'content-type': 'text/html; charset=utf-8', 'content-length': '5' },
+      responseStatus: 200,
+    });
+
+    const output = await extractSunatBulkSample({ maxLines: 5 });
+
+    assert.equal(output.status, 'blocked');
+    assert.ok(output.warnings.some(w => w.code === 'html_response'));
+  });
+
+  it('stats include rangeRequestMode as open_ended_stream_capped', async () => {
+    const { compressed } = buildCompressedTestData(3, '|');
+    const tail = buildMockZipTail({ compressedSize: compressed.length });
+    setState({ tailBuffer: tail, rangeBody: compressed, rangeHeaders: buildRangeHeaders(compressed.length) });
+
+    const output = await extractSunatBulkSample({ maxLines: 3 });
+
+    assert.equal(output.stats.rangeRequestMode, 'open_ended_stream_capped');
+  });
+});
+
 // ─── Safety Tests ─────────────────────────────────────────────────────────────────
 
 describe('sunat-sample-extractor — no prohibited references', () => {
@@ -602,6 +725,7 @@ describe('sunat-sample-extractor source file safety', () => {
         'OpenAI',
         'Gemini',
         'Claude',
+        '.arrayBuffer()',
       ];
 
       for (const pattern of prohibited) {
