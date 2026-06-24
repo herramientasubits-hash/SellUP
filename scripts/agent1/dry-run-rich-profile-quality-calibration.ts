@@ -1,6 +1,6 @@
 /**
  * Dry Run — Rich Profile Quality Calibration
- * Agent 1 v1.16H-C-pre
+ * Agent 1 v1.16H-D-pre
  *
  * Propósito:
  *   Calibrar max_results y observar el breakdown completo de resultados Tavily
@@ -18,11 +18,13 @@
  *   - DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG.enabled debe ser false
  *   - DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled debe ser false
  *
- * Modo advanced (NO ejecutar en este hito — solo preparado):
- *   RICH_PROFILE_SEARCH_DEPTH=advanced RICH_PROFILE_MAX_RESULTS=5 \
- *     npm run agent1:dry-run:rich-profile-quality-calibration
- *   o bien:
- *     npm run agent1:dry-run:rich-profile-quality-calibration:advanced
+ * Candidato configurable vía env vars (defaults: Sofka):
+ *   RICH_PROFILE_CANDIDATE_NAME, RICH_PROFILE_DOMAIN, RICH_PROFILE_WEBSITE,
+ *   RICH_PROFILE_COUNTRY, RICH_PROFILE_COUNTRY_CODE, RICH_PROFILE_INDUSTRY,
+ *   RICH_PROFILE_MAX_RESULTS, RICH_PROFILE_SEARCH_DEPTH
+ *
+ * Ejemplo Globant (NO ejecutar en este hito — solo preparado):
+ *   npm run agent1:dry-run:rich-profile-quality-calibration:globant
  */
 
 import {
@@ -41,29 +43,17 @@ import {
 
 import { DEFAULT_LINKEDIN_SEARCH_CONFIG } from '../../src/server/agents/prospecting-toolkit/linkedin-company-search';
 
+import { resolveCalibrationConfig } from '../../src/server/agents/prospecting-toolkit/rich-profile-calibration-config';
+
 // ── Configurable params (env var overrides) ───────────────────────────────────
 
-const rawDepth = process.env.RICH_PROFILE_SEARCH_DEPTH ?? 'basic';
-const resolvedDepth: 'basic' | 'advanced' =
-  rawDepth === 'advanced' ? 'advanced' : 'basic';
-
-const rawMaxResults = process.env.RICH_PROFILE_MAX_RESULTS;
-const resolvedMaxResults =
-  rawMaxResults && /^\d+$/.test(rawMaxResults) ? parseInt(rawMaxResults, 10) : 5;
-
-const CONFIG = {
-  candidateName: 'Sofka',
-  domain: 'sofka.com.co',
-  website: 'https://www.sofka.com.co',
-  maxResults: resolvedMaxResults,
-  searchDepth: resolvedDepth,
-};
+const CONFIG = resolveCalibrationConfig(process.env);
 
 // ── Guard visual ──────────────────────────────────────────────────────────────
 
 console.log('\n════════════════════════════════════════════════════════════════');
 console.log('  DRY RUN ONLY — max 1 Tavily call — 0 Supabase writes');
-console.log('  Rich Profile Quality Calibration — Agent 1 v1.16H-C-pre');
+console.log('  Rich Profile Quality Calibration — Agent 1 v1.16H-D-pre');
 console.log('════════════════════════════════════════════════════════════════\n');
 
 // ── Precheck ──────────────────────────────────────────────────────────────────
@@ -78,6 +68,8 @@ console.log(`  DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled:           ${DEFAULT_LINKE
 console.log(`  candidateName:  ${CONFIG.candidateName}`);
 console.log(`  domain:         ${CONFIG.domain}`);
 console.log(`  website:        ${CONFIG.website}`);
+console.log(`  country:        ${CONFIG.country} (${CONFIG.countryCode})`);
+console.log(`  industry:       ${CONFIG.industry}`);
 console.log(`  maxResults:     ${CONFIG.maxResults}`);
 console.log(`  searchDepth:    ${CONFIG.searchDepth}${CONFIG.searchDepth === 'advanced' ? '  ⚠️  ADVANCED MODE' : ''}`);
 console.log();
@@ -155,9 +147,9 @@ const candidate: RichProfileEnrichmentCandidate = {
   name: CONFIG.candidateName,
   domain: CONFIG.domain,
   website: CONFIG.website,
-  country: 'Colombia',
-  countryCode: 'CO',
-  industry: 'Tecnología',
+  country: CONFIG.country,
+  countryCode: CONFIG.countryCode,
+  industry: CONFIG.industry,
   confidenceScore: 80,
   fitScore: 75,
   richProfile: {
@@ -169,9 +161,9 @@ const candidate: RichProfileEnrichmentCandidate = {
       linkedin_url: null,
     },
     classification: {
-      country: 'Colombia',
-      country_code: 'CO',
-      industry: 'Tecnología',
+      country: CONFIG.country,
+      country_code: CONFIG.countryCode,
+      industry: CONFIG.industry,
       subindustry: null,
       relationship_type: 'sales_prospect',
       not_sales_prospect: false,
@@ -442,6 +434,7 @@ console.log();
 
 console.log('════════════════════════════════════════════════════════════════');
 console.log('  FIN DRY RUN — Rich Profile Quality Calibration');
+console.log(`  candidate=${CONFIG.candidateName}  domain=${CONFIG.domain}`);
 console.log(`  searchDepth=${CONFIG.searchDepth}  maxResults=${CONFIG.maxResults}`);
 console.log('════════════════════════════════════════════════════════════════\n');
 
