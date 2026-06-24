@@ -1100,3 +1100,78 @@ Se cierra la barrera de arquitectura y seguridad para SUNAT Perú. La arquitectu
 - `package.json` / `package-lock.json` intactos
 - Supabase no tocado
 - Colombia, México, Chile, INAPI intactos
+
+---
+
+## Hito cerrado — Perú.3K: Investigación técnica fuentes CIIU / actividad económica para RUC 20
+
+**Fecha:** 2026-06-24
+**HEAD inicial:** `31c1829` — chore(agent1): align rich profile dry run and write smoke diagnostics
+**Tipo:** Research-only — sin código productivo, sin Supabase, sin candidatos
+
+### Hallazgo principal
+
+El **Padrón Reducido RUC** de SUNAT (ya descargado en Perú.3J) tiene exactamente **15 columnas y NO incluye CIIU ni actividad económica**. SUNAT tiene CIIU internamente y lo expone en la consulta web individual (con captcha), pero no lo exporta en el archivo de descarga masiva pública. No existe un "Padrón Completo" diferenciado públicamente descargable con CIIU.
+
+Esta investigación corrige documentación previa incorrecta que afirmaba que el Padrón RUC incluía CIIU.
+
+### Fuentes evaluadas
+
+| Fuente | RUC | CIIU | Tipo acceso | Verdict |
+|--------|-----|------|------------|---------|
+| SUNAT Padrón Reducido | ✅ | ❌ conf. | Descarga pública | USE_AS_REFERENCE_ONLY (para CIIU) |
+| SUNAT e-consultaruc web | ✅ | ✅ | Web + captcha | REJECT masivo |
+| PRODUCE **MiPyme por Sector** ⭐ | ✅ | ✅ | Descarga pública | **SPIKE_LOCAL_FIRST** |
+| PRODUCE Grandes Empresas Manufactura | ✅ | ✅ | Descarga pública | USE_AS_REFERENCE_ONLY |
+| INEI Catálogo CIIU Rev4 | ❌ | ✅ | Descarga pública | USE_AS_REFERENCE_ONLY |
+| **Migo API** ⭐ | ✅ | ✅ conf. | API privada (pago) | **PRIVATE_PROVIDER_ONLY** |
+| ApiDni.com | ✅ | ✅ conf. | API privada | PRIVATE_PROVIDER_ONLY |
+| ApiPeru.dev | ✅ | ❌ conf. | API privada | REJECT |
+| PeruAPI.com | ✅ | ❌ conf. | API privada | REJECT |
+| JSON.pe | ✅ | ❌ conf. | API privada | REJECT |
+| Latinfo | ✅ | ❓ | API privada (free tier) | UNKNOWN |
+
+### Decisión de arquitectura
+
+**Estrategia híbrida:**
+1. **SPIKE** PRODUCE MiPyme por Sector (hito Perú.3L) — descarga gratuita, oficial, tiene RUC + CIIU
+2. Si cobertura ≥ 60%: PRODUCE MiPyme como fuente CIIU principal + Migo API como fallback
+3. Si cobertura < 60%: Migo API como fuente principal (S/15-25/mes para 40K-150K consultas batch)
+
+### Mapa CIIU → Sector SellUp (referencia)
+
+| CIIU Sección | Sector SellUp |
+|---|---|
+| J (6100-6399) | Tecnología / TIC |
+| G (4511-4799) | Retail / Comercio |
+| Q (8600-8899) | Salud |
+| P (8500-8599) | Educación |
+| K (6400-6630) | Financiero |
+| C (1000-3399) | Manufactura |
+
+### Confirmaciones Perú.3K
+
+| Confirmación | Estado |
+|---|---|
+| PE sigue SAFE_CONNECTOR_ONLY | ✅ |
+| pe_sunat_bulk sigue not_connected | ✅ |
+| PE fuera de source-discovery-preflight | ✅ |
+| pe_sunat_bulk fuera de SOURCE_DISCOVERY_REGISTRY | ✅ |
+| No se descargó archivo grande nuevo | ✅ |
+| No se creó snapshot CIIU | ✅ |
+| No se escribió Supabase | ✅ |
+| No se crearon candidatos ni batches | ✅ |
+| No se tocó INAPI, Chile, México, Colombia | ✅ |
+| No se creó código productivo | ✅ |
+
+### Archivos modificados en Perú.3K
+
+- `docs/PERU_SUNAT_CIIU_SOURCE_RESEARCH.md` — Creado (investigación completa Perú.3K)
+- `AUDITORIA-FUENTES-IA.md` — Agregada esta sección
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` — Corregido error de CIIU en Padrón RUC; agregado PRODUCE MiPyme
+
+### Próximo hito recomendado
+
+**Perú.3L — Spike local: PRODUCE MiPyme por Sector Productivo**
+Descargar, verificar columnas, cruzar con snapshot Perú.3J por RUC, calcular % de match y distribución CIIU.
+No autorizar hasta instrucción explícita.
