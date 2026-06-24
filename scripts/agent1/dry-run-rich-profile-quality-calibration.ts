@@ -1,6 +1,6 @@
 /**
  * Dry Run — Rich Profile Quality Calibration
- * Agent 1 v1.16H-B
+ * Agent 1 v1.16H-C-pre
  *
  * Propósito:
  *   Calibrar max_results y observar el breakdown completo de resultados Tavily
@@ -17,6 +17,12 @@
  *   - dryRun=true, usageLoggerFn=undefined
  *   - DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG.enabled debe ser false
  *   - DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled debe ser false
+ *
+ * Modo advanced (NO ejecutar en este hito — solo preparado):
+ *   RICH_PROFILE_SEARCH_DEPTH=advanced RICH_PROFILE_MAX_RESULTS=5 \
+ *     npm run agent1:dry-run:rich-profile-quality-calibration
+ *   o bien:
+ *     npm run agent1:dry-run:rich-profile-quality-calibration:advanced
  */
 
 import {
@@ -35,21 +41,29 @@ import {
 
 import { DEFAULT_LINKEDIN_SEARCH_CONFIG } from '../../src/server/agents/prospecting-toolkit/linkedin-company-search';
 
-// ── Configurable params ───────────────────────────────────────────────────────
+// ── Configurable params (env var overrides) ───────────────────────────────────
+
+const rawDepth = process.env.RICH_PROFILE_SEARCH_DEPTH ?? 'basic';
+const resolvedDepth: 'basic' | 'advanced' =
+  rawDepth === 'advanced' ? 'advanced' : 'basic';
+
+const rawMaxResults = process.env.RICH_PROFILE_MAX_RESULTS;
+const resolvedMaxResults =
+  rawMaxResults && /^\d+$/.test(rawMaxResults) ? parseInt(rawMaxResults, 10) : 5;
 
 const CONFIG = {
   candidateName: 'Sofka',
   domain: 'sofka.com.co',
   website: 'https://www.sofka.com.co',
-  maxResults: 5,
-  searchDepth: 'basic' as const,
+  maxResults: resolvedMaxResults,
+  searchDepth: resolvedDepth,
 };
 
 // ── Guard visual ──────────────────────────────────────────────────────────────
 
 console.log('\n════════════════════════════════════════════════════════════════');
 console.log('  DRY RUN ONLY — max 1 Tavily call — 0 Supabase writes');
-console.log('  Rich Profile Quality Calibration — Agent 1 v1.16H-B');
+console.log('  Rich Profile Quality Calibration — Agent 1 v1.16H-C-pre');
 console.log('════════════════════════════════════════════════════════════════\n');
 
 // ── Precheck ──────────────────────────────────────────────────────────────────
@@ -65,7 +79,7 @@ console.log(`  candidateName:  ${CONFIG.candidateName}`);
 console.log(`  domain:         ${CONFIG.domain}`);
 console.log(`  website:        ${CONFIG.website}`);
 console.log(`  maxResults:     ${CONFIG.maxResults}`);
-console.log(`  searchDepth:    ${CONFIG.searchDepth}`);
+console.log(`  searchDepth:    ${CONFIG.searchDepth}${CONFIG.searchDepth === 'advanced' ? '  ⚠️  ADVANCED MODE' : ''}`);
 console.log();
 
 if (!tavilyAvailable) {
@@ -84,6 +98,10 @@ if (DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled !== false) {
 }
 
 console.log('  Prechecks OK ✓\n');
+
+// ── Main (wraps async logic — required for CJS/tsx compat) ───────────────────
+
+async function main() {
 
 // ── Tavily transport — captures raw results for breakdown ─────────────────────
 
@@ -219,6 +237,7 @@ console.log('── EJECUTANDO DRY RUN ─────────────�
 const providerFn = createTavilyRichProfileEnrichmentProvider(
   CONFIG.maxResults,
   tavilyTransport,
+  CONFIG.searchDepth,
 );
 
 const runnerOutput = await runRichProfileEnrichmentBatch(
@@ -315,6 +334,32 @@ if (providerResult) {
 }
 console.log();
 
+// 5b. Provenance del rich profile DESPUÉS de merge
+console.log('5b. PROVENANCE POST-MERGE (enrichedProfile.provenance)');
+const enrichedProfile = enriched?.enrichedProfile;
+if (enrichedProfile) {
+  const prov = enrichedProfile.provenance;
+  console.log(`   generated_by:              ${prov.generated_by}`);
+  console.log(`   enrichment_level:          ${prov.enrichment_level}`);
+  console.log(`   external_calls_used:       ${prov.external_calls_used}`);
+  console.log(`   cost_usd:                  ${prov.cost_usd}`);
+  console.log(`   last_enrichment_at:        ${('last_enrichment_at' in prov ? (prov as Record<string, unknown>)['last_enrichment_at'] : 'n/a') ?? 'n/a'}`);
+  const notes = enrichedProfile.notes;
+  console.log(`   notes.requires_human_review: ${notes.requires_human_review}`);
+  console.log(`   notes.missing_fields:        ${JSON.stringify(notes.missing_fields ?? [])}`);
+  // Diagnosis: was enrichment_level correctly upgraded?
+  if (prov.enrichment_level === 'basic' && prov.external_calls_used === false) {
+    console.log('   ⚠️  DIAGNÓSTICO: enrichment_level=basic — merge no se ejecutó o external call no fue marcada.');
+  } else if (prov.enrichment_level === 'controlled') {
+    console.log('   ✅ enrichment_level=controlled — merge ejecutado correctamente.');
+  }
+} else if (skippedItem) {
+  console.log(`   SKIPPED — provenance sin cambio (reason: ${skippedItem.reason})`);
+} else {
+  console.log('   (sin enrichedProfile)');
+}
+console.log();
+
 // 6. Usage payload in memory
 console.log('6. USAGE PAYLOAD (EN MEMORIA — NO INSERTADO)');
 const usagePayload = runnerOutput.usagePayloads[0];
@@ -371,14 +416,18 @@ if (providerResult) {
     );
     if (isAboutOrRoot || providerResult.city || providerResult.size_range) {
       console.log('   ✅ Seleccionó about/root/official page o extrajo datos útiles.');
-      console.log('   → LISTO para autorizar v1.16H-B real dry run con maxResults=5 basic.');
+      console.log('   → LISTO para autorizar v1.16H-C real dry run.');
     } else {
       console.log('   ⚠️  Seleccionó página pero sin about/root claro o datos útiles.');
       console.log('   → REVISAR calidad de resultados antes de write smoke.');
     }
   } else if (providerResult.status === 'not_found') {
-    console.log('   ❌ not_found — Tavily no retornó resultados útiles con maxResults=5.');
-    console.log('   → REVISAR breakdown arriba. Considerar ajustar query o aumentar maxResults.');
+    console.log('   ⚠️  not_found — Tavily no extrajo city/size con este searchDepth/maxResults.');
+    if (CONFIG.searchDepth === 'basic') {
+      console.log('   → Considerar autorizar v1.16H-C advanced dry run (searchDepth=advanced).');
+    } else {
+      console.log('   → REVISAR breakdown arriba. Ajustar query o estrategia.');
+    }
   } else if (providerResult.status === 'failed') {
     console.log('   ❌ failed — Error en llamada Tavily.');
     console.log('   → REVISAR error y reintentar.');
@@ -393,4 +442,12 @@ console.log();
 
 console.log('════════════════════════════════════════════════════════════════');
 console.log('  FIN DRY RUN — Rich Profile Quality Calibration');
+console.log(`  searchDepth=${CONFIG.searchDepth}  maxResults=${CONFIG.maxResults}`);
 console.log('════════════════════════════════════════════════════════════════\n');
+
+} // end main
+
+main().catch((e: unknown) => {
+  console.error('FATAL:', e instanceof Error ? e.message : e);
+  process.exit(1);
+});

@@ -417,10 +417,12 @@ function extractIncludeDomains(candidate: RichProfileEnrichmentCandidate): strin
  *
  * @param maxResultsPerQuery - Máximo de resultados por query (default 3).
  * @param transportOverride - Transport inyectable para tests. Omitir en producción.
+ * @param searchDepth - Profundidad de búsqueda Tavily (default 'basic'). Usar 'advanced' con autorización explícita.
  */
 export function createTavilyRichProfileEnrichmentProvider(
   maxResultsPerQuery = 3,
   transportOverride?: TavilySearchTransport,
+  searchDepth: 'basic' | 'advanced' = 'basic',
 ): RichProfileEnrichmentProviderFn {
   const transport = transportOverride ?? defaultTavilyTransport;
 
@@ -436,7 +438,7 @@ export function createTavilyRichProfileEnrichmentProvider(
     const searchOpts: TavilySearchOpts = {
       api_key: apiKey,
       query,
-      search_depth: 'basic',
+      search_depth: searchDepth,
       max_results: maxResultsPerQuery,
       ...(() => {
         const domains = extractIncludeDomains(candidate);

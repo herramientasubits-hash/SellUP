@@ -138,7 +138,7 @@ export type RichProfileEnrichmentUsagePayload = {
   candidate_domain: string | null;
   query_type: 'company_profile';
   query: string;
-  search_depth: 'basic';
+  search_depth: 'basic' | 'advanced';
   max_results: number;
   estimated_cost_usd: number;
   status: 'success' | 'failed' | 'skipped';

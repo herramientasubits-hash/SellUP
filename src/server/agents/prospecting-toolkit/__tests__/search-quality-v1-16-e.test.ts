@@ -793,3 +793,100 @@ describe('F20 — DEFAULT configs siguen false (no activados por defecto)', () =
     assert.equal(DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled, false);
   });
 });
+
+// ─── F21: not_found + description + official evidence_url → provenance correcto ─
+
+describe('F21 — not_found con description + official evidence_url → provenance correcto post-merge', () => {
+  it('mergeRichProfileEnrichmentResult: not_found + description + evidence_url → enrichment_level=controlled, external_calls_used=true, cost acumulado, city null, size null', () => {
+    const profile = buildProfile();
+
+    const merged = mergeRichProfileEnrichmentResult(
+      profile,
+      {
+        status: 'not_found',
+        city: null,
+        size_range: null,
+        hq_country: null,
+        evidence_url: 'https://sofka.com.co',
+        description: 'Sofka Technologies es una empresa de software con presencia en LATAM.',
+        confidence: 30,
+        warnings: [],
+      },
+      { externalCallUsed: true, estimatedCostUsd: 0.008 },
+    );
+
+    // City and size must remain unset
+    assert.equal(merged.location.city, null, 'city debe permanecer null');
+    assert.equal(merged.size.status, 'unknown', 'size debe permanecer unknown');
+    assert.equal(merged.size.estimated_range, null, 'size_range debe permanecer null');
+
+    // Description should be populated (was empty before)
+    assert.ok(
+      merged.description.short && merged.description.short.length > 0,
+      'description.short debe ser llenada desde provider result',
+    );
+
+    // Evidence URL should be populated (was null before)
+    assert.ok(
+      merged.evidence.primary_url && merged.evidence.primary_url.includes('sofka.com.co'),
+      `evidence.primary_url debe apuntar a sofka.com.co, got: ${merged.evidence.primary_url}`,
+    );
+
+    // Provenance: external call must be tracked correctly
+    assert.equal(
+      merged.provenance.enrichment_level,
+      'controlled',
+      'enrichment_level debe ser "controlled" aunque status sea not_found',
+    );
+    assert.equal(
+      merged.provenance.external_calls_used,
+      true,
+      'external_calls_used debe ser true cuando se hizo llamada externa',
+    );
+    assert.ok(
+      merged.provenance.cost_usd >= 0.008,
+      `cost_usd debe acumular 0.008, got: ${merged.provenance.cost_usd}`,
+    );
+
+    // missing_fields must still contain city and size
+    assert.ok(
+      merged.notes.missing_fields?.includes('city'),
+      `missing_fields debe seguir incluyendo "city", got: ${JSON.stringify(merged.notes.missing_fields)}`,
+    );
+    assert.ok(
+      merged.notes.missing_fields?.includes('size'),
+      `missing_fields debe seguir incluyendo "size", got: ${JSON.stringify(merged.notes.missing_fields)}`,
+    );
+  });
+
+  it('runRichProfileEnrichmentBatch: not_found con mock → enrichedProfile.provenance.enrichment_level=controlled', async () => {
+    const { providerFn } = createMockRichProfileEnrichmentProvider('not_found');
+
+    const output = await runRichProfileEnrichmentBatch([baseCandidate()], {
+      config: enabledMockConfig(),
+      providerFn,
+      batchId: 'batch-provenance-test',
+      unitCostUsd: 0.008,
+      clockFn: fixedClock,
+    });
+
+    assert.equal(output.batchMetadata.not_found_count, 1);
+    assert.equal(output.enrichedProfiles.length, 1);
+
+    const prov = output.enrichedProfiles[0].enrichedProfile.provenance;
+    assert.equal(
+      prov.enrichment_level,
+      'controlled',
+      'enrichment_level debe ser controlled después de merge de not_found',
+    );
+    assert.equal(
+      prov.external_calls_used,
+      true,
+      'external_calls_used debe ser true (mock simula llamada externa)',
+    );
+    assert.ok(
+      prov.cost_usd >= 0.008,
+      `cost_usd debe acumular ≥0.008, got: ${prov.cost_usd}`,
+    );
+  });
+});

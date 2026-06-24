@@ -73,6 +73,7 @@
     "agent1:smoke:linkedin-recall-canary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-linkedin-recall-canary.ts",
     "agent1:dry-run:source-guided": "NODE_ENV=development node --import tsx scripts/agent1/dry-run-source-guided-investigation.ts",
     "agent1:dry-run:rich-profile-quality-calibration": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/dry-run-rich-profile-quality-calibration.ts",
+    "agent1:dry-run:rich-profile-quality-calibration:advanced": "NODE_ENV=development RICH_PROFILE_SEARCH_DEPTH=advanced RICH_PROFILE_MAX_RESULTS=5 node --env-file=.env.local --import tsx scripts/agent1/dry-run-rich-profile-quality-calibration.ts",
     "agent1:smoke:linkedin-company-search": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-linkedin-company-search.ts",
     "agent1:smoke:linkedin-pipeline-mock": "NODE_ENV=development node --import tsx scripts/agent1/run-controlled-linkedin-pipeline-smoke.ts",
     "agent1:smoke:linkedin-tavily-readonly": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-real-tavily-linkedin-readonly-smoke.ts",
