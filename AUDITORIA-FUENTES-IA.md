@@ -1170,8 +1170,107 @@ Esta investigación corrige documentación previa incorrecta que afirmaba que el
 - `AUDITORIA-FUENTES-IA.md` — Agregada esta sección
 - `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` — Corregido error de CIIU en Padrón RUC; agregado PRODUCE MiPyme
 
-### Próximo hito recomendado
+### Próximo hito recomendado (desde Perú.3K)
 
 **Perú.3L — Spike local: PRODUCE MiPyme por Sector Productivo**
 Descargar, verificar columnas, cruzar con snapshot Perú.3J por RUC, calcular % de match y distribución CIIU.
+*Resultado: BLOQUEADO — `PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL` (ver Perú.3L-2A). PRODUCE MiPyme y Grandes Empresas son WAF-bloqueados para acceso programático.*
+
+---
+
+## Hito cerrado — Perú.3M: Evaluación controlada Migo API como fallback CIIU Perú
+
+**Fecha:** 2026-06-24
+**HEAD inicial:** `70260c1` — docs(source-catalog): classify PRODUCE Peru CIIU source as WAF-blocked
+**Tipo:** Research + evaluación de arquitectura — sin código productivo, sin Supabase, sin candidatos, sin llamadas reales
+**MIGO_API_KEY_PRESENT:** false
+**Depende de:** Perú.3L-2A (PRODUCE WAF-bloqueado)
+
+### Contexto
+
+Perú.3L-2A cerró PRODUCE MiPyme como `PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL`. No existe fuente oficial gratuita operable para CIIU masivo en Perú. Migo API es el candidato privado identificado en Perú.1B y Perú.3K como mejor proveedor confirmado con CIIU.
+
+### Hallazgos principales
+
+| Pregunta | Respuesta |
+|----------|-----------|
+| ¿Endpoint por RUC? | ✅ `GET /api/v1/ruc/{ruc}` — Bearer token |
+| ¿Devuelve CIIU? | ✅ CIIU Rev 3 + Rev 4 (principal + secundarias) |
+| ¿Devuelve actividad económica? | ✅ Descripción textual incluida |
+| ¿Devuelve estado/condición? | ✅ Estado tributario + condición domicilio |
+| ¿Consulta individual? | ✅ Sí |
+| ¿Consulta batch? | ✅ Sí (confirmado en docs; tamaño exacto pendiente de spike) |
+| ¿Modelo auth? | ✅ Bearer token (API key) |
+| ¿Costo? | Demo: 700q/7d gratis → Básico: S/15/mes (40K) → Empresa: S/25/mes (80K) → Premium: S/25/mes (150K) |
+| ¿Rate limit? | ⚠️ No documentado explícitamente — confirmar con trial |
+| ¿ToS compatible? | ⚠️ No revisados formalmente para IA/agentes — revisión pendiente |
+| ¿Discovery o enrichment? | Enrichment únicamente — NO genera empresas nuevas |
+
+### Verdict
+
+```
+SPIKE_WITH_TEST_KEY
+
+Razón: CIIU confirmado, batch confirmado, precio confirmado.
+Bloqueador: ToS no revisados + payload exacto no testeado (MIGO_API_KEY_PRESENT=false).
+Siguiente: Obtener trial key → spike técnico → revisar ToS → confirmar integración.
+```
+
+### Arquitectura propuesta
+
+```
+SUNAT Padrón RUC → RUC 20 snapshot (851,883 empresas)
+  ↓
+Migo API Batch Enricher (worker/job, NO Vercel)
+  ↓
+Field Extractor (solo CIIU + estado + ubigeo — sin representantes personales)
+  ↓
+Supabase upsert ciiu_principal + sector_sellup
+```
+
+Migo = `enrichment_provider`, no `discovery_provider`.
+
+### Estrategia recomendada para MVP — Opción A
+
+```
+Capa 1: SUNAT Padrón Reducido RUC → base legal (RUC, estado, condición, ubigeo)
+Capa 2: Migo API → CIIU principal + secundarias (enriquecimiento bajo demanda)
+Capa 3: Tabla CIIU → sector_sellup (derivada internamente)
+```
+
+### Datos a guardar vs no guardar
+
+**Guardar:** `ciiu_codigo`, `ciiu_descripcion`, `estado_contribuyente`, `condicion_domicilio`, `ubigeo`, `sector_sellup`, `migo_enriched_at`
+**NO guardar:** Representantes legales (personas naturales), DNI, datos personales. Ley N° 29733 Perú.
+
+### Confirmaciones Perú.3M
+
+| Confirmación | Estado |
+|---|---|
+| PE sigue SAFE_CONNECTOR_ONLY | ✅ |
+| Migo NO registrado en source-catalog ni enrichment registry | ✅ |
+| No se realizaron llamadas reales a Migo API | ✅ |
+| MIGO_API_KEY_PRESENT=false | ✅ |
+| No se escribió Supabase | ✅ |
+| No se crearon candidatos ni batches | ✅ |
+| No se activó preflight/registry/wizard | ✅ |
+| No se tocó INAPI, Chile, México, Colombia | ✅ |
+| No se creó código productivo | ✅ |
+| API key no aparece en ningún archivo/log/commit | ✅ |
+
+### Archivos modificados en Perú.3M
+
+- `docs/PERU_MIGO_API_CIIU_EVALUATION.md` — Creado (evaluación completa Perú.3M)
+- `AUDITORIA-FUENTES-IA.md` — Agregada esta sección
+- `docs/PERU_SUNAT_CIIU_SOURCE_RESEARCH.md` — §3.7 Migo API expandido con verdict y arquitectura
+- `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md` — §2.2 Migo API actualizado con conclusiones Perú.3M
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` — Migo actualizado con verdict y estrategia
+
+### Próximo hito recomendado
+
+**Perú.3N — Spike real con trial key Migo API**
+
+Prerrequisitos: registrar en `app.migo.pe`, obtener plan Demo (700 consultas / 7 días), configurar `MIGO_API_KEY` en `.env.local`, revisar ToS.
+Alcance: script temporal `.tmp/migo-spike/`, 50-100 RUCs de muestra, verificar payload CIIU, confirmar batch endpoint, documentar rate limits.
+NO: Supabase, candidatos, código productivo, API key en commits.
 No autorizar hasta instrucción explícita.

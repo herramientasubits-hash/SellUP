@@ -203,26 +203,40 @@ verdict: USE_AS_REFERENCE_ONLY
 
 ---
 
-### 3.7 Migo API (api.migo.pe)
+### 3.7 Migo API (api.migo.pe) — Evaluado en Perú.3M
 
 ```
 name: Migo API — Actividades Económicas RUC
-owner: Migo (privado peruano)
+owner: Migo S.A.C. (privado peruano)
 url: https://api.migo.pe / https://docs.migo.pe/ruc/actividades-economicas
 accessMode: private_api
-requiresCredentials: true (token Bearer)
+requiresCredentials: true (Bearer token — MIGO_API_KEY, solo variable de entorno)
 format: JSON
 containsRuc: true
 containsCiiu: true ✅ CONFIRMADO — CIIU Rev 3 y Rev 4, descripción principal y secundaria
 containsActivityDescription: true
-containsCompanyStatus: true
+containsCompanyStatus: true (estado tributario + condición domicilio)
 containsAddressOrUbigeo: true
+containsRepresentantesLegales: true (⚠️ NO persistir — datos personales / Ley 29733)
 updateFrequency: real-time (sincronización con SUNAT)
 technicalViability: high
-legalOperationalRisk: low
-recommendedUse: enrichment individual o batch — mejor opción privada confirmada
-limitations: Requiere pago. Planes: Demo 700 consultas/7 días gratis → Básico S/15/mes (40K) → Empresa S/25/mes (80K) → Premium S/25/mes (150K). Tiene endpoints individuales y batch. Accesible pero dependencia de tercero.
-verdict: PRIVATE_PROVIDER_ONLY — mejor proveedor privado para CIIU masivo
+legalOperationalRisk: medium (ToS no revisados formalmente para IA/agentes)
+endpointIndividual: GET /api/v1/ruc/{ruc}
+endpointBatch: sí — confirmado; tamaño máximo pendiente de spike
+recommendedUse: enrichment_provider — enriquece RUCs conocidos con CIIU. NO discovery.
+limitations:
+  - Requiere pago (Demo gratis: 700q/7d)
+  - Planes: Básico S/15/mes (40K) → Empresa S/25/mes (80K) → Premium S/25/mes (150K)
+  - Rate limit no documentado públicamente — confirmar con trial
+  - ToS para uso en agentes automáticos no revisados — revisar antes de integración productiva
+  - NO genera empresas nuevas: solo enriquece RUCs ya identificados
+verdict: SPIKE_WITH_TEST_KEY — mejor candidato privado para CIIU masivo Perú.
+         PRODUCE bloqueado por WAF → Migo es la única fuente CIIU operable confirmada.
+         Pendiente: trial key + spike técnico + revisión ToS.
+arquitectura: enrichment_provider (worker/job, NO Vercel serverless)
+datosAGuardar: ciiu_codigo, ciiu_descripcion, sector_sellup, estado, condicion, ubigeo, migo_enriched_at
+datosNOGuardar: representantes_legales, DNI, datos personales (Ley N° 29733 Perú)
+estrategiaMVP: Opción A — SUNAT Padrón RUC (base legal) + Migo API (CIIU bajo demanda)
 ```
 
 ---

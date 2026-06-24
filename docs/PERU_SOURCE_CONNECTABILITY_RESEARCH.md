@@ -209,26 +209,33 @@ La única URL estática sin auth confirmada (`transparencia.produce.gob.pe` → 
 
 ---
 
-### 2.2 Migo API (`api.migo.pe`)
+### 2.2 Migo API (`api.migo.pe`) — Evaluado en Perú.3M
 
 | Atributo | Valor |
 |---|---|
-| Tipo | `private_api` |
+| Tipo | `enrichment_provider` (NO `discovery_provider`) |
 | País | Perú (PE) |
 | Sector | Todos |
-| Datos | RUC, razón social, estado, condición, dirección, representantes legales, CIIU, ubigeo, locales anexos. También ofrece DNI, tipo de cambio, CPE. |
-| Acceso | API REST con token |
-| Auth | API key (Bearer token) |
+| Datos | RUC, razón social, estado, condición, dirección, CIIU Rev3+Rev4 (principal + secundarias), ubigeo, locales anexos, representantes legales (⚠️ NO persistir — personas naturales). También: DNI, tipo de cambio, CPE. |
+| Acceso | API REST con Bearer token |
+| Auth | Bearer token (`MIGO_API_KEY` — solo variable de entorno, nunca en código/docs/logs/commits) |
 | Documentación técnica | Sí — docs.migo.pe, completa, con ejemplos |
-| Costo | Demo: 700 consultas/7 días gratis. Básico: S/15/mes (40,000 consultas). Empresa: S/25/mes (80,000 consultas). |
-| Plan trial | Sí — 7 días, 700 consultas |
-| Rate limits | No documentados explícitamente; 99% uptime declarado |
-| Riesgos | Medio — proveedor privado. Términos no revisados para uso en IA/agentes. Datos provienen de SUNAT (públicos). Dependencia de tercero. |
-| Encaje | `validation` + `enrichment` — consulta individual por RUC |
-| Recomendación | `evaluate_commercially` — post-MVP. Es económico (S/15–25/mes) y tiene buena documentación. Representantes legales y locales anexos son datos que SUNAT bulk no entrega. |
+| Endpoint individual | `GET /api/v1/ruc/{ruc}` |
+| Endpoint batch | Sí — confirmado. Tamaño máximo por request pendiente de spike |
+| Costo | Demo: 700q/7d gratis → Básico: S/15/mes (40K) → Empresa: S/25/mes (80K) → Premium: S/25/mes (150K) |
+| Plan trial | Sí — 7 días, 700 consultas (suficiente para spike técnico) |
+| Rate limits | No documentados explícitamente; 99% uptime declarado. Confirmar con trial. |
+| Riesgos | Medio — ToS no revisados para uso en agentes automáticos. Datos provienen de SUNAT (públicos). Representantes legales = datos personales (Ley 29733). |
+| Encaje | `enrichment_provider` — enriquece RUCs conocidos con CIIU. NO genera nuevos prospectos. |
+| Verdict Perú.3M | **`SPIKE_WITH_TEST_KEY`** — PRODUCE WAF-bloqueado → Migo es la única fuente CIIU operable confirmada para Perú. |
+| Estrategia MVP | **Opción A:** SUNAT Padrón RUC (base legal RUC/estado/condición) + Migo API (CIIU bajo demanda) |
+| Arquitectura | Worker/background job. NO Vercel serverless. Throttling configurable. |
+| Datos a guardar | `ciiu_codigo`, `ciiu_descripcion`, `sector_sellup`, `estado`, `condicion`, `ubigeo`, `migo_enriched_at` |
+| Datos NO guardar | Representantes legales, DNI, datos personales — Ley N° 29733 Perú |
 | Source key | `pe_migo_api` |
+| Próximo paso | Obtener trial key → spike `.tmp/migo-spike/` (50-100 RUCs) → revisar ToS → confirmar integración |
 
-**Justificación:** Migo API es un proveedor peruano consolidado con documentación técnica profesional, plan de prueba gratuito y precios accesibles. Ofrece representantes legales (dato que el padrón reducido de SUNAT no incluye). Post-MVP puede ser un complemento valioso para enriquecimiento puntual.
+**Justificación Perú.3M:** Con PRODUCE MiPyme WAF-bloqueado (`PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL`), no existe fuente oficial gratuita operable para CIIU masivo en Perú. Migo API es el mejor candidato privado confirmado: CIIU Rev3+Rev4, batch endpoint, precios accesibles (S/15–25/mes), documentación técnica completa. El bloqueador para producción son los ToS no revisados para uso en agentes automáticos y la falta de un spike real con trial key. Ver evaluación completa en `docs/PERU_MIGO_API_CIIU_EVALUATION.md`.
 
 ---
 
