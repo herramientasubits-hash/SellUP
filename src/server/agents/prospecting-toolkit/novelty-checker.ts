@@ -81,6 +81,44 @@ type PreviousCandidateRow = {
 /** Map de dominio normalizado → filas de candidatos previos */
 export type NoveltyIndex = Map<string, PreviousCandidateRow[]>;
 
+// ─── QA/Smoke exclusion helper ───────────────────────────────────────────────
+
+/**
+ * Determina si una fila de candidato previo debe ser excluida de la memoria
+ * negativa por ser un candidato de smoke test / QA.
+ *
+ * Solo excluye cuando hay señales explícitas en metadata. Sin señales → false.
+ * Nunca relaja el duplicate guard de candidatos activos (needs_review, approved…).
+ * Solo afecta los paths de negative memory (Reglas 4, 4a, 4b).
+ */
+export function isQaOrSmokeCandidateForNegativeMemory(
+  row: PreviousCandidateRow,
+): boolean {
+  const m = row.metadata as Record<string, unknown> | null;
+  if (!m) return false;
+
+  if (m.smoke_test === true) return true;
+  if (m.qa_only === true) return true;
+  if (m.do_not_use_for_sales === true) return true;
+  if (m.do_not_convert === true) return true;
+  if (typeof m.smoke_type === 'string' && m.smoke_type.length > 0) return true;
+  if (
+    typeof m.created_by_script === 'string' &&
+    m.created_by_script.toLowerCase().includes('smoke')
+  )
+    return true;
+
+  // logical_cleanup.cleanup_mode === 'logical_only'
+  if (
+    m.logical_cleanup !== null &&
+    typeof m.logical_cleanup === 'object' &&
+    (m.logical_cleanup as Record<string, unknown>).cleanup_mode === 'logical_only'
+  )
+    return true;
+
+  return false;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function daysSince(isoDate: string): number {
@@ -238,9 +276,11 @@ export function evaluateCandidateNovelty(
   }
 
   // Regla 4: descartado con reviewed_at dentro del cooldown → skip
+  // Excluye candidatos QA/smoke: no deben contaminar la memoria negativa real.
   const recentlyDiscarded = previous.find((r) => {
     if (r.status !== 'discarded') return false;
     if (!r.reviewed_at) return false;
+    if (isQaOrSmokeCandidateForNegativeMemory(r)) return false;
     return daysSince(r.reviewed_at) < cooldownDays;
   });
   if (recentlyDiscarded) {
@@ -258,33 +298,15 @@ export function evaluateCandidateNovelty(
     };
   }
 
-  // Regla 4a: descartado con qa_cleanup en metadata → soft memory (v1.10)
-  // Candidatos descartados durante limpieza de batch de prueba no deben bloquear
-  // empresas legítimas en corridas reales. Se permite re-evaluación con advertencia.
-  const qaCleanupDiscarded = previous.find((r) => {
-    if (r.status !== 'discarded') return false;
-    if (r.reviewed_at) return false; // descartado con revisión real → ya manejado en Regla 4
-    return !!(r.metadata as Record<string, unknown> | null)?.qa_cleanup;
-  });
-  if (qaCleanupDiscarded) {
-    return {
-      status: 'soft_memory_qa_cleanup',
-      shouldSkip: false,
-      noveltyMetadata: {
-        ...baseContext,
-        status: 'soft_memory_qa_cleanup',
-        reason:
-          'Descartado en batch de prueba/QA (qa_cleanup) — re-evaluación permitida con advertencia',
-      },
-    };
-  }
-
-  // Regla 4b: descartado con reviewed_at = null → usar COALESCE(updated_at, created_at)
-  // Cubre el caso en que el candidato fue descartado pero reviewed_at no se registró.
-  // Ventana fija de NEGATIVE_MEMORY_COOLDOWN_DAYS para no ser más permisivos que la Regla 4.
+  // Regla 4b: descartado real (no QA/smoke) con reviewed_at = null → negative memory
+  // Se evalúa ANTES de 4a para que una row real tenga prioridad sobre rows QA/smoke
+  // del mismo dominio (scenario F9: mixed rows).
+  // Excluye explícitamente QA/smoke y qa_cleanup para que caigan en Regla 4a.
   const recentlyDiscardedNullReview = previous.find((r) => {
     if (r.status !== 'discarded') return false;
     if (r.reviewed_at) return false; // ya cubierto por Regla 4
+    if (isQaOrSmokeCandidateForNegativeMemory(r)) return false;
+    if ((r.metadata as Record<string, unknown> | null)?.qa_cleanup) return false;
     const fallbackDate = r.updated_at ?? r.created_at;
     return daysSince(fallbackDate) < NEGATIVE_MEMORY_COOLDOWN_DAYS;
   });
@@ -301,6 +323,31 @@ export function evaluateCandidateNovelty(
         status: 'rejected_recently',
         reason: `Descartado (sin fecha de revisión) hace ${Math.floor(daysSince(fallbackDate))} días — bloqueado por memoria negativa (${NEGATIVE_MEMORY_COOLDOWN_DAYS} días)`,
         cooldown_until: cooldownUntil,
+      },
+    };
+  }
+
+  // Regla 4a: descartado con señales QA/smoke en metadata → soft memory (v1.10 + v1.16H-E.1)
+  // Solo llega aquí si ninguna row real bloqueó en Regla 4b.
+  // Señales: qa_cleanup (legacy), smoke_test, qa_only, do_not_use_for_sales,
+  // do_not_convert, smoke_type, created_by_script:*smoke*, logical_cleanup.cleanup_mode=logical_only
+  const qaOrSmokeDiscarded = previous.find((r) => {
+    if (r.status !== 'discarded') return false;
+    if (r.reviewed_at) return false; // descartado con revisión real → ya manejado en Regla 4
+    return (
+      isQaOrSmokeCandidateForNegativeMemory(r) ||
+      !!(r.metadata as Record<string, unknown> | null)?.qa_cleanup
+    );
+  });
+  if (qaOrSmokeDiscarded) {
+    return {
+      status: 'soft_memory_qa_cleanup',
+      shouldSkip: false,
+      noveltyMetadata: {
+        ...baseContext,
+        status: 'soft_memory_qa_cleanup',
+        reason:
+          'Descartado en batch de prueba/QA (smoke/qa) — re-evaluación permitida con advertencia',
       },
     };
   }
