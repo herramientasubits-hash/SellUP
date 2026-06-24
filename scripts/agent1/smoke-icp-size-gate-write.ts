@@ -51,6 +51,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { writeProspectingCandidates } from '../../src/server/agents/prospecting-toolkit/candidate-writer';
 import { DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG } from '../../src/server/agents/prospecting-toolkit/rich-profile-enrichment';
 import { DEFAULT_LINKEDIN_SEARCH_CONFIG } from '../../src/server/agents/prospecting-toolkit/linkedin-company-search';
+import type { RichProfileEnrichmentOverride } from '../../src/server/agents/prospecting-toolkit/candidate-writer';
 import type { ProspectingPipelineOutput } from '../../src/server/agents/prospecting-toolkit/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -103,8 +104,8 @@ function buildSyntheticPipelineOutput(): ProspectingPipelineOutput {
     countryCode: 'CO',
     industry: 'Tecnología',
     sourceUrl: null,
-    sourceTitle: null,
-    sourceSnippet: null,
+    sourceTitle: 'Empresa de software empresarial en Colombia',
+    sourceSnippet: 'Empresa de software empresarial con soluciones tecnológicas y servicios de ti para clientes corporativos en Colombia.',
     websiteVerification: null,
     duplicateCheck: null,
     scoring: {
@@ -162,7 +163,7 @@ function buildSyntheticPipelineOutput(): ProspectingPipelineOutput {
     candidates: [
       {
         ...baseCandidate,
-        name: 'SellUp ICP Pass Smoke Co',
+        name: 'SellUp ICP Pass Smoke',
         domain: DOMAIN_PASS,
         // size_range "10001+" → ICP size gate: pass
         scoring: {
@@ -177,7 +178,7 @@ function buildSyntheticPipelineOutput(): ProspectingPipelineOutput {
       },
       {
         ...baseCandidate,
-        name: 'SellUp ICP Unknown Smoke Co',
+        name: 'SellUp ICP Unknown Smoke',
         domain: DOMAIN_UNKNOWN,
         // size_range null → ICP size gate: needs_validation
         scoring: {
@@ -192,7 +193,7 @@ function buildSyntheticPipelineOutput(): ProspectingPipelineOutput {
       },
       {
         ...baseCandidate,
-        name: 'SellUp ICP Block Smoke Co',
+        name: 'SellUp ICP Block Smoke',
         domain: DOMAIN_BLOCK,
         // size_range "51-200" → ICP size gate: block (NO se inserta)
         scoring: {
@@ -393,6 +394,36 @@ async function main() {
   console.log('[smoke] Candidatos en pipeline:', pipelineOutput.candidates.length);
   console.log('[smoke] Dominios:', pipelineOutput.candidates.map((c) => c.domain).join(', '));
 
+  // Mock enrichment provider: injects size_range per domain without any API calls.
+  // Uses provider:'mock' so the writer skips usage logging (0 provider_usage_logs).
+  // DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG.enabled stays false — this override is
+  // scoped to this invocation only and does not mutate the global default.
+  const SMOKE_SIZE_BY_DOMAIN: Record<string, string | null> = {
+    [DOMAIN_PASS]:    '10001+',
+    [DOMAIN_UNKNOWN]: null,
+    [DOMAIN_BLOCK]:   '51-200',
+  };
+  const mockRichProfileOverride: RichProfileEnrichmentOverride = {
+    config: {
+      enabled: true,
+      provider: 'mock',
+      maxPerBatch: 3,
+      maxQueriesPerCandidate: 1,
+      minConfidenceScore: 0,
+      enrichCity: false,
+      enrichSize: true,
+      enrichDescription: false,
+    },
+    providerFn: async (candidate) => {
+      const sizeRange = SMOKE_SIZE_BY_DOMAIN[candidate.domain ?? ''] ?? null;
+      if (sizeRange === null) {
+        return { status: 'not_found', city: null, hq_country: null, size_range: null, confidence: null };
+      }
+      return { status: 'found', city: null, hq_country: null, size_range: sizeRange, confidence: 80 };
+    },
+    // No usageLoggerFn → 0 provider_usage_logs
+  };
+
   const result = await writeProspectingCandidates(
     {
       pipelineOutput,
@@ -406,8 +437,7 @@ async function main() {
     adminClient,
     // No LinkedIn override — feature disabled by default
     undefined,
-    // No rich profile override — feature disabled by default
-    undefined,
+    mockRichProfileOverride,
   );
 
   console.log('\n╔══════════════════════════════════════════════════════════════════╗');
