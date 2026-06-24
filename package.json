@@ -73,6 +73,7 @@
     "test:search-quality-v1-16-h-d": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-h-d.test.ts",
     "test:search-quality-v1-16-h-e": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-h-e.test.ts",
     "test:search-quality-v1-16-h-e-1": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-h-e-1.test.ts",
+    "test:search-quality-v1-16-h-e-2": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-h-e-2.test.ts",
     "agent1:smoke:linkedin-recall-canary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-linkedin-recall-canary.ts",
     "agent1:dry-run:source-guided": "NODE_ENV=development node --import tsx scripts/agent1/dry-run-source-guided-investigation.ts",
     "agent1:dry-run:rich-profile-quality-calibration": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/dry-run-rich-profile-quality-calibration.ts",
