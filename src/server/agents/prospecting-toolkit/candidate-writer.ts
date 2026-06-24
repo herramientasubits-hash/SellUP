@@ -59,6 +59,11 @@ import {
   runRichProfileEnrichmentBatch,
   mergeRichProfileEnrichmentResult,
 } from './rich-profile-enrichment';
+import {
+  evaluateIcpSizeGateFromRichProfile,
+  resolveIcpSizeGateWriterAction,
+} from './icp-size-gate';
+import type { IcpSizeGateBatchSummary } from './icp-size-gate';
 import type {
   RichProfileEnrichmentConfig,
   RichProfileEnrichmentProviderFn,
@@ -884,6 +889,19 @@ export async function writeProspectingCandidates(
     samples: [] as DuplicateGuardSample[],
   };
 
+  // ICP size gate batch tracking (v1.16I)
+  const icpSizeGateData: {
+    passCount: number;
+    needsValidationCount: number;
+    blockedCount: number;
+    blockedReasons: string[];
+  } = {
+    passCount: 0,
+    needsValidationCount: 0,
+    blockedCount: 0,
+    blockedReasons: [],
+  };
+
   // ── Pass 1: evaluate all candidates through gates → collect eligible ────────
   type IdentityResolutionMeta = {
     original_detected_name: string;
@@ -1614,12 +1632,45 @@ export async function writeProspectingCandidates(
 
     // Apply v1.16E enrichment result if pre-pass computed one for this entry
     const preEnrichResult = richEnrichmentResultsByIdx.get(_entryIdx);
-    const finalRichProfile = preEnrichResult
+    const mergedRichProfile = preEnrichResult
       ? mergeRichProfileEnrichmentResult(richProfile, preEnrichResult.providerResult, {
           externalCallUsed: true,
           estimatedCostUsd: preEnrichResult.estimatedCostUsd,
         })
       : richProfile;
+
+    // ── ICP Size Gate (v1.16I) ────────────────────────────────────────────────
+    // Evalúa tamaño de empresa contra umbral de 200 colaboradores.
+    // Corre DESPUÉS del enriquecimiento para usar el rango real si está disponible.
+    const icpSizeGateResult = evaluateIcpSizeGateFromRichProfile(mergedRichProfile.size, 200);
+    const icpSizeGateAction = resolveIcpSizeGateWriterAction(icpSizeGateResult);
+
+    if (icpSizeGateAction.action === 'skip') {
+      skipped.push({
+        name: candidate.name,
+        reason: icpSizeGateAction.skipReason ?? 'icp_size_below_threshold',
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      icpSizeGateData.blockedCount++;
+      if (icpSizeGateData.blockedReasons.length < 20) {
+        icpSizeGateData.blockedReasons.push(
+          `${candidate.name}: ${icpSizeGateResult.reason}`,
+        );
+      }
+      continue;
+    }
+
+    if (icpSizeGateAction.action === 'needs_review') {
+      icpSizeGateData.needsValidationCount++;
+    } else {
+      icpSizeGateData.passCount++;
+    }
+
+    // Annotate the rich profile with the gate result (immutable)
+    const finalRichProfile = {
+      ...mergedRichProfile,
+      size: { ...mergedRichProfile.size, icp_size_gate: icpSizeGateResult },
+    };
 
     // Per-candidate enrichment metadata (only when provider returned a result)
     const perCandidateRichEnrichment = preEnrichResult
@@ -1741,6 +1792,7 @@ export async function writeProspectingCandidates(
           : {}),
         rich_profile: finalRichProfile,
         ...(perCandidateRichEnrichment ? { rich_profile_enrichment: perCandidateRichEnrichment } : {}),
+        icp_size_gate: icpSizeGateResult,
       },
     };
 
@@ -2116,6 +2168,13 @@ export async function writeProspectingCandidates(
             },
           }
         : {}),
+      icp_size_gate_summary: {
+        threshold: 200,
+        pass_count: icpSizeGateData.passCount,
+        needs_validation_count: icpSizeGateData.needsValidationCount,
+        blocked_count: icpSizeGateData.blockedCount,
+        blocked_reasons: icpSizeGateData.blockedReasons,
+      } satisfies IcpSizeGateBatchSummary,
     };
 
     if (candidatesCreated === 0 && errors.length === 0) {

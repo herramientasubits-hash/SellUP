@@ -16,6 +16,7 @@
  */
 
 import type { LinkedInEnrichmentMetadata } from './types';
+import type { IcpSizeGateResult } from './icp-size-gate';
 
 // ─── Tipo principal ──────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export type CandidateRichProfileV1 = {
     status: 'confirmed' | 'estimated' | 'unknown';
     source?: 'linkedin' | 'website' | 'registry' | 'snippet' | 'manual' | 'unknown';
     notes?: string | null;
+    icp_size_gate?: IcpSizeGateResult | null;
   };
 
   description: {
