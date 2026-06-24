@@ -65,3 +65,21 @@ export function resolveWriteSmokeConfig(env: Record<string, string | undefined>)
     scriptName: env['RICH_PROFILE_SCRIPT_NAME'] ?? DEFAULT_SCRIPT_NAME,
   };
 }
+
+// ── Provider factory args ─────────────────────────────────────────────────────
+
+/**
+ * Args efectivos que se pasan a createTavilyRichProfileEnrichmentProvider.
+ * Función pura — sin side effects. Útil para comparación dry-run vs write-smoke.
+ */
+export type ProviderFactoryArgs = {
+  maxResultsPerQuery: number;
+  searchDepth: 'basic' | 'advanced';
+};
+
+export function buildProviderFactoryArgs(config: CandidateCalibrationConfig): ProviderFactoryArgs {
+  return {
+    maxResultsPerQuery: config.maxResults,
+    searchDepth: config.searchDepth,
+  };
+}

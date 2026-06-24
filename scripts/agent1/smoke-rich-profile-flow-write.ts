@@ -40,7 +40,11 @@ import {
   DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG,
   type RichProfileEnrichmentConfig,
 } from '../../src/server/agents/prospecting-toolkit/rich-profile-enrichment';
-import { createTavilyRichProfileEnrichmentProvider } from '../../src/server/agents/prospecting-toolkit/rich-profile-enrichment-tavily';
+import {
+  createTavilyRichProfileEnrichmentProvider,
+  type TavilySearchOpts,
+  type TavilySearchResponse,
+} from '../../src/server/agents/prospecting-toolkit/rich-profile-enrichment-tavily';
 import { createRichProfileEnrichmentUsageLoggerFn } from '../../src/server/agents/prospecting-toolkit/rich-profile-enrichment-usage-logging';
 import { DEFAULT_LINKEDIN_SEARCH_CONFIG } from '../../src/server/agents/prospecting-toolkit/linkedin-company-search';
 import { resolveWriteSmokeConfig } from '../../src/server/agents/prospecting-toolkit/rich-profile-calibration-config';
@@ -225,6 +229,46 @@ WHERE id = '${batchId}'
   console.log('══════════════════════════════════════════════════════════════════\n');
 }
 
+// ─── Observability transport ──────────────────────────────────────────────────
+// Wraps the real Tavily call to print the effective config sent and raw results
+// received. Prepared for next runs — no API call on import.
+
+async function loggingTavilyTransport(opts: TavilySearchOpts): Promise<TavilySearchResponse> {
+  const { api_key, ...body } = opts;
+
+  console.log('[tavily-obs] Config efectiva enviada a Tavily:');
+  console.log(`[tavily-obs]   query:           "${body.query}"`);
+  console.log(`[tavily-obs]   max_results:     ${body.max_results}`);
+  console.log(`[tavily-obs]   search_depth:    ${body.search_depth}`);
+  console.log(`[tavily-obs]   include_domains: ${JSON.stringify(body.include_domains ?? [])}`);
+
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${api_key}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`tavily_http_error_${response.status}`);
+  }
+
+  const data = await response.json() as TavilySearchResponse;
+  const results = data.results ?? [];
+
+  console.log(`[tavily-obs] Resultados recibidos: ${results.length}`);
+  results.forEach((r, i) => {
+    console.log(`[tavily-obs]   #${i + 1} url=${r.url}`);
+    console.log(`[tavily-obs]      title=${(r.title ?? '(vacío)').slice(0, 80)}`);
+    console.log(`[tavily-obs]      score=${typeof r.score === 'number' ? r.score.toFixed(4) : 'n/a'}`);
+    console.log(`[tavily-obs]      snippet=${(r.content ?? '(vacío)').slice(0, 150).replace(/\n/g, ' ')}`);
+  });
+
+  return data;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -281,7 +325,7 @@ async function main(): Promise<void> {
 
   const baseProvider = createTavilyRichProfileEnrichmentProvider(
     CONFIG.maxResults,
-    undefined,
+    loggingTavilyTransport,
     CONFIG.searchDepth,
   );
 
