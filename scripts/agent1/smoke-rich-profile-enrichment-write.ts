@@ -399,6 +399,23 @@ async function main(): Promise<void> {
 
   console.log(`\n[smoke] Rich Profile Enrichment completo. Tavily calls: ${tavilyCallCount}`);
 
+  // ─── Phase 2.5: Call usageLoggerFn for each payload (runner builds but does NOT call) ──
+
+  console.log('\n[smoke] Phase 2.5: Logging usage payloads...');
+  let usageLogSuccessCount = 0;
+  let usageLogFailedCount = 0;
+  for (const payload of result.usagePayloads) {
+    try {
+      await usageLoggerFn(payload);
+      usageLogSuccessCount++;
+      console.log(`[smoke] usage_log OK: ${payload.usage_key}`);
+    } catch (err) {
+      usageLogFailedCount++;
+      console.error(`[smoke] usage_log FAILED: ${payload.usage_key}`, err instanceof Error ? err.message : err);
+    }
+  }
+  console.log(`[smoke] Usage logs: success=${usageLogSuccessCount} failed=${usageLogFailedCount}`);
+
   // ─── Phase 3: Update batch metadata con rich_profile_enrichment summary ───────
 
   console.log('\n[smoke] Phase 3: Actualizando metadata del batch con summary...');
@@ -416,7 +433,9 @@ async function main(): Promise<void> {
     failed_count: meta.failed_count,
     skipped_count: meta.skipped_count,
     estimated_cost_usd: meta.estimated_cost_usd,
-    usage_logged: meta.usage_logged,
+    usage_logged: usageLogSuccessCount > 0,
+    usage_log_success_count: usageLogSuccessCount,
+    usage_log_failed_count: usageLogFailedCount,
     elapsed_ms: elapsedMs,
   };
 
