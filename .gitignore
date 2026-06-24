@@ -23,6 +23,9 @@
 # benchmark results — temporal, never versioned
 /scratch/
 
+# Local temporary files for large offline jobs
+.tmp/
+
 # misc
 .DS_Store
 *.pem
