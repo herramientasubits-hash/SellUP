@@ -55,6 +55,18 @@ import type {
   ProspectingPipelineWriteOutput,
 } from "./types";
 import { buildCandidateRichProfileV1 } from "./candidate-rich-profile";
+import {
+  runRichProfileEnrichmentBatch,
+  mergeRichProfileEnrichmentResult,
+} from './rich-profile-enrichment';
+import type {
+  RichProfileEnrichmentConfig,
+  RichProfileEnrichmentProviderFn,
+  RichProfileEnrichmentBatchMetadata,
+  RichProfileEnrichmentUsagePayload,
+  RichProfileEnrichmentUsageLoggerFn,
+  RichProfileEnrichmentProviderResult,
+} from './rich-profile-enrichment';
 
 // ─── Batch validation error ───────────────────────────────────────────────────
 
@@ -464,6 +476,15 @@ export type LinkedInSearchOverride = {
   usageLoggerFn?: LinkedInUsageLoggerFn;
 };
 
+export type RichProfileEnrichmentOverride = {
+  config: RichProfileEnrichmentConfig;
+  providerFn: RichProfileEnrichmentProviderFn;
+  /** Costo por query del provider (0 para mock). Requerido para Tavily real. */
+  unitCostUsd?: number;
+  /** Logger para usage payloads. Requerido para Tavily real con dryRun=false. */
+  usageLoggerFn?: RichProfileEnrichmentUsageLoggerFn;
+};
+
 export async function writeProspectingCandidates(
   input: CandidateWriterInput,
   // For testing only: inject an admin client instead of reading env vars.
@@ -472,6 +493,9 @@ export async function writeProspectingCandidates(
   // For testing only: override LinkedIn search config and provider.
   // Production callers always omit this parameter (feature disabled by default).
   linkedInSearchOverride?: LinkedInSearchOverride,
+  // For testing only: override Rich Profile enrichment config and provider (v1.16E).
+  // Production callers always omit this parameter (feature disabled by default).
+  richProfileEnrichmentOverride?: RichProfileEnrichmentOverride,
 ): Promise<CandidateWriterOutput> {
   const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata, existingBatchId } = input;
   const isDryRun = dryRun ?? false;
@@ -1320,6 +1344,128 @@ export async function writeProspectingCandidates(
     }
   }
 
+  // ── Pre-Pass: Controlled Rich Profile Enrichment (v1.16E) ─────────────────
+  // After LinkedIn enrichments are computed, optionally enrich city/size/description
+  // via a controlled provider. Runs only when richProfileEnrichmentOverride is
+  // supplied explicitly. Production callers omit this parameter so DEFAULT behavior
+  // (no enrichment, 0 provider calls) is preserved unconditionally.
+  type RichEnrichmentStoredResult = {
+    providerResult: RichProfileEnrichmentProviderResult;
+    estimatedCostUsd: number;
+  };
+  const richEnrichmentResultsByIdx = new Map<number, RichEnrichmentStoredResult>();
+  let richProfileBatchMetadata: RichProfileEnrichmentBatchMetadata | null = null;
+  let richProfileUsagePayloads: RichProfileEnrichmentUsagePayload[] = [];
+  let richProfileUsageLogSuccessCount = 0;
+  let richProfileUsageLogFailedCount = 0;
+
+  if (richProfileEnrichmentOverride) {
+    // Build per-candidate enrichment input, reusing pre-computed LinkedIn enrichments.
+    // candidateId = String(i) allows us to map results back by toPersist index.
+    const enrichmentCandidates = toPersist.map(
+      ({ candidate, domain: d, countryEvidenceResult: cer, businessFitResult: bfr, identityResolution: ir }, i) => {
+        // Pre-check duplicate guard (same logic as LinkedIn pre-pass)
+        const preGuardName = ir?.inferred_company_name ?? candidate.name;
+        const preGuardInput: DuplicateGuardInput = {
+          name: candidate.name,
+          domain: d,
+          website: candidate.website ?? null,
+          inferredCompanyName: preGuardName,
+          normalizedName: normalizeName(preGuardName),
+        };
+        const preGuardMatch = checkActiveCandidateDuplicate(preGuardInput, activeCandidatesForGuard);
+        const isBlockedByDuplicateGuard =
+          preGuardMatch.matched &&
+          (preGuardMatch.reason === 'same_active_domain' ||
+            preGuardMatch.reason === 'same_inferred_identity');
+
+        // Pre-check evidence policy
+        const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
+        const isBlockedByEvidencePolicy = prePolicy.decision === 'blocked';
+
+        // Build base rich profile using LinkedIn enrichment from pre-pass
+        const baseRichProfile = buildCandidateRichProfileV1({
+          name: candidate.name,
+          website: candidate.website,
+          domain: candidate.domain,
+          country: candidate.country,
+          countryCode: candidate.countryCode,
+          industry: candidate.industry,
+          sourceUrl: candidate.sourceUrl,
+          sourceTitle: candidate.sourceTitle ?? null,
+          sourceSnippet: candidate.sourceSnippet,
+          confidenceScore: candidate.scoring.confidenceScore,
+          fitScore: candidate.scoring.fitScore,
+          fitLabel: candidate.scoring.fitBreakdown?.fit_label ?? null,
+          fitReasons: candidate.scoring.fitBreakdown?.fit_reasons ?? null,
+          linkedInEnrichment: preComputedLinkedInEnrichments[i],
+          countryEvidenceLevel: cer.evidenceLevel,
+          countryEvidenceSources: cer.evidenceSources,
+          countryEvidenceWarning: cer.warning ?? null,
+          evidencePolicyWarnings: prePolicy.warnings,
+        });
+
+        return {
+          candidateId: String(i),
+          name: candidate.name,
+          domain: d,
+          website: candidate.website ?? null,
+          country: candidate.country,
+          countryCode: candidate.countryCode,
+          industry: candidate.industry,
+          confidenceScore: candidate.scoring.confidenceScore,
+          fitScore: candidate.scoring.fitScore,
+          richProfile: baseRichProfile,
+          isBlockedByDuplicateGuard,
+          isBlockedByEvidencePolicy,
+        };
+      },
+    );
+
+    const enrichmentOutput = await runRichProfileEnrichmentBatch(enrichmentCandidates, {
+      config: richProfileEnrichmentOverride.config,
+      providerFn: richProfileEnrichmentOverride.providerFn,
+      unitCostUsd: richProfileEnrichmentOverride.unitCostUsd ?? 0,
+      batchId: batchId,
+      userId: triggeredByUserId ?? null,
+      dryRun: isDryRun,
+      usageLoggerFn: richProfileEnrichmentOverride.usageLoggerFn,
+      clockFn: () => new Date().toISOString(),
+    });
+
+    richProfileBatchMetadata = enrichmentOutput.batchMetadata;
+    richProfileUsagePayloads = enrichmentOutput.usagePayloads;
+
+    // Map enriched profiles back to toPersist indices via candidateId
+    for (const ep of enrichmentOutput.enrichedProfiles) {
+      const idx = parseInt(ep.candidate.candidateId ?? '', 10);
+      if (!isNaN(idx) && ep.providerResult.status !== 'failed') {
+        richEnrichmentResultsByIdx.set(idx, {
+          providerResult: ep.providerResult,
+          estimatedCostUsd: ep.usagePayload.estimated_cost_usd,
+        });
+      }
+    }
+
+    // Log usage payloads (skip for dry run and mock provider)
+    const shouldLogUsage =
+      !isDryRun &&
+      richProfileEnrichmentOverride.config.provider !== 'mock' &&
+      richProfileEnrichmentOverride.config.provider !== 'disabled' &&
+      richProfileEnrichmentOverride.usageLoggerFn != null;
+
+    if (shouldLogUsage) {
+      for (const payload of richProfileUsagePayloads) {
+        try {
+          await richProfileEnrichmentOverride.usageLoggerFn!(payload);
+          richProfileUsageLogSuccessCount++;
+        } catch {
+          richProfileUsageLogFailedCount++;
+        }
+      }
+    }
+  }
+
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
   for (const [_entryIdx, { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution }] of toPersist.entries()) {
     // ── Active Duplicate Guard (v1.13.1 / v1.14) ─────────────────────────────
@@ -1444,7 +1590,7 @@ export async function writeProspectingCandidates(
     // result when the feature is enabled and the candidate was eligible.
     const linkedInEnrichment = preComputedLinkedInEnrichments[_entryIdx];
 
-    // ── Rich Profile (v1.16A) ─────────────────────────────────────────────────
+    // ── Rich Profile (v1.16A + v1.16E controlled enrichment) ─────────────────
     const richProfile = buildCandidateRichProfileV1({
       name: candidate.name,
       website: candidate.website,
@@ -1465,6 +1611,28 @@ export async function writeProspectingCandidates(
       countryEvidenceWarning: countryEvidenceResult.warning ?? null,
       evidencePolicyWarnings: evidencePolicy.warnings,
     });
+
+    // Apply v1.16E enrichment result if pre-pass computed one for this entry
+    const preEnrichResult = richEnrichmentResultsByIdx.get(_entryIdx);
+    const finalRichProfile = preEnrichResult
+      ? mergeRichProfileEnrichmentResult(richProfile, preEnrichResult.providerResult, {
+          externalCallUsed: true,
+          estimatedCostUsd: preEnrichResult.estimatedCostUsd,
+        })
+      : richProfile;
+
+    // Per-candidate enrichment metadata (only when provider returned a result)
+    const perCandidateRichEnrichment = preEnrichResult
+      ? {
+          status: preEnrichResult.providerResult.status,
+          provider: richProfileEnrichmentOverride!.config.provider,
+          evidence_url: preEnrichResult.providerResult.evidence_url ?? null,
+          confidence: preEnrichResult.providerResult.confidence ?? null,
+          warnings: preEnrichResult.providerResult.warnings ?? [],
+          checked_at: nowIso,
+          cost_usd: preEnrichResult.estimatedCostUsd,
+        }
+      : null;
 
     const linkedInVerified =
       linkedInEnrichment.status === 'found' && linkedInEnrichment.confidence >= 70;
@@ -1571,7 +1739,8 @@ export async function writeProspectingCandidates(
               },
             }
           : {}),
-        rich_profile: richProfile,
+        rich_profile: finalRichProfile,
+        ...(perCandidateRichEnrichment ? { rich_profile_enrichment: perCandidateRichEnrichment } : {}),
       },
     };
 
@@ -1937,6 +2106,16 @@ export async function writeProspectingCandidates(
       ...(linkedInBatchSearchMetadata ? { linkedin_search: linkedInBatchSearchMetadata } : {}),
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
+      ...(richProfileBatchMetadata
+        ? {
+            rich_profile_enrichment: {
+              ...richProfileBatchMetadata,
+              usage_logged: richProfileUsageLogSuccessCount > 0,
+              usage_log_success_count: richProfileUsageLogSuccessCount,
+              usage_log_failed_count: richProfileUsageLogFailedCount,
+            },
+          }
+        : {}),
     };
 
     if (candidatesCreated === 0 && errors.length === 0) {
@@ -1985,6 +2164,7 @@ export async function runAndWriteProspectingPipeline(
     dryRun?: boolean;
     extraBatchMetadata?: Record<string, unknown> | null;
     linkedInSearchOverride?: LinkedInSearchOverride;
+    richProfileEnrichmentOverride?: RichProfileEnrichmentOverride;
   }
 ): Promise<ProspectingPipelineWriteOutput> {
   const pipelineOutput: ProspectingPipelineOutput = await runProspectingPipeline(input);
@@ -2001,6 +2181,7 @@ export async function runAndWriteProspectingPipeline(
     },
     undefined,
     input.linkedInSearchOverride,
+    input.richProfileEnrichmentOverride,
   );
 
   return { pipeline: pipelineOutput, writer };
