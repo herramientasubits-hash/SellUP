@@ -35,6 +35,8 @@ export { runSunatBulkSampleParseDryRun } from './sunat-sample-parse-dry-run';
 
 export { runSunatLocalDeeperScan } from './sunat-local-deeper-scan';
 
+export { runSunatLocalRuc20Snapshot } from './sunat-local-ruc20-snapshot';
+
 export {
   createDefaultPipeConfig,
   createTabConfig,
@@ -97,6 +99,14 @@ export type {
   SunatLocalDeeperScanHeader,
   SunatLocalDeeperScanRecommendation,
   SunatLocalDeeperScanScan,
+  SunatLocalRuc20SnapshotInput,
+  SunatLocalRuc20SnapshotOutput,
+  SunatLocalRuc20SnapshotStatus,
+  SunatLocalRuc20SnapshotEnvironment,
+  SunatLocalRuc20SnapshotStopReason,
+  SunatLocalRuc20SnapshotDistributionItem,
+  SunatLocalRuc20SnapshotQualityVerdict,
+  SunatLocalRuc20SnapshotSampleCompany,
 } from './types';
 
 export {

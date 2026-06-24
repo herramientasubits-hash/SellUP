@@ -493,4 +493,103 @@ export type SunatLocalDeeperScanOutput = {
   recommendation: SunatLocalDeeperScanRecommendation;
   warnings: string[];
   errors: string[];
-};;
+}
+
+// ─── Local RUC20 Filtered Snapshot Types ─────────────────────────────────────────
+// local/offline/development-only
+// No ejecutar en Vercel ni production.
+
+export type SunatLocalRuc20SnapshotInput = {
+  tempDir?: string;
+  zipPath?: string;
+  outputPath?: string;
+  reportPath?: string;
+  requireAck?: boolean;
+  maxLinesToScan?: number;
+  maxDurationMs?: number;
+  overwrite?: boolean;
+};
+
+export type SunatLocalRuc20SnapshotStatus = 'completed' | 'blocked' | 'error';
+
+export type SunatLocalRuc20SnapshotEnvironment = {
+  localOnly: true;
+  vercelDetected: boolean;
+  productionDetected: boolean;
+  ackProvided: boolean;
+  tempDirIgnoredByGit: boolean;
+};
+
+export type SunatLocalRuc20SnapshotStopReason =
+  | 'end_of_file'
+  | 'max_lines_reached'
+  | 'max_duration_reached'
+  | 'error';
+
+export type SunatLocalRuc20SnapshotDistributionItem = {
+  value: string;
+  count: number;
+};
+
+export type SunatLocalRuc20SnapshotQualityVerdict =
+  | 'usable_for_candidate_preview'
+  | 'weak_due_to_low_active_habido_density'
+  | 'weak_due_to_missing_sector_ciiu'
+  | 'not_usable_for_discovery';
+
+export type SunatLocalRuc20SnapshotSampleCompany = {
+  taxIdentifier: string;
+  legalName: string;
+  taxpayerStatus: string;
+  domicileCondition: string;
+  ubigeo?: string;
+  redactedPreview: string;
+};
+
+export type SunatLocalRuc20SnapshotOutput = {
+  sourceKey: 'pe_sunat_bulk';
+  mode: 'local_ruc20_filtered_snapshot';
+  status: SunatLocalRuc20SnapshotStatus;
+  environment: SunatLocalRuc20SnapshotEnvironment;
+  input: {
+    zipPath: string;
+    zipBytes: number;
+    entryName: string;
+  };
+  output: {
+    snapshotPath: string;
+    reportPath: string;
+    snapshotBytesWritten: number;
+    reportBytesWritten: number;
+  };
+  scan: {
+    totalLinesScanned: number;
+    headerRowsSkipped: number;
+    ruc10Rows: number;
+    ruc20Rows: number;
+    unsupportedRucRows: number;
+    invalidRows: number;
+    activeRuc20Rows: number;
+    activeHabidoRuc20Rows: number;
+    inactiveRuc20Rows: number;
+    firstRuc20LineNumber?: number;
+    lastRuc20LineNumber?: number;
+    stoppedBecause: SunatLocalRuc20SnapshotStopReason;
+  };
+  distributions: {
+    ruc20TaxpayerStatusTop: SunatLocalRuc20SnapshotDistributionItem[];
+    ruc20DomicileConditionTop: SunatLocalRuc20SnapshotDistributionItem[];
+    ruc20UbigeoTop: SunatLocalRuc20SnapshotDistributionItem[];
+  };
+  quality: {
+    hasEnoughRuc20ForCandidatePreview: boolean;
+    hasEnoughActiveHabido: boolean;
+    ubigeoCoverageRate: number;
+    ciiuAvailable: boolean;
+    verdict: SunatLocalRuc20SnapshotQualityVerdict;
+    reason: string;
+  };
+  sampleActiveHabidoCompanies: SunatLocalRuc20SnapshotSampleCompany[];
+  warnings: string[];
+  errors: string[];
+};
