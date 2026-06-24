@@ -267,7 +267,7 @@ export function buildRichProfileEnrichmentQuery(
     parts.push(`"${domain}"`);
   }
 
-  parts.push('company headquarters employees official');
+  parts.push('about company headquarters employees official');
 
   return parts.join(' ');
 }

@@ -1,5 +1,5 @@
 /**
- * Tavily Rich Profile Enrichment Provider — Agent 1 v1.16C
+ * Tavily Rich Profile Enrichment Provider — Agent 1 v1.16G
  *
  * Provider real para enriquecimiento de rich_profile vía Tavily Basic Search.
  *
@@ -11,6 +11,7 @@
  * - Solo devuelve datos con evidencia textual explícita.
  * - NO inventa ciudad, tamaño, empleados, país, relación contractual.
  * - Transport inyectable para tests — en producción usa fetch real.
+ * - Quality gate: degrada careers/jobs/dev/staging; prioriza official/about pages.
  */
 
 import type {
@@ -63,6 +64,223 @@ async function defaultTavilyTransport(opts: TavilySearchOpts): Promise<TavilySea
   }
 
   return response.json() as Promise<TavilySearchResponse>;
+}
+
+// ─── Result quality gate — v1.16G ────────────────────────────────────────────
+
+export type RichProfileResultQualityTier = 'strong' | 'medium' | 'weak' | 'blocked';
+
+export type RichProfileResultQualityAssessment = {
+  quality: RichProfileResultQualityTier;
+  score: number;
+  reasons: string[];
+  warnings: string[];
+};
+
+const OFFICIAL_FIRST_SEGMENTS = new Set([
+  'about', 'about-us', 'about_us', 'aboutus',
+  'company', 'company-profile', 'our-company',
+  'who-we-are', 'nosotros', 'nuestra-empresa', 'quienes-somos', 'quien-somos',
+  'corporate', 'profile', 'overview', 'our-story', 'perfil', 'perfil-empresa',
+  'acerca', 'acerca-de', 'conocenos',
+]);
+
+const CAREER_PATH_SEGMENTS = new Set([
+  'careers', 'career', 'jobs', 'job', 'hiring', 'join-us',
+  'vacantes', 'vacancies', 'vacancy', 'empleo', 'empleos',
+  'trabaja', 'openings', 'recruitment', 'recruiting', 'reclutamiento',
+  'work-with-us', 'trabaja-con-nosotros',
+]);
+
+const CONTENT_PATH_SEGMENTS = new Set([
+  'blog', 'news', 'noticias', 'press', 'media', 'articles', 'article',
+  'academy', 'learning', 'resources', 'recursos', 'insights', 'research',
+  'events', 'event', 'webinar', 'post', 'posts',
+]);
+
+const BLOCKED_PATH_SEGMENTS = new Set([
+  'login', 'auth', 'signin', 'sign-in', 'signup', 'sign-up',
+  'oauth', 'register', 'registration', 'sso',
+]);
+
+const BLOCKED_SUBDOMAIN_NAMES = new Set([
+  'dev', 'staging', 'test', 'testing', 'local', 'uat', 'qa',
+  'sandbox', 'demo', 'preview', 'beta', 'alpha', 'preprod', 'pre',
+]);
+
+/**
+ * Evalúa la calidad de un resultado de Tavily para rich profile enrichment.
+ * Función pura — no hace llamadas externas.
+ *
+ * Tiers:
+ *   strong  — official page (/about, /about-us, root) en dominio correcto
+ *   medium  — secondary page en dominio correcto, o LinkedIn company page
+ *   weak    — careers/blog/content page; datos no confiables para city/size
+ *   blocked — dev/staging subdomain, login/auth page, dominio no relacionado
+ */
+export function evaluateRichProfileResultQuality(
+  result: TavilySearchResult,
+  candidate: RichProfileEnrichmentCandidate,
+): RichProfileResultQualityAssessment {
+  const reasons: string[] = [];
+  const warnings: string[] = [];
+
+  let hostname: string;
+  let pathname: string;
+  try {
+    const parsed = new URL(result.url);
+    hostname = parsed.hostname.toLowerCase();
+    pathname = parsed.pathname.toLowerCase();
+  } catch {
+    return { quality: 'blocked', score: 0, reasons: ['invalid_url'], warnings: [] };
+  }
+
+  const hostWithoutWww = hostname.replace(/^www\./, '');
+  const candidateDomain = candidate.domain
+    ? candidate.domain.toLowerCase().replace(/^www\./, '')
+    : null;
+
+  // ── Domain analysis ────────────────────────────────────────────────────
+  const isSameDomain = !!(
+    candidateDomain &&
+    (hostWithoutWww === candidateDomain || hostWithoutWww.endsWith('.' + candidateDomain))
+  );
+
+  // Detect blocked subdomain when same domain
+  let isBlockedSubdomain = false;
+  if (isSameDomain && candidateDomain) {
+    const subdomainPart =
+      hostWithoutWww === candidateDomain
+        ? ''
+        : hostWithoutWww.slice(0, hostWithoutWww.length - candidateDomain.length - 1);
+    if (subdomainPart) {
+      const subParts = subdomainPart.split('.');
+      const blockedPart = subParts.find((p) => BLOCKED_SUBDOMAIN_NAMES.has(p));
+      if (blockedPart) {
+        isBlockedSubdomain = true;
+        warnings.push(`blocked_subdomain:${subdomainPart}`);
+      }
+    }
+  }
+
+  // Also detect blocked subdomains even without candidateDomain
+  if (!isBlockedSubdomain) {
+    const hostParts = hostWithoutWww.split('.');
+    if (hostParts.length >= 2 && BLOCKED_SUBDOMAIN_NAMES.has(hostParts[0])) {
+      isBlockedSubdomain = true;
+      warnings.push(`blocked_subdomain:${hostParts[0]}`);
+    }
+  }
+
+  const isLinkedIn = hostname.includes('linkedin.com') && pathname.includes('/company');
+  const isUnrelatedDomain = !isSameDomain && !isLinkedIn;
+
+  // ── Path analysis ──────────────────────────────────────────────────────
+  const pathSegments = pathname.split('/').filter(Boolean);
+  const firstSegment = pathSegments[0] ?? '';
+
+  const hasBlockedPath = pathSegments.some((s) => BLOCKED_PATH_SEGMENTS.has(s));
+  const isCareerPath = pathSegments.some((s) => CAREER_PATH_SEGMENTS.has(s));
+  const isContentPath = pathSegments.some((s) => CONTENT_PATH_SEGMENTS.has(s));
+  const isRootPage = pathSegments.length === 0;
+  // Official path: first segment is official AND no career segment anywhere in path
+  const isOfficialPath = (OFFICIAL_FIRST_SEGMENTS.has(firstSegment) || isRootPage) && !isCareerPath;
+
+  // ── Blocked gate ───────────────────────────────────────────────────────
+  if (isBlockedSubdomain) {
+    reasons.push('dev_or_staging_subdomain');
+    warnings.push('blocked_subdomain_result');
+    return { quality: 'blocked', score: 5, reasons, warnings };
+  }
+
+  if (hasBlockedPath) {
+    reasons.push('login_or_auth_path');
+    return { quality: 'blocked', score: 0, reasons, warnings };
+  }
+
+  if (isUnrelatedDomain) {
+    reasons.push('unrelated_domain');
+    return { quality: 'blocked', score: 0, reasons, warnings };
+  }
+
+  // ── Score calculation ──────────────────────────────────────────────────
+  let score: number;
+
+  if (isLinkedIn) {
+    score = 60;
+    reasons.push('linkedin_company_page');
+  } else if (isSameDomain && isOfficialPath) {
+    score = isRootPage ? 78 : 85;
+    reasons.push(isRootPage ? 'official_domain_root' : 'official_domain_official_path');
+  } else if (isSameDomain && isCareerPath) {
+    score = 15;
+    reasons.push('official_domain_careers_path');
+    warnings.push('careers_page');
+  } else if (isSameDomain && isContentPath) {
+    score = 22;
+    reasons.push('official_domain_content_path');
+  } else if (isSameDomain) {
+    score = 55;
+    reasons.push('official_domain_secondary_path');
+  } else {
+    score = 0;
+    reasons.push('unknown_domain');
+  }
+
+  // Snippet signals boost
+  const text = `${result.title ?? ''} ${result.content ?? ''}`;
+  if (/headquarter|headquarters|\bHQ\b|sede\b|sede principal/i.test(text)) {
+    score = Math.min(100, score + 8);
+    reasons.push('hq_signal_in_snippet');
+  }
+  if (/\bemployees?\b|\bempleados?\b|\bcompany size\b|\bworkforce\b/i.test(text)) {
+    score = Math.min(100, score + 5);
+    reasons.push('employee_signal_in_snippet');
+  }
+
+  // ── Quality tier ───────────────────────────────────────────────────────
+  let quality: RichProfileResultQualityTier;
+  if (score >= 75) {
+    quality = 'strong';
+  } else if (score >= 45) {
+    quality = 'medium';
+  } else {
+    quality = 'weak';
+  }
+
+  return { quality, score, reasons, warnings };
+}
+
+/**
+ * Selecciona el mejor resultado de Tavily para rich profile enrichment.
+ * Prioriza: strong > medium > weak > blocked, desempate por score.
+ * Devuelve null solo si results es vacío.
+ */
+export function selectBestRichProfileResult(
+  results: TavilySearchResult[],
+  candidate: RichProfileEnrichmentCandidate,
+): { result: TavilySearchResult; assessment: RichProfileResultQualityAssessment } | null {
+  if (results.length === 0) return null;
+
+  const QUALITY_ORDER: Record<RichProfileResultQualityTier, number> = {
+    strong: 3, medium: 2, weak: 1, blocked: 0,
+  };
+
+  const assessed = results.map((r) => ({
+    result: r,
+    assessment: evaluateRichProfileResultQuality(r, candidate),
+  }));
+
+  const nonBlocked = assessed.filter((a) => a.assessment.quality !== 'blocked');
+  const pool = nonBlocked.length > 0 ? nonBlocked : assessed;
+
+  return pool.reduce((best, curr) => {
+    const bestOrder = QUALITY_ORDER[best.assessment.quality];
+    const currOrder = QUALITY_ORDER[curr.assessment.quality];
+    if (currOrder > bestOrder) return curr;
+    if (currOrder < bestOrder) return best;
+    return curr.assessment.score >= best.assessment.score ? curr : best;
+  });
 }
 
 // ─── Standard employee ranges ─────────────────────────────────────────────────
@@ -255,15 +473,43 @@ export function createTavilyRichProfileEnrichmentProvider(
       };
     }
 
-    const city = parseCityFromResults(results);
-    const sizeRange = parseSizeRangeFromResults(results);
-    const description = parseDescriptionFromResults(results);
+    // ── Quality gate v1.16G ────────────────────────────────────────────────
+    const selection = selectBestRichProfileResult(results, candidate);
+    if (!selection) {
+      return {
+        status: 'not_found',
+        city: null,
+        hq_country: null,
+        size_range: null,
+        evidence_url: null,
+        confidence: null,
+      };
+    }
 
-    // Best result by score
-    const bestResult = results.reduce(
-      (best, r) => ((r.score ?? 0) >= (best.score ?? 0) ? r : best),
-      results[0],
+    const { result: selectedResult, assessment: selectedAssessment } = selection;
+
+    // Data extraction only from strong/medium results — careers/dev/staging don't
+    // provide reliable city or size evidence.
+    const highQualityResults = results.filter((r) => {
+      const a = evaluateRichProfileResultQuality(r, candidate);
+      return a.quality === 'strong' || a.quality === 'medium';
+    });
+
+    const city = parseCityFromResults(highQualityResults);
+    const sizeRange = parseSizeRangeFromResults(highQualityResults);
+
+    // Description can come from any non-blocked result
+    const nonBlockedResults = results.filter((r) => {
+      const a = evaluateRichProfileResultQuality(r, candidate);
+      return a.quality !== 'blocked';
+    });
+    const description = parseDescriptionFromResults(
+      nonBlockedResults.length > 0 ? nonBlockedResults : results,
     );
+
+    // Evidence URL only when result is not blocked
+    const evidenceUrl =
+      selectedAssessment.quality !== 'blocked' ? (selectedResult.url ?? null) : null;
 
     // Confidence: higher when both fields found
     let confidence = 0;
@@ -271,9 +517,21 @@ export function createTavilyRichProfileEnrichmentProvider(
     else if (city || sizeRange) confidence = 60;
     else if (description) confidence = 30;
 
-    // Warnings for ambiguous data
+    // Warnings
     const warnings: string[] = [];
     if (sizeRange && !city) warnings.push('size_without_city');
+
+    if (selectedAssessment.quality === 'weak') {
+      for (const w of selectedAssessment.warnings) {
+        if (!warnings.includes(w)) warnings.push(w);
+      }
+      warnings.push('weak_result_selected');
+    } else if (selectedAssessment.quality === 'blocked') {
+      for (const w of selectedAssessment.warnings) {
+        if (!warnings.includes(w)) warnings.push(w);
+      }
+      warnings.push('only_blocked_results_available');
+    }
 
     // Status determination
     const hasBothData = city !== null && sizeRange !== null;
@@ -290,8 +548,11 @@ export function createTavilyRichProfileEnrichmentProvider(
       city,
       size_range: sizeRange,
       hq_country: null,
-      evidence_url: bestResult.url ?? null,
-      evidence_summary: bestResult.title ? bestResult.title.slice(0, 150) : undefined,
+      evidence_url: evidenceUrl,
+      evidence_summary:
+        selectedAssessment.quality !== 'blocked' && selectedResult.title
+          ? selectedResult.title.slice(0, 150)
+          : undefined,
       description: description ?? undefined,
       confidence,
       warnings: warnings.length > 0 ? warnings : undefined,
