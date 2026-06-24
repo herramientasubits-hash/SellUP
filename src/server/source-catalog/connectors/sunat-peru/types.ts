@@ -358,6 +358,15 @@ export type SunatBulkSampleExtractionOutput = {
   };
   sample: {
     lines: SunatBulkSampleLine[];
+    /**
+     * INTERNAL ONLY — Artefacto de dry-run para conectar extractor + parser.
+     * NO debe persistirse en Supabase.
+     * NO debe exponerse en UI.
+     * NO debe incluirse en metadata de candidatos.
+     * NO debe usarse fuera del conector SUNAT Perú.
+     * Máximo ABSOLUTE_MAX_LINES (200) líneas.
+     * No es rawRows/allRows/fullRows del ZIP completo.
+     */
     fullSampleLines: string[];
     inferredDelimiter?: SunatBulkDelimiterInference;
     inferredColumnCount?: number;

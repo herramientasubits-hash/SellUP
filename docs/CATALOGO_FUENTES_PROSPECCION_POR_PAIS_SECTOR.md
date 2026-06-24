@@ -217,6 +217,18 @@ México tiene la mejor fuente pública de prospección de LatAm: el **DENUE (INE
 
 **Campos disponibles DENUE:** Código CLEE, ID establecimiento, nombre, razón social, SCIAN, estrato de empleo, dirección completa (calle, número, colonia, CP), teléfono, email, web, coordenadas geográficas.
 
+### Nota de arquitectura — SUNAT Perú (Perú.3H)
+
+> **ATENCIÓN:** El ZIP del Padrón Reducido RUC de SUNAT pesa ~388 MB comprimido y ~1.55 GB descomprimido. Su procesamiento NO debe ejecutarse en Vercel dentro del runtime del wizard.
+>
+> **Arquitectura correcta:**
+> - **Vercel:** solo consulta resultados ya procesados (desde Supabase), hace availability checks livianos (HEAD/metadata HTTP).
+> - **Worker/local/backend job:** descarga ZIP completo, descomprime, filtra RUC 20 (empresas B2B), normaliza, genera snapshot.
+> - **Supabase:** almacena snapshot normalizado para consulta por SellUp.
+> - **Wizard:** nunca descarga ni descomprime el ZIP completo.
+>
+> Ver `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md §12` para la documentación completa de la decisión arquitectónica.
+
 ---
 
 ## 9. Chile

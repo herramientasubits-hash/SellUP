@@ -502,6 +502,11 @@ export async function extractSunatBulkSample(
   const allLines = text.split('\n').map(l => l.replace(/\r$/, ''));
   const linesDetected = allLines.length;
 
+  /**
+   * fullSampleLines: solo para dry-run interno.
+   * No persiste, no se expone en UI, no va a metadata de candidatos.
+   * Único uso: conectar extractor → parser en runSunatBulkSampleParseDryRun.
+   */
   const fullSampleLines = allLines.slice(0, maxLines);
   const lines: SunatBulkSampleLine[] = fullSampleLines
     .slice(0, maxLines)

@@ -702,3 +702,106 @@ Construir el pipeline completo de `pe_sunat_bulk` usando el conector ya implemen
 8. Evaluar OpenRUC como fallback de validación RUC en tiempo real.
 9. Evaluar Latinfo como plataforma de enriquecimiento multi-fuente y score KYB.
 10. Evaluar Migo API para representantes legales y establecimientos anexos.
+
+---
+
+## 12. Hito cerrado — Perú.3H: Vercel-safe SUNAT snapshot strategy + raw sample boundary
+
+**HEAD:** `0c2a86d` — feat(source-catalog): add SUNAT Peru sample parse dry run
+
+### Veredicto
+
+Arquitectura Vercel-safe documentada y frontera de privacidad de `fullSampleLines` reforzada. PE permanece en `SAFE_CONNECTOR_ONLY`. No se activó Perú en registry/preflight/wizard.
+
+### Decisión de arquitectura Vercel-safe
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ARQUITECTURA VERCEL-SAFE                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  VERCEL (Serverless / Runtime wizard)                             │
+│  ─────────────────────────────────────────                        │
+│  ✅ Mostrar resultados ya procesados desde Supabase                │
+│  ✅ Consultar snapshot de empresas PE normalizadas                │
+│  ✅ Lanzar ejecución externa/job (trigger, no ejecución)          │
+│  ✅ Availability checks livianos (HEAD, metadata HTTP)             │
+│  ❌ NO descargar padron_reducido_ruc.zip                          │
+│  ❌ NO descomprimir 1.55 GB                                       │
+│  ❌ NO parsear millones de filas                                  │
+│  ❌ NO hacer deeper scan en request de usuario                    │
+│  ❌ NO generar snapshot completo en runtime serverless             │
+│                                                                   │
+│  WORKER / BACKEND JOB / LOCAL CONTROLLED PROCESS                  │
+│  ─────────────────────────────────────────                        │
+│  ✅ Descargar ZIP completo (cuando se autorice)                   │
+│  ✅ Descomprimir localmente/worker                                │
+│  ✅ Filtrar RUC 20 (empresas B2B)                                 │
+│  ✅ Normalizar empresas (razón social, estado, ubigeo)            │
+│  ✅ Generar snapshot                                              │
+│  ✅ Persistir snapshot en Supabase (cuando exista diseño)         │
+│                                                                   │
+│  SUPABASE                                                         │
+│  ─────────                                                         │
+│  Debe ser la fuente consultable por SellUp:                       │
+│  - empresas PE normalizadas                                       │
+│  - RUC, razón social, estado, condición, ubigeo                   │
+│  - metadata de snapshot, fecha de corte, fuente                   │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Estado y frontera de `fullSampleLines`
+
+| Aspecto | Decisión |
+|---------|----------|
+| ¿Qué es? | Artefacto interno de dry-run que conecta extractor + parser |
+| ¿Dónde vive? | Solo en `SunatBulkSampleExtractionOutput.sample.fullSampleLines` |
+| ¿Quién lo consume? | `runSunatBulkSampleParseDryRun` internamente |
+| ¿Aparece en output público? | No — `SunatBulkSampleParseDryRunOutput` no lo incluye |
+| ¿Debe persistirse? | No |
+| ¿Debe exponerse en UI? | No |
+| ¿Debe ir a metadata de candidatos? | No |
+| ¿Límite duro? | Sí — `ABSOLUTE_MAX_LINES = 200` |
+| ¿Se sanitiza? | Sí — solo existe en output interno del extractor |
+
+### Confirmaciones
+
+| Confirmación | Estado |
+|-------------|--------|
+| PE sigue SAFE_CONNECTOR_ONLY | ✅ |
+| No se activó preflight/registry/wizard | ✅ |
+| No se descargó ZIP completo | ✅ |
+| No se escribió Supabase | ✅ |
+| fullSampleLines es solo dry-run interno | ✅ |
+| No existen rawRows/allRows/fullRows en output | ✅ |
+| Siguiente hito será local/offline/development-only | ✅ |
+
+### Archivos modificados en Perú.3H
+
+| Archivo | Cambio |
+|---------|--------|
+| `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md` | Añadida §12 (este documento) |
+| `AUDITORIA-FUENTES-IA.md` | Añadida decisión Perú.3H |
+| `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` | Añadida nota arquitectura Vercel-safe |
+| `src/server/source-catalog/connectors/sunat-peru/types.ts` | JSDoc marcando fullSampleLines como internal-only |
+| `src/server/source-catalog/connectors/sunat-peru/sunat-sample-extractor.ts` | JSDoc marcando fullSampleLines como internal-only |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/sunat-sample-parse-dry-run.test.ts` | Test que fullSampleLines no está en output público |
+
+### Próximo hito autorizado
+
+**Perú.3I — Local/offline deeper scan of SUNAT RUC 20 companies.**
+
+Este hito DEBE ejecutarse en entorno local/worker/development-only. No debe correr en Vercel.
+
+Pasos:
+1. Descargar ZIP completo en entorno local.
+2. Extraer TXT completo.
+3. Filtrar RUC 20 (empresas B2B).
+4. Normalizar primeras N empresas como muestra de calidad.
+5. Reportar cobertura, distribución geográfica y sectores CIIU.
+6. NO guardar en Supabase aún — es exploratory research.
+7. NO exponer en UI.
+8. NO crear candidatos ni batches.
+
+**No ejecutar hasta que se autorice explícitamente el hito Perú.3I.**

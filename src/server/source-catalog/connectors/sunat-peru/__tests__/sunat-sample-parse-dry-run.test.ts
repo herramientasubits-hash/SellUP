@@ -371,6 +371,18 @@ describe('sunat-sample-parse-dry-run safety — output shape', () => {
     assert.equal('allRows' in output, false);
     assert.equal('fullRows' in output, false);
   });
+
+  it('no expone fullSampleLines en output público del dry-run', async () => {
+    const extraction = buildMockExtractionOutput({
+      lines: [REAL_HEADER, COMPANY_RUC_20_LINE],
+    });
+    mockExtract.mock.mockImplementation(() => Promise.resolve(extraction));
+
+    const output = await runSunatBulkSampleParseDryRun();
+
+    assert.equal('fullSampleLines' in output, false,
+      'fullSampleLines es solo artefacto interno de extracción y no debe estar en el output público del dry-run');
+  });
 });
 
 describe('sunat-sample-parse-dry-run source safety', () => {

@@ -1056,3 +1056,47 @@ Fuente gremial/manual sin API ni dataset público estructurado. Requiere membres
 - `source-discovery-preflight.ts` intacto
 - `pe_sunat_bulk`, `pe_sunat`, `pe_seace`, `pe_produce` intactos
 - Colombia, México, Chile intactos
+
+---
+
+## Hito cerrado — Perú.3H: Vercel-safe SUNAT snapshot strategy + raw sample boundary
+
+**Fecha:** 2026-06-23
+**HEAD inicial:** `0c2a86d` — feat(source-catalog): add SUNAT Peru sample parse dry run
+**HEAD actual:** commit de cierre
+
+### Decisión
+
+Se cierra la barrera de arquitectura y seguridad para SUNAT Perú. La arquitectura Vercel-safe queda documentada con fronteras claras entre Vercel (solo consulta de resultados pre-procesados), Worker/Local (procesamiento pesado) y Supabase (fuente consultable). `fullSampleLines` queda marcado como internal-only development artifact.
+
+### Reglas operativas
+
+1. **Vercel NO descarga ZIP, NO descomprime, NO parsea millones de filas.**
+2. **Worker/local descarga, descomprime, filtra RUC 20, normaliza y genera snapshot.**
+3. **Supabase almacena snapshot normalizado para consulta por Vercel.**
+4. **fullSampleLines es solo artefacto interno de dry-run — no persiste, no se expone.**
+5. **PE sigue en SAFE_CONNECTOR_ONLY — no activar registry/preflight/wizard.**
+
+### Confirmaciones
+
+| Confirmación | Estado |
+|-------------|--------|
+| PE sigue SAFE_CONNECTOR_ONLY | ✅ |
+| No se activó preflight/registry/wizard | ✅ |
+| No se descargó ZIP completo | ✅ |
+| No se escribió Supabase | ✅ |
+| fullSampleLines es solo dry-run interno | ✅ |
+| No existen rawRows/allRows/fullRows en output | ✅ |
+| Siguiente hito será local/offline/development-only | ✅ |
+
+### No modificado
+
+- `source-catalog.ts` intacto — CATALOG_SOURCES no tocado
+- `connector-registry.ts` intacto
+- `enrichment-adapter-registry.ts` intacto
+- `validated-source-configs.ts` intacto
+- `source-discovery-preflight.ts` intacto
+- `SOURCE_DISCOVERY_REGISTRY` intacto
+- `package.json` / `package-lock.json` intactos
+- Supabase no tocado
+- Colombia, México, Chile, INAPI intactos
