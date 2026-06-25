@@ -2036,3 +2036,96 @@ build                → OK
 | No se crearon batches | ✅ |
 | No se tocó Chile/México/Colombia | ✅ |
 | No se hizo force push | ✅ |
+
+## Hito Perú.6B — Smoke real controlado de Migo Perú API
+
+**Fecha:** 2026-06-25
+**Objetivo:** Crear servicio real de lookup Migo, ejecutar smoke controlado con RUC conocido, validar normalización a `metadata.source_enrichment.pe_migo_api`.
+
+### Archivos creados
+
+| Archivo | Descripción |
+|---------|-------------|
+| `src/server/services/peru-migo-legal-lookup.ts` | **Creado** — `lookupPeruMigoByRuc(ruc, fetchFn?, getApiKeyFn?)` con inyección de dependencias |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-6b-migo-legal-lookup.test.ts` | **Creado** — 22 tests, 22 pass |
+| `scripts/agent1/smoke-peru-migo-legal-lookup.ts` | **Creado** — Smoke real controlado `npm run smoke:peru:migo-legal-lookup` |
+| `package.json` | **Modificado** — scripts `test:sunat-peru-6b`, `smoke:peru:migo-legal-lookup` |
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | **Actualizado** — §Perú.6B |
+| `AUDITORIA-FUENTES-IA.md` | **Esta sección** |
+
+### Credencial Migo
+
+Resuelta desde Supabase Vault via `getMigoApiKey()` en `src/server/services/migo-connection.ts`.
+Vault secret name: `sellup_source_pe_migo_api_api_key`.
+Fallback a `process.env.MIGO_API_KEY` en dev si Vault no tiene la clave.
+
+### Endpoint y método
+
+```
+POST https://api.migo.pe/api/v1/ruc
+Body: { token: apiKey, ruc }
+Headers: Content-Type: application/json, Accept: application/json
+NO Authorization: Bearer
+```
+
+### Resultado smoke real — RUC 20100050359
+
+| Campo | Valor |
+|-------|-------|
+| status | `found` |
+| legal_validation_status | `verified` |
+| legal_validation_reason | `migo_ruc_found_active` |
+| ruc | `20100050359` |
+| legal_name | `A W FABER CASTELL PERUANA S A` |
+| taxpayer_status | `ACTIVO` |
+| domicile_condition | `HABIDO` |
+| ubigeo | `150103` |
+| address_present | `true` |
+| updated_at_source_present | `true` |
+| source_key | `pe_migo_api` |
+| ciiu_status | `unavailable_for_mvp` |
+| official_ciiu_available | `false` |
+| sector_source | `not_provided_by_migo` |
+| durationMs | ~1708ms |
+
+### Estados y reasons soportados
+
+**Estados:** `verified` · `not_found` · `flagged` · `api_unavailable` · `pending_validation` · `invalid_ruc_format`
+**Reasons:** `migo_ruc_found_active` · `migo_ruc_not_found` · `migo_taxpayer_inactive` · `migo_domicile_not_habido` · `migo_api_unavailable` · `invalid_ruc_format` · `missing_ruc`
+
+### Búsquedas obligatorias en archivos nuevos
+
+| Patrón | Resultado |
+|--------|-----------|
+| `NEXT_PUBLIC_MIGO` en código funcional | ✅ Solo en comentario guardrail y aserciones negativas de tests |
+| `MIGO_API_KEY=` | ✅ No encontrado |
+| `Authorization: Bearer` en código funcional | ✅ Solo en comentario guardrail y descripción de test |
+| `raw_payload` en código funcional | ✅ Solo en comentarios y aserciones negativas |
+| `rawPayload` en código funcional | ✅ Solo en aserciones negativas |
+| `official_ciiu: true` | ✅ No encontrado |
+| `confidence_label: official_ciiu` | ✅ No encontrado |
+| `Tavily` en código funcional | ✅ Solo en comentario guardrail y banner smoke |
+| `padron_reducido_ruc.zip` en código funcional | ✅ Solo en aserción negativa de test |
+| `fetch('http://www2.sunat` | ✅ No encontrado |
+| `prospect_candidates.insert` | ✅ No encontrado |
+| `prospect_batches.insert` | ✅ No encontrado |
+| `accounts.insert` | ✅ No encontrado |
+
+### Confirmaciones de seguridad operativa (Perú.6B)
+
+| Confirmación | Estado |
+|---|---|
+| No expone API key en resultado ni logs | ✅ |
+| No devuelve raw_payload | ✅ |
+| No devuelve CIIU | ✅ |
+| No devuelve sector oficial | ✅ |
+| No se llamó Migo en tests (todos mockeados) | ✅ |
+| No se escribió Supabase | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon cuentas | ✅ |
+| No se crearon batches | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Tavily | ✅ |
+| No se ejecutó importer | ✅ |
+| No se hizo force push | ✅ |
+| Smoke real PASSED con RUC 20100050359 | ✅ |

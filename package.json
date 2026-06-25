@@ -108,7 +108,9 @@
   "test:sunat-peru-5g": "node --import tsx --test src/components/prospect-batches/__tests__/peru-sunat-legal-validation-block.test.ts",
   "test:sunat-peru-5h": "node --import tsx --test src/components/accounts/__tests__/account-sunat-display.test.ts",
   "test:sunat-peru-5i": "node --import tsx --test src/server/prospect-batches/__tests__/peru-5i-sunat-metadata-propagation.test.ts",
-  "test:sunat-peru-6a": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-6a-migo-legal-enrichment.test.ts"
+  "test:sunat-peru-6a": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-6a-migo-legal-enrichment.test.ts",
+  "test:sunat-peru-6b": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-6b-migo-legal-lookup.test.ts",
+  "smoke:peru:migo-legal-lookup": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-legal-lookup.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

@@ -1,8 +1,8 @@
 # Perú.4A — Diseño técnico de activación segura de Perú MVP con sector inferido
 
-**Hito:** Perú.4A  
-**Fecha:** 2026-06-25  
-**HEAD inicial:** `dd2aa69` — docs(source-catalog): define Peru MVP strategy without CIIU  
+**Hito:** Perú.4A
+**Fecha:** 2026-06-25
+**HEAD inicial:** `dd2aa69` — docs(source-catalog): define Peru MVP strategy without CIIU
 **Tipo:** Diseño técnico — solo documentación. Sin modificaciones a registry/preflight/wizard.
 
 > ⚠ **SUPERSEDED by Perú.4D** — La implementación de Perú.4B (`pe_web_inferred`) ha
@@ -689,6 +689,47 @@ durationMs:    3
 | No se tocó Chile / México / Colombia | ✅ |
 | No se hizo force push | ✅ |
 | `.tmp/` no commiteado | ✅ |
+
+## Hito Perú.6B — Smoke real controlado de Migo Perú API
+
+**Fecha:** 2026-06-25
+**Depende de:** Perú.6A (cerrado)
+
+### Objetivo
+
+Crear servicio real de lookup Migo con credencial Vault, ejecutar smoke controlado con RUC conocido (`20100050359`), validar que el resultado se normaliza a `metadata.source_enrichment.pe_migo_api` sin exponer token, sin raw payload, sin escrituras a Supabase.
+
+### Archivos creados / modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/server/services/peru-migo-legal-lookup.ts` | **Creado** — `lookupPeruMigoByRuc(ruc, fetchFn?, getApiKeyFn?)` |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-6b-migo-legal-lookup.test.ts` | **Creado** — 22 tests, 22 pass |
+| `scripts/agent1/smoke-peru-migo-legal-lookup.ts` | **Creado** — Smoke real `npm run smoke:peru:migo-legal-lookup` |
+| `package.json` | **Modificado** — `test:sunat-peru-6b`, `smoke:peru:migo-legal-lookup` |
+| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — §Perú.6B |
+
+### Servicio real de lookup
+
+`lookupPeruMigoByRuc(ruc, fetchFn?, getApiKeyFn?)` en `src/server/services/peru-migo-legal-lookup.ts`:
+
+- Valida RUC de 11 dígitos antes de llamar.
+- Resuelve credencial desde Vault via `getMigoApiKey()` (inyectable).
+- Llama `POST https://api.migo.pe/api/v1/ruc` con body `{ token, ruc }` (inyectable vía `fetchFn`).
+- Normaliza respuesta a `PeMigoApiLookupPayload` — sin raw payload, sin token.
+- Maneja: `found`, `not_found`, `api_unavailable` (auth, rate limit, timeout, red, HTTP).
+
+### Smoke real — resultado
+
+RUC `20100050359` (A W FABER CASTELL PERUANA S A):
+
+```
+status: found → legal_validation_status: verified
+legal_name: A W FABER CASTELL PERUANA S A
+taxpayer_status: ACTIVO / domicile_condition: HABIDO
+source_key: pe_migo_api / ciiu_status: unavailable_for_mvp
+official_ciiu_available: false / sector_source: not_provided_by_migo
+```
 
 ## Hito Perú.5E — Importer SUNAT resumible por chunks
 
