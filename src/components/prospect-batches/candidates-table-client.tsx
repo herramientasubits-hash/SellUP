@@ -27,6 +27,7 @@ import {
 } from '@/modules/prospect-batches/types';
 import { CandidateRowActions } from './candidate-row-actions';
 import { CandidateDetailSheet } from './candidate-detail-sheet';
+import { getIcpSizeGateUiState } from './icp-size-gate-ui';
 
 interface TableQualityCheck {
   has_website?: boolean;
@@ -496,6 +497,35 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           {c.company_size}
                         </p>
                       )}
+                      {(() => {
+                        const icpState = getIcpSizeGateUiState(
+                          c.metadata as Record<string, unknown> | null | undefined,
+                          c.company_size
+                        );
+                        const toneClass: Record<string, string> = {
+                          success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                          warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                          danger: 'bg-destructive/10 text-destructive',
+                          neutral: 'bg-muted text-muted-foreground/60',
+                        };
+                        const tooltipText = icpState.tone === 'neutral'
+                          ? 'Este candidato no pasó por ICP Size Gate o viene de flujo legacy.'
+                          : (icpState.reason ?? icpState.description);
+                        return (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger render={
+                                <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help w-fit ${toneClass[icpState.tone]}`}>
+                                  {icpState.label}
+                                </span>
+                              } />
+                              <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                                {tooltipText}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      })()}
                       <p className="text-[10px] text-muted-foreground/60">
                         {getCandidateOriginLabel(c as CandidateWithBatch)}
                       </p>

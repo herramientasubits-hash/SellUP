@@ -45,6 +45,7 @@ import {
   type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
 import { evaluateCandidateEnrichmentNeed } from '@/server/prospect-batches/candidate-enrichment-eligibility';
+import { getIcpSizeGateUiState } from './icp-size-gate-ui';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 
@@ -1509,6 +1510,78 @@ export function CandidateDetailSheet({
               </div>
             </SurfaceCard>
             </CollapsibleSection>
+
+            {/* Tamaño ICP */}
+            {(() => {
+              const icpState = getIcpSizeGateUiState(
+                candidate.metadata as Record<string, unknown> | null | undefined,
+                candidate.company_size
+              );
+              const toneStyle: Record<string, string> = {
+                success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+                warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+                danger: 'bg-destructive/10 text-destructive border-destructive/20',
+                neutral: 'bg-muted/40 text-muted-foreground border-border/30',
+              };
+              const badgeStyle: Record<string, string> = {
+                success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                danger: 'bg-destructive/10 text-destructive',
+                neutral: 'bg-muted text-muted-foreground/60',
+              };
+              return (
+                <CollapsibleSection title="Tamaño ICP">
+                <SurfaceCard>
+                  <SurfaceCardHeader title="Tamaño ICP" description="Umbral: más de 200 colaboradores" />
+                  <div className="space-y-3 mt-1">
+                    {/* Badge de estado */}
+                    <Badge className={`border-0 text-[10px] font-semibold ${badgeStyle[icpState.tone]}`}>
+                      {icpState.decision === 'pass'
+                        ? 'ICP >200 validado'
+                        : icpState.decision === 'needs_validation'
+                        ? 'Tamaño pendiente de validación'
+                        : icpState.decision === 'block'
+                        ? 'Fuera de ICP por tamaño'
+                        : 'Sin evaluación de tamaño'}
+                    </Badge>
+
+                    {/* Detalle */}
+                    {!icpState.decision ? (
+                      <p className="text-xs text-muted-foreground/70 italic">
+                        Este candidato no tiene evaluación de tamaño ICP registrada.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {icpState.rangeLabel && (
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Rango detectado</p>
+                            <p className="text-xs text-foreground/90 font-medium">{icpState.rangeLabel}</p>
+                          </div>
+                        )}
+                        {icpState.reason && (
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Motivo</p>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{icpState.reason}</p>
+                          </div>
+                        )}
+                        {icpState.requiresHumanReview && (
+                          <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${toneStyle.warning}`}>
+                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                            <span>Requiere validación humana</span>
+                          </div>
+                        )}
+                        {icpState.decision === 'needs_validation' && (
+                          <div className={`rounded-lg border px-3 py-2 text-xs ${toneStyle.warning}`}>
+                            {icpState.description}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </SurfaceCard>
+                </CollapsibleSection>
+              );
+            })()}
 
             {/* Evidencia Pública Encontrada */}
             {displayedPublicEvidence.length > 0 && (

@@ -34,6 +34,7 @@ import {
   isUsefulReviewCandidate,
 } from '@/modules/prospect-batches/types';
 import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
+import { getIcpSizeGateSummaryUiState } from '@/components/prospect-batches/icp-size-gate-ui';
 
 const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
   socrata_colombia: 'Fuente oficial',
@@ -476,6 +477,65 @@ export default async function BatchDetailPage({ params }: Props) {
           </SurfaceCard>
         ))}
       </div>
+
+      {/* ICP Size Gate summary */}
+      {(() => {
+        const icpSummary = getIcpSizeGateSummaryUiState(
+          batch.metadata as Record<string, unknown> | null | undefined
+        );
+        if (!icpSummary.hasSummary) return null;
+        return (
+          <SurfaceCard>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Tamaño ICP
+              </p>
+              <span className="text-[10px] text-muted-foreground/50">
+                Umbral: {icpSummary.threshold}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <div className="space-y-0.5">
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">ICP &gt;200</p>
+                <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                  {icpSummary.pass}
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Pendiente</p>
+                <p className="text-xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                  {icpSummary.needs_validation}
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Bloqueados</p>
+                <p className="text-xl font-semibold tabular-nums text-destructive">
+                  {icpSummary.blocked}
+                </p>
+              </div>
+            </div>
+            {icpSummary.topBlockedReasons.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border/30 space-y-1">
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                  Razones de bloqueo
+                </p>
+                <ul className="space-y-0.5">
+                  {icpSummary.topBlockedReasons.map((reason, i) => (
+                    <li key={i} className="text-xs text-muted-foreground/80 truncate">
+                      · {reason}
+                    </li>
+                  ))}
+                  {icpSummary.hiddenReasonCount > 0 && (
+                    <li className="text-[10px] text-muted-foreground/50 italic">
+                      +{icpSummary.hiddenReasonCount} más
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </SurfaceCard>
+        );
+      })()}
 
       {/* Candidates table */}
       <SurfaceCard noPadding>
