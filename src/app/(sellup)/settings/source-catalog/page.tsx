@@ -5,6 +5,8 @@ import { getLatestConnectionTestsBySource } from '@/modules/source-catalog/histo
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import { SourceCatalogClient } from './source-catalog-client';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Catálogo de fuentes — Configuración',
 };
