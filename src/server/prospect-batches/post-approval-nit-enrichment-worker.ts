@@ -25,6 +25,7 @@ import type {
   SourceEnrichmentOutput,
 } from '@/server/source-catalog/enrichment/types';
 import { enrichPeruCandidateWithSunatLegalLookup } from './peru-sunat-post-approval-enrichment';
+import { mergePeruSunatMetadataIntoAccountMetadata } from './peru-sunat-metadata-merge';
 import type { PeruSunatLegalLookupResult } from '../services/peru-sunat-legal-lookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -456,6 +457,29 @@ async function runPeruSunatEnrichmentForCandidate(
         updated_at: peResult.pe_sunat_bulk.enriched_at,
       })
       .eq('id', candidate.id);
+
+    // Perú.5I — Case B: also propagate pe_sunat_bulk to the associated account
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const updatedAccountMeta = mergePeruSunatMetadataIntoAccountMetadata(
+        existingAccountMeta,
+        { source_enrichment: { pe_sunat_bulk: peResult.pe_sunat_bulk } },
+      );
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: updatedAccountMeta,
+          updated_at: peResult.pe_sunat_bulk.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
   } catch (err) {
     console.warn(
       `[PostApprovalNitWorker] Peru SUNAT enrichment non-critical error for ${candidate.id}:`,

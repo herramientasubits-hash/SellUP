@@ -15,6 +15,7 @@ import {
 } from '@/server/agents/prospecting-toolkit/prospect-cta-bridge';
 import { isPostApprovalSourceEnrichmentEnabled } from '@/lib/feature-flags.server';
 import { triggerPostApprovalEnrichment } from '@/server/prospect-batches/post-approval-enrichment-trigger';
+import { mergePeruSunatMetadataIntoAccountMetadata } from '@/server/prospect-batches/peru-sunat-metadata-merge';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
@@ -1306,6 +1307,10 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
     accountMeta.commercial_fit_status = (candidateRaw.commercial_fit_status as string | null) ?? null;
   }
 
+  // Perú.5I — propagate pe_sunat_bulk from candidate to new account if present
+  const candidateMetaForMerge = (candidateRaw.metadata as Record<string, unknown> | null) ?? {};
+  const accountMetaFinal = mergePeruSunatMetadataIntoAccountMetadata(accountMeta, candidateMetaForMerge);
+
   const { data: account, error: accountError } = await supabase
     .from('accounts')
     .insert({
@@ -1325,7 +1330,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       source: accountSource,
       pipeline_status: 'new',
       created_by: internalUserId,
-      metadata: accountMeta,
+      metadata: accountMetaFinal,
     })
     .select()
     .single();
@@ -1849,10 +1854,12 @@ export async function approveAndConvertCandidateAction(
     accountMetadataPatch.hubspot_sync_error = hubspotError?.slice(0, 200) || 'unknown';
   }
 
-  const updatedAccountMetadata = {
-    ...accountMeta,
-    ...accountMetadataPatch,
-  };
+  // Perú.5I — propagate pe_sunat_bulk from candidate to account metadata if present
+  const candidateMetaForSunat = (candidate.metadata || {}) as Record<string, unknown>;
+  const updatedAccountMetadata = mergePeruSunatMetadataIntoAccountMetadata(
+    { ...accountMeta, ...accountMetadataPatch },
+    candidateMetaForSunat,
+  );
 
   const accountUpdates: Record<string, unknown> = {
     metadata: updatedAccountMetadata,
