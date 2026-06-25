@@ -32,6 +32,8 @@ export interface PostApprovalNitWorkerParams {
   supabase?: SupabaseClient;
   /** For testing only — overrides ENRICHMENT_ADAPTER_REGISTRY. */
   adapterRegistryOverride?: Record<string, SourceEnrichmentAdapter>;
+  /** For smoke/testing only — limits processing to a single candidate by id. */
+  candidateId?: string;
 }
 
 export interface PostApprovalNitEnrichmentStats {
@@ -480,7 +482,11 @@ export async function runPostApprovalNitEnrichmentWorker(
     duration_ms: 0,
   };
 
-  const queued = await selectQueuedCandidates(supabase, maxCandidates);
+  let queued = await selectQueuedCandidates(supabase, maxCandidates);
+  // Smoke/test guard — restrict to a single candidate when candidateId is set
+  if (params.candidateId) {
+    queued = queued.filter((c) => c.id === params.candidateId);
+  }
   stats.queued_found = queued.length;
 
   for (const candidate of queued) {
