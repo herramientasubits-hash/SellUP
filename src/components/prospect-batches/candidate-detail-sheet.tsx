@@ -45,6 +45,8 @@ import {
   type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
 import { evaluateCandidateEnrichmentNeed } from '@/server/prospect-batches/candidate-enrichment-eligibility';
+import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
+import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-block';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
@@ -627,6 +629,12 @@ export function CandidateDetailSheet({
   const structuredSourceLabel = (isStructured && candidate?.source_primary
     ? (STRUCTURED_SOURCE_LABELS[candidate.source_primary] ?? sourcePrimaryLabel)
     : null) as React.ReactNode;
+
+  const isPeCandidate = candidate?.country_code?.toUpperCase() === 'PE';
+  const peSunatBlock = isPeCandidate
+    ? ((candidate?.metadata?.source_enrichment as Record<string, unknown> | undefined)
+        ?.pe_sunat_bulk as PeruSunatEnrichmentBlock | null | undefined)
+    : null;
 
   const flags = candidate ? ((candidate.review_flags as string[] | null) ?? []) : [];
   const dcSources = dc?.sources_checked ?? [];
@@ -1399,6 +1407,13 @@ export function CandidateDetailSheet({
               )}
             </SurfaceCard>
             </CollapsibleSection>
+
+            {/* Validación Legal SUNAT — solo para candidatos Perú */}
+            {isPeCandidate && (
+              <CollapsibleSection title="Validación Legal SUNAT" defaultOpen>
+                <PeruSunatLegalValidationBlock block={peSunatBlock} />
+              </CollapsibleSection>
+            )}
 
             {/* Datos Comerciales y Web */}
             <CollapsibleSection title="Datos Comerciales y Web">

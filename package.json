@@ -103,7 +103,8 @@
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts",
     "sunat:peru:import-snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts",
-    "test:sunat-peru-5b": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts"
+    "test:sunat-peru-5b": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts",
+  "test:sunat-peru-5g": "node --import tsx --test src/components/prospect-batches/__tests__/peru-sunat-legal-validation-block.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

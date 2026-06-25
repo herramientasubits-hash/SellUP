@@ -565,6 +565,7 @@ export const STRUCTURED_SOURCE_LABELS: Record<string, string> = {
   denue_mexico: 'DENUE México',
   datos_gob_cl: 'Datos.gob.cl',
   chilecompra_chile: 'ChileCompra',
+  pe_sunat_bulk: 'SUNAT Padrón Reducido',
 };
 
 // Vendor-facing source labels — hides technical provider names from sellers
