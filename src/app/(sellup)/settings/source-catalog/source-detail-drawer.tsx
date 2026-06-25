@@ -353,7 +353,7 @@ export function SourceDetailDrawer({
       icon={
         <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} />
       }
-      footer={
+      actions={
         <div className="flex items-center justify-between gap-3 w-full">
           <CopyKeyInline sourceKey={source.key} />
           <div className="flex items-center gap-2">
