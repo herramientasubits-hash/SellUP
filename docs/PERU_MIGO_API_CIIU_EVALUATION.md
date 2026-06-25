@@ -1,10 +1,10 @@
 # Perú.3M — Evaluación Controlada: Migo API como Fallback CIIU Perú
 
-**Hito:** Perú.3M  
-**Fecha:** 2026-06-24  
-**HEAD inicial:** `70260c1` — docs(source-catalog): classify PRODUCE Peru CIIU source as WAF-blocked  
-**Tipo:** Research + evaluación de arquitectura — sin código productivo, sin Supabase, sin candidatos, sin llamadas reales  
-**MIGO_API_KEY_PRESENT:** false  
+**Hito:** Perú.3M
+**Fecha:** 2026-06-24
+**HEAD inicial:** `70260c1` — docs(source-catalog): classify PRODUCE Peru CIIU source as WAF-blocked
+**Tipo:** Research + evaluación de arquitectura — sin código productivo, sin Supabase, sin candidatos, sin llamadas reales
+**MIGO_API_KEY_PRESENT:** false
 **Depende de:** Perú.3L-2A (PRODUCE MiPyme bloqueado por WAF — `PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL`)
 
 ---
@@ -428,10 +428,10 @@ Justificación:
 Siguiente acción: Obtener trial key → ejecutar spike → revisar ToS → confirmar
 ```
 
-**¿Por qué no `PRIVATE_PROVIDER_MAIN_CANDIDATE`?**  
+**¿Por qué no `PRIVATE_PROVIDER_MAIN_CANDIDATE`?**
 Porque la documentación no puede reemplazar un test real del payload. El hito Perú.3K confirmó que Migo tiene CIIU, pero no verificó la estructura exacta del response, el comportamiento del endpoint batch, ni los rate limits. Para escalar a 851K RUCs, estos detalles son críticos.
 
-**¿Por qué no `USE_AS_FALLBACK_ONLY`?**  
+**¿Por qué no `USE_AS_FALLBACK_ONLY`?**
 PRODUCE MiPyme está WAF-bloqueado. No hay fuente gratuita operable para CIIU masivo. Migo podría ser la fuente **principal** de CIIU (no un simple fallback) si el spike confirma los datos necesarios.
 
 ---
@@ -548,6 +548,36 @@ PRODUCE MiPyme está WAF-bloqueado. No hay fuente gratuita operable para CIIU ma
 | API key no aparece en ningún archivo | ✅ |
 | API key no aparece en ningún log | ✅ |
 | API key no aparece en ningún commit | ✅ |
+
+---
+
+## 12. Nota de integración de credenciales — hallazgo de Integraciones.1
+
+**Fecha hallazgo:** 2026-06-24
+**Hito fuente:** Integraciones.1 — Auditoría del manejo actual de credenciales/API keys
+
+El hito Integraciones.1 (ejecutado antes de Perú.3N) confirmó que SellUp tiene un sistema de credenciales maduro:
+
+- **Supabase Vault** como almacén cifrado central (AES-256)
+- Patrón establecido para API keys: `external_integrations` + `external_integration_connections` + Vault
+- **UI existente** en `/settings/integrations` con pages por cada integración (HubSpot, Slack, Tavily, Samu, Google CSE)
+- **Patrón de referencia directo para Migo:** `src/server/services/tavily-connection.ts`
+
+### Decisión arquitectural
+
+Migo NO debe quedarse hardcodeada en `.env.local` como mecanismo final.
+
+**Para el spike Perú.3N:** `.env.local` está permitido como mecanismo temporal local.
+**Para producción (Integraciones.2):** Migo debe integrarse en `/settings/integrations/migo` con:
+
+| Elemento | Valor |
+|----------|-------|
+| Vault secret name | `sellup_integration_migo_api_key` |
+| auth_type | `api_key` |
+| Patrón de referencia | `tavily-connection.ts` |
+| UI | `/settings/integrations/migo` |
+
+El patrón completo se documenta en `AUDITORIA-FUENTES-IA.md § Integraciones.1`.
 
 ---
 

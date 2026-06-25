@@ -1274,3 +1274,243 @@ Prerrequisitos: registrar en `app.migo.pe`, obtener plan Demo (700 consultas / 7
 Alcance: script temporal `.tmp/migo-spike/`, 50-100 RUCs de muestra, verificar payload CIIU, confirmar batch endpoint, documentar rate limits.
 NO: Supabase, candidatos, código productivo, API key en commits.
 No autorizar hasta instrucción explícita.
+
+---
+
+## Hito Integraciones.1 — Auditoría del manejo actual de credenciales/API keys en SellUp
+
+**Hito:** Integraciones.1
+**Fecha:** 2026-06-24
+**HEAD inicial:** `305ad48` — feat(agent1): show ICP size gate in candidate review UI
+**Tipo:** Auditoría de solo lectura — sin código, sin Supabase, sin credenciales reales
+**Objetivo:** Confirmar cómo está implementado el manejo de credenciales en SellUp antes de conectar Migo API
+
+---
+
+### Diagnóstico ejecutivo
+
+SellUp implementa una **arquitectura de credenciales madura y production-ready** basada en Supabase Vault como almacén cifrado central. Todos los secretos están cifrados server-side, nunca expuestos al frontend, y el acceso está controlado por políticas RLS admin-only.
+
+**Veredicto:** El patrón de integración por API key ya existe y es seguro. Migo debe reutilizarlo íntegramente.
+
+---
+
+### 1. Tablas Supabase encontradas
+
+| Tabla | Migración | Propósito |
+|-------|-----------|-----------|
+| `external_integrations` | `015_create_external_integrations.sql` | Catálogo de integraciones disponibles (HubSpot, Slack, Google Drive, Samu, Tavily, Google CSE) |
+| `external_integration_connections` | `015_create_external_integrations.sql` | Estado de conexión y referencia a Vault por integración. Incluye `auth_type`, `credentials_status`, `connection_status`, `vault_secret_id` |
+| `integration_audit` | `016_create_integration_audit.sql` | Trazabilidad de todos los eventos de credenciales (sin guardar secretos) |
+| `prospecting_providers` | `018_create_prospecting_providers.sql` | Catálogo para proveedores de prospección/enriquecimiento (Apollo, Lusha, futuros) |
+| `source_catalog_connections` | `047_create_source_catalog_connections.sql` | Estado de conexión para fuentes de datos (DENUE México, Socrata, ChileCompra, etc.) con `vault_secret_id` |
+| `ai_providers` | `011_create_ai_provider_connections.sql` | Catálogo de proveedores IA (Gemini, OpenAI, Claude) con referencia a Vault |
+| `user_drive_connections` | `024_google_drive_integration.sql` | Conexiones Google Drive por usuario (granularidad por usuario, no global) |
+| `user_drive_audit` | `024_google_drive_integration.sql` | Auditoría Google Drive por usuario |
+
+**Vault RPCs** (migración `017_vault_credentials.sql`):
+- `upsert_vault_secret(p_name, p_secret, p_description)` — Crea o actualiza un secreto, retorna UUID
+- `get_vault_secret_decrypted(p_name)` — Obtiene secreto descifrado (solo server-side)
+- `has_vault_secret(p_name)` — Verifica existencia sin retornar valor
+- `delete_vault_secret(p_name)` — Elimina secreto
+
+---
+
+### 2. Rutas UI para integraciones
+
+| Ruta | Archivo | Descripción |
+|------|---------|-------------|
+| `/settings/integrations` | `src/app/(sellup)/settings/integrations/page.tsx` | Hub principal con tarjetas de estado por integración |
+| `/settings/integrations/hubspot` | `.../hubspot/page.tsx` | Token de Private App: ingresar, actualizar, testear, desconectar |
+| `/settings/integrations/slack` | `.../slack/page.tsx` | OAuth2: configurar app, iniciar flujo, crear canal, mensaje de prueba |
+| `/settings/integrations/samu` | `.../samu/page.tsx` | API key: ingresar, testear |
+| `/settings/integrations/tavily` | `.../tavily/page.tsx` | API key: ingresar, testear |
+| `/settings/integrations/google-cse` | `.../google-cse/page.tsx` | API key + Search Engine ID: ingresar, testear |
+| `/settings/source-catalog/[sourceKey]` | `.../[sourceKey]/page.tsx` | Panel de credencial + test de conexión por fuente |
+| `/settings/prospecting` | Configuración de Apollo y Lusha |
+
+---
+
+### 3. Server actions y APIs para guardar credenciales
+
+**Módulo principal:** `src/modules/integrations/actions.ts` (1662 líneas)
+
+Patrón uniforme para cada integración:
+- `connect{Provider}(apiKey)` — Valida admin, guarda en Vault, actualiza `external_integration_connections`, registra audit
+- `update{Provider}Credential(newKey)` — Idem con reemplazo
+- `test{Provider}ConnectionAction()` — Llama al endpoint del proveedor, persiste metadata no sensible
+- `disconnect{Provider}()` — Elimina de Vault, actualiza estado
+- `get{Provider}Integration()` — Retorna estado + metadata enmascarada (nunca el secreto)
+
+**Módulo fuentes:** `src/modules/source-catalog/source-credential-actions.ts`
+- `configureSourceCredential(sourceKey, credentialValue)` — Guarda en Vault por fuente
+- `testSourceCredentialConnection(sourceKey)` — Testea conexión
+- `resolveSourceCredential(sourceKey)` — Recupera de Vault (server-side)
+
+**API routes OAuth:**
+- `/api/integrations/slack/oauth/start` y `/callback` — Flujo OAuth2 completo con CSRF cookie
+- `/api/integrations/google-drive/oauth/start` y `/callback` — Idem para Google Drive
+
+---
+
+### 4. Cómo se protege el secreto
+
+| Aspecto | Estado | Detalle |
+|---------|--------|---------|
+| Almacenamiento | ✅ Vault AES-256 | Nunca en tablas planas ni en código |
+| Acceso server-side | ✅ Solo con `SUPABASE_SERVICE_ROLE_KEY` | Via RPC `SECURITY DEFINER` |
+| RLS | ✅ Admin-only | Todas las tablas de integración tienen políticas solo-admin |
+| Variables de entorno `NEXT_PUBLIC_` | ✅ Ningún secreto expuesto | Solo `SUPABASE_URL` y `PUBLISHABLE_KEY` (seguros) |
+| Respuestas al frontend | ✅ Solo `{ success, message, error }` | Nunca incluyen el valor del secreto |
+| Fallback a `.env` | ✅ Solo en no-producción | En producción, Vault es obligatorio |
+| Audit trail | ✅ Completo | Cada operación de credencial queda en `integration_audit` |
+| Datos en localStorage/sessionStorage | ✅ No hay | El token se limpia del estado React después del submit |
+
+---
+
+### 5. Patrón actual para proveedores de API key (Tavily, Samu, Google CSE)
+
+```
+1. Admin ingresa API key en formulario (componente cliente)
+2. Cliente llama server action: connectProvider(apiKey)
+3. Server action:
+   a. Valida admin via getAdminInternalUserId()
+   b. Guarda en Vault: upsert_vault_secret('sellup_integration_{provider}_api_key', apiKey)
+   c. Actualiza external_integration_connections:
+      credentials_status = 'stored', vault_secret_id = uuid
+   d. Registra evento en integration_audit
+   e. Retorna { success: true, message: '...' }
+4. Cliente muestra feedback y refresca la página
+5. Para uso en agentes/servidor:
+   a. get_vault_secret_decrypted('sellup_integration_{provider}_api_key')
+   b. Pasa valor solo dentro de contexto server
+   c. Nunca se expone al frontend
+```
+
+**Servicios de referencia:**
+- `src/server/services/tavily-connection.ts` (245 líneas) — patrón más limpio
+- `src/server/services/samu-connection.ts` (182 líneas)
+- `src/server/services/google-cse-connection.ts` (297 líneas)
+
+---
+
+### 6. Patrón recomendado para Migo API
+
+Migo es un `enrichment_provider` con autenticación Bearer token (equivalente a API key).
+**Debe usar exactamente el mismo patrón que Tavily/Samu:**
+
+| Elemento | Valor para Migo |
+|----------|----------------|
+| Vault secret name | `sellup_integration_migo_api_key` |
+| Tabla catálogo | `external_integrations` — agregar entrada `integration_key = 'migo'` |
+| Tabla conexión | `external_integration_connections` — auth_type = `'api_key'` |
+| Audit event type | `migo_api_key_stored` (requiere extender CHECK constraint) |
+| Servicio server | `src/server/services/migo-connection.ts` (nuevo, siguiendo patrón tavily) |
+| Server action | Agregar a `src/modules/integrations/actions.ts` |
+| UI page | `/settings/integrations/migo` (nueva, siguiendo patrón tavily) |
+| Uso en enrichment | `get_vault_secret_decrypted('sellup_integration_migo_api_key')` server-side |
+
+**Naming convention Vault:** `sellup_integration_{integration_key}_{credential_type}`
+Ejemplo: `sellup_integration_migo_api_key`
+
+---
+
+### 7. ¿Puede Perú.3N usar `.env.local` temporalmente?
+
+**Sí, para el spike local solamente.**
+
+El patrón del sistema tiene fallback a variables de entorno en no-producción:
+```typescript
+// Patrón existente (ai-credentials.ts, source-connection-resolver.ts)
+// 1. Intenta Vault
+// 2. Si no existe y NODE_ENV !== 'production', cae a process.env.MIGO_API_KEY
+```
+
+Para el spike técnico de Perú.3N:
+- Configurar `MIGO_API_KEY` solo en `.env.local` (nunca commitear)
+- El spike corre en entorno local, no en producción
+- Resultado esperado: validar payload y batch endpoint
+- Después del spike → integrar via UI de Configuración e Integraciones como integración configurable
+
+**Condición:** El `.env.local` es solo para el spike. La integración productiva debe usar Vault + UI.
+
+---
+
+### 8. Riesgos detectados
+
+| Riesgo | Severidad | Detalle |
+|--------|-----------|---------|
+| Deuda técnica en audit events de fuentes | Baja | `source_catalog_connections` tiene eventos de auditoría que aún no están en el CHECK constraint de `integration_audit`. Ya documentado como DEBT en el código. |
+| Rotación automática de credenciales | Media | No hay rotación automatizada para tokens de larga vida (Slack bot token, HubSpot Private App token). La renovación es manual. |
+| Expiración de credenciales | Baja | No hay campo `expires_at` en las tablas de conexión. |
+| `SLACK_CLIENT_SECRET` en env + Vault | Baja | El client secret de Slack puede venir tanto de env como de Vault. Duplicación potencial. |
+| Debug routes en producción | Baja-Media | Existen `/api/debug/ai-provider-health` y `/api/debug/ai-fallback-diagnosis`. Verificar que estén protegidas o desactivadas en producción. |
+
+---
+
+### 9. Recomendación final
+
+**Migo debe integrarse como integración configurable via UI de Configuración e Integraciones, reutilizando el patrón Tavily/Samu.**
+
+No requiere construir infraestructura nueva. Requiere:
+
+1. **Migración DB** (nueva): agregar fila `migo` en `external_integrations`, agregar evento en `integration_audit` CHECK constraint.
+2. **Servicio** (nuevo): `src/server/services/migo-connection.ts` siguiendo patrón de `tavily-connection.ts`.
+3. **Server actions** (nuevo): sección Migo en `src/modules/integrations/actions.ts`.
+4. **UI page** (nueva): `/settings/integrations/migo` siguiendo patrón de Tavily.
+5. **Uso en enrichment**: resolver credencial via `get_vault_secret_decrypted()` en el worker de Perú.3N.
+
+**Orden correcto:**
+```
+Perú.3N (spike local con .env.local)
+  → confirmar payload y batch endpoint
+  → revisar ToS Migo
+  → si spike pasa:
+      Integraciones.2 — Agregar Migo como integración configurable
+        (migración + servicio + UI)
+      Perú.3O — Enrichment CIIU usando Migo via Vault
+```
+
+---
+
+### Confirmaciones de seguridad operativa (Integraciones.1)
+
+| Confirmación | Estado |
+|---|---|
+| Solo lectura del repo — sin modificar código | ✅ |
+| No se solicitó ni imprimió ninguna API key real | ✅ |
+| No se guardó ninguna key durante el hito | ✅ |
+| No se usó `.env.local` | ✅ |
+| No se escribieron secretos en logs | ✅ |
+| No se escribieron secretos en commits | ✅ |
+| No se expusieron secretos al frontend | ✅ |
+| No se realizaron llamadas reales a Migo | ✅ |
+| No se escribió Supabase | ✅ |
+| No se crearon candidatos ni batches | ✅ |
+| No se tocó source-discovery-preflight | ✅ |
+| No se tocó SOURCE_DISCOVERY_REGISTRY | ✅ |
+| No se tocó wizard | ✅ |
+| No se hizo force push | ✅ |
+
+### Archivos revisados (solo lectura)
+
+- `supabase/migrations/011` a `047` — tablas y Vault RPCs
+- `src/modules/integrations/actions.ts`
+- `src/modules/source-catalog/source-credential-actions.ts`
+- `src/server/services/tavily-connection.ts`, `samu-connection.ts`, `hubspot-connection.ts`, `slack-connection.ts`, `google-cse-connection.ts`, `apollo-connection.ts`, `lusha-connection.ts`, `google-drive-connection.ts`, `ai-credentials.ts`, `ai-connection.ts`
+- `src/server/source-catalog/source-connection-resolver.ts`
+- `src/app/(sellup)/settings/integrations/**`
+- `src/app/api/integrations/**`
+- `docs/PERU_MIGO_API_CIIU_EVALUATION.md`
+
+### Archivos modificados en Integraciones.1
+
+| Archivo | Cambio |
+|---|---|
+| `AUDITORIA-FUENTES-IA.md` | Agregada esta sección de auditoría |
+| `docs/PERU_MIGO_API_CIIU_EVALUATION.md` | Agregada §12: Nota de integración de credenciales |
+
+### Próximo hito recomendado
+
+**Perú.3N — Spike real con trial key Migo API** (`.env.local` temporal permitido para spike local)
+Luego: **Integraciones.2** — Agregar Migo como integración configurable en Configuración e Integraciones (migración + servicio + UI, reutilizando patrón Tavily).
