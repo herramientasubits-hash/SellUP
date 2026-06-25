@@ -8,6 +8,11 @@ import { validateTaxIdentifier } from './tax-identifier-rules';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
 import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
+import {
+  isWriterPipelineCTAEnabled,
+  buildIncrementalSearchInputFromCTAInput,
+  buildWriterPipelineCTABatchMetadata,
+} from '@/server/agents/prospecting-toolkit/prospect-cta-bridge';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
@@ -2138,6 +2143,58 @@ export async function generateAIProspectBatch(
   if (input.targetCount < minTargetCount || input.targetCount > MVP_MAX_CANDIDATES) {
     throw new Error(`La cantidad debe estar entre ${minTargetCount} y ${MVP_MAX_CANDIDATES}`);
   }
+
+  // ── Feature flag: writer pipeline (flujo B) ────────────────────────────────
+  if (isWriterPipelineCTAEnabled()) {
+    console.log('[generateAIProspectBatch] execution_path=writer_pipeline_cta provider=tavily');
+
+    const now = new Date();
+    const batchName = `IA CTA · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+
+    const writerInput = buildIncrementalSearchInputFromCTAInput(input, internalUserId, batchName, 'tavily');
+    const writerResult = await runIncrementalProspectingSearch(writerInput);
+
+    if (!writerResult.batchId) {
+      const firstWarning = writerResult.warnings[0] ?? 'El pipeline writer no pudo generar candidatos';
+      throw new Error(firstWarning);
+    }
+
+    // Stamp CTA metadata on batch — non-critical, best-effort
+    try {
+      const supabase = await createClient();
+      const { data: batchRow } = await supabase
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', writerResult.batchId)
+        .single();
+      if (batchRow) {
+        const existingMeta = (batchRow.metadata as Record<string, unknown>) ?? {};
+        await supabase
+          .from('prospect_batches')
+          .update({ metadata: { ...existingMeta, ...buildWriterPipelineCTABatchMetadata() } })
+          .eq('id', writerResult.batchId);
+      }
+    } catch (err) {
+      console.warn('[generateAIProspectBatch] Non-critical: could not stamp CTA metadata on batch', err);
+    }
+
+    console.log(`[generateAIProspectBatch] execution_path=writer_pipeline_cta batch_id=${writerResult.batchId} candidates_persisted=${writerResult.candidatesCreated ?? 0}`);
+
+    revalidatePath('/prospect-batches');
+    revalidatePath('/prospects');
+    revalidatePath(`/prospect-batches/${writerResult.batchId}`);
+
+    return {
+      ok: true,
+      batchId: writerResult.batchId,
+      candidatesCreated: writerResult.candidatesCreated ?? writerResult.usefulCandidatesCount,
+      estimatedCostUsd: 0,
+      message: `Writer pipeline CTA: ${writerResult.candidatesCreated ?? 0} candidatos generados`,
+    };
+  }
+
+  // ── Legacy Apollo path (flag off — default) ────────────────────────────────
+  console.log('[generateAIProspectBatch] execution_path=legacy_apollo');
 
   const result = await runProspectGenerationAgent({
     country: input.country,
