@@ -824,7 +824,16 @@ export async function writeProspectingCandidates(
   };
 
   // Business fit gate tracking (Hito 16AB.43.29)
-  type BusinessFitSample = { name: string; reason: string; url: string | null; fit: string };
+  type BusinessFitSample = {
+    name: string;
+    reason: string;
+    url: string | null;
+    fit: string;
+    // v1.16K-K: populated when recall recovery inferred a corporate name from domain
+    name_for_fit?: string;
+    original_name?: string;
+    recall_recovery_applied_for_fit?: boolean;
+  };
   const businessFitGateData = {
     rejectedCount: 0,
     lowFitCount: 0,
@@ -908,6 +917,63 @@ export async function writeProspectingCandidates(
     blockedReasons: [],
   };
 
+  // ── Writer omitted samples — audit trail (v1.16K-K FIX 5) ───────────────────
+  type WriterOmittedSample = {
+    name: string;
+    domain: string | null;
+    url: string | null;
+    final_skip_reason: string;
+    gate: string;
+    recall_recovered_name: string | null;
+    name_for_fit: string | null;
+    query_text: string | null;
+    round_number: number | null;
+    provider_rank: number | null;
+    source_title: string | null;
+    source_snippet: string | null;
+    pipeline_quality_label: string | null;
+    is_recall_recovery_applied: boolean;
+    was_identity_in_cooldown: boolean;
+    matched_identity_key: string | null;
+  };
+  const writerOmittedSamples: WriterOmittedSample[] = [];
+  const MAX_OMITTED_SAMPLES = 50;
+
+  function captureOmittedSample(
+    cand: ProspectingPipelineCandidate,
+    domain: string | null | undefined,
+    reason: string,
+    gate: string,
+    opts: {
+      recallRecoveredName?: string | null;
+      nameForFit?: string | null;
+      isRecallRecoveryApplied?: boolean;
+      wasIdentityInCooldown?: boolean;
+      matchedIdentityKey?: string | null;
+    } = {},
+  ): void {
+    if (writerOmittedSamples.length >= MAX_OMITTED_SAMPLES) return;
+    const trace = cand.searchTrace;
+    writerOmittedSamples.push({
+      name: cand.name,
+      domain: domain ?? null,
+      url: cand.website ?? null,
+      final_skip_reason: reason,
+      gate,
+      recall_recovered_name: opts.recallRecoveredName ?? null,
+      name_for_fit: opts.nameForFit ?? null,
+      query_text: trace?.query_text ?? null,
+      round_number: trace?.round_number ?? null,
+      provider_rank: trace?.provider_rank ?? null,
+      source_title: cand.sourceTitle ?? null,
+      source_snippet: cand.sourceSnippet ?? null,
+      pipeline_quality_label: cand.scoring.qualityLabel,
+      is_recall_recovery_applied: opts.isRecallRecoveryApplied ?? false,
+      was_identity_in_cooldown: opts.wasIdentityInCooldown ?? false,
+      matched_identity_key: opts.matchedIdentityKey ?? null,
+    });
+  }
+
   // ── Pass 1: evaluate all candidates through gates → collect eligible ────────
   type IdentityResolutionMeta = {
     original_detected_name: string;
@@ -939,6 +1005,7 @@ export async function writeProspectingCandidates(
 
     if (candidateStatus === null) {
       skipped.push({ name: candidate.name, reason: "qualityLabel=discard", searchTrace: candidate.searchTrace ?? undefined });
+      captureOmittedSample(candidate, candidate.domain, "qualityLabel=discard", 'quality_label');
       continue;
     }
 
@@ -957,6 +1024,7 @@ export async function writeProspectingCandidates(
       if (identityGate.samples.length < 10) {
         identityGate.samples.push({ name: candidate.name, reason: "non_company_phrase" });
       }
+      captureOmittedSample(candidate, candidate.domain, "non_company_phrase", 'canonical_identity');
       continue;
     }
 
@@ -970,6 +1038,10 @@ export async function writeProspectingCandidates(
           matched_identity: identity.identityKey,
         });
       }
+      captureOmittedSample(candidate, candidate.domain, "seen_identity_key_recently", 'canonical_identity', {
+        wasIdentityInCooldown: true,
+        matchedIdentityKey: identity.identityKey,
+      });
       continue;
     }
 
@@ -980,6 +1052,7 @@ export async function writeProspectingCandidates(
       if (identityGate.samples.length < 10) {
         identityGate.samples.push({ name: candidate.name, reason: "non_official_source_domain" });
       }
+      captureOmittedSample(candidate, effectiveDomain, "non_official_source_domain", 'canonical_identity');
       continue;
     }
 
@@ -989,6 +1062,7 @@ export async function writeProspectingCandidates(
     if (!countryCompat.compatible) {
       skipped.push({ name: candidate.name, reason: `country_incompatible:${countryCompat.reason}`, searchTrace: candidate.searchTrace ?? undefined });
       precisionGate.countryIncompatibleCount++;
+      captureOmittedSample(candidate, effectiveDomain, `country_incompatible:${countryCompat.reason}`, 'country_compatibility');
       continue;
     }
 
@@ -997,6 +1071,7 @@ export async function writeProspectingCandidates(
     if (isContentPageUrl(candidate.website) || isContentPageName(candidate.name)) {
       skipped.push({ name: candidate.name, reason: 'content_page', searchTrace: candidate.searchTrace ?? undefined });
       precisionGate.contentPageCount++;
+      captureOmittedSample(candidate, effectiveDomain, 'content_page', 'content_page');
       continue;
     }
 
@@ -1021,6 +1096,7 @@ export async function writeProspectingCandidates(
           searchTrace: candidate.searchTrace ?? undefined,
         });
         precisionGate.contentPageCount++;
+        captureOmittedSample(candidate, effectiveDomain, primaryReason, 'content_intermediary');
         continue;
       }
     }
@@ -1035,9 +1111,10 @@ export async function writeProspectingCandidates(
       candidate.name,
     );
     if (!externalPlatformResult.allowed) {
+      const epReason = `external_platform:${externalPlatformResult.platformType ?? 'unknown'}`;
       skipped.push({
         name: candidate.name,
-        reason: `external_platform:${externalPlatformResult.platformType ?? 'unknown'}`,
+        reason: epReason,
         searchTrace: candidate.searchTrace ?? undefined,
       });
       externalPlatformGateData.blockedCount++;
@@ -1052,6 +1129,7 @@ export async function writeProspectingCandidates(
           platformType: pt,
         });
       }
+      captureOmittedSample(candidate, effectiveDomain, epReason, 'external_platform');
       continue;
     }
 
@@ -1068,6 +1146,12 @@ export async function writeProspectingCandidates(
     const nameForOwnership = domainInferredForOwnership
       ? nameNormResult.name
       : candidate.name;
+
+    // v1.16K-K: Use the domain-inferred corporate name for business fit evaluation
+    // when the source returned a generic SEO title (e.g. "Consultoría ERP, CRM, HCM"
+    // instead of the real company "Dinámica CD"). This prevents the fit gate from
+    // blocking a valid company because its title looks like a service category.
+    const nameForFit = domainInferredForOwnership ? nameNormResult.name : candidate.name;
 
     const companyOwnershipResult = evaluateCompanyOwnership(
       nameForOwnership,
@@ -1102,9 +1186,10 @@ export async function writeProspectingCandidates(
     }
 
     if (isBlockedByCompanyOwnership(companyOwnershipResult)) {
+      const owReason = `company_ownership:${companyOwnershipResult.confidence}`;
       skipped.push({
         name: candidate.name,
-        reason: `company_ownership:${companyOwnershipResult.confidence}`,
+        reason: owReason,
         searchTrace: candidate.searchTrace ?? undefined,
       });
       companyOwnershipGateData.blockedCount++;
@@ -1119,6 +1204,11 @@ export async function writeProspectingCandidates(
           confidence: companyOwnershipResult.confidence,
         });
       }
+      captureOmittedSample(candidate, effectiveDomain, owReason, 'company_ownership', {
+        recallRecoveredName: domainInferredForOwnership ? nameNormResult.name : null,
+        nameForFit: nameForFit,
+        isRecallRecoveryApplied: domainInferredForOwnership,
+      });
       continue;
     }
 
@@ -1128,9 +1218,10 @@ export async function writeProspectingCandidates(
     const urlToClassify = candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null);
     const sourceUrlQualityResult = classifySourceUrlQuality(urlToClassify, candidate.name);
     if (isBlockedBySourceUrlQuality(sourceUrlQualityResult)) {
+      const urlQualReason = `source_url_quality:${sourceUrlQualityResult.quality}`;
       skipped.push({
         name: candidate.name,
-        reason: `source_url_quality:${sourceUrlQualityResult.quality}`,
+        reason: urlQualReason,
         searchTrace: candidate.searchTrace ?? undefined,
       });
       sourceUrlQualityGate.blockedCount++;
@@ -1144,6 +1235,11 @@ export async function writeProspectingCandidates(
           url: candidate.website ?? null,
         });
       }
+      captureOmittedSample(candidate, effectiveDomain, urlQualReason, 'source_url_quality', {
+        recallRecoveredName: domainInferredForOwnership ? nameNormResult.name : null,
+        nameForFit: nameForFit,
+        isRecallRecoveryApplied: domainInferredForOwnership,
+      });
       continue;
     }
 
@@ -1151,8 +1247,9 @@ export async function writeProspectingCandidates(
     // Evalúa si el candidato encaja con el segmento B2B SaaS/ERP/CRM/LMS/HR Tech.
     // Bloquea agencias de marketing, BPO/staffing sin producto tech, y candidatos
     // con señales negativas fuertes.
+    // v1.16K-K: use nameForFit (domain-inferred when available) instead of raw candidate.name
     const businessFitResult = evaluateBusinessFit({
-      name: candidate.name,
+      name: nameForFit,
       website: candidate.website ?? null,
       domain: effectiveDomain ?? null,
       sourceSnippet: candidate.sourceSnippet ?? null,
@@ -1172,9 +1269,10 @@ export async function writeProspectingCandidates(
     }
 
     if (isBlockedByBusinessFit(businessFitResult)) {
+      const bfReason = `business_fit:${businessFitResult.fit}`;
       skipped.push({
         name: candidate.name,
-        reason: `business_fit:${businessFitResult.fit}`,
+        reason: bfReason,
         searchTrace: candidate.searchTrace ?? undefined,
       });
       if (businessFitGateData.samples.length < 10) {
@@ -1183,8 +1281,20 @@ export async function writeProspectingCandidates(
           reason: businessFitResult.reasons.join('; '),
           url: candidate.website ?? null,
           fit: businessFitResult.fit,
+          ...(domainInferredForOwnership
+            ? {
+                name_for_fit: nameForFit,
+                original_name: candidate.name,
+                recall_recovery_applied_for_fit: true,
+              }
+            : {}),
         });
       }
+      captureOmittedSample(candidate, effectiveDomain, bfReason, 'business_fit', {
+        recallRecoveredName: domainInferredForOwnership ? nameNormResult.name : null,
+        nameForFit: nameForFit,
+        isRecallRecoveryApplied: domainInferredForOwnership,
+      });
       continue;
     }
 
@@ -1201,6 +1311,11 @@ export async function writeProspectingCandidates(
         previous_candidate_ids: noveltyResult.noveltyMetadata.previous_candidate_ids,
         previous_batch_ids: noveltyResult.noveltyMetadata.previous_batch_ids,
         searchTrace: candidate.searchTrace ?? undefined,
+      });
+      captureOmittedSample(candidate, effectiveDomain, noveltyResult.skipReason!, 'novelty', {
+        recallRecoveredName: domainInferredForOwnership ? nameNormResult.name : null,
+        nameForFit: nameForFit,
+        isRecallRecoveryApplied: domainInferredForOwnership,
       });
       continue;
     }
@@ -1920,12 +2035,15 @@ export async function writeProspectingCandidates(
   // Persist real write counts and novelty summary into the batch so the UI
   // can explain why fewer candidates appeared than the pipeline returned.
   try {
+    // v1.16K-K FIX 4: add negative_memory_rejected_recently to novelty bucket
     const noveltyReasons = new Set([
       "seen_in_previous_batch_recently",
       "confirmed_duplicate_previous",
       "rejected_recently",
+      "negative_memory_rejected_recently",
     ]);
     const noveltySkipped = skipped.filter((s) => noveltyReasons.has(s.reason));
+    // v1.16K-K FIX 3: add content/intermediary gate reasons to quality bucket
     const qualitySkipped = skipped.filter((s) =>
       s.reason === "qualityLabel=discard" ||
       s.reason.startsWith("external_platform:") ||
@@ -1935,7 +2053,10 @@ export async function writeProspectingCandidates(
       s.reason === "content_page" ||
       s.reason === "non_company_phrase" ||
       s.reason === "non_official_source_domain" ||
-      s.reason === "country_incompatible" || s.reason.startsWith("country_incompatible:"),
+      s.reason === "country_incompatible" || s.reason.startsWith("country_incompatible:") ||
+      s.reason === "blog_content_site" ||
+      s.reason === "not_a_direct_vendor" ||
+      s.reason === "content_or_intermediary_site",
     );
     const identityGateTotal =
       identityGate.nonCompanyPhraseCount +
@@ -1962,6 +2083,10 @@ export async function writeProspectingCandidates(
       ).length,
       skipped_rejected_recently_count: noveltySkipped.filter(
         (s) => s.reason === "rejected_recently"
+      ).length,
+      // v1.16K-K FIX 4: count candidates blocked by negative memory
+      skipped_negative_memory_count: noveltySkipped.filter(
+        (s) => s.reason === "negative_memory_rejected_recently"
       ).length,
       skipped_items: noveltySkipped.slice(0, 20).map((s) => ({
         name: s.name,
@@ -2208,6 +2333,8 @@ export async function writeProspectingCandidates(
       recall_recovery_gate: recallRecoveryGateMetadata,
       duplicate_guard: duplicateGuardMetadata,
       tavily_usage_reconciliation: tavilyUsageReconciliation,
+      // v1.16K-K FIX 5: detailed omitted samples for post-run auditing
+      writer_omitted_samples: writerOmittedSamples,
       ...(linkedInBatchSearchMetadata ? { linkedin_search: linkedInBatchSearchMetadata } : {}),
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),

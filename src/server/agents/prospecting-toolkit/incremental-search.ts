@@ -84,6 +84,16 @@ export const STANDARD_TOTAL_QUERY_CAP = 16;
 export const STANDARD_PER_ROUND_CAP = 4;
 export const DEEP_TOTAL_QUERY_CAP = 36;
 
+// ─── Writer gate pass rate assumption (v1.16K-K) ─────────────────────────────
+// Conservative factor applied to the novelty-only persistible estimate to get
+// a writer-gate-adjusted estimate for stop criterion purposes.
+// The novelty precheck does not account for canonical identity, content/intermediary,
+// external platform, company ownership, source URL quality, or business-fit gates.
+// Using the raw novelty-only count as the sole stop criterion causes false
+// target_reached when the writer gates reject most candidates (audit batch
+// 42c8d601: 22 novelty-passed → 0 persisted).
+export const WRITER_GATE_PASS_RATE_ASSUMPTION = 0.30;
+
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
 type NoveltyPrecheckResult = {
@@ -623,21 +633,28 @@ export async function runIncrementalProspectingSearch(
     }
 
     // ── Criterio de parada: mínimo útiles alcanzado ──────────────────────────
-    const effectivePersistable =
+    // v1.16K-K: Distinguish novelty-only estimate (what estimatePersistableAfterNovelty
+    // returns) from the writer-gate-adjusted estimate (applies conservative pass rate).
+    // Only the adjusted estimate triggers target_reached to avoid false stops.
+    const noveltyOnlyPersistibleEstimate =
       lastNoveltyPrecheck !== null
         ? lastNoveltyPrecheck.persistable_candidates_count
         : usefulSoFar;
 
+    const writerGateAdjustedEstimate = lastNoveltyPrecheck !== null
+      ? Math.floor(noveltyOnlyPersistibleEstimate * WRITER_GATE_PASS_RATE_ASSUMPTION)
+      : noveltyOnlyPersistibleEstimate;
+
     if (round === 1) {
-      round1PersistableCount = effectivePersistable;
+      round1PersistableCount = writerGateAdjustedEstimate;
     }
 
-    if (effectivePersistable >= targetPersistibleCandidates) {
+    if (writerGateAdjustedEstimate >= targetPersistibleCandidates) {
       stoppedReason = 'target_reached';
       break;
     }
-    // Fallback: if target is 0, keep old min_useful behavior
-    if (targetPersistibleCandidates === 0 && effectivePersistable >= minUsefulCandidates) {
+    // Fallback: if target is 0, use raw novelty-only count (legacy behavior)
+    if (targetPersistibleCandidates === 0 && noveltyOnlyPersistibleEstimate >= minUsefulCandidates) {
       stoppedReason = 'target_reached';
       break;
     }
@@ -651,7 +668,7 @@ export async function runIncrementalProspectingSearch(
       round < maxRounds &&
       newAfterNegMemCount === 0 &&
       rawCount > 0 &&
-      effectivePersistable === 0 &&
+      writerGateAdjustedEstimate === 0 &&
       !input.additionalCriteria &&
       !hasDiversificationAvailable(basePlan)
     ) {
@@ -775,6 +792,13 @@ export async function runIncrementalProspectingSearch(
           enabled: true,
           estimated_skipped_count: lastNoveltyPrecheck.novelty_skipped_estimated,
           estimated_persistable_count: lastNoveltyPrecheck.persistable_candidates_count,
+          novelty_only_persistible_estimate: lastNoveltyPrecheck.persistable_candidates_count,
+          writer_gate_adjusted_persistible_estimate: Math.floor(
+            lastNoveltyPrecheck.persistable_candidates_count * WRITER_GATE_PASS_RATE_ASSUMPTION,
+          ),
+          writer_gate_pass_rate_assumption: WRITER_GATE_PASS_RATE_ASSUMPTION,
+          stop_criterion_version: 'v2_writer_gate_adjusted',
+          stop_criterion_basis: 'writer_gate_adjusted' as const,
         }
       : undefined,
     novelty_exhausted: noveltyExhausted || undefined,

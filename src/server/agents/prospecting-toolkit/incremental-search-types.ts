@@ -275,6 +275,14 @@ export type NoveltyPrecheckSummary = {
   enabled: boolean;
   estimated_skipped_count: number;
   estimated_persistable_count: number;
+  // v1.16K-K: Stop criterion fields — distinguish novelty-only vs writer-gate-adjusted estimates.
+  // The novelty-only estimate does not account for canonical identity, content/intermediary,
+  // external platform, company ownership, source URL quality, or business-fit gates.
+  novelty_only_persistible_estimate?: number;
+  writer_gate_adjusted_persistible_estimate?: number;
+  writer_gate_pass_rate_assumption?: number;
+  stop_criterion_version?: string;
+  stop_criterion_basis?: 'writer_gate_adjusted' | 'raw_useful';
 };
 
 // ─── Metadata ────────────────────────────────────────────────────────────────
