@@ -1548,7 +1548,7 @@ export function CandidateDetailSheet({
                     {/* Detalle */}
                     {!icpState.decision ? (
                       <p className="text-xs text-muted-foreground/70 italic">
-                        Este candidato no tiene evaluación de tamaño ICP registrada.
+                        Este candidato no tiene evaluación de tamaño ICP registrada. Puede venir de un flujo anterior o de un flujo que aún no pasa por el ICP Size Gate.
                       </p>
                     ) : (
                       <div className="space-y-2">
