@@ -7,6 +7,11 @@ import type { SourceConnectionTestResult } from '@/server/source-catalog/connect
 import { nowIso } from '@/server/source-catalog/connection-test/helpers';
 import { CATALOG_SOURCES } from '@/server/agents/prospecting-toolkit/source-catalog';
 import { persistSourceConnectionTest } from '@/server/source-catalog/connection-test/persist-source-connection-test';
+import { getSourceConnectionRecord } from './queries';
+import type { SourceConnectionRecord } from './queries';
+import { getSourceConnectionTestHistory } from './history-queries';
+import type { SourceConnectionTestHistoryViewModel } from './history-queries';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -93,4 +98,23 @@ export async function testSourceConnectionAction(
   });
 
   return result;
+}
+
+// ─── Drawer data ───────────────────────────────────────────────────────────────
+
+export type SourceDetailDrawerData = {
+  connectionRecord: SourceConnectionRecord | null;
+  testHistory: SourceConnectionTestHistoryViewModel;
+  isAdmin: boolean;
+};
+
+export async function getSourceDetailDrawerDataAction(
+  sourceKey: string,
+): Promise<SourceDetailDrawerData> {
+  const [connectionRecord, testHistory, isAdmin] = await Promise.all([
+    getSourceConnectionRecord(sourceKey),
+    getSourceConnectionTestHistory(sourceKey),
+    isCurrentUserAdmin(),
+  ]);
+  return { connectionRecord, testHistory, isAdmin };
 }

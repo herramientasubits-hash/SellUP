@@ -1,8 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
 import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
@@ -153,7 +151,6 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
 }
 
 export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: Props) {
-  const router = useRouter();
   const { sources, filters } = viewModel;
   const [detailSource, setDetailSource] = React.useState<SourceViewModel | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
@@ -189,12 +186,13 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
         ),
         cell: ({ row }) => (
           <div className="min-w-0 space-y-0.5">
-            <Link
-              href={`/settings/source-catalog/${row.original.key}`}
-              className="truncate text-sm font-medium text-foreground hover:text-su-brand transition-colors"
+            <button
+              type="button"
+              onClick={() => openDetail(row.original)}
+              className="truncate text-sm font-medium text-foreground hover:text-su-brand transition-colors text-left"
             >
               {row.original.name}
-            </Link>
+            </button>
             <p className="truncate font-mono text-[10px] text-muted-foreground">{row.original.key}</p>
           </div>
         ),
@@ -352,23 +350,25 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
         cell: ({ row }) => {
           if (row.original.connectionMode === 'not_connected') {
             return (
-              <Link
-                href={`/settings/source-catalog/${row.original.key}`}
+              <button
+                type="button"
+                onClick={() => openDetail(row.original)}
                 className="inline-flex items-center gap-1 rounded-md border border-su-brand/30 bg-su-brand-soft px-2.5 py-1 text-xs font-medium text-su-brand hover:bg-su-brand hover:text-white transition-colors whitespace-nowrap"
               >
                 Conectar
                 <ArrowRight className="h-3 w-3" />
-              </Link>
+              </button>
             );
           }
           return (
-            <Link
-              href={`/settings/source-catalog/${row.original.key}`}
+            <button
+              type="button"
+              onClick={() => openDetail(row.original)}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
             >
               Ver detalle
               <ArrowRight className="h-3 w-3" />
-            </Link>
+            </button>
           );
         },
         size: 120,
@@ -378,7 +378,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
         meta: { label: 'Acción' },
       },
     ],
-    [filters],
+    [filters, openDetail],
   );
 
   const tabCounts = React.useMemo(() => ({
@@ -421,7 +421,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
             columns={columns}
             openDetail={openDetail}
             handleRowReorder={handleRowReorder}
-            onRowClick={(row) => router.push(`/settings/source-catalog/${row.key}`)}
+            onRowClick={(row) => openDetail(row)}
           />
         </TabsContent>
       </Tabs>
