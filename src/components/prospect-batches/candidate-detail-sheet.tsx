@@ -45,6 +45,8 @@ import {
 } from '@/modules/prospect-batches/types';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-block';
+import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
+import { PeruMigoLegalValidationBlock } from './peru-migo-legal-validation-block';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
@@ -582,6 +584,10 @@ export function CandidateDetailSheet({
   const peSunatBlock = isPeCandidate
     ? ((candidate?.metadata?.source_enrichment as Record<string, unknown> | undefined)
         ?.pe_sunat_bulk as PeruSunatEnrichmentBlock | null | undefined)
+    : null;
+  const peMigoBlock = isPeCandidate
+    ? ((candidate?.metadata?.source_enrichment as Record<string, unknown> | undefined)
+        ?.pe_migo_api as PeMigoApiEnrichmentBlock | null | undefined) ?? null
     : null;
 
   const flags = candidate ? ((candidate.review_flags as string[] | null) ?? []) : [];
@@ -1360,6 +1366,13 @@ export function CandidateDetailSheet({
             {isPeCandidate && (
               <CollapsibleSection title="Validación Legal SUNAT" defaultOpen>
                 <PeruSunatLegalValidationBlock block={peSunatBlock} />
+              </CollapsibleSection>
+            )}
+
+            {/* Validación complementaria Migo — solo si existe pe_migo_api */}
+            {isPeCandidate && peMigoBlock && (
+              <CollapsibleSection title="Validación complementaria Migo" defaultOpen>
+                <PeruMigoLegalValidationBlock block={peMigoBlock} />
               </CollapsibleSection>
             )}
 

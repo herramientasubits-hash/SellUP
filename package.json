@@ -113,6 +113,7 @@
   "test:sunat-peru-6b": "node --experimental-test-module-mocks --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-6b-migo-legal-lookup.test.ts",
   "test:sunat-peru-6c": "node --import tsx --test src/server/prospect-batches/__tests__/peru-6c-migo-post-approval-fallback.test.ts",
   "test:sunat-peru-6d": "node --import tsx --test src/server/prospect-batches/__tests__/peru-6d-migo-fallback-dry-run.test.ts",
+  "test:sunat-peru-6e": "node --import tsx --test src/components/prospect-batches/__tests__/peru-migo-legal-validation-block.test.ts",
   "smoke:peru:migo-legal-lookup": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-legal-lookup.ts",
   "smoke:peru:migo-fallback-dry-run": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-fallback-dry-run.ts"
   },

@@ -39,6 +39,8 @@ import { ContactsTab } from '@/components/contacts/contacts-tab';
 import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
 import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/peru-sunat-legal-validation-block';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
+import { PeruMigoLegalValidationBlock } from '@/components/prospect-batches/peru-migo-legal-validation-block';
+import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 
 const STATUS_STYLES: Record<PipelineStatus, string> = {
   new: 'bg-muted text-muted-foreground border-transparent',
@@ -182,6 +184,15 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
                           ?.pe_sunat_bulk as PeruSunatEnrichmentBlock | null | undefined
                       ) ?? null;
                       return <PeruSunatLegalValidationBlock block={peSunatBlock} />;
+                    })()}
+
+                    {/* Validación complementaria Migo — solo si existe pe_migo_api */}
+                    {data.account.country_code?.toUpperCase() === 'PE' && (() => {
+                      const peMigoBlock = (
+                        (data.account.metadata?.source_enrichment as Record<string, unknown> | undefined)
+                          ?.pe_migo_api as PeMigoApiEnrichmentBlock | null | undefined
+                      ) ?? null;
+                      return peMigoBlock ? <PeruMigoLegalValidationBlock block={peMigoBlock} /> : null;
                     })()}
                     <div className="grid gap-4 md:grid-cols-2">
                       <SurfaceCard>
