@@ -689,3 +689,74 @@ durationMs:    3
 | No se tocó Chile / México / Colombia | ✅ |
 | No se hizo force push | ✅ |
 | `.tmp/` no commiteado | ✅ |
+
+## Hito Perú.5E — Importer SUNAT resumible por chunks
+
+**Objetivo:** Agregar soporte `--offset N` + `--limit N` para cargar bloques controlados del snapshot sin repetir las primeras filas.
+
+**Depende de:** Perú.5D (cerrado)
+
+### Cambios implementados
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts` | **Modificado** — `--offset` en `ImportConfig`, `validateConfig`, `runImporter`, `main()` |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts` | **Modificado** — 13 tests nuevos para offset (52 total) |
+
+### Nuevos campos en `ImportConfig`
+
+```ts
+offset: number  // default 0 — filas válidas a saltar antes de empezar a contar limit
+```
+
+### Nuevos campos en `ImportReport`
+
+```ts
+offset: number            // valor de --offset usado
+rowsSeen: number          // filas válidas únicas encontradas (skippedByOffset + parsed)
+rowsSkippedByOffset: number  // filas válidas saltadas por offset
+```
+
+### Uso
+
+```bash
+# Chunk 2 (filas 1001–2000)
+npm run sunat:peru:import-snapshot -- --dry-run --offset 1000 --limit 1000
+npm run sunat:peru:import-snapshot -- --apply --offset 1000 --limit 1000
+```
+
+### Validaciones de seguridad del offset
+
+- `--offset` negativo → falla con `config_invalid`
+- `--offset` no numérico → falla con `config_invalid`
+- `--apply` sin `--limit` → sigue fallando
+- `--limit > 1000` → sigue fallando
+- Entorno Vercel → sigue fallando
+- Streaming line-by-line — no carga todo el archivo en memoria
+
+### Resultado operacional — Perú.5E
+
+| Verificación | Resultado |
+|---|---|
+| Conteo inicial tabla | 1000 |
+| Dry-run `--offset 1000 --limit 1000` | `rowsSkippedByOffset: 1000`, `rowsParsed: 1000`, `rowsUpserted: 0` ✅ |
+| Apply `--offset 1000 --limit 1000` | `rowsUpserted: 1000` en 1046ms ✅ |
+| Conteo final tabla | 2000 |
+| Distribución (muestra 1000) | `is_active=true/is_habido=true: 377`, `is_active=false/is_habido=true: 546`, otros: 77 |
+
+### Confirmaciones de seguridad operativa — Perú.5E
+
+| Confirmación | Estado |
+|---|---|
+| No se cargó snapshot completo | ✅ |
+| No se subió snapshot real | ✅ |
+| No se descargó SUNAT | ✅ |
+| No se leyó ZIP | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon batches | ✅ |
+| No se tocó Chile/México/Colombia | ✅ |
+| No se hizo force push | ✅ |
+| `.tmp/` no commiteado | ✅ |

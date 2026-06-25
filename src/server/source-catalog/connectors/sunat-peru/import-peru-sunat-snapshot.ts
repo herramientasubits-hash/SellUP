@@ -1,5 +1,5 @@
 /**
- * Perú.5B-0 — Offline SUNAT Snapshot Importer
+ * Perú.5B-0 / Perú.5E — Offline SUNAT Snapshot Importer (resumible por chunks)
  *
  * Worker LOCAL que carga el snapshot pre-filtrado de RUC20 a Supabase.
  *
@@ -15,9 +15,12 @@
  * Uso:
  *   npm run sunat:peru:import-snapshot -- --dry-run --limit 100
  *   npm run sunat:peru:import-snapshot -- --apply --limit 100
+ *   npm run sunat:peru:import-snapshot -- --dry-run --offset 1000 --limit 1000
+ *   npm run sunat:peru:import-snapshot -- --apply --offset 1000 --limit 1000
  *
  * --dry-run es el default; requiere --apply para escribir.
  * --apply requiere --limit (máximo 1000 en este hito).
+ * --offset salta N filas válidas/parseables antes de empezar a contar el limit.
  */
 
 import { createReadStream } from 'node:fs';
@@ -42,6 +45,7 @@ export interface ImportConfig {
   dryRun: boolean;
   apply: boolean;
   limit: number | null;
+  offset: number;
 }
 
 export interface ParsedSnapshotRow {
@@ -68,6 +72,9 @@ export interface ParseResult {
 }
 
 export interface ImportReport {
+  offset: number;
+  rowsSeen: number;
+  rowsSkippedByOffset: number;
   rowsRead: number;
   rowsParsed: number;
   rowsSkipped: number;
@@ -103,13 +110,18 @@ export function parseCliArgs(argv: string[]): ImportConfig {
   const limitVal = limitIdx !== -1 ? parseInt(args[limitIdx + 1] ?? '', 10) : null;
   const limit = !isNaN(limitVal as number) ? limitVal : null;
 
+  const offsetIdx = args.indexOf('--offset');
+  const offsetRaw = offsetIdx !== -1 ? args[offsetIdx + 1] : undefined;
+  const offsetParsed = offsetRaw !== undefined ? parseInt(offsetRaw, 10) : 0;
+  const offset = !isNaN(offsetParsed) ? offsetParsed : NaN;
+
   const snapshotPathIdx = args.indexOf('--snapshot');
   const snapshotPath =
     snapshotPathIdx !== -1
       ? (args[snapshotPathIdx + 1] ?? DEFAULT_SNAPSHOT_PATH)
       : DEFAULT_SNAPSHOT_PATH;
 
-  return { snapshotPath, dryRun, apply, limit };
+  return { snapshotPath, dryRun, apply, limit, offset };
 }
 
 export function validateConfig(config: ImportConfig): void {
@@ -127,6 +139,14 @@ export function validateConfig(config: ImportConfig): void {
 
   if (config.limit !== null && config.limit <= 0) {
     throw new Error(`config_invalid: --limit must be a positive integer.`);
+  }
+
+  if (isNaN(config.offset)) {
+    throw new Error(`config_invalid: --offset must be a non-negative integer.`);
+  }
+
+  if (config.offset < 0) {
+    throw new Error(`config_invalid: --offset must be a non-negative integer.`);
   }
 }
 
@@ -281,6 +301,9 @@ export async function runImporter(
   const startedAt = loadedAt;
 
   const report: Omit<ImportReport, 'finishedAt' | 'durationMs'> = {
+    offset: config.offset,
+    rowsSeen: 0,
+    rowsSkippedByOffset: 0,
     rowsRead: 0,
     rowsParsed: 0,
     rowsSkipped: 0,
@@ -332,6 +355,14 @@ export async function runImporter(
       continue;
     }
     seenRucs.add(row.ruc);
+    report.rowsSeen++;
+
+    // Skip valid rows until offset is satisfied
+    if (report.rowsSeen <= config.offset) {
+      report.rowsSkippedByOffset++;
+      continue;
+    }
+
     report.rowsParsed++;
 
     if (config.dryRun) {
@@ -372,10 +403,11 @@ async function main() {
   const mode = config.dryRun ? 'DRY-RUN' : `APPLY (limit=${config.limit})`;
   console.log(`[sunat:importer] Mode: ${mode}`);
   console.log(`[sunat:importer] Snapshot: ${config.snapshotPath}`);
+  console.log(`[sunat:importer] Offset: ${config.offset}`);
 
   if (config.apply) {
     console.log(
-      `[sunat:importer] WARNING: Writing up to ${config.limit} rows to Supabase.`,
+      `[sunat:importer] WARNING: Writing up to ${config.limit} rows to Supabase (skipping first ${config.offset} valid rows).`,
     );
   }
 
@@ -388,18 +420,21 @@ async function main() {
   }
 
   console.log('\n[sunat:importer] ── Report ──────────────────────────');
-  console.log(`  rowsRead:       ${report.rowsRead}`);
-  console.log(`  rowsParsed:     ${report.rowsParsed}`);
-  console.log(`  rowsSkipped:    ${report.rowsSkipped}`);
-  console.log(`  invalidRows:    ${report.invalidRows}`);
-  console.log(`  duplicateRucs:  ${report.duplicateRucs}`);
-  console.log(`  rowsUpserted:   ${report.rowsUpserted}`);
-  console.log(`  dryRun:         ${report.dryRun}`);
-  console.log(`  applied:        ${report.applied}`);
-  console.log(`  limit:          ${report.limit ?? 'none'}`);
-  console.log(`  startedAt:      ${report.startedAt}`);
-  console.log(`  finishedAt:     ${report.finishedAt}`);
-  console.log(`  durationMs:     ${report.durationMs}`);
+  console.log(`  offset:              ${report.offset}`);
+  console.log(`  rowsRead:            ${report.rowsRead}`);
+  console.log(`  rowsSeen:            ${report.rowsSeen}`);
+  console.log(`  rowsSkippedByOffset: ${report.rowsSkippedByOffset}`);
+  console.log(`  rowsParsed:          ${report.rowsParsed}`);
+  console.log(`  rowsSkipped:         ${report.rowsSkipped}`);
+  console.log(`  invalidRows:         ${report.invalidRows}`);
+  console.log(`  duplicateRucs:       ${report.duplicateRucs}`);
+  console.log(`  rowsUpserted:        ${report.rowsUpserted}`);
+  console.log(`  dryRun:              ${report.dryRun}`);
+  console.log(`  applied:             ${report.applied}`);
+  console.log(`  limit:               ${report.limit ?? 'none'}`);
+  console.log(`  startedAt:           ${report.startedAt}`);
+  console.log(`  finishedAt:          ${report.finishedAt}`);
+  console.log(`  durationMs:          ${report.durationMs}`);
 
   if (report.dryRun) {
     console.log('\n[sunat:importer] Dry-run complete. No rows written.');

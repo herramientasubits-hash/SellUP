@@ -20,11 +20,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
 import {
   parseSnapshotLine,
   parseCliArgs,
   validateConfig,
   assertNotVercel,
+  runImporter,
   type ParsedSnapshotRow,
 } from '../import-peru-sunat-snapshot';
 
@@ -226,25 +230,40 @@ describe('parseCliArgs', () => {
     const config = parseCliArgs(['node', 'script.ts', '--dry-run']);
     assert.equal(config.limit, null);
   });
+
+  it('offset defaults to 0 when --offset not provided', () => {
+    const config = parseCliArgs(['node', 'script.ts', '--limit', '100']);
+    assert.equal(config.offset, 0);
+  });
+
+  it('parses --offset correctly', () => {
+    const config = parseCliArgs(['node', 'script.ts', '--offset', '1000', '--limit', '100']);
+    assert.equal(config.offset, 1000);
+  });
+
+  it('offset is NaN when --offset value is non-numeric', () => {
+    const config = parseCliArgs(['node', 'script.ts', '--offset', 'abc', '--limit', '100']);
+    assert.ok(isNaN(config.offset));
+  });
 });
 
 describe('validateConfig', () => {
   it('dry-run without limit is valid', () => {
     assert.doesNotThrow(() =>
-      validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: null }),
+      validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: null, offset: 0 }),
     );
   });
 
   it('dry-run with limit is valid', () => {
     assert.doesNotThrow(() =>
-      validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: 100 }),
+      validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: 100, offset: 0 }),
     );
   });
 
   it('--apply without --limit throws', () => {
     assert.throws(
       () =>
-        validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: null }),
+        validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: null, offset: 0 }),
       /config_invalid.*--apply requires --limit/,
     );
   });
@@ -252,22 +271,50 @@ describe('validateConfig', () => {
   it('--limit > 1000 throws', () => {
     assert.throws(
       () =>
-        validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: 1001 }),
+        validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: 1001, offset: 0 }),
       /config_invalid.*exceeds maximum/,
     );
   });
 
   it('--limit = 1000 is valid', () => {
     assert.doesNotThrow(() =>
-      validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: 1000 }),
+      validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: 1000, offset: 0 }),
     );
   });
 
   it('--limit = 0 throws', () => {
     assert.throws(
       () =>
-        validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: 0 }),
+        validateConfig({ snapshotPath: 'x.txt', dryRun: false, apply: true, limit: 0, offset: 0 }),
       /config_invalid.*positive integer/,
+    );
+  });
+
+  it('--offset = 0 is valid', () => {
+    assert.doesNotThrow(() =>
+      validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: null, offset: 0 }),
+    );
+  });
+
+  it('--offset positive integer is valid', () => {
+    assert.doesNotThrow(() =>
+      validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: null, offset: 1000 }),
+    );
+  });
+
+  it('--offset negative throws', () => {
+    assert.throws(
+      () =>
+        validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: null, offset: -1 }),
+      /config_invalid.*non-negative integer/,
+    );
+  });
+
+  it('--offset NaN throws', () => {
+    assert.throws(
+      () =>
+        validateConfig({ snapshotPath: 'x.txt', dryRun: true, apply: false, limit: null, offset: NaN }),
+      /config_invalid.*non-negative integer/,
     );
   });
 });
@@ -360,6 +407,113 @@ describe('Guardrail: forbidden references in importer source', () => {
       !source.includes('.from(\'prospect_batches\')'),
       'Must not write to prospect_batches table',
     );
+  });
+});
+
+// ── runImporter offset tests ───────────────────────────────────
+
+function buildSnapshotFile(rowCount: number): string {
+  const dir = mkdtempSync(`${tmpdir()}/sunat-test-`);
+  const filePath = `${dir}/snapshot.txt`;
+  const lines: string[] = ['RUC|NOMBRE O RAZÓN SOCIAL|ESTADO DEL CONTRIBUYENTE|CONDICIÓN DE DOMICILIO|UBIGEO|TIPO DE VÍA|NOMBRE DE VÍA|CÓDIGO DE ZONA|TIPO DE ZONA|NÚMERO|INTERIOR|LOTE|DEPARTAMENTO|MANZANA|KILÓMETRO'];
+  for (let i = 0; i < rowCount; i++) {
+    // Generate unique 11-digit RUCs starting at 20100000001
+    const ruc = String(20100000001 + i);
+    lines.push(`${ruc}|EMPRESA ${i + 1}|ACTIVO|HABIDO|150101|AV|LIMA|-|-|${i + 1}|-|-|-|-|-`);
+  }
+  writeFileSync(filePath, lines.join('\n'), { encoding: 'latin1' });
+  return filePath;
+}
+
+describe('runImporter — offset behavior', () => {
+  let snapshotPath: string;
+  let snapshotDir: string;
+
+  before(() => {
+    snapshotPath = buildSnapshotFile(2000);
+    snapshotDir = snapshotPath.replace('/snapshot.txt', '');
+  });
+
+  after(() => {
+    rmSync(snapshotDir, { recursive: true, force: true });
+  });
+
+  it('offset defaults to 0: rowsSkippedByOffset = 0 when offset not set', async () => {
+    const report = await runImporter({
+      snapshotPath,
+      dryRun: true,
+      apply: false,
+      limit: 10,
+      offset: 0,
+    });
+    assert.equal(report.offset, 0);
+    assert.equal(report.rowsSkippedByOffset, 0);
+    assert.equal(report.rowsParsed, 10);
+  });
+
+  it('offset 1000: rowsSkippedByOffset = 1000, rowsParsed = 1000', async () => {
+    const report = await runImporter({
+      snapshotPath,
+      dryRun: true,
+      apply: false,
+      limit: 1000,
+      offset: 1000,
+    });
+    assert.equal(report.offset, 1000);
+    assert.equal(report.rowsSkippedByOffset, 1000);
+    assert.equal(report.rowsParsed, 1000);
+    assert.equal(report.rowsSeen, 2000);
+  });
+
+  it('rowsSeen = rowsSkippedByOffset + rowsParsed', async () => {
+    const report = await runImporter({
+      snapshotPath,
+      dryRun: true,
+      apply: false,
+      limit: 500,
+      offset: 300,
+    });
+    assert.equal(report.rowsSeen, report.rowsSkippedByOffset + report.rowsParsed);
+    assert.equal(report.rowsSkippedByOffset, 300);
+    assert.equal(report.rowsParsed, 500);
+  });
+
+  it('dry-run with offset: rowsUpserted = 0 (no writes)', async () => {
+    const report = await runImporter({
+      snapshotPath,
+      dryRun: true,
+      apply: false,
+      limit: 100,
+      offset: 100,
+    });
+    assert.equal(report.rowsUpserted, 0);
+    assert.equal(report.dryRun, true);
+    assert.equal(report.applied, false);
+  });
+
+  it('offset larger than total valid rows: rowsParsed = 0', async () => {
+    const smallPath = buildSnapshotFile(5);
+    try {
+      const report = await runImporter({
+        snapshotPath: smallPath,
+        dryRun: true,
+        apply: false,
+        limit: 100,
+        offset: 100,
+      });
+      assert.equal(report.rowsParsed, 0);
+      assert.equal(report.rowsSkippedByOffset, 5);
+    } finally {
+      rmSync(smallPath.replace('/snapshot.txt', ''), { recursive: true, force: true });
+    }
+  });
+
+  it('does not load entire file into memory (uses streaming readline)', () => {
+    // Verify no Array.from(lines) or readFileSync in importer source — streaming confirmed by source analysis
+    const source = readFileSync(IMPORTER_FILE, 'utf-8');
+    assert.ok(!source.includes('readFileSync(resolvedPath'), 'Must not read entire file with readFileSync');
+    assert.ok(source.includes('createReadStream'), 'Must use streaming createReadStream');
+    assert.ok(source.includes('createInterface'), 'Must use readline interface');
   });
 });
 

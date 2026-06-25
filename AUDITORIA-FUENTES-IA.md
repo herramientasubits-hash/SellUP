@@ -1974,4 +1974,65 @@ build                → OK
 
 ### Siguiente hito recomendado
 
-**Perú.5B-1** — Ejecutar carga real limitada (`--apply --limit 1000`) una vez confirmadas las credenciales Supabase y que la migración 067 esté aplicada en el proyecto destino. Luego verificar lookup con `lookupPeruSunatByRuc`.
+~~**Perú.5B-1** — Ejecutar carga real limitada (`--apply --limit 1000`)~~ → **Completado en Perú.5E** (ver sección siguiente).
+
+---
+
+## Hito cerrado — Perú.5E: Importer SUNAT resumible por chunks
+
+**Objetivo:** Agregar `--offset N` al importer para cargar bloques controlados sin repetir las primeras filas.
+
+**Depende de:** Perú.5D (cerrado)
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts` | **Modificado** — `offset` en `ImportConfig`, `ImportReport`, `validateConfig`, `parseCliArgs`, `runImporter`, `main()` |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts` | **Modificado** — 13 tests nuevos (52 total) |
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | **Actualizado** — §Perú.5E |
+| `AUDITORIA-FUENTES-IA.md` | **Esta sección** |
+
+### Nuevos campos
+
+`ImportConfig.offset: number` — default 0, filas válidas a saltar antes de contar limit.
+
+`ImportReport`: `offset`, `rowsSeen`, `rowsSkippedByOffset`.
+
+### Resultado operacional
+
+| Paso | Resultado |
+|------|-----------|
+| Conteo inicial | 1000 filas |
+| Dry-run `--offset 1000 --limit 1000` | `rowsSkippedByOffset: 1000`, `rowsParsed: 1000`, `rowsUpserted: 0` ✅ |
+| Apply `--offset 1000 --limit 1000` | `rowsUpserted: 1000`, `durationMs: 1046` ✅ |
+| Conteo final | 2000 filas |
+
+### Búsquedas obligatorias
+
+| Patrón | Resultado |
+|--------|-----------|
+| `padron_reducido_ruc.zip` en importer | ✅ No encontrado |
+| `fetch` a SUNAT | ✅ No encontrado |
+| `unzip` / `inflate` / `createUnzip` | ✅ No encontrado |
+| `MIGO_API_KEY` | ✅ No encontrado |
+| `tavily` / `TAVILY` | ✅ No encontrado |
+| `.from('prospect_candidates')` | ✅ No encontrado |
+| `.from('prospect_batches')` | ✅ No encontrado |
+| `.tmp/` commiteado | ✅ No commiteado |
+
+### Confirmaciones de seguridad operativa (Perú.5E)
+
+| Confirmación | Estado |
+|---|---|
+| No se cargó snapshot completo | ✅ |
+| No se subió snapshot real | ✅ |
+| No se descargó SUNAT | ✅ |
+| No se leyó ZIP | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon batches | ✅ |
+| No se tocó Chile/México/Colombia | ✅ |
+| No se hizo force push | ✅ |
