@@ -12,3 +12,18 @@ export function isProspectChatWizardExecutionEnabled(): boolean {
     'true'
   );
 }
+
+/** Flag name constant for post-approval source enrichment. */
+export const POST_APPROVAL_SOURCE_ENRICHMENT_FLAG =
+  'ENABLE_POST_APPROVAL_SOURCE_ENRICHMENT';
+
+/**
+ * Returns true when ENABLE_POST_APPROVAL_SOURCE_ENRICHMENT is "true".
+ * Default: false. NIT-first strategy only. No LinkedIn, no Tavily, no LLM.
+ */
+export function isPostApprovalSourceEnrichmentEnabled(): boolean {
+  return (
+    process.env[POST_APPROVAL_SOURCE_ENRICHMENT_FLAG]?.trim().toLowerCase() ===
+    'true'
+  );
+}

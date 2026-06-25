@@ -13,6 +13,8 @@ import {
   buildIncrementalSearchInputFromCTAInput,
   buildWriterPipelineCTABatchMetadata,
 } from '@/server/agents/prospecting-toolkit/prospect-cta-bridge';
+import { isPostApprovalSourceEnrichmentEnabled } from '@/lib/feature-flags.server';
+import { triggerPostApprovalEnrichment } from '@/server/prospect-batches/post-approval-enrichment-trigger';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
@@ -1967,6 +1969,18 @@ export async function approveAndConvertCandidateAction(
     });
   } catch (auditErr) {
     console.warn('[approveAndConvertCandidateAction] Non-critical audit error:', auditErr);
+  }
+
+  // 7. Post-approval source enrichment trigger (detrás de flag, non-blocking)
+  if (isPostApprovalSourceEnrichmentEnabled()) {
+    void triggerPostApprovalEnrichment({
+      candidate: candidate as unknown as Record<string, unknown>,
+      candidateId: id,
+      batchId: candidate.batch_id,
+      accountId: accountId!,
+      internalUserId,
+      supabase,
+    });
   }
 
   revalidatePath(`/prospect-batches/${candidate.batch_id}`);
