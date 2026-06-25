@@ -17,6 +17,7 @@
 
 import type { LinkedInEnrichmentMetadata } from './types';
 import type { IcpSizeGateResult } from './icp-size-gate';
+import { parseEmployeeSizeFromText } from './employee-size-text-parser';
 
 // ─── Tipo principal ──────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ export type CandidateRichProfileV1 = {
   size: {
     estimated_range?: string | null;
     status: 'confirmed' | 'estimated' | 'unknown';
-    source?: 'linkedin' | 'website' | 'registry' | 'snippet' | 'manual' | 'unknown';
+    source?: 'linkedin' | 'website' | 'registry' | 'snippet' | 'source_snippet' | 'manual' | 'unknown';
     notes?: string | null;
     icp_size_gate?: IcpSizeGateResult | null;
   };
@@ -541,14 +542,20 @@ export function buildCandidateRichProfileV1(
     sourceSnippet: input.sourceSnippet,
   });
 
+  // Size: attempt no-cost extraction from source title + snippet
+  const snippetText = [input.sourceTitle, input.sourceSnippet].filter(Boolean).join(' ');
+  const sizeFromSnippet = parseEmployeeSizeFromText(snippetText);
+
   // Missing fields para notes
   const missingFields: string[] = [];
   if (!input.website && !input.domain) missingFields.push('website');
   if (!linkedInUrl) missingFields.push('linkedin_url');
   if (!descriptionShort) missingFields.push('description');
   if (!inferredSubindustry) missingFields.push('subindustry');
-  // ciudad y tamaño no disponibles sin llamadas externas
-  missingFields.push('city', 'size');
+  // city still requires external calls
+  missingFields.push('city');
+  // size is missing only when snippet extraction found nothing
+  if (!sizeFromSnippet) missingFields.push('size');
 
   const requiresHumanReview =
     evidenceQuality === 'low' ||
@@ -590,12 +597,19 @@ export function buildCandidateRichProfileV1(
       source: 'unknown',
     },
 
-    size: {
-      estimated_range: null,
-      status: 'unknown',
-      source: 'unknown',
-      notes: null,
-    },
+    size: sizeFromSnippet
+      ? {
+          estimated_range: sizeFromSnippet,
+          status: 'estimated',
+          source: 'source_snippet',
+          notes: 'Detected from source title/snippet',
+        }
+      : {
+          estimated_range: null,
+          status: 'unknown',
+          source: 'unknown',
+          notes: null,
+        },
 
     description: {
       short: descriptionShort,
