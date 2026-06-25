@@ -1900,4 +1900,78 @@ RLS: solo `service_role`. Sin acceso público ni autenticado.
 
 ### Siguiente hito recomendado
 
-**Perú.5B** — Construir worker/importer local offline que lea `.tmp/sunat-peru/ruc20-filtered-snapshot.txt` y popule `peru_sunat_ruc_snapshot` en Supabase. Una vez cargado el snapshot, `lookupPeruSunatByRuc` estará operativo sin cambios adicionales.
+~~**Perú.5B** — Construir worker/importer local offline~~ → **Cerrado en Perú.5B-0** (ver sección siguiente).
+
+---
+
+## Hito cerrado — Perú.5B-0: Worker/importer offline SUNAT snapshot
+
+**HEAD inicial:** `910424e` — feat(agent1): enqueue post-approval source enrichment
+
+**Depende de:** Perú.5A (cerrado)
+
+### Objetivo
+
+Importer offline seguro para cargar `.tmp/sunat-peru/ruc20-filtered-snapshot.txt` a Supabase.
+Dry-run por defecto. Carga limitada a máximo 1000 filas en este hito.
+
+### Archivos creados / modificados
+
+| Artefacto | Estado |
+|-----------|--------|
+| `src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts` | **Creado** — worker offline con parse, upsert, dry-run, guards |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts` | **Creado** — 39 tests: parser, CLI, config, Vercel guard, guardrails |
+| `package.json` | **Modificado** — scripts `sunat:peru:import-snapshot`, `test:sunat-peru-5b` |
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | **Actualizado** — §Perú.5B-0 |
+| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — esta sección |
+
+### Resultado dry-run (100 filas, ejecutado)
+
+```
+rowsRead:      101   rowsParsed:    100
+rowsSkipped:   0     invalidRows:   0
+duplicateRucs: 0     rowsUpserted:  0
+dryRun:        true  durationMs:    3
+```
+
+### Resultado test suite
+
+```
+test:sunat-peru-5b   → 39/39 ✔
+test:sunat-peru      → 312/312 ✔
+typecheck            → 0 errores
+build                → OK
+```
+
+### Búsquedas de guardrail obligatorias
+
+| Patrón | Resultado |
+|--------|-----------|
+| `padron_reducido_ruc.zip` en importer | ✅ No encontrado |
+| `fetch` a SUNAT | ✅ No encontrado |
+| `unzip` / `inflate` / `createUnzip` | ✅ No encontrado |
+| `MIGO_API_KEY` | ✅ No encontrado |
+| `tavily` / `TAVILY` | ✅ No encontrado |
+| `.from('prospect_candidates')` | ✅ No encontrado |
+| `.from('prospect_batches')` | ✅ No encontrado |
+| `.tmp/` commiteado | ✅ No commiteado |
+
+### Confirmaciones de seguridad operativa (Perú.5B-0)
+
+| Confirmación | Estado |
+|---|---|
+| No se cargó snapshot completo (851K) | ✅ |
+| No se subió snapshot real | ✅ |
+| No se descargó SUNAT | ✅ |
+| No se leyó ZIP | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon batches | ✅ |
+| No se tocó Chile/México/Colombia | ✅ |
+| No se hizo force push | ✅ |
+
+### Siguiente hito recomendado
+
+**Perú.5B-1** — Ejecutar carga real limitada (`--apply --limit 1000`) una vez confirmadas las credenciales Supabase y que la migración 067 esté aplicada en el proyecto destino. Luego verificar lookup con `lookupPeruSunatByRuc`.

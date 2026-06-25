@@ -601,3 +601,91 @@ Worker/local job procesa archivo SUNAT fuera de Vercel
 | No se crearon batches | ✅ |
 | No se tocó Chile / México / Colombia | ✅ |
 | No se hizo force push | ✅ |
+
+---
+
+## Perú.5B-0 — Worker/Importer Offline SUNAT Snapshot
+
+**HEAD inicial:** `910424e` — feat(agent1): enqueue post-approval source enrichment
+
+### Objetivo
+
+Importer offline local para cargar el snapshot filtrado de RUC20 a Supabase.
+Dry-run por defecto; carga limitada a máximo 1000 filas en este hito.
+
+### Artefactos creados
+
+| Artefacto | Descripción |
+|-----------|-------------|
+| `src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts` | Worker offline: parse pipe-delimited, upsert por RUC, dry-run default, guards Vercel/limit |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts` | 39 tests: parser, CLI args, config validation, Vercel guard, guardrails de fuente |
+| `package.json` scripts | `sunat:peru:import-snapshot`, `test:sunat-peru-5b` |
+
+### Uso
+
+```bash
+# Dry-run (default, no escribe):
+npm run sunat:peru:import-snapshot -- --dry-run --limit 100
+
+# Carga limitada (requiere --limit, máximo 1000):
+npm run sunat:peru:import-snapshot -- --apply --limit 100
+```
+
+### Parsing del snapshot filtrado
+
+El archivo `.tmp/sunat-peru/ruc20-filtered-snapshot.txt` es pipe-delimited con 15 columnas:
+
+| Col | Campo SUNAT | → tabla |
+|-----|-------------|---------|
+| 0 | RUC | `ruc` |
+| 1 | NOMBRE O RAZÓN SOCIAL | `legal_name` |
+| 2 | ESTADO DEL CONTRIBUYENTE | `taxpayer_status` → `is_active` |
+| 3 | CONDICIÓN DE DOMICILIO | `domicile_condition` → `is_habido` |
+| 4 | UBIGEO | `ubigeo` |
+| 5–14 | Componentes de dirección | `address` (join, sin guiones) |
+
+`department`, `province`, `district` = `null` en este hito (derivables de ubigeo en hito futuro).
+
+### Dry-run con 100 filas (ejecutado)
+
+```
+rowsRead:      101
+rowsParsed:    100
+rowsSkipped:   0
+invalidRows:   0
+duplicateRucs: 0
+rowsUpserted:  0
+dryRun:        true
+limit:         100
+durationMs:    3
+```
+
+### Guardrails del importer
+
+1. Rechaza ejecución si `VERCEL` o `NEXT_RUNTIME` están seteados
+2. Dry-run por defecto — `--apply` requerido para escribir
+3. `--apply` sin `--limit` → error
+4. `--limit > 1000` → error (límite de este hito)
+5. No descarga SUNAT, no descomprime ZIP
+6. No llama Migo, Tavily, ni SUNAT
+7. No inserta en `prospect_candidates` ni `prospect_batches`
+8. Usa `SUPABASE_SERVICE_ROLE_KEY`, nunca anon key
+9. Streaming line-by-line (no carga todo en memoria)
+10. Upsert por `ruc` (onConflict)
+
+### Confirmaciones de seguridad operativa — Perú.5B-0
+
+| Confirmación | Estado |
+|---|---|
+| No se cargó snapshot completo (851K registros) | ✅ |
+| No se subió el snapshot real | ✅ |
+| No se descargó SUNAT | ✅ |
+| No se leyó ZIP | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon batches | ✅ |
+| No se tocó Chile / México / Colombia | ✅ |
+| No se hizo force push | ✅ |
+| `.tmp/` no commiteado | ✅ |
