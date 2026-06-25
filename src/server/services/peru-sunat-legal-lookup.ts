@@ -46,7 +46,8 @@ export type PeruLegalValidationReason =
   | 'taxpayer_inactive'
   | 'domicile_not_habido'
   | 'snapshot_not_loaded'
-  | 'invalid_ruc_format';
+  | 'invalid_ruc_format'
+  | 'missing_ruc';
 
 export interface PeruSunatRucSnapshotRow {
   ruc: string;
@@ -72,6 +73,7 @@ export interface PeruSunatLegalLookupResult {
   legalName: string | null;
   taxpayerStatus: string | null;
   domicileCondition: string | null;
+  ubigeo: string | null;
   department: string | null;
   province: string | null;
   district: string | null;
@@ -114,6 +116,7 @@ export function buildLegalLookupResult(
       legalName: null,
       taxpayerStatus: null,
       domicileCondition: null,
+      ubigeo: null,
       department: null,
       province: null,
       district: null,
@@ -133,6 +136,7 @@ export function buildLegalLookupResult(
       legalName: null,
       taxpayerStatus: null,
       domicileCondition: null,
+      ubigeo: null,
       department: null,
       province: null,
       district: null,
@@ -152,6 +156,7 @@ export function buildLegalLookupResult(
       legalName: null,
       taxpayerStatus: null,
       domicileCondition: null,
+      ubigeo: null,
       department: null,
       province: null,
       district: null,
@@ -171,6 +176,7 @@ export function buildLegalLookupResult(
       legalName: row.legal_name,
       taxpayerStatus: row.taxpayer_status,
       domicileCondition: row.domicile_condition,
+      ubigeo: row.ubigeo,
       department: row.department,
       province: row.province,
       district: row.district,
@@ -190,6 +196,7 @@ export function buildLegalLookupResult(
       legalName: row.legal_name,
       taxpayerStatus: row.taxpayer_status,
       domicileCondition: row.domicile_condition,
+      ubigeo: row.ubigeo,
       department: row.department,
       province: row.province,
       district: row.district,
@@ -208,6 +215,7 @@ export function buildLegalLookupResult(
     legalName: row.legal_name,
     taxpayerStatus: row.taxpayer_status,
     domicileCondition: row.domicile_condition,
+    ubigeo: row.ubigeo,
     department: row.department,
     province: row.province,
     district: row.district,

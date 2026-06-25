@@ -24,6 +24,8 @@ import type {
   SourceEnrichmentAdapter,
   SourceEnrichmentOutput,
 } from '@/server/source-catalog/enrichment/types';
+import { enrichPeruCandidateWithSunatLegalLookup } from './peru-sunat-post-approval-enrichment';
+import type { PeruSunatLegalLookupResult } from '../services/peru-sunat-legal-lookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,8 @@ export interface PostApprovalNitWorkerParams {
   supabase?: SupabaseClient;
   /** For testing only — overrides ENRICHMENT_ADAPTER_REGISTRY. */
   adapterRegistryOverride?: Record<string, SourceEnrichmentAdapter>;
+  /** For testing only — overrides lookupPeruSunatByRuc for PE enrichment. */
+  peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>;
   /** For smoke/testing only — limits processing to a single candidate by id. */
   candidateId?: string;
 }
@@ -402,12 +406,71 @@ export async function insertPostApprovalAuditTrail(
   });
 }
 
+// ── Peru SUNAT enrichment step ─────────────────────────────────────────────────
+
+/**
+ * Runs SUNAT snapshot lookup for PE candidates and saves pe_sunat_bulk block.
+ * Non-critical: errors are logged and swallowed — they do not affect CO enrichment.
+ * Only called when candidate.country_code === 'PE'.
+ */
+async function runPeruSunatEnrichmentForCandidate(
+  candidate: CandidateRow,
+  existingMeta: Record<string, unknown>,
+  supabase: SupabaseClient,
+  peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>,
+): Promise<void> {
+  try {
+    const peResult = await enrichPeruCandidateWithSunatLegalLookup(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        taxId: candidate.tax_identifier,
+        metadata: existingMeta,
+      },
+      peruLookupFnOverride,
+    );
+
+    if (!peResult.enriched || !peResult.pe_sunat_bulk) return;
+
+    // Re-fetch metadata to avoid overwriting concurrent updates
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            pe_sunat_bulk: peResult.pe_sunat_bulk,
+          },
+        },
+        updated_at: peResult.pe_sunat_bulk.enriched_at,
+      })
+      .eq('id', candidate.id);
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] Peru SUNAT enrichment non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Single candidate processing ────────────────────────────────────────────────
 
 async function processCandidateNitEnrichment(
   candidate: CandidateRow,
   supabase: SupabaseClient,
   adapterRegistryOverride?: Record<string, SourceEnrichmentAdapter>,
+  peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
@@ -436,6 +499,16 @@ async function processCandidateNitEnrichment(
     },
     supabase,
   );
+
+  // Peru SUNAT enrichment — conditional, non-blocking, does not affect CO result
+  if ((candidate.country_code ?? '').toUpperCase() === 'PE') {
+    await runPeruSunatEnrichmentForCandidate(
+      candidate,
+      meta,
+      supabase,
+      peruLookupFnOverride,
+    );
+  }
 
   try {
     await insertPostApprovalAuditTrail(
@@ -495,6 +568,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         candidate,
         supabase,
         params.adapterRegistryOverride,
+        params.peruLookupFnOverride,
       );
       stats.processed++;
 
