@@ -26,6 +26,7 @@ type Props = {
   viewModel: SourceCatalogViewModel;
   latestTests: Record<string, SourceConnectionLatestViewModel>;
   socrataBatches: SocrataPreviewBatchListViewModel;
+  statusOverrides: Record<string, SourceViewModel['operationalStatus']>;
 };
 
 type Row = SourceViewModel & {
@@ -150,15 +151,19 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
   );
 }
 
-export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: Props) {
+export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, statusOverrides }: Props) {
   const { sources, filters } = viewModel;
   const [detailSource, setDetailSource] = React.useState<SourceViewModel | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<TabId>('operativas');
 
   const serverData = React.useMemo(
-    () => sources.map((s) => ({ ...s, latest: latestTests[s.key] })),
-    [sources, latestTests],
+    () => sources.map((s) => ({
+      ...s,
+      operationalStatus: statusOverrides[s.key] ?? s.operationalStatus,
+      latest: latestTests[s.key],
+    })),
+    [sources, latestTests, statusOverrides],
   );
   const [data, setData] = React.useState<Row[]>([]);
 

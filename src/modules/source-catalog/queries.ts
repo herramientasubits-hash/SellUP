@@ -44,6 +44,27 @@ export type SourceConnectionRecord = {
   connected_at: string | null;
 };
 
+export async function getSourceConnectionStatusOverrides(): Promise<
+  Record<string, CatalogSourceOperationalStatus>
+> {
+  try {
+    const admin = getAdminSupabase();
+    const { data } = await admin
+      .from('source_catalog_connections')
+      .select('source_key, connection_status');
+    if (!data) return {};
+    const overrides: Record<string, CatalogSourceOperationalStatus> = {};
+    for (const row of data) {
+      if (row.connection_status === 'connected') {
+        overrides[row.source_key] = 'operational_verified';
+      }
+    }
+    return overrides;
+  } catch {
+    return {};
+  }
+}
+
 export async function getSourceConnectionRecord(
   sourceKey: string,
 ): Promise<SourceConnectionRecord | null> {

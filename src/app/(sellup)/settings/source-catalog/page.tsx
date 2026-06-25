@@ -1,6 +1,9 @@
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
-import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
+import {
+  getSourceCatalogViewModel,
+  getSourceConnectionStatusOverrides,
+} from '@/modules/source-catalog/queries';
 import { getLatestConnectionTestsBySource } from '@/modules/source-catalog/history-queries';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import { SourceCatalogClient } from './source-catalog-client';
@@ -13,11 +16,17 @@ export const metadata = {
 
 export default async function SourceCatalogPage() {
   const viewModel = getSourceCatalogViewModel();
-  const [latestTests, socrataBatches] = await Promise.all([
+  const [latestTests, socrataBatches, statusOverrides] = await Promise.all([
     getLatestConnectionTestsBySource(),
     getSocrataPreviewBatches(),
+    getSourceConnectionStatusOverrides(),
   ]);
-  const { metrics } = viewModel;
+
+  const effectiveStatusCounts: Record<string, number> = {};
+  for (const source of viewModel.sources) {
+    const effective = statusOverrides[source.key] ?? source.operationalStatus;
+    effectiveStatusCounts[effective] = (effectiveStatusCounts[effective] ?? 0) + 1;
+  }
 
   return (
     <DataTablePage
@@ -29,32 +38,32 @@ export default async function SourceCatalogPage() {
           <MetricCard
             title="Total fuentes"
             description="Fuentes registradas en el catálogo"
-            value={metrics.total}
+            value={viewModel.sources.length}
           />
           <MetricCard
             title="Verificadas"
             description="Con conexión operativa confirmada"
-            value={metrics.byOperationalStatus['operational_verified'] ?? 0}
+            value={effectiveStatusCounts['operational_verified'] ?? 0}
           />
           <MetricCard
             title="Requieren conexión"
             description="Pendientes de prueba de conexión"
-            value={metrics.byOperationalStatus['connection_required'] ?? 0}
+            value={effectiveStatusCounts['connection_required'] ?? 0}
           />
           <MetricCard
             title="Pendientes validación"
             description="Esperando primera validación"
-            value={metrics.byOperationalStatus['pending_validation'] ?? 0}
+            value={effectiveStatusCounts['pending_validation'] ?? 0}
           />
           <MetricCard
             title="Solo señal manual"
             description="Sin automatización habilitada"
-            value={metrics.byOperationalStatus['manual_signal_only'] ?? 0}
+            value={effectiveStatusCounts['manual_signal_only'] ?? 0}
           />
           <MetricCard
             title="Solo validación"
             description="Operación exclusivamente manual"
-            value={metrics.byOperationalStatus['validation_only'] ?? 0}
+            value={effectiveStatusCounts['validation_only'] ?? 0}
           />
         </div>
       }
@@ -63,6 +72,7 @@ export default async function SourceCatalogPage() {
         viewModel={viewModel}
         latestTests={latestTests}
         socrataBatches={socrataBatches}
+        statusOverrides={statusOverrides}
       />
     </DataTablePage>
   );
