@@ -1680,3 +1680,73 @@ Human review required:      before candidate conversion
 
 **Perú.4 — Activar discovery Perú con sector inferido**
 Conectar `pe_sunat_bulk` en registry + preflight. Implementar inferencia sectorial con `confidence_label: sector_inferred`. Agregar badge "inferido" en UI. No usar sector como criterio duro de filtro en Perú.
+
+---
+
+## Hito cerrado — Perú.4A: Diseño técnico de activación segura de Perú MVP con sector inferido
+
+**Fecha:** 2026-06-25
+**HEAD inicial:** `dd2aa69` — docs(source-catalog): define Peru MVP strategy without CIIU
+**Tipo:** Diseño técnico — solo documentación. Sin modificaciones a registry/preflight/wizard.
+
+### Decisión técnica
+
+```
+Discovery Perú:
+  Discovery source (generación de candidatos):    web/IA (Tavily)
+  Legal validation (post-discovery):              SUNAT snapshot en Supabase
+  Sector source:                                  inferred_web_ai
+  Confidence label:                               sector_inferred
+  CIIU status:                                    unavailable_for_mvp
+  Human review required:                          true
+```
+
+### Respuestas clave
+
+| # | Pregunta | Respuesta |
+|---|---------|-----------|
+| 1 | ¿Qué va en SOURCE_DISCOVERY_REGISTRY? | Nuevo adapter `pe_web_inferred` (web search + inferencia). NO `pe_sunat_bulk`. |
+| 2 | ¿pe_sunat_bulk al registry? | No. Solo como snapshot offline en Supabase. |
+| 3 | ¿Qué entra en preflight? | `PE: 'pe_web_inferred'` en COUNTRY_SOURCE_MAP |
+| 4 | ¿Cómo evitar SUNAT ZIP en Vercel? | pe_web_inferred no importa sunat-peru connector |
+| 5 | ¿Cómo etiquetar sector inferido? | Metadata: sector_source='inferred_web_ai', confidence_label='sector_inferred' |
+| 6 | ¿Campos nuevos? | sector_inferred, sector_confidence_score, sector_source, confidence_label, legal_validation.* |
+| 7 | ¿Dónde guardarlos? | En `prospect_candidates.metadata` (Opción A — recomendada MVP) |
+| 8 | ¿Qué ve el usuario? | Badge "Tecnología · inferido" con tooltip y confianza |
+| 9 | ¿Qué impide conversión débil? | Guardrails: confianza < 0.3 → block; sin sector → block; sin validación legal → block |
+| 10 | ¿Pruebas mínimas? | 8 tests: adapter, inferencia, etiquetado, validación SUNAT, guardrails, preflight, registry, no-SUNAT-ZIP |
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | **Creado** — plan técnico completo (11 secciones) |
+| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — esta sección Perú.4A |
+
+### Archivos NO modificados
+
+- `source-catalog.ts` — intacto
+- `connector-registry.ts` — intacto
+- `source-discovery-preflight.ts` — intacto
+- `structured-candidate-types.ts` — intacto
+- `structured-source-candidate-writer.ts` — intacto
+- `candidate-writer.ts` — intacto
+- `wizard` — intacto
+- Colombia, México, Chile, INAPI — intactos
+
+### Confirmaciones de seguridad operativa
+
+| Confirmación | Estado |
+|---|---|
+| No se activó Perú en registry | ✅ |
+| No se modificó código productivo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó SUNAT | ✅ |
+| No se escribió Supabase | ✅ |
+| No se crearon candidatos | ✅ |
+| Solo documentación creada/actualizada | ✅ |
+
+### Próximo hito
+
+**Perú.4B** — Implementar adapter `pe_web_inferred`, registry, preflight, guardrails y tests. Ver plan detallado en `docs/PERU_MVP_ACTIVATION_PLAN.md` §9.
