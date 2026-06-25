@@ -698,7 +698,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
 
                   {/* ── Acciones ── */}
                   <td className="px-3 py-2.5">
-                    <CandidateRowActions candidate={c} />
+                    <CandidateRowActions candidate={c} onBeforeAction={() => setDetailCandidate(null)} />
                   </td>
                 </tr>
               );

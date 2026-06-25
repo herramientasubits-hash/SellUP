@@ -65,9 +65,10 @@ const SOURCE_LABELS: Record<string, string> = {
 
 interface CandidateRowActionsProps {
   candidate: ProspectCandidate;
+  onBeforeAction?: () => void;
 }
 
-export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
+export function CandidateRowActions({ candidate, onBeforeAction }: CandidateRowActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
   // Discard
@@ -390,7 +391,7 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
             )}
             {canDiscard && (
               <DropdownMenuItem
-                onClick={() => setDiscardOpen(true)}
+                onClick={() => { onBeforeAction?.(); setDiscardOpen(true); }}
                 className="text-destructive focus:text-destructive"
               >
                 <XCircle className="mr-2 h-3.5 w-3.5" />
@@ -494,19 +495,19 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
               <Label className="text-xs font-medium text-muted-foreground">
                 Motivo de descarte
               </Label>
-              <div className="flex flex-col gap-1 max-h-56 overflow-y-auto pr-1">
+              <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
                 {DISCARD_REASONS.map((r) => (
                   <button
                     key={r.value}
                     type="button"
                     onClick={() => setDiscardReasonKey(r.value)}
-                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
                       discardReasonKey === r.value
                         ? 'border-destructive bg-destructive/10'
                         : 'border-border/40 bg-card hover:bg-muted/40'
                     }`}
                   >
-                    <p className={`text-sm ${discardReasonKey === r.value ? 'text-destructive font-medium' : 'text-foreground'}`}>
+                    <p className={`text-sm leading-snug ${discardReasonKey === r.value ? 'text-destructive font-medium' : 'text-foreground'}`}>
                       {r.label}
                     </p>
                   </button>
