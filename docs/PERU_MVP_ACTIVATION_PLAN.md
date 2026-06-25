@@ -801,3 +801,82 @@ npm run sunat:peru:import-snapshot -- --apply --offset 1000 --limit 1000
 | No se tocó Chile/México/Colombia | ✅ |
 | No se hizo force push | ✅ |
 | `.tmp/` no commiteado | ✅ |
+
+---
+
+## Hito Perú.6C — Migo Perú como fallback legal post-aprobación
+
+**Fecha:** 2026-06-25
+**Depende de:** Perú.6B (cerrado), Perú.5C (cerrado), Perú.5I (cerrado)
+
+### Objetivo
+
+Integrar Migo Perú en el flujo post-aprobación como complemento legal API, de forma controlada y segura. Migo actúa como fallback cuando SUNAT no puede verificar el RUC. SUNAT sigue siendo la fuente oficial snapshot.
+
+### Archivos creados / modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/server/prospect-batches/peru-migo-metadata-merge.ts` | **Creado** — `mergePeruMigoMetadataIntoAccountMetadata()` |
+| `src/server/prospect-batches/post-approval-nit-enrichment-worker.ts` | **Modificado** — `isMigoFallbackRequired()`, `runPeruMigoEnrichmentForCandidate()`, param `peruMigoLookupFnOverride` |
+| `src/server/prospect-batches/__tests__/peru-6c-migo-post-approval-fallback.test.ts` | **Creado** — 31 tests |
+| `package.json` | **Modificado** — `test:sunat-peru-6c` |
+| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — §Perú.6C |
+
+### Diseño de la integración
+
+```
+Post-approval worker (PE candidate)
+  ├─ runPeruSunatEnrichmentForCandidate()
+  │    └─ guarda pe_sunat_bulk
+  │    └─ propaga pe_sunat_bulk a cuenta
+  │    └─ retorna sunatStatus: string | null
+  │
+  └─ runPeruMigoEnrichmentForCandidate(sunatStatus)
+       └─ isMigoFallbackRequired(sunatStatus) → false si 'verified', true en demás casos
+       └─ enrichPeruCandidateWithMigoLegalLookup(input, lookupFn)
+       └─ guarda pe_migo_api (no sobrescribe pe_sunat_bulk)
+       └─ propaga pe_migo_api a cuenta (no sobrescribe pe_sunat_bulk en cuenta)
+```
+
+### Política de activación de Migo
+
+| SUNAT status | ¿Se llama Migo? | Razón |
+|---|---|---|
+| `verified` | ❌ No | SUNAT validó — Migo innecesario |
+| `not_found` | ✅ Sí | RUC no en snapshot — Migo complementa |
+| `snapshot_unavailable` | ✅ Sí | Supabase no accesible — Migo complementa |
+| `pending_snapshot_validation` | ✅ Sí | Sin RUC — Migo intentará con el que tenga |
+| `flagged` | ✅ Sí | Empresa problemática — Migo puede confirmar |
+| `null` (error/no corrió) | ✅ Sí | SUNAT no corrió — Migo toma el intento |
+
+### Metadata resultado
+
+Ambos bloques coexisten bajo `metadata.source_enrichment`:
+
+```
+metadata.source_enrichment.pe_sunat_bulk  → fuente oficial snapshot SUNAT
+metadata.source_enrichment.pe_migo_api   → complemento API Migo
+```
+
+Migo nunca modifica el status de SUNAT. Conflictos (si existen) no se resuelven automáticamente en este hito.
+
+### Campos pe_migo_api
+
+| Campo | Valor |
+|-------|-------|
+| `source_key` | `pe_migo_api` |
+| `legal_validation_status` | `verified` \| `not_found` \| `flagged` \| `api_unavailable` \| `pending_validation` \| `invalid_ruc_format` |
+| `ciiu_status` | `unavailable_for_mvp` (siempre) |
+| `official_ciiu_available` | `false` (siempre) |
+| `sector_source` | `not_provided_by_migo` (siempre) |
+
+### Resultado de tests
+
+- `test:sunat-peru-6c` → **31/31** ✅
+- `test:sunat-peru-6a` → 26/26 ✅ (sin regresión)
+- `test:sunat-peru-6b` → 22/22 ✅ (sin regresión)
+- `test:sunat-peru-5c` → 32/32 ✅ (sin regresión)
+- `test:sunat-peru-5i` → 16/16 ✅ (sin regresión)
+- `typecheck` → ✅
+- `build` → ✅

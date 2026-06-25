@@ -26,7 +26,11 @@ import type {
 } from '@/server/source-catalog/enrichment/types';
 import { enrichPeruCandidateWithSunatLegalLookup } from './peru-sunat-post-approval-enrichment';
 import { mergePeruSunatMetadataIntoAccountMetadata } from './peru-sunat-metadata-merge';
+import { enrichPeruCandidateWithMigoLegalLookup } from './peru-migo-legal-enrichment';
+import { mergePeruMigoMetadataIntoAccountMetadata } from './peru-migo-metadata-merge';
+import { lookupPeruMigoByRuc } from '../services/peru-migo-legal-lookup';
 import type { PeruSunatLegalLookupResult } from '../services/peru-sunat-legal-lookup';
+import type { PeMigoApiLookupResult } from './peru-migo-legal-enrichment';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -37,6 +41,8 @@ export interface PostApprovalNitWorkerParams {
   adapterRegistryOverride?: Record<string, SourceEnrichmentAdapter>;
   /** For testing only — overrides lookupPeruSunatByRuc for PE enrichment. */
   peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>;
+  /** For testing only — overrides lookupPeruMigoByRuc for PE Migo enrichment. */
+  peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>;
   /** For smoke/testing only — limits processing to a single candidate by id. */
   candidateId?: string;
 }
@@ -407,19 +413,39 @@ export async function insertPostApprovalAuditTrail(
   });
 }
 
-// ── Peru SUNAT enrichment step ─────────────────────────────────────────────────
+// ── Peru SUNAT + Migo enrichment steps ────────────────────────────────────────
+
+/**
+ * Policy: determines whether Migo fallback should be called for a PE candidate.
+ *
+ * Migo is only called when SUNAT has NOT verified the RUC:
+ *   - null           → SUNAT not run or errored — run Migo
+ *   - not_found      → SUNAT snapshot does not have the RUC — run Migo
+ *   - snapshot_unavailable → Supabase unreachable — run Migo
+ *   - pending_snapshot_validation → no RUC available — Migo won't help but is still called
+ *   - flagged        → SUNAT found but company is inactive — run Migo for cross-validation
+ *
+ * Skips Migo when SUNAT status is 'verified' — SUNAT is the authoritative source.
+ * Migo never replaces SUNAT; it complements when SUNAT is inconclusive.
+ */
+export function isMigoFallbackRequired(sunatStatus: string | null): boolean {
+  return sunatStatus !== 'verified';
+}
 
 /**
  * Runs SUNAT snapshot lookup for PE candidates and saves pe_sunat_bulk block.
  * Non-critical: errors are logged and swallowed — they do not affect CO enrichment.
  * Only called when candidate.country_code === 'PE'.
+ *
+ * Returns the legal_validation_status from pe_sunat_bulk (e.g. 'verified', 'not_found'),
+ * or null if enrichment was skipped or errored. Used by caller to decide Migo fallback.
  */
 async function runPeruSunatEnrichmentForCandidate(
   candidate: CandidateRow,
   existingMeta: Record<string, unknown>,
   supabase: SupabaseClient,
   peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>,
-): Promise<void> {
+): Promise<string | null> {
   try {
     const peResult = await enrichPeruCandidateWithSunatLegalLookup(
       {
@@ -431,7 +457,7 @@ async function runPeruSunatEnrichmentForCandidate(
       peruLookupFnOverride,
     );
 
-    if (!peResult.enriched || !peResult.pe_sunat_bulk) return;
+    if (!peResult.enriched || !peResult.pe_sunat_bulk) return null;
 
     // Re-fetch metadata to avoid overwriting concurrent updates
     const { data: current } = await supabase
@@ -480,9 +506,100 @@ async function runPeruSunatEnrichmentForCandidate(
         })
         .eq('id', candidate.converted_account_id);
     }
+
+    return peResult.pe_sunat_bulk.legal_validation_status;
   } catch (err) {
     console.warn(
       `[PostApprovalNitWorker] Peru SUNAT enrichment non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+/**
+ * Runs Migo API point-query for PE candidates when SUNAT is not verified.
+ * Saves pe_migo_api block to candidate and propagates to account.
+ *
+ * Non-critical: errors are logged and swallowed.
+ * Only called when candidate.country_code === 'PE' and isMigoFallbackRequired(sunatStatus).
+ *
+ * pe_migo_api is stored alongside pe_sunat_bulk — neither key overwrites the other.
+ * Migo CANNOT provide CIIU, sector, or official activity. These are always absent.
+ */
+async function runPeruMigoEnrichmentForCandidate(
+  candidate: CandidateRow,
+  sunatStatus: string | null,
+  supabase: SupabaseClient,
+  migoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>,
+): Promise<void> {
+  if (!isMigoFallbackRequired(sunatStatus)) return;
+
+  try {
+    const lookupFn = migoLookupFnOverride ?? lookupPeruMigoByRuc;
+
+    const migoResult = await enrichPeruCandidateWithMigoLegalLookup(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        taxId: candidate.tax_identifier,
+        metadata: (candidate.metadata as Record<string, unknown>) ?? {},
+      },
+      lookupFn,
+    );
+
+    if (!migoResult.enriched || !migoResult.pe_migo_api) return;
+
+    // Re-fetch metadata to avoid overwriting concurrent updates
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            pe_migo_api: migoResult.pe_migo_api,
+          },
+        },
+        updated_at: migoResult.pe_migo_api.enriched_at,
+      })
+      .eq('id', candidate.id);
+
+    // Perú.6C — propagate pe_migo_api to the associated account
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const updatedAccountMeta = mergePeruMigoMetadataIntoAccountMetadata(
+        existingAccountMeta,
+        { source_enrichment: { pe_migo_api: migoResult.pe_migo_api } },
+      );
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: updatedAccountMeta,
+          updated_at: migoResult.pe_migo_api.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] Peru Migo enrichment non-critical error for ${candidate.id}:`,
       err instanceof Error ? err.message : String(err),
     );
   }
@@ -495,6 +612,7 @@ async function processCandidateNitEnrichment(
   supabase: SupabaseClient,
   adapterRegistryOverride?: Record<string, SourceEnrichmentAdapter>,
   peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>,
+  peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
@@ -524,13 +642,21 @@ async function processCandidateNitEnrichment(
     supabase,
   );
 
-  // Peru SUNAT enrichment — conditional, non-blocking, does not affect CO result
+  // Peru SUNAT + Migo enrichment — conditional, non-blocking, does not affect CO result
   if ((candidate.country_code ?? '').toUpperCase() === 'PE') {
-    await runPeruSunatEnrichmentForCandidate(
+    const peruSunatStatus = await runPeruSunatEnrichmentForCandidate(
       candidate,
       meta,
       supabase,
       peruLookupFnOverride,
+    );
+
+    // Perú.6C — Migo fallback when SUNAT is not verified
+    await runPeruMigoEnrichmentForCandidate(
+      candidate,
+      peruSunatStatus,
+      supabase,
+      peruMigoLookupFnOverride,
     );
   }
 
@@ -593,6 +719,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         supabase,
         params.adapterRegistryOverride,
         params.peruLookupFnOverride,
+        params.peruMigoLookupFnOverride,
       );
       stats.processed++;
 

@@ -2129,3 +2129,140 @@ NO Authorization: Bearer
 | No se ejecutó importer | ✅ |
 | No se hizo force push | ✅ |
 | Smoke real PASSED con RUC 20100050359 | ✅ |
+| Smoke real PASSED con RUC 20100050359 | ✅ |
+
+---
+
+## Hito Perú.6C — Migo Perú como fallback legal post-aprobación
+
+**Fecha:** 2026-06-25
+**Estado:** ✅ Cerrado
+**Depende de:** Perú.6B (cerrado), Perú.5C (cerrado), Perú.5I (cerrado)
+
+### Archivos creados/modificados
+
+| Archivo | Acción |
+|---------|--------|
+| `src/server/prospect-batches/peru-migo-metadata-merge.ts` | **Creado** — helper puro `mergePeruMigoMetadataIntoAccountMetadata()` |
+| `src/server/prospect-batches/post-approval-nit-enrichment-worker.ts` | **Modificado** — integración Migo fallback, `isMigoFallbackRequired()`, `runPeruMigoEnrichmentForCandidate()` |
+| `src/server/prospect-batches/__tests__/peru-6c-migo-post-approval-fallback.test.ts` | **Creado** — 31 tests (6 grupos) |
+| `package.json` | **Modificado** — script `test:sunat-peru-6c` |
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | **Actualizado** — §Perú.6C |
+| `AUDITORIA-FUENTES-IA.md` | **Esta sección** |
+
+### Política exacta de cuándo se llama Migo
+
+```
+isMigoFallbackRequired(sunatStatus: string | null): boolean
+  → true  cuando sunatStatus !== 'verified'
+  → false cuando sunatStatus === 'verified'
+
+Casos que activan Migo:
+  null                       → SUNAT no corrió o error
+  not_found                  → RUC no en snapshot SUNAT
+  snapshot_unavailable       → Supabase no accesible
+  pending_snapshot_validation → Sin RUC disponible
+  flagged                    → SUNAT encontró empresa inactiva/no habido
+```
+
+### Dónde se integra en post-aprobación
+
+```
+processCandidateNitEnrichment()
+  └─ ... ejecuta CO adapters (NIT-safe)
+  └─ if country_code === 'PE'
+       ├─ runPeruSunatEnrichmentForCandidate() → retorna sunatStatus (string | null)
+       └─ runPeruMigoEnrichmentForCandidate(sunatStatus) → solo si !verified
+```
+
+### Metadata final pe_migo_api
+
+```ts
+metadata.source_enrichment.pe_migo_api = {
+  ruc, legal_name, taxpayer_status, domicile_condition,
+  ubigeo, address, updated_at_source,
+  source_key: 'pe_migo_api',
+  enriched_at: ISO_STRING,
+  legal_validation_status: 'verified' | 'not_found' | 'flagged' | 'api_unavailable' | 'pending_validation' | 'invalid_ruc_format',
+  legal_validation_reason: string,
+  ciiu_status: 'unavailable_for_mvp',        // SIEMPRE
+  official_ciiu_available: false,             // SIEMPRE
+  sector_source: 'not_provided_by_migo',      // SIEMPRE
+}
+```
+
+### Convivencia con pe_sunat_bulk
+
+Ambos bloques coexisten en `metadata.source_enrichment` sin sobrescribirse:
+- `pe_sunat_bulk` → fuente oficial snapshot SUNAT (Perú.5C) — NO modificado por Migo
+- `pe_migo_api` → complemento API Migo (Perú.6C) — NO sobrescribe SUNAT
+
+### Propagación a cuenta
+
+```
+runPeruMigoEnrichmentForCandidate()
+  └─ si candidate.converted_account_id
+       └─ mergePeruMigoMetadataIntoAccountMetadata(accountMeta, {pe_migo_api: block})
+            → pe_sunat_bulk y todos los demás keys preservados
+```
+
+### Búsquedas obligatorias en archivos nuevos/modificados
+
+| Patrón | Resultado |
+|--------|-----------|
+| `NEXT_PUBLIC_MIGO` en código funcional | ✅ No encontrado |
+| `MIGO_API_KEY=` | ✅ No encontrado |
+| `Authorization: Bearer` en código funcional | ✅ No encontrado |
+| `raw_payload:` en código funcional | ✅ No encontrado |
+| `rawPayload:` en código funcional | ✅ No encontrado |
+| `official_ciiu: true` | ✅ No encontrado |
+| `official_ciiu_available: true` | ✅ No encontrado |
+| `confidence_label: official_ciiu` | ✅ No encontrado |
+| `Tavily` en código funcional | ✅ Solo en comentarios guardrail del header |
+| `padron_reducido_ruc.zip` | ✅ No encontrado |
+| `fetch('http://www2.sunat` | ✅ No encontrado |
+| `prospect_candidates').insert` | ✅ No encontrado |
+| `prospect_batches').insert` | ✅ No encontrado |
+| `accounts').insert` | ✅ No encontrado |
+
+### Tests ejecutados (Perú.6C)
+
+| Suite | Tests | Resultado |
+|-------|-------|-----------|
+| `isMigoFallbackRequired` policy | 6 | ✅ |
+| Country/RUC guards | 5 | ✅ |
+| `mergePeruMigoMetadataIntoAccountMetadata` | 6 | ✅ |
+| CIIU y sector invariants | 4 | ✅ |
+| Source code guardrails | 8 | ✅ |
+| Integration metadata | 2 | ✅ |
+| **Total** | **31** | **✅ 31/31** |
+
+Tests de hitos previos sin regresiones:
+- `test:sunat-peru-6a` → 26/26 ✅
+- `test:sunat-peru-6b` → 22/22 ✅
+- `test:sunat-peru-5c` → 32/32 ✅
+- `test:sunat-peru-5i` → 16/16 ✅
+
+### Confirmaciones de seguridad operativa (Perú.6C)
+
+| Confirmación | Estado |
+|---|---|
+| No expone API key en resultado ni logs | ✅ |
+| No devuelve raw_payload | ✅ |
+| No devuelve CIIU | ✅ |
+| No devuelve sector oficial | ✅ |
+| No se llamó Migo real (todos mockeados o lookup inyectado) | ✅ |
+| No se escribió Supabase en tests | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon cuentas | ✅ |
+| No se crearon batches | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Tavily | ✅ |
+| No se ejecutó importer | ✅ |
+| SUNAT sigue siendo la fuente oficial snapshot | ✅ |
+| Migo no aporta CIIU | ✅ |
+| Migo no aporta sector oficial | ✅ |
+| pe_sunat_bulk no sobrescrito por pe_migo_api | ✅ |
+| Typecheck pasa | ✅ |
+| Build pasa | ✅ |
+| No se hizo force push | ✅ |
