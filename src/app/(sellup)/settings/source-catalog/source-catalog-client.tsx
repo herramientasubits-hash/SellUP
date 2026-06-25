@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
 import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
@@ -78,11 +80,12 @@ function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] 
   );
 }
 
-function SourceTable({ data, columns, openDetail, handleRowReorder }: {
+function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }: {
   data: Row[];
   columns: ColumnDef<Row, unknown>[];
   openDetail: (source: SourceViewModel) => void;
   handleRowReorder: (next: Row[]) => void;
+  onRowClick: (row: Row) => void;
 }) {
   const contextMenu = React.useMemo(
     () => ({
@@ -133,6 +136,8 @@ function SourceTable({ data, columns, openDetail, handleRowReorder }: {
       enableColumnReorder
       enableRowReorder
       onRowReorder={handleRowReorder}
+      rowClickable
+      onRowClick={onRowClick}
       initialPageSize={10}
       fillHeight
       emptyState={
@@ -148,6 +153,7 @@ function SourceTable({ data, columns, openDetail, handleRowReorder }: {
 }
 
 export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: Props) {
+  const router = useRouter();
   const { sources, filters } = viewModel;
   const [detailSource, setDetailSource] = React.useState<SourceViewModel | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
@@ -183,7 +189,12 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
         ),
         cell: ({ row }) => (
           <div className="min-w-0 space-y-0.5">
-            <p className="truncate text-sm font-medium text-foreground">{row.original.name}</p>
+            <Link
+              href={`/settings/source-catalog/${row.original.key}`}
+              className="truncate text-sm font-medium text-foreground hover:text-su-brand transition-colors"
+            >
+              {row.original.name}
+            </Link>
             <p className="truncate font-mono text-[10px] text-muted-foreground">{row.original.key}</p>
           </div>
         ),
@@ -333,6 +344,39 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
           })),
         },
       },
+      {
+        id: 'action',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Acción" />
+        ),
+        cell: ({ row }) => {
+          if (row.original.connectionMode === 'not_connected') {
+            return (
+              <Link
+                href={`/settings/source-catalog/${row.original.key}`}
+                className="inline-flex items-center gap-1 rounded-md border border-su-brand/30 bg-su-brand-soft px-2.5 py-1 text-xs font-medium text-su-brand hover:bg-su-brand hover:text-white transition-colors whitespace-nowrap"
+              >
+                Conectar
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            );
+          }
+          return (
+            <Link
+              href={`/settings/source-catalog/${row.original.key}`}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+            >
+              Ver detalle
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          );
+        },
+        size: 120,
+        minSize: 100,
+        enableColumnFilter: false,
+        enableSorting: false,
+        meta: { label: 'Acción' },
+      },
     ],
     [filters],
   );
@@ -377,6 +421,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches }: 
             columns={columns}
             openDetail={openDetail}
             handleRowReorder={handleRowReorder}
+            onRowClick={(row) => router.push(`/settings/source-catalog/${row.key}`)}
           />
         </TabsContent>
       </Tabs>
