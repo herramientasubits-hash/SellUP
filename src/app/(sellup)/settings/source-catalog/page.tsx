@@ -24,8 +24,9 @@ export default async function SourceCatalogPage() {
 
   const effectiveStatusCounts: Record<string, number> = {};
   for (const source of viewModel.sources) {
-    const effective = statusOverrides[source.key] ?? source.operationalStatus;
-    effectiveStatusCounts[effective] = (effectiveStatusCounts[effective] ?? 0) + 1;
+    const override = statusOverrides[source.key];
+    const effectiveStatus = override?.operationalStatus ?? source.operationalStatus;
+    effectiveStatusCounts[effectiveStatus] = (effectiveStatusCounts[effectiveStatus] ?? 0) + 1;
   }
 
   return (

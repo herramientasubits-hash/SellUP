@@ -5,7 +5,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
 import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import type { SourceCatalogViewModel, SourceViewModel } from '@/modules/source-catalog/queries';
+import type { SourceCatalogViewModel, SourceViewModel, SourceStatusOverrides } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
 import type { SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
 import {
@@ -26,7 +26,7 @@ type Props = {
   viewModel: SourceCatalogViewModel;
   latestTests: Record<string, SourceConnectionLatestViewModel>;
   socrataBatches: SocrataPreviewBatchListViewModel;
-  statusOverrides: Record<string, SourceViewModel['operationalStatus']>;
+  statusOverrides: Record<string, SourceStatusOverrides>;
 };
 
 type Row = SourceViewModel & {
@@ -158,11 +158,15 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
   const [activeTab, setActiveTab] = React.useState<TabId>('operativas');
 
   const serverData = React.useMemo(
-    () => sources.map((s) => ({
-      ...s,
-      operationalStatus: statusOverrides[s.key] ?? s.operationalStatus,
-      latest: latestTests[s.key],
-    })),
+    () => sources.map((s) => {
+      const override = statusOverrides[s.key];
+      return {
+        ...s,
+        operationalStatus: override?.operationalStatus ?? s.operationalStatus,
+        aiFlowStatus: override?.aiFlowStatus ?? s.aiFlowStatus,
+        latest: latestTests[s.key],
+      };
+    }),
     [sources, latestTests, statusOverrides],
   );
   const [data, setData] = React.useState<Row[]>([]);
