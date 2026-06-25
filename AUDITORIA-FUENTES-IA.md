@@ -1124,7 +1124,7 @@ Esta investigación corrige documentación previa incorrecta que afirmaba que el
 | PRODUCE **MiPyme por Sector** ⭐ | ✅ | ✅ | Descarga pública | **SPIKE_LOCAL_FIRST** |
 | PRODUCE Grandes Empresas Manufactura | ✅ | ✅ | Descarga pública | USE_AS_REFERENCE_ONLY |
 | INEI Catálogo CIIU Rev4 | ❌ | ✅ | Descarga pública | USE_AS_REFERENCE_ONLY |
-| **Migo API** ⭐ | ✅ | ✅ conf. | API privada (pago) | **PRIVATE_PROVIDER_ONLY** |
+| **Migo API** | ✅ | ❌ real | API privada (pago) | **MIGO_NOT_USEFUL_FOR_CIIU** (spike real Perú.3N-R) |
 | ApiDni.com | ✅ | ✅ conf. | API privada | PRIVATE_PROVIDER_ONLY |
 | ApiPeru.dev | ✅ | ❌ conf. | API privada | REJECT |
 | PeruAPI.com | ✅ | ❌ conf. | API privada | REJECT |
@@ -1133,10 +1133,11 @@ Esta investigación corrige documentación previa incorrecta que afirmaba que el
 
 ### Decisión de arquitectura
 
-**Estrategia híbrida:**
-1. **SPIKE** PRODUCE MiPyme por Sector (hito Perú.3L) — descarga gratuita, oficial, tiene RUC + CIIU
-2. Si cobertura ≥ 60%: PRODUCE MiPyme como fuente CIIU principal + Migo API como fallback
-3. Si cobertura < 60%: Migo API como fuente principal (S/15-25/mes para 40K-150K consultas batch)
+**Estrategia híbrida (actualizada post Perú.3N-R):**
+1. **SPIKE** PRODUCE MiPyme por Sector (hito Perú.3L) — descarga gratuita, oficial, tiene RUC + CIIU — bloqueada por WAF (Perú.3L-2A)
+2. ~~Si cobertura ≥ 60%: PRODUCE MiPyme como fuente CIIU principal + Migo API como fallback~~ — Migo NO sirve para CIIU (spike real Perú.3N-R: `MIGO_NOT_USEFUL_FOR_CIIU`)
+3. ~~Si cobertura < 60%: Migo API como fuente principal~~ — descartado por resultado real
+4. **Estado actual:** No existe fuente privada confirmada para CIIU masivo Perú. Evaluar ApiDni.com como siguiente candidato.
 
 ### Mapa CIIU → Sector SellUp (referencia)
 
@@ -1514,3 +1515,85 @@ Perú.3N (spike local con .env.local)
 
 **Perú.3N — Spike real con trial key Migo API** (`.env.local` temporal permitido para spike local)
 Luego: **Integraciones.2** — Agregar Migo como integración configurable en Configuración e Integraciones (migración + servicio + UI, reutilizando patrón Tavily).
+
+---
+
+## Hito cerrado — Perú.3N-R: Spike real Migo API — validación CIIU
+
+**Fecha:** 2026-06-25
+**Tipo:** Spike real con credencial Vault
+**Resultado:** `MIGO_NOT_USEFUL_FOR_CIIU`
+
+### Hallazgos del spike real
+
+| Campo | Resultado |
+|-------|-----------|
+| attemptedRequests | 10 |
+| successfulResponses | 10 |
+| failedResponses | 0 |
+| containsRuc | true |
+| containsLegalName | true |
+| containsCiiu | **false** |
+| containsCiiuRev3 | **false** |
+| containsCiiuRev4 | **false** |
+| containsActivityDescription | **false** |
+| containsSecondaryActivities | **false** |
+| containsLegalRepresentatives | **false** |
+| containsTaxpayerStatus | true |
+| containsDomicileCondition | true |
+| containsAddress | true |
+
+### Payload real confirmado
+
+`ruc`, `nombre_o_razon_social`, `estado_del_contribuyente`, `condicion_de_domicilio`, `ubigeo`, `direccion`, `actualizado_en`
+
+### Verdict
+
+```
+MIGO_NOT_USEFUL_FOR_CIIU
+```
+
+Migo NO devuelve CIIU, actividad económica, actividades secundarias ni representantes legales en el endpoint validado. No sirve como fuente de enriquecimiento sectorial.
+
+---
+
+## Hito cerrado — Perú.3N-S: Reclasificar Migo API después de validación real negativa de CIIU
+
+**Fecha:** 2026-06-25
+**HEAD inicial:** `c500b08`
+**Tipo:** Corrección de catálogo y documentación — sin código productivo nuevo, sin Supabase runtime, sin candidatos
+
+### Cambios realizados
+
+| Archivo | Cambio |
+|---|---|
+| `src/server/agents/prospecting-toolkit/source-catalog.ts` | `name` → `'Migo API Perú RUC Lookup'`; `sellupUse` → `'validation_only'`; `priority` → `'P2'`; `recommendedUse` y `limitations` actualizados con resultado real spike |
+| `src/server/services/migo-connection.ts` | `p_description` de Vault: removido "CIIU" — ahora refleja que es validación RUC |
+| `docs/PERU_MIGO_API_CIIU_EVALUATION.md` | §13 agregado — resultado spike real + reclasificación |
+| `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md` | §2.2 actualizado — verdict real `MIGO_NOT_USEFUL_FOR_CIIU` |
+| `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` | Lectura general y fila Migo actualizadas — sin CIIU, P2 |
+| `AUDITORIA-FUENTES-IA.md` | Tabla Perú.3K corregida; estrategia híbrida actualizada; secciones Perú.3N-R y Perú.3N-S agregadas |
+
+### Estado final de Migo
+
+| Atributo | Antes | Después |
+|----------|-------|---------|
+| Nombre catálogo | Migo API Perú | Migo API Perú RUC Lookup |
+| sellupUse | enrichment | validation_only |
+| priority | P1 | P2 |
+| CIIU claim | Sí — única fuente CIIU operable | No — no devuelve CIIU |
+| Uso | Enriquecimiento CIIU por RUC | Validación RUC puntual bajo demanda |
+
+### Confirmaciones de seguridad operativa (Perú.3N-S)
+
+| Confirmación | Estado |
+|---|---|
+| Migo no queda presentado como fuente CIIU | ✅ |
+| Migo clasificado como validation_only / P2 | ✅ |
+| No se activó Perú discovery | ✅ |
+| No se tocó registry/preflight/wizard | ✅ |
+| No se llamó Migo | ✅ |
+| No se escribió Supabase en runtime | ✅ |
+| No se crearon candidatos ni batches | ✅ |
+| No se expuso API key | ✅ |
+| No se hizo force push | ✅ |

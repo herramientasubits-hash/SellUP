@@ -604,3 +604,100 @@ Migo se integró en el Source Catalog (no en external integrations) porque es un
 - `docs/PERU_SUNAT_CIIU_SOURCE_RESEARCH.md`
 - `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md`
 - `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md`
+
+---
+
+## 13. Resultado del Spike Real — Perú.3N-R + Reclasificación Perú.3N-S
+
+**Fecha:** 2026-06-25
+**Hito spike:** Perú.3N-R
+**Hito reclasificación:** Perú.3N-S
+
+### 13.1 Resultado del spike real (Perú.3N-R)
+
+El spike real ejecutado con la credencial Vault (`sellup_source_pe_migo_api_api_key`) devolvió los siguientes resultados para 10 RUCs de muestra:
+
+```
+status: completed
+attemptedRequests: 10
+successfulResponses: 10
+failedResponses: 0
+rateLimitDetected: false
+averageResponseTimeMs: 185
+containsRuc: true
+containsLegalName: true
+containsCiiu: false
+containsCiiuRev3: false
+containsCiiuRev4: false
+containsActivityDescription: false
+containsSecondaryActivities: false
+containsTaxpayerStatus: true
+containsDomicileCondition: true
+containsAddress: true
+containsLegalRepresentatives: false
+```
+
+**Payload real confirmado:**
+
+| Campo | Presente |
+|-------|---------|
+| `ruc` | ✅ |
+| `nombre_o_razon_social` | ✅ |
+| `estado_del_contribuyente` | ✅ |
+| `condicion_de_domicilio` | ✅ |
+| `ubigeo` | ✅ |
+| `direccion` | ✅ |
+| `actualizado_en` | ✅ |
+| CIIU (cualquier revisión) | ❌ |
+| Actividad económica / descripción | ❌ |
+| Actividades secundarias | ❌ |
+| Representantes legales | ❌ |
+
+### 13.2 Corrección de evaluaciones previas
+
+Las secciones §3.2 y §3.3 de este documento afirmaban que Migo devuelve CIIU Rev 3 + Rev 4 y descripción de actividad económica. Esas afirmaciones se basaban en la documentación pública de Migo (`docs.migo.pe/ruc/actividades-economicas`), no en un test real.
+
+**El spike real Perú.3N-R invalida esas afirmaciones.** El endpoint `GET /api/v1/ruc/{ruc}` no devuelve CIIU ni actividad económica en el plan contratado/endpoint validado.
+
+Las secciones §3.2, §3.3, §3.12, §3.14 y §3.15 quedan históricamente preservadas pero **superadas por el resultado real**. No deben usarse como base para decisiones futuras sobre CIIU.
+
+### 13.3 Verdict actualizado
+
+```
+MIGO_NOT_USEFUL_FOR_CIIU
+
+Razón: El payload real del endpoint validado no contiene CIIU, actividad económica
+       ni actividades secundarias, contrario a lo que indicaba la documentación pública.
+Acción: Migo reclasificado como validation_only / P2.
+        No usar como fuente sectorial ni de discovery.
+        No usar para enriquecimiento CIIU.
+```
+
+### 13.4 Reclasificación aplicada (Perú.3N-S)
+
+| Elemento | Antes | Después |
+|----------|-------|---------|
+| `name` en source-catalog | `'Migo API Perú'` | `'Migo API Perú RUC Lookup'` |
+| `sellupUse` | `'enrichment'` | `'validation_only'` |
+| `priority` | `'P1'` | `'P2'` |
+| `recommendedUse` | Enriquecimiento CIIU por RUC | Validación RUC puntual: estado, condición, domicilio |
+| `limitations[0]` | — | `'No útil para CIIU/actividad económica según spike real Perú.3N-R'` |
+| `nextAction` | Mencionaba CIIU | Sin mención de CIIU |
+| Vault description | `'...consulta RUC/CIIU Perú...'` | `'...consulta RUC Perú (validación estado, condición y domicilio — no devuelve CIIU)'` |
+
+### 13.5 Uso recomendado post-reclasificación
+
+Migo puede mantenerse como fuente opcional de validación RUC puntual bajo demanda:
+
+- Verificar estado del contribuyente en tiempo real (complementa snapshot SUNAT que puede tener días de retraso)
+- Verificar condición de domicilio (HABIDO/NO HABIDO) en tiempo real
+- Confirmar razón social y dirección actualizada
+
+**No usar para:**
+- CIIU ni clasificación sectorial
+- Discovery de nuevas empresas
+- Enriquecimiento masivo
+
+### 13.6 Estado CIIU Perú post-Migo
+
+Con PRODUCE WAF-bloqueado y Migo descartado para CIIU, no existe fuente privada confirmada para CIIU masivo en Perú. Siguiente candidato a evaluar: **ApiDni.com** (segunda opción identificada en §8 de este documento).

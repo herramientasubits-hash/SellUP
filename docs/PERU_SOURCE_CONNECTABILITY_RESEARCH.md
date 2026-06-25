@@ -209,33 +209,29 @@ La única URL estática sin auth confirmada (`transparencia.produce.gob.pe` → 
 
 ---
 
-### 2.2 Migo API (`api.migo.pe`) — Evaluado en Perú.3M
+### 2.2 Migo API (`api.migo.pe`) — Evaluado en Perú.3M + Spike real Perú.3N-R
 
 | Atributo | Valor |
 |---|---|
-| Tipo | `enrichment_provider` (NO `discovery_provider`) |
+| Tipo | `validation_only` (RUC lookup bajo demanda — NO fuente CIIU) |
 | País | Perú (PE) |
 | Sector | Todos |
-| Datos | RUC, razón social, estado, condición, dirección, CIIU Rev3+Rev4 (principal + secundarias), ubigeo, locales anexos, representantes legales (⚠️ NO persistir — personas naturales). También: DNI, tipo de cambio, CPE. |
+| Datos reales confirmados (spike Perú.3N-R) | RUC, razón social, estado del contribuyente, condición de domicilio, dirección, ubigeo. **No devuelve CIIU, actividad económica ni representantes legales.** |
 | Acceso | API REST con Bearer token |
 | Auth | Bearer token (`MIGO_API_KEY` — solo variable de entorno, nunca en código/docs/logs/commits) |
-| Documentación técnica | Sí — docs.migo.pe, completa, con ejemplos |
-| Endpoint individual | `GET /api/v1/ruc/{ruc}` |
-| Endpoint batch | Sí — confirmado. Tamaño máximo por request pendiente de spike |
+| Documentación técnica | Sí — docs.migo.pe |
+| Endpoint validado | `GET /api/v1/ruc/{ruc}` |
+| Endpoint batch | No validado en spike — no relevante para caso de uso CIIU |
 | Costo | Demo: 700q/7d gratis → Básico: S/15/mes (40K) → Empresa: S/25/mes (80K) → Premium: S/25/mes (150K) |
-| Plan trial | Sí — 7 días, 700 consultas (suficiente para spike técnico) |
-| Rate limits | No documentados explícitamente; 99% uptime declarado. Confirmar con trial. |
-| Riesgos | Medio — ToS no revisados para uso en agentes automáticos. Datos provienen de SUNAT (públicos). Representantes legales = datos personales (Ley 29733). |
-| Encaje | `enrichment_provider` — enriquece RUCs conocidos con CIIU. NO genera nuevos prospectos. |
-| Verdict Perú.3M | **`SPIKE_WITH_TEST_KEY`** — PRODUCE WAF-bloqueado → Migo es la única fuente CIIU operable confirmada para Perú. |
-| Estrategia MVP | **Opción A:** SUNAT Padrón RUC (base legal RUC/estado/condición) + Migo API (CIIU bajo demanda) |
-| Arquitectura | Worker/background job. NO Vercel serverless. Throttling configurable. |
-| Datos a guardar | `ciiu_codigo`, `ciiu_descripcion`, `sector_sellup`, `estado`, `condicion`, `ubigeo`, `migo_enriched_at` |
-| Datos NO guardar | Representantes legales, DNI, datos personales — Ley N° 29733 Perú |
+| Riesgos | Bajo para validación RUC. ToS no revisados formalmente. |
+| Encaje | `validation_only` — validar RUC puntual (estado, condición, domicilio). NO usar para CIIU ni discovery. |
+| Verdict Perú.3M | `SPIKE_WITH_TEST_KEY` (basado en documentación, sin spike real) |
+| **Verdict Perú.3N-R (spike real)** | **`MIGO_NOT_USEFUL_FOR_CIIU`** — payload real no contiene CIIU ni actividad económica |
+| Estrategia actualizada | Migo queda como `validation_only` opcional. **No usar como fuente CIIU.** |
 | Source key | `pe_migo_api` |
-| Próximo paso | Obtener trial key → spike `.tmp/migo-spike/` (50-100 RUCs) → revisar ToS → confirmar integración |
+| Estado en catálogo | `P2 / validation_only` |
 
-**Justificación Perú.3M:** Con PRODUCE MiPyme WAF-bloqueado (`PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL`), no existe fuente oficial gratuita operable para CIIU masivo en Perú. Migo API es el mejor candidato privado confirmado: CIIU Rev3+Rev4, batch endpoint, precios accesibles (S/15–25/mes), documentación técnica completa. El bloqueador para producción son los ToS no revisados para uso en agentes automáticos y la falta de un spike real con trial key. Ver evaluación completa en `docs/PERU_MIGO_API_CIIU_EVALUATION.md`.
+**Resultado del spike real Perú.3N-R:** El payload real de Migo devuelve `ruc`, `nombre_o_razon_social`, `estado_del_contribuyente`, `condicion_de_domicilio`, `ubigeo`, `direccion`, `actualizado_en`. Los campos `containsCiiu`, `containsCiiuRev3`, `containsCiiuRev4`, `containsActivityDescription`, `containsSecondaryActivities`, `containsLegalRepresentatives` son todos `false`. Verdict: `MIGO_NOT_USEFUL_FOR_CIIU`. Ver evaluación completa en `docs/PERU_MIGO_API_CIIU_EVALUATION.md` §13.
 
 ---
 

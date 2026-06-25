@@ -38,7 +38,7 @@ export async function storeMigoApiKey(
     const { data, error } = await admin.rpc('upsert_vault_secret', {
       p_name: MIGO_VAULT_SECRET_NAME,
       p_secret: apiKey,
-      p_description: 'API Key de Migo API para consulta RUC/CIIU Perú en SellUp',
+      p_description: 'API Key de Migo API para consulta RUC Perú en SellUp (validación estado, condición y domicilio — no devuelve CIIU)',
     });
 
     if (error) throw error;

@@ -981,32 +981,33 @@ export const CATALOG_SOURCES: CatalogSource[] = [
 
   {
     key: 'pe_migo_api',
-    name: 'Migo API Perú',
-    sellupUse: 'enrichment',
+    name: 'Migo API Perú RUC Lookup',
+    sellupUse: 'validation_only',
     aiFlowStatus: 'eligible_not_connected',
     connectionMode: 'not_connected',
-    nextAction: 'Requiere API Key en panel de credenciales. Una vez conectada, permite enriquecimiento CIIU por RUC para Perú.',
+    nextAction:
+      'Requiere API Key en panel de credenciales. Útil para validar RUC peruano, estado del contribuyente, condición de domicilio y dirección. No devuelve CIIU según spike real Perú.3N-R.',
     countryCodes: ['PE'],
     sectors: [],
-    priority: 'P1',
+    priority: 'P2',
     operationalStatus: 'connection_required',
     type: 'commercial_provider',
     url: 'https://docs.migo.pe',
     automationLevel: 'high',
     recommendedUse:
-      'Enriquecimiento CIIU por RUC para empresas peruanas. Única fuente operable identificada para obtener CIIU Rev 3 y Rev 4 en Perú después del bloqueo WAF de PRODUCE. Complementa SUNAT Padrón RUC (que no incluye CIIU). No usar para discovery — solo enrichment post-discovery de empresas ya identificadas por RUC.',
+      'Consulta privada bajo demanda para validar RUC peruano, razón social, estado del contribuyente, condición de domicilio y dirección. No devuelve CIIU ni actividad económica en el endpoint validado (spike real Perú.3N-R). No usar como fuente sectorial ni para discovery. Puede ser redundante frente a SUNAT Padrón Reducido para estado/condición.',
     limitations: [
+      'No útil para CIIU/actividad económica según spike real Perú.3N-R (MIGO_NOT_USEFUL_FOR_CIIU)',
+      'No usar como fuente sectorial ni como discovery',
+      'Puede ser redundante frente a SUNAT Padrón Reducido para estado/condición',
       'API privada de tercero — requiere plan de pago',
-      'No usar como fuente de discovery — solo enrichment por RUC',
       'Depende de disponibilidad y ToS de Migo API',
-      'No almacenar respuestas completas — solo extraer CIIU',
     ],
     riskNotes: [
       'Evaluar ToS y costos antes de usar en producción',
       'No exponer API key en frontend ni logs',
       'Validar rate limits del plan contratado',
       'No almacenar datos de representantes legales ni domicilio fiscal',
-      'No usar para batches masivos sin control de costo/rate',
     ],
   },
 
