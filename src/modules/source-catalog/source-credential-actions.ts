@@ -345,7 +345,7 @@ export async function testSourceCredentialConnectionAction(
     const migoResult = await testMigoConnection();
     rawTestResult = {
       ok: migoResult.success,
-      httpStatus: null,
+      httpStatus: migoResult.httpStatus ?? null,
       responseTimeMs: migoResult.responseTimeMs ?? null,
       error: migoResult.message,
     };
@@ -372,7 +372,10 @@ export async function testSourceCredentialConnectionAction(
       lowerErr.includes('token inválido') ||
       lowerErr.includes('html') ||
       lowerErr.includes('expirado') ||
-      lowerErr.includes('ticket')
+      lowerErr.includes('ticket') ||
+      lowerErr.includes('no fue autorizada') ||
+      lowerErr.includes('no es válida') ||
+      lowerErr.includes('no tiene permisos')
         ? 'auth_error'
         : 'failed';
     connectionStatus = 'error';

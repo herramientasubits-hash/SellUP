@@ -1,16 +1,3 @@
-/**
- * Migo API Connection Service
- *
- * Gestión segura de credenciales de Migo API usando Supabase Vault.
- * La API Key NUNCA se retorna al frontend ni se registra en logs.
- *
- * Vault secret name: sellup_source_pe_migo_api_api_key
- *
- * Test de conexión:
- *   GET https://api.migo.pe/api/v1/ruc/{ruc} con un RUC conocido
- *   para validar que la API Key funciona. No persiste ningún dato.
- */
-
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 
 const supabaseUrl =
@@ -21,6 +8,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 export const MIGO_VAULT_SECRET_NAME = 'sellup_source_pe_migo_api_api_key';
 
 const MIGO_API_BASE = 'https://api.migo.pe';
+const MIGO_API_PATH = '/api/v1/ruc';
 const TEST_RUC = '20100047218';
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -35,7 +23,10 @@ export interface MigoConnectionTestResult {
   success: boolean;
   error?: string;
   message?: string;
+  httpStatus?: number;
   responseTimeMs?: number;
+  maskedKey?: string;
+  checkedAt?: string;
 }
 
 export async function storeMigoApiKey(
@@ -89,9 +80,9 @@ export async function hasMigoApiKey(): Promise<boolean> {
 }
 
 export async function getMigoApiKey(): Promise<string | null> {
-  const admin = getAdminSupabase();
-
   try {
+    const admin = getAdminSupabase();
+
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
       p_name: MIGO_VAULT_SECRET_NAME,
     });
@@ -113,15 +104,6 @@ export function maskMigoApiKey(apiKey: string): string {
   return `****${last4}`;
 }
 
-/**
- * Valida la API Key de Migo mediante una consulta mínima real.
- *
- * Endpoint: GET https://api.migo.pe/api/v1/ruc/{ruc}
- * Auth:     Authorization: Bearer {api_key}
- *
- * No persiste ningún dato de la respuesta.
- * Solo valida que la credencial sea válida.
- */
 export async function testMigoConnection(): Promise<MigoConnectionTestResult> {
   const apiKey = await getMigoApiKey();
 
@@ -133,28 +115,51 @@ export async function testMigoConnection(): Promise<MigoConnectionTestResult> {
     };
   }
 
+  const maskedKey = maskMigoApiKey(apiKey);
+  const checkedAt = new Date().toISOString();
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const startMs = Date.now();
 
   try {
-    const response = await fetch(`${MIGO_API_BASE}/api/v1/ruc/${TEST_RUC}`, {
-      method: 'GET',
+    const response = await fetch(`${MIGO_API_BASE}${MIGO_API_PATH}`, {
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
         Accept: 'application/json',
       },
+      body: JSON.stringify({
+        token: apiKey,
+        ruc: TEST_RUC,
+      }),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
     const responseTimeMs = Date.now() - startMs;
+    const httpStatus = response.status;
 
     if (response.status === 200) {
+      const body = await response.json().catch(() => ({}));
+      if (body?.success === false) {
+        return {
+          success: false,
+          error: 'API_ERROR',
+          message: 'La API de Migo respondió pero rechazó la consulta.',
+          httpStatus,
+          responseTimeMs,
+          maskedKey,
+          checkedAt,
+        };
+      }
       return {
         success: true,
-        message: 'Conexión con Migo API verificada correctamente.',
+        message: 'Conexión con Migo validada correctamente.',
+        httpStatus,
         responseTimeMs,
+        maskedKey,
+        checkedAt,
       };
     }
 
@@ -162,15 +167,59 @@ export async function testMigoConnection(): Promise<MigoConnectionTestResult> {
       return {
         success: false,
         error: 'INVALID_API_KEY',
-        message: 'La API Key de Migo no es válida o ha expirado.',
+        message: 'La API key de Migo no fue autorizada.',
+        httpStatus,
+        responseTimeMs,
+        maskedKey,
+        checkedAt,
       };
     }
 
     if (response.status === 403) {
       return {
         success: false,
-        error: 'PERMISSION_DENIED',
-        message: 'La API Key no tiene permisos para este endpoint de Migo.',
+        error: 'INVALID_API_KEY',
+        message: 'La API key de Migo no fue autorizada.',
+        httpStatus,
+        responseTimeMs,
+        maskedKey,
+        checkedAt,
+      };
+    }
+
+    if (response.status === 404) {
+      return {
+        success: false,
+        error: 'ENDPOINT_NOT_FOUND',
+        message: 'No se encontró el endpoint de Migo configurado. Revisa la URL base o path de API.',
+        httpStatus,
+        responseTimeMs,
+        maskedKey,
+        checkedAt,
+      };
+    }
+
+    if (response.status === 405) {
+      return {
+        success: false,
+        error: 'ENDPOINT_NOT_FOUND',
+        message: 'No se encontró el endpoint de Migo configurado. Revisa la URL base o path de API.',
+        httpStatus,
+        responseTimeMs,
+        maskedKey,
+        checkedAt,
+      };
+    }
+
+    if (response.status === 422) {
+      return {
+        success: false,
+        error: 'API_ERROR',
+        message: 'La solicitud a Migo fue rechazada por datos inválidos.',
+        httpStatus,
+        responseTimeMs,
+        maskedKey,
+        checkedAt,
       };
     }
 
@@ -178,26 +227,49 @@ export async function testMigoConnection(): Promise<MigoConnectionTestResult> {
       return {
         success: false,
         error: 'RATE_LIMIT',
-        message: 'Límite de consultas Migo alcanzado. Verifica tu plan.',
+        message: 'Límite de consultas Migo alcanzado. Revisa tu plan.',
+        httpStatus,
+        responseTimeMs,
+        maskedKey,
+        checkedAt,
       };
     }
 
-    const body = await response.text().catch(() => '');
+    if (response.status >= 500) {
+      return {
+        success: false,
+        error: 'API_ERROR',
+        message: `Migo API respondió con error de servidor (HTTP ${response.status}).`,
+        httpStatus,
+        responseTimeMs,
+        maskedKey,
+        checkedAt,
+      };
+    }
+
     return {
       success: false,
       error: 'API_ERROR',
-      message: `Migo API ${response.status}: ${body.slice(0, 300)}`,
+      message: `Migo API respondió con código inesperado (HTTP ${response.status}).`,
+      httpStatus,
+      responseTimeMs,
+      maskedKey,
+      checkedAt,
     };
   } catch (err: unknown) {
     clearTimeout(timeoutId);
     const isTimeout = err instanceof Error && err.name === 'AbortError';
+    const checkedAt = new Date().toISOString();
 
     return {
       success: false,
       error: isTimeout ? 'TIMEOUT' : 'CONNECTION_ERROR',
       message: isTimeout
-        ? 'Timeout al conectar con Migo API (>15s).'
-        : `Error de conexión: ${err instanceof Error ? err.message : 'desconocido'}`,
+        ? 'Tiempo de espera agotado al conectar con Migo API.'
+        : `Error de conexión con Migo API: ${err instanceof Error ? err.message : 'desconocido'}`,
+      responseTimeMs: Date.now() - startMs,
+      maskedKey,
+      checkedAt,
     };
   }
 }
