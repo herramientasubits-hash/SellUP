@@ -6,6 +6,7 @@
 **Tipo:** Research + evaluación de arquitectura — sin código productivo, sin Supabase, sin candidatos, sin llamadas reales
 **MIGO_API_KEY_PRESENT:** false
 **Depende de:** Perú.3L-2A (PRODUCE MiPyme bloqueado por WAF — `PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL`)
+**Integración:** Implementada en migración 066 + source-catalog como `pe_migo_api`
 
 ---
 
@@ -567,26 +568,39 @@ El hito Integraciones.1 (ejecutado antes de Perú.3N) confirmó que SellUp tiene
 
 Migo NO debe quedarse hardcodeada en `.env.local` como mecanismo final.
 
-**Para el spike Perú.3N:** `.env.local` está permitido como mecanismo temporal local.
-**Para producción (Integraciones.2):** Migo debe integrarse en `/settings/integrations/migo` con:
+**Implementado en source-catalog (Settings > Source Catalog)** como `pe_migo_api`:
 
 | Elemento | Valor |
 |----------|-------|
-| Vault secret name | `sellup_integration_migo_api_key` |
+| Catalog key | `pe_migo_api` |
+| DB source_key | `pe_migo_api` (source_catalog_connections) |
+| Vault secret name | `sellup_source_pe_migo_api_api_key` |
 | auth_type | `api_key` |
-| Patrón de referencia | `tavily-connection.ts` |
-| UI | `/settings/integrations/migo` |
+| Patrón de referencia | `tavily-connection.ts`, `denue_mexico` source catalog pattern |
+| UI | `/settings/source-catalog/pe_migo_api` (rendered by generic SourceCredentialPanel) |
+| Migración | `066_migo_api_source.sql` |
+| Servicio | `src/server/services/migo-connection.ts` |
 
-El patrón completo se documenta en `AUDITORIA-FUENTES-IA.md § Integraciones.1`.
+Migo se integró en el Source Catalog (no en external integrations) porque es una fuente de datos para enriquecimiento Perú, siguiendo el mismo patrón que `denue_mexico` y `chilecompra_chile`. La UI de credencial y test de conexión es genérica y se reutiliza automáticamente.
 
 ---
 
-## 11. Archivos modificados en Perú.3M
+## 11. Archivos modificados — Implementación source-catalog
 
 | Archivo | Cambio |
 |---|---|
-| `docs/PERU_MIGO_API_CIIU_EVALUATION.md` | **Creado** — este documento |
-| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — sección Perú.3M agregada |
-| `docs/PERU_SUNAT_CIIU_SOURCE_RESEARCH.md` | **Actualizado** — §3.7 Migo API expandido con verdict SPIKE_WITH_TEST_KEY y arquitectura |
-| `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md` | **Actualizado** — §2.2 Migo API actualizado con conclusiones Perú.3M |
-| `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` | **Actualizado** — Migo actualizado con verdict y estrategia Perú.3M |
+| `supabase/migrations/066_migo_api_source.sql` | **Creado** — seed en `source_catalog_connections` + eventos audit |
+| `src/server/services/migo-connection.ts` | **Creado** — Vault credential management + test connection |
+| `src/server/agents/prospecting-toolkit/source-catalog.ts` | **Actualizado** — Migo agregado a `CATALOG_SOURCES` como `pe_migo_api` |
+| `src/server/source-catalog/source-connection-resolver.ts` | **Actualizado** — `pe_migo_api` en `VAULT_SOURCE_SECRET_NAMES` + `DEV_ENV_FALLBACK` |
+| `src/server/source-catalog/connection-test/strategy-resolver.ts` | **Actualizado** — `pe_migo_api` en `REQUIRES_CREDENTIALS_KEYS` |
+| `src/modules/source-catalog/source-credential-actions.ts` | **Actualizado** — Migo en `SUPPORTED_TEST_SOURCES` + `testMigoConnection()` |
+| `docs/PERU_MIGO_API_CIIU_EVALUATION.md` | **Actualizado** — integración documentada |
+
+---
+
+**Documentos de investigación previa (no modificados en esta implementación):**
+- `AUDITORIA-FUENTES-IA.md`
+- `docs/PERU_SUNAT_CIIU_SOURCE_RESEARCH.md`
+- `docs/PERU_SOURCE_CONNECTABILITY_RESEARCH.md`
+- `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md`

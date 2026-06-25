@@ -979,6 +979,37 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Solo sector manufactura'],
   },
 
+  {
+    key: 'pe_migo_api',
+    name: 'Migo API Perú',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'eligible_not_connected',
+    connectionMode: 'not_connected',
+    nextAction: 'Requiere API Key en panel de credenciales. Una vez conectada, permite enriquecimiento CIIU por RUC para Perú.',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'connection_required',
+    type: 'commercial_provider',
+    url: 'https://docs.migo.pe',
+    automationLevel: 'high',
+    recommendedUse:
+      'Enriquecimiento CIIU por RUC para empresas peruanas. Única fuente operable identificada para obtener CIIU Rev 3 y Rev 4 en Perú después del bloqueo WAF de PRODUCE. Complementa SUNAT Padrón RUC (que no incluye CIIU). No usar para discovery — solo enrichment post-discovery de empresas ya identificadas por RUC.',
+    limitations: [
+      'API privada de tercero — requiere plan de pago',
+      'No usar como fuente de discovery — solo enrichment por RUC',
+      'Depende de disponibilidad y ToS de Migo API',
+      'No almacenar respuestas completas — solo extraer CIIU',
+    ],
+    riskNotes: [
+      'Evaluar ToS y costos antes de usar en producción',
+      'No exponer API key en frontend ni logs',
+      'Validar rate limits del plan contratado',
+      'No almacenar datos de representantes legales ni domicilio fiscal',
+      'No usar para batches masivos sin control de costo/rate',
+    ],
+  },
+
   // ── Ecuador ─────────────────────────────────────────────────────────────────
   {
     key: 'ec_scvs',

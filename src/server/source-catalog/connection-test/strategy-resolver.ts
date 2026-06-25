@@ -13,6 +13,7 @@ const REQUIRES_CREDENTIALS_KEYS = new Set<string>([
   'mx_compranet',
   'global_opencorporates',
   'br_cnpj_ws',
+  'pe_migo_api',
 ]);
 
 // Sources that are not supported (commercial APIs without direct URL)

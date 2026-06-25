@@ -10,6 +10,7 @@ import type { DenueCandidateDryRunReport } from '@/server/source-catalog/connect
 import { runClResDryRun } from '@/server/source-catalog/connectors/datos-gob-chile/run-cl-res-dry-run';
 import { runChileCompraDryRun } from '@/server/source-catalog/connectors/chilecompra-chile/run-chilecompra-dry-run';
 import type { NormalizedChileCompraSupplier } from '@/server/source-catalog/connectors/chilecompra-chile/types';
+import { testMigoConnection } from '@/server/services/migo-connection';
 
 // ─── Admin Supabase (service role — server-only) ───────────────────────────────
 
@@ -327,7 +328,7 @@ export async function testSourceCredentialConnectionAction(
   }
 
   // 7. Source-specific connection test
-  const SUPPORTED_TEST_SOURCES = new Set(['denue_mexico', 'chilecompra_chile']);
+  const SUPPORTED_TEST_SOURCES = new Set(['denue_mexico', 'chilecompra_chile', 'pe_migo_api']);
   if (!SUPPORTED_TEST_SOURCES.has(sourceKey)) {
     return {
       ok: false,
@@ -340,7 +341,15 @@ export async function testSourceCredentialConnectionAction(
 
   let rawTestResult: { ok: boolean; httpStatus?: number | null; responseTimeMs?: number | null; error?: string };
 
-  if (sourceKey === 'chilecompra_chile') {
+  if (sourceKey === 'pe_migo_api') {
+    const migoResult = await testMigoConnection();
+    rawTestResult = {
+      ok: migoResult.success,
+      httpStatus: null,
+      responseTimeMs: migoResult.responseTimeMs ?? null,
+      error: migoResult.message,
+    };
+  } else if (sourceKey === 'chilecompra_chile') {
     rawTestResult = await testChileCompraConnection(token);
   } else {
     rawTestResult = await testDenueConnection(token);
