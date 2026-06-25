@@ -60,10 +60,14 @@ import {
   mergeRichProfileEnrichmentResult,
 } from './rich-profile-enrichment';
 import {
-  evaluateIcpSizeGateFromRichProfile,
+  evaluateIcpSizeGate,
   resolveIcpSizeGateWriterAction,
 } from './icp-size-gate';
 import type { IcpSizeGateBatchSummary } from './icp-size-gate';
+import {
+  resolveEmployeeSizeForIcpGate,
+  extractHubSpotMatchedEmployees,
+} from './employee-size-resolver';
 import type {
   RichProfileEnrichmentConfig,
   RichProfileEnrichmentProviderFn,
@@ -1639,10 +1643,16 @@ export async function writeProspectingCandidates(
         })
       : richProfile;
 
-    // ── ICP Size Gate (v1.16I) ────────────────────────────────────────────────
-    // Evalúa tamaño de empresa contra umbral de 200 colaboradores.
+    // ── ICP Size Gate (v1.16J) ────────────────────────────────────────────────
+    // Resolver central: prioriza rich_profile > company_size > HubSpot employees.
     // Corre DESPUÉS del enriquecimiento para usar el rango real si está disponible.
-    const icpSizeGateResult = evaluateIcpSizeGateFromRichProfile(mergedRichProfile.size, 200);
+    const resolvedEmployeeSize = resolveEmployeeSizeForIcpGate({
+      richProfileSize: mergedRichProfile.size,
+      candidateCompanySize: null, // not in ProspectingPipelineCandidate
+      matchedHubspotEmployees: extractHubSpotMatchedEmployees(hubspotMatch?.raw),
+      threshold: 200,
+    });
+    const icpSizeGateResult = evaluateIcpSizeGate(resolvedEmployeeSize.icpInput);
     const icpSizeGateAction = resolveIcpSizeGateWriterAction(icpSizeGateResult);
 
     if (icpSizeGateAction.action === 'skip') {
@@ -1666,10 +1676,19 @@ export async function writeProspectingCandidates(
       icpSizeGateData.passCount++;
     }
 
-    // Annotate the rich profile with the gate result (immutable)
+    // Annotate the rich profile with gate result + resolution trace (immutable)
+    const employeeSizeResolutionTrace = {
+      selected_source: resolvedEmployeeSize.selectedSource,
+      selected_value: resolvedEmployeeSize.selectedValue,
+      confidence: resolvedEmployeeSize.confidence,
+    };
     const finalRichProfile = {
       ...mergedRichProfile,
-      size: { ...mergedRichProfile.size, icp_size_gate: icpSizeGateResult },
+      size: {
+        ...mergedRichProfile.size,
+        icp_size_gate: icpSizeGateResult,
+        employee_size_resolution: employeeSizeResolutionTrace,
+      },
     };
 
     // Per-candidate enrichment metadata (only when provider returned a result)
@@ -1793,6 +1812,13 @@ export async function writeProspectingCandidates(
         rich_profile: finalRichProfile,
         ...(perCandidateRichEnrichment ? { rich_profile_enrichment: perCandidateRichEnrichment } : {}),
         icp_size_gate: icpSizeGateResult,
+        employee_size_resolution: {
+          selected_source: resolvedEmployeeSize.selectedSource,
+          selected_value: resolvedEmployeeSize.selectedValue,
+          confidence: resolvedEmployeeSize.confidence,
+          reason: resolvedEmployeeSize.reason,
+          attempted_sources: resolvedEmployeeSize.attemptedSources,
+        },
       },
     };
 
