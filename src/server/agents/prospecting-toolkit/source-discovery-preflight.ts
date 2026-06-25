@@ -72,6 +72,7 @@ const COUNTRY_SOURCE_MAP: Record<string, string> = {
   CO: 'co_rues',
   MX: 'mx_denue',
   CL: 'cl_res',
+  PE: 'pe_web_inferred',
 };
 
 const PREFLIGHT_LIMIT = 5; // máximo hard en este hito
@@ -134,8 +135,12 @@ export async function runAgentSourceDiscoveryPreflight(
       mode: 'dry_run',
     });
 
+    const peWarnings: string[] = input.countryCode?.toUpperCase() === 'PE' ? [
+      'Perú: el sector se infiere de búsqueda web/IA. No hay CIIU oficial disponible.',
+    ] : [];
+
     const hasErrors = output.errors.length > 0;
-    const hasWarnings = output.warnings.length > 0;
+    const hasWarnings = output.warnings.length > 0 || peWarnings.length > 0;
 
     const status: SourceDiscoveryPreflightResult['status'] =
       hasErrors ? 'error' : hasWarnings ? 'warning' : 'success';
@@ -162,6 +167,8 @@ export async function runAgentSourceDiscoveryPreflight(
       warningsCount: output.warnings.length,
     });
 
+    const mergedWarnings = [...peWarnings, ...output.warnings];
+
     return {
       enabled: true,
       selectedSourceKey: resolvedSourceKey,
@@ -172,7 +179,7 @@ export async function runAgentSourceDiscoveryPreflight(
       lowPriorityCount: output.lowPriorityCount,
       filteredOutCount: output.filteredOutCount,
       qualitySummary: output.qualitySummary,
-      warnings: output.warnings,
+      warnings: mergedWarnings,
       errors: output.errors,
       samples,
     };

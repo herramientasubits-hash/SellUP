@@ -109,7 +109,8 @@ export type CatalogSourceOperationalStatus =
   | 'manual_signal_only'
   | 'validation_only'
   | 'discarded_paid_or_tos'
-  | 'discarded_low_value';
+  | 'discarded_low_value'
+  | 'mvp_inferred_sector';
 
 export type CatalogSource = {
   key: string;

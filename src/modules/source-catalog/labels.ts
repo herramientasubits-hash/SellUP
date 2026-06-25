@@ -16,6 +16,7 @@ export const OPERATIONAL_STATUS_LABELS: Record<CatalogSourceOperationalStatus, s
   validation_only: 'Solo validación',
   discarded_paid_or_tos: 'Descartada por costo/TOS',
   discarded_low_value: 'Descartada por bajo valor',
+  mvp_inferred_sector: 'MVP sector inferido',
 };
 
 export const AUTOMATION_LEVEL_LABELS: Record<CatalogSource['automationLevel'], string> = {
@@ -125,6 +126,10 @@ export function operationalStatusBadgeClass(status: CatalogSourceOperationalStat
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'discarded_low_value':
       return 'border-destructive/20 bg-destructive/5 text-destructive/70';
+    case 'mvp_inferred_sector':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-500';
+    default:
+      return 'border-border/40 bg-muted/30 text-muted-foreground';
   }
 }
 
@@ -244,5 +249,9 @@ export function operationalStatusDotClass(status: CatalogSourceOperationalStatus
       return 'bg-destructive';
     case 'discarded_low_value':
       return 'bg-destructive/50';
+    case 'mvp_inferred_sector':
+      return 'bg-amber-500';
+    default:
+      return 'bg-muted-foreground/25';
   }
 }

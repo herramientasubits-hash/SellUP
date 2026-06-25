@@ -126,7 +126,7 @@ function sanitizeError(error: unknown): string {
 
 // ─── Validación de input ───────────────────────────────────────────────────────
 
-const ALLOWED_SOURCE_KEYS = new Set(['cl_res', 'mx_denue', 'co_rues']);
+const ALLOWED_SOURCE_KEYS = new Set(['cl_res', 'mx_denue', 'co_rues', 'pe_web_inferred']);
 const ALLOWED_MODES = new Set(['dry_run', 'preview'] as const);
 const LIMIT_MIN = 1;
 const LIMIT_MAX = 20;

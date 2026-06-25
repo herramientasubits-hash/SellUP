@@ -81,7 +81,9 @@ export type ReviewFlag =
   | 'sector_unknown'
   | 'natural_person_risk'
   | 'pii_email_risk'
-  | 'pii_phone_risk';
+  | 'pii_phone_risk'
+  | 'sector_confidence_too_low'
+  | 'sector_unknown';
 
 // ── Clasificación de fuentes estructuradas ────────────────────
 

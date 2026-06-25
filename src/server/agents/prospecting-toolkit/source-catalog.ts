@@ -902,6 +902,39 @@ export const CATALOG_SOURCES: CatalogSource[] = [
 
   // ── Perú ────────────────────────────────────────────────────────────────────
   {
+    key: 'pe_web_inferred',
+    name: 'Perú Web/IA Sector Inferido',
+    sellupUse: 'discovery',
+    aiFlowStatus: 'eligible_not_connected',
+    connectionMode: 'not_applicable',
+    nextAction: 'Activar web search + inferencia IA para generación de candidatos Perú con sector inferido. Sin CIIU oficial.',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'mvp_inferred_sector',
+    type: 'web_search',
+    url: null,
+    automationLevel: 'medium',
+    recommendedUse:
+      'Fuente lógica de discovery para Perú basada en búsqueda web/IA. El sector es inferido, no oficial. ' +
+      'La validación legal debe realizarse contra SUNAT Padrón Reducido vía snapshot/worker. ' +
+      'No contiene CIIU oficial. No debe marcar sector como oficial. Requiere revisión humana antes de conversión.',
+    limitations: [
+      'No contiene CIIU oficial — sector inferido por web/IA',
+      'No debe marcar sector como official_ciiu',
+      'Requiere revisión humana antes de conversión',
+      'La validación legal requiere snapshot SUNAT offline (pe_sunat_bulk)',
+      'Sector_confidence_score < 0.3 debe bloquear conversión automática',
+    ],
+    riskNotes: [
+      'Inferencia sectorial puede tener falsos positivos (20-30%)',
+      'No usar como fuente oficial de sector para ICP sin revisión humana',
+      'Web search sin control de costos puede incrementar uso de Tavily',
+      'RUC no resuelto por falta de presencia web es esperable en Perú',
+      'No confundir sector_inferred con CIIU oficial en flujos downstream',
+    ],
+  },
+  {
     key: 'pe_sunat_bulk',
     name: 'SUNAT Padrón RUC Bulk (Descarga masiva)',
     sellupUse: 'enrichment',
