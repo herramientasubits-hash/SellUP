@@ -261,6 +261,8 @@ Chile tiene un ecosistema de datos públicos maduro. El Registro de Empresas y S
 
 El **Padrón RUC de SUNAT** es la mejor fuente pública de Perú: descarga ZIP diaria gratuita con todos los contribuyentes activos, condición "habido/no habido" como señal de calidad, ubigeo. **⚠️ Perú.3K:** El Padrón Reducido descargable tiene solo 15 columnas y NO incluye CIIU ni actividad económica — SUNAT tiene CIIU internamente pero no lo exporta en el archivo público. **⚠️ Perú.3L-2A:** PRODUCE MiPyme por Sector Productivo está **bloqueado por WAF** (CloudFront 403) — no hay URL estática machine-readable para datos 2022+. **⚠️ Perú.3M:** Migo API fue evaluado como candidato CIIU (verdict: `SPIKE_WITH_TEST_KEY`). **⚠️ Perú.3N-R (spike real):** Migo NO devuelve CIIU en el endpoint validado — verdict `MIGO_NOT_USEFUL_FOR_CIIU`. Migo queda solo como validación RUC bajo demanda (`validation_only`, P2). **Estado actual:** No existe fuente privada confirmada para CIIU masivo en Perú. Evaluar ApiDni.com u otras alternativas en hito futuro.
 
+**⚠️ Perú.3O — Gate de decisión cerrado:** Perú MVP avanza **sin CIIU oficial**. Sector se maneja como `sector_inferred` (inferencia web/IA sobre razón social + dominio). SUNAT Padrón Reducido es la base legal oficial. CIIU queda fuera del MVP Perú hasta obtener fuente oficial operativa o proveedor privado confirmado con spike real. Ver decisión completa en `docs/PERU_MVP_SOURCE_STRATEGY.md`.
+
 ### Fuentes recomendadas — MVP activo
 
 | Fuente | URL | Tipo | Sectores útiles | Uso recomendado | Automatización MVP | Riesgos / límites | Prioridad |

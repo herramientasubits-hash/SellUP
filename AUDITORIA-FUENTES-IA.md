@@ -1597,3 +1597,86 @@ Migo NO devuelve CIIU, actividad económica, actividades secundarias ni represen
 | No se crearon candidatos ni batches | ✅ |
 | No se expuso API key | ✅ |
 | No se hizo force push | ✅ |
+
+---
+
+## Hito cerrado — Perú.3O: Gate de decisión — Estrategia MVP Perú sin fuente CIIU confiable
+
+**Fecha:** 2026-06-25
+**HEAD inicial:** `bb7fc02` — fix(source-catalog): reclassify Migo Peru as RUC lookup source
+**Tipo:** Gate de decisión — solo documentación. Sin código productivo, sin Supabase, sin candidatos, sin llamadas de API.
+**Depende de:** Perú.3N-S (Migo reclasificado como `validation_only / P2`)
+
+### Contexto
+
+Después de los hitos Perú.3K → Perú.3L-2A → Perú.3M → Perú.3N-R → Perú.3N-S, el estado de fuentes CIIU para Perú quedó como:
+
+| Fuente | CIIU | Estado | Verdict |
+|--------|------|--------|---------|
+| SUNAT Padrón Reducido RUC | ❌ | ✅ Operable | BASE_LEGAL_NO_CIIU |
+| PRODUCE MiPyme por Sector | ✅ | ❌ WAF 403 | `PRODUCE_BLOCKED_BY_WAF_NO_STATIC_URL` |
+| Migo API | ❌ (spike real) | ✅ Operable | `MIGO_NOT_USEFUL_FOR_CIIU` |
+| ApiDni.com | ✅ (docs, no spike) | ⚠️ Pendiente | `PRIVATE_PROVIDER_PENDING_SPIKE` |
+
+**Conclusión:** No existe fuente oficial ni privada confirmada para CIIU masivo en Perú.
+
+### Decisión formal
+
+```
+Perú MVP Source Strategy
+─────────────────────────────────────────────────────────────────
+Official legal validation:  SUNAT Padrón Reducido RUC
+Official sector / CIIU:     unavailable for MVP
+Private CIIU provider:      not confirmed — Migo rejected for CIIU
+Sector source:              inferred from web / AI / semantic search
+Confidence label:           sector_inferred  (NOT official_ciiu)
+Human review required:      before candidate conversion
+─────────────────────────────────────────────────────────────────
+```
+
+### Respuestas a las 10 preguntas del gate
+
+| # | Pregunta | Respuesta |
+|---|---------|-----------|
+| 1 | ¿Podemos avanzar sin CIIU? | **Sí** — SUNAT da identidad + estado. Sector se infiere. |
+| 2 | ¿Qué pierde SellUp? | Filtro sectorial preciso; segmentación auditable con fuente citable |
+| 3 | ¿Qué cubre inferencia web/IA? | Sector orientativo (~70–80% correcto por razón social + web) |
+| 4 | ¿Qué va con label "inferido"? | Todo sector derivado de razón social / web / IA → `sector_inferred` |
+| 5 | ¿SUNAT es suficiente como validador? | Sí — RUC, razón social, estado, condición, ubigeo parcial |
+| 6 | ¿Migo aporta sobre SUNAT? | Marginal (tiempo real). Queda `validation_only / P2`. No activar masivo. |
+| 7 | ¿Qué campos son confiables? | ruc, nombre_o_razon_social, estado, condición, ubigeo (parcial) |
+| 8 | ¿Qué campos no disponibles? | ciiu_codigo, ciiu_descripcion, sector_oficial, representantes_legales |
+| 9 | ¿Qué ve el usuario cuando no hay CIIU? | Badge "Sector: Tecnología · inferido" + advertencia de verificación |
+| 10 | ¿Siguiente paso técnico? | Activar discovery Perú con sector inferido (Perú.4) + evaluar ApiDni.com |
+
+### Archivos modificados en Perú.3O
+
+| Archivo | Cambio |
+|---------|--------|
+| `docs/PERU_MVP_SOURCE_STRATEGY.md` | **Creado** — gate de decisión completo (10 preguntas + campos + UI + próximos pasos) |
+| `docs/CATALOGO_FUENTES_PROSPECCION_POR_PAIS_SECTOR.md` | **Actualizado** — nota Perú.3O en lectura general sección Perú §10 |
+| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — esta sección |
+
+### Confirmaciones de seguridad operativa (Perú.3O)
+
+| Confirmación | Estado |
+|---|---|
+| No se activó Perú discovery | ✅ |
+| No se tocó `SOURCE_DISCOVERY_REGISTRY` | ✅ |
+| No se tocó `source-discovery-preflight` | ✅ |
+| No se tocó el wizard | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó SUNAT | ✅ |
+| No se llamó Tavily | ✅ |
+| No se escribió Supabase | ✅ |
+| No se crearon candidatos | ✅ |
+| No se tocó INAPI | ✅ |
+| No se tocó Chile / México / Colombia | ✅ |
+| No se hizo force push | ✅ |
+| No se creó código productivo | ✅ |
+| Solo documentación creada/actualizada | ✅ |
+
+### Próximo hito recomendado
+
+**Perú.4 — Activar discovery Perú con sector inferido**
+Conectar `pe_sunat_bulk` en registry + preflight. Implementar inferencia sectorial con `confidence_label: sector_inferred`. Agregar badge "inferido" en UI. No usar sector como criterio duro de filtro en Perú.
