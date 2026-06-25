@@ -197,7 +197,7 @@ async function upsertSmokeAccount(supabase: AnySupabase): Promise<string> {
       country: 'Peru',
       country_code: 'PE',
       tax_identifier: SMOKE_RUC,
-      tax_identifier_type: 'ruc',
+      tax_identifier_type: 'RUC',
       source: 'agent_1',
       pipeline_status: 'new',
       metadata: {
