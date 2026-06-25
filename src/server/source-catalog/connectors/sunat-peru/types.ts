@@ -594,6 +594,102 @@ export type SunatLocalRuc20SnapshotOutput = {
   errors: string[];
 };
 
+// ─── Migo Vault API Spike Types ──────────────────────────────────────────────
+// local/offline/development-only
+// No ejecutar en Vercel ni production. Spike controlado con credencial Vault.
+
+export const MIGO_SOURCE_KEY = 'pe_migo_api';
+export const MIGO_API_BASE = 'https://api.migo.pe';
+export const MIGO_API_PATH = '/api/v1/ruc';
+
+export interface MigoVaultApiSpikeInput {
+  sourceKey?: 'pe_migo_api';
+  requireAck?: boolean;
+  maxRucsToTest?: number;
+  throttleMs?: number;
+  requestTimeoutMs?: number;
+  ruc20SnapshotPath?: string;
+  reportPath?: string;
+  sampleRucs?: string[];
+}
+
+export type MigoVaultApiSpikeStatus =
+  | 'completed'
+  | 'blocked'
+  | 'missing_vault_credential'
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'error';
+
+export interface MigoVaultApiSpikeEnvironment {
+  localOnly: true;
+  vercelDetected: boolean;
+  productionDetected: boolean;
+  ackProvided: boolean;
+  vaultCredentialPresent: boolean;
+}
+
+export interface MigoVaultApiSpikeRequestProfile {
+  attemptedRequests: number;
+  successfulResponses: number;
+  failedResponses: number;
+  stoppedBecause?: string;
+  rateLimitDetected: boolean;
+  averageResponseTimeMs?: number;
+}
+
+export interface MigoVaultApiSpikeDataProfile {
+  containsRuc: boolean;
+  containsLegalName: boolean;
+  containsCiiu: boolean;
+  containsCiiuRev3: boolean;
+  containsCiiuRev4: boolean;
+  containsActivityDescription: boolean;
+  containsSecondaryActivities: boolean;
+  containsTaxpayerStatus: boolean;
+  containsDomicileCondition: boolean;
+  containsAddress: boolean;
+  containsLegalRepresentatives: boolean;
+}
+
+export interface MigoVaultApiSpikeSampleRow {
+  ruc: string;
+  legalName?: string;
+  ciiuCode?: string;
+  ciiuDescription?: string;
+  activityDescription?: string;
+  taxpayerStatus?: string;
+  domicileCondition?: string;
+  redactedPreview: string;
+}
+
+export type MigoVaultApiSpikeVerdict =
+  | 'MIGO_CONFIRMED_FOR_CIIU_ENRICHMENT'
+  | 'MIGO_PARTIAL_PAYLOAD'
+  | 'MIGO_AUTH_FAILED'
+  | 'MIGO_RATE_LIMIT_BLOCKED'
+  | 'MIGO_NOT_USEFUL_FOR_CIIU'
+  | 'UNKNOWN_NEEDS_MANUAL_REVIEW';
+
+export interface MigoVaultApiSpikeOutput {
+  sourceKey: 'pe_migo_api';
+  mode: 'local_vault_api_spike';
+  status: MigoVaultApiSpikeStatus;
+  environment: MigoVaultApiSpikeEnvironment;
+  requestProfile: MigoVaultApiSpikeRequestProfile;
+  dataProfile: MigoVaultApiSpikeDataProfile;
+  persistenceRecommendation: {
+    persistAllowed: string[];
+    persistForbidden: string[];
+    sensitiveFieldsDetected: string[];
+  };
+  sampleRows: MigoVaultApiSpikeSampleRow[];
+  verdict: MigoVaultApiSpikeVerdict;
+  recommendation: string;
+  warnings: string[];
+  errors: string[];
+}
+
 // ─── PRODUCE MiPyme Source Probe Types ───────────────────────────────────────
 // local/offline/development-only
 // No ejecutar en Vercel ni production. No escribe Supabase. No crea candidatos.

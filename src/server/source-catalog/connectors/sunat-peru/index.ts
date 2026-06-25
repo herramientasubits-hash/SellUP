@@ -39,6 +39,8 @@ export { runSunatLocalRuc20Snapshot } from './sunat-local-ruc20-snapshot';
 
 export { runProduceMipymeSourceProbe } from './produce-mipyme-source-probe';
 
+export { runMigoVaultApiSpike } from './migo-vault-api-spike';
+
 export {
   createDefaultPipeConfig,
   createTabConfig,
@@ -137,4 +139,21 @@ export {
   PRODUCE_MIPYME_DATASET_PAGE_URL,
   PRODUCE_MIPYME_CKAN_DATASET_ID,
   DATOSABIERTOS_CKAN_API_BASE,
+} from './types';
+
+export type {
+  MigoVaultApiSpikeInput,
+  MigoVaultApiSpikeOutput,
+  MigoVaultApiSpikeStatus,
+  MigoVaultApiSpikeEnvironment,
+  MigoVaultApiSpikeRequestProfile,
+  MigoVaultApiSpikeDataProfile,
+  MigoVaultApiSpikeSampleRow,
+  MigoVaultApiSpikeVerdict,
+} from './types';
+
+export {
+  MIGO_SOURCE_KEY,
+  MIGO_API_BASE,
+  MIGO_API_PATH,
 } from './types';
