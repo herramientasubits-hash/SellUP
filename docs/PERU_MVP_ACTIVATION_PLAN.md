@@ -5,6 +5,10 @@
 **HEAD inicial:** `dd2aa69` — docs(source-catalog): define Peru MVP strategy without CIIU  
 **Tipo:** Diseño técnico — solo documentación. Sin modificaciones a registry/preflight/wizard.
 
+> ⚠ **SUPERSEDED by Perú.4D** — La implementación de Perú.4B (`pe_web_inferred`) ha
+> sido revertida. Perú usa Agente 1 / Tavily / web IA directamente, sin adapter
+> discovery intermedio. Ver `AUDITORIA-FUENTES-IA.md` §Perú.4D.
+
 ---
 
 ## 1. Decisión técnica propuesta

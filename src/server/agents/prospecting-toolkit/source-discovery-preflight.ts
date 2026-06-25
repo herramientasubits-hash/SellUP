@@ -72,7 +72,7 @@ const COUNTRY_SOURCE_MAP: Record<string, string> = {
   CO: 'co_rues',
   MX: 'mx_denue',
   CL: 'cl_res',
-  PE: 'pe_web_inferred',
+  // PE: Perú no usa fuente estructurada — discovery por Agente 1 / Tavily / web IA
 };
 
 const PREFLIGHT_LIMIT = 5; // máximo hard en este hito

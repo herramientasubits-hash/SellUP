@@ -1747,6 +1747,60 @@ Discovery Perú:
 | No se crearon candidatos | ✅ |
 | Solo documentación creada/actualizada | ✅ |
 
-### Próximo hito
+---
 
-**Perú.4B** — Implementar adapter `pe_web_inferred`, registry, preflight, guardrails y tests. Ver plan detallado en `docs/PERU_MVP_ACTIVATION_PLAN.md` §9.
+### Perú.4D — Corrección arquitectónica (2026-06-25)
+
+**HEAD inicial:** a determinar
+**HEAD final:** a determinar
+
+**Decisión:** Retirar `pe_web_inferred` como fuente/adapter. Perú usa Agente 1 / Tavily / web IA.
+
+#### Cambios
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/server/agents/prospecting-toolkit/source-catalog.ts` | Eliminado `pe_web_inferred` de CATALOG_SOURCES |
+| `src/server/source-catalog/connector-registry.ts` | Eliminado adapter `pe_web_inferred` y su import |
+| `src/server/agents/prospecting-toolkit/source-discovery-preflight.ts` | Eliminado `PE: 'pe_web_inferred'` de COUNTRY_SOURCE_MAP |
+| `src/modules/source-catalog/source-discovery-actions.ts` | Eliminado `pe_web_inferred` de ALLOWED_SOURCE_KEYS |
+| `src/server/source-catalog/connectors/pe-web-inferred/` | Directorio completo eliminado |
+| `src/server/source-catalog/connectors/sunat-peru/peru-inferred-sector-metadata.ts` | Creado — tipos y factory de metadata Perú preservados |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-4d-correction.test.ts` | Creado — tests de verificación |
+
+#### Arquitectura final
+
+```
+Agente 1 / Tavily / Web IA:
+  Discovery de prospectos Perú.
+
+Reglas Perú:
+  sector_source = inferred_web_ai
+  confidence_label = sector_inferred
+  ciiu_status = unavailable_for_mvp
+  human_review_required = true
+
+SUNAT:
+  Validación legal por snapshot/worker offline.
+  No discovery.
+  No API key.
+  No runtime ZIP en Vercel.
+
+Migo:
+  Enriquecimiento/validación legal API puntual.
+  No CIIU.
+  No sector.
+  No discovery.
+```
+
+#### Confirmaciones de seguridad operativa
+
+| Confirmación | Estado |
+|---|---|
+| No se llamó Tavily | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó SUNAT | ✅ |
+| No se escribió Supabase | ✅ |
+| No se crearon candidatos | ✅ |
+| No se tocó Chile/México/Colombia | ✅ |
+| No se hizo force push | ✅ |

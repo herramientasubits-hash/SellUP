@@ -157,3 +157,18 @@ export {
   MIGO_API_BASE,
   MIGO_API_PATH,
 } from './types';
+
+// Perú inferred sector metadata (Agente 1 / Tavily / web IA strategy)
+export {
+  buildEmptyMetadata,
+} from './peru-inferred-sector-metadata';
+export type {
+  PeSectorConfidenceLabel,
+  PeSectorSource,
+  PeCiiuStatus,
+  PeLegalValidationMode,
+  PeLegalValidationStatus,
+  PeInferenceMethod,
+  PeCandidateLegalValidation,
+  PeCandidateMetadata,
+} from './peru-inferred-sector-metadata';

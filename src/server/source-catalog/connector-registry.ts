@@ -14,7 +14,6 @@ import { runClResDryRun } from './connectors/datos-gob-chile/run-cl-res-dry-run'
 import { runDenueCandidateDryRun } from './connectors/denue-mexico/run-denue-candidate-dry-run';
 import { runChileCompraDryRun } from './connectors/chilecompra-chile/run-chilecompra-dry-run';
 import { runSocrataCandidateDryRun } from './connectors/socrata-colombia/run-socrata-candidate-dry-run';
-import { runPeWebInferredDryRun } from './connectors/pe-web-inferred/run-pe-web-inferred-dry-run';
 import { resolveSourceCredential } from './source-connection-resolver';
 import type { NormalizedChileCompraSupplier } from './connectors/chilecompra-chile/types';
 
@@ -299,59 +298,6 @@ const socrataSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
   };
 };
 
-// ── Adapter: pe_web_inferred ────────────────────────────────────────────────────
-//
-// Perú MVP: discovery con sector inferido vía web/IA.
-// NO es conector tradicional — es adapter lógico que orquesta web search + inferencia.
-// NO importa sunat-peru/. NO descarga ZIP. NO llama Migo.
-
-const peWebInferredSourceDiscoveryAdapter: SourceDiscoveryAdapter = async (
-  input: SourceDiscoveryInput,
-): Promise<SourceDiscoveryOutput> => {
-  const report = await runPeWebInferredDryRun({
-    limit: input.limit,
-    criteria: input.criteria,
-  });
-
-  const candidates = report.samples.map((s) => ({
-    name: s.name,
-    legalName: s.legalName,
-    taxId: s.taxId,
-    taxIdentifierType: s.taxIdentifierType,
-    country: s.country,
-    countryCode: s.countryCode,
-    city: s.city,
-    region: s.region,
-    sectorCode: s.sectorCode,
-    sectorDescription: s.sectorDescription,
-    sourcePrimary: s.sourcePrimary,
-    metadata: s.metadata as unknown as Record<string, unknown>,
-    reviewFlags: s.reviewFlags,
-    qualityDecision: s.qualityDecision,
-  }));
-
-  return {
-    sourceKey: 'pe_web_inferred',
-    sourceProvider: 'pe_web_inferred',
-    countryCode: 'PE',
-    mode: input.mode ?? 'dry_run',
-    recordsRead: report.recordsRead,
-    candidates,
-    acceptedCount: report.acceptedCount,
-    lowPriorityCount: report.lowPriorityCount,
-    filteredOutCount: report.filteredOutCount,
-    warnings: report.warnings,
-    errors: report.errors,
-    qualitySummary: {
-      withTaxId: candidates.filter((c) => c.taxId != null).length,
-      withSector: candidates.filter((c) => c.sectorCode != null).length,
-      sectorUnknown: candidates.filter((c) => c.sectorCode == null).length,
-      withRegion: candidates.filter((c) => c.region != null).length,
-      withWebsite: candidates.filter((c) => c.metadata?.website != null).length,
-    },
-  };
-};
-
 // ── Registry ───────────────────────────────────────────────────────────────────
 
 export const SOURCE_DISCOVERY_REGISTRY: Record<string, SourceDiscoveryAdapter> = {
@@ -359,5 +305,4 @@ export const SOURCE_DISCOVERY_REGISTRY: Record<string, SourceDiscoveryAdapter> =
   mx_denue: denueSourceDiscoveryAdapter,
   // cl_chilecompra: descartado del MVP (requiere ticket, cobertura B2G limitada)
   co_rues: socrataSourceDiscoveryAdapter,
-  pe_web_inferred: peWebInferredSourceDiscoveryAdapter,
 };
