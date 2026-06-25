@@ -67,6 +67,7 @@ import type { IcpSizeGateBatchSummary } from './icp-size-gate';
 import {
   resolveEmployeeSizeForIcpGate,
   extractHubSpotMatchedEmployees,
+  extractCandidateCompanySize,
 } from './employee-size-resolver';
 import type {
   RichProfileEnrichmentConfig,
@@ -1643,12 +1644,12 @@ export async function writeProspectingCandidates(
         })
       : richProfile;
 
-    // ── ICP Size Gate (v1.16J) ────────────────────────────────────────────────
+    // ── ICP Size Gate (v1.16J / v1.16J.1) ────────────────────────────────────
     // Resolver central: prioriza rich_profile > company_size > HubSpot employees.
     // Corre DESPUÉS del enriquecimiento para usar el rango real si está disponible.
     const resolvedEmployeeSize = resolveEmployeeSizeForIcpGate({
       richProfileSize: mergedRichProfile.size,
-      candidateCompanySize: null, // not in ProspectingPipelineCandidate
+      candidateCompanySize: extractCandidateCompanySize(candidate),
       matchedHubspotEmployees: extractHubSpotMatchedEmployees(hubspotMatch?.raw),
       threshold: 200,
     });

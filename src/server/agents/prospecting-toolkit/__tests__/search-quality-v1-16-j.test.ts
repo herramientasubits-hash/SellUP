@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import {
   resolveEmployeeSizeForIcpGate,
   extractHubSpotMatchedEmployees,
+  extractCandidateCompanySize,
 } from '../employee-size-resolver';
 import { evaluateIcpSizeGate } from '../icp-size-gate';
 import { DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG } from '../rich-profile-enrichment';
@@ -498,5 +499,192 @@ describe('extractHubSpotMatchedEmployees — defensivo', () => {
 
   it('also checks numberOfEmployees (camelCase variant)', () => {
     assert.equal(extractHubSpotMatchedEmployees({ numberOfEmployees: '300' }), 300);
+  });
+});
+
+// ─── Helpers para F18–F25 ─────────────────────────────────────────────────────
+
+function resolveViaExtractor(
+  candidateObj: unknown,
+  richProfileSize?: Parameters<typeof resolveEmployeeSizeForIcpGate>[0]['richProfileSize'],
+  matchedHubspotEmployees?: number | null,
+) {
+  const extracted = extractCandidateCompanySize(candidateObj);
+  const resolved = resolveEmployeeSizeForIcpGate({
+    richProfileSize,
+    candidateCompanySize: extracted,
+    matchedHubspotEmployees: matchedHubspotEmployees ?? null,
+  });
+  const gateResult = evaluateIcpSizeGate(resolved.icpInput);
+  return { extracted, resolved, gateResult };
+}
+
+// ─── F18 — candidate.company_size="10001+" ────────────────────────────────────
+
+describe('F18 — candidate.company_size="10001+" → selected_source=candidate_company_size, gate pass', () => {
+  it('extractCandidateCompanySize returns "10001+"', () => {
+    assert.equal(extractCandidateCompanySize({ company_size: '10001+' }), '10001+');
+  });
+
+  it('selectedSource = candidate_company_size', () => {
+    const { resolved } = resolveViaExtractor({ company_size: '10001+' });
+    assert.equal(resolved.selectedSource, 'candidate_company_size');
+  });
+
+  it('gate decision = pass', () => {
+    const { gateResult } = resolveViaExtractor({ company_size: '10001+' });
+    assert.equal(gateResult.decision, 'pass');
+  });
+});
+
+// ─── F19 — candidate.company_size="51-200" ────────────────────────────────────
+
+describe('F19 — candidate.company_size="51-200" → selected_source=candidate_company_size, gate block', () => {
+  it('selectedSource = candidate_company_size', () => {
+    const { resolved } = resolveViaExtractor({ company_size: '51-200' });
+    assert.equal(resolved.selectedSource, 'candidate_company_size');
+  });
+
+  it('gate decision = block', () => {
+    const { gateResult } = resolveViaExtractor({ company_size: '51-200' });
+    assert.equal(gateResult.decision, 'block');
+  });
+});
+
+// ─── F20 — candidate.companySize="201-500" ────────────────────────────────────
+
+describe('F20 — candidate.companySize="201-500" → selected_source=candidate_company_size, gate pass', () => {
+  it('extractCandidateCompanySize reads camelCase field', () => {
+    assert.equal(extractCandidateCompanySize({ companySize: '201-500' }), '201-500');
+  });
+
+  it('selectedSource = candidate_company_size', () => {
+    const { resolved } = resolveViaExtractor({ companySize: '201-500' });
+    assert.equal(resolved.selectedSource, 'candidate_company_size');
+  });
+
+  it('gate decision = pass (min=201 > threshold 200)', () => {
+    const { gateResult } = resolveViaExtractor({ companySize: '201-500' });
+    assert.equal(gateResult.decision, 'pass');
+  });
+});
+
+// ─── F21 — candidate.employee_count=500 ──────────────────────────────────────
+
+describe('F21 — candidate.employee_count=500 → selected_source=candidate_company_size, gate pass', () => {
+  it('extractCandidateCompanySize reads numeric employee_count', () => {
+    const val = extractCandidateCompanySize({ employee_count: 500 });
+    assert.equal(val, '500');
+  });
+
+  it('selectedSource = candidate_company_size', () => {
+    const { resolved } = resolveViaExtractor({ employee_count: 500 });
+    assert.equal(resolved.selectedSource, 'candidate_company_size');
+  });
+
+  it('gate decision = pass', () => {
+    const { gateResult } = resolveViaExtractor({ employee_count: 500 });
+    assert.equal(gateResult.decision, 'pass');
+  });
+});
+
+// ─── F22 — candidate.scoring.metadata.company_size="51-200" ──────────────────
+
+describe('F22 — candidate.scoring.metadata.company_size="51-200" → selected_source=candidate_company_size, gate block', () => {
+  it('extractCandidateCompanySize reads nested scoring.metadata.company_size', () => {
+    const val = extractCandidateCompanySize({
+      scoring: { metadata: { company_size: '51-200' } },
+    });
+    assert.equal(val, '51-200');
+  });
+
+  it('selectedSource = candidate_company_size', () => {
+    const { resolved } = resolveViaExtractor({
+      scoring: { metadata: { company_size: '51-200' } },
+    });
+    assert.equal(resolved.selectedSource, 'candidate_company_size');
+  });
+
+  it('gate decision = block', () => {
+    const { gateResult } = resolveViaExtractor({
+      scoring: { metadata: { company_size: '51-200' } },
+    });
+    assert.equal(gateResult.decision, 'block');
+  });
+});
+
+// ─── F23 — company size ausente → fallback a HubSpot o unknown ───────────────
+
+describe('F23 — no company size fields → falls back to HubSpot or unknown', () => {
+  it('extractor returns null when no size field present', () => {
+    assert.equal(extractCandidateCompanySize({ name: 'Acme', website: 'acme.com' }), null);
+  });
+
+  it('falls back to HubSpot when hubspot employees available', () => {
+    const { resolved } = resolveViaExtractor(
+      { name: 'Acme' },
+      { estimated_range: null, status: 'unknown' },
+      500,
+    );
+    assert.equal(resolved.selectedSource, 'hubspot_number_of_employees');
+  });
+
+  it('selectedSource = unknown when no source has data', () => {
+    const { resolved } = resolveViaExtractor({ name: 'Acme' });
+    assert.equal(resolved.selectedSource, 'unknown');
+  });
+});
+
+// ─── F24 — rich_profile gana sobre candidate.company_size ────────────────────
+
+describe('F24 — rich_profile.size.estimated_range="201-500" + candidate.company_size="51-200" → rich_profile wins, pass', () => {
+  it('selectedSource = rich_profile_size', () => {
+    const { resolved } = resolveViaExtractor(
+      { company_size: '51-200' },
+      { estimated_range: '201-500', status: 'estimated' },
+    );
+    assert.equal(resolved.selectedSource, 'rich_profile_size');
+  });
+
+  it('selectedValue = "201-500" (not "51-200")', () => {
+    const { resolved } = resolveViaExtractor(
+      { company_size: '51-200' },
+      { estimated_range: '201-500', status: 'estimated' },
+    );
+    assert.equal(resolved.selectedValue, '201-500');
+  });
+
+  it('gate decision = pass', () => {
+    const { gateResult } = resolveViaExtractor(
+      { company_size: '51-200' },
+      { estimated_range: '201-500', status: 'estimated' },
+    );
+    assert.equal(gateResult.decision, 'pass');
+  });
+});
+
+// ─── F25 — no muta rich_profile.size.estimated_range ────────────────────────
+
+describe('F25 — candidate.company_size="10001+" + rich_profile.size.estimated_range=null → rich_profile not mutated', () => {
+  it('rich_profile.size.estimated_range remains null after resolution', () => {
+    const richProfileSize = { estimated_range: null as string | null, status: 'unknown' as const };
+    resolveViaExtractor({ company_size: '10001+' }, richProfileSize);
+    assert.equal(richProfileSize.estimated_range, null);
+  });
+
+  it('selectedValue = "10001+" from candidate.company_size', () => {
+    const { resolved } = resolveViaExtractor(
+      { company_size: '10001+' },
+      { estimated_range: null, status: 'unknown' },
+    );
+    assert.equal(resolved.selectedValue, '10001+');
+  });
+
+  it('selectedSource = candidate_company_size', () => {
+    const { resolved } = resolveViaExtractor(
+      { company_size: '10001+' },
+      { estimated_range: null, status: 'unknown' },
+    );
+    assert.equal(resolved.selectedSource, 'candidate_company_size');
   });
 });

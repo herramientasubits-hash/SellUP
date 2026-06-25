@@ -89,6 +89,85 @@ function parseHubSpotEmployeeCount(raw: unknown): number | null {
   return null;
 }
 
+// ─── Extractor defensivo de company size desde candidato ─────────────────────
+
+/**
+ * Extrae el tamaño de empresa de un candidato con forma desconocida.
+ * Busca en múltiples paths defensivamente; retorna null si nada es usable.
+ * No lanza errores ni muta la entrada.
+ *
+ * Prioridad interna de paths:
+ *   company_size → companySize → employee_count → employeeCount
+ *   → company.size / company.employee_count
+ *   → metadata.company_size / metadata.employee_count
+ *   → scoring.metadata.company_size / scoring.metadata.employee_count
+ *   → rich_profile.size.estimated_range
+ */
+export function extractCandidateCompanySize(candidate: unknown): string | number | null {
+  if (!candidate || typeof candidate !== 'object') return null;
+  const c = candidate as Record<string, unknown>;
+
+  // Direct top-level fields
+  const directValues = [
+    c['company_size'],
+    c['companySize'],
+    c['employee_count'],
+    c['employeeCount'],
+  ];
+  for (const val of directValues) {
+    const n = normalizeCompanySize(val as string | number | null | undefined);
+    if (n !== null) return n;
+  }
+
+  // company sub-object
+  const company = c['company'];
+  if (company && typeof company === 'object') {
+    const co = company as Record<string, unknown>;
+    for (const val of [co['size'], co['employee_count'], co['employeeCount']]) {
+      const n = normalizeCompanySize(val as string | number | null | undefined);
+      if (n !== null) return n;
+    }
+  }
+
+  // metadata sub-object
+  const metadata = c['metadata'];
+  if (metadata && typeof metadata === 'object') {
+    const m = metadata as Record<string, unknown>;
+    for (const val of [m['company_size'], m['employee_count'], m['employeeCount']]) {
+      const n = normalizeCompanySize(val as string | number | null | undefined);
+      if (n !== null) return n;
+    }
+  }
+
+  // scoring.metadata sub-object
+  const scoring = c['scoring'];
+  if (scoring && typeof scoring === 'object') {
+    const s = scoring as Record<string, unknown>;
+    const sm = s['metadata'];
+    if (sm && typeof sm === 'object') {
+      const smObj = sm as Record<string, unknown>;
+      for (const val of [smObj['company_size'], smObj['employee_count']]) {
+        const n = normalizeCompanySize(val as string | number | null | undefined);
+        if (n !== null) return n;
+      }
+    }
+  }
+
+  // rich_profile.size.estimated_range (last resort within candidate fields)
+  const rp = c['rich_profile'];
+  if (rp && typeof rp === 'object') {
+    const rpObj = rp as Record<string, unknown>;
+    const sz = rpObj['size'];
+    if (sz && typeof sz === 'object') {
+      const szObj = sz as Record<string, unknown>;
+      const n = normalizeCompanySize(szObj['estimated_range'] as string | null | undefined);
+      if (n !== null) return n;
+    }
+  }
+
+  return null;
+}
+
 // ─── Extractor defensivo de HubSpot employees desde raw ──────────────────────
 
 /**

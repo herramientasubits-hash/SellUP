@@ -381,6 +381,14 @@ export type ProspectingPipelineCandidate = {
   websiteVerification: WebsiteVerificationOutput | null;
   duplicateCheck: DuplicateCheckResult | null;
   scoring: CandidateScoringOutput;
+  /** Company size hint — snake_case variant (v1.16J.1). Used by ICP Size Gate resolver (Fuente 2). */
+  company_size?: string | number | null;
+  /** Company size hint — camelCase variant (v1.16J.1). Used by ICP Size Gate resolver (Fuente 2). */
+  companySize?: string | number | null;
+  /** Employee count hint — snake_case variant (v1.16J.1). Used by ICP Size Gate resolver (Fuente 2). */
+  employee_count?: number | string | null;
+  /** Employee count hint — camelCase variant (v1.16J.1). Used by ICP Size Gate resolver (Fuente 2). */
+  employeeCount?: number | string | null;
   /** Present when the candidate was created via the LLM evaluator pipeline (Hito 16H). */
   llmEvaluation?: import('./llm-evaluator-types').LLMEvaluationMetadata | null;
   /** Query trazabilidad: identifica qué query generó este candidato (Hito 16Z.2). */
