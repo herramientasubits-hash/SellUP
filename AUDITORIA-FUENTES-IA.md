@@ -1804,3 +1804,100 @@ Migo:
 | No se crearon candidatos | ✅ |
 | No se tocó Chile/México/Colombia | ✅ |
 | No se hizo force push | ✅ |
+
+---
+
+## Hito cerrado — Perú.5A: Base técnica SUNAT snapshot legal lookup
+
+**Fecha:** 2026-06-25
+**HEAD inicial:** `c879381` — fix(source-catalog): treat Peru web discovery as Agent 1 strategy (Perú.4D)
+
+**Depende de:** Perú.4D (cerrado)
+
+### Objetivo
+
+Crear la base técnica mínima para que SUNAT funcione como lookup legal de Perú. Sin importar datos reales todavía.
+
+### Artefactos creados
+
+| Archivo | Cambio |
+|---------|--------|
+| `supabase/migrations/067_peru_sunat_ruc_snapshot.sql` | Tabla `peru_sunat_ruc_snapshot` con índices, RLS, trigger updated_at |
+| `src/server/services/peru-sunat-legal-lookup.ts` | Servicio server-side de lookup por RUC. Funciones: `lookupPeruSunatByRuc`, `validatePeruCandidateLegalStatus`, `buildLegalLookupResult` (pura) |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5a-sunat-legal-lookup.test.ts` | 14+ tests: estados de validación, campos prohibidos (CIIU/sector), guardrails de código fuente |
+| `package.json` | Scripts `test:sunat-peru-legal-lookup` + nuevo test en `test:sunat-peru` |
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | Sección §16 Perú.5A |
+
+### Contrato de lookup (tipos exportados)
+
+```typescript
+type PeruLegalValidationStatus =
+  | 'verified'           // RUC ACTIVO + HABIDO
+  | 'not_found'          // RUC válido pero ausente del snapshot
+  | 'flagged'            // RUC inactivo, no habido, o formato inválido
+  | 'pending_snapshot_validation'
+  | 'snapshot_unavailable'; // Supabase no disponible
+
+type PeruLegalValidationReason =
+  | 'ruc_found_active_habido'
+  | 'ruc_not_found_in_snapshot'
+  | 'taxpayer_inactive'
+  | 'domicile_not_habido'
+  | 'snapshot_not_loaded'
+  | 'invalid_ruc_format';
+```
+
+### Tabla Supabase creada
+
+```
+peru_sunat_ruc_snapshot
+├── id (uuid PK)
+├── ruc (text UNIQUE NOT NULL)         ← índice primario de lookup
+├── legal_name (text NOT NULL)
+├── taxpayer_status (text)
+├── domicile_condition (text)
+├── ubigeo, department, province, district, address (text)
+├── source_key (text DEFAULT 'pe_sunat_bulk')
+├── snapshot_period (text)
+├── snapshot_loaded_at (timestamptz)
+├── is_active (boolean)                 ← índice compuesto con is_habido
+├── is_habido (boolean)
+├── raw_line_hash (text)
+└── created_at, updated_at (timestamptz)
+```
+
+RLS: solo `service_role`. Sin acceso público ni autenticado.
+
+### Guardrails validados en tests
+
+| Guardrail | Test |
+|-----------|------|
+| No lee `.tmp/sunat-peru` | Test 09 |
+| No referencia `padron_reducido_ruc.zip` | Test 10 |
+| No descarga desde `www2.sunat` | Test 11 |
+| No llama Migo API | Test 12 |
+| No llama Tavily | Test 13 |
+| No inserta en `prospect_candidates`/`prospect_batches` | Test 14 |
+| Resultado no contiene campo `ciiu` | Test 07 |
+| Resultado no contiene campo `sector` | Test 08 |
+
+### Confirmaciones de seguridad operativa (Perú.5A)
+
+| Confirmación | Estado |
+|---|---|
+| No se importaron los 851K registros reales | ✅ |
+| No se subió snapshot real | ✅ |
+| No se ejecutó worker masivo | ✅ |
+| No se descargó SUNAT | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon batches | ✅ |
+| No se leyó `.tmp` | ✅ |
+| No se tocó Chile/México/Colombia | ✅ |
+| No se hizo force push | ✅ |
+
+### Siguiente hito recomendado
+
+**Perú.5B** — Construir worker/importer local offline que lea `.tmp/sunat-peru/ruc20-filtered-snapshot.txt` y popule `peru_sunat_ruc_snapshot` en Supabase. Una vez cargado el snapshot, `lookupPeruSunatByRuc` estará operativo sin cambios adicionales.

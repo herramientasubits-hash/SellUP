@@ -532,3 +532,72 @@ A2 → A3 → A5 → A6 → B1
 | `git diff --check` | Sin espacios en blanco conflictivos |
 | `git diff --name-only` | Solo archivos documentales |
 | `git status --short` | Solo `docs/` y `AUDITORIA-FUENTES-IA.md` |
+
+---
+
+## 16. Hito Perú.5A — Base técnica SUNAT legal lookup
+
+**HEAD inicial:** `c879381` — fix(source-catalog): treat Peru web discovery as Agent 1 strategy (Perú.4D)
+
+### Decisión implementada
+
+SUNAT opera como validación legal por snapshot offline. El lookup es server-side exclusivamente vía Supabase. Ningún código Vercel descarga ZIP ni lee filesystem.
+
+### Flujo de lookup implementado
+
+```text
+Worker/local job procesa archivo SUNAT fuera de Vercel
+→ normaliza RUC20
+→ carga snapshot resumido en Supabase (peru_sunat_ruc_snapshot)
+→ SellUp consulta por RUC desde server-side (peru-sunat-legal-lookup.ts)
+→ candidato Perú recibe legal_validation_status
+```
+
+### Artefactos creados
+
+| Artefacto | Descripción |
+|-----------|-------------|
+| `supabase/migrations/067_peru_sunat_ruc_snapshot.sql` | Tabla snapshot con índices, RLS, trigger updated_at |
+| `src/server/services/peru-sunat-legal-lookup.ts` | Servicio server-side: `lookupPeruSunatByRuc`, `validatePeruCandidateLegalStatus`, `buildLegalLookupResult` |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5a-sunat-legal-lookup.test.ts` | 14 tests: estados, guardrails de código, campos prohibidos |
+
+### Estados de validación legal
+
+| Status | Reason | Condición |
+|--------|--------|-----------|
+| `verified` | `ruc_found_active_habido` | RUC en snapshot + ACTIVO + HABIDO |
+| `not_found` | `ruc_not_found_in_snapshot` | RUC válido pero no en snapshot |
+| `flagged` | `taxpayer_inactive` | RUC en snapshot pero BAJA/INACTIVO |
+| `flagged` | `domicile_not_habido` | RUC ACTIVO pero domicilio NO HABIDO |
+| `flagged` | `invalid_ruc_format` | RUC no tiene 11 dígitos numéricos |
+| `snapshot_unavailable` | `snapshot_not_loaded` | Supabase no disponible o tabla vacía |
+
+### Guardrails implementados
+
+1. Ningún código de este servicio descarga `padron_reducido_ruc.zip`
+2. Ningún código lee `.tmp/sunat-peru/` en filesystem
+3. El lookup lee solo desde Supabase `peru_sunat_ruc_snapshot`
+4. No llama Migo API (`api.migo.pe`)
+5. No llama Tavily
+6. No llama SUNAT directamente (`www2.sunat`)
+7. No inserta en `prospect_candidates` ni `prospect_batches`
+8. No devuelve CIIU ni sector_inferred
+9. RUC con formato inválido → `flagged / invalid_ruc_format` (no crashea)
+10. Supabase no configurado → `snapshot_unavailable` (no crashea)
+
+### Confirmaciones de seguridad operativa — Perú.5A
+
+| Confirmación | Estado |
+|---|---|
+| No se importaron los 851K/2.3M registros reales | ✅ |
+| No se subió el snapshot real | ✅ |
+| No se ejecutó worker masivo | ✅ |
+| No se descargó SUNAT | ✅ |
+| No se descomprimió SUNAT | ✅ |
+| No se llamó SUNAT API | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se crearon candidatos | ✅ |
+| No se crearon batches | ✅ |
+| No se tocó Chile / México / Colombia | ✅ |
+| No se hizo force push | ✅ |
