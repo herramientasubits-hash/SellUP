@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { AIButton } from '@/components/ai/ai-button';
 import {
   Globe,
   Link2,
@@ -44,7 +43,6 @@ import {
   type ReviewStatus,
   type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
-import { evaluateCandidateEnrichmentNeed } from '@/server/prospect-batches/candidate-enrichment-eligibility';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-block';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
@@ -428,18 +426,6 @@ interface CandidateDetailSheetProps {
   onCandidateUpdated?: (updated: ProspectCandidateWithReviewer) => void;
 }
 
-interface FailedEnrichmentDetails {
-  status?: string;
-  failed_at?: string;
-  provider?: string | null;
-  display_name?: string | null;
-  provider_model_id?: string | null;
-  error_code?: string | null;
-  error_message?: string | null;
-  raw_error_safe?: Record<string, unknown> | null;
-  eligibility?: unknown;
-}
-
 export function CandidateDetailSheet({
   candidate,
   open,
@@ -447,11 +433,6 @@ export function CandidateDetailSheet({
   onCandidateUpdated,
 }: CandidateDetailSheetProps) {
   const router = useRouter();
-
-  const [isEnriching, setIsEnriching] = React.useState(false);
-  const [enrichError, setEnrichError] = React.useState<string | null>(null);
-  const [enrichErrorCode, setEnrichErrorCode] = React.useState<string | null>(null);
-  const [enrichErrorDetails, setEnrichErrorDetails] = React.useState<FailedEnrichmentDetails | null>(null);
 
   const [isLookingUpTaxId, setIsLookingUpTaxId] = React.useState(false);
   const [taxIdLookupError, setTaxIdLookupError] = React.useState<string | null>(null);
@@ -477,10 +458,6 @@ export function CandidateDetailSheet({
   // Depends on a stable primitive (candidate.id); no cascading render risk.
   /* eslint-disable react-hooks/set-state-in-effect */
   React.useEffect(() => {
-    setIsEnriching(false);
-    setEnrichError(null);
-    setEnrichErrorCode(null);
-    setEnrichErrorDetails(null);
     setIsLookingUpTaxId(false);
     setTaxIdLookupError(null);
     setTaxIdLookupResult(null);
@@ -492,35 +469,6 @@ export function CandidateDetailSheet({
     setShowAllAngles(false);
   }, [candidate?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
-
-  const handleEnrich = async () => {
-    if (!candidate) return;
-    setIsEnriching(true);
-    setEnrichError(null);
-    setEnrichErrorCode(null);
-    setEnrichErrorDetails(null);
-    try {
-      const response = await fetch('/api/prospect-candidates/enrich', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ candidateId: candidate.id }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        setEnrichError(data.error || 'Error al enriquecer candidato');
-        setEnrichErrorCode(data.errorCode || null);
-        setEnrichErrorDetails(data.errorDetails || null);
-      } else {
-        router.refresh();
-      }
-    } catch (err) {
-      setEnrichError(err instanceof Error ? err.message : 'Error de red al enriquecer candidato');
-    } finally {
-      setIsEnriching(false);
-    }
-  };
 
   const handleLookupTaxIdentifier = async () => {
     if (!candidate) return;
@@ -1838,112 +1786,142 @@ export function CandidateDetailSheet({
             </SurfaceCard>
             </CollapsibleSection>
 
-            {/* Enriquecimiento Comercial */}
-            <CollapsibleSection title="Enriquecimiento">
+            {/* Trazabilidad del Enrichment Automático — v1.16K-H */}
+            <CollapsibleSection title="Enrichment Automático">
             <SurfaceCard>
-              <SurfaceCardHeader title="Enriquecimiento" />
+              <SurfaceCardHeader
+                title="Enrichment Automático"
+                description="El sistema enriquece candidatos automáticamente antes de presentarlos para revisión. No se requiere acción manual."
+              />
               {(() => {
-                const eligibility = evaluateCandidateEnrichmentNeed(candidate);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const enrichmentData = candidate.metadata?.enrichment as any;
-                const isAutoEnriching = enrichmentData?.status === 'enriching' || enrichmentData?.status === 'pending';
+                const preReviewMeta = candidate.metadata?.pre_review_enrichment as Record<string, unknown> | undefined;
+                const sourceEnrichMeta = candidate.metadata?.source_enrichment as Record<string, unknown> | undefined;
+                const linkedinEnrichMeta = candidate.metadata?.linkedin_enrichment as Record<string, unknown> | undefined;
+                const reviewFlagsArr = (candidate.review_flags as string[] | null) ?? [];
 
-                if (isEnriching || isAutoEnriching) {
-                  return (
-                    <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-4 flex flex-col items-center justify-center gap-3 text-center">
-                      <Loader2 className="h-6 w-6 text-su-brand animate-spin" />
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-su-brand">
-                          {enrichmentData?.status === 'pending' ? 'Enriquecimiento pendiente…' : 'Enriqueciendo candidato…'}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground/80">
-                          {enrichmentData?.status === 'pending'
-                            ? 'Este candidato está en la cola para enriquecimiento automático.'
-                            : 'Evaluando perfil comercial y señales con IA.'}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                }
+                const STATUS_LABELS: Record<string, string> = {
+                  attempted: 'Intentado',
+                  no_match: 'Sin coincidencia',
+                  skipped: 'Omitido',
+                  partial: 'Parcial',
+                  no_sources: 'Sin fuentes configuradas',
+                  completed: 'Completado',
+                  error: 'Error',
+                };
 
-                const hasEnrichError = !!enrichError || (enrichmentData && enrichmentData.status === 'failed');
-                const activeErrorCode = enrichErrorCode || enrichmentData?.error_code || null;
-                const activeErrorMessage = enrichError || enrichmentData?.error_message || null;
+                const FLAG_LABELS: Record<string, string> = {
+                  no_tax_id: 'Sin identificador fiscal',
+                  size_unknown: 'Tamaño desconocido',
+                  enrichment_partial: 'Enrichment parcial',
+                  source_enrichment_no_match: 'Fuente país sin coincidencia',
+                  possible_intermediary: 'Posible intermediario',
+                  possible_content_site: 'Posible sitio de contenido',
+                  not_recommended_for_approval: 'No recomendado para aprobación',
+                  limited_public_data: 'Datos públicos limitados',
+                  liquidation_signal: 'Señal de liquidación',
+                };
 
-                if (hasEnrichError) {
-                  const isModelError = activeErrorCode === 'provider_model_not_found' || activeErrorCode === 'all_ai_providers_failed' || activeErrorCode === 'no_ai_providers_configured';
-                  const friendlyMessage = isModelError
-                    ? 'No fue posible ejecutar el enriquecimiento con los proveedores configurados. Revisa Configuración > Proveedores de IA.'
-                    : (activeErrorMessage || 'Fallo en enriquecimiento');
+                const hasAnyMeta = preReviewMeta ?? sourceEnrichMeta ?? linkedinEnrichMeta;
 
-                  return (
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-                        <div className="space-y-1 flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-destructive">Fallo en enriquecimiento</p>
-                          <p className="text-xs text-muted-foreground leading-normal">{friendlyMessage}</p>
+                return (
+                  <div className="space-y-4">
+                    {/* pre_review_enrichment status */}
+                    {preReviewMeta && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Estado pre-review</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-semibold ${
+                            preReviewMeta.status === 'attempted'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : preReviewMeta.status === 'partial'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-muted text-muted-foreground/60'
+                          }`}>
+                            {STATUS_LABELS[preReviewMeta.status as string] ?? String(preReviewMeta.status)}
+                          </span>
+                          {!!preReviewMeta.produced_tax_id && (
+                            <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">✓ Tax ID</span>
+                          )}
+                          {!!preReviewMeta.produced_size && (
+                            <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">✓ Tamaño</span>
+                          )}
+                          {!!preReviewMeta.produced_linkedin && (
+                            <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">✓ LinkedIn</span>
+                          )}
                         </div>
-                      </div>
-                      <Button onClick={handleEnrich} size="sm" className="w-full bg-destructive text-white hover:bg-destructive/90 gap-1.5" type="button">
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        Reintentar enriquecimiento
-                      </Button>
-                    </div>
-                  );
-                }
 
-                if (enrichmentData?.status === 'completed') {
-                  const providerDisplay = enrichmentData.provider === 'anthropic' ? 'Claude' : enrichmentData.provider === 'google' ? 'Google Gemini' : enrichmentData.provider === 'openai' ? 'OpenAI' : enrichmentData.provider;
-                  const modelDisplay = enrichmentData.display_name || enrichmentData.model;
-                  const usage = enrichmentData.usage || {};
-                  return (
-                    <div className="space-y-3">
-                      {enrichmentData.fallback_used && (
-                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-start gap-2 text-xs text-emerald-800 dark:text-emerald-300">
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <p className="font-semibold">Enriquecido con fallback ({providerDisplay}).</p>
-                        </div>
-                      )}
-                      <div className="flex flex-col gap-1.5 text-[9px] text-muted-foreground/60 bg-muted/20 p-2.5 rounded-lg">
-                        <div className="flex items-center justify-between">
-                          <span>Proveedor: {providerDisplay} ({modelDisplay})</span>
-                          <span>Fecha: {new Date(enrichmentData.enriched_at).toLocaleDateString('es-CO')}</span>
-                        </div>
-                        {usage?.estimated_cost !== undefined && (
-                          <div className="text-right">
-                            Coste estimado: <span className="font-mono">${Number(usage.estimated_cost).toFixed(5)} USD</span>
+                        {/* Source attempts */}
+                        {Array.isArray(preReviewMeta.sources) && (preReviewMeta.sources as unknown[]).length > 0 && (
+                          <div className="space-y-1 pt-1">
+                            {(preReviewMeta.sources as Array<Record<string, unknown>>).map((src, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-[10px] rounded-lg border border-border/30 bg-muted/20 px-2.5 py-1.5">
+                                <span className="text-foreground/80 font-mono">{String(src.source ?? '')}</span>
+                                <span className={`font-medium ${
+                                  src.status === 'attempted'
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : src.status === 'no_match'
+                                    ? 'text-amber-600 dark:text-amber-400'
+                                    : 'text-muted-foreground/60'
+                                }`}>
+                                  {STATUS_LABELS[src.status as string] ?? String(src.status ?? '')}
+                                  {src.reason ? ` — ${String(src.reason)}` : ''}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
-                      <AIButton onClick={handleEnrich} variant="outline" size="sm" loading={isEnriching} leftIcon={RefreshCw} type="button" className="w-full">
-                        Re-enriquecer candidato
-                      </AIButton>
-                    </div>
-                  );
-                }
+                    )}
 
-                if (eligibility.needs_enrichment) {
-                  return (
-                    <div className="space-y-4">
-                      <div className="flex items-start gap-2.5">
-                        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-foreground/90">Faltan datos para aprobación.</p>
-                          <p className="text-[11px] text-muted-foreground">Este candidato puede revisarse comercialmente, pero necesita enriquecimiento antes de convertirse en cuenta.</p>
+                    {/* source_enrichment flat summary (when pre_review_enrichment absent) */}
+                    {!preReviewMeta && sourceEnrichMeta && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Fuente país</p>
+                        <div className="text-xs text-muted-foreground font-mono bg-muted/20 rounded-lg px-2.5 py-1.5">
+                          {JSON.stringify(sourceEnrichMeta, null, 0).slice(0, 120)}
                         </div>
                       </div>
-                      <AIButton onClick={handleEnrich} size="sm" loading={isEnriching} type="button" className="w-full">
-                        Enriquecer candidato
-                      </AIButton>
-                    </div>
-                  );
-                }
+                    )}
 
-                return (
-                  <div className="rounded-xl border border-border/30 bg-muted/10 p-3.5 text-center flex items-center justify-center gap-2">
-                    <Info className="h-4 w-4 text-muted-foreground/60 shrink-0" />
-                    <p className="text-xs text-muted-foreground/80">Este candidato ya cuenta con información comercial suficiente.</p>
+                    {/* LinkedIn enrichment status */}
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">LinkedIn empresa</p>
+                      <span className="text-xs text-muted-foreground/70">
+                        {linkedinEnrichMeta?.status
+                          ? (STATUS_LABELS[linkedinEnrichMeta.status as string] ?? String(linkedinEnrichMeta.status))
+                          : 'No ejecutado / no configurado'}
+                      </span>
+                    </div>
+
+                    {/* review_flags */}
+                    {reviewFlagsArr.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Flags de revisión</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {reviewFlagsArr.map((flag) => (
+                            <span
+                              key={flag}
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-semibold ${
+                                flag === 'possible_content_site' || flag === 'possible_intermediary' || flag === 'not_recommended_for_approval' || flag === 'liquidation_signal'
+                                  ? 'bg-destructive/10 text-destructive'
+                                  : flag === 'no_tax_id' || flag === 'size_unknown' || flag === 'enrichment_partial'
+                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                  : 'bg-muted text-muted-foreground/60'
+                              }`}
+                            >
+                              {FLAG_LABELS[flag] ?? flag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {!hasAnyMeta && reviewFlagsArr.length === 0 && (
+                      <div className="rounded-xl border border-border/30 bg-muted/10 p-3.5 flex items-center justify-center gap-2">
+                        <Info className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+                        <p className="text-xs text-muted-foreground/80">No ejecutado o no configurado para este candidato.</p>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

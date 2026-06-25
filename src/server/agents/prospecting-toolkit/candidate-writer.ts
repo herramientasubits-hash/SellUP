@@ -23,6 +23,7 @@ import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-
 import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate";
 import type { BusinessFitResult } from "./business-fit-gate";
 import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
+import { evaluateContentIntermediaryGate } from "./content-intermediary-gate";
 import { evaluateCompanyOwnership, isBlockedByCompanyOwnership } from "./company-ownership-gate";
 import { normalizeProspectCompanyName } from "./company-name-normalizer";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
@@ -997,6 +998,31 @@ export async function writeProspectingCandidates(
       skipped.push({ name: candidate.name, reason: 'content_page', searchTrace: candidate.searchTrace ?? undefined });
       precisionGate.contentPageCount++;
       continue;
+    }
+
+    // ── Content/intermediary gate (Hito v1.16K-H) ────────────────────────────
+    // Bloquea sitios de contenido editorial (blogs) e intermediarios/brokers
+    // que no son vendedores directos. Evita que CiberBlog-like candidates
+    // lleguen a la tabla de prospectos visibles como needs_review.
+    {
+      const intermediaryResult = evaluateContentIntermediaryGate({
+        name: candidate.name,
+        domain: effectiveDomain,
+        title: candidate.sourceTitle ?? undefined,
+        snippet: candidate.sourceSnippet ?? undefined,
+        companySize: typeof candidate.companySize === 'string' ? candidate.companySize : undefined,
+      });
+
+      if (intermediaryResult.blocked) {
+        const primaryReason = intermediaryResult.reasons[0] ?? 'content_or_intermediary_site';
+        skipped.push({
+          name: candidate.name,
+          reason: primaryReason,
+          searchTrace: candidate.searchTrace ?? undefined,
+        });
+        precisionGate.contentPageCount++;
+        continue;
+      }
     }
 
     // ── External platform gate (Hito 16AB.43.30) ─────────────────────────────
