@@ -36,13 +36,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -487,7 +480,7 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
         setDiscardOpen(open);
         if (!open) { setDiscardReason(''); setDiscardReasonKey(''); }
       }}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Descartar candidato</DialogTitle>
             <DialogDescription>
@@ -501,21 +494,24 @@ export function CandidateRowActions({ candidate }: CandidateRowActionsProps) {
               <Label className="text-xs font-medium text-muted-foreground">
                 Motivo de descarte
               </Label>
-              <Select
-                value={discardReasonKey}
-                onValueChange={(v) => setDiscardReasonKey(v as DiscardReasonKey)}
-              >
-                <SelectTrigger className="text-sm">
-                  <SelectValue placeholder="Seleccionar motivo…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DISCARD_REASONS.map((r) => (
-                    <SelectItem key={r.value} value={r.value}>
+              <div className="flex flex-col gap-1 max-h-56 overflow-y-auto pr-1">
+                {DISCARD_REASONS.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setDiscardReasonKey(r.value)}
+                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                      discardReasonKey === r.value
+                        ? 'border-destructive bg-destructive/10'
+                        : 'border-border/40 bg-card hover:bg-muted/40'
+                    }`}
+                  >
+                    <p className={`text-sm ${discardReasonKey === r.value ? 'text-destructive font-medium' : 'text-foreground'}`}>
                       {r.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    </p>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-1.5">
