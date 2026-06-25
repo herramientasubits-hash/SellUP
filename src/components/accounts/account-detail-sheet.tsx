@@ -37,6 +37,8 @@ import type { Contact, ContactsSummary } from '@/modules/contacts/types';
 import { AccountDetailActions } from './account-detail-actions';
 import { ContactsTab } from '@/components/contacts/contacts-tab';
 import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
+import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/peru-sunat-legal-validation-block';
+import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 
 const STATUS_STYLES: Record<PipelineStatus, string> = {
   new: 'bg-muted text-muted-foreground border-transparent',
@@ -173,6 +175,14 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
 
                   {/* Resumen */}
                   <TabsContent value="resumen" className="space-y-4">
+                    {/* Peru SUNAT legal validation block */}
+                    {data.account.country_code?.toUpperCase() === 'PE' && (() => {
+                      const peSunatBlock = (
+                        (data.account.metadata?.source_enrichment as Record<string, unknown> | undefined)
+                          ?.pe_sunat_bulk as PeruSunatEnrichmentBlock | null | undefined
+                      ) ?? null;
+                      return <PeruSunatLegalValidationBlock block={peSunatBlock} />;
+                    })()}
                     <div className="grid gap-4 md:grid-cols-2">
                       <SurfaceCard>
                         <SurfaceCardHeader title="Datos de la empresa" />
