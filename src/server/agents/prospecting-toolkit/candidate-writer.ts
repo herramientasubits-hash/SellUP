@@ -56,6 +56,8 @@ import type {
   ProspectingPipelineWriteOutput,
 } from "./types";
 import { buildCandidateRichProfileV1 } from "./candidate-rich-profile";
+import { resolveCanonicalCandidateName } from "./resolve-canonical-candidate-name";
+import type { CanonicalCandidateNameResolution } from "./resolve-canonical-candidate-name";
 import {
   runRichProfileEnrichmentBatch,
   mergeRichProfileEnrichmentResult,
@@ -997,6 +999,8 @@ export async function writeProspectingCandidates(
     businessFitResult: BusinessFitResult;
     /** v1.10: Metadatos de resolución de identidad cuando el nombre fue inferido desde dominio. */
     identityResolution: IdentityResolutionMeta | null;
+    /** v1.16K-L: Resolución del nombre canónico final del candidato. */
+    canonicalNameResolution: CanonicalCandidateNameResolution;
   };
   const eligibleEntries: EligibleEntry[] = [];
 
@@ -1333,6 +1337,20 @@ export async function writeProspectingCandidates(
       targetCountryCode: countryCode ?? null,
     });
 
+    // v1.16K-L: Resolve canonical company name when detected name is a generic SEO title.
+    // Uses source_title suffix extraction (preferred) or domain inference as fallback.
+    const canonicalNameResolution = resolveCanonicalCandidateName({
+      detectedName: candidate.name,
+      sourceTitle: candidate.sourceTitle ?? null,
+      domain: effectiveDomain,
+      identityResolution: identityResolutionForEntry
+        ? {
+            inferred_company_name: identityResolutionForEntry.inferred_company_name,
+            identity_source: identityResolutionForEntry.identity_source,
+          }
+        : null,
+    });
+
     eligibleEntries.push({
       candidate,
       candidateStatus,
@@ -1345,6 +1363,7 @@ export async function writeProspectingCandidates(
       countryEvidenceResult,
       businessFitResult,
       identityResolution: identityResolutionForEntry,
+      canonicalNameResolution,
     });
   }
 
@@ -1631,7 +1650,9 @@ export async function writeProspectingCandidates(
   }
 
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
-  for (const [_entryIdx, { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution }] of toPersist.entries()) {
+  for (const [_entryIdx, { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution, canonicalNameResolution }] of toPersist.entries()) {
+    // v1.16K-L: use canonical name when a generic SEO title was resolved to a real company name
+    const persistedName = canonicalNameResolution.applied ? canonicalNameResolution.canonicalName : candidate.name;
     // ── Active Duplicate Guard (v1.13.1 / v1.14) ─────────────────────────────
     // Best identity priority for guard input:
     //   1. identity_resolution.inferred_company_name — resolved from generic service title
@@ -1756,7 +1777,7 @@ export async function writeProspectingCandidates(
 
     // ── Rich Profile (v1.16A + v1.16E controlled enrichment) ─────────────────
     const richProfile = buildCandidateRichProfileV1({
-      name: candidate.name,
+      name: persistedName,
       website: candidate.website,
       domain: candidate.domain,
       country: candidate.country,
@@ -1875,8 +1896,8 @@ export async function writeProspectingCandidates(
 
     const candidateInsert = {
       batch_id: batchId,
-      name: candidate.name,
-      normalized_name: normalizeName(candidate.name),
+      name: persistedName,
+      normalized_name: normalizeName(persistedName),
       website: candidate.website ?? null,
       domain: domain ?? null,
       country: candidate.country,
@@ -1919,7 +1940,23 @@ export async function writeProspectingCandidates(
         },
         linkedin_enrichment: linkedInEnrichment,
         novelty_check: noveltyResult.noveltyMetadata,
-        ...(identityResolution ? { identity_resolution: identityResolution } : {}),
+        ...(identityResolution
+          ? {
+              identity_resolution: {
+                ...identityResolution,
+                // v1.16K-L: canonical name fields — always present when identity_resolution is set
+                ...(canonicalNameResolution.applied
+                  ? {
+                      canonical_name: canonicalNameResolution.canonicalName,
+                      canonical_name_source: canonicalNameResolution.source,
+                      canonical_name_applied: true,
+                      canonical_name_confidence: canonicalNameResolution.confidence,
+                      canonical_name_reason: canonicalNameResolution.reason,
+                    }
+                  : { canonical_name_applied: false }),
+              },
+            }
+          : {}),
         country_evidence: {
           evidence_level: countryEvidenceResult.evidenceLevel,
           evidence_sources: countryEvidenceResult.evidenceSources,
@@ -1987,7 +2024,7 @@ export async function writeProspectingCandidates(
         actor_user_id: triggeredByUserId ?? null,
         action_type: "candidate_created",
         details: {
-          name: candidate.name,
+          name: persistedName,
           source_primary: "web_ai",
           quality_label: candidate.scoring.qualityLabel,
           status: candidateStatus,
