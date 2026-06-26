@@ -989,3 +989,37 @@ En candidato y en empresa (cuenta) existen bloques separados:
 | `sector_source: 'not_provided_by_migo'` siempre en Migo | `peru-migo-legal-lookup.ts` |
 | ZIP SUNAT no se procesa en Vercel | Guardrail Vercel env en importer |
 | API key Migo no se expone en logs ni payload | Servicio inyectable, sin raw_payload |
+
+---
+
+### Perú.7B — Carga controlada SUNAT snapshot: 2.000 → 25.000 filas
+
+**Fecha:** 2026-06-26. **Tipo:** operación controlada de datos.
+**Resultado:** `public.peru_sunat_ruc_snapshot` ampliada de 2.000 a 25.000 filas.
+**Método:** importer local sobre snapshot `ruc20-filtered-snapshot.txt`, chunks de 1.000 filas, offset 2.000 a 24.000.
+23 chunks exitosos, 23.000 filas adicionales, `invalidRows = 0`. Sin llamadas a SUNAT web, Migo, Tavily ni LLM. Sin creación de candidatos, cuentas o batches. Sin cambios de código.
+
+### Perú.7C — Carga controlada SUNAT snapshot: 25.000 → 50.000 filas
+
+**Fecha:** 2026-06-26. **Tipo:** operación controlada de datos.
+**Resultado:** `public.peru_sunat_ruc_snapshot` ampliada de 25.000 a 50.000 filas.
+**Método:** importer local sobre snapshot `ruc20-filtered-snapshot.txt`, chunks de 1.000 filas, offset 25.000 a 49.000.
+25 chunks exitosos, 25.000 filas adicionales, `invalidRows = 0`. Sin llamadas a SUNAT web, Migo, Tavily ni LLM. Sin creación de candidatos, cuentas o batches. Sin cambios de código.
+
+**Distribución final:**
+
+| Estado | Condición | Filas |
+|--------|-----------|-------|
+| ACTIVO | HABIDO | 10.268 |
+| ACTIVO | NO HABIDO | 841 |
+| INACTIVO | HABIDO | 23.133 |
+| INACTIVO | NO HABIDO | 15.758 |
+| **TOTAL** | | **50.000** |
+
+**Lookups de control:**
+
+| RUC | Razón social | Estado | Condición |
+|-----|-------------|--------|-----------|
+| 20108567792 | COLOURS REPSSA | BAJA DE OFICIO | NO HALLADO |
+| 20211159597 | MARIA AUXILIADORA S A | BAJA DE OFICIO | HABIDO |
+| 20123198434 | AEROMUNDO S.A. | BAJA DE OFICIO | HABIDO |

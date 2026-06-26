@@ -2452,3 +2452,76 @@ Cada chunk: upsert por `ruc` (onConflict), streaming line-by-line, sin cargar to
 Cobertura estimada: 25.000 / ~851.000 RUC20 totales ≈ 2.9%
 Próximo hito recomendado: ampliar a 100.000+ filas para mayor cobertura de validación legal
 ```
+
+---
+
+## Hito Perú.7C — Carga controlada SUNAT snapshot: 25.000 → 50.000 filas
+
+**Hito:** Perú.7C
+**Fecha:** 2026-06-26
+**HEAD inicial:** `2ae7592` — docs(peru): record Peru.7B controlled SUNAT snapshot load to 25k rows
+**Tipo:** Operacional — carga de datos vía importer offline. Sin modificaciones a código fuente.
+
+### 1. Objetivo
+
+Ampliar el snapshot SUNAT en Supabase (`peru_sunat_ruc_snapshot`) de 25.000 filas (estado post-Perú.7B) a 50.000 filas mediante cargas controladas en chunks de 1.000 filas con `--offset` progresivo.
+
+### 2. Método de carga
+
+Ejecuciones repetidas del importer offline con parámetros incrementales:
+
+```bash
+# Chunks ejecutados (offset 25000 → 49000, cada uno de 1000 filas)
+npm run sunat:peru:import-snapshot -- --apply --offset 25000 --limit 1000
+npm run sunat:peru:import-snapshot -- --apply --offset 26000 --limit 1000
+# ... (patrón repetido hasta offset 49000)
+npm run sunat:peru:import-snapshot -- --apply --offset 49000 --limit 1000
+```
+
+Fuente: snapshot local `ruc20-filtered-snapshot.txt`.
+Cada chunk: upsert por `ruc` (onConflict), streaming line-by-line, sin cargar todo en memoria.
+25 chunks ejecutados, `invalidRows = 0` en todos.
+
+### 3. Estado final en Supabase
+
+| Métrica | Valor |
+|---------|-------|
+| Filas totales (`peru_sunat_ruc_snapshot`) | **50.000** |
+| ACTIVO + HABIDO | **10.268** |
+| ACTIVO + NO HABIDO | **841** |
+| INACTIVO + HABIDO | **23.133** |
+| INACTIVO + NO HABIDO | **15.758** |
+
+> Las 10.268 filas `ACTIVO + HABIDO` representan el universo de empresas peruanas legalmente válidas disponibles para validación en el lookup SUNAT del flujo de enriquecimiento post-aprobación.
+
+### 4. Lookups de control verificados
+
+| RUC | Razón social | Estado | Condición | Fuente |
+|-----|-------------|--------|-----------|--------|
+| 20108567792 | COLOURS REPSSA | BAJA DE OFICIO | NO HALLADO | pe_sunat_bulk |
+| 20211159597 | MARIA AUXILIADORA S A | BAJA DE OFICIO | HABIDO | pe_sunat_bulk |
+| 20123198434 | AEROMUNDO S.A. | BAJA DE OFICIO | HABIDO | pe_sunat_bulk |
+
+### 5. Guardrails respetados
+
+| Guardrail | Estado |
+|-----------|--------|
+| No se descargó SUNAT ZIP | ✅ |
+| No se descomprimió en Vercel | ✅ |
+| No se llamó SUNAT API web | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se llamó LLM externo | ✅ |
+| No se crearon candidatos, cuentas ni batches | ✅ |
+| No se modificó código fuente | ✅ |
+| No se tocó Chile / México / Colombia | ✅ |
+| No se hizo force push | ✅ |
+| `.tmp/` no commiteado | ✅ |
+
+### 6. Estado del snapshot SUNAT
+
+```
+Cobertura estimada: 50.000 / ~851.000 RUC20 totales ≈ 5.9%
+Próximo offset disponible: 50000
+Próximo hito recomendado: ampliar a 100.000+ filas para mayor cobertura de validación legal
+```
