@@ -12,6 +12,7 @@ import {
   Building2,
   ExternalLink,
   Loader2,
+  UserSearch,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +43,7 @@ import {
 import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
+import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 
 // ── Styles ─────────────────────────────────────────────────────
 
@@ -117,6 +119,7 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [archiving, setArchiving] = React.useState(false);
+  const [enrichAccount, setEnrichAccount] = React.useState<Row | null>(null);
 
   const openDetail = React.useCallback((id: string) => {
     setDetailAccountId(id);
@@ -342,6 +345,12 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
             icon: Pencil,
             onClick: () => setEditingId(row.id),
           },
+          {
+            id: 'enrich-contacts',
+            label: 'Enriquecer contactos',
+            icon: UserSearch,
+            onClick: () => setEnrichAccount(row),
+          },
         ];
 
         // Status change submenu items
@@ -504,6 +513,18 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
           setDetailOpen(false);
           setDetailAccountId(null);
         }}
+      />
+
+      {/* Contact enrichment sidepanel (Agente 2A) */}
+      <ContactEnrichmentDrawer
+        open={!!enrichAccount}
+        onOpenChange={(v) => !v && setEnrichAccount(null)}
+        preloadedCompany={enrichAccount ? {
+          name: enrichAccount.name,
+          domain: enrichAccount.domain,
+          country: enrichAccount.country,
+          sellupAccountId: enrichAccount.id,
+        } : null}
       />
     </>
   );

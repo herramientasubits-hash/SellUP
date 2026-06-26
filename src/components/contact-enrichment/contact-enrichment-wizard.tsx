@@ -10,9 +10,37 @@ import { resolveContactEnrichmentCompanyAction, startContactEnrichmentRunAction 
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import type { WizardState } from './contact-enrichment-wizard-types';
 
+// ── Preloaded company (for contextual sidepanel entry) ────────
+
+export interface ContactEnrichmentInitialCompany {
+  name: string;
+  domain?: string | null;
+  country?: string | null;
+  sellupAccountId?: string;
+}
+
 // ── Estado inicial ────────────────────────────────────────────
 
-function initialState(): WizardState {
+function initialState(initialCompany?: ContactEnrichmentInitialCompany): WizardState {
+  if (initialCompany) {
+    const preloaded: CompanyCandidate = {
+      source: 'sellup',
+      name: initialCompany.name,
+      domain: initialCompany.domain ?? undefined,
+      country: initialCompany.country ?? undefined,
+      sellupAccountId: initialCompany.sellupAccountId,
+      matchConfidence: 1,
+    };
+    return {
+      step: 'confirm',
+      query: initialCompany.name,
+      candidates: [preloaded],
+      selectedCandidate: preloaded,
+      skippedHubSpot: false,
+      runResult: null,
+      errorMessage: null,
+    };
+  }
   return {
     step: 'search',
     query: '',
@@ -26,8 +54,12 @@ function initialState(): WizardState {
 
 // ── Componente principal ──────────────────────────────────────
 
-export function ContactEnrichmentWizard() {
-  const [state, setState] = React.useState<WizardState>(initialState);
+interface ContactEnrichmentWizardProps {
+  initialCompany?: ContactEnrichmentInitialCompany;
+}
+
+export function ContactEnrichmentWizard({ initialCompany }: ContactEnrichmentWizardProps = {}) {
+  const [state, setState] = React.useState<WizardState>(() => initialState(initialCompany));
 
   // Búsqueda de empresa
   const handleSearch = async () => {
