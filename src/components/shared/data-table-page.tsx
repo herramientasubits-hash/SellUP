@@ -12,6 +12,11 @@ interface DataTablePageProps {
   /** Optional back link rendered before the title. */
   backHref?: string;
   /**
+   * Optional module-level navigation (e.g. pill tabs) rendered directly under
+   * the page header, above the metrics row. Stays fixed at the top.
+   */
+  tabs?: ReactNode;
+  /**
    * Optional sticky row rendered between the page header and the table area
    * (e.g. metric cards, filters, status banner). Stays fixed at the top.
    */
@@ -57,6 +62,7 @@ export function DataTablePage({
   description,
   actions,
   backHref,
+  tabs,
   metrics,
   children,
   className,
@@ -71,6 +77,7 @@ export function DataTablePage({
           backHref={backHref}
         />
       </div>
+      {tabs && <div className="shrink-0">{tabs}</div>}
       {metrics && <div className="shrink-0">{metrics}</div>}
       <div className="flex flex-1 min-h-0 flex-col">{children}</div>
     </div>

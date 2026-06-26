@@ -9,6 +9,7 @@ import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-can
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
 import { resolveGenerateProspectsExperience } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
+import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
 import {
   getGlobalCandidatesList,
   getGlobalProspectsKPIs,
@@ -107,6 +108,7 @@ export default async function ProspectsPage({ searchParams }: PageProps) {
     <DataTablePage
       title="Prospectos"
       description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
+      tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <GenerateAIBatchDrawer experience={experience} catalog={catalog} executionEnabled={wizardExecutionEnabled} />

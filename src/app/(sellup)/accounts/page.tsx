@@ -1,15 +1,29 @@
 import { Building2, Globe, TrendingUp, Search } from 'lucide-react';
+import { redirect } from 'next/navigation';
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
+import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
 import {
   getAccountsSummary,
   getAccountsList,
   getActiveUsers,
 } from '@/modules/accounts/actions';
 
-export default async function AccountsPage() {
+interface PageProps {
+  searchParams: Promise<{ tab?: string }>;
+}
+
+export default async function AccountsPage({ searchParams }: PageProps) {
+  // Empresas hosts the module-level pill switcher (Empresas / Prospectos).
+  // `?tab=prospectos` is a documented alias that lands on the validated
+  // Prospectos route, keeping its data flow untouched.
+  const { tab } = await searchParams;
+  if (tab === 'prospectos') {
+    redirect('/prospects');
+  }
+
   const [summary, accounts, users] = await Promise.all([
     getAccountsSummary(),
     getAccountsList(),
@@ -20,6 +34,7 @@ export default async function AccountsPage() {
     <DataTablePage
       title="Empresas"
       description="Centraliza empresas, prospectos y cuentas comerciales con su expediente vivo."
+      tabs={<ModuleTabsNav active="empresas" />}
       actions={<CreateAccountDrawer users={users} />}
       metrics={
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
