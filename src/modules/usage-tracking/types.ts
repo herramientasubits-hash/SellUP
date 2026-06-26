@@ -227,3 +227,43 @@ export interface RecentUsageActivity {
   provider_logs: ProviderUsageLog[];
   quality_events: ResultQualityEvent[];
 }
+
+// ============================================================
+// Aggregated stat types for the /ai-usage dashboard
+// ============================================================
+
+export interface ProviderStat {
+  provider_key: string;
+  total_calls: number;
+  success_calls: number;
+  error_calls: number;
+  total_credits_used: number | null;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_results_returned: number;
+  total_estimated_cost_usd: number;
+  last_used_at: string | null;
+}
+
+export interface AgentStat {
+  agent_key: string;
+  agent_name: string | null;
+  total_executions: number;
+  completed_executions: number;
+  failed_executions: number;
+  total_results_generated: number;
+  total_results_approved: number;
+  total_estimated_cost_usd: number;
+  last_run_at: string | null;
+}
+
+export interface AiUsageSummary {
+  total_executions: number;
+  running_executions: number;
+  failed_executions: number;
+  total_provider_calls: number;
+  error_provider_calls: number;
+  total_estimated_cost_usd: number;
+  distinct_providers: number;
+  avg_cost_per_run: number | null;
+}

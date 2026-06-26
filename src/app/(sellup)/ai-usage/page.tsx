@@ -1,60 +1,100 @@
 import {
   Bot,
   Plug,
-  CheckCircle2,
   DollarSign,
   Zap,
   TrendingUp,
-  FlaskConical,
   Info,
+  AlertCircle,
+  CheckCircle2,
+  Activity,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import {
-  MOCK_AGENTS,
-  MOCK_PROVIDERS,
-  MOCK_ACTIVITY,
-  MOCK_SUMMARY,
-} from '@/modules/usage-tracking/mock-data';
-import type { MockAgentStat, MockProviderStat, MockActivityItem } from '@/modules/usage-tracking/mock-data';
+  getAiUsageSummary,
+  getAgentStats,
+  getProviderStats,
+  getRecentProviderLogs,
+} from '@/modules/ai-usage/queries';
+import type { AgentStat, ProviderStat, ProviderUsageLog } from '@/modules/usage-tracking/types';
 
 // ============================================================
-// Helpers de presentación
+// Display helpers
 // ============================================================
+
+const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  prospect_generation: 'Generación y enriquecimiento de prospectos',
+  account_intelligence: 'Inteligencia de cuenta',
+  commercial_speech: 'Speech comercial',
+  post_meeting_followup: 'Seguimiento post-reunión',
+};
+
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  tavily: 'Tavily',
+  anthropic: 'Anthropic (Claude)',
+  openai: 'OpenAI',
+  apollo: 'Apollo',
+  lusha: 'Lusha',
+  hubspot: 'HubSpot',
+  samu_ia: 'Samu IA',
+};
+
+function agentDisplayName(stat: AgentStat): string {
+  return AGENT_DISPLAY_NAMES[stat.agent_key] ?? stat.agent_name ?? stat.agent_key;
+}
+
+function providerDisplayName(providerKey: string): string {
+  return PROVIDER_DISPLAY_NAMES[providerKey] ?? providerKey;
+}
 
 function formatCost(usd: number, decimals = 4): string {
-  if (usd === 0) return '—';
+  if (usd === 0) return '$0.00';
   if (usd < 0.001) return `$${usd.toFixed(6)}`;
   return `$${usd.toFixed(decimals)}`;
 }
 
-function formatPct(pct: number): string {
-  return `${pct.toFixed(1)}%`;
+function formatRelativeTime(isoDate: string | null): string {
+  if (!isoDate) return '—';
+  const diff = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000);
+  if (diff < 60) return 'Hace un momento';
+  if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
+  if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
+  return new Date(isoDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 }
 
-function AgentStatusBadge({ status }: { status: MockAgentStat['status'] }) {
-  const map = {
-    active:  { label: 'Activo',    classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',          dot: 'bg-emerald-500' },
-    idle:    { label: 'Inactivo',  classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',             dot: 'bg-muted-foreground/25' },
-    planned: { label: 'Planificado', classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',             dot: 'bg-amber-500' },
-  };
-  const cfg = map[status];
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.classes}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-      {cfg.label}
-    </span>
-  );
+function formatDate(isoDate: string): string {
+  return new Date(isoDate).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
-function ActivityStatusBadge({ status }: { status: MockActivityItem['status'] }) {
-  const map = {
-    success:      { label: 'OK',         classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
-    error:        { label: 'Error',      classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    rate_limited: { label: 'Rate limit', classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
+// ============================================================
+// Status badge
+// ============================================================
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; classes: string; dot: string }> = {
+    completed:      { label: 'Completado',  classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
+    running:        { label: 'En curso',    classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand',         dot: 'bg-su-brand' },
+    failed:         { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
+    cancelled:      { label: 'Cancelado',   classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',   dot: 'bg-muted-foreground/25' },
+    pending:        { label: 'Pendiente',   classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
+    success:        { label: 'OK',          classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
+    error:          { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
+    rate_limited:   { label: 'Rate limit',  classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
+    quota_exceeded: { label: 'Cuota',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
   };
-  const cfg = map[status];
+  const cfg = map[status] ?? {
+    label: status,
+    classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+    dot: 'bg-muted-foreground/25',
+  };
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.classes}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
@@ -64,43 +104,45 @@ function ActivityStatusBadge({ status }: { status: MockActivityItem['status'] })
 }
 
 function EffectivenessBar({ pct }: { pct: number }) {
-  const color =
-    pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-su-brand' : 'bg-amber-500';
+  const color = pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-su-brand' : 'bg-amber-500';
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted/40">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} />
       </div>
-      <span className="text-xs font-medium text-foreground">{formatPct(pct)}</span>
+      <span className="text-xs font-medium text-foreground">{pct.toFixed(1)}%</span>
     </div>
   );
 }
 
-function TypeChip({ type }: { type: MockActivityItem['type'] }) {
-  const map = {
-    agent:    { label: 'Agente',    classes: 'bg-su-brand/10 text-su-brand' },
-    provider: { label: 'Proveedor', classes: 'bg-muted/40 text-muted-foreground' },
-    quality:  { label: 'Calidad',   classes: 'bg-amber-500/10 text-amber-500' },
-  };
-  const cfg = map[type];
+// ============================================================
+// Empty state
+// ============================================================
+
+function EmptyState({ message }: { message: string }) {
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cfg.classes}`}>
-      {cfg.label}
-    </span>
+    <div className="flex flex-col items-center justify-center gap-2 py-8">
+      <Activity className="h-6 w-6 text-muted-foreground/40" />
+      <p className="text-xs text-muted-foreground">{message}</p>
+    </div>
   );
 }
 
 // ============================================================
-// Sección 1 — Efectividad por agente
+// Sección 1 — Consumo por agente
 // ============================================================
 
-function AgentEffectivenessTable({ agents }: { agents: MockAgentStat[] }) {
+function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
+  if (agents.length === 0) {
+    return <EmptyState message="Aún no hay ejecuciones de agentes registradas." />;
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border/40">
-            {['Agente', 'Estado', 'Ejec.', 'Costo est.', 'Generados', 'Aprobados', 'Efectividad', 'Costo / aprobado'].map((h) => (
+            {['Agente', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo/aprobado'].map((h) => (
               <th
                 key={h}
                 className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
@@ -111,35 +153,49 @@ function AgentEffectivenessTable({ agents }: { agents: MockAgentStat[] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-border/20">
-          {agents.map((a) => (
-            <tr key={a.key} className="group">
-              <td className="py-3 pr-4">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
-                    <Bot className="h-3.5 w-3.5 text-su-brand" />
+          {agents.map((a) => {
+            const effectiveness =
+              a.total_results_generated > 0
+                ? (a.total_results_approved / a.total_results_generated) * 100
+                : null;
+            const costPerApproved =
+              a.total_results_approved > 0
+                ? a.total_estimated_cost_usd / a.total_results_approved
+                : null;
+
+            return (
+              <tr key={a.agent_key}>
+                <td className="py-3 pr-4">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
+                      <Bot className="h-3.5 w-3.5 text-su-brand" />
+                    </div>
+                    <span className="font-medium text-foreground">{agentDisplayName(a)}</span>
                   </div>
-                  <span className="font-medium text-foreground">{a.name}</span>
-                </div>
-              </td>
-              <td className="py-3 pr-4 text-right">
-                <AgentStatusBadge status={a.status} />
-              </td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{a.executions}</td>
-              <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
-                {formatCost(a.estimatedCostUsd, 2)}
-              </td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{a.resultsGenerated}</td>
-              <td className="py-3 pr-4 text-right text-foreground font-medium">{a.resultsApproved}</td>
-              <td className="py-3 pr-4">
-                <div className="flex justify-end">
-                  <EffectivenessBar pct={a.effectivenessRate} />
-                </div>
-              </td>
-              <td className="py-3 text-right font-mono text-muted-foreground">
-                {formatCost(a.avgCostPerApproved)}
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td className="py-3 pr-4 text-right text-muted-foreground">{a.total_executions}</td>
+                <td className="py-3 pr-4 text-right text-muted-foreground">{a.total_results_generated}</td>
+                <td className="py-3 pr-4 text-right font-medium text-foreground">{a.total_results_approved}</td>
+                <td className="py-3 pr-4">
+                  <div className="flex justify-end">
+                    {effectiveness !== null ? (
+                      <EffectivenessBar pct={effectiveness} />
+                    ) : (
+                      <span className="text-muted-foreground/50 text-[10px]">Sin datos</span>
+                    )}
+                  </div>
+                </td>
+                <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+                  {formatCost(a.total_estimated_cost_usd, 2)}
+                </td>
+                <td className="py-3 text-right font-mono text-muted-foreground">
+                  {costPerApproved !== null
+                    ? formatCost(costPerApproved)
+                    : <span className="text-muted-foreground/40">—</span>}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -147,19 +203,51 @@ function AgentEffectivenessTable({ agents }: { agents: MockAgentStat[] }) {
 }
 
 // ============================================================
-// Sección 2 — Efectividad por proveedor
+// Sección 2 — Consumo por proveedor
 // ============================================================
 
-function ProviderEffectivenessTable({ providers }: { providers: MockProviderStat[] }) {
+function providerMeasurementLabel(stat: ProviderStat): string {
+  const hasCreditBased =
+    (stat.total_credits_used ?? 0) > 0 &&
+    stat.total_input_tokens === 0 &&
+    stat.total_output_tokens === 0;
+  const hasTokenBased = stat.total_input_tokens + stat.total_output_tokens > 0;
+
+  if (hasCreditBased) return 'Créditos / consultas';
+  if (hasTokenBased) return 'Tokens (in + out)';
+  return 'Llamadas';
+}
+
+function providerMeasurementValue(stat: ProviderStat): string {
+  const hasCreditBased =
+    (stat.total_credits_used ?? 0) > 0 &&
+    stat.total_input_tokens === 0 &&
+    stat.total_output_tokens === 0;
+  const hasTokenBased = stat.total_input_tokens + stat.total_output_tokens > 0;
+
+  if (hasCreditBased && stat.total_credits_used !== null) {
+    return stat.total_credits_used.toFixed(0);
+  }
+  if (hasTokenBased) {
+    return (stat.total_input_tokens + stat.total_output_tokens).toLocaleString('es-ES');
+  }
+  return '—';
+}
+
+function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
+  if (providers.length === 0) {
+    return <EmptyState message="Aún no hay llamadas a proveedores registradas." />;
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border/40">
-            {['Proveedor', 'Operación', 'Llamadas', 'Costo est.', 'Devueltos', 'Útiles', 'Efectividad', 'Costo / útil'].map((h) => (
+            {['Proveedor', 'Medición', 'Llamadas', 'Cantidad', 'Resultados', 'Costo est.', 'Último uso'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
@@ -168,37 +256,32 @@ function ProviderEffectivenessTable({ providers }: { providers: MockProviderStat
         </thead>
         <tbody className="divide-y divide-border/20">
           {providers.map((p) => (
-            <tr key={p.key} className="group">
+            <tr key={p.provider_key}>
               <td className="py-3 pr-4">
                 <div className="flex items-center gap-2">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/40">
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
-                  <span className="font-medium text-foreground">{p.name}</span>
+                  <span className="font-medium text-foreground">
+                    {providerDisplayName(p.provider_key)}
+                  </span>
                 </div>
               </td>
-              <td className="py-3 pr-4 text-muted-foreground">{p.operation}</td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{p.calls}</td>
+              <td className="py-3 pr-4 text-muted-foreground text-[11px]">
+                {providerMeasurementLabel(p)}
+              </td>
+              <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_calls}</td>
               <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
-                {p.estimatedCostUsd === 0 ? (
-                  <span className="text-muted-foreground/50 text-[10px]">sin config.</span>
-                ) : (
-                  formatCost(p.estimatedCostUsd, 2)
-                )}
+                {providerMeasurementValue(p)}
               </td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{p.resultsReturned}</td>
-              <td className="py-3 pr-4 text-right text-foreground font-medium">{p.usefulResults}</td>
-              <td className="py-3 pr-4">
-                <div className="flex justify-end">
-                  <EffectivenessBar pct={p.effectivenessRate} />
-                </div>
+              <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_results_returned}</td>
+              <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+                {p.total_estimated_cost_usd === 0
+                  ? <span className="text-muted-foreground/40">—</span>
+                  : formatCost(p.total_estimated_cost_usd, 2)}
               </td>
-              <td className="py-3 text-right font-mono text-muted-foreground">
-                {p.avgCostPerUsefulResult === 0 ? (
-                  <span className="text-muted-foreground/50 text-[10px]">sin config.</span>
-                ) : (
-                  formatCost(p.avgCostPerUsefulResult)
-                )}
+              <td className="py-3 text-right text-muted-foreground">
+                {formatRelativeTime(p.last_used_at)}
               </td>
             </tr>
           ))}
@@ -209,30 +292,67 @@ function ProviderEffectivenessTable({ providers }: { providers: MockProviderStat
 }
 
 // ============================================================
-// Sección 3 — Actividad reciente
+// Sección 3 — Ejecuciones recientes
 // ============================================================
 
-function ActivityList({ items }: { items: MockActivityItem[] }) {
+function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
+  if (logs.length === 0) {
+    return <EmptyState message="Aún no hay actividad reciente registrada." />;
+  }
+
   return (
-    <div className="divide-y divide-border/20">
-      {items.map((item) => (
-        <div key={item.id} className="flex items-center gap-3 py-3">
-          <span className="w-20 shrink-0 text-[10px] text-muted-foreground">{item.relativeTime}</span>
-          <TypeChip type={item.type} />
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-            <span className="font-medium text-foreground">{item.providerOrAgent}</span>
-            <span className="text-muted-foreground/50">·</span>
-            <span className="truncate text-muted-foreground">{item.operation}</span>
-          </div>
-          <ActivityStatusBadge status={item.status} />
-          <span className="w-20 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
-            {item.estimatedCostUsd > 0 ? formatCost(item.estimatedCostUsd) : '—'}
-          </span>
-          <span className="w-16 shrink-0 text-right text-[10px] text-muted-foreground">
-            {item.resultCount > 0 ? `${item.resultCount} res.` : '—'}
-          </span>
-        </div>
-      ))}
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border/40">
+            {['Fecha', 'Proveedor', 'Operación', 'Estado', 'Cred./Tokens', 'Costo est.'].map((h) => (
+              <th
+                key={h}
+                className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/20">
+          {logs.map((log) => {
+            const quantity =
+              log.credits_used != null && Number(log.credits_used) > 0
+                ? `${Number(log.credits_used).toFixed(0)} créd.`
+                : log.input_tokens + log.output_tokens > 0
+                  ? `${(log.input_tokens + log.output_tokens).toLocaleString('es-ES')} tok.`
+                  : '—';
+
+            return (
+              <tr key={log.id}>
+                <td className="py-2.5 pr-4 text-muted-foreground whitespace-nowrap">
+                  {formatDate(log.created_at)}
+                </td>
+                <td className="py-2.5 pr-4 font-medium text-foreground capitalize">
+                  {providerDisplayName(log.provider_key)}
+                </td>
+                <td className="py-2.5 pr-4 text-muted-foreground max-w-[180px] truncate">
+                  {log.operation_key.replace(/_/g, ' ')}
+                </td>
+                <td className="py-2.5 pr-4">
+                  <div className="flex justify-end">
+                    <StatusBadge status={log.status} />
+                  </div>
+                </td>
+                <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
+                  {quantity}
+                </td>
+                <td className="py-2.5 text-right font-mono text-muted-foreground">
+                  {Number(log.estimated_cost_usd) > 0
+                    ? formatCost(Number(log.estimated_cost_usd))
+                    : <span className="text-muted-foreground/40">—</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -241,177 +361,233 @@ function ActivityList({ items }: { items: MockActivityItem[] }) {
 // Page
 // ============================================================
 
-export default function AIUsagePage() {
-  const s = MOCK_SUMMARY;
+export default async function AIUsagePage() {
+  const [summary, agentStats, providerStats, recentLogs] = await Promise.all([
+    getAiUsageSummary(),
+    getAgentStats(),
+    getProviderStats(),
+    getRecentProviderLogs(25),
+  ]);
 
-  const summaryCards = [
-    {
-      label: 'Costo estimado total',
-      value: `$${s.totalCostUsd.toFixed(2)}`,
-      sub: 'USD (datos demo)',
-      icon: DollarSign,
-      accent: 'text-su-brand',
-      iconBg: 'bg-su-brand-soft',
-    },
-    {
-      label: 'Ejecuciones de agentes',
-      value: String(s.totalExecutions),
-      sub: 'en el período',
-      icon: Bot,
-      accent: 'text-foreground',
-      iconBg: 'bg-muted/40',
-    },
-    {
-      label: 'Llamadas a proveedores',
-      value: String(s.totalProviderCalls),
-      sub: 'Apollo, Lusha, IA…',
-      icon: Zap,
-      accent: 'text-foreground',
-      iconBg: 'bg-muted/40',
-    },
-    {
-      label: 'Prospectos aprobados',
-      value: String(s.totalApproved),
-      sub: 'de todos los agentes',
-      icon: CheckCircle2,
-      accent: 'text-emerald-500',
-      iconBg: 'bg-emerald-500/10',
-    },
-    {
-      label: 'Costo por aprobado',
-      value: s.avgCostPerApproved > 0 ? `$${s.avgCostPerApproved.toFixed(4)}` : '—',
-      sub: 'promedio estimado',
-      icon: TrendingUp,
-      accent: 'text-foreground',
-      iconBg: 'bg-muted/40',
-    },
-    {
-      label: 'Efectividad promedio',
-      value: `${s.avgEffectiveness}%`,
-      sub: 'entre todos los agentes',
-      icon: TrendingUp,
-      accent: 'text-emerald-500',
-      iconBg: 'bg-emerald-500/10',
-    },
-  ];
+  const isRestricted = summary === null;
+  const hasData =
+    !isRestricted &&
+    (summary.total_executions > 0 || summary.total_provider_calls > 0);
+
+  // ── Summary cards ────────────────────────────────────────
+  const summaryCards = isRestricted
+    ? []
+    : [
+        {
+          label: 'Costo estimado total',
+          value: formatCost(summary.total_estimated_cost_usd, 2),
+          sub: 'USD acumulado',
+          icon: DollarSign,
+          accent: 'text-su-brand',
+          iconBg: 'bg-su-brand-soft',
+        },
+        {
+          label: 'Ejecuciones de agentes',
+          value: String(summary.total_executions),
+          sub: 'runs registrados',
+          icon: Bot,
+          accent: 'text-foreground',
+          iconBg: 'bg-muted/40',
+        },
+        {
+          label: 'Llamadas a proveedores',
+          value: String(summary.total_provider_calls),
+          sub: `${summary.distinct_providers} proveedor${summary.distinct_providers !== 1 ? 'es' : ''} activo${summary.distinct_providers !== 1 ? 's' : ''}`,
+          icon: Zap,
+          accent: 'text-foreground',
+          iconBg: 'bg-muted/40',
+        },
+        {
+          label: 'Errores',
+          value: String(summary.error_provider_calls + summary.failed_executions),
+          sub: 'llamadas + runs fallidos',
+          icon: AlertCircle,
+          accent: summary.error_provider_calls + summary.failed_executions > 0
+            ? 'text-destructive'
+            : 'text-muted-foreground',
+          iconBg: summary.error_provider_calls + summary.failed_executions > 0
+            ? 'bg-destructive/10'
+            : 'bg-muted/40',
+        },
+        {
+          label: 'Costo promedio / run',
+          value: summary.avg_cost_per_run !== null
+            ? formatCost(summary.avg_cost_per_run, 4)
+            : '—',
+          sub: 'por ejecución de agente',
+          icon: TrendingUp,
+          accent: 'text-foreground',
+          iconBg: 'bg-muted/40',
+        },
+        {
+          label: 'En curso ahora',
+          value: String(summary.running_executions),
+          sub: 'agentes activos',
+          icon: CheckCircle2,
+          accent: summary.running_executions > 0 ? 'text-su-brand' : 'text-muted-foreground',
+          iconBg: summary.running_executions > 0 ? 'bg-su-brand-soft' : 'bg-muted/40',
+        },
+      ];
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Uso de IA, costos y efectividad"
-        description="Monitorea consumo, costos estimados y desempeño de agentes y proveedores."
+        description="Consumo real de agentes y proveedores externos. Datos registrados automáticamente por el Agente 1."
         actions={
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-500">
-              <FlaskConical className="h-3 w-3" />
-              Datos demo
+          hasData ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-500">
+              <CheckCircle2 className="h-3 w-3" />
+              Datos reales
             </span>
-          </div>
+          ) : undefined
         }
       />
 
-      {/* ── Aviso de datos demo ──────────────────────────────── */}
-      <div className="flex items-start gap-3 rounded-xl border border-su-brand/20 bg-su-brand/5 px-4 py-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Los datos que ves son <strong className="text-foreground font-medium">ilustrativos</strong>.
-          Los valores reales aparecerán automáticamente cuando los agentes comiencen a registrar
-          actividad en producción. La foundation de tracking ya está activa.
-        </p>
-      </div>
+      {/* ── Banner contextual ────────────────────────────────── */}
+      {isRestricted && (
+        <div className="flex items-start gap-3 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Esta vista requiere permisos de administrador para mostrar datos de consumo.
+          </p>
+        </div>
+      )}
+
+      {!isRestricted && !hasData && (
+        <div className="flex items-start gap-3 rounded-xl border border-su-brand/20 bg-su-brand/5 px-4 py-3">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            <strong className="text-foreground font-medium">Aún no hay ejecuciones reales registradas.</strong>{' '}
+            Los datos aparecerán automáticamente cuando el Agente 1 comience a registrar
+            actividad — búsquedas Tavily y ejecuciones de prospectos.
+          </p>
+        </div>
+      )}
+
+      {hasData && (
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Mostrando datos reales desde Supabase.{' '}
+            <strong className="text-foreground font-medium">Tavily</strong> se mide por créditos/consultas (no tokens).{' '}
+            Los costos son estimados basados en la tarifa configurada.
+          </p>
+        </div>
+      )}
 
       {/* ── Summary cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        {summaryCards.map((card) => (
-          <MetricCard
-            key={card.label}
-            title={card.label}
-            description={card.sub}
-            value={card.value}
-            valueClassName={`font-mono ${card.accent}`}
-            iconPosition="top"
-            icon={
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.iconBg}`}>
-                <card.icon className={`h-4 w-4 ${card.accent}`} />
+      {!isRestricted && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          {summaryCards.map((card) => (
+            <MetricCard
+              key={card.label}
+              title={card.label}
+              description={card.sub}
+              value={card.value}
+              valueClassName={`font-mono ${card.accent}`}
+              iconPosition="top"
+              icon={
+                <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.iconBg}`}>
+                  <card.icon className={`h-4 w-4 ${card.accent}`} />
+                </div>
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Sección 1: Consumo por agente ───────────────────── */}
+      {!isRestricted && (
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Consumo por agente"
+            description="Ejecuciones, prospectos generados y aprobados, y costo estimado por agente."
+            actions={
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft">
+                <Bot className="h-4 w-4 text-su-brand" />
               </div>
             }
           />
-        ))}
-      </div>
+          <AgentStatsTable agents={agentStats ?? []} />
+        </SurfaceCard>
+      )}
 
-      {/* ── Sección 1: Efectividad por agente ───────────────── */}
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Efectividad por agente"
-          description="Ejecuciones, costo estimado, prospectos aprobados y tasa de efectividad por agente."
-          actions={
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft">
-              <Bot className="h-4 w-4 text-su-brand" />
-            </div>
-          }
-        />
-        <AgentEffectivenessTable agents={MOCK_AGENTS} />
-      </SurfaceCard>
+      {/* ── Sección 2: Consumo por proveedor ────────────────── */}
+      {!isRestricted && (
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Consumo por proveedor"
+            description="Llamadas, créditos o tokens consumidos, y costo estimado por proveedor."
+            actions={
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+                <Plug className="h-4 w-4 text-muted-foreground" />
+              </div>
+            }
+          />
+          <ProviderStatsTable providers={providerStats ?? []} />
 
-      {/* ── Sección 2: Efectividad por proveedor ────────────── */}
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Efectividad por proveedor"
-          description="Llamadas, resultados devueltos, resultados útiles y costo por resultado por proveedor."
-          actions={
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
-              <Plug className="h-4 w-4 text-muted-foreground" />
-            </div>
-          }
-        />
-        <ProviderEffectivenessTable providers={MOCK_PROVIDERS} />
-
-        {/* Nota sobre metodología de costos */}
-        <div className="mt-4 flex items-start gap-2 rounded-lg border border-su-brand/20 bg-su-brand/5 px-3 py-2.5">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Los costos de Apollo y Lusha se calculan como{' '}
-            <strong className="text-foreground font-medium">estimación por crédito</strong>{' '}
-            según los contratos configurados. El costo real puede variar si el proveedor reporta consumo
-            exacto por operación.
-          </p>
-        </div>
-      </SurfaceCard>
-
-      {/* ── Sección 3: Actividad reciente ───────────────────── */}
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Actividad reciente"
-          description="Últimas ejecuciones de agentes y llamadas a proveedores."
-          actions={
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft">
-              <Zap className="h-4 w-4 text-su-brand" />
-            </div>
-          }
-        />
-        <ActivityList items={MOCK_ACTIVITY} />
-      </SurfaceCard>
-
-      {/* ── Sección 4: Nota estratégica ─────────────────────── */}
-      <SurfaceCard>
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
-            <TrendingUp className="h-4 w-4 text-su-brand" />
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">Criterio de medición por fuente</p>
-            <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
-              Esta vista permite comparar el costo y la efectividad de cada fuente antes de
-              escalar agentes.{' '}
-              <strong className="text-foreground font-medium">Apollo</strong> se medirá
-              principalmente por búsqueda de empresas;{' '}
-              <strong className="text-foreground font-medium">Lusha</strong> por enriquecimiento
-              de contactos; los modelos de IA por tokens y calidad del resultado generado. La
-              tasa de aprobación —no el volumen devuelto— es la métrica de efectividad real.
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-su-brand/20 bg-su-brand/5 px-3 py-2.5">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              <strong className="text-foreground font-medium">Tavily</strong> no consume tokens — se cobra por crédito/consulta.{' '}
+              <strong className="text-foreground font-medium">Apollo</strong> y{' '}
+              <strong className="text-foreground font-medium">Lusha</strong> se medirán por crédito cuando se integren.
+              Los costos son estimados; el costo real depende de conciliación de factura.
             </p>
           </div>
-        </div>
-      </SurfaceCard>
+        </SurfaceCard>
+      )}
+
+      {/* ── Sección 3: Ejecuciones recientes ────────────────── */}
+      {!isRestricted && (
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Ejecuciones recientes"
+            description="Últimas 25 llamadas a proveedores registradas por el Agente 1."
+            actions={
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft">
+                <Zap className="h-4 w-4 text-su-brand" />
+              </div>
+            }
+          />
+          <RecentLogsTable logs={recentLogs ?? []} />
+        </SurfaceCard>
+      )}
+
+      {/* ── Sección 4: Nota de efectividad ──────────────────── */}
+      {!isRestricted && (
+        <SurfaceCard>
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
+              <TrendingUp className="h-4 w-4 text-su-brand" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Criterio de efectividad</p>
+              <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
+                La métrica de efectividad real es <strong className="text-foreground font-medium">prospectos aprobados / generados</strong>,
+                no el volumen devuelto por el proveedor.{' '}
+                {(agentStats ?? []).some((a) => a.total_results_generated > 0) ? (
+                  <>
+                    El costo por prospecto aprobado y la tasa de persistencia se calculan
+                    automáticamente desde los datos de la tabla anterior.
+                  </>
+                ) : (
+                  <>
+                    Las métricas de efectividad quedarán disponibles cuando haya
+                    ejecuciones con prospectos generados y aprobados.
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+        </SurfaceCard>
+      )}
     </div>
   );
 }
