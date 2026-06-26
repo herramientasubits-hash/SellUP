@@ -380,7 +380,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     agent: typeof params.agent === 'string' ? params.agent : undefined,
     status: typeof params.status === 'string' ? params.status : undefined,
     user: typeof params.user === 'string' ? params.user : undefined,
-    group: typeof params.group === 'string' ? params.group : undefined,
+    role: typeof params.role === 'string' ? params.role : undefined,
+    groupId: typeof params.groupId === 'string' ? params.groupId : undefined,
   };
 
   const [summary, agentStats, providerStats, recentLogs, filterOptions, userConsumption] =
@@ -404,7 +405,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     filters.agent,
     filters.status,
     filters.user,
-    filters.group,
+    filters.role,
+    filters.groupId,
   ].filter(Boolean).length;
 
   // ── Summary cards ────────────────────────────────────────
@@ -525,7 +527,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               currentAgent={filters.agent ?? ''}
               currentStatus={filters.status ?? ''}
               currentUser={filters.user ?? ''}
-              currentGroup={filters.group ?? ''}
+              currentRole={filters.role ?? ''}
+              currentGroupId={filters.groupId ?? ''}
             />
             {activeFiltersCount > 0 && (
               <span className="text-[10px] text-muted-foreground">

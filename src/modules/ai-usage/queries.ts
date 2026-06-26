@@ -26,8 +26,13 @@ export interface UsageFilters {
   agent?: string;
   status?: string;
   user?: string;
-  /** Role key used as the group dimension (e.g. "admin", "seller"). */
-  group?: string;
+  /** Role key — perfil del usuario (e.g. "admin", "seller"). */
+  role?: string;
+  /**
+   * Organization group id — estructura organizacional real
+   * (organization_groups). Incluye descendientes al resolver el scope.
+   */
+  groupId?: string;
 }
 
 // Status considered "active" in internal_users (mirrors AccessStatus).
@@ -69,15 +74,29 @@ export interface FilterUser {
   id: string;
   full_name: string | null;
   email: string | null;
-  /** Role key (group dimension) so the client can scope users by group. */
+  /** Role key so the client can scope users by role. */
   role_key: string | null;
+  /** Organization group id so the client can scope users by group. */
+  group_id: string | null;
 }
 
-export interface FilterGroup {
-  /** Role key — stable value persisted in the URL. */
+/** Rol — perfil del usuario. */
+export interface FilterRole {
+  /** Role key — stable value persisted in the URL (?role=). */
   key: string;
   /** Human-readable label (roles.name when present, else normalized key). */
   label: string;
+}
+
+/** Grupo — nodo de la estructura organizacional real (organization_groups). */
+export interface FilterGroup {
+  /** Group id — stable value persisted in the URL (?groupId=). */
+  id: string;
+  name: string;
+  /** Parent group id; null for root groups. Used to build the hierarchy. */
+  parent_group_id: string | null;
+  /** 0 = raíz, 1 = hijo, 2 = nieto (máximo 3 niveles). */
+  depth: number;
 }
 
 export interface FilterOptions {
@@ -86,6 +105,9 @@ export interface FilterOptions {
   statuses: string[];
   hasTriggeredBy: boolean;
   users: FilterUser[];
+  /** Roles (perfil) — dimensión "Rol". */
+  roles: FilterRole[];
+  /** Grupos organizacionales reales — dimensión "Grupo". */
   groups: FilterGroup[];
   /**
    * Whether the Usuario filter was scoped to active users only.
@@ -149,25 +171,80 @@ async function getActiveUserIdsForRoleKey(
   return (data ?? []).map((u) => u.id as string);
 }
 
+// Resolve the selected group plus every descendant (organization_groups is a
+// max 3-level tree via parent_group_id). Returns the full set of group ids in
+// the selected subtree, so selecting a parent includes its children.
+function collectGroupAndDescendants(
+  rootId: string,
+  groups: { id: string; parent_group_id: string | null }[],
+): string[] {
+  const childrenByParent = new Map<string, string[]>();
+  for (const g of groups) {
+    if (!g.parent_group_id) continue;
+    const arr = childrenByParent.get(g.parent_group_id) ?? [];
+    arr.push(g.id);
+    childrenByParent.set(g.parent_group_id, arr);
+  }
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+    for (const childId of childrenByParent.get(id) ?? []) stack.push(childId);
+  }
+  return result;
+}
+
+async function getActiveUserIdsForGroupScope(
+  admin: AdminClient,
+  groupId: string,
+): Promise<string[]> {
+  const { data: groups } = await admin
+    .from('organization_groups')
+    .select('id, parent_group_id');
+
+  const scopeIds = collectGroupAndDescendants(groupId, groups ?? []);
+  if (scopeIds.length === 0) return [];
+
+  const { data } = await admin
+    .from('internal_users')
+    .select('id')
+    .in('group_id', scopeIds)
+    .eq('access_status', ACTIVE_USER_STATUS);
+  return (data ?? []).map((u) => u.id as string);
+}
+
+// Combine the user, role and group filters into one concrete id set.
+// Each active filter contributes a candidate id list; the final scope is the
+// INTERSECTION of all of them (role ∩ group ∩ user), so the dimensions stack.
 async function resolveUserScope(
   admin: AdminClient,
   filters: UsageFilters,
 ): Promise<UserScope> {
-  if (!filters.user && !filters.group) return { mode: 'none' };
+  const constraints: string[][] = [];
 
-  let groupIds: string[] | null = null;
-  if (filters.group) {
-    groupIds = await getActiveUserIdsForRoleKey(admin, filters.group);
+  if (filters.role) {
+    constraints.push(await getActiveUserIdsForRoleKey(admin, filters.role));
   }
-
+  if (filters.groupId) {
+    constraints.push(await getActiveUserIdsForGroupScope(admin, filters.groupId));
+  }
   if (filters.user) {
-    // user + group: only valid if the user belongs to the group.
-    if (groupIds && !groupIds.includes(filters.user)) return { mode: 'ids', ids: [] };
-    return { mode: 'ids', ids: [filters.user] };
+    constraints.push([filters.user]);
   }
 
-  // group only.
-  return { mode: 'ids', ids: groupIds ?? [] };
+  if (constraints.length === 0) return { mode: 'none' };
+
+  let ids = constraints[0];
+  for (let i = 1; i < constraints.length; i++) {
+    const allowed = new Set(constraints[i]);
+    ids = ids.filter((id) => allowed.has(id));
+  }
+  return { mode: 'ids', ids: [...new Set(ids)] };
 }
 
 export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
@@ -176,21 +253,28 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
 
   const admin = getAdminClient();
 
-  const [logsResult, runsResult, usersResult, rolesResult] = await Promise.all([
-    admin.from('provider_usage_logs').select('provider_key, status, triggered_by'),
-    admin.from('agent_runs').select('agent_key, agent_name, triggered_by, status'),
-    admin
-      .from('internal_users')
-      .select('id, full_name, email, role_id, access_status')
-      .eq('access_status', ACTIVE_USER_STATUS)
-      .order('full_name', { ascending: true }),
-    admin.from('roles').select('id, key, name'),
-  ]);
+  const [logsResult, runsResult, usersResult, rolesResult, groupsResult] =
+    await Promise.all([
+      admin.from('provider_usage_logs').select('provider_key, status, triggered_by'),
+      admin.from('agent_runs').select('agent_key, agent_name, triggered_by, status'),
+      admin
+        .from('internal_users')
+        .select('id, full_name, email, role_id, group_id, access_status')
+        .eq('access_status', ACTIVE_USER_STATUS)
+        .order('full_name', { ascending: true }),
+      admin.from('roles').select('id, key, name'),
+      admin
+        .from('organization_groups')
+        .select('id, name, parent_group_id, depth')
+        .order('depth', { ascending: true })
+        .order('name', { ascending: true }),
+    ]);
 
   const logs = logsResult.data ?? [];
   const runs = runsResult.data ?? [];
   const internalUsers = usersResult.data ?? [];
   const roles = rolesResult.data ?? [];
+  const orgGroups = groupsResult.data ?? [];
 
   const providers = [...new Set(logs.map((l) => l.provider_key))].sort();
   const statuses = [
@@ -226,20 +310,30 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     full_name: u.full_name as string | null,
     email: u.email as string | null,
     role_key: u.role_id ? roleById.get(u.role_id as string)?.key ?? null : null,
+    group_id: (u.group_id as string | null) ?? null,
   }));
 
-  // Groups: only roles that at least one active user has, sorted by label.
+  // Roles (perfil): only roles that at least one active user has, sorted by label.
   const usedRoleIds = [
     ...new Set(internalUsers.map((u) => u.role_id as string | null).filter(Boolean) as string[]),
   ];
-  const groups: FilterGroup[] = usedRoleIds
+  const rolesOptions: FilterRole[] = usedRoleIds
     .map((id) => {
       const r = roleById.get(id);
       if (!r) return null;
       return { key: r.key, label: roleLabel(r.key, r.name) };
     })
-    .filter((g): g is FilterGroup => g !== null)
+    .filter((r): r is FilterRole => r !== null)
     .sort((a, b) => a.label.localeCompare(b.label));
+
+  // Groups: real organization_groups (full tree, so parents can resolve
+  // descendants client-side and server-side). depth/name already ordered.
+  const groups: FilterGroup[] = orgGroups.map((g) => ({
+    id: g.id as string,
+    name: g.name as string,
+    parent_group_id: (g.parent_group_id as string | null) ?? null,
+    depth: (g.depth as number) ?? 0,
+  }));
 
   return {
     providers,
@@ -247,6 +341,7 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     statuses,
     hasTriggeredBy,
     users,
+    roles: rolesOptions,
     groups,
     usersScopedToActive: true,
   };
