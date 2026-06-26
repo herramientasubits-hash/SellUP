@@ -3,14 +3,32 @@ import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { getAllContacts } from '@/modules/contacts/actions';
 import { getAccountsList } from '@/modules/accounts/actions';
+import { getPendingContactCandidatesCount } from '@/modules/contact-enrichment/actions';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
+import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-tabs-nav';
+import { ContactCandidatesPanel } from '@/components/contact-enrichment/contact-candidates-panel';
 
-export default async function ContactsPage() {
-  const [contacts, accountsList] = await Promise.all([
+interface ContactsPageProps {
+  searchParams: Promise<{ tab?: string }>;
+}
+
+export default async function ContactsPage({ searchParams }: ContactsPageProps) {
+  const { tab } = await searchParams;
+
+  // Tab "Candidatos por revisar" — staging de Apollo (Hito 17A.4A).
+  if (tab === 'candidates') {
+    return <ContactCandidatesPanel />;
+  }
+
+  // Tab por defecto: "Contactos aprobados" (comportamiento histórico de /contacts).
+  // El conteo de candidatos alimenta el badge del pill; nunca debe tumbar el tab
+  // principal, así que cae a 0 si la lectura de staging falla.
+  const [contacts, accountsList, candidatesCount] = await Promise.all([
     getAllContacts(),
     getAccountsList(),
+    getPendingContactCandidatesCount().catch(() => 0),
   ]);
 
   const accounts = accountsList.map((a) => ({ id: a.id, name: a.name }));
@@ -24,6 +42,7 @@ export default async function ContactsPage() {
     <DataTablePage
       title="Contactos"
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
+      tabs={<ContactsModuleTabsNav active="approved" candidatesCount={candidatesCount} />}
       actions={
         <div className="flex items-center gap-2">
           <ContactsEnrichmentCTA />

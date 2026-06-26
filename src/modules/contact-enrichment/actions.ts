@@ -5,7 +5,16 @@ import { createClient } from '@/lib/supabase/server';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import { startContactEnrichmentRun } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-runner';
 import { executeContactEnrichmentApolloRun } from '@/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner';
-import type { Agent2AInput, CompanyResolutionResult, ContactEnrichmentRunResult } from './types';
+import type {
+  Agent2AInput,
+  CompanyResolutionResult,
+  ContactEnrichmentRunResult,
+  PendingContactCandidate,
+  ContactCandidateEnrichmentMetadata,
+  ContactSource,
+  ContactCandidateStatus,
+  ContactDuplicateStatus,
+} from './types';
 
 // ── Auth helper (patrón idéntico a prospect-batches/actions.ts) ───────────────
 
@@ -214,4 +223,96 @@ export async function runContactEnrichmentApolloAction(
     const message = err instanceof Error ? err.message : 'Error ejecutando Apollo';
     return { success: false, status: 'error', error: message };
   }
+}
+
+// ── Candidatos por revisar (Hito 17A.4A) ──────────────────────
+// Lectura de staging para el tab "Candidatos por revisar" en /contacts.
+// Solo proyecta `pending_review`; NO toca contactos finales ni HubSpot.
+
+const PENDING_CANDIDATES_LIMIT = 500;
+
+interface CandidateRunContext {
+  company_name: string | null;
+  company_domain: string | null;
+  account_id: string | null;
+  hubspot_company_id: string | null;
+}
+
+/** Supabase devuelve el embed to-one como objeto, pero el tipado del select
+ *  puede inferirlo como arreglo: normalizamos ambos casos. */
+function firstRun(run: unknown): CandidateRunContext | null {
+  const value = Array.isArray(run) ? run[0] : run;
+  if (!value || typeof value !== 'object') return null;
+  const r = value as Record<string, unknown>;
+  return {
+    company_name: (r.company_name as string | null) ?? null,
+    company_domain: (r.company_domain as string | null) ?? null,
+    account_id: (r.account_id as string | null) ?? null,
+    hubspot_company_id: (r.hubspot_company_id as string | null) ?? null,
+  };
+}
+
+/**
+ * Candidatos en `pending_review` con el contexto de empresa de su run.
+ * Proyección de solo lectura para revisión humana — sin payloads crudos.
+ */
+export async function getPendingContactCandidates(
+  limit: number = PENDING_CANDIDATES_LIMIT,
+): Promise<PendingContactCandidate[]> {
+  await requireActiveUserForEnrichment();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(
+      `id, full_name, title, email, linkedin_url, phone, source, status,
+       duplicate_status, confidence, enrichment_metadata, created_at,
+       run:contact_enrichment_runs ( company_name, company_domain, account_id, hubspot_company_id )`,
+    )
+    .eq('status', 'pending_review')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`getPendingContactCandidates: ${error.message}`);
+
+  return (data ?? []).map((row) => {
+    const record = row as Record<string, unknown>;
+    const run = firstRun(record.run);
+    return {
+      id: record.id as string,
+      full_name: (record.full_name as string | null) ?? '',
+      title: (record.title as string | null) ?? null,
+      email: (record.email as string | null) ?? null,
+      linkedin_url: (record.linkedin_url as string | null) ?? null,
+      phone: (record.phone as string | null) ?? null,
+      source: (record.source as ContactSource) ?? 'apollo',
+      status: (record.status as ContactCandidateStatus) ?? 'pending_review',
+      duplicate_status: (record.duplicate_status as ContactDuplicateStatus) ?? 'unchecked',
+      confidence: Number(record.confidence ?? 0),
+      enrichment_metadata:
+        (record.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
+      created_at: record.created_at as string,
+      company_name: run?.company_name ?? null,
+      company_domain: run?.company_domain ?? null,
+      account_id: run?.account_id ?? null,
+      hubspot_company_id: run?.hubspot_company_id ?? null,
+    } satisfies PendingContactCandidate;
+  });
+}
+
+/**
+ * Conteo de candidatos en `pending_review` para el badge del pill.
+ * Query indexada (idx ...status); barata para el tab por defecto.
+ */
+export async function getPendingContactCandidatesCount(): Promise<number> {
+  await requireActiveUserForEnrichment();
+  const supabase = await createClient();
+
+  const { count, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending_review');
+
+  if (error) throw new Error(`getPendingContactCandidatesCount: ${error.message}`);
+  return count ?? 0;
 }

@@ -141,3 +141,55 @@ export interface ContactEnrichmentRunResult {
   candidatesCount: 0;
   existingContactsSnapshot?: ExistingContactsSnapshotResult;
 }
+
+// ── Candidatos por revisar (Hito 17A.4A) ────────────────────────
+// Veredicto de relevancia/calidad escrito por el filtro 17A.3B dentro de
+// `contact_enrichment_candidates.enrichment_metadata.relevance`. Espejo del
+// shape producido por `relevanceMetadata()` en apollo-enrichment-runner.ts.
+
+export type ContactRelevanceStatus =
+  | 'high_relevance'
+  | 'medium_relevance'
+  | 'low_relevance'
+  | 'not_relevant'
+  | 'insufficient_data';
+
+export interface ContactCandidateRelevanceMetadata {
+  status?: ContactRelevanceStatus;
+  score?: number;
+  quality_score?: number;
+  matched_keywords?: string[];
+  matched_category?: string | null;
+  rejection_reasons?: string[];
+}
+
+export interface ContactCandidateEnrichmentMetadata {
+  relevance?: ContactCandidateRelevanceMetadata;
+  apollo_search_attempt?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Candidato en staging listo para revisión humana, con el contexto de empresa
+ * resuelto desde `contact_enrichment_runs`. Es una proyección de solo lectura:
+ * no incluye payloads crudos del proveedor. Aprobar/rechazar llega en 17A.4B.
+ */
+export interface PendingContactCandidate {
+  id: string;
+  full_name: string;
+  title: string | null;
+  email: string | null;
+  linkedin_url: string | null;
+  phone: string | null;
+  source: ContactSource;
+  status: ContactCandidateStatus;
+  duplicate_status: ContactDuplicateStatus;
+  confidence: number;
+  enrichment_metadata: ContactCandidateEnrichmentMetadata;
+  created_at: string;
+  // Contexto de empresa (desde el run que originó al candidato)
+  company_name: string | null;
+  company_domain: string | null;
+  account_id: string | null;
+  hubspot_company_id: string | null;
+}
