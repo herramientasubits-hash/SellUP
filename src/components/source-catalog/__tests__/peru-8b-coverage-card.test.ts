@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 
 import {
   formatMigoConfigured,
+  formatCoverageSource,
   formatCoveragePercent,
   formatLoadedRows,
 } from '../peru-coverage-card';
@@ -141,6 +142,38 @@ describe('Official sector guardrail', () => {
   it('8b. migo.providesOfficialSector is false', () => {
     const migo = buildMigoCoverage(false);
     assert.equal(migo.providesOfficialSector, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8c. Card shows coverage indicator source (Perú.8C.1)
+// ---------------------------------------------------------------------------
+describe('Coverage indicator source display', () => {
+  it('8c-1. formatCoverageSource(live_database) returns "base de datos en vivo"', () => {
+    assert.equal(formatCoverageSource('live_database'), 'base de datos en vivo');
+  });
+
+  it('8c-2. formatCoverageSource(audited_fallback) returns "fallback auditado"', () => {
+    assert.equal(formatCoverageSource('audited_fallback'), 'fallback auditado');
+  });
+
+  it('8c-3. coverageSource source label leaks no API key', () => {
+    const live = formatCoverageSource('live_database');
+    const fallback = formatCoverageSource('audited_fallback');
+    for (const label of [live, fallback]) {
+      assert.ok(!label.includes('MIGO_API_KEY'), 'must not contain MIGO_API_KEY');
+      assert.ok(!label.includes('Bearer'), 'must not contain Bearer token');
+      assert.ok(!label.includes('Authorization'), 'must not contain Authorization header');
+    }
+  });
+
+  it('8c-4. coverageSource source label exposes no raw payload', () => {
+    const live = formatCoverageSource('live_database');
+    const fallback = formatCoverageSource('audited_fallback');
+    for (const label of [live, fallback]) {
+      assert.ok(!label.includes('raw_payload'), 'must not contain raw_payload');
+      assert.ok(!label.includes('rawPayload'), 'must not contain rawPayload');
+    }
   });
 });
 
