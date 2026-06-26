@@ -2391,3 +2391,64 @@ Estos ítems no son necesarios para el MVP y no deben reabrirse como bloqueantes
 | No se cargaron más filas SUNAT | ✅ |
 | No se crearon candidatos / cuentas / batches | ✅ |
 | No se hizo force push | ✅ |
+
+---
+
+## Hito Perú.7B — Carga controlada SUNAT snapshot: 2.000 → 25.000 filas
+
+**Hito:** Perú.7B
+**Fecha:** 2026-06-26
+**HEAD inicial:** `e9b36d7` — docs(peru): close SUNAT and Migo MVP validation line (Perú.7A)
+**Tipo:** Operacional — carga de datos vía importer offline. Sin modificaciones a código fuente.
+
+### 1. Objetivo
+
+Ampliar el snapshot SUNAT en Supabase (`peru_sunat_ruc_snapshot`) de 2.000 filas (estado post-Perú.5E) a 25.000 filas mediante cargas controladas en chunks de 1.000 filas con `--offset` progresivo.
+
+### 2. Método de carga
+
+Ejecuciones repetidas del importer offline con parámetros incrementales:
+
+```bash
+# Chunks ejecutados (offset 2000 → 24000, cada uno de 1000 filas)
+npm run sunat:peru:import-snapshot -- --apply --offset 2000 --limit 1000
+npm run sunat:peru:import-snapshot -- --apply --offset 3000 --limit 1000
+# ... (patrón repetido hasta offset 24000)
+npm run sunat:peru:import-snapshot -- --apply --offset 24000 --limit 1000
+```
+
+Método soportado por el soporte `--offset` introducido en Perú.5E.
+Cada chunk: upsert por `ruc` (onConflict), streaming line-by-line, sin cargar todo en memoria.
+
+### 3. Estado final en Supabase
+
+| Métrica | Valor |
+|---------|-------|
+| Filas totales (`peru_sunat_ruc_snapshot`) | **25.000** |
+| Filas activas (`is_active = true`) | **7.267** |
+| Filas activas + habidas (`is_active = true AND is_habido = true`) | **6.887** |
+| Filas con estado problemático | **17.733** |
+
+> Las 6.887 filas `ACTIVO + HABIDO` representan el universo de empresas peruanas legalmente válidas disponibles para validación en el lookup SUNAT del flujo de enriquecimiento post-aprobación.
+
+### 4. Guardrails respetados
+
+| Guardrail | Estado |
+|-----------|--------|
+| No se descargó SUNAT ZIP | ✅ |
+| No se descomprimió en Vercel | ✅ |
+| No se llamó SUNAT API web | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se crearon candidatos ni batches | ✅ |
+| No se modificó código fuente | ✅ |
+| No se tocó Chile / México / Colombia | ✅ |
+| No se hizo force push | ✅ |
+| `.tmp/` no commiteado | ✅ |
+
+### 5. Estado del snapshot SUNAT
+
+```
+Cobertura estimada: 25.000 / ~851.000 RUC20 totales ≈ 2.9%
+Próximo hito recomendado: ampliar a 100.000+ filas para mayor cobertura de validación legal
+```
