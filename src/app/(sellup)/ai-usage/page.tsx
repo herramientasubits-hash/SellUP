@@ -379,6 +379,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     provider: typeof params.provider === 'string' ? params.provider : undefined,
     agent: typeof params.agent === 'string' ? params.agent : undefined,
     status: typeof params.status === 'string' ? params.status : undefined,
+    user: typeof params.user === 'string' ? params.user : undefined,
   };
 
   const [summary, agentStats, providerStats, recentLogs, filterOptions, userConsumption] =
@@ -396,7 +397,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     !isRestricted &&
     (summary.total_executions > 0 || summary.total_provider_calls > 0);
 
-  const activeFiltersCount = [filters.period, filters.provider, filters.agent, filters.status].filter(
+  const activeFiltersCount = [filters.period, filters.provider, filters.agent, filters.status, filters.user].filter(
     Boolean,
   ).length;
 
@@ -517,6 +518,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               currentProvider={filters.provider ?? ''}
               currentAgent={filters.agent ?? ''}
               currentStatus={filters.status ?? ''}
+              currentUser={filters.user ?? ''}
             />
             {activeFiltersCount > 0 && (
               <span className="text-[10px] text-muted-foreground">

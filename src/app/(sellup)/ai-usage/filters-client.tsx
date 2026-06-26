@@ -37,12 +37,18 @@ function labelAgent(key: string, name: string | null) {
   return AGENT_DISPLAY[key] ?? name ?? key;
 }
 
+function labelUser(u: { id: string; full_name: string | null; email: string | null }) {
+  if (u.full_name && u.email) return `${u.full_name} (${u.email})`;
+  return u.full_name ?? u.email ?? u.id.slice(0, 8);
+}
+
 interface FiltersClientProps {
   options: FilterOptions;
   currentPeriod: string;
   currentProvider: string;
   currentAgent: string;
   currentStatus: string;
+  currentUser: string;
 }
 
 export function FiltersClient({
@@ -51,6 +57,7 @@ export function FiltersClient({
   currentProvider,
   currentAgent,
   currentStatus,
+  currentUser,
 }: FiltersClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -155,6 +162,34 @@ export function FiltersClient({
               </SelectItem>
             ))}
           </SelectContent>
+        </Select>
+      )}
+
+      {/* Usuario */}
+      {options.users.length > 0 ? (
+        <Select
+          value={currentUser || 'all'}
+          onValueChange={(v) => setParam('user', v)}
+        >
+          <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectValue placeholder="Usuario" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">
+              Todos los usuarios
+            </SelectItem>
+            {options.users.map((u) => (
+              <SelectItem key={u.id} value={u.id} className="text-xs">
+                {labelUser(u)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <Select disabled value="none">
+          <SelectTrigger className="h-8 w-[180px] text-xs opacity-50 cursor-not-allowed">
+            <SelectValue placeholder="Sin usuarios en logs" />
+          </SelectTrigger>
         </Select>
       )}
     </div>

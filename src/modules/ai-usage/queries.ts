@@ -25,6 +25,7 @@ export interface UsageFilters {
   provider?: string;
   agent?: string;
   status?: string;
+  user?: string;
 }
 
 function periodStart(period: UsageFilters['period']): string | null {
@@ -51,6 +52,7 @@ export interface FilterOptions {
   agents: { key: string; name: string | null }[];
   statuses: string[];
   hasTriggeredBy: boolean;
+  users: { id: string; full_name: string | null; email: string | null }[];
 }
 
 export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
@@ -91,7 +93,27 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     runs.some((r) => r.triggered_by != null) ||
     logs.some((l) => l.triggered_by != null);
 
-  return { providers, agents, statuses, hasTriggeredBy };
+  const userIds = [
+    ...new Set([
+      ...runs.filter((r) => r.triggered_by != null).map((r) => r.triggered_by as string),
+      ...logs.filter((l) => l.triggered_by != null).map((l) => l.triggered_by as string),
+    ]),
+  ];
+
+  let users: { id: string; full_name: string | null; email: string | null }[] = [];
+  if (userIds.length > 0) {
+    const { data: usersData } = await admin
+      .from('internal_users')
+      .select('id, full_name, email')
+      .in('id', userIds);
+    users = (usersData ?? []).map((u) => ({
+      id: u.id as string,
+      full_name: u.full_name as string | null,
+      email: u.email as string | null,
+    }));
+  }
+
+  return { providers, agents, statuses, hasTriggeredBy, users };
 }
 
 // ============================================================
@@ -111,6 +133,7 @@ export async function getAiUsageSummary(
   if (since) runsQuery = runsQuery.gte('created_at', since);
   if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
   if (filters.status) runsQuery = runsQuery.eq('status', filters.status);
+  if (filters.user) runsQuery = runsQuery.eq('triggered_by', filters.user);
 
   let logsQuery = admin
     .from('provider_usage_logs')
@@ -118,6 +141,7 @@ export async function getAiUsageSummary(
   if (since) logsQuery = logsQuery.gte('created_at', since);
   if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
   if (filters.status) logsQuery = logsQuery.eq('status', filters.status);
+  if (filters.user) logsQuery = logsQuery.eq('triggered_by', filters.user);
 
   const [runsResult, logsResult] = await Promise.all([runsQuery, logsQuery]);
 
@@ -174,6 +198,7 @@ export async function getAgentStats(
   if (since) query = query.gte('created_at', since);
   if (filters.agent) query = query.eq('agent_key', filters.agent);
   if (filters.status) query = query.eq('status', filters.status);
+  if (filters.user) query = query.eq('triggered_by', filters.user);
 
   const { data, error } = await query;
   if (error) return [];
@@ -234,6 +259,7 @@ export async function getProviderStats(
   if (since) query = query.gte('created_at', since);
   if (filters.provider) query = query.eq('provider_key', filters.provider);
   if (filters.status) query = query.eq('status', filters.status);
+  if (filters.user) query = query.eq('triggered_by', filters.user);
 
   const { data, error } = await query;
   if (error) return [];
@@ -302,6 +328,7 @@ export async function getRecentProviderLogs(
   if (since) query = query.gte('created_at', since);
   if (filters.provider) query = query.eq('provider_key', filters.provider);
   if (filters.status) query = query.eq('status', filters.status);
+  if (filters.user) query = query.eq('triggered_by', filters.user);
 
   const { data, error } = await query;
   if (error) return [];
@@ -337,12 +364,14 @@ export async function getUserConsumption(
     .select('triggered_by, estimated_cost_usd, created_at');
   if (since) runsQuery = runsQuery.gte('created_at', since);
   if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
+  if (filters.user) runsQuery = runsQuery.eq('triggered_by', filters.user);
 
   let logsQuery = admin
     .from('provider_usage_logs')
     .select('triggered_by, estimated_cost_usd, created_at');
   if (since) logsQuery = logsQuery.gte('created_at', since);
   if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
+  if (filters.user) logsQuery = logsQuery.eq('triggered_by', filters.user);
 
   const [runsResult, logsResult] = await Promise.all([runsQuery, logsQuery]);
 
