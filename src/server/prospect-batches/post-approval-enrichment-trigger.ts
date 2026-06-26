@@ -26,7 +26,7 @@ export interface PostApprovalEnrichmentMeta {
   trigger: 'candidate_approval';
   account_id: string;
   status: 'queued' | 'skipped' | 'trigger_failed';
-  reason?: 'missing_tax_id';
+  reason?: 'missing_tax_id' | 'country_not_supported_for_post_approval_source_enrichment';
   /** co_siis supports name fallback at ~0.60 confidence, but not auto-activated */
   name_fallback_available?: boolean;
   source_keys?: string[];
@@ -129,6 +129,25 @@ export async function triggerPostApprovalEnrichment(
   const { candidate, candidateId, batchId, accountId, internalUserId, supabase } =
     params;
   const triggeredAt = new Date().toISOString();
+
+  // Country guard: CO-only sources (co_siis, co_superfinanciera, etc.) must not
+  // be queued for non-CO candidates.
+  const candidateCountryCode = typeof candidate.country_code === 'string'
+    ? candidate.country_code.toUpperCase()
+    : null;
+
+  if (candidateCountryCode !== 'CO') {
+    const skippedMeta: PostApprovalEnrichmentMeta = {
+      requested: false,
+      strategy: 'nit_first',
+      trigger: 'candidate_approval',
+      account_id: accountId,
+      status: 'skipped',
+      reason: 'country_not_supported_for_post_approval_source_enrichment',
+      triggered_at: triggeredAt,
+    };
+    return { triggered: false, meta: skippedMeta };
+  }
 
   try {
     const nit = extractNitFromCandidate(candidate);

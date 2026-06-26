@@ -329,6 +329,33 @@ export interface CountrySearchContext {
 }
 
 export function getCountrySearchContext(candidate: CandidateBasicInfo): CountrySearchContext {
+  if (candidate.country_code === 'CO') {
+    return {
+      countryTerm: 'Colombia',
+      taxIdLabel: 'NIT',
+      officialRegistryLabel: 'RUES',
+      expectedCountryCode: 'CO',
+      preferredTLDs: ['.com.co', '.co'],
+      foreignHints: [
+        'chile', 'peru', 'perú', 'argentina', 'espana', 'españa', 'italia',
+        'usa', 'united states', 'estados unidos', 'mexico', 'brasil', 'brazil',
+      ],
+    };
+  }
+  if (candidate.country_code === 'MX') {
+    return {
+      countryTerm: 'México',
+      taxIdLabel: 'RFC',
+      officialRegistryLabel: 'DENUE/SAT',
+      expectedCountryCode: 'MX',
+      preferredTLDs: ['.com.mx', '.mx'],
+      foreignHints: [
+        'colombia', 'chile', 'peru', 'perú', 'argentina', 'espana', 'españa',
+        'usa', 'united states', 'estados unidos', 'brasil', 'brazil',
+        'germany', 'alemania', 'france', 'austria',
+      ],
+    };
+  }
   if (candidate.country_code === 'CL') {
     return {
       countryTerm: 'Chile',
@@ -343,16 +370,40 @@ export function getCountrySearchContext(candidate: CandidateBasicInfo): CountryS
       ],
     };
   }
+  if (candidate.country_code === 'PE') {
+    return {
+      countryTerm: 'Perú',
+      taxIdLabel: 'RUC',
+      officialRegistryLabel: 'SUNAT',
+      expectedCountryCode: 'PE',
+      preferredTLDs: ['.com.pe', '.pe'],
+      foreignHints: [
+        'colombia', 'chile', 'argentina', 'espana', 'españa', 'italia',
+        'usa', 'united states', 'estados unidos', 'mexico', 'brasil', 'brazil',
+      ],
+    };
+  }
+  if (candidate.country_code === 'EC') {
+    return {
+      countryTerm: 'Ecuador',
+      taxIdLabel: 'RUC',
+      officialRegistryLabel: 'SRI Ecuador',
+      expectedCountryCode: 'EC',
+      preferredTLDs: ['.com.ec', '.ec'],
+      foreignHints: [
+        'colombia', 'chile', 'peru', 'perú', 'argentina', 'espana', 'españa',
+        'usa', 'united states', 'estados unidos', 'mexico', 'brasil', 'brazil',
+      ],
+    };
+  }
+  // Generic fallback: does not assume Colombia context for unknown country codes
   return {
-    countryTerm: 'Colombia',
-    taxIdLabel: 'NIT',
-    officialRegistryLabel: 'RUES',
-    expectedCountryCode: 'CO',
-    preferredTLDs: ['.com.co', '.co'],
-    foreignHints: [
-      'chile', 'peru', 'perú', 'argentina', 'espana', 'españa', 'italia',
-      'usa', 'united states', 'estados unidos', 'mexico', 'brasil', 'brazil',
-    ],
+    countryTerm: candidate.country_code ?? 'Unknown',
+    taxIdLabel: 'ID',
+    officialRegistryLabel: 'Official Registry',
+    expectedCountryCode: candidate.country_code ?? '',
+    preferredTLDs: [],
+    foreignHints: [],
   };
 }
 

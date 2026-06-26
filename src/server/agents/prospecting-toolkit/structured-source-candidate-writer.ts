@@ -908,6 +908,10 @@ export async function writeStructuredSourceCandidatesPreview(
         resolvedTaxIdentifierType = 'RFC';
       } else if (upperCc === 'CL') {
         resolvedTaxIdentifierType = 'RUT';
+      } else if (upperCc === 'PE') {
+        resolvedTaxIdentifierType = 'RUC';
+      } else if (upperCc === 'EC') {
+        resolvedTaxIdentifierType = 'RUC';
       }
 
       const { score: completenessScore, missingFields } = calculateDataCompleteness(draft);

@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveCandidateTaxIdentifierForColombia } from './resolve-candidate-tax-identifier-colombia';
 import { resolveCandidateTaxIdentifierForMexico } from './resolve-candidate-tax-identifier-mexico';
 import { enrichCandidatesWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-candidates-with-validated-sources';
-import type { TaxIdentifierResolutionBatchMetadata } from './types';
+import type { TaxIdentifierResolutionBatchMetadata, ResolveTaxIdentifierOutput } from './types';
 
 async function resolveForCandidateByCountry(
   name: string,
@@ -18,6 +18,19 @@ async function resolveForCandidateByCountry(
       sector: (candidate['sector_description'] as string | null) ?? null,
       existingMetadata: (candidate['metadata'] as Record<string, unknown>) ?? {},
     });
+  }
+
+  // CL (RUT), PE (RUC), EC (RUC): no dedicated resolver yet — return explicit skip.
+  // This prevents these countries from silently hitting the Colombia NIT resolver.
+  if (countryCode === 'CL' || countryCode === 'PE' || countryCode === 'EC') {
+    const skipped: ResolveTaxIdentifierOutput = { status: 'not_found', confidence: 0 };
+    return skipped;
+  }
+
+  // Unknown country: also skip rather than silently apply Colombia logic.
+  if (countryCode !== 'CO') {
+    const skipped: ResolveTaxIdentifierOutput = { status: 'not_found', confidence: 0 };
+    return skipped;
   }
 
   return resolveCandidateTaxIdentifierForColombia({

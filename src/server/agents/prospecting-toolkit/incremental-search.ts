@@ -935,11 +935,13 @@ export async function runIncrementalProspectingSearch(
         const reconciledAdaptive = buildAdaptiveDiscovery(writerCandidatesCreated ?? 0);
         metadata.adaptive_discovery = reconciledAdaptive;
 
-        // ── Post-writer enrichment (Hito FIX-P0) ─────────────────────────────
+        // ── Post-writer enrichment (Hito FIX-P0 / v1.16K-M) ─────────────────
+        // CO, MX, CL: enrichment supported. PE, EC and others: skip explicitly.
+        const POST_WRITER_ENRICHMENT_COUNTRIES = new Set(['CO', 'MX', 'CL']);
         if (
           writerBatchId &&
           (writerCandidatesCreated ?? 0) > 0 &&
-          input.countryCode === 'CO' &&
+          POST_WRITER_ENRICHMENT_COUNTRIES.has(input.countryCode ?? '') &&
           adminSupabase
         ) {
           const enrichmentResult = await enrichBatchCandidates(
@@ -987,6 +989,39 @@ export async function runIncrementalProspectingSearch(
             }
           } catch (batchUpdateErr: unknown) {
             console.warn('[incremental-search] batch enrichment status update failed:', batchUpdateErr instanceof Error ? batchUpdateErr.message : batchUpdateErr);
+          }
+        } else if (
+          writerBatchId &&
+          (writerCandidatesCreated ?? 0) > 0 &&
+          !POST_WRITER_ENRICHMENT_COUNTRIES.has(input.countryCode ?? '') &&
+          adminSupabase
+        ) {
+          // Record that enrichment was explicitly skipped for unsupported country
+          try {
+            const { data: currentBatch } = await adminSupabase
+              .from('prospect_batches')
+              .select('metadata')
+              .eq('id', writerBatchId)
+              .single();
+
+            if (currentBatch) {
+              const batchMeta = (currentBatch.metadata as Record<string, unknown>) ?? {};
+              await adminSupabase
+                .from('prospect_batches')
+                .update({
+                  metadata: {
+                    ...batchMeta,
+                    source_enrichment_status: {
+                      attempted: false,
+                      reason: 'country_not_supported',
+                      country_code: input.countryCode,
+                    },
+                  },
+                })
+                .eq('id', writerBatchId);
+            }
+          } catch (batchUpdateErr: unknown) {
+            console.warn('[incremental-search] batch enrichment skip metadata update failed:', batchUpdateErr instanceof Error ? batchUpdateErr.message : batchUpdateErr);
           }
         }
       }

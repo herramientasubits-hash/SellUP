@@ -140,6 +140,22 @@ function extractDomainSimple(url: string | null | undefined): string | null {
   }
 }
 
+// ─── Country context for LLM prompt ──────────────────────────────────────────
+
+export function getCountryEnricherContext(countryCode: string | null | undefined): {
+  countryTerm: string;
+  taxIdLabel: string;
+  registryLabel: string;
+} {
+  switch (countryCode) {
+    case 'MX': return { countryTerm: 'México', taxIdLabel: 'RFC', registryLabel: 'DENUE/SAT' };
+    case 'CL': return { countryTerm: 'Chile', taxIdLabel: 'RUT', registryLabel: 'SII/RES Chile' };
+    case 'PE': return { countryTerm: 'Perú', taxIdLabel: 'RUC', registryLabel: 'SUNAT' };
+    case 'EC': return { countryTerm: 'Ecuador', taxIdLabel: 'RUC', registryLabel: 'SRI Ecuador' };
+    default:   return { countryTerm: 'Colombia', taxIdLabel: 'NIT', registryLabel: 'RUES' };
+  }
+}
+
 // ─── Claude evaluation prompt ─────────────────────────────────────────────────
 
 function buildEvaluationPrompt(
@@ -171,14 +187,16 @@ function buildEvaluationPrompt(
   if (preExtractedLinkedIn) preExtracted.push(`- LinkedIn detectado localmente: ${preExtractedLinkedIn}`);
   else preExtracted.push('- LinkedIn: no detectado localmente');
 
-  return `Eres un evaluador de evidencia comercial para SellUp, plataforma B2B Colombia.
+  const countryCtx = getCountryEnricherContext(candidate.country_code);
 
-EMPRESA (fuente oficial RUES):
+  return `Eres un evaluador de evidencia comercial para SellUp, plataforma B2B.
+
+EMPRESA (fuente oficial ${countryCtx.registryLabel}):
 - Nombre: ${name}
-${candidate.tax_identifier ? `- NIT: ${candidate.tax_identifier}` : ''}
+${candidate.tax_identifier ? `- ${countryCtx.taxIdLabel}: ${candidate.tax_identifier}` : ''}
 ${candidate.city ? `- Ciudad: ${candidate.city}` : ''}
 - Sector registrado: ${candidate.industry ?? industry}
-- País: Colombia
+- País: ${countryCtx.countryTerm}
 
 BÚSQUEDAS REALIZADAS (${queriesRun.length}):
 ${queriesRun.map((q, i) => `  ${i + 1}. ${q}`).join('\n')}

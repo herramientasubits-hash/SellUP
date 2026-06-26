@@ -1062,7 +1062,13 @@ export async function writeProspectingCandidates(
 
     // ── Country compatibility gate (Hito 16AB.43.27) ─────────────────────────
     const urlToCheck = candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null);
-    const countryCompat = evaluateCountryCompatibility(urlToCheck, countryCode ?? 'CO');
+    if (!countryCode) {
+      skipped.push({ name: candidate.name, reason: 'missing_country_code', searchTrace: candidate.searchTrace ?? undefined });
+      precisionGate.countryIncompatibleCount++;
+      captureOmittedSample(candidate, effectiveDomain, 'missing_country_code', 'country_compatibility');
+      continue;
+    }
+    const countryCompat = evaluateCountryCompatibility(urlToCheck, countryCode);
     if (!countryCompat.compatible) {
       skipped.push({ name: candidate.name, reason: `country_incompatible:${countryCompat.reason}`, searchTrace: candidate.searchTrace ?? undefined });
       precisionGate.countryIncompatibleCount++;
