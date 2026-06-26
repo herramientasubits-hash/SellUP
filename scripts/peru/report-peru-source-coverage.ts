@@ -11,7 +11,16 @@
  * Run: npm run report:peru:source-coverage
  */
 
+import { WebSocket as UndiciWebSocket } from 'undici';
+
 import { getPeruSourceCoverageSummary } from '../../src/server/services/peru-source-coverage-summary';
+
+// CLI-only shim: Node < 22 has no global WebSocket, which @supabase/supabase-js
+// (realtime-js) needs at client construction. Next.js provides one at runtime,
+// so this lives in the script, not the shared service. Read-only either way.
+if (!(globalThis as { WebSocket?: unknown }).WebSocket) {
+  (globalThis as { WebSocket?: unknown }).WebSocket = UndiciWebSocket;
+}
 
 async function main() {
   const summary = await getPeruSourceCoverageSummary();
@@ -27,6 +36,7 @@ async function main() {
   console.log(`SUNAT inactive + not hab:  ${sunat.inactiveNotHabidoRows.toLocaleString('en-US')}`);
   console.log(`SUNAT next offset:         ${sunat.nextRecommendedOffset.toLocaleString('en-US')}`);
   console.log(`SUNAT coverage:            ${sunat.coverageLabel} (~${sunat.coveragePercent}% of audited RUC-20 universe)`);
+  console.log(`SUNAT coverage source:     ${sunat.coverageSource}`);
   console.log('────────────────────────────────────────');
   console.log(`Migo role:                 ${migo.role}`);
   console.log(`Migo configured:           ${migo.configured}`);

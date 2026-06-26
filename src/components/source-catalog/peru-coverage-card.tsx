@@ -8,7 +8,10 @@
  *   - Migo configured = 'unknown' renders as "no verificable desde este contexto".
  */
 
-import type { PeruSourceCoverageSummary } from '@/server/services/peru-source-coverage-summary';
+import type {
+  CoverageSource,
+  PeruSourceCoverageSummary,
+} from '@/server/services/peru-source-coverage-summary';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 // ---------------------------------------------------------------------------
@@ -19,6 +22,10 @@ export function formatMigoConfigured(configured: boolean | 'unknown'): string {
   if (configured === true) return 'Conectado';
   if (configured === false) return 'No conectado';
   return 'No verificable desde este contexto';
+}
+
+export function formatCoverageSource(source: CoverageSource): string {
+  return source === 'live_database' ? 'base de datos en vivo' : 'fallback auditado';
 }
 
 export function formatCoveragePercent(percent: number): string {
@@ -99,6 +106,9 @@ export function PeruCoverageCard({ summary, error }: Props) {
             <FieldRow label="INACTIVO + HABIDO" value={formatLoadedRows(sunat.inactiveHabidoRows)} />
             <FieldRow label="INACTIVO + NO HABIDO" value={formatLoadedRows(sunat.inactiveNotHabidoRows)} />
           </dl>
+          <p className="mt-2 text-[11px] text-muted-foreground/80">
+            Fuente del indicador: {formatCoverageSource(sunat.coverageSource)}
+          </p>
         </section>
 
         {/* Migo block */}

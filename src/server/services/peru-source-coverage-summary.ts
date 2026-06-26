@@ -9,6 +9,8 @@
  *   sectorIsInferredByWebAi: sector is inferred by web/AI, not from SUNAT
  */
 
+import { createClient } from '@supabase/supabase-js';
+
 import { hasMigoApiKey } from './migo-connection';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +25,9 @@ export interface SunatSnapshotCounts {
   inactiveHabido: number;
   inactiveNotHabido: number;
 }
+
+/** Origin of the SUNAT coverage numbers shown in the indicator. */
+export type CoverageSource = 'live_database' | 'audited_fallback';
 
 /** Last confirmed snapshot distribution (Perú.7F, 2026-06-26). */
 export const AUDITED_SUNAT_SNAPSHOT: SunatSnapshotCounts = {
@@ -50,6 +55,7 @@ export interface SunatCoverage {
   nextRecommendedOffset: number;
   coverageLabel: 'partial_snapshot';
   coveragePercent: number;
+  coverageSource: CoverageSource;
   officialLegalValidation: true;
   providesCiiu: false;
   providesOfficialSector: false;
@@ -86,8 +92,15 @@ export interface PeruSourceCoverageSummary {
 /**
  * Builds the SUNAT coverage block from provided row counts.
  * nextRecommendedOffset = loadedRows (resume point for next import batch).
+ *
+ * @param coverageSource Whether the counts came from a live DB read or the
+ *                       audited fallback. Defaults to 'audited_fallback' so
+ *                       pure callers and existing tests stay backwards-safe.
  */
-export function buildSunatCoverage(counts: SunatSnapshotCounts): SunatCoverage {
+export function buildSunatCoverage(
+  counts: SunatSnapshotCounts,
+  coverageSource: CoverageSource = 'audited_fallback',
+): SunatCoverage {
   const coveragePercent =
     Math.round((counts.total / AUDITED_TOTAL_RUC20) * 1000) / 10;
 
@@ -101,6 +114,7 @@ export function buildSunatCoverage(counts: SunatSnapshotCounts): SunatCoverage {
     nextRecommendedOffset: counts.total,
     coverageLabel: 'partial_snapshot',
     coveragePercent,
+    coverageSource,
     officialLegalValidation: true,
     providesCiiu: false,
     providesOfficialSector: false,
@@ -133,14 +147,128 @@ export function buildGuardrails(): PeruGuardrails {
 /** Assembles the full summary from pre-fetched parts. */
 export function buildPeruCoverageSummary(
   counts: SunatSnapshotCounts,
-  migoConfigured: boolean | 'unknown'
+  migoConfigured: boolean | 'unknown',
+  coverageSource: CoverageSource = 'audited_fallback'
 ): PeruSourceCoverageSummary {
   return {
     countryCode: 'PE',
-    sunat: buildSunatCoverage(counts),
+    sunat: buildSunatCoverage(counts, coverageSource),
     migo: buildMigoCoverage(migoConfigured),
     guardrails: buildGuardrails(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic read-only SUNAT counts (server-side only)
+// ---------------------------------------------------------------------------
+
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  'https://lrdruowtadwbdulndlph.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const SNAPSHOT_TABLE = 'peru_sunat_ruc_snapshot';
+
+/** Boolean columns used to bucket the snapshot distribution. */
+type SnapshotBoolColumn = 'is_active' | 'is_habido';
+
+/**
+ * Read-only row counter. Receives a list of (column, value) equality filters
+ * and returns the exact row count. Injectable so the distribution math can be
+ * tested without a live Supabase connection.
+ */
+export type SnapshotCountQuery = (
+  filters: ReadonlyArray<readonly [SnapshotBoolColumn, boolean]>,
+) => Promise<number>;
+
+/**
+ * Computes the five snapshot buckets by issuing read-only COUNT queries.
+ * Pure orchestration over the injected counter — no I/O of its own.
+ */
+export async function computeDynamicCounts(
+  countRows: SnapshotCountQuery,
+): Promise<SunatSnapshotCounts> {
+  const [total, activeHabido, activeNotHabido, inactiveHabido, inactiveNotHabido] =
+    await Promise.all([
+      countRows([]),
+      countRows([
+        ['is_active', true],
+        ['is_habido', true],
+      ]),
+      countRows([
+        ['is_active', true],
+        ['is_habido', false],
+      ]),
+      countRows([
+        ['is_active', false],
+        ['is_habido', true],
+      ]),
+      countRows([
+        ['is_active', false],
+        ['is_habido', false],
+      ]),
+    ]);
+
+  return { total, activeHabido, activeNotHabido, inactiveHabido, inactiveNotHabido };
+}
+
+/**
+ * Reads the SUNAT snapshot distribution directly from Supabase, read-only.
+ *
+ * Uses `select(..., { count: 'exact', head: true })`, which issues a COUNT
+ * over the table and returns ZERO rows — no payloads, no writes. Returns null
+ * when the service role key is absent, when the client cannot be created, or
+ * when any count query fails, so callers can fall back to audited constants.
+ *
+ * Server-side only: relies on SUPABASE_SERVICE_ROLE_KEY which is never exposed
+ * to the browser bundle.
+ */
+export async function getDynamicSunatCoverageCounts(): Promise<SunatSnapshotCounts | null> {
+  if (!supabaseServiceKey) return null;
+
+  let admin;
+  try {
+    admin = createClient(supabaseUrl, supabaseServiceKey);
+  } catch {
+    return null;
+  }
+
+  const countRows: SnapshotCountQuery = async (filters) => {
+    let query = admin
+      .from(SNAPSHOT_TABLE)
+      .select('ruc', { count: 'exact', head: true });
+    for (const [column, value] of filters) {
+      query = query.eq(column, value);
+    }
+    const { count, error } = await query;
+    if (error) throw error;
+    return count ?? 0;
+  };
+
+  try {
+    return await computeDynamicCounts(countRows);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves the SUNAT counts plus their provenance.
+ * Tries the dynamic read first; on null or any thrown error, falls back to the
+ * audited constants. Injectable for testing.
+ */
+export async function resolveSunatCounts(
+  fetchDynamic: () => Promise<SunatSnapshotCounts | null> = getDynamicSunatCoverageCounts,
+): Promise<{ counts: SunatSnapshotCounts; coverageSource: CoverageSource }> {
+  try {
+    const dynamic = await fetchDynamic();
+    if (dynamic) {
+      return { counts: dynamic, coverageSource: 'live_database' };
+    }
+  } catch {
+    // Any failure → safe audited fallback below.
+  }
+  return { counts: AUDITED_SUNAT_SNAPSHOT, coverageSource: 'audited_fallback' };
 }
 
 // ---------------------------------------------------------------------------
@@ -164,13 +292,24 @@ export async function resolveMigoConfigured(): Promise<boolean | 'unknown'> {
 /**
  * Returns a full, read-only coverage summary.
  *
- * @param counts   Provide to override the audited constants (useful in tests).
- *                 Omit to use AUDITED_SUNAT_SNAPSHOT.
+ * When `counts` is provided, it is used verbatim (audited_fallback provenance)
+ * — useful for tests and callers that already hold counts. When omitted, the
+ * service attempts a dynamic read-only DB read (coverageSource = live_database)
+ * and falls back to the audited constants (coverageSource = audited_fallback)
+ * if Supabase is unavailable, the env is missing, or any query fails.
+ *
+ * @param counts   Provide to override with explicit audited counts.
+ *                 Omit to read dynamically with safe fallback.
  */
 export async function getPeruSourceCoverageSummary(
   counts?: SunatSnapshotCounts
 ): Promise<PeruSourceCoverageSummary> {
-  const resolvedCounts = counts ?? AUDITED_SUNAT_SNAPSHOT;
   const migoConfigured = await resolveMigoConfigured();
-  return buildPeruCoverageSummary(resolvedCounts, migoConfigured);
+
+  if (counts) {
+    return buildPeruCoverageSummary(counts, migoConfigured, 'audited_fallback');
+  }
+
+  const { counts: resolvedCounts, coverageSource } = await resolveSunatCounts();
+  return buildPeruCoverageSummary(resolvedCounts, migoConfigured, coverageSource);
 }

@@ -118,9 +118,10 @@
   "smoke:peru:migo-legal-lookup": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-legal-lookup.ts",
   "smoke:peru:migo-fallback-dry-run": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-fallback-dry-run.ts",
   "smoke:peru:migo-visual-validation": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-visual-validation.ts",
-  "report:peru:source-coverage": "node --import tsx scripts/peru/report-peru-source-coverage.ts",
+  "report:peru:source-coverage": "node --env-file=.env.local --import tsx scripts/peru/report-peru-source-coverage.ts",
   "test:peru:8a-source-coverage": "node --import tsx --test src/server/services/__tests__/peru-8a-source-coverage-summary.test.ts",
-  "test:peru:8b-coverage-card": "node --import tsx --test src/components/source-catalog/__tests__/peru-8b-coverage-card.test.ts"
+  "test:peru:8b-coverage-card": "node --import tsx --test src/components/source-catalog/__tests__/peru-8b-coverage-card.test.ts",
+  "test:peru:8c-dynamic-coverage": "node --import tsx --test src/server/services/__tests__/peru-8c-dynamic-coverage.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
