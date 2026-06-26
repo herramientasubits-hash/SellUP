@@ -1,8 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { UserSearch } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { AIButton } from '@/components/ai/ai-button';
 import { ContactEnrichmentDrawer } from './contact-enrichment-drawer';
 
 export function ContactsEnrichmentCTA() {
@@ -10,10 +9,9 @@ export function ContactsEnrichmentCTA() {
 
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
-        <UserSearch className="mr-2 h-4 w-4" />
+      <AIButton size="sm" onClick={() => setOpen(true)}>
         Buscar contactos con IA
-      </Button>
+      </AIButton>
       <ContactEnrichmentDrawer open={open} onOpenChange={setOpen} />
     </>
   );
