@@ -487,6 +487,14 @@ export type LinkedInSearchOverride = {
   usageContext?: LinkedInUsageContext;
   /** Logger inyectable por llamada real al provider (v1.15.7). En prod: escribe a provider_usage_logs. */
   usageLoggerFn?: LinkedInUsageLoggerFn;
+  /**
+   * Costo por crédito Tavily resuelto desde provider_pricing_config (v1.16K-R-B).
+   * Se inyecta en el usageContext por defecto que arma el writer (que aporta el
+   * batchId real). null = pricing no disponible → el orchestrator bloquea las
+   * llamadas reales con skipped_reason='missing_pricing' (nunca registra $0).
+   * Ignorado si usageContext se provee explícitamente (ese contexto ya lo lleva).
+   */
+  unitCostUsd?: number | null;
 };
 
 export type RichProfileEnrichmentOverride = {
@@ -1520,6 +1528,9 @@ export async function writeProspectingCandidates(
           batchId: batchId,
           userId: triggeredByUserId ?? null,
           dryRun: isDryRun,
+          // v1.16K-R-B: resolved Tavily LinkedIn unit cost so estimated_cost_usd > 0.
+          // null when pricing is missing → orchestrator blocks real calls visibly.
+          unitCostUsd: linkedInSearchOverride?.unitCostUsd ?? null,
         },
         usageLoggerFn: linkedInSearchOverride?.usageLoggerFn,
       },

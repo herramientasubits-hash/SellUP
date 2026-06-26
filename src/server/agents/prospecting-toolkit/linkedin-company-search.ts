@@ -512,6 +512,26 @@ export async function runControlledLinkedInCompanySearch(
     };
   }
 
+  // Guard B (v1.16K-R-B): Tavily real mode requires resolved pricing.
+  // Without a unit cost, every usage log would record estimated_cost_usd = 0,
+  // silently breaking economic traceability and budget tracking. Fail visibly
+  // (zero provider calls, explicit skipped_reason) instead of logging $0.
+  if (config.provider === 'tavily' && config.enabled && !isDryRun && unitCostUsd === null) {
+    batchMeta.skipped_reason = 'missing_pricing';
+    batchMeta.skipped_count = candidates.length;
+    return {
+      results: candidates.map((c) => ({
+        candidateName: c.name,
+        attempted: false,
+        skipReason: 'missing_pricing',
+        enrichment: c.currentEnrichment,
+        query: null,
+      })),
+      batchMetadata: batchMeta,
+      usagePayloads: [],
+    };
+  }
+
   // Guard C: Tavily real mode with a logger requires a real batch_id.
   // Usage logs with batch_id=null cannot be traced back to a batch.
   if (config.provider === 'tavily' && config.enabled && !isDryRun && usageLoggerFn && (usageCtx?.batchId == null)) {

@@ -34,6 +34,7 @@ import { writeProspectingCandidates, type LinkedInSearchOverride } from './candi
 import type { LinkedInSearchConfig } from './linkedin-company-search';
 import { createTavilyLinkedInSearchProvider } from './linkedin-company-search-tavily';
 import { createLinkedInUsageLoggerFn } from './tavily-usage-logging';
+import { loadActiveTavilyLinkedInCompanySearchPricing } from '@/modules/usage-tracking/provider-pricing';
 import { isLinkedInCompanySearchEnabled } from '@/lib/feature-flags.server';
 import { buildNoveltyIndex, evaluateCandidateNovelty } from './novelty-checker';
 import {
@@ -104,18 +105,38 @@ const LINKEDIN_SEARCH_STRICT_CONFIG: LinkedInSearchConfig = {
  * disabled) and makes zero Tavily calls.
  *
  * usageContext is intentionally omitted: the writer injects its own internal
- * batchId (and dryRun/userId) so usage logs bind to the real batch.
+ * batchId (and dryRun/userId) so usage logs bind to the real batch. We DO pass
+ * the resolved unitCostUsd, which the writer folds into that default context so
+ * each LinkedIn usage log records estimated_cost_usd > 0 (v1.16K-R-B).
+ *
+ * Pricing (provider_pricing_config: tavily/linkedin_company_search/per_credit)
+ * is resolved here. If it is missing, unitCostUsd stays null and a clear warning
+ * is logged; the orchestrator then blocks real Tavily calls with
+ * skipped_reason='missing_pricing' rather than silently logging $0.
  */
-function buildLinkedInSearchOverride(
+async function buildLinkedInSearchOverride(
   triggeredByUserId: string | null,
-): LinkedInSearchOverride | undefined {
+): Promise<LinkedInSearchOverride | undefined> {
   if (!isLinkedInCompanySearchEnabled()) return undefined;
+
+  const pricing = await loadActiveTavilyLinkedInCompanySearchPricing();
+  const unitCostUsd = pricing?.unitCostUsd ?? null;
+  if (unitCostUsd === null) {
+    console.warn(
+      '[linkedin_company_search] No active provider_pricing_config row for ' +
+        'tavily/linkedin_company_search/per_credit. Real Tavily LinkedIn calls ' +
+        'will be blocked (skipped_reason=missing_pricing) to avoid logging $0. ' +
+        'Apply migration 069 before enabling ENABLE_LINKEDIN_COMPANY_SEARCH.',
+    );
+  }
+
   return {
     config: LINKEDIN_SEARCH_STRICT_CONFIG,
     providerFn: createTavilyLinkedInSearchProvider(
       LINKEDIN_SEARCH_STRICT_CONFIG.maxResultsPerQuery ?? 1,
     ),
     usageLoggerFn: createLinkedInUsageLoggerFn(triggeredByUserId),
+    unitCostUsd,
   };
 }
 
@@ -970,7 +991,7 @@ export async function runIncrementalProspectingSearch(
       // adminClientOverride stays undefined (writer reads env). The LinkedIn
       // override is present only when ENABLE_LINKEDIN_COMPANY_SEARCH=true.
       undefined,
-      buildLinkedInSearchOverride(input.triggeredByUserId ?? null),
+      await buildLinkedInSearchOverride(input.triggeredByUserId ?? null),
       );
 
       if (writerOutput.status === 'failed') {
