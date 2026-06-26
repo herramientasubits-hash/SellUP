@@ -325,6 +325,9 @@ export type LinkedInEnrichmentSource =
   | 'tavily_linkedin_search'
   | 'mock_linkedin_search'
   | 'controlled_linkedin_search'
+  // v1.16K-R: company LinkedIn URL returned by Apollo's organization search.
+  // Cost-zero — the URL is already in the Apollo payload; we only preserve it.
+  | 'apollo'
   | 'future_provider'
   | 'none';
 

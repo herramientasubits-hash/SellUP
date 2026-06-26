@@ -30,7 +30,11 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runProspectingPipeline } from './prospecting-pipeline';
-import { writeProspectingCandidates } from './candidate-writer';
+import { writeProspectingCandidates, type LinkedInSearchOverride } from './candidate-writer';
+import type { LinkedInSearchConfig } from './linkedin-company-search';
+import { createTavilyLinkedInSearchProvider } from './linkedin-company-search-tavily';
+import { createLinkedInUsageLoggerFn } from './tavily-usage-logging';
+import { isLinkedInCompanySearchEnabled } from '@/lib/feature-flags.server';
 import { buildNoveltyIndex, evaluateCandidateNovelty } from './novelty-checker';
 import {
   buildCleanMultiQueryDiscoveryQueries,
@@ -76,6 +80,44 @@ const DEFAULT_TARGET_PERSISTIBLE = 10;
 const DEFAULT_MAX_RAW = 50;
 const DEFAULT_COOLDOWN_DAYS = 30;
 const DEFAULT_NEGATIVE_MEMORY_LOOKBACK_DAYS = 30;
+
+// ─── LinkedIn company search (v1.16K-R) ──────────────────────────────────────
+// Strictly-capped config used ONLY when ENABLE_LINKEDIN_COMPANY_SEARCH=true.
+// Low caps keep credit exposure minimal for a controlled, opt-in trial:
+//   - maxPerBatch 3   → at most 3 candidates searched per batch (hard cap is 5).
+//   - maxQueriesPerCandidate 1 / maxResultsPerQuery 1 → 1 Tavily call/candidate.
+// When the flag is false (default), no override is built and the writer performs
+// zero LinkedIn searches — preserving current behavior and cost exactly.
+const LINKEDIN_SEARCH_STRICT_CONFIG: LinkedInSearchConfig = {
+  enabled: true,
+  provider: 'tavily',
+  maxPerBatch: 3,
+  minConfidenceScore: 70,
+  maxQueriesPerCandidate: 1,
+  maxResultsPerQuery: 1,
+};
+
+/**
+ * Builds the LinkedIn company search override for the writer, gated by the
+ * ENABLE_LINKEDIN_COMPANY_SEARCH flag. Returns undefined when the flag is off,
+ * so the writer runs with no LinkedIn search (DEFAULT_LINKEDIN_SEARCH_CONFIG,
+ * disabled) and makes zero Tavily calls.
+ *
+ * usageContext is intentionally omitted: the writer injects its own internal
+ * batchId (and dryRun/userId) so usage logs bind to the real batch.
+ */
+function buildLinkedInSearchOverride(
+  triggeredByUserId: string | null,
+): LinkedInSearchOverride | undefined {
+  if (!isLinkedInCompanySearchEnabled()) return undefined;
+  return {
+    config: LINKEDIN_SEARCH_STRICT_CONFIG,
+    providerFn: createTavilyLinkedInSearchProvider(
+      LINKEDIN_SEARCH_STRICT_CONFIG.maxResultsPerQuery ?? 1,
+    ),
+    usageLoggerFn: createLinkedInUsageLoggerFn(triggeredByUserId),
+  };
+}
 
 // ─── Query cap constants (Hito v1.3) ─────────────────────────────────────────
 // Standard: máximo 16 queries totales, 4 por ronda. Deep: 36 totales.
@@ -923,7 +965,13 @@ export async function runIncrementalProspectingSearch(
             : {}),
         },
         existingBatchId: input.existingBatchId ?? null,
-      });
+      },
+      // v1.16K-R: positional args 2-3 of writeProspectingCandidates.
+      // adminClientOverride stays undefined (writer reads env). The LinkedIn
+      // override is present only when ENABLE_LINKEDIN_COMPANY_SEARCH=true.
+      undefined,
+      buildLinkedInSearchOverride(input.triggeredByUserId ?? null),
+      );
 
       if (writerOutput.status === 'failed') {
         warnings.push(`Writer error: ${writerOutput.errors.join('; ')}`);

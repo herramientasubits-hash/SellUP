@@ -31,6 +31,8 @@ import {
 import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
 import { writeStructuredSourceCandidatesPreview } from './prospecting-toolkit/structured-source-candidate-writer';
 import { enrichBatchCandidatesWithWebAndAI } from './prospecting-toolkit/official-candidate-enricher';
+import { buildApolloLinkedInEnrichment } from './prospecting-toolkit/apollo-linkedin-enrichment';
+import type { LinkedInEnrichmentMetadata } from './prospecting-toolkit/types';
 import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
 import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 
@@ -118,6 +120,13 @@ interface NormalizedCandidate {
   sectorFitScore: number;
   sectorFitSignals: string[];
   sectorFitTag: 'fit' | 'low_fit' | 'unknown';
+  /**
+   * v1.16K-R: company LinkedIn URL preserved from Apollo when present.
+   * Null when Apollo returned no usable company URL (no invented data).
+   */
+  linkedinUrl: string | null;
+  /** v1.16K-R: canonical linkedin_enrichment metadata derived from Apollo, or null. */
+  linkedinEnrichment: LinkedInEnrichmentMetadata | null;
 }
 
 // ============================================================
@@ -1619,6 +1628,9 @@ export async function runProspectGenerationAgent(
       step_name: 'Normalizar candidatos',
     });
 
+    // v1.16K-R: single timestamp for all linkedin_enrichment records in this batch.
+    const linkedInCheckedAt = new Date().toISOString();
+
     const normalized: NormalizedCandidate[] = targetCompanies.map((org, i) => {
       const domain = extractDomain(org.website_url);
       const dupResult = dupResults[i];
@@ -1631,6 +1643,10 @@ export async function runProspectGenerationAgent(
       else if (hasDuplicate) duplicateStatus = 'possible_duplicate';
 
       const matchedHsId = hasDuplicate ? (dupResult.matches[0]?.id ?? null) : null;
+
+      // v1.16K-R: preserve the company LinkedIn URL Apollo already returned.
+      // Cost-zero: no extra calls. Returns null when Apollo gave no usable URL.
+      const linkedinEnrichment = buildApolloLinkedInEnrichment(org.linkedin_url, linkedInCheckedAt);
 
       return {
         name: org.name ?? 'Empresa sin nombre',
@@ -1652,6 +1668,8 @@ export async function runProspectGenerationAgent(
         sectorFitScore: org.sectorFitScore,
         sectorFitSignals: org.sectorFitSignals,
         sectorFitTag: org.sectorFitTag,
+        linkedinUrl: linkedinEnrichment?.company_url ?? null,
+        linkedinEnrichment,
       };
     });
 
@@ -1696,6 +1714,9 @@ export async function runProspectGenerationAgent(
         sector_fit_score: c.sectorFitScore,
         sector_fit_tag: c.sectorFitTag,
         sector_fit_signals: c.sectorFitSignals,
+        // v1.16K-R: persist Apollo-provided company LinkedIn before review.
+        // Only present when Apollo returned a usable company URL.
+        ...(c.linkedinEnrichment ? { linkedin_enrichment: c.linkedinEnrichment } : {}),
       },
     }));
 
