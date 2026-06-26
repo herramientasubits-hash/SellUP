@@ -424,10 +424,15 @@ function DoneStep({
   candidate,
   onReset,
 }: {
-  runResult: { runId: string; agentRunId: string; status: string; candidatesCount: number };
+  runResult: { runId: string; agentRunId: string; status: string; candidatesCount: number; existingContactsSnapshot?: import('@/modules/contact-enrichment/types').ExistingContactsSnapshotResult };
   candidate: CompanyCandidate | null;
   onReset: () => void;
 }) {
+  const snapshot = runResult.existingContactsSnapshot;
+  const combined = snapshot?.combined;
+  const sellup = snapshot?.sellup;
+  const hubspot = snapshot?.hubspot;
+
   return (
     <SurfaceCard className="p-6 space-y-4">
       <div className="flex items-center gap-2">
@@ -461,6 +466,66 @@ function DoneStep({
           <dd className="font-mono text-xs text-muted-foreground truncate max-w-[180px]">{runResult.runId}</dd>
         </div>
       </dl>
+
+      {snapshot && (
+        <div className="border-t border-border pt-3 space-y-3">
+          <p className="text-xs font-medium text-foreground">Contactos existentes detectados</p>
+          <dl className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">SellUp</dt>
+              <dd className="font-medium text-foreground">
+                {sellup?.status === 'skipped'
+                  ? <span className="text-muted-foreground">omitido — {sellup.reason}</span>
+                  : sellup?.status === 'error'
+                  ? <span className="text-destructive">error al leer</span>
+                  : sellup?.count ?? 0}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">HubSpot</dt>
+              <dd className="font-medium text-foreground">
+                {hubspot?.status === 'skipped'
+                  ? <span className="text-muted-foreground">omitido{hubspot.reason ? ` — ${hubspot.reason}` : ''}</span>
+                  : hubspot?.status === 'error'
+                  ? <span className="text-destructive">error al leer</span>
+                  : hubspot?.count ?? 0}
+              </dd>
+            </div>
+            {combined && combined.totalExistingContacts > 0 && (
+              <div className="flex justify-between border-t border-border/50 pt-1.5">
+                <dt className="text-muted-foreground">Total para deduplicación</dt>
+                <dd className="font-semibold text-foreground">{combined.totalExistingContacts}</dd>
+              </div>
+            )}
+          </dl>
+
+          {combined && (combined.incompleteContacts.missingEmail > 0 || combined.incompleteContacts.missingPhone > 0 || combined.incompleteContacts.missingLinkedin > 0) && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Contactos incompletos</p>
+              <dl className="space-y-1 text-xs">
+                {combined.incompleteContacts.missingEmail > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">Sin email</dt>
+                    <dd className="text-amber-600">{combined.incompleteContacts.missingEmail}</dd>
+                  </div>
+                )}
+                {combined.incompleteContacts.missingPhone > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">Sin teléfono</dt>
+                    <dd className="text-amber-600">{combined.incompleteContacts.missingPhone}</dd>
+                  </div>
+                )}
+                {combined.incompleteContacts.missingLinkedin > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">Sin LinkedIn</dt>
+                    <dd className="text-amber-600">{combined.incompleteContacts.missingLinkedin}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground border-t border-border pt-3">
         En el siguiente hito conectaremos Apollo / Lusha para poblar los candidatos.

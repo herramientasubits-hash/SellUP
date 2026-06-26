@@ -1,5 +1,5 @@
 // Agente 2A — Contact Enrichment Types
-// Hito 17A.1 — Scaffold
+// Hito 17A.2A — Snapshot de contactos existentes
 
 export type ContactEnrichmentRunStatus =
   | 'pending'
@@ -85,10 +85,59 @@ export interface ContactEnrichmentSummary {
   totalEstimatedCostUsd: number;
 }
 
-// Resultado del runner mock (Hito 17A.1 — sin enriquecimiento real)
+// ── Snapshot de contactos existentes (Hito 17A.2A) ──────────────
+
+export interface ExistingContactSnapshot {
+  id?: string;
+  source: 'sellup' | 'hubspot';
+  fullName: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  linkedinUrl?: string | null;
+  title?: string | null;
+  completeness: {
+    hasEmail: boolean;
+    hasPhone: boolean;
+    hasLinkedin: boolean;
+  };
+}
+
+export interface ExistingContactsSourceResult {
+  status: 'success' | 'skipped' | 'error';
+  contacts: ExistingContactSnapshot[];
+  count: number;
+  reason?: string;
+}
+
+export interface ExistingContactsCombined {
+  totalExistingContacts: number;
+  existingContactNames: string[];
+  existingEmails: string[];
+  existingLinkedinUrls: string[];
+  incompleteContacts: {
+    missingEmail: number;
+    missingPhone: number;
+    missingLinkedin: number;
+  };
+  sourceCounts: {
+    sellup: number;
+    hubspot: number;
+  };
+}
+
+export interface ExistingContactsSnapshotResult {
+  sellup: ExistingContactsSourceResult;
+  hubspot: ExistingContactsSourceResult;
+  combined: ExistingContactsCombined;
+}
+
+// Resultado del runner (Hito 17A.2A — con snapshot de contactos existentes)
 export interface ContactEnrichmentRunResult {
   runId: string;
   agentRunId: string;
   status: 'ready_to_enrich';
   candidatesCount: 0;
+  existingContactsSnapshot?: ExistingContactsSnapshotResult;
 }
