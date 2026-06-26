@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Search, Check, AlertCircle, Loader2, Globe, MapPin, ChevronRight } from 'lucide-react';
+import { Building2, Search, Check, AlertCircle, Loader2, Globe, MapPin, ChevronRight, PenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -95,9 +95,14 @@ export function ContactEnrichmentWizard({ initialCompany }: ContactEnrichmentWiz
     const { candidates, singleMatch, selected, skippedHubSpot } = result.data;
 
     if (candidates.length === 0) {
-      // Cero resultados — permitir confirmar la empresa manualmente
+      if (!isDomain && !isHubSpotId) {
+        // Solo nombre — no hay datos suficientes; pedir dominio o país
+        setState((s) => ({ ...s, step: 'needs_extra_data', skippedHubSpot }));
+        return;
+      }
+      // Dominio o HS ID conocido — suficiente para continuar manualmente
       const manualCandidate: CompanyCandidate = {
-        source: 'sellup',
+        source: 'manual',
         name: query,
         domain: isDomain ? query : undefined,
         matchConfidence: 0.5,
@@ -168,6 +173,24 @@ export function ContactEnrichmentWizard({ initialCompany }: ContactEnrichmentWiz
     setState((s) => ({ ...s, step: 'done', runResult: result.data ?? null }));
   };
 
+  // Confirmar empresa manual con datos adicionales
+  const handleManualExtraData = (domain: string, country: string) => {
+    const manualCandidate: CompanyCandidate = {
+      source: 'manual',
+      name: state.query.trim(),
+      domain: domain || undefined,
+      country: country || undefined,
+      countryCode: country || undefined,
+      matchConfidence: 0.5,
+    };
+    setState((s) => ({
+      ...s,
+      step: 'confirm',
+      candidates: [],
+      selectedCandidate: manualCandidate,
+    }));
+  };
+
   // Reiniciar
   const handleReset = () => setState(initialState());
 
@@ -185,6 +208,15 @@ export function ContactEnrichmentWizard({ initialCompany }: ContactEnrichmentWiz
       {/* Resolving */}
       {state.step === 'resolving' && (
         <StatusCard icon={<Loader2 className="h-5 w-5 animate-spin text-su-brand" />} message="Buscando empresa..." />
+      )}
+
+      {/* Needs extra data (0 results, only name) */}
+      {state.step === 'needs_extra_data' && (
+        <NeedsExtraDataStep
+          companyName={state.query.trim()}
+          onConfirm={handleManualExtraData}
+          onReset={handleReset}
+        />
       )}
 
       {/* Multiple candidates */}
@@ -369,6 +401,9 @@ function ConfirmStep({
             )}
             <SourceBadge source={candidate.source} />
           </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Fuente: {candidate.source === 'manual' ? 'Manual' : candidate.source === 'hubspot' ? 'HubSpot' : 'SellUp'}
+          </p>
         </div>
       </div>
       <div className="flex gap-2">
@@ -464,7 +499,14 @@ function ErrorStep({ message, onReset }: { message: string; onReset: () => void 
   );
 }
 
-function SourceBadge({ source }: { source: 'sellup' | 'hubspot' }) {
+function SourceBadge({ source }: { source: 'sellup' | 'hubspot' | 'manual' }) {
+  if (source === 'manual') {
+    return (
+      <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground bg-muted/40">
+        Manual
+      </Badge>
+    );
+  }
   return (
     <Badge
       variant="outline"
@@ -476,5 +518,73 @@ function SourceBadge({ source }: { source: 'sellup' | 'hubspot' }) {
     >
       {source === 'sellup' ? 'SellUp' : 'HubSpot'}
     </Badge>
+  );
+}
+
+function NeedsExtraDataStep({
+  companyName,
+  onConfirm,
+  onReset,
+}: {
+  companyName: string;
+  onConfirm: (domain: string, country: string) => void;
+  onReset: () => void;
+}) {
+  const [domain, setDomain] = React.useState('');
+  const [country, setCountry] = React.useState('');
+  const hasEnough = domain.trim() || country.trim();
+
+  return (
+    <SurfaceCard className="p-6 space-y-4">
+      <div className="flex items-center gap-2">
+        <AlertCircle className="h-4 w-4 text-amber-500" />
+        <p className="text-sm font-medium text-foreground">Sin coincidencias encontradas</p>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        No encontré <span className="font-medium text-foreground">&quot;{companyName}&quot;</span> en SellUp ni en HubSpot.
+        Para buscar contactos con precisión, necesito al menos el dominio o el país de la empresa.
+      </p>
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground flex items-center gap-1">
+            <Globe className="h-3 w-3" />
+            Dominio de la empresa
+          </label>
+          <Input
+            placeholder="ejemplo.com"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground flex items-center gap-1">
+            <MapPin className="h-3 w-3" />
+            País
+          </label>
+          <Input
+            placeholder="Colombia"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+          />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Puedes completar solo uno de los dos campos.
+      </p>
+      <div className="flex gap-2">
+        <Button variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground">
+          Buscar otra empresa
+        </Button>
+        <Button
+          disabled={!hasEnough}
+          onClick={() => onConfirm(domain.trim(), country.trim())}
+          className="flex-1"
+        >
+          <PenLine className="mr-2 h-4 w-4" />
+          Continuar con empresa manual
+        </Button>
+      </div>
+    </SurfaceCard>
   );
 }

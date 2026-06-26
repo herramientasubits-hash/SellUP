@@ -88,6 +88,7 @@ export async function startContactEnrichmentRun(
       providers_used: [],
       summary: {
         totalCandidates: 0,
+        company_resolution_source: confirmedCompany.source,
         note: 'Hito 17A.1 — en espera de conexión de proveedores',
       },
       estimated_cost_usd: 0,

@@ -5,6 +5,7 @@ import { getAllContacts } from '@/modules/contacts/actions';
 import { getAccountsList } from '@/modules/accounts/actions';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
+import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 
 export default async function ContactsPage() {
   const [contacts, accountsList] = await Promise.all([
@@ -23,7 +24,12 @@ export default async function ContactsPage() {
     <DataTablePage
       title="Contactos"
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
-      actions={<CreateContactDrawer accounts={accounts} />}
+      actions={
+        <div className="flex items-center gap-2">
+          <ContactsEnrichmentCTA />
+          <CreateContactDrawer accounts={accounts} />
+        </div>
+      }
       metrics={
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard

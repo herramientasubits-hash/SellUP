@@ -132,7 +132,7 @@ export async function startContactEnrichmentRunAction(
     }
 
     const confirmedCompany = confirmedCompanyRaw as {
-      source: 'sellup' | 'hubspot';
+      source: 'sellup' | 'hubspot' | 'manual';
       name: string;
       domain?: string | null;
       countryCode?: string | null;

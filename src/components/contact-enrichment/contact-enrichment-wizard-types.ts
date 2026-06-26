@@ -4,13 +4,14 @@
 import type { CompanyCandidate, ContactEnrichmentRunResult } from '@/modules/contact-enrichment/types';
 
 export type WizardStep =
-  | 'search'       // Input de empresa
-  | 'resolving'    // Buscando...
-  | 'candidates'   // Mostrar candidatos (múltiples)
-  | 'confirm'      // Confirmar empresa seleccionada
-  | 'starting'     // Creando run...
-  | 'done'         // Run creado exitosamente
-  | 'error';       // Error controlado
+  | 'search'            // Input de empresa
+  | 'resolving'         // Buscando...
+  | 'candidates'        // Mostrar candidatos (múltiples)
+  | 'needs_extra_data'  // 0 resultados + solo nombre — pide dominio o país
+  | 'confirm'           // Confirmar empresa seleccionada
+  | 'starting'          // Creando run...
+  | 'done'              // Run creado exitosamente
+  | 'error';            // Error controlado
 
 export interface WizardState {
   step: WizardStep;

@@ -293,6 +293,8 @@ export async function enrichBatchCandidatesWithTaxResolution(
 
         const updatedMeta: Record<string, unknown> = { ...existingMeta };
 
+        let inapiOutputMeta: Record<string, unknown> | null = null;
+        let inapiError = false;
         try {
           const inapiOutput = await inapiChileEnrichmentAdapter.enrichCandidate({
             candidateName,
@@ -305,14 +307,30 @@ export async function enrichBatchCandidatesWithTaxResolution(
 
           processedCount++;
           if (inapiOutput.metadata) {
-            updatedMeta['source_enrichment'] = {
-              ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
-              cl_inapi: inapiOutput.metadata,
-            };
+            inapiOutputMeta = inapiOutput.metadata as Record<string, unknown>;
           }
         } catch {
           // INAPI never breaks the pipeline
+          inapiError = true;
         }
+
+        // CL query selects id/name/legal_name/metadata/sector_description only — tax_identifier not fetched
+        const taxIdForCL: string | null = null;
+        updatedMeta['source_enrichment'] = {
+          ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+          ...(inapiOutputMeta ? { cl_inapi: inapiOutputMeta } : {}),
+          _summary: {
+            status: inapiError ? 'error' : inapiOutputMeta ? 'completed' : 'no_match',
+            enriched_at: new Date().toISOString(),
+            country_code: 'CL',
+            source_keys_attempted: ['cl_inapi'],
+            source_keys_matched: inapiOutputMeta ? ['cl_inapi'] : [],
+            tax_resolution_status: taxIdForCL ? 'resolved' : 'skipped',
+            tax_identifier: taxIdForCL,
+            tax_identifier_type: 'RUT',
+            reason: inapiError ? 'inapi_error' : !inapiOutputMeta ? 'no_inapi_output' : null,
+          },
+        };
 
         const op = supabase
           .from('prospect_candidates')
@@ -385,6 +403,7 @@ export async function enrichBatchCandidatesWithTaxResolution(
           Object.assign(updatedMeta, resolutionMeta);
         }
 
+        let denueOutputMeta: Record<string, unknown> | null = null;
         try {
           const denueOutput = await denueEnrichmentAdapter.enrichCandidate({
             candidateName,
@@ -396,14 +415,28 @@ export async function enrichBatchCandidatesWithTaxResolution(
           });
 
           if (denueOutput.metadata) {
-            updatedMeta['source_enrichment'] = {
-              ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
-              mx_denue: denueOutput.metadata,
-            };
+            denueOutputMeta = denueOutput.metadata as Record<string, unknown>;
           }
         } catch {
           // DENUE enrichment never breaks pipeline
         }
+
+        const taxIdForMX = (candidate['tax_identifier'] as string | null) ?? null;
+        updatedMeta['source_enrichment'] = {
+          ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+          ...(denueOutputMeta ? { mx_denue: denueOutputMeta } : {}),
+          _summary: {
+            status: denueOutputMeta ? 'completed' : 'no_match',
+            enriched_at: new Date().toISOString(),
+            country_code: 'MX',
+            source_keys_attempted: ['mx_denue'],
+            source_keys_matched: denueOutputMeta ? ['mx_denue'] : [],
+            tax_resolution_status: taxIdForMX ? 'resolved' : 'not_found',
+            tax_identifier: taxIdForMX,
+            tax_identifier_type: 'RFC',
+            reason: !denueOutputMeta ? 'no_denue_output' : null,
+          },
+        };
 
         const op = supabase
           .from('prospect_candidates')
@@ -459,20 +492,30 @@ export async function enrichBatchCandidatesWithTaxResolution(
         Object.assign(updatedMeta, resolutionMeta);
       }
 
-      if (Object.keys(newSourceEnrichment).length > 0) {
-        updatedMeta['source_enrichment'] = {
-          ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
-          ...newSourceEnrichment,
-        };
-      }
+      const sourceKeysAttempted = Object.keys(r.enrichmentMetadata);
+      const sourceKeysMatched = Object.keys(newSourceEnrichment);
+      const taxIdForCO = (candidate['tax_identifier'] as string | null) ?? null;
+      updatedMeta['source_enrichment'] = {
+        ...((existingMeta['source_enrichment'] as Record<string, unknown>) ?? {}),
+        ...newSourceEnrichment,
+        _summary: {
+          status: sourceKeysMatched.length > 0 ? 'completed' : 'no_match',
+          enriched_at: new Date().toISOString(),
+          country_code: 'CO',
+          source_keys_attempted: sourceKeysAttempted,
+          source_keys_matched: sourceKeysMatched,
+          tax_resolution_status: taxIdForCO ? 'resolved' : 'not_found',
+          tax_identifier: taxIdForCO,
+          tax_identifier_type: 'NIT',
+          reason: sourceKeysMatched.length === 0 ? 'no_source_match' : null,
+        },
+      };
 
-      if (Object.keys(updatedMeta).length > Object.keys(existingMeta).length) {
-        const op = supabase
-          .from('prospect_candidates')
-          .update({ metadata: updatedMeta })
-          .eq('id', candidateId);
-        updateOps.push(op as unknown as Promise<unknown>);
-      }
+      const op = supabase
+        .from('prospect_candidates')
+        .update({ metadata: updatedMeta })
+        .eq('id', candidateId);
+      updateOps.push(op as unknown as Promise<unknown>);
     }
 
     await Promise.allSettled(updateOps);

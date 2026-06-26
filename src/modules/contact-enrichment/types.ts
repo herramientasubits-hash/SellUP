@@ -44,7 +44,7 @@ export interface Agent2AInput {
 }
 
 export interface CompanyCandidate {
-  source: 'sellup' | 'hubspot';
+  source: 'sellup' | 'hubspot' | 'manual';
   sellupAccountId?: string;
   hubspotCompanyId?: string;
   name: string;
