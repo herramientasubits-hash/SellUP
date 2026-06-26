@@ -2266,3 +2266,128 @@ Tests de hitos previos sin regresiones:
 | Typecheck pasa | ✅ |
 | Build pasa | ✅ |
 | No se hizo force push | ✅ |
+
+---
+
+## Cierre Perú MVP — SUNAT + Migo
+
+**Hito:** Perú.7A
+**Fecha:** 2026-06-25
+**HEAD inicial:** `45726d5` — fix(agent1): propagate canonical candidate names
+**Tipo:** Cierre documental — solo documentación. Sin modificaciones a código, UI, Supabase, migrations, scripts, ni llamadas externas.
+
+### 1. Decisión final
+
+Para Perú, SellUp usa **SUNAT como validación legal oficial** vía snapshot procesado y **Migo como validación legal complementaria** API puntual. Migo no reemplaza SUNAT.
+
+El flujo completo validado es:
+
+```text
+snapshot legal → lookup SUNAT → fallback Migo → propagación metadata → UI candidato → UI empresa
+```
+
+### 2. Roles de fuentes
+
+#### SUNAT Padrón Reducido (`pe_sunat_bulk`)
+
+- **Fuente oficial legal** para Perú.
+- Snapshot local pre-cargado en Supabase (`peru_sunat_ruc_snapshot`).
+- Sirve para validar RUC, razón social, estado contribuyente (`is_active`) y condición domicilio (`is_habido`).
+- **No se procesa en Vercel** — el ZIP es descargado, filtrado y cargado solo en worker/local offline.
+- **No aporta CIIU** en el MVP — el Padrón Reducido RUC tiene 15 columnas sin campo CIIU.
+- Llaves de metadata: `metadata.source_enrichment.pe_sunat_bulk`
+
+#### Migo API Perú (`pe_migo_api`)
+
+- **Fuente privada complementaria** — validación legal API puntual.
+- Se usa como fallback cuando SUNAT no puede verificar el RUC (`not_found`, `snapshot_unavailable`, `flagged`, `null`).
+- Si SUNAT retorna `verified`, Migo **no se llama**.
+- Aporta: RUC, razón social, estado, condición, ubigeo, dirección y fecha de actualización si están disponibles.
+- **No aporta CIIU** — campo `ciiu_status: 'unavailable_for_mvp'` siempre.
+- **No aporta sector oficial** — campo `sector_source: 'not_provided_by_migo'` siempre.
+- **No hace discovery** — es enrichment/validación puntual por RUC.
+- Llaves de metadata: `metadata.source_enrichment.pe_migo_api`
+
+#### Tavily / Web IA
+
+- Se mantiene como mecanismo de **discovery y contexto comercial**.
+- Puede apoyar inferencia de sector (sector_inferred con confidence_label).
+- **No reemplaza validación legal**.
+
+### 3. Claves de metadata oficial del MVP
+
+Los dos bloques coexisten en `metadata.source_enrichment` sin sobrescribirse:
+
+```
+metadata.source_enrichment.pe_sunat_bulk  → fuente oficial snapshot SUNAT
+metadata.source_enrichment.pe_migo_api   → complemento API Migo
+```
+
+Ningún bloque sobrescribe al otro. Si ambos existen para un candidato, ambos se preservan. Conflictos de estado entre fuentes no se resuelven automáticamente en el MVP.
+
+### 4. UI validada (QA aprobado)
+
+En la vista de candidato y en la vista de empresa (cuenta) existen bloques separados:
+
+- **`Validación Legal SUNAT`** — bloque pe_sunat_bulk con estado, condición, ubigeo y razón social oficial.
+- **`Validación complementaria Migo`** — bloque pe_migo_api con datos API puntual.
+
+QA visual aprobado:
+- ✅ Empresa / Cuenta muestra SUNAT + Migo separados
+- ✅ Candidato / Prospecto muestra SUNAT + Migo separados
+- ✅ Migo no reemplaza SUNAT
+- ✅ Migo no muestra CIIU oficial
+- ✅ Migo no muestra sector oficial
+- ✅ Cleanup lógico aplicado
+
+### 5. Decisiones cerradas — no reabrir
+
+| Decisión | Estado |
+|----------|--------|
+| No existe CIIU oficial Perú en el MVP | ✅ Cerrado |
+| No usar Migo como fuente de sector | ✅ Cerrado |
+| No usar Migo como fuente de discovery | ✅ Cerrado |
+| No procesar ZIP SUNAT en Vercel | ✅ Cerrado |
+| No llamar SUNAT web / captcha | ✅ Cerrado |
+| No usar PRODUCE MiPyme (WAF-bloqueado) | ✅ Cerrado |
+| No reintroducir `pe_web_inferred` como adapter discovery separado | ✅ Cerrado |
+| Migo no sobrescribe pe_sunat_bulk | ✅ Cerrado |
+| SUNAT es la fuente oficial; Migo es el complemento | ✅ Cerrado |
+
+### 6. Pendientes opcionales (no bloqueantes)
+
+Estos ítems no son necesarios para el MVP y no deben reabrirse como bloqueantes:
+
+- Cargar más filas del snapshot SUNAT por chunks controlados (`--offset N --limit N`).
+- Crear dashboard / indicador de cobertura SUNAT vs Migo (cuántos candidatos PE tienen cada fuente).
+- Diseñar política configurable para fallback Migo (p.ej.: activar Migo siempre, o solo para flagged, según configuración de negocio).
+- Evaluar proveedor futuro de CIIU / actividad económica si aparece fuente confiable (ApiDni.com fue identificado como siguiente candidato en Perú.3K).
+
+### 7. Guardrails activos que deben mantenerse
+
+| # | Guardrail | Implementado en |
+|---|-----------|-----------------|
+| 1 | Migo solo se llama si `isMigoFallbackRequired(sunatStatus) === true` | `post-approval-nit-enrichment-worker.ts` |
+| 2 | `pe_migo_api` nunca sobrescribe `pe_sunat_bulk` | `peru-migo-metadata-merge.ts` |
+| 3 | `ciiu_status: 'unavailable_for_mvp'` siempre en Migo | `peru-migo-legal-lookup.ts` |
+| 4 | `sector_source: 'not_provided_by_migo'` siempre en Migo | `peru-migo-legal-lookup.ts` |
+| 5 | ZIP SUNAT no se descarga ni procesa en Vercel | Guardrail Vercel env en importer |
+| 6 | API key Migo no se expone en logs ni payload | Servicio inyectable, sin raw_payload |
+| 7 | No se crean candidatos / cuentas / batches desde el importer | Guardrails en worker |
+
+### 8. Confirmaciones del cierre
+
+| Confirmación | Estado |
+|---|---|
+| No se modificó código funcional | ✅ |
+| No se modificó UI | ✅ |
+| No se modificó Supabase / migrations | ✅ |
+| No se modificaron scripts smoke | ✅ |
+| No se llamó Migo real | ✅ |
+| No se llamó SUNAT web | ✅ |
+| No se llamó Tavily | ✅ |
+| No se llamó LLM | ✅ |
+| No se ejecutó importer | ✅ |
+| No se cargaron más filas SUNAT | ✅ |
+| No se crearon candidatos / cuentas / batches | ✅ |
+| No se hizo force push | ✅ |
