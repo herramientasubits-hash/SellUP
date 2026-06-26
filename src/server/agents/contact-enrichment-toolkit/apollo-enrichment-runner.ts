@@ -150,6 +150,12 @@ export function readDeduplicationSnapshot(
   };
 }
 
+interface ApolloSearchAttemptSummary {
+  attempt: string;
+  filters: string;
+  raw_results_count: number;
+}
+
 interface ApolloEnrichmentSummaryBlock {
   status: 'success' | 'skipped' | 'error';
   searched_at: string;
@@ -160,7 +166,20 @@ interface ApolloEnrichmentSummaryBlock {
   exact_duplicates_count: number;
   possible_duplicates_count: number;
   estimated_cost_usd: number;
+  /** Metadata por capa de búsqueda (fallback). Sin payload crudo. */
+  search_attempts: ApolloSearchAttemptSummary[];
   reason?: string;
+}
+
+/** Mapea la metadata de intentos del adapter al formato snake_case del summary. */
+function toAttemptSummaries(
+  attempts: ApolloPeopleAdapterResult['attempts'],
+): ApolloSearchAttemptSummary[] {
+  return (attempts ?? []).map((a) => ({
+    attempt: a.attempt,
+    filters: a.filters,
+    raw_results_count: a.rawResultsCount,
+  }));
 }
 
 /** Construye un summary nuevo preservando existing_contacts_snapshot. */
@@ -275,6 +294,7 @@ export async function executeContactEnrichmentApolloRun(
       exact_duplicates_count: 0,
       possible_duplicates_count: 0,
       estimated_cost_usd: 0,
+      search_attempts: toAttemptSummaries(apollo.attempts),
       reason: apollo.reason,
     };
     await updateRun(runId, {
@@ -316,6 +336,7 @@ export async function executeContactEnrichmentApolloRun(
       exact_duplicates_count: 0,
       possible_duplicates_count: 0,
       estimated_cost_usd: 0,
+      search_attempts: toAttemptSummaries(apollo.attempts),
       reason: apollo.reason,
     };
     await updateRun(runId, {
@@ -367,6 +388,7 @@ export async function executeContactEnrichmentApolloRun(
       exact_duplicates_count: dedup.exactDuplicateCount,
       possible_duplicates_count: dedup.possibleDuplicateCount,
       estimated_cost_usd: 0,
+      search_attempts: toAttemptSummaries(apollo.attempts),
       reason: `Error al escribir candidatos: ${writeResult.error}`,
     };
     await updateRun(runId, {
@@ -442,6 +464,7 @@ export async function executeContactEnrichmentApolloRun(
     exact_duplicates_count: dedup.exactDuplicateCount,
     possible_duplicates_count: dedup.possibleDuplicateCount,
     estimated_cost_usd: estimatedCostUsd,
+    search_attempts: toAttemptSummaries(apollo.attempts),
   };
 
   await updateRun(runId, {

@@ -42,7 +42,7 @@ const APOLLO_DONE_WITH_CANDIDATES =
   'Encontré candidatos en Apollo y los dejé listos para revisión. No creé contactos finales: requieren tu aprobación.';
 
 const APOLLO_DONE_NO_CANDIDATES =
-  'No encontré contactos nuevos en Apollo para esta empresa. No se crearon candidatos.';
+  'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.';
 
 const APOLLO_NOT_CONNECTED =
   'Apollo no está conectado o no tiene credenciales disponibles.\nNo se crearon candidatos.';

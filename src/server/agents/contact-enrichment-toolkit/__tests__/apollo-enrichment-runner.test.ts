@@ -108,6 +108,9 @@ describe('executeContactEnrichmentApolloRun', () => {
     const apollo: ApolloPeopleAdapterResult = {
       status: 'success',
       people: [person('a', 'a@corp.com'), person('b', 'b@corp.com')],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com); department=HR', rawResultsCount: 2 },
+      ],
       providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 2, rawResultsCount: 2 },
     };
     const h = makeHarness(makeRun(), apollo);
@@ -124,6 +127,9 @@ describe('executeContactEnrichmentApolloRun', () => {
     const apollo: ApolloPeopleAdapterResult = {
       status: 'success',
       people: [person('a', 'a@corp.com')],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com); department=HR', rawResultsCount: 1 },
+      ],
       providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 1, rawResultsCount: 1 },
     };
     const h = makeHarness(makeRun(), apollo);
@@ -147,6 +153,9 @@ describe('executeContactEnrichmentApolloRun', () => {
       status: 'success',
       // 'existing@corp.com' ya está en el snapshot → exact_duplicate
       people: [person('a', 'existing@corp.com'), person('b', 'nuevo@corp.com')],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com); department=HR', rawResultsCount: 2 },
+      ],
       providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 2, rawResultsCount: 2 },
     };
     const h = makeHarness(makeRun(), apollo);
@@ -164,6 +173,7 @@ describe('executeContactEnrichmentApolloRun', () => {
     const apollo: ApolloPeopleAdapterResult = {
       status: 'error',
       people: [],
+      attempts: [],
       reason: 'Apollo no está conectado o no tiene credenciales disponibles',
     };
     const h = makeHarness(makeRun(), apollo);
@@ -181,10 +191,15 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(apolloBlock.status, 'error');
   });
 
-  it('Apollo sin resultados → completed con totalCandidates 0', async () => {
+  it('los 3 intentos en 0 → completed, no_contacts_found y search_attempts en summary', async () => {
     const apollo: ApolloPeopleAdapterResult = {
       status: 'success',
       people: [],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com); department=HR', rawResultsCount: 0 },
+        { attempt: 'hr_titles_without_department', filters: 'org(dominio=corp.com); titles=HR', rawResultsCount: 0 },
+        { attempt: 'broad_seniorities_only', filters: 'org(dominio=corp.com); seniorities', rawResultsCount: 0 },
+      ],
       providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 0, rawResultsCount: 0 },
     };
     const h = makeHarness(makeRun(), apollo);
@@ -196,12 +211,47 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(h.getStore().status, 'completed');
     const summary = h.getStore().summary as Record<string, unknown>;
     assert.equal(summary.no_contacts_found, true);
+    // snapshot intacto tras 0 resultados
+    const snapshot = summary.existing_contacts_snapshot as Record<string, unknown>;
+    assert.ok(snapshot.combined, 'snapshot debe seguir presente');
+    // search_attempts presentes en el bloque apollo_enrichment
+    const apolloBlock = summary.apollo_enrichment as Record<string, unknown>;
+    const attempts = apolloBlock.search_attempts as Array<Record<string, unknown>>;
+    assert.equal(attempts.length, 3);
+    assert.deepEqual(
+      attempts.map((a) => a.attempt),
+      ['strict_hr_department', 'hr_titles_without_department', 'broad_seniorities_only'],
+    );
+  });
+
+  it('summary incluye search_attempts cuando hubo fallback con resultados', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [person('a', 'a@corp.com')],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com); department=HR', rawResultsCount: 0 },
+        { attempt: 'hr_titles_without_department', filters: 'org(dominio=corp.com); titles=HR', rawResultsCount: 4 },
+      ],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 4, rawResultsCount: 4 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const apolloBlock = (h.getStore().summary as Record<string, unknown>)
+      .apollo_enrichment as Record<string, unknown>;
+    const attempts = apolloBlock.search_attempts as Array<Record<string, unknown>>;
+    assert.equal(attempts.length, 2);
+    assert.equal(attempts[0].raw_results_count, 0);
+    assert.equal(attempts[1].raw_results_count, 4);
+    assert.equal(attempts[1].attempt, 'hr_titles_without_department');
   });
 
   it('rechaza runs que no están en ready_to_enrich (sin mutar estado)', async () => {
     const h = makeHarness(makeRun({ status: 'completed' }), {
       status: 'success',
       people: [],
+      attempts: [],
     });
 
     const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
@@ -215,6 +265,9 @@ describe('executeContactEnrichmentApolloRun', () => {
     const apollo: ApolloPeopleAdapterResult = {
       status: 'success',
       people: [person('a', 'a@corp.com'), person('b', 'b@corp.com')],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com); department=HR', rawResultsCount: 2 },
+      ],
       providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 2, rawResultsCount: 2 },
     };
     const h = makeHarness(makeRun(), apollo);

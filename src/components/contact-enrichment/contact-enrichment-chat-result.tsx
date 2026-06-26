@@ -254,7 +254,7 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
       <p className="text-xs text-muted-foreground">
         {result.candidatesCreated > 0
           ? 'Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.'
-          : 'No se crearon candidatos nuevos.'}
+          : 'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.'}
       </p>
     </div>
   );
