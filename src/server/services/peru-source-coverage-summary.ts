@@ -38,8 +38,21 @@ export const AUDITED_SUNAT_SNAPSHOT: SunatSnapshotCounts = {
   inactiveNotHabido: 36_392,
 };
 
-/** Total RUC-20 universe from official SUNAT Padrón. Source: AUDITORIA-FUENTES-IA.md. */
-const AUDITED_TOTAL_RUC20 = 851_883;
+/**
+ * Audited RUC-20 denominators from the local SUNAT Padrón snapshot.
+ * Source: AUDITORIA-FUENTES-IA.md — Hito Perú.9G (2026-06-26).
+ *
+ *   AUDITED_TOTAL_RUC20_ROWS        = full RUC-20 universe (active + inactive).
+ *   AUDITED_ACTIVE_HABIDO_RUC20_ROWS = subset that is ACTIVO + HABIDO (legally
+ *                                      valid companies usable in the lookup).
+ *
+ * These are two DIFFERENT universes. Coverage of the loaded snapshot must use
+ * the full universe; coverage of legally-valid companies must use the
+ * active+habido universe. Mixing them (the pre-9G bug) overstated coverage and
+ * could exceed 100% as more rows load.
+ */
+export const AUDITED_TOTAL_RUC20_ROWS = 2_317_298;
+export const AUDITED_ACTIVE_HABIDO_RUC20_ROWS = 851_883;
 
 // ---------------------------------------------------------------------------
 // Output types
@@ -54,6 +67,19 @@ export interface SunatCoverage {
   inactiveNotHabidoRows: number;
   nextRecommendedOffset: number;
   coverageLabel: 'partial_snapshot';
+  /** Audited full RUC-20 universe (active + inactive). Denominator for loaded coverage. */
+  auditedTotalRuc20Rows: number;
+  /** Audited ACTIVO + HABIDO RUC-20 universe. Denominator for active+habido coverage. */
+  auditedActiveHabidoRuc20Rows: number;
+  /** loadedRows / auditedTotalRuc20Rows, percent rounded to 1 decimal. */
+  loadedRowsCoveragePercent: number;
+  /** activeHabidoRows / auditedActiveHabidoRuc20Rows, percent rounded to 1 decimal. */
+  activeHabidoCoveragePercent: number;
+  /**
+   * @deprecated Pre-9G field kept for backwards compatibility only. Maps to
+   * `loadedRowsCoveragePercent`. Do NOT surface this label visually — use the
+   * two explicit coverage fields instead.
+   */
   coveragePercent: number;
   coverageSource: CoverageSource;
   officialLegalValidation: true;
@@ -101,8 +127,10 @@ export function buildSunatCoverage(
   counts: SunatSnapshotCounts,
   coverageSource: CoverageSource = 'audited_fallback',
 ): SunatCoverage {
-  const coveragePercent =
-    Math.round((counts.total / AUDITED_TOTAL_RUC20) * 1000) / 10;
+  const loadedRowsCoveragePercent =
+    Math.round((counts.total / AUDITED_TOTAL_RUC20_ROWS) * 1000) / 10;
+  const activeHabidoCoveragePercent =
+    Math.round((counts.activeHabido / AUDITED_ACTIVE_HABIDO_RUC20_ROWS) * 1000) / 10;
 
   return {
     sourceKey: 'pe_sunat_bulk',
@@ -113,7 +141,12 @@ export function buildSunatCoverage(
     inactiveNotHabidoRows: counts.inactiveNotHabido,
     nextRecommendedOffset: counts.total,
     coverageLabel: 'partial_snapshot',
-    coveragePercent,
+    auditedTotalRuc20Rows: AUDITED_TOTAL_RUC20_ROWS,
+    auditedActiveHabidoRuc20Rows: AUDITED_ACTIVE_HABIDO_RUC20_ROWS,
+    loadedRowsCoveragePercent,
+    activeHabidoCoveragePercent,
+    // Deprecated compat alias → loaded-snapshot coverage, never the old 851_883 math.
+    coveragePercent: loadedRowsCoveragePercent,
     coverageSource,
     officialLegalValidation: true,
     providesCiiu: false,

@@ -122,7 +122,8 @@
   "test:peru:8a-source-coverage": "node --import tsx --test src/server/services/__tests__/peru-8a-source-coverage-summary.test.ts",
   "test:peru:8b-coverage-card": "node --import tsx --test src/components/source-catalog/__tests__/peru-8b-coverage-card.test.ts",
   "test:peru:8c-dynamic-coverage": "node --import tsx --test src/server/services/__tests__/peru-8c-dynamic-coverage.test.ts",
-  "test:peru:9b-node20-shim": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-9b-node20-shim.test.ts"
+  "test:peru:9b-node20-shim": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-9b-node20-shim.test.ts",
+  "test:peru:9g-coverage-denominators": "node --import tsx --test src/server/services/__tests__/peru-9g-coverage-denominators.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

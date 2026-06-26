@@ -37,7 +37,8 @@ const LIVE_COUNTS: SunatSnapshotCounts = {
   inactiveNotHabido: 85_000,
 };
 
-const AUDITED_TOTAL_RUC20 = 851_883;
+const AUDITED_TOTAL_RUC20_ROWS = 2_317_298;
+const AUDITED_ACTIVE_HABIDO_RUC20_ROWS = 851_883;
 
 /**
  * Builds a fake, read-only counter that answers from an in-memory dataset.
@@ -121,13 +122,21 @@ describe('nextRecommendedOffset (dynamic)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. coveragePercent uses loadedRows / 851883
+// 5. loadedRowsCoveragePercent uses loadedRows / 2_317_298 (Perú.9G)
 // ---------------------------------------------------------------------------
-describe('coveragePercent (dynamic)', () => {
-  it('5. computes coveragePercent from dynamic loadedRows / 851883', () => {
+describe('coverage percentages (dynamic, Perú.9G)', () => {
+  it('5. computes loadedRowsCoveragePercent from dynamic loadedRows / 2_317_298', () => {
     const coverage = buildSunatCoverage(LIVE_COUNTS, 'live_database');
-    const expected = Math.round((250_000 / AUDITED_TOTAL_RUC20) * 1000) / 10;
-    assert.equal(coverage.coveragePercent, expected);
+    const expected = Math.round((250_000 / AUDITED_TOTAL_RUC20_ROWS) * 1000) / 10;
+    assert.equal(coverage.loadedRowsCoveragePercent, expected);
+    // Deprecated compat alias maps to the loaded-snapshot coverage, never the old math.
+    assert.equal(coverage.coveragePercent, coverage.loadedRowsCoveragePercent);
+  });
+
+  it('5b. computes activeHabidoCoveragePercent from activeHabido / 851_883', () => {
+    const coverage = buildSunatCoverage(LIVE_COUNTS, 'live_database');
+    const expected = Math.round((40_000 / AUDITED_ACTIVE_HABIDO_RUC20_ROWS) * 1000) / 10;
+    assert.equal(coverage.activeHabidoCoveragePercent, expected);
   });
 });
 

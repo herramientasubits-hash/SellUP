@@ -36,6 +36,16 @@ export function formatLoadedRows(rows: number): string {
   return rows.toLocaleString('es-PE');
 }
 
+/** "750.000 de 2.317.298 filas RUC-20 auditadas." */
+export function formatLoadedSnapshotDetail(loadedRows: number, auditedTotal: number): string {
+  return `${formatLoadedRows(loadedRows)} de ${formatLoadedRows(auditedTotal)} filas RUC-20 auditadas.`;
+}
+
+/** "136.099 de 851.883 RUC-20 ACTIVO + HABIDO auditados." */
+export function formatActiveHabidoDetail(activeHabidoRows: number, auditedActiveHabido: number): string {
+  return `${formatLoadedRows(activeHabidoRows)} de ${formatLoadedRows(auditedActiveHabido)} RUC-20 ACTIVO + HABIDO auditados.`;
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -45,6 +55,28 @@ function FieldRow({ label, value }: { label: string; value: string | number }) {
     <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
       <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
       <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+function CoverageMetric({
+  label,
+  percent,
+  detail,
+}: {
+  label: string;
+  percent: number;
+  detail: string;
+}) {
+  return (
+    <div className="py-2 border-b border-border/30">
+      <div className="flex items-baseline justify-between gap-4">
+        <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
+        <dd className="text-xs font-medium text-foreground text-right tabular-nums">
+          {formatCoveragePercent(percent)}
+        </dd>
+      </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground/80">{detail}</p>
     </div>
   );
 }
@@ -99,7 +131,16 @@ export function PeruCoverageCard({ summary, error }: Props) {
           </h3>
           <dl className="divide-y divide-border/20">
             <FieldRow label="Filas cargadas" value={formatLoadedRows(sunat.loadedRows)} />
-            <FieldRow label="Cobertura estimada" value={formatCoveragePercent(sunat.coveragePercent)} />
+            <CoverageMetric
+              label="Cobertura snapshot RUC-20"
+              percent={sunat.loadedRowsCoveragePercent}
+              detail={formatLoadedSnapshotDetail(sunat.loadedRows, sunat.auditedTotalRuc20Rows)}
+            />
+            <CoverageMetric
+              label="ACTIVO + HABIDO cargados"
+              percent={sunat.activeHabidoCoveragePercent}
+              detail={formatActiveHabidoDetail(sunat.activeHabidoRows, sunat.auditedActiveHabidoRuc20Rows)}
+            />
             <FieldRow label="Próximo offset recomendado" value={formatLoadedRows(sunat.nextRecommendedOffset)} />
             <FieldRow label="ACTIVO + HABIDO" value={formatLoadedRows(sunat.activeHabidoRows)} />
             <FieldRow label="ACTIVO + NO HABIDO" value={formatLoadedRows(sunat.activeNotHabidoRows)} />

@@ -33,7 +33,12 @@ async function main() {
   console.log(`SUNAT inactive + habido:   ${sunat.inactiveHabidoRows.toLocaleString('en-US')}`);
   console.log(`SUNAT inactive + not hab:  ${sunat.inactiveNotHabidoRows.toLocaleString('en-US')}`);
   console.log(`SUNAT next offset:         ${sunat.nextRecommendedOffset.toLocaleString('en-US')}`);
-  console.log(`SUNAT coverage:            ${sunat.coverageLabel} (~${sunat.coveragePercent}% of audited RUC-20 universe)`);
+  console.log(
+    `SUNAT loaded snapshot coverage: ${sunat.coverageLabel} (~${sunat.loadedRowsCoveragePercent.toFixed(1)}% of audited RUC-20 rows)`,
+  );
+  console.log(
+    `SUNAT active + habido loaded: ${sunat.activeHabidoRows.toLocaleString('en-US')} (~${sunat.activeHabidoCoveragePercent.toFixed(1)}% of audited active+habido RUC-20 rows)`,
+  );
   console.log(`SUNAT coverage source:     ${sunat.coverageSource}`);
   console.log('────────────────────────────────────────');
   console.log(`Migo role:                 ${migo.role}`);

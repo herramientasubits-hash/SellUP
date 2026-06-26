@@ -2642,3 +2642,66 @@ El importer lo invoca **dentro de `main()`** (entrypoint CLI), de modo que:
 | No se tocó Agente 1 ni Agente 2 / contact-enrichment | ✅ |
 | No se creó UI ni se expusieron claves | ✅ |
 | No se hizo force push | ✅ |
+
+---
+
+## Hito Perú.9G — Corregir semántica de cobertura SUNAT
+
+### 1. Problema corregido
+
+El indicador calculaba la cobertura como `loadedRows / 851_883`, tratando
+**851.883** como "universo total RUC-20". Pero **851.883 es el universo
+ACTIVO + HABIDO**, no el total RUC-20. Con 750.000 filas eso producía
+`~88.0%`, métrica engañosa que además podía superar el 100% al seguir cargando.
+
+### 2. Denominadores auditados (snapshot local)
+
+| Constante | Valor | Significado |
+|-----------|-------|-------------|
+| `AUDITED_TOTAL_RUC20_ROWS` | **2.317.298** | Universo RUC-20 completo (activo + inactivo) |
+| `AUDITED_ACTIVE_HABIDO_RUC20_ROWS` | **851.883** | Subconjunto ACTIVO + HABIDO (empresas legalmente válidas) |
+
+### 3. Métricas honestas
+
+```
+Cobertura snapshot RUC-20:   loadedRows      / 2.317.298  → 750.000 / 2.317.298 ≈ 32.4%
+ACTIVO + HABIDO cargados:    activeHabidoRows / 851.883    → 136.099 / 851.883   ≈ 16.0%
+```
+
+`coveragePercent` se conserva solo por compatibilidad y mapea a
+`loadedRowsCoveragePercent` (nunca al cálculo viejo); su uso visual está
+deprecado.
+
+### 4. Archivos modificados
+
+| Artefacto | Estado |
+|-----------|--------|
+| `src/server/services/peru-source-coverage-summary.ts` | **Modificado** — denominadores auditados + `loadedRowsCoveragePercent` / `activeHabidoCoveragePercent` |
+| `src/components/source-catalog/peru-coverage-card.tsx` | **Modificado** — dos métricas de cobertura con texto descriptivo (sin "Cobertura estimada") |
+| `scripts/peru/report-peru-source-coverage.ts` | **Modificado** — reporte CLI sin `~88.0%` general |
+| `src/server/services/__tests__/peru-8c-dynamic-coverage.test.ts` | **Modificado** — denominadores nuevos |
+| `src/server/services/__tests__/peru-9g-coverage-denominators.test.ts` | **Creado** — 12 tests (denominadores, 32.4%/16.0%, labels, no-88.0%, guardrails) |
+| `package.json` | **Modificado** — script `test:peru:9g-coverage-denominators` |
+
+### 5. Reporte CLI real (live_database)
+
+```
+SUNAT loaded rows:         750,000
+SUNAT next offset:         750,000
+SUNAT loaded snapshot coverage: partial_snapshot (~32.4% of audited RUC-20 rows)
+SUNAT active + habido loaded: 136,099 (~16.0% of audited active+habido RUC-20 rows)
+SUNAT coverage source:     live_database
+```
+
+### 6. Guardrails respetados
+
+| Guardrail | Estado |
+|-----------|--------|
+| No se cargaron más filas SUNAT | ✅ |
+| No se hizo apply / writes en Supabase | ✅ |
+| No se llamó SUNAT web / Migo / Tavily / LLM | ✅ |
+| No se ejecutó discovery ni importer | ✅ |
+| No se crearon candidatos, cuentas ni batches | ✅ |
+| No se tocó Agente 1 ni Agente 2 / contact-enrichment | ✅ |
+| No se expusieron claves ni raw payloads | ✅ |
+| No se hizo force push | ✅ |
