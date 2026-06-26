@@ -186,6 +186,7 @@ export interface PendingContactCandidate {
   duplicate_status: ContactDuplicateStatus;
   confidence: number;
   enrichment_metadata: ContactCandidateEnrichmentMetadata;
+  enrichment_run_id: string | null;
   created_at: string;
   // Contexto de empresa (desde el run que originó al candidato)
   company_name: string | null;

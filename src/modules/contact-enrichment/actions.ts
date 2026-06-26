@@ -252,6 +252,39 @@ function firstRun(run: unknown): CandidateRunContext | null {
   };
 }
 
+/** Columnas proyectadas para revisión humana — sin payloads crudos del
+ *  proveedor. Compartido por el listado y el detalle del side panel. */
+const CANDIDATE_SELECT =
+  `id, full_name, title, email, linkedin_url, phone, source, status,
+   duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
+   run:contact_enrichment_runs ( company_name, company_domain, account_id, hubspot_company_id )`;
+
+/** Mapea una fila cruda de Supabase a la proyección de solo lectura. */
+function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
+  const record = row as Record<string, unknown>;
+  const run = firstRun(record.run);
+  return {
+    id: record.id as string,
+    full_name: (record.full_name as string | null) ?? '',
+    title: (record.title as string | null) ?? null,
+    email: (record.email as string | null) ?? null,
+    linkedin_url: (record.linkedin_url as string | null) ?? null,
+    phone: (record.phone as string | null) ?? null,
+    source: (record.source as ContactSource) ?? 'apollo',
+    status: (record.status as ContactCandidateStatus) ?? 'pending_review',
+    duplicate_status: (record.duplicate_status as ContactDuplicateStatus) ?? 'unchecked',
+    confidence: Number(record.confidence ?? 0),
+    enrichment_metadata:
+      (record.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
+    enrichment_run_id: (record.enrichment_run_id as string | null) ?? null,
+    created_at: record.created_at as string,
+    company_name: run?.company_name ?? null,
+    company_domain: run?.company_domain ?? null,
+    account_id: run?.account_id ?? null,
+    hubspot_company_id: run?.hubspot_company_id ?? null,
+  } satisfies PendingContactCandidate;
+}
+
 /**
  * Candidatos en `pending_review` con el contexto de empresa de su run.
  * Proyección de solo lectura para revisión humana — sin payloads crudos.
@@ -264,40 +297,43 @@ export async function getPendingContactCandidates(
 
   const { data, error } = await supabase
     .from('contact_enrichment_candidates')
-    .select(
-      `id, full_name, title, email, linkedin_url, phone, source, status,
-       duplicate_status, confidence, enrichment_metadata, created_at,
-       run:contact_enrichment_runs ( company_name, company_domain, account_id, hubspot_company_id )`,
-    )
+    .select(CANDIDATE_SELECT)
     .eq('status', 'pending_review')
     .order('created_at', { ascending: false })
     .limit(limit);
 
   if (error) throw new Error(`getPendingContactCandidates: ${error.message}`);
 
-  return (data ?? []).map((row) => {
-    const record = row as Record<string, unknown>;
-    const run = firstRun(record.run);
-    return {
-      id: record.id as string,
-      full_name: (record.full_name as string | null) ?? '',
-      title: (record.title as string | null) ?? null,
-      email: (record.email as string | null) ?? null,
-      linkedin_url: (record.linkedin_url as string | null) ?? null,
-      phone: (record.phone as string | null) ?? null,
-      source: (record.source as ContactSource) ?? 'apollo',
-      status: (record.status as ContactCandidateStatus) ?? 'pending_review',
-      duplicate_status: (record.duplicate_status as ContactDuplicateStatus) ?? 'unchecked',
-      confidence: Number(record.confidence ?? 0),
-      enrichment_metadata:
-        (record.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
-      created_at: record.created_at as string,
-      company_name: run?.company_name ?? null,
-      company_domain: run?.company_domain ?? null,
-      account_id: run?.account_id ?? null,
-      hubspot_company_id: run?.hubspot_company_id ?? null,
-    } satisfies PendingContactCandidate;
-  });
+  return (data ?? []).map(mapPendingContactCandidate);
+}
+
+/**
+ * Detalle de un único candidato en `pending_review` para el side panel de
+ * revisión (ajuste posterior a 17A.4A). Misma proyección de solo lectura que el
+ * listado — sin payloads crudos del proveedor — pero filtrada por id. Devuelve
+ * `null` si el candidato no existe o ya salió de `pending_review`, para que el
+ * panel muestre su estado "no disponible" sin reventar.
+ */
+export async function getPendingContactCandidateById(
+  candidateId: string,
+): Promise<PendingContactCandidate | null> {
+  await requireActiveUserForEnrichment();
+
+  if (typeof candidateId !== 'string' || !candidateId.trim()) return null;
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(CANDIDATE_SELECT)
+    .eq('id', candidateId.trim())
+    .eq('status', 'pending_review')
+    .maybeSingle();
+
+  if (error) throw new Error(`getPendingContactCandidateById: ${error.message}`);
+  if (!data) return null;
+
+  return mapPendingContactCandidate(data);
 }
 
 /**

@@ -27,19 +27,19 @@ const TAB_ROUTES: Record<ContactsTabId, string> = {
 
 interface ContactsModuleTabsNavProps {
   active: ContactsTabId;
-  /** Badge de conteo en "Candidatos por revisar" (opcional). */
-  candidatesCount?: number;
 }
 
 export function ContactsModuleTabsNav({
   active,
-  candidatesCount,
 }: ContactsModuleTabsNavProps) {
   const router = useRouter();
 
+  // Pills limpias, sin badge de conteo (ajuste posterior a 17A.4A): el número
+  // de candidatos generaba ruido visual y forzaba una query extra en el tab
+  // por defecto. Las labels quedan simples; el routing por tab no cambia.
   const tabs: Tab[] = [
     { id: "approved", label: "Contactos aprobados" },
-    { id: "candidates", label: "Candidatos por revisar", count: candidatesCount },
+    { id: "candidates", label: "Candidatos por revisar" },
   ];
 
   return (

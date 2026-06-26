@@ -36,7 +36,7 @@ export async function ContactCandidatesPanel() {
     <DataTablePage
       title="Contactos"
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
-      tabs={<ContactsModuleTabsNav active="candidates" candidatesCount={total} />}
+      tabs={<ContactsModuleTabsNav active="candidates" />}
       actions={
         <div className="flex items-center gap-2">
           <ContactsEnrichmentCTA />

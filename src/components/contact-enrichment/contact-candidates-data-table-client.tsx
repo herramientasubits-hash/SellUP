@@ -7,6 +7,7 @@ import { Mail, Phone, Link2, Building2, Globe, UserSearch } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { DataTable, DataTableColumnHeader } from '@/components/data-table';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
+import { ContactCandidateDetailSheet } from '@/components/contact-enrichment/contact-candidate-detail-sheet';
 import type {
   PendingContactCandidate,
   ContactRelevanceStatus,
@@ -153,6 +154,16 @@ interface ContactCandidatesDataTableClientProps {
 export function ContactCandidatesDataTableClient({
   candidates,
 }: ContactCandidatesDataTableClientProps) {
+  // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
+  // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
+  const [detailId, setDetailId] = React.useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = React.useState(false);
+
+  const openDetail = React.useCallback((candidate: PendingContactCandidate) => {
+    setDetailId(candidate.id);
+    setDetailOpen(true);
+  }, []);
+
   const columns: ColumnDef<PendingContactCandidate, unknown>[] = React.useMemo(
     () => [
       {
@@ -283,6 +294,7 @@ export function ContactCandidatesDataTableClient({
   );
 
   return (
+    <>
     <DataTable
       columns={columns}
       data={candidates}
@@ -293,6 +305,8 @@ export function ContactCandidatesDataTableClient({
       enableColumnReorder
       initialPageSize={20}
       fillHeight
+      rowClickable
+      onRowClick={openDetail}
       emptyState={
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="mb-3 rounded-full bg-muted/60 p-3">
@@ -308,5 +322,11 @@ export function ContactCandidatesDataTableClient({
         </div>
       }
     />
+    <ContactCandidateDetailSheet
+      candidateId={detailId}
+      open={detailOpen}
+      onClose={() => setDetailOpen(false)}
+    />
+    </>
   );
 }
