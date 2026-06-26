@@ -2645,6 +2645,87 @@ El importer lo invoca **dentro de `main()`** (entrypoint CLI), de modo que:
 
 ---
 
+## Hito Perú.9I.1 — Endurecer parsing de `--offset` / `--limit` (sin notación científica)
+
+### 1. Bug corregido
+
+Durante Perú.9I, en macOS `seq 1000000 1000 1249000` emitió offsets en notación
+científica (`1e+06`, `1.001e+06`). El importer los parseaba con `parseInt`, que es
+peligrosamente permisivo:
+
+```ts
+parseInt("1e+06", 10)     // === 1   (¡no 1.000.000!)
+parseInt("1.001e+06", 10) // === 1
+parseInt("1000.5", 10)    // === 1000
+```
+
+Consecuencia: el primer intento del loop releyó filas desde offset 1. No dañó datos
+(upserts idempotentes sobre filas existentes), pero el importer no debía aceptar
+offsets ambiguos. La carga válida se corrigió manualmente con un loop C-style.
+
+### 2. Parsing estricto
+
+Nuevo helper puro `parseStrictNonNegativeIntegerArg(value, argName)`:
+
+- valida con regex decimal estricto `/^\d+$/` (sin signo, punto ni exponente),
+- convierte con `Number(value)`,
+- valida `Number.isSafeInteger(...)` y `>= 0`,
+- lanza error claro y **falla rápido** (antes de leer filas / tocar Supabase).
+
+Aplicado a `--offset` y `--limit` en `parseCliArgs`; `main()` captura el throw y
+sale con código 1. El máximo operativo de `--limit` (1000) se conserva en `validateConfig`.
+
+```text
+[sunat:importer] FATAL: Invalid --offset: expected a plain non-negative integer, received "1e+06"
+```
+
+- Aceptados probados: `0`, `1000`, `1250000`.
+- Rechazados probados: `1e+06`, `1.001e+06`, `1000.5`, `-1`, `abc`, `""`.
+
+### 3. Instrucción operativa (macOS)
+
+**NO usar `seq` para loops grandes.** Usar loop C-style de bash:
+
+```bash
+for ((offset=1250000; offset<=1499000; offset+=1000)); do
+  echo "=== DRY RUN offset=$offset ==="
+  npm run sunat:peru:import-snapshot -- --offset "$offset" --limit 1000 || exit 1
+
+  echo "=== APPLY offset=$offset ==="
+  npm run sunat:peru:import-snapshot -- --offset "$offset" --limit 1000 --apply || exit 1
+done
+```
+
+### 4. Archivos modificados
+
+| Artefacto | Estado |
+|-----------|--------|
+| `src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts` | **Modificado** — `parseStrictNonNegativeIntegerArg`, `parseCliArgs`, `main()` fail-fast |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts` | **Modificado** — tests de parsing estricto + guardrails 9I.1 |
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | **Actualizado** — §Perú.9I.1 |
+| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — esta sección |
+
+### 5. Validación sin cargar datos
+
+- Dry-run `--offset 1250000 --limit 1000`: `rowsParsed=1000`, `rowsUpserted=0`, `dryRun=true`, `invalidRows=0`, `duplicateRucs=0`.
+- Negativo `--offset 1e+06 --limit 1000`: aborta antes de procesar filas (exit 1).
+- `report:peru:source-coverage`: **1.250.000 filas**, next offset 1.250.000, `coverageSource=live_database`.
+- **No se ejecutó `--apply` real; no se cargaron más filas; sin writes en Supabase.**
+
+### 6. Guardrails respetados
+
+| Guardrail | Estado |
+|-----------|--------|
+| No se cargaron más filas SUNAT | ✅ |
+| No se hizo apply real / writes en Supabase | ✅ |
+| No se llamó SUNAT web / Migo / Tavily / LLM | ✅ |
+| No se ejecutó discovery | ✅ |
+| No se crearon candidatos, cuentas ni batches | ✅ |
+| No se tocó Agente 1 ni Agente 2 / contact-enrichment / ai-usage / Apollo | ✅ |
+| No se hizo force push | ✅ |
+
+---
+
 ## Hito Perú.9G — Corregir semántica de cobertura SUNAT
 
 ### 1. Problema corregido

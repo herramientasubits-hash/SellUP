@@ -103,19 +103,61 @@ export function assertNotVercel(): void {
 
 // ── CLI argument parsing ───────────────────────────────────────
 
+/**
+ * Perú.9I.1 — Strict integer parsing for CLI numeric args.
+ *
+ * `parseInt` is dangerously lenient: it stops at the first non-digit, so
+ * `parseInt("1e+06", 10) === 1` and `parseInt("1000.5", 10) === 1000`. During
+ * Perú.9I, macOS `seq` emitted offsets in scientific notation (`1e+06`,
+ * `1.001e+06`), and the importer silently reinterpreted them as tiny offsets,
+ * re-reading rows from the start of the snapshot.
+ *
+ * This helper accepts ONLY plain decimal non-negative integers:
+ *   - matches /^\d+$/ (no sign, no decimal point, no exponent, no whitespace)
+ *   - is a safe integer (rejects values beyond Number.MAX_SAFE_INTEGER)
+ *   - is >= 0 (guaranteed by the regex, asserted defensively)
+ *
+ * Throws a clear error otherwise. Examples rejected: "1e+06", "1.001e+06",
+ * "1000.5", "abc", "-1", "".
+ */
+export function parseStrictNonNegativeIntegerArg(
+  value: string,
+  argName: string,
+): number {
+  const isPlainNonNegativeInteger = /^\d+$/.test(value);
+  const parsed = Number(value);
+
+  if (
+    !isPlainNonNegativeInteger ||
+    !Number.isSafeInteger(parsed) ||
+    parsed < 0
+  ) {
+    throw new Error(
+      `Invalid ${argName}: expected a plain non-negative integer, received ${JSON.stringify(value)}`,
+    );
+  }
+
+  return parsed;
+}
+
 export function parseCliArgs(argv: string[]): ImportConfig {
   const args = argv.slice(2);
   const dryRun = !args.includes('--apply');
   const apply = args.includes('--apply');
 
   const limitIdx = args.indexOf('--limit');
-  const limitVal = limitIdx !== -1 ? parseInt(args[limitIdx + 1] ?? '', 10) : null;
-  const limit = !isNaN(limitVal as number) ? limitVal : null;
+  const limitRaw = limitIdx !== -1 ? args[limitIdx + 1] : undefined;
+  const limit =
+    limitRaw !== undefined
+      ? parseStrictNonNegativeIntegerArg(limitRaw, '--limit')
+      : null;
 
   const offsetIdx = args.indexOf('--offset');
   const offsetRaw = offsetIdx !== -1 ? args[offsetIdx + 1] : undefined;
-  const offsetParsed = offsetRaw !== undefined ? parseInt(offsetRaw, 10) : 0;
-  const offset = !isNaN(offsetParsed) ? offsetParsed : NaN;
+  const offset =
+    offsetRaw !== undefined
+      ? parseStrictNonNegativeIntegerArg(offsetRaw, '--offset')
+      : 0;
 
   const snapshotPathIdx = args.indexOf('--snapshot');
   const snapshotPath =
@@ -405,7 +447,15 @@ async function main() {
   // CLI entrypoint so it never affects app/client bundles. No-op on Node 22+.
   ensureNode20WebSocketShim();
 
-  const config = parseCliArgs(process.argv);
+  let config: ImportConfig;
+  try {
+    config = parseCliArgs(process.argv);
+  } catch (err) {
+    // Fail fast on malformed --offset / --limit (e.g. scientific notation)
+    // BEFORE reading any snapshot rows or touching Supabase.
+    console.error('[sunat:importer] FATAL:', (err as Error).message);
+    process.exit(1);
+  }
 
   const mode = config.dryRun ? 'DRY-RUN' : `APPLY (limit=${config.limit})`;
   console.log(`[sunat:importer] Mode: ${mode}`);

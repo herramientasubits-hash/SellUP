@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import {
   parseSnapshotLine,
   parseCliArgs,
+  parseStrictNonNegativeIntegerArg,
   validateConfig,
   assertNotVercel,
   runImporter,
@@ -241,9 +242,124 @@ describe('parseCliArgs', () => {
     assert.equal(config.offset, 1000);
   });
 
-  it('offset is NaN when --offset value is non-numeric', () => {
-    const config = parseCliArgs(['node', 'script.ts', '--offset', 'abc', '--limit', '100']);
-    assert.ok(isNaN(config.offset));
+  it('parses large plain --offset correctly', () => {
+    const config = parseCliArgs(['node', 'script.ts', '--offset', '1250000', '--limit', '1000']);
+    assert.equal(config.offset, 1250000);
+  });
+
+  // Perú.9I.1 — strict rejection of ambiguous offsets in parseCliArgs
+  it('throws on scientific-notation --offset (1e+06)', () => {
+    assert.throws(
+      () => parseCliArgs(['node', 'script.ts', '--offset', '1e+06', '--limit', '1000']),
+      /Invalid --offset: expected a plain non-negative integer, received "1e\+06"/,
+    );
+  });
+
+  it('throws on scientific-notation --offset (1.001e+06)', () => {
+    assert.throws(
+      () => parseCliArgs(['node', 'script.ts', '--offset', '1.001e+06', '--limit', '1000']),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('throws on non-numeric --offset (abc)', () => {
+    assert.throws(
+      () => parseCliArgs(['node', 'script.ts', '--offset', 'abc', '--limit', '100']),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('throws on scientific-notation --limit (1e+06)', () => {
+    assert.throws(
+      () => parseCliArgs(['node', 'script.ts', '--limit', '1e+06']),
+      /Invalid --limit: expected a plain non-negative integer/,
+    );
+  });
+});
+
+// ── Perú.9I.1 strict integer parsing ───────────────────────────
+
+describe('parseStrictNonNegativeIntegerArg', () => {
+  // Accepted values
+  it('accepts "0"', () => {
+    assert.equal(parseStrictNonNegativeIntegerArg('0', '--offset'), 0);
+  });
+
+  it('accepts "1000"', () => {
+    assert.equal(parseStrictNonNegativeIntegerArg('1000', '--offset'), 1000);
+  });
+
+  it('accepts "1250000"', () => {
+    assert.equal(parseStrictNonNegativeIntegerArg('1250000', '--offset'), 1250000);
+  });
+
+  // Rejected values — the exact incident inputs
+  it('rejects "1e+06" (scientific notation)', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('1e+06', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer, received "1e\+06"/,
+    );
+  });
+
+  it('rejects "1.001e+06" (scientific notation)', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('1.001e+06', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('rejects "1000.5" (decimal)', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('1000.5', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('rejects "-1" (negative)', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('-1', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('rejects "abc" (non-numeric)', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('abc', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('rejects "" (empty string)', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('rejects whitespace-padded " 1000 "', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg(' 1000 ', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  it('rejects unsafe integers beyond MAX_SAFE_INTEGER', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('99999999999999999999', '--offset'),
+      /Invalid --offset: expected a plain non-negative integer/,
+    );
+  });
+
+  // Same rules apply to --limit
+  it('applies the same rules to --limit (accepts "1000")', () => {
+    assert.equal(parseStrictNonNegativeIntegerArg('1000', '--limit'), 1000);
+  });
+
+  it('applies the same rules to --limit (rejects "1e+06")', () => {
+    assert.throws(
+      () => parseStrictNonNegativeIntegerArg('1e+06', '--limit'),
+      /Invalid --limit: expected a plain non-negative integer/,
+    );
   });
 });
 
@@ -406,6 +522,56 @@ describe('Guardrail: forbidden references in importer source', () => {
     assert.ok(
       !source.includes('.from(\'prospect_batches\')'),
       'Must not write to prospect_batches table',
+    );
+  });
+
+  // Perú.9I.1 — explicit guardrails for the hardening hito.
+  // NOTE: Migo/SUNAT/Tavily/LLM appear in this test file only as negation
+  // strings; they must NOT appear as live calls in the importer source.
+  it('does not call Migo web (api.migo.pe)', () => {
+    assert.ok(!source.includes('api.migo.pe'), 'Must not call Migo web');
+  });
+
+  it('does not call SUNAT web (www2.sunat)', () => {
+    assert.ok(!source.includes('www2.sunat'), 'Must not call SUNAT web');
+  });
+
+  it('does not call an LLM provider', () => {
+    assert.ok(!source.includes('openai'), 'Must not call OpenAI');
+    assert.ok(!source.includes('anthropic'), 'Must not call Anthropic');
+    assert.ok(!source.includes('Authorization: Bearer'), 'Must not send bearer auth');
+  });
+
+  it('does not create accounts / candidates / batches', () => {
+    assert.ok(!source.includes('.from(\'accounts\')'), 'Must not write accounts');
+    assert.ok(
+      !source.includes('.from(\'contact_enrichment_candidates\')'),
+      'Must not write contact_enrichment_candidates',
+    );
+    assert.ok(
+      !source.includes('raw_payload') && !source.includes('rawPayload'),
+      'Must not persist raw Migo/SUNAT payloads',
+    );
+  });
+
+  it('only upserts into the SUNAT snapshot table', () => {
+    // The single write target in the importer is peru_sunat_ruc_snapshot.
+    assert.ok(
+      source.includes('.from(SNAPSHOT_TABLE)'),
+      'Must upsert into the snapshot table',
+    );
+  });
+
+  it('does not apply lenient parseInt to offset/limit (Perú.9I.1)', () => {
+    // parseInt is named only in the explanatory JSDoc, never applied to the
+    // numeric CLI args — those now go through parseStrictNonNegativeIntegerArg.
+    assert.ok(
+      !/parseInt\s*\([^)]*(offset|limit)/i.test(source),
+      'Must not parseInt(offset/limit) — use parseStrictNonNegativeIntegerArg',
+    );
+    assert.ok(
+      source.includes('parseStrictNonNegativeIntegerArg'),
+      'Must use the strict integer parser for CLI numeric args',
     );
   });
 });

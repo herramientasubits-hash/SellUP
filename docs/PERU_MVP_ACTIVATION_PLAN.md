@@ -651,6 +651,39 @@ cobertura reutiliza. El shim:
 La validación de la ruta `--apply` real se hará en Perú.9C con el próximo chunk
 controlado (offset 150000).
 
+#### Perú.9I.1 — Parsing estricto de `--offset` / `--limit`
+
+`--offset` y `--limit` ahora se parsean con `parseStrictNonNegativeIntegerArg`,
+que acepta **únicamente enteros decimales planos** (`/^\d+$/`, `Number.isSafeInteger`,
+`>= 0`). Antes se usaba `parseInt`, que es peligrosamente permisivo:
+`parseInt("1e+06", 10) === 1` y `parseInt("1000.5", 10) === 1000`. El importer
+ahora **falla rápido** (antes de leer filas o tocar Supabase) con un error claro:
+
+```text
+[sunat:importer] FATAL: Invalid --offset: expected a plain non-negative integer, received "1e+06"
+```
+
+Valores aceptados: `0`, `1000`, `1250000`. Valores rechazados: `1e+06`,
+`1.001e+06`, `1000.5`, `-1`, `abc`, `""`.
+
+> **⚠️ macOS — NO usar `seq` para loops grandes.** En macOS `seq 1000000 1000 1249000`
+> puede emitir valores en notación científica (`1e+06`, `1.001e+06`). Combinado
+> con el viejo `parseInt`, el importer releía filas desde offset 1. Usar **siempre**
+> un loop C-style de bash:
+>
+> ```bash
+> for ((offset=1250000; offset<=1499000; offset+=1000)); do
+>   echo "=== DRY RUN offset=$offset ==="
+>   npm run sunat:peru:import-snapshot -- --offset "$offset" --limit 1000 || exit 1
+>
+>   echo "=== APPLY offset=$offset ==="
+>   npm run sunat:peru:import-snapshot -- --offset "$offset" --limit 1000 --apply || exit 1
+> done
+> ```
+>
+> Con el parsing estricto, si `seq` se cuela con notación científica el importer
+> aborta en vez de cargar datos ambiguos.
+
 ### Parsing del snapshot filtrado
 
 El archivo `.tmp/sunat-peru/ruc20-filtered-snapshot.txt` es pipe-delimited con 15 columnas:
