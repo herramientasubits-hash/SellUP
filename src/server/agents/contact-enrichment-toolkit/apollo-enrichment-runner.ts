@@ -15,13 +15,18 @@ import {
   DEFAULT_MAX_CANDIDATES,
   type ApolloPeopleAdapterResult,
 } from './apollo-people-adapter';
-import { normalizeApolloPeople } from './contact-normalizer';
+import { normalizeApolloPeople, type NormalizedApolloContact } from './contact-normalizer';
 import {
   deduplicateContacts,
   type DeduplicationSnapshot,
   type DeduplicatedContact,
 } from './contact-deduplicator';
 import { writeContactCandidates, type WriteCandidatesResult } from './contact-candidate-writer';
+import {
+  classifyNormalizedContact,
+  type ContactRelevanceResult,
+  type ContactRelevanceStatus,
+} from './contact-relevance-classifier';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
 const APOLLO_OPERATION_KEY = 'people_search';
@@ -54,6 +59,12 @@ export interface ApolloEnrichmentRunResult {
   exactDuplicates: number;
   rawResultsCount: number;
   normalizedCount: number;
+  /** Perfiles evaluados por el clasificador de relevancia/calidad. */
+  evaluatedCount: number;
+  /** Perfiles descartados por baja relevancia o datos insuficientes. */
+  rejectedByRelevance: number;
+  /** Apollo trajo perfiles pero ninguno pasó el filtro de revisión. */
+  noReviewableContactsFound: boolean;
   providerStatus: 'success' | 'skipped' | 'error';
   estimatedCostUsd: number;
   totalCandidates: number;
@@ -156,6 +167,18 @@ interface ApolloSearchAttemptSummary {
   raw_results_count: number;
 }
 
+interface RelevanceFilterSummary {
+  evaluated_count: number;
+  inserted_for_review_count: number;
+  rejected_count: number;
+  high_relevance_count: number;
+  medium_relevance_count: number;
+  low_relevance_count: number;
+  not_relevant_count: number;
+  insufficient_data_count: number;
+  top_rejection_reasons: string[];
+}
+
 interface ApolloEnrichmentSummaryBlock {
   status: 'success' | 'skipped' | 'error';
   searched_at: string;
@@ -168,7 +191,83 @@ interface ApolloEnrichmentSummaryBlock {
   estimated_cost_usd: number;
   /** Metadata por capa de búsqueda (fallback). Sin payload crudo. */
   search_attempts: ApolloSearchAttemptSummary[];
+  /** Resultado del filtro de relevancia/calidad (Hito 17A.3B). */
+  relevance_filter?: RelevanceFilterSummary;
   reason?: string;
+}
+
+/** Contacto normalizado + su veredicto de relevancia (uso interno del runner). */
+interface ClassifiedContact {
+  contact: NormalizedApolloContact;
+  relevance: ContactRelevanceResult;
+}
+
+const EMPTY_RELEVANCE_FILTER: RelevanceFilterSummary = {
+  evaluated_count: 0,
+  inserted_for_review_count: 0,
+  rejected_count: 0,
+  high_relevance_count: 0,
+  medium_relevance_count: 0,
+  low_relevance_count: 0,
+  not_relevant_count: 0,
+  insufficient_data_count: 0,
+  top_rejection_reasons: [],
+};
+
+type RelevanceCountKey =
+  | 'high_relevance_count'
+  | 'medium_relevance_count'
+  | 'low_relevance_count'
+  | 'not_relevant_count'
+  | 'insufficient_data_count';
+
+const STATUS_COUNT_KEYS: Record<ContactRelevanceStatus, RelevanceCountKey> = {
+  high_relevance: 'high_relevance_count',
+  medium_relevance: 'medium_relevance_count',
+  low_relevance: 'low_relevance_count',
+  not_relevant: 'not_relevant_count',
+  insufficient_data: 'insufficient_data_count',
+};
+
+/** Top-N motivos de rechazo más frecuentes (descendente). */
+function topRejectionReasons(classified: ClassifiedContact[], limit = 3): string[] {
+  const counts = new Map<string, number>();
+  for (const { relevance } of classified) {
+    for (const reason of relevance.rejectionReasons) {
+      counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([reason]) => reason);
+}
+
+/** Construye el bloque relevance_filter a partir de los contactos clasificados. */
+function buildRelevanceFilter(classified: ClassifiedContact[]): RelevanceFilterSummary {
+  const filter: RelevanceFilterSummary = {
+    ...EMPTY_RELEVANCE_FILTER,
+    evaluated_count: classified.length,
+  };
+  for (const { relevance } of classified) {
+    filter[STATUS_COUNT_KEYS[relevance.relevanceStatus]] += 1;
+    if (relevance.shouldInsertForReview) filter.inserted_for_review_count += 1;
+    else filter.rejected_count += 1;
+  }
+  filter.top_rejection_reasons = topRejectionReasons(classified);
+  return filter;
+}
+
+/** Mapea el veredicto de relevancia al formato snake_case de enrichment_metadata. */
+function relevanceMetadata(relevance: ContactRelevanceResult): Record<string, unknown> {
+  return {
+    status: relevance.relevanceStatus,
+    score: relevance.relevanceScore,
+    quality_score: relevance.qualityScore,
+    matched_keywords: relevance.matchedKeywords,
+    matched_category: relevance.matchedCategory,
+    rejection_reasons: relevance.rejectionReasons,
+  };
 }
 
 /** Mapea la metadata de intentos del adapter al formato snake_case del summary. */
@@ -229,6 +328,9 @@ export async function executeContactEnrichmentApolloRun(
       exactDuplicates: 0,
       rawResultsCount: 0,
       normalizedCount: 0,
+      evaluatedCount: 0,
+      rejectedByRelevance: 0,
+      noReviewableContactsFound: false,
       providerStatus: 'error',
       estimatedCostUsd: 0,
       totalCandidates: 0,
@@ -247,6 +349,9 @@ export async function executeContactEnrichmentApolloRun(
       exactDuplicates: 0,
       rawResultsCount: 0,
       normalizedCount: 0,
+      evaluatedCount: 0,
+      rejectedByRelevance: 0,
+      noReviewableContactsFound: false,
       providerStatus: 'error',
       estimatedCostUsd: 0,
       totalCandidates: 0,
@@ -317,6 +422,9 @@ export async function executeContactEnrichmentApolloRun(
       exactDuplicates: 0,
       rawResultsCount: 0,
       normalizedCount: 0,
+      evaluatedCount: 0,
+      rejectedByRelevance: 0,
+      noReviewableContactsFound: false,
       providerStatus: 'error',
       estimatedCostUsd: 0,
       totalCandidates: 0,
@@ -359,6 +467,9 @@ export async function executeContactEnrichmentApolloRun(
       exactDuplicates: 0,
       rawResultsCount: 0,
       normalizedCount: 0,
+      evaluatedCount: 0,
+      rejectedByRelevance: 0,
+      noReviewableContactsFound: false,
       providerStatus: 'skipped',
       estimatedCostUsd: 0,
       totalCandidates: 0,
@@ -370,13 +481,35 @@ export async function executeContactEnrichmentApolloRun(
   const rawResultsCount = apollo.providerUsage?.rawResultsCount ?? apollo.people.length;
   const { normalized } = normalizeApolloPeople(apollo.people);
 
-  // 7. Deduplicar contra snapshot + intra-run
-  const dedup = deduplicateContacts(normalized, dedupSnapshot);
+  // 7. Clasificar relevancia/calidad. Solo los revisables pasan a dedup/inserción;
+  //    los demás se contabilizan (relevance_filter) sin guardar payload crudo.
+  const classified: ClassifiedContact[] = normalized.map((contact) => ({
+    contact,
+    relevance: classifyNormalizedContact(contact),
+  }));
+  const relevanceFilter = buildRelevanceFilter(classified);
+  const chosenAttempt = apollo.chosenAttempt ?? null;
 
-  // 8. Escribir candidatos (no_match + possible_duplicate)
+  // Solo revisables, con su veredicto de relevancia + intento Apollo en metadata.
+  const reviewable: NormalizedApolloContact[] = classified
+    .filter(({ relevance }) => relevance.shouldInsertForReview)
+    .map(({ contact, relevance }) => ({
+      ...contact,
+      enrichmentMetadata: {
+        ...contact.enrichmentMetadata,
+        relevance: relevanceMetadata(relevance),
+        apollo_search_attempt: chosenAttempt,
+      },
+    }));
+  const rejectedByRelevance = relevanceFilter.rejected_count;
+
+  // 8. Deduplicar (solo revisables) contra snapshot + intra-run
+  const dedup = deduplicateContacts(reviewable, dedupSnapshot);
+
+  // 9. Escribir candidatos (no_match + possible_duplicate)
   const writeResult = await writeCandidates(runId, dedup.toInsert);
 
-  // 8a. Error de escritura → failed controlado
+  // 9a. Error de escritura → failed controlado
   if (writeResult.error) {
     const apolloBlock: ApolloEnrichmentSummaryBlock = {
       status: 'error',
@@ -389,6 +522,7 @@ export async function executeContactEnrichmentApolloRun(
       possible_duplicates_count: dedup.possibleDuplicateCount,
       estimated_cost_usd: 0,
       search_attempts: toAttemptSummaries(apollo.attempts),
+      relevance_filter: relevanceFilter,
       reason: `Error al escribir candidatos: ${writeResult.error}`,
     };
     await updateRun(runId, {
@@ -411,6 +545,9 @@ export async function executeContactEnrichmentApolloRun(
       exactDuplicates: dedup.exactDuplicateCount,
       rawResultsCount,
       normalizedCount: normalized.length,
+      evaluatedCount: relevanceFilter.evaluated_count,
+      rejectedByRelevance,
+      noReviewableContactsFound: false,
       providerStatus: 'success',
       estimatedCostUsd: 0,
       totalCandidates: 0,
@@ -440,7 +577,9 @@ export async function executeContactEnrichmentApolloRun(
       company_name: run.company_name,
       company_domain: run.company_domain,
       normalized_count: normalized.length,
+      evaluated_count: relevanceFilter.evaluated_count,
       inserted_candidates_count: insertedCount,
+      rejected_by_relevance_count: rejectedByRelevance,
       exact_duplicates_count: dedup.exactDuplicateCount,
       possible_duplicates_count: dedup.possibleDuplicateCount,
       pricing_source: 'provider_pricing_config',
@@ -449,8 +588,11 @@ export async function executeContactEnrichmentApolloRun(
     },
   });
 
-  // 10. Estado final + summary preservando snapshot
+  // 10. Estado final + summary preservando snapshot.
+  //  - rawResultsCount === 0           → Apollo no encontró a nadie.
+  //  - rawResultsCount > 0, inserted 0 → encontró perfiles pero ninguno revisable.
   const noContactsFound = rawResultsCount === 0;
+  const noReviewableContactsFound = !noContactsFound && insertedCount === 0;
   const finalStatus: ContactEnrichmentRunStatus =
     insertedCount > 0 ? 'ready_for_review' : 'completed';
 
@@ -465,17 +607,18 @@ export async function executeContactEnrichmentApolloRun(
     possible_duplicates_count: dedup.possibleDuplicateCount,
     estimated_cost_usd: estimatedCostUsd,
     search_attempts: toAttemptSummaries(apollo.attempts),
+    relevance_filter: relevanceFilter,
+  };
+
+  const summaryFlags: Record<string, unknown> = {
+    no_contacts_found: noContactsFound,
+    no_reviewable_contacts_found: noReviewableContactsFound,
   };
 
   await updateRun(runId, {
     status: finalStatus,
     estimated_cost_usd: estimatedCostUsd,
-    summary: buildSummary(
-      prevSummary,
-      insertedCount,
-      apolloBlock,
-      noContactsFound ? { no_contacts_found: true } : {},
-    ),
+    summary: buildSummary(prevSummary, insertedCount, apolloBlock, summaryFlags),
   });
 
   if (step) {
@@ -486,7 +629,9 @@ export async function executeContactEnrichmentApolloRun(
       estimated_cost_usd: estimatedCostUsd,
       duration_ms: Date.now() - startMs,
       metadata: {
+        evaluated_count: relevanceFilter.evaluated_count,
         inserted_candidates_count: insertedCount,
+        rejected_by_relevance_count: rejectedByRelevance,
         exact_duplicates_count: dedup.exactDuplicateCount,
         possible_duplicates_count: dedup.possibleDuplicateCount,
       },
@@ -502,6 +647,9 @@ export async function executeContactEnrichmentApolloRun(
     exactDuplicates: dedup.exactDuplicateCount,
     rawResultsCount,
     normalizedCount: normalized.length,
+    evaluatedCount: relevanceFilter.evaluated_count,
+    rejectedByRelevance,
+    noReviewableContactsFound,
     providerStatus: 'success',
     estimatedCostUsd,
     totalCandidates: insertedCount,

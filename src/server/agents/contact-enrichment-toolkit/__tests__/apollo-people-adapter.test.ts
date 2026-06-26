@@ -171,7 +171,7 @@ describe('searchApolloPeopleForCompany', () => {
     assert.equal(captured.length, 2); // nunca llega al tercer intento
   });
 
-  it('con dominio: si los 3 intentos por dominio traen 0 → ejecuta 4º fallback por nombre', async () => {
+  it('con dominio: si nada trae resultados → ejecuta los 7 intentos en orden (nombre HR antes del amplio)', async () => {
     const captured: SearchPeopleParams[] = [];
     const result = await searchApolloPeopleForCompany(
       { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com' },
@@ -186,34 +186,40 @@ describe('searchApolloPeopleForCompany', () => {
 
     assert.equal(result.status, 'success');
     assert.equal(result.people.length, 0);
-    // Ahora hay un 4º intento: fallback org-only por nombre.
-    assert.equal(captured.length, 4);
-    assert.equal(result.attempts.length, 4);
+    assert.equal(result.chosenAttempt, null);
+    // 3 capas por dominio + 3 por nombre con filtros HR + 1 amplio por nombre.
+    assert.equal(captured.length, 7);
     assert.deepEqual(
       result.attempts.map((a) => a.attempt),
       [
         'strict_hr_department',
         'hr_titles_without_department',
         'broad_seniorities_only',
+        'org_name_hr_department',
+        'org_name_hr_titles',
+        'org_name_hr_titles_no_seniority',
         'broad_org_name_only',
       ],
     );
-    // El tercer intento es el fallback amplio por dominio: solo seniorities.
-    assert.equal(captured[2].person_titles, undefined);
-    assert.equal(captured[2].person_department_or_subdepartments, undefined);
-    assert.deepEqual(captured[2].person_seniorities, TARGET_SENIORITIES);
-    // El cuarto intento usa q_organization_name SIN dominio ni filtros de persona.
+    // Intentos 4-6 usan q_organization_name CON filtros HR (no el amplio).
     assert.equal(captured[3].q_organization_name, 'Corp');
-    assert.equal(captured[3].q_organization_domains, undefined);
-    assert.equal(captured[3].person_seniorities, undefined);
-    assert.equal(captured[3].person_titles, undefined);
-    assert.equal(captured[3].person_department_or_subdepartments, undefined);
+    assert.deepEqual(captured[3].person_department_or_subdepartments, HR_DEPARTMENTS);
+    assert.deepEqual(captured[4].person_titles, HR_PERSON_TITLES);
+    assert.deepEqual(captured[4].person_seniorities, TARGET_SENIORITIES);
+    assert.deepEqual(captured[5].person_titles, HR_PERSON_TITLES);
+    assert.equal(captured[5].person_seniorities, undefined);
+    // El 7º (último) intento es amplio: nombre sin filtros de persona.
+    assert.equal(captured[6].q_organization_name, 'Corp');
+    assert.equal(captured[6].q_organization_domains, undefined);
+    assert.equal(captured[6].person_seniorities, undefined);
+    assert.equal(captured[6].person_titles, undefined);
+    assert.equal(captured[6].person_department_or_subdepartments, undefined);
     // raw_results_count total = 0 → providerUsage refleja 0.
     assert.equal(result.providerUsage?.rawResultsCount, 0);
     assert.equal(result.providerUsage?.creditsUsed, 0);
   });
 
-  it('caso Bancolombia: dominio devuelve 0 en las 3 capas pero el fallback por nombre trae personas', async () => {
+  it('caso Bancolombia: dominio 0 en 3 capas, el 1er intento HR por nombre trae personas y para (no llega al amplio)', async () => {
     const captured: SearchPeopleParams[] = [];
     const result = await searchApolloPeopleForCompany(
       { runId: 'run-1', companyName: 'Bancolombia', companyDomain: 'bancolombia.com', maxCandidates: 5 },
@@ -221,7 +227,7 @@ describe('searchApolloPeopleForCompany', () => {
         isConnected: async () => true,
         searchPeople: async (params) => {
           captured.push(params);
-          // Capas 1-3 (con dominio) → 0; capa 4 (por nombre) → trae personas.
+          // Capas 1-3 (con dominio) → 0; capas por nombre (HR) → personas revisables.
           if (params.q_organization_domains) return ok([]);
           if (params.q_organization_name) return ok(Array.from({ length: 3 }, (_, i) => person(`p-${i}`)));
           return ok([]);
@@ -231,11 +237,51 @@ describe('searchApolloPeopleForCompany', () => {
 
     assert.equal(result.status, 'success');
     assert.equal(result.people.length, 3);
+    // Stop early en el 4º intento (1er intento HR por nombre): nunca llega al amplio.
     assert.equal(captured.length, 4);
-    assert.equal(result.attempts[3].attempt, 'broad_org_name_only');
+    assert.equal(result.chosenAttempt, 'org_name_hr_department');
+    assert.equal(result.attempts[3].attempt, 'org_name_hr_department');
     assert.equal(result.attempts[3].rawResultsCount, 3);
-    // Stop-early: el fallback por nombre es el último intento ejecutado.
+    assert.ok(!result.attempts.some((a) => a.attempt === 'broad_org_name_only'));
     assert.equal(captured[3].q_organization_name, 'Bancolombia');
+  });
+
+  it('stop-early por revisabilidad: un intento amplio que solo trae ruido NO detiene la búsqueda', async () => {
+    // attempt 3 (broad_seniorities_only) trae un perfil normalizable pero NO relevante
+    // (Software Engineer); debe seguir hacia los intentos HR por nombre.
+    const noise: ApolloPerson = {
+      id: 'noise',
+      first_name: 'Diego',
+      last_name: 'Ramírez',
+      title: 'Software Engineer',
+      email: null,
+      linkedin_url: null,
+      phone_numbers: [],
+      organization: null,
+    };
+    const captured: SearchPeopleParams[] = [];
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com', maxCandidates: 5 },
+      {
+        isConnected: async () => true,
+        searchPeople: async (params) => {
+          captured.push(params);
+          // Capas 1-2 (dominio) → 0; capa 3 (broad seniorities) → ruido no relevante;
+          // capa 4 (HR por nombre) → candidato revisable.
+          if (captured.length === 3) return ok([noise]);
+          if (params.q_organization_name && params.person_department_or_subdepartments) {
+            return ok([person('hr-1')]);
+          }
+          return ok([]);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'success');
+    // No paró en el ruido del intento 3: continuó hasta el intento HR por nombre.
+    assert.equal(result.chosenAttempt, 'org_name_hr_department');
+    assert.equal(result.people.length, 1);
+    assert.equal(result.people[0].id, 'hr-1');
   });
 
   it('sin dominio (solo nombre): NO añade 4º fallback por nombre (sería redundante)', async () => {

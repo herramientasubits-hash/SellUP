@@ -26,6 +26,12 @@ export interface ApolloEnrichmentUiResult {
   duplicatesSkipped: number;
   possibleDuplicates: number;
   totalCandidates: number;
+  /** Perfiles crudos encontrados en Apollo. */
+  rawResultsCount: number;
+  /** Perfiles descartados por baja relevancia o datos insuficientes. */
+  rejectedByRelevance: number;
+  /** Apollo encontró perfiles pero ninguno pasó el filtro de revisión. */
+  noReviewableContactsFound: boolean;
   providerStatus: 'success' | 'skipped' | 'error';
   estimatedCostUsd: number;
   error?: string;

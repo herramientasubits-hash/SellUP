@@ -23,6 +23,8 @@ import {
   type ApolloSearchResult,
 } from '@/server/integrations/apollo-client';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
+import { normalizeApolloPerson } from './contact-normalizer';
+import { classifyNormalizedContact } from './contact-relevance-classifier';
 
 // ── Filtros HR / seniority ─────────────────────────────────────
 
@@ -70,7 +72,7 @@ export const DEFAULT_MAX_CANDIDATES = 10;
 const HARD_RAW_FETCH_CAP = 25;
 
 /** Tope duro de intentos por run (control de costo). */
-const MAX_SEARCH_ATTEMPTS = 4;
+const MAX_SEARCH_ATTEMPTS = 7;
 
 // ── Tipos ──────────────────────────────────────────────────────
 
@@ -103,6 +105,8 @@ export interface ApolloPeopleAdapterResult {
   providerUsage?: ApolloProviderUsage;
   /** Metadata de los intentos ejecutados (capas de fallback). */
   attempts: ApolloSearchAttemptMeta[];
+  /** Nombre del intento del que provienen `people` (para trazabilidad). */
+  chosenAttempt?: string | null;
   reason?: string;
 }
 
@@ -126,6 +130,22 @@ function isNormalizablePerson(person: ApolloPerson): boolean {
     person.last_name?.trim() ||
     person.headline?.trim()
   );
+}
+
+/**
+ * Cuenta cuántas personas del intento serían revisables: normalizables Y
+ * clasificadas como insertables por el clasificador de relevancia/calidad.
+ * Es la señal que gobierna el stop-early: no nos detenemos en ruido (p. ej.
+ * un Software Engineer de un fallback amplio), solo en candidatos útiles.
+ */
+function countReviewablePeople(people: ApolloPerson[]): number {
+  let count = 0;
+  for (const person of people) {
+    const normalized = normalizeApolloPerson(person);
+    if (!normalized) continue;
+    if (classifyNormalizedContact(normalized).shouldInsertForReview) count += 1;
+  }
+  return count;
 }
 
 // ── Definición de capas de búsqueda ────────────────────────────
@@ -202,21 +222,51 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
     },
   ];
 
-  // Capa 4: fallback por nombre de organización, org-only (sin filtros de persona).
-  // Solo aporta valor cuando las capas previas filtraron por dominio; si ya
-  // filtraban por nombre (no había dominio) esta capa sería redundante.
+  // Capas por nombre de organización (q_organization_name). Solo aportan valor
+  // cuando las capas previas filtraron por dominio; si ya filtraban por nombre
+  // (no había dominio) serían redundantes. Antes del fallback amplio (capa 7)
+  // se intenta acotar por HR para reducir ruido (caso Bancolombia).
   const name = input.companyName?.trim();
   const usedDomain = !!input.companyDomain?.trim();
   if (name && usedDomain) {
-    plans.push({
-      name: 'broad_org_name_only',
-      filters: `org(nombre=${name}); sin seniorities; sin titles; sin department`,
-      params: {
-        q_organization_name: name,
-        page: 1,
-        per_page: perPage,
+    const byName: SearchPeopleParams = { q_organization_name: name, page: 1, per_page: perPage };
+    plans.push(
+      {
+        // Nombre + department HR + seniority.
+        name: 'org_name_hr_department',
+        filters: `org(nombre=${name}); department=HR; seniorities; sin titles`,
+        params: {
+          ...byName,
+          person_seniorities: TARGET_SENIORITIES,
+          person_department_or_subdepartments: HR_DEPARTMENTS,
+        },
       },
-    });
+      {
+        // Nombre + títulos HR + seniority.
+        name: 'org_name_hr_titles',
+        filters: `org(nombre=${name}); titles=HR; seniorities; sin department`,
+        params: {
+          ...byName,
+          person_titles: HR_PERSON_TITLES,
+          person_seniorities: TARGET_SENIORITIES,
+        },
+      },
+      {
+        // Nombre + títulos HR sin seniority (relaja un grado más).
+        name: 'org_name_hr_titles_no_seniority',
+        filters: `org(nombre=${name}); titles=HR; sin seniorities; sin department`,
+        params: {
+          ...byName,
+          person_titles: HR_PERSON_TITLES,
+        },
+      },
+      {
+        // Último recurso: nombre amplio, sin filtros de persona.
+        name: 'broad_org_name_only',
+        filters: `org(nombre=${name}); sin seniorities; sin titles; sin department`,
+        params: { ...byName },
+      },
+    );
   }
 
   return plans.slice(0, MAX_SEARCH_ATTEMPTS);
@@ -265,6 +315,14 @@ export async function searchApolloPeopleForCompany(
   const attempts: ApolloSearchAttemptMeta[] = [];
   let totalRaw = 0;
   let chosen: ApolloPerson[] = [];
+  let chosenAttempt: string | null = null;
+
+  // Mejor intento por cantidad de normalizables: usado solo si ningún intento
+  // trae candidatos revisables, para que el runner pueda evaluarlos y
+  // reportarlos como filtrados (honestidad en los conteos del summary).
+  let bestData: ApolloPerson[] = [];
+  let bestUsable = 0;
+  let bestAttempt: string | null = null;
 
   for (const plan of plans) {
     const result = await searchPeople(plan.params);
@@ -287,18 +345,36 @@ export async function searchApolloPeopleForCompany(
       rawResultsCount: data.length,
     });
 
-    // Stop early: si el intento trae resultados normalizables, no seguimos.
-    const usable = data.filter(isNormalizablePerson);
-    if (usable.length > 0) {
+    // Stop early: solo nos detenemos si el intento trae candidatos REVISABLES
+    // (relevantes + con calidad mínima). Evita parar en ruido de un fallback amplio.
+    const reviewable = countReviewablePeople(data);
+    if (reviewable > 0) {
       chosen = data.slice(0, maxCandidates);
+      chosenAttempt = plan.name;
       break;
     }
+
+    // Sin revisables aún: recuerda el intento con más normalizables.
+    const usable = data.filter(isNormalizablePerson).length;
+    if (usable > bestUsable) {
+      bestUsable = usable;
+      bestData = data;
+      bestAttempt = plan.name;
+    }
+  }
+
+  // Ningún intento trajo revisables: devuelve el mejor por normalizables para
+  // que el runner los clasifique y cuente como filtrados (o [] si todos vacíos).
+  if (chosenAttempt === null && bestData.length > 0) {
+    chosen = bestData.slice(0, maxCandidates);
+    chosenAttempt = bestAttempt;
   }
 
   return {
     status: 'success',
     people: chosen,
     attempts,
+    chosenAttempt,
     providerUsage: {
       provider: 'apollo',
       operation: 'people_search',

@@ -232,12 +232,24 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
     );
   }
 
+  const noReviewable = result.candidatesCreated === 0 && result.noReviewableContactsFound;
+
   return (
     <div className="space-y-3 border-t border-border pt-3">
       <p className="text-xs font-medium text-foreground">Resultado de Apollo</p>
       <dl className="space-y-1.5 text-xs">
         <div className="flex justify-between">
-          <dt className="text-muted-foreground">Candidatos creados</dt>
+          <dt className="text-muted-foreground">Perfiles encontrados</dt>
+          <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Filtrados por relevancia/calidad</dt>
+          <dd className={result.rejectedByRelevance > 0 ? 'text-amber-600' : 'text-foreground'}>
+            {result.rejectedByRelevance}
+          </dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Candidatos listos para revisión</dt>
           <dd className="font-semibold text-foreground">{result.candidatesCreated}</dd>
         </div>
         <div className="flex justify-between">
@@ -250,11 +262,19 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
             <dd className="text-amber-600">{result.possibleDuplicates}</dd>
           </div>
         )}
+        <div className="flex justify-between border-t border-border/50 pt-1.5">
+          <dt className="text-muted-foreground">Estado final</dt>
+          <dd className="font-medium text-foreground">
+            {result.status === 'ready_for_review' ? 'Listo para revisión' : 'Completado'}
+          </dd>
+        </div>
       </dl>
       <p className="text-xs text-muted-foreground">
         {result.candidatesCreated > 0
           ? 'Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.'
-          : 'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.'}
+          : noReviewable
+            ? 'Apollo encontró perfiles, pero ninguno tenía suficiente relevancia o datos completos para revisión. No se crearon contactos finales.'
+            : 'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.'}
       </p>
     </div>
   );

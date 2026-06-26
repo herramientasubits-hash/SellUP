@@ -168,6 +168,12 @@ export interface RunApolloActionResult {
   duplicatesSkipped?: number;
   possibleDuplicates?: number;
   totalCandidates?: number;
+  /** Perfiles crudos encontrados en Apollo (suma de intentos). */
+  rawResultsCount?: number;
+  /** Perfiles descartados por baja relevancia o datos insuficientes. */
+  rejectedByRelevance?: number;
+  /** Apollo encontró perfiles pero ninguno pasó el filtro de revisión. */
+  noReviewableContactsFound?: boolean;
   providerStatus?: 'success' | 'skipped' | 'error';
   estimatedCostUsd?: number;
   error?: string;
@@ -197,6 +203,9 @@ export async function runContactEnrichmentApolloAction(
       duplicatesSkipped: result.duplicatesSkipped,
       possibleDuplicates: result.possibleDuplicates,
       totalCandidates: result.totalCandidates,
+      rawResultsCount: result.rawResultsCount,
+      rejectedByRelevance: result.rejectedByRelevance,
+      noReviewableContactsFound: result.noReviewableContactsFound,
       providerStatus: result.providerStatus,
       estimatedCostUsd: result.estimatedCostUsd,
       error: result.error,

@@ -18,6 +18,11 @@ import type { ApolloPeopleAdapterResult } from '../apollo-people-adapter';
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
 import type { AgentRunStep } from '@/modules/usage-tracking/types';
 
+/** Vista mínima de un candidato escrito (para inspeccionar metadata en tests). */
+interface DeduplicatedContactLike {
+  enrichmentMetadata: Record<string, unknown>;
+}
+
 function person(id: string, email: string): ApolloPerson {
   return {
     id,
@@ -259,6 +264,115 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(result.status, 'error');
     assert.equal(h.getStore().status, 'completed'); // sin cambios
     assert.equal(h.getWriteCalls(), 0);
+  });
+
+  // ── Filtro de relevancia/calidad (Hito 17A.3B) ──────────────────────────────
+
+  it('10 perfiles, 0 insertables (todo ruido) → completed, NO ready_for_review', async () => {
+    const noise = (id: string): ApolloPerson => ({
+      id,
+      first_name: 'Dev',
+      last_name: id,
+      title: 'Software Engineer',
+      email: `${id}@corp.com`,
+      linkedin_url: null,
+      phone_numbers: [],
+      organization: null,
+    });
+    const people = Array.from({ length: 10 }, (_, i) => noise(`n${i}`));
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people,
+      attempts: [{ attempt: 'broad_org_name_only', filters: 'org(nombre=Corp)', rawResultsCount: 10 }],
+      chosenAttempt: 'broad_org_name_only',
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 10, rawResultsCount: 10 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.candidatesCreated, 0);
+    assert.equal(result.evaluatedCount, 10);
+    assert.equal(result.rejectedByRelevance, 10);
+    assert.equal(result.noReviewableContactsFound, true);
+    assert.equal(h.getStore().status, 'completed');
+    const summary = h.getStore().summary as Record<string, unknown>;
+    assert.equal(summary.no_reviewable_contacts_found, true);
+    assert.equal(summary.no_contacts_found, false);
+    const apolloBlock = summary.apollo_enrichment as Record<string, unknown>;
+    const filter = apolloBlock.relevance_filter as Record<string, unknown>;
+    assert.equal(filter.evaluated_count, 10);
+    assert.equal(filter.inserted_for_review_count, 0);
+    assert.equal(filter.rejected_count, 10);
+    assert.equal(filter.not_relevant_count, 10);
+  });
+
+  it('10 perfiles, 2 insertables (HR) → ready_for_review y summary cuenta insertados/rechazados', async () => {
+    const noise = (id: string): ApolloPerson => ({
+      id,
+      first_name: 'Dev',
+      last_name: id,
+      title: 'Software Engineer',
+      email: `${id}@corp.com`,
+      linkedin_url: null,
+      phone_numbers: [],
+      organization: null,
+    });
+    const people: ApolloPerson[] = [
+      ...Array.from({ length: 8 }, (_, i) => noise(`n${i}`)),
+      person('hr1', 'hr1@corp.com'),
+      person('hr2', 'hr2@corp.com'),
+    ];
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people,
+      attempts: [{ attempt: 'broad_seniorities_only', filters: 'org(dominio=corp.com); seniorities', rawResultsCount: 10 }],
+      chosenAttempt: 'broad_seniorities_only',
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 10, rawResultsCount: 10 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'ready_for_review');
+    assert.equal(result.candidatesCreated, 2);
+    assert.equal(result.evaluatedCount, 10);
+    assert.equal(result.rejectedByRelevance, 8);
+    assert.equal(result.noReviewableContactsFound, false);
+    assert.equal(h.getStore().status, 'ready_for_review');
+    const summary = h.getStore().summary as Record<string, unknown>;
+    const apolloBlock = summary.apollo_enrichment as Record<string, unknown>;
+    const filter = apolloBlock.relevance_filter as Record<string, unknown>;
+    assert.equal(filter.evaluated_count, 10);
+    assert.equal(filter.inserted_for_review_count, 2);
+    assert.equal(filter.rejected_count, 8);
+    assert.equal(filter.high_relevance_count, 2);
+  });
+
+  it('candidatos insertados llevan relevance + apollo_search_attempt en enrichment_metadata', async () => {
+    let writtenRows: DeduplicatedContactLike[] = [];
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [person('hr1', 'hr1@corp.com')],
+      attempts: [{ attempt: 'org_name_hr_titles', filters: 'org(nombre=Corp); titles=HR', rawResultsCount: 1 }],
+      chosenAttempt: 'org_name_hr_titles',
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 1, rawResultsCount: 1 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+    h.deps.writeCandidates = async (_runId, candidates) => {
+      writtenRows = candidates as unknown as DeduplicatedContactLike[];
+      return { inserted: candidates.length, skippedNoName: 0 };
+    };
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(writtenRows.length, 1);
+    const meta = writtenRows[0].enrichmentMetadata;
+    assert.equal(meta.apollo_search_attempt, 'org_name_hr_titles');
+    const relevance = meta.relevance as Record<string, unknown>;
+    assert.equal(relevance.status, 'high_relevance');
+    assert.ok(Array.isArray(relevance.matched_keywords));
   });
 
   it('NO crea contactos finales: solo escribe en staging vía writeCandidates', async () => {
