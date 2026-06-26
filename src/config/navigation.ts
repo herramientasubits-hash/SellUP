@@ -6,6 +6,7 @@ import {
   BrainCircuit,
   Settings,
   Search,
+  UserSearch,
 } from "lucide-react";
 
 export interface NavItem {
@@ -34,6 +35,11 @@ export const mainNavItems: NavItem[] = [
     title: "Prospectos",
     href: "/prospects",
     icon: Search,
+  },
+  {
+    title: "Enriquecer contactos",
+    href: "/contact-enrichment",
+    icon: UserSearch,
   },
   {
     title: "Uso de IA y costos",
