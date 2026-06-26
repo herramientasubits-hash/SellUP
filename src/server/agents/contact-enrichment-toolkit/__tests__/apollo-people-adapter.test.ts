@@ -171,7 +171,7 @@ describe('searchApolloPeopleForCompany', () => {
     assert.equal(captured.length, 2); // nunca llega al tercer intento
   });
 
-  it('si los 3 intentos traen 0 → success con people [] y 3 intentos registrados', async () => {
+  it('con dominio: si los 3 intentos por dominio traen 0 → ejecuta 4º fallback por nombre', async () => {
     const captured: SearchPeopleParams[] = [];
     const result = await searchApolloPeopleForCompany(
       { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com' },
@@ -186,19 +186,75 @@ describe('searchApolloPeopleForCompany', () => {
 
     assert.equal(result.status, 'success');
     assert.equal(result.people.length, 0);
-    assert.equal(captured.length, 3);
-    assert.equal(result.attempts.length, 3);
+    // Ahora hay un 4º intento: fallback org-only por nombre.
+    assert.equal(captured.length, 4);
+    assert.equal(result.attempts.length, 4);
     assert.deepEqual(
       result.attempts.map((a) => a.attempt),
-      ['strict_hr_department', 'hr_titles_without_department', 'broad_seniorities_only'],
+      [
+        'strict_hr_department',
+        'hr_titles_without_department',
+        'broad_seniorities_only',
+        'broad_org_name_only',
+      ],
     );
-    // El tercer intento es el fallback amplio: solo seniorities.
+    // El tercer intento es el fallback amplio por dominio: solo seniorities.
     assert.equal(captured[2].person_titles, undefined);
     assert.equal(captured[2].person_department_or_subdepartments, undefined);
     assert.deepEqual(captured[2].person_seniorities, TARGET_SENIORITIES);
+    // El cuarto intento usa q_organization_name SIN dominio ni filtros de persona.
+    assert.equal(captured[3].q_organization_name, 'Corp');
+    assert.equal(captured[3].q_organization_domains, undefined);
+    assert.equal(captured[3].person_seniorities, undefined);
+    assert.equal(captured[3].person_titles, undefined);
+    assert.equal(captured[3].person_department_or_subdepartments, undefined);
     // raw_results_count total = 0 → providerUsage refleja 0.
     assert.equal(result.providerUsage?.rawResultsCount, 0);
     assert.equal(result.providerUsage?.creditsUsed, 0);
+  });
+
+  it('caso Bancolombia: dominio devuelve 0 en las 3 capas pero el fallback por nombre trae personas', async () => {
+    const captured: SearchPeopleParams[] = [];
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Bancolombia', companyDomain: 'bancolombia.com', maxCandidates: 5 },
+      {
+        isConnected: async () => true,
+        searchPeople: async (params) => {
+          captured.push(params);
+          // Capas 1-3 (con dominio) → 0; capa 4 (por nombre) → trae personas.
+          if (params.q_organization_domains) return ok([]);
+          if (params.q_organization_name) return ok(Array.from({ length: 3 }, (_, i) => person(`p-${i}`)));
+          return ok([]);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'success');
+    assert.equal(result.people.length, 3);
+    assert.equal(captured.length, 4);
+    assert.equal(result.attempts[3].attempt, 'broad_org_name_only');
+    assert.equal(result.attempts[3].rawResultsCount, 3);
+    // Stop-early: el fallback por nombre es el último intento ejecutado.
+    assert.equal(captured[3].q_organization_name, 'Bancolombia');
+  });
+
+  it('sin dominio (solo nombre): NO añade 4º fallback por nombre (sería redundante)', async () => {
+    const captured: SearchPeopleParams[] = [];
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Corp SA', companyDomain: null },
+      {
+        isConnected: async () => true,
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok([]);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'success');
+    // Solo 3 intentos: las capas ya usaban el nombre como filtro de organización.
+    assert.equal(captured.length, 3);
+    assert.ok(!result.attempts.some((a) => a.attempt === 'broad_org_name_only'));
   });
 
   it('no supera maxCandidates aunque Apollo devuelva más', async () => {

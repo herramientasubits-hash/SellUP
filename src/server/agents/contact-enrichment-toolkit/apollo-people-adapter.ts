@@ -70,7 +70,7 @@ export const DEFAULT_MAX_CANDIDATES = 10;
 const HARD_RAW_FETCH_CAP = 25;
 
 /** Tope duro de intentos por run (control de costo). */
-const MAX_SEARCH_ATTEMPTS = 3;
+const MAX_SEARCH_ATTEMPTS = 4;
 
 // ── Tipos ──────────────────────────────────────────────────────
 
@@ -154,12 +154,23 @@ interface AttemptPlan {
   params: SearchPeopleParams;
 }
 
-/** Construye los planes de intento, de más estricto a más amplio. */
+/**
+ * Construye los planes de intento, de más estricto a más amplio.
+ *
+ * Las capas 1-3 usan el filtro de organización preferente (dominio si existe).
+ * La capa 4 es un fallback por nombre de organización (q_organization_name) SIN
+ * filtros de persona: el diagnóstico (caso Bancolombia) confirmó que en este plan
+ * de Apollo (mixed_people/api_search) ni q_organization_domains ni organization_ids
+ * devuelven personas para empresas grandes cuyo dominio almacenado difiere
+ * (p. ej. www.bancolombia.com), mientras que q_organization_name sí las trae.
+ * Solo se añade cuando hay nombre y aporta una señal distinta a las capas previas
+ * (es decir, cuando esas usaron el dominio como filtro de organización).
+ */
 function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): AttemptPlan[] {
   const { filter, desc } = buildOrgFilter(input);
   const base: SearchPeopleParams = { ...filter, page: 1, per_page: perPage };
 
-  return [
+  const plans: AttemptPlan[] = [
     {
       // Estricto pero no sobre-filtrado: department HR + seniorities, sin títulos.
       name: 'strict_hr_department',
@@ -189,7 +200,26 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
         person_seniorities: TARGET_SENIORITIES,
       },
     },
-  ].slice(0, MAX_SEARCH_ATTEMPTS);
+  ];
+
+  // Capa 4: fallback por nombre de organización, org-only (sin filtros de persona).
+  // Solo aporta valor cuando las capas previas filtraron por dominio; si ya
+  // filtraban por nombre (no había dominio) esta capa sería redundante.
+  const name = input.companyName?.trim();
+  const usedDomain = !!input.companyDomain?.trim();
+  if (name && usedDomain) {
+    plans.push({
+      name: 'broad_org_name_only',
+      filters: `org(nombre=${name}); sin seniorities; sin titles; sin department`,
+      params: {
+        q_organization_name: name,
+        page: 1,
+        per_page: perPage,
+      },
+    });
+  }
+
+  return plans.slice(0, MAX_SEARCH_ATTEMPTS);
 }
 
 /**
