@@ -95,6 +95,12 @@ export interface SearchPeopleParams {
   q_person_name?: string;
   q_organization_name?: string;
   q_organization_domains?: string[];
+  /**
+   * IDs de organización de Apollo (resueltos vía Organization Search).
+   * Es el filtro de organización más fiable: cuando se conoce el id real,
+   * Apollo lo prioriza sobre el dominio (que puede no matchear empresas grandes).
+   */
+  organization_ids?: string[];
   person_titles?: string[];
   person_seniorities?: string[];
   person_department_or_subdepartments?: string[];
