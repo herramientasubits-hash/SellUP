@@ -228,7 +228,11 @@ export function ProspectsTrayClient({
 
   const clearAllFilters = () => {
     setSearch('');
-    router.push(pathname); // Navigate to /prospects without params (also removes sourceId)
+    // Clear filters and sourceId, but keep the module tab so we stay inside the
+    // Prospectos tab of Empresas (`/accounts?tab=prospectos`). On the legacy
+    // `/prospects` route there is no `tab` param, so this lands on `/prospects`.
+    const tab = searchParams.get('tab');
+    router.push(tab ? `${pathname}?tab=${tab}` : pathname);
   };
 
   const totalPages = Math.ceil(total / limit);

@@ -1,10 +1,13 @@
 import { Building2, Globe, TrendingUp, Search } from 'lucide-react';
-import { redirect } from 'next/navigation';
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
+import {
+  ProspectsModulePanel,
+  type ProspectsPanelSearchParams,
+} from '@/components/prospects/prospects-module-panel';
 import {
   getAccountsSummary,
   getAccountsList,
@@ -12,16 +15,17 @@ import {
 } from '@/modules/accounts/actions';
 
 interface PageProps {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
 }
 
 export default async function AccountsPage({ searchParams }: PageProps) {
-  // Empresas hosts the module-level pill switcher (Empresas / Prospectos).
-  // `?tab=prospectos` is a documented alias that lands on the validated
-  // Prospectos route, keeping its data flow untouched.
-  const { tab } = await searchParams;
+  // "Empresas" is the single module entry point and hosts the pill switcher
+  // (Empresas / Prospectos). Prospectos lives here as an internal tab — when
+  // `?tab=prospectos` is present we render its server panel in place, keeping
+  // the user inside the module instead of navigating to a separate route.
+  const { tab, ...prospectsParams } = await searchParams;
   if (tab === 'prospectos') {
-    redirect('/prospects');
+    return <ProspectsModulePanel params={prospectsParams} />;
   }
 
   const [summary, accounts, users] = await Promise.all([

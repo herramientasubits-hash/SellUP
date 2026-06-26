@@ -5,7 +5,6 @@ import {
   Users,
   BrainCircuit,
   Settings,
-  Search,
 } from "lucide-react";
 
 export interface NavItem {
@@ -13,6 +12,18 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
 }
+
+/**
+ * Canonical routes for the unified "Empresas" module.
+ *
+ * Prospectos no longer exists as a standalone module: it lives as an internal
+ * pill inside Empresas, reachable via the `tab=prospectos` query param. The
+ * legacy `/prospects` route is kept only as a redirect for existing deep links
+ * (e.g. the Agente 1 flow passing `?sourceId=`).
+ */
+export const ACCOUNTS_ROUTE = "/accounts";
+export const ACCOUNTS_EMPRESAS_ROUTE = "/accounts?tab=empresas";
+export const PROSPECTOS_TAB_ROUTE = "/accounts?tab=prospectos";
 
 export const mainNavItems: NavItem[] = [
   {
@@ -29,11 +40,6 @@ export const mainNavItems: NavItem[] = [
     title: "Contactos",
     href: "/contacts",
     icon: Users,
-  },
-  {
-    title: "Prospectos",
-    href: "/prospects",
-    icon: Search,
   },
   {
     title: "Uso de IA y costos",

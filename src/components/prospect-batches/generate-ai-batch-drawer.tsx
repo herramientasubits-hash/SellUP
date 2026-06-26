@@ -42,6 +42,7 @@ import {
 } from '@/modules/prospect-batches/types';
 import { Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
+import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -248,7 +249,7 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
     if (!result.generatedBatchId) return;
     const id = result.generatedBatchId;
     handleClose();
-    router.push(`/prospects?sourceId=${id}`);
+    router.push(`${PROSPECTOS_TAB_ROUTE}&sourceId=${id}`);
   }
 
   // Run progressive thinking steps during generation
@@ -356,7 +357,7 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
         setResult(EMPTY_RESULT);
         setProgressSteps([]);
         if (batchResult.batchId) {
-          router.push(`/prospects?sourceId=${batchResult.batchId}`);
+          router.push(`${PROSPECTOS_TAB_ROUTE}&sourceId=${batchResult.batchId}`);
         }
       }
     } catch (err) {
@@ -450,7 +451,7 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
           generatedBatchId={result.generatedBatchId}
           onClose={handleClose}
           onGoToBatch={handleGoToBatch}
-          onNavigate={(id) => { handleClose(); router.push(`/prospects?sourceId=${id}`); }}
+          onNavigate={(id) => { handleClose(); router.push(`${PROSPECTOS_TAB_ROUTE}&sourceId=${id}`); }}
         />
       }
     >

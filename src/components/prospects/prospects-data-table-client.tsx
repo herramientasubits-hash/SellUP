@@ -50,6 +50,7 @@ import {
   type CandidateStatus,
 } from '@/modules/prospect-batches/types';
 import { createClient } from '@/lib/supabase/client';
+import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 
 // ── Derived types ──────────────────────────────────────────────
 
@@ -1011,7 +1012,7 @@ export function ProspectsDataTableClient({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => router.push('/prospects')}
+              onClick={() => router.push(PROSPECTOS_TAB_ROUTE)}
               className="h-7 shrink-0 gap-1.5 px-2.5 text-xs text-su-brand hover:bg-su-brand-soft hover:text-su-brand"
             >
               <X className="h-3 w-3" />
