@@ -838,6 +838,7 @@ export function scoreEntityMatch(
 /**
  * Builds search queries differentiated by intent.
  * 16AK.17B: country-aware queries — Chile uses RUT/Chile/.cl, Colombia uses NIT/Colombia/RUES.
+ * v1.16K-M-B: all countries get proper context; no country defaults to Colombia.
  */
 export function buildSearchQueriesByIntent(
   candidate: CandidateBasicInfo,
@@ -895,32 +896,80 @@ export function buildSearchQueriesByIntent(
     return queries;
   }
 
-  // ── Colombia queries (default) — NIT, Colombia, RUES ─────────────────────
-  const websiteParts: string[] = [];
-  if (name) websiteParts.push(`"${name}"`);
-  if (taxId) websiteParts.push(`NIT ${taxId}`);
-  websiteParts.push('Colombia');
-  if (city) websiteParts.push(city);
-  websiteParts.push('sitio web empresa');
+  if (ctx.expectedCountryCode === 'CO') {
+    // ── Colombia queries — NIT, Colombia, RUES ────────────────────────────
+    const websiteParts: string[] = [];
+    if (name) websiteParts.push(`"${name}"`);
+    if (taxId) websiteParts.push(`NIT ${taxId}`);
+    websiteParts.push('Colombia');
+    if (city) websiteParts.push(city);
+    websiteParts.push('sitio web empresa');
 
-  const linkedinParts: string[] = [];
-  if (normalized) linkedinParts.push(`"${normalized}"`);
-  linkedinParts.push('Colombia empresa');
-  if (city) linkedinParts.push(city);
-  linkedinParts.push('site:linkedin.com/company');
+    const linkedinParts: string[] = [];
+    if (normalized) linkedinParts.push(`"${normalized}"`);
+    linkedinParts.push('Colombia empresa');
+    if (city) linkedinParts.push(city);
+    linkedinParts.push('site:linkedin.com/company');
+    const industryShard = industry ? industry.split(/[\/,]/)[0].trim() : '';
+    if (industryShard) linkedinParts.push(industryShard);
+
+    const publicEvidenceParts: string[] = [];
+    if (normalized) publicEvidenceParts.push(`"${normalized}"`);
+    if (taxId) publicEvidenceParts.push(`NIT ${taxId}`);
+    publicEvidenceParts.push('Colombia registro directorio ciiu');
+
+    return [
+      { query: websiteParts.filter(Boolean).join(' '), intent: 'official_website', purpose: 'website' },
+      { query: linkedinParts.filter(Boolean).join(' '), intent: 'linkedin_company', purpose: 'linkedin_description' },
+      { query: publicEvidenceParts.filter(Boolean).join(' '), intent: 'public_evidence' },
+    ];
+  }
+
+  // ── Generic country-aware queries (MX, PE, EC, and unknown) ──────────────
+  // Uses ctx fields — never defaults to Colombia/NIT/RUES for non-CO countries.
+  const queries: QueryStrategy[] = [];
+  const hasKnownCountry = ctx.countryTerm !== 'Unknown' && ctx.countryTerm !== '';
+  const hasKnownTaxLabel = ctx.taxIdLabel !== 'ID';
+  const hasKnownRegistry = ctx.officialRegistryLabel !== 'Official Registry';
+
+  // Q1: official website — name + tax id + country
+  const q1Parts: string[] = [];
+  if (name) q1Parts.push(`"${name}"`);
+  if (taxId && hasKnownTaxLabel) q1Parts.push(`${ctx.taxIdLabel} ${taxId}`);
+  if (hasKnownCountry) q1Parts.push(ctx.countryTerm);
+  if (city) q1Parts.push(city);
+  q1Parts.push('sitio oficial');
+  queries.push({ query: q1Parts.filter(Boolean).join(' '), intent: 'official_website' });
+
+  // Q2: official website — normalized name + country + city
+  const q2Parts: string[] = [];
+  if (normalized) q2Parts.push(`"${normalized}"`);
+  if (hasKnownCountry) q2Parts.push(ctx.countryTerm);
+  if (city) q2Parts.push(city);
+  q2Parts.push('sitio web empresa');
+  queries.push({ query: q2Parts.filter(Boolean).join(' '), intent: 'official_website' });
+
+  // Q3: LinkedIn company + country
+  const q3Parts: string[] = [];
+  if (name) q3Parts.push(`"${name}"`);
+  if (hasKnownCountry) q3Parts.push(ctx.countryTerm);
+  if (city) q3Parts.push(city);
+  q3Parts.push('site:linkedin.com/company');
   const industryShard = industry ? industry.split(/[\/,]/)[0].trim() : '';
-  if (industryShard) linkedinParts.push(industryShard);
+  if (industryShard) q3Parts.push(industryShard);
+  queries.push({ query: q3Parts.filter(Boolean).join(' '), intent: 'linkedin_company' });
 
-  const publicEvidenceParts: string[] = [];
-  if (normalized) publicEvidenceParts.push(`"${normalized}"`);
-  if (taxId) publicEvidenceParts.push(`NIT ${taxId}`);
-  publicEvidenceParts.push('Colombia registro directorio ciiu');
+  // Q4: public evidence — name + tax id + official registry
+  const q4Parts: string[] = [];
+  if (normalized) q4Parts.push(`"${normalized}"`);
+  if (taxId && hasKnownTaxLabel) q4Parts.push(`${ctx.taxIdLabel} ${taxId}`);
+  else if (taxId) q4Parts.push(taxId);
+  if (hasKnownRegistry) q4Parts.push(ctx.officialRegistryLabel);
+  if (hasKnownCountry) q4Parts.push(ctx.countryTerm);
+  else q4Parts.push('empresa registro oficial identificador fiscal');
+  queries.push({ query: q4Parts.filter(Boolean).join(' '), intent: 'public_evidence' });
 
-  return [
-    { query: websiteParts.filter(Boolean).join(' '), intent: 'official_website', purpose: 'website' },
-    { query: linkedinParts.filter(Boolean).join(' '), intent: 'linkedin_company', purpose: 'linkedin_description' },
-    { query: publicEvidenceParts.filter(Boolean).join(' '), intent: 'public_evidence' },
-  ];
+  return queries;
 }
 
 /** @deprecated use buildSearchQueriesByIntent */

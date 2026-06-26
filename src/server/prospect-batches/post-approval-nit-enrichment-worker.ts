@@ -625,7 +625,7 @@ async function processCandidateNitEnrichment(
   const adapterResults = await executeNitAdapters({
     candidateName: candidate.name,
     nit,
-    countryCode: candidate.country_code ?? 'CO',
+    countryCode: candidate.country_code ?? '', // never fall back to 'CO' — missing country skips all CO_NIT_SAFE adapters
     sector: candidate.sector_code ?? candidate.sector_description ?? null,
     existingMetadata: meta,
     sourceKeys,
