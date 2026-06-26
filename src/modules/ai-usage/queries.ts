@@ -17,21 +17,109 @@ function getAdminClient() {
 }
 
 // ============================================================
-// getAiUsageSummary
-// Aggregated totals for the summary card row.
-// Returns null if caller is not admin.
+// Filter types
 // ============================================================
 
-export async function getAiUsageSummary(): Promise<AiUsageSummary | null> {
+export interface UsageFilters {
+  period?: '7d' | '30d' | 'current_month' | 'all';
+  provider?: string;
+  agent?: string;
+  status?: string;
+}
+
+function periodStart(period: UsageFilters['period']): string | null {
+  const now = new Date();
+  if (period === '7d') {
+    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (period === '30d') {
+    return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (period === 'current_month') {
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  }
+  return null;
+}
+
+// ============================================================
+// getDistinctFilterOptions
+// Returns unique values for all filter dropdowns.
+// ============================================================
+
+export interface FilterOptions {
+  providers: string[];
+  agents: { key: string; name: string | null }[];
+  statuses: string[];
+  hasTriggeredBy: boolean;
+}
+
+export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) return null;
 
   const admin = getAdminClient();
 
-  const [runsResult, logsResult] = await Promise.all([
-    admin.from('agent_runs').select('status, estimated_cost_usd'),
-    admin.from('provider_usage_logs').select('status, estimated_cost_usd, provider_key'),
+  const [logsResult, runsResult] = await Promise.all([
+    admin
+      .from('provider_usage_logs')
+      .select('provider_key, status, triggered_by'),
+    admin
+      .from('agent_runs')
+      .select('agent_key, agent_name, triggered_by, status'),
   ]);
+
+  const logs = logsResult.data ?? [];
+  const runs = runsResult.data ?? [];
+
+  const providers = [...new Set(logs.map((l) => l.provider_key))].sort();
+  const statuses = [
+    ...new Set([
+      ...logs.map((l) => l.status),
+      ...runs.map((r) => r.status as string),
+    ]),
+  ].sort();
+
+  const agentMap = new Map<string, string | null>();
+  for (const r of runs) {
+    if (!agentMap.has(r.agent_key)) agentMap.set(r.agent_key, r.agent_name ?? null);
+  }
+  const agents = [...agentMap.entries()].map(([key, name]) => ({ key, name })).sort((a, b) =>
+    a.key.localeCompare(b.key),
+  );
+
+  const hasTriggeredBy =
+    runs.some((r) => r.triggered_by != null) ||
+    logs.some((l) => l.triggered_by != null);
+
+  return { providers, agents, statuses, hasTriggeredBy };
+}
+
+// ============================================================
+// getAiUsageSummary — with filters
+// ============================================================
+
+export async function getAiUsageSummary(
+  filters: UsageFilters = {},
+): Promise<AiUsageSummary | null> {
+  const isAdmin = await isCurrentUserAdmin();
+  if (!isAdmin) return null;
+
+  const admin = getAdminClient();
+  const since = periodStart(filters.period);
+
+  let runsQuery = admin.from('agent_runs').select('status, estimated_cost_usd');
+  if (since) runsQuery = runsQuery.gte('created_at', since);
+  if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
+  if (filters.status) runsQuery = runsQuery.eq('status', filters.status);
+
+  let logsQuery = admin
+    .from('provider_usage_logs')
+    .select('status, estimated_cost_usd, provider_key');
+  if (since) logsQuery = logsQuery.gte('created_at', since);
+  if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
+  if (filters.status) logsQuery = logsQuery.eq('status', filters.status);
+
+  const [runsResult, logsResult] = await Promise.all([runsQuery, logsQuery]);
 
   const runs = runsResult.data ?? [];
   const logs = logsResult.data ?? [];
@@ -64,24 +152,30 @@ export async function getAiUsageSummary(): Promise<AiUsageSummary | null> {
 }
 
 // ============================================================
-// getAgentStats
-// One row per agent_key, aggregated from agent_runs.
-// Returns null if not admin, empty array if no runs.
+// getAgentStats — with filters
 // ============================================================
 
-export async function getAgentStats(): Promise<AgentStat[] | null> {
+export async function getAgentStats(
+  filters: UsageFilters = {},
+): Promise<AgentStat[] | null> {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) return null;
 
   const admin = getAdminClient();
+  const since = periodStart(filters.period);
 
-  const { data, error } = await admin
+  let query = admin
     .from('agent_runs')
     .select(
       'agent_key, agent_name, status, results_generated, results_approved, estimated_cost_usd, created_at',
     )
     .order('created_at', { ascending: false });
 
+  if (since) query = query.gte('created_at', since);
+  if (filters.agent) query = query.eq('agent_key', filters.agent);
+  if (filters.status) query = query.eq('status', filters.status);
+
+  const { data, error } = await query;
   if (error) return [];
 
   const map = new Map<string, AgentStat>();
@@ -119,24 +213,29 @@ export async function getAgentStats(): Promise<AgentStat[] | null> {
 }
 
 // ============================================================
-// getProviderStats
-// One row per provider_key, aggregated from provider_usage_logs.
-// Tavily: credits_used is set, tokens = 0 (credit-based provider).
-// Returns null if not admin, empty array if no logs.
+// getProviderStats — with filters
 // ============================================================
 
-export async function getProviderStats(): Promise<ProviderStat[] | null> {
+export async function getProviderStats(
+  filters: UsageFilters = {},
+): Promise<ProviderStat[] | null> {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) return null;
 
   const admin = getAdminClient();
+  const since = periodStart(filters.period);
 
-  const { data, error } = await admin
+  let query = admin
     .from('provider_usage_logs')
     .select(
       'provider_key, status, credits_used, input_tokens, output_tokens, results_returned, estimated_cost_usd, created_at',
     );
 
+  if (since) query = query.gte('created_at', since);
+  if (filters.provider) query = query.eq('provider_key', filters.provider);
+  if (filters.status) query = query.eq('status', filters.status);
+
+  const { data, error } = await query;
   if (error) return [];
 
   const map = new Map<string, ProviderStat>();
@@ -181,23 +280,125 @@ export async function getProviderStats(): Promise<ProviderStat[] | null> {
 }
 
 // ============================================================
-// getRecentProviderLogs
-// Last N rows from provider_usage_logs, for the executions table.
-// Returns null if not admin, empty array if no logs.
+// getRecentProviderLogs — with filters
 // ============================================================
 
-export async function getRecentProviderLogs(limit = 25): Promise<ProviderUsageLog[] | null> {
+export async function getRecentProviderLogs(
+  limit = 25,
+  filters: UsageFilters = {},
+): Promise<ProviderUsageLog[] | null> {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) return null;
 
   const admin = getAdminClient();
+  const since = periodStart(filters.period);
 
-  const { data, error } = await admin
+  let query = admin
     .from('provider_usage_logs')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
 
+  if (since) query = query.gte('created_at', since);
+  if (filters.provider) query = query.eq('provider_key', filters.provider);
+  if (filters.status) query = query.eq('status', filters.status);
+
+  const { data, error } = await query;
   if (error) return [];
   return (data ?? []) as ProviderUsageLog[];
+}
+
+// ============================================================
+// getUserConsumption
+// Returns per-user aggregate if triggered_by is populated.
+// ============================================================
+
+export interface UserConsumptionRow {
+  triggered_by: string;
+  full_name: string | null;
+  email: string | null;
+  executions: number;
+  provider_calls: number;
+  estimated_cost_usd: number;
+  last_activity_at: string | null;
+}
+
+export async function getUserConsumption(
+  filters: UsageFilters = {},
+): Promise<UserConsumptionRow[] | null> {
+  const isAdmin = await isCurrentUserAdmin();
+  if (!isAdmin) return null;
+
+  const admin = getAdminClient();
+  const since = periodStart(filters.period);
+
+  let runsQuery = admin
+    .from('agent_runs')
+    .select('triggered_by, estimated_cost_usd, created_at');
+  if (since) runsQuery = runsQuery.gte('created_at', since);
+  if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
+
+  let logsQuery = admin
+    .from('provider_usage_logs')
+    .select('triggered_by, estimated_cost_usd, created_at');
+  if (since) logsQuery = logsQuery.gte('created_at', since);
+  if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
+
+  const [runsResult, logsResult] = await Promise.all([runsQuery, logsQuery]);
+
+  const runs = (runsResult.data ?? []).filter((r) => r.triggered_by != null);
+  const logs = (logsResult.data ?? []).filter((l) => l.triggered_by != null);
+
+  if (runs.length === 0 && logs.length === 0) return [];
+
+  // Aggregate by user id
+  const byUser = new Map<
+    string,
+    { executions: number; provider_calls: number; cost: number; last_at: string | null }
+  >();
+
+  for (const r of runs) {
+    const uid = r.triggered_by!;
+    const cur = byUser.get(uid) ?? { executions: 0, provider_calls: 0, cost: 0, last_at: null };
+    cur.executions++;
+    cur.cost += Number(r.estimated_cost_usd ?? 0);
+    if (!cur.last_at || r.created_at > cur.last_at) cur.last_at = r.created_at;
+    byUser.set(uid, cur);
+  }
+  for (const l of logs) {
+    const uid = l.triggered_by!;
+    const cur = byUser.get(uid) ?? { executions: 0, provider_calls: 0, cost: 0, last_at: null };
+    cur.provider_calls++;
+    cur.cost += Number(l.estimated_cost_usd ?? 0);
+    if (!cur.last_at || l.created_at > cur.last_at) cur.last_at = l.created_at;
+    byUser.set(uid, cur);
+  }
+
+  if (byUser.size === 0) return [];
+
+  // Fetch user info from internal_users
+  const userIds = [...byUser.keys()];
+  const { data: usersData } = await admin
+    .from('internal_users')
+    .select('id, full_name, email')
+    .in('id', userIds);
+
+  const usersMap = new Map(
+    (usersData ?? []).map((u) => [u.id as string, u as { id: string; full_name: string | null; email: string | null }]),
+  );
+
+  return [...byUser.entries()]
+    .map(([uid, agg]) => {
+      const u = usersMap.get(uid);
+      return {
+        triggered_by: uid,
+        full_name: u?.full_name ?? null,
+        email: u?.email ?? null,
+        executions: agg.executions,
+        provider_calls: agg.provider_calls,
+        estimated_cost_usd: agg.cost,
+        last_activity_at: agg.last_at,
+      };
+    })
+    .sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd);
 }

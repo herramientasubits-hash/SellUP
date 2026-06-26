@@ -225,6 +225,17 @@ const DIRECTORY_KEYWORDS = [
   'b2bmarketplace',
 ];
 
+function getTaxIdLabel(countryCode: string | null | undefined): string {
+  switch (countryCode?.toUpperCase()) {
+    case 'CO': return 'NIT';
+    case 'MX': return 'RFC';
+    case 'CL': return 'RUT';
+    case 'PE': return 'RUC';
+    case 'EC': return 'RUC';
+    default:   return 'identificador fiscal';
+  }
+}
+
 function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
   const domain = extractDomainFromUrl(url);
   if (!domain) return false;
@@ -1661,14 +1672,14 @@ export function CandidateDetailSheet({
                         <div className="flex items-center gap-2 flex-wrap">
                           <Badge className="border-0 bg-amber-500/5 text-amber-600/70 dark:text-amber-400/70 text-[9px] font-medium flex items-center gap-1">
                             <AlertTriangle className="h-2.5 w-2.5" />
-                            {isCO ? 'NIT sugerido — requiere revisión' : 'Identificador sugerido — requiere revisión'}
+                            {`${getTaxIdLabel(candidate.country_code)} sugerido — requiere revisión`}
                           </Badge>
                         </div>
                         <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
                           <div className="flex items-start justify-between gap-2">
                             <div className="space-y-0.5">
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
-                                {isCO ? 'NIT sugerido' : 'Identificador sugerido'}
+                                {`${getTaxIdLabel(candidate.country_code)} sugerido`}
                               </p>
                               <p className="font-mono text-sm font-bold text-foreground">
                                 {taxIdLookup.best_candidate.tax_identifier}
@@ -1708,7 +1719,7 @@ export function CandidateDetailSheet({
                               className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
                               type="button"
                             >
-                              Usar este {isCO ? 'NIT' : 'identificador'}
+                              Usar este {getTaxIdLabel(candidate.country_code)}
                             </Button>
                           </div>
                         </div>
@@ -2406,7 +2417,7 @@ export function CandidateDetailSheet({
                   Guardando...
                 </>
               ) : (
-                'Guardar NIT'
+                `Guardar ${getTaxIdLabel(candidate?.country_code)}`
               )}
             </Button>
           </>

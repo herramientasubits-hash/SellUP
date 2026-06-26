@@ -146,13 +146,22 @@ export function getCountryEnricherContext(countryCode: string | null | undefined
   countryTerm: string;
   taxIdLabel: string;
   registryLabel: string;
+  country_context_source: 'explicit_country' | 'generic_fallback';
+  unsupported_country_code?: string;
 } {
   switch (countryCode) {
-    case 'MX': return { countryTerm: 'México', taxIdLabel: 'RFC', registryLabel: 'DENUE/SAT' };
-    case 'CL': return { countryTerm: 'Chile', taxIdLabel: 'RUT', registryLabel: 'SII/RES Chile' };
-    case 'PE': return { countryTerm: 'Perú', taxIdLabel: 'RUC', registryLabel: 'SUNAT' };
-    case 'EC': return { countryTerm: 'Ecuador', taxIdLabel: 'RUC', registryLabel: 'SRI Ecuador' };
-    default:   return { countryTerm: 'Colombia', taxIdLabel: 'NIT', registryLabel: 'RUES' };
+    case 'CO': return { countryTerm: 'Colombia', taxIdLabel: 'NIT', registryLabel: 'RUES', country_context_source: 'explicit_country' };
+    case 'MX': return { countryTerm: 'México', taxIdLabel: 'RFC', registryLabel: 'DENUE/SAT', country_context_source: 'explicit_country' };
+    case 'CL': return { countryTerm: 'Chile', taxIdLabel: 'RUT', registryLabel: 'SII/RES Chile', country_context_source: 'explicit_country' };
+    case 'PE': return { countryTerm: 'Perú', taxIdLabel: 'RUC', registryLabel: 'SUNAT', country_context_source: 'explicit_country' };
+    case 'EC': return { countryTerm: 'Ecuador', taxIdLabel: 'RUC', registryLabel: 'SRI Ecuador', country_context_source: 'explicit_country' };
+    default:   return {
+      countryTerm: countryCode ?? 'país no especificado',
+      taxIdLabel: 'identificador fiscal',
+      registryLabel: 'registro oficial',
+      country_context_source: 'generic_fallback',
+      unsupported_country_code: countryCode ?? undefined,
+    };
   }
 }
 

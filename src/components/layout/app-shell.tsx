@@ -31,7 +31,10 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0 }: AppS
           <AppHeader user={user} initialUnreadCount={initialUnreadCount} />
         </div>
         <main className={cn("flex flex-1 min-h-0 min-w-0 overflow-hidden flex-col", className)}>
-          <div className="flex flex-1 min-h-0 flex-col mx-auto max-w-[1600px] w-full px-5 py-8 md:px-8 md:py-12 animate-su-fade-in">
+          {/* overflow-y-auto aquí habilita scroll en páginas estándar (space-y-8).
+              DataTablePage sigue funcionando porque flex-1 min-h-0 en sus hijos
+              satura el contenedor y la tabla scrollea internamente. */}
+          <div className="flex flex-1 min-h-0 overflow-y-auto flex-col mx-auto max-w-[1600px] w-full px-5 py-8 md:px-8 md:py-12 animate-su-fade-in">
             {children}
           </div>
         </main>

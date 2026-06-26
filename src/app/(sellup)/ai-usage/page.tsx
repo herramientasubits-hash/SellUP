@@ -8,16 +8,21 @@ import {
   AlertCircle,
   CheckCircle2,
   Activity,
+  Users,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
+import { FiltersClient } from './filters-client';
 import {
   getAiUsageSummary,
   getAgentStats,
   getProviderStats,
   getRecentProviderLogs,
+  getDistinctFilterOptions,
+  getUserConsumption,
 } from '@/modules/ai-usage/queries';
+import type { UsageFilters } from '@/modules/ai-usage/queries';
 import type { AgentStat, ProviderStat, ProviderUsageLog } from '@/modules/usage-tracking/types';
 
 // ============================================================
@@ -89,6 +94,7 @@ function StatusBadge({ status }: { status: string }) {
     error:          { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
     rate_limited:   { label: 'Rate limit',  classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
     quota_exceeded: { label: 'Cuota',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
+    no_new_candidates: { label: 'Sin nuevos', classes: 'border-border/40 bg-muted/30 text-muted-foreground/60', dot: 'bg-muted-foreground/25' },
   };
   const cfg = map[status] ?? {
     label: status,
@@ -358,21 +364,41 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
 }
 
 // ============================================================
-// Page
+// Page — accepts searchParams for server-side filtering
 // ============================================================
 
-export default async function AIUsagePage() {
-  const [summary, agentStats, providerStats, recentLogs] = await Promise.all([
-    getAiUsageSummary(),
-    getAgentStats(),
-    getProviderStats(),
-    getRecentProviderLogs(25),
-  ]);
+interface PageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function AIUsagePage({ searchParams }: PageProps) {
+  const params = await searchParams;
+
+  const filters: UsageFilters = {
+    period: (params.period as UsageFilters['period']) || undefined,
+    provider: typeof params.provider === 'string' ? params.provider : undefined,
+    agent: typeof params.agent === 'string' ? params.agent : undefined,
+    status: typeof params.status === 'string' ? params.status : undefined,
+  };
+
+  const [summary, agentStats, providerStats, recentLogs, filterOptions, userConsumption] =
+    await Promise.all([
+      getAiUsageSummary(filters),
+      getAgentStats(filters),
+      getProviderStats(filters),
+      getRecentProviderLogs(25, filters),
+      getDistinctFilterOptions(),
+      getUserConsumption(filters),
+    ]);
 
   const isRestricted = summary === null;
   const hasData =
     !isRestricted &&
     (summary.total_executions > 0 || summary.total_provider_calls > 0);
+
+  const activeFiltersCount = [filters.period, filters.provider, filters.agent, filters.status].filter(
+    Boolean,
+  ).length;
 
   // ── Summary cards ────────────────────────────────────────
   const summaryCards = isRestricted
@@ -481,6 +507,26 @@ export default async function AIUsagePage() {
         </div>
       )}
 
+      {/* ── Filtros ──────────────────────────────────────────── */}
+      {!isRestricted && filterOptions && (
+        <SurfaceCard>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <FiltersClient
+              options={filterOptions}
+              currentPeriod={filters.period ?? ''}
+              currentProvider={filters.provider ?? ''}
+              currentAgent={filters.agent ?? ''}
+              currentStatus={filters.status ?? ''}
+            />
+            {activeFiltersCount > 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                {activeFiltersCount} filtro{activeFiltersCount !== 1 ? 's' : ''} activo{activeFiltersCount !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </SurfaceCard>
+      )}
+
       {/* ── Summary cards ────────────────────────────────────── */}
       {!isRestricted && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
@@ -560,7 +606,75 @@ export default async function AIUsagePage() {
         </SurfaceCard>
       )}
 
-      {/* ── Sección 4: Nota de efectividad ──────────────────── */}
+      {/* ── Sección 4: Consumo por usuario ──────────────────── */}
+      {!isRestricted && (
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Consumo por usuario"
+            description="Actividad y costo estimado agrupado por usuario que disparó las ejecuciones."
+            actions={
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </div>
+            }
+          />
+          {userConsumption === null || userConsumption.length === 0 ? (
+            <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {userConsumption === null
+                  ? 'Sin permisos para ver consumo por usuario.'
+                  : 'Los logs actuales no registran usuario (triggered_by vacío). El filtro por usuario estará disponible cuando los agentes comiencen a registrar triggered_by en sus ejecuciones.'}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/40">
+                    {['Usuario', 'Ejecuciones', 'Llamadas a proveedores', 'Costo est.', 'Último uso'].map((h) => (
+                      <th
+                        key={h}
+                        className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {userConsumption.map((u) => (
+                    <tr key={u.triggered_by}>
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">
+                            {u.full_name ?? u.email ?? u.triggered_by.slice(0, 8)}
+                          </span>
+                          {u.full_name && u.email && (
+                            <span className="text-[10px] text-muted-foreground">{u.email}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 pr-4 text-right text-muted-foreground">{u.executions}</td>
+                      <td className="py-3 pr-4 text-right text-muted-foreground">{u.provider_calls}</td>
+                      <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+                        {u.estimated_cost_usd > 0
+                          ? formatCost(u.estimated_cost_usd, 2)
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      <td className="py-3 text-right text-muted-foreground">
+                        {formatRelativeTime(u.last_activity_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SurfaceCard>
+      )}
+
+      {/* ── Sección 5: Nota de efectividad ──────────────────── */}
       {!isRestricted && (
         <SurfaceCard>
           <div className="flex items-start gap-3">
