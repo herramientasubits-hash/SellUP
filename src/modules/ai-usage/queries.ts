@@ -26,7 +26,12 @@ export interface UsageFilters {
   agent?: string;
   status?: string;
   user?: string;
+  /** Role key used as the group dimension (e.g. "admin", "seller"). */
+  group?: string;
 }
+
+// Status considered "active" in internal_users (mirrors AccessStatus).
+const ACTIVE_USER_STATUS = 'active';
 
 function periodStart(period: UsageFilters['period']): string | null {
   const now = new Date();
@@ -42,17 +47,127 @@ function periodStart(period: UsageFilters['period']): string | null {
   return null;
 }
 
+function emptySummary(): AiUsageSummary {
+  return {
+    total_executions: 0,
+    running_executions: 0,
+    failed_executions: 0,
+    total_provider_calls: 0,
+    error_provider_calls: 0,
+    total_estimated_cost_usd: 0,
+    distinct_providers: 0,
+    avg_cost_per_run: null,
+  };
+}
+
 // ============================================================
 // getDistinctFilterOptions
 // Returns unique values for all filter dropdowns.
 // ============================================================
+
+export interface FilterUser {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  /** Role key (group dimension) so the client can scope users by group. */
+  role_key: string | null;
+}
+
+export interface FilterGroup {
+  /** Role key — stable value persisted in the URL. */
+  key: string;
+  /** Human-readable label (roles.name when present, else normalized key). */
+  label: string;
+}
 
 export interface FilterOptions {
   providers: string[];
   agents: { key: string; name: string | null }[];
   statuses: string[];
   hasTriggeredBy: boolean;
-  users: { id: string; full_name: string | null; email: string | null }[];
+  users: FilterUser[];
+  groups: FilterGroup[];
+  /**
+   * Whether the Usuario filter was scoped to active users only.
+   * False means internal_users had no usable status field and all rows
+   * were included.
+   */
+  usersScopedToActive: boolean;
+}
+
+// ============================================================
+// Role / group label normalization
+// roles.name is preferred when present; this map is the fallback
+// for known role keys so the UI stays readable.
+// ============================================================
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Administrador',
+  administrator: 'Administrador',
+  administrador: 'Administrador',
+  seller: 'Vendedor / BD',
+  bd: 'Vendedor / BD',
+  vendedor_bd: 'Vendedor / BD',
+  manager: 'Manager comercial',
+  leader: 'Líder comercial',
+  lider: 'Líder comercial',
+};
+
+function roleLabel(key: string, name: string | null): string {
+  if (name && name.trim()) return name;
+  return ROLE_LABELS[key.toLowerCase()] ?? key;
+}
+
+// ============================================================
+// User-scope resolution
+// Combines the user + group (role) filters into a concrete set
+// of triggered_by ids that downstream queries should match.
+//   - mode 'none'  → no user/group constraint
+//   - mode 'ids'   → match triggered_by IN ids (empty ids → no rows)
+// ============================================================
+
+type UserScope = { mode: 'none' } | { mode: 'ids'; ids: string[] };
+
+type AdminClient = ReturnType<typeof getAdminClient>;
+
+async function getActiveUserIdsForRoleKey(
+  admin: AdminClient,
+  roleKey: string,
+): Promise<string[]> {
+  const { data: role } = await admin
+    .from('roles')
+    .select('id')
+    .eq('key', roleKey)
+    .maybeSingle();
+  if (!role) return [];
+
+  const { data } = await admin
+    .from('internal_users')
+    .select('id')
+    .eq('role_id', role.id)
+    .eq('access_status', ACTIVE_USER_STATUS);
+  return (data ?? []).map((u) => u.id as string);
+}
+
+async function resolveUserScope(
+  admin: AdminClient,
+  filters: UsageFilters,
+): Promise<UserScope> {
+  if (!filters.user && !filters.group) return { mode: 'none' };
+
+  let groupIds: string[] | null = null;
+  if (filters.group) {
+    groupIds = await getActiveUserIdsForRoleKey(admin, filters.group);
+  }
+
+  if (filters.user) {
+    // user + group: only valid if the user belongs to the group.
+    if (groupIds && !groupIds.includes(filters.user)) return { mode: 'ids', ids: [] };
+    return { mode: 'ids', ids: [filters.user] };
+  }
+
+  // group only.
+  return { mode: 'ids', ids: groupIds ?? [] };
 }
 
 export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
@@ -61,17 +176,21 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
 
   const admin = getAdminClient();
 
-  const [logsResult, runsResult] = await Promise.all([
+  const [logsResult, runsResult, usersResult, rolesResult] = await Promise.all([
+    admin.from('provider_usage_logs').select('provider_key, status, triggered_by'),
+    admin.from('agent_runs').select('agent_key, agent_name, triggered_by, status'),
     admin
-      .from('provider_usage_logs')
-      .select('provider_key, status, triggered_by'),
-    admin
-      .from('agent_runs')
-      .select('agent_key, agent_name, triggered_by, status'),
+      .from('internal_users')
+      .select('id, full_name, email, role_id, access_status')
+      .eq('access_status', ACTIVE_USER_STATUS)
+      .order('full_name', { ascending: true }),
+    admin.from('roles').select('id, key, name'),
   ]);
 
   const logs = logsResult.data ?? [];
   const runs = runsResult.data ?? [];
+  const internalUsers = usersResult.data ?? [];
+  const roles = rolesResult.data ?? [];
 
   const providers = [...new Set(logs.map((l) => l.provider_key))].sort();
   const statuses = [
@@ -93,27 +212,44 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     runs.some((r) => r.triggered_by != null) ||
     logs.some((l) => l.triggered_by != null);
 
-  const userIds = [
-    ...new Set([
-      ...runs.filter((r) => r.triggered_by != null).map((r) => r.triggered_by as string),
-      ...logs.filter((l) => l.triggered_by != null).map((l) => l.triggered_by as string),
+  // Role id → {key, name} for mapping users and building the group filter.
+  const roleById = new Map<string, { key: string; name: string | null }>(
+    roles.map((r) => [
+      r.id as string,
+      { key: r.key as string, name: (r.name as string | null) ?? null },
     ]),
+  );
+
+  // Filter Usuario: ALL active users from internal_users (zero consumption included).
+  const users: FilterUser[] = internalUsers.map((u) => ({
+    id: u.id as string,
+    full_name: u.full_name as string | null,
+    email: u.email as string | null,
+    role_key: u.role_id ? roleById.get(u.role_id as string)?.key ?? null : null,
+  }));
+
+  // Groups: only roles that at least one active user has, sorted by label.
+  const usedRoleIds = [
+    ...new Set(internalUsers.map((u) => u.role_id as string | null).filter(Boolean) as string[]),
   ];
+  const groups: FilterGroup[] = usedRoleIds
+    .map((id) => {
+      const r = roleById.get(id);
+      if (!r) return null;
+      return { key: r.key, label: roleLabel(r.key, r.name) };
+    })
+    .filter((g): g is FilterGroup => g !== null)
+    .sort((a, b) => a.label.localeCompare(b.label));
 
-  let users: { id: string; full_name: string | null; email: string | null }[] = [];
-  if (userIds.length > 0) {
-    const { data: usersData } = await admin
-      .from('internal_users')
-      .select('id, full_name, email')
-      .in('id', userIds);
-    users = (usersData ?? []).map((u) => ({
-      id: u.id as string,
-      full_name: u.full_name as string | null,
-      email: u.email as string | null,
-    }));
-  }
-
-  return { providers, agents, statuses, hasTriggeredBy, users };
+  return {
+    providers,
+    agents,
+    statuses,
+    hasTriggeredBy,
+    users,
+    groups,
+    usersScopedToActive: true,
+  };
 }
 
 // ============================================================
@@ -128,12 +264,18 @@ export async function getAiUsageSummary(
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
+  const scope = await resolveUserScope(admin, filters);
+
+  // A user/group filter that resolves to zero users → empty metrics.
+  if (scope.mode === 'ids' && scope.ids.length === 0) {
+    return emptySummary();
+  }
 
   let runsQuery = admin.from('agent_runs').select('status, estimated_cost_usd');
   if (since) runsQuery = runsQuery.gte('created_at', since);
   if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
   if (filters.status) runsQuery = runsQuery.eq('status', filters.status);
-  if (filters.user) runsQuery = runsQuery.eq('triggered_by', filters.user);
+  if (scope.mode === 'ids') runsQuery = runsQuery.in('triggered_by', scope.ids);
 
   let logsQuery = admin
     .from('provider_usage_logs')
@@ -141,7 +283,7 @@ export async function getAiUsageSummary(
   if (since) logsQuery = logsQuery.gte('created_at', since);
   if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
   if (filters.status) logsQuery = logsQuery.eq('status', filters.status);
-  if (filters.user) logsQuery = logsQuery.eq('triggered_by', filters.user);
+  if (scope.mode === 'ids') logsQuery = logsQuery.in('triggered_by', scope.ids);
 
   const [runsResult, logsResult] = await Promise.all([runsQuery, logsQuery]);
 
@@ -187,6 +329,8 @@ export async function getAgentStats(
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
+  const scope = await resolveUserScope(admin, filters);
+  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
   let query = admin
     .from('agent_runs')
@@ -198,7 +342,7 @@ export async function getAgentStats(
   if (since) query = query.gte('created_at', since);
   if (filters.agent) query = query.eq('agent_key', filters.agent);
   if (filters.status) query = query.eq('status', filters.status);
-  if (filters.user) query = query.eq('triggered_by', filters.user);
+  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
 
   const { data, error } = await query;
   if (error) return [];
@@ -249,6 +393,8 @@ export async function getProviderStats(
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
+  const scope = await resolveUserScope(admin, filters);
+  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
   let query = admin
     .from('provider_usage_logs')
@@ -259,7 +405,7 @@ export async function getProviderStats(
   if (since) query = query.gte('created_at', since);
   if (filters.provider) query = query.eq('provider_key', filters.provider);
   if (filters.status) query = query.eq('status', filters.status);
-  if (filters.user) query = query.eq('triggered_by', filters.user);
+  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
 
   const { data, error } = await query;
   if (error) return [];
@@ -318,6 +464,8 @@ export async function getRecentProviderLogs(
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
+  const scope = await resolveUserScope(admin, filters);
+  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
   let query = admin
     .from('provider_usage_logs')
@@ -328,7 +476,7 @@ export async function getRecentProviderLogs(
   if (since) query = query.gte('created_at', since);
   if (filters.provider) query = query.eq('provider_key', filters.provider);
   if (filters.status) query = query.eq('status', filters.status);
-  if (filters.user) query = query.eq('triggered_by', filters.user);
+  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
 
   const { data, error } = await query;
   if (error) return [];
@@ -346,8 +494,27 @@ export interface UserConsumptionRow {
   email: string | null;
   executions: number;
   provider_calls: number;
+  /** Distinct provider keys used by this user within the active filters. */
+  providers: string[];
   estimated_cost_usd: number;
   last_activity_at: string | null;
+}
+
+// Max rows rendered in the "Consumo por usuario" table. Consumers are
+// surfaced first, so a long roster of zero-consumption users never hides
+// real activity.
+const USER_CONSUMPTION_LIMIT = 100;
+
+interface UserAgg {
+  executions: number;
+  provider_calls: number;
+  providers: Set<string>;
+  cost: number;
+  last_at: string | null;
+}
+
+function newAgg(): UserAgg {
+  return { executions: 0, provider_calls: 0, providers: new Set(), cost: 0, last_at: null };
 }
 
 export async function getUserConsumption(
@@ -358,76 +525,122 @@ export async function getUserConsumption(
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
+  const scope = await resolveUserScope(admin, filters);
+  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
+
+  // Display roster: active users, scoped to the selected user/group.
+  let usersQuery = admin
+    .from('internal_users')
+    .select('id, full_name, email')
+    .eq('access_status', ACTIVE_USER_STATUS);
+  if (scope.mode === 'ids') usersQuery = usersQuery.in('id', scope.ids);
 
   let runsQuery = admin
     .from('agent_runs')
     .select('triggered_by, estimated_cost_usd, created_at');
   if (since) runsQuery = runsQuery.gte('created_at', since);
   if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
-  if (filters.user) runsQuery = runsQuery.eq('triggered_by', filters.user);
+  if (scope.mode === 'ids') runsQuery = runsQuery.in('triggered_by', scope.ids);
 
   let logsQuery = admin
     .from('provider_usage_logs')
-    .select('triggered_by, estimated_cost_usd, created_at');
+    .select('triggered_by, provider_key, estimated_cost_usd, created_at');
   if (since) logsQuery = logsQuery.gte('created_at', since);
   if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
-  if (filters.user) logsQuery = logsQuery.eq('triggered_by', filters.user);
+  if (scope.mode === 'ids') logsQuery = logsQuery.in('triggered_by', scope.ids);
 
-  const [runsResult, logsResult] = await Promise.all([runsQuery, logsQuery]);
+  const [usersResult, runsResult, logsResult] = await Promise.all([
+    usersQuery,
+    runsQuery,
+    logsQuery,
+  ]);
 
+  const activeUsers = (usersResult.data ?? []) as {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+  }[];
   const runs = (runsResult.data ?? []).filter((r) => r.triggered_by != null);
   const logs = (logsResult.data ?? []).filter((l) => l.triggered_by != null);
 
-  if (runs.length === 0 && logs.length === 0) return [];
-
-  // Aggregate by user id
-  const byUser = new Map<
-    string,
-    { executions: number; provider_calls: number; cost: number; last_at: string | null }
-  >();
-
+  // Aggregate consumption by user id.
+  const byUser = new Map<string, UserAgg>();
   for (const r of runs) {
-    const uid = r.triggered_by!;
-    const cur = byUser.get(uid) ?? { executions: 0, provider_calls: 0, cost: 0, last_at: null };
+    const uid = r.triggered_by as string;
+    const cur = byUser.get(uid) ?? newAgg();
     cur.executions++;
     cur.cost += Number(r.estimated_cost_usd ?? 0);
-    if (!cur.last_at || r.created_at > cur.last_at) cur.last_at = r.created_at;
+    if (!cur.last_at || (r.created_at as string) > cur.last_at) cur.last_at = r.created_at as string;
     byUser.set(uid, cur);
   }
   for (const l of logs) {
-    const uid = l.triggered_by!;
-    const cur = byUser.get(uid) ?? { executions: 0, provider_calls: 0, cost: 0, last_at: null };
+    const uid = l.triggered_by as string;
+    const cur = byUser.get(uid) ?? newAgg();
     cur.provider_calls++;
+    if (l.provider_key) cur.providers.add(l.provider_key as string);
     cur.cost += Number(l.estimated_cost_usd ?? 0);
-    if (!cur.last_at || l.created_at > cur.last_at) cur.last_at = l.created_at;
+    if (!cur.last_at || (l.created_at as string) > cur.last_at) cur.last_at = l.created_at as string;
     byUser.set(uid, cur);
   }
 
-  if (byUser.size === 0) return [];
+  // One row per active user (zero consumption included for adoption visibility).
+  const activeIds = new Set(activeUsers.map((u) => u.id));
+  const rows: UserConsumptionRow[] = activeUsers.map((u) => {
+    const agg = byUser.get(u.id);
+    return {
+      triggered_by: u.id,
+      full_name: u.full_name,
+      email: u.email,
+      executions: agg?.executions ?? 0,
+      provider_calls: agg?.provider_calls ?? 0,
+      providers: agg ? [...agg.providers] : [],
+      estimated_cost_usd: agg?.cost ?? 0,
+      last_activity_at: agg?.last_at ?? null,
+    };
+  });
 
-  // Fetch user info from internal_users
-  const userIds = [...byUser.keys()];
-  const { data: usersData } = await admin
-    .from('internal_users')
-    .select('id, full_name, email')
-    .in('id', userIds);
-
-  const usersMap = new Map(
-    (usersData ?? []).map((u) => [u.id as string, u as { id: string; full_name: string | null; email: string | null }]),
-  );
-
-  return [...byUser.entries()]
-    .map(([uid, agg]) => {
-      const u = usersMap.get(uid);
-      return {
-        triggered_by: uid,
+  // Preserve consumption from ids that are not active users (e.g. suspended)
+  // so real cost is never silently dropped.
+  const orphanIds = [...byUser.keys()].filter((id) => !activeIds.has(id));
+  if (orphanIds.length > 0) {
+    const { data: orphanUsers } = await admin
+      .from('internal_users')
+      .select('id, full_name, email')
+      .in('id', orphanIds);
+    const orphanMap = new Map(
+      (orphanUsers ?? []).map((u) => [
+        u.id as string,
+        u as { id: string; full_name: string | null; email: string | null },
+      ]),
+    );
+    for (const id of orphanIds) {
+      const agg = byUser.get(id)!;
+      const u = orphanMap.get(id);
+      rows.push({
+        triggered_by: id,
         full_name: u?.full_name ?? null,
         email: u?.email ?? null,
         executions: agg.executions,
         provider_calls: agg.provider_calls,
+        providers: [...agg.providers],
         estimated_cost_usd: agg.cost,
         last_activity_at: agg.last_at,
-      };
-    })
-    .sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd);
+      });
+    }
+  }
+
+  // Consumers first (by cost desc), then zero-consumption users by name.
+  rows.sort((a, b) => {
+    const aActive = a.executions + a.provider_calls > 0 ? 1 : 0;
+    const bActive = b.executions + b.provider_calls > 0 ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+    if (b.estimated_cost_usd !== a.estimated_cost_usd) {
+      return b.estimated_cost_usd - a.estimated_cost_usd;
+    }
+    const an = a.full_name ?? a.email ?? a.triggered_by;
+    const bn = b.full_name ?? b.email ?? b.triggered_by;
+    return an.localeCompare(bn);
+  });
+
+  return rows.slice(0, USER_CONSUMPTION_LIMIT);
 }

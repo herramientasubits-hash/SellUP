@@ -1,9 +1,9 @@
 'use client';
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { FilterOptions } from '@/modules/ai-usage/queries';
+import type { FilterOptions, FilterUser } from '@/modules/ai-usage/queries';
 
 const PERIOD_OPTIONS = [
   { value: 'all', label: 'Todo el período' },
@@ -37,7 +37,7 @@ function labelAgent(key: string, name: string | null) {
   return AGENT_DISPLAY[key] ?? name ?? key;
 }
 
-function labelUser(u: { id: string; full_name: string | null; email: string | null }) {
+function labelUser(u: FilterUser) {
   if (u.full_name && u.email) return `${u.full_name} (${u.email})`;
   return u.full_name ?? u.email ?? u.id.slice(0, 8);
 }
@@ -49,6 +49,7 @@ interface FiltersClientProps {
   currentAgent: string;
   currentStatus: string;
   currentUser: string;
+  currentGroup: string;
 }
 
 export function FiltersClient({
@@ -58,6 +59,7 @@ export function FiltersClient({
   currentAgent,
   currentStatus,
   currentUser,
+  currentGroup,
 }: FiltersClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -75,6 +77,32 @@ export function FiltersClient({
     },
     [router, pathname, searchParams],
   );
+
+  // Changing the group may invalidate the selected user: if the user does
+  // not belong to the new group, clear it to avoid an impossible combination.
+  const onGroupChange = useCallback(
+    (value: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (!value || value === 'all') {
+        params.delete('group');
+      } else {
+        params.set('group', value);
+        const selected = options.users.find((u) => u.id === currentUser);
+        if (selected && selected.role_key !== value) {
+          params.delete('user');
+        }
+      }
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [router, pathname, searchParams, options.users, currentUser],
+  );
+
+  // Usuario dropdown is scoped to the selected group (if any), so the two
+  // filters always express a possible combination.
+  const visibleUsers = useMemo(() => {
+    if (!currentGroup) return options.users;
+    return options.users.filter((u) => u.role_key === currentGroup);
+  }, [options.users, currentGroup]);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -165,6 +193,28 @@ export function FiltersClient({
         </Select>
       )}
 
+      {/* Grupo / Rol */}
+      {options.groups.length > 0 && (
+        <Select
+          value={currentGroup || 'all'}
+          onValueChange={onGroupChange}
+        >
+          <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectValue placeholder="Grupo / rol" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">
+              Todos los grupos
+            </SelectItem>
+            {options.groups.map((g) => (
+              <SelectItem key={g.key} value={g.key} className="text-xs">
+                {g.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
       {/* Usuario */}
       {options.users.length > 0 ? (
         <Select
@@ -178,7 +228,7 @@ export function FiltersClient({
             <SelectItem value="all" className="text-xs">
               Todos los usuarios
             </SelectItem>
-            {options.users.map((u) => (
+            {visibleUsers.map((u) => (
               <SelectItem key={u.id} value={u.id} className="text-xs">
                 {labelUser(u)}
               </SelectItem>
@@ -188,7 +238,7 @@ export function FiltersClient({
       ) : (
         <Select disabled value="none">
           <SelectTrigger className="h-8 w-[180px] text-xs opacity-50 cursor-not-allowed">
-            <SelectValue placeholder="Sin usuarios en logs" />
+            <SelectValue placeholder="Sin usuarios" />
           </SelectTrigger>
         </Select>
       )}

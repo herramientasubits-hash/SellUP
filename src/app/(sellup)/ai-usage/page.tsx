@@ -380,6 +380,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     agent: typeof params.agent === 'string' ? params.agent : undefined,
     status: typeof params.status === 'string' ? params.status : undefined,
     user: typeof params.user === 'string' ? params.user : undefined,
+    group: typeof params.group === 'string' ? params.group : undefined,
   };
 
   const [summary, agentStats, providerStats, recentLogs, filterOptions, userConsumption] =
@@ -397,9 +398,14 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     !isRestricted &&
     (summary.total_executions > 0 || summary.total_provider_calls > 0);
 
-  const activeFiltersCount = [filters.period, filters.provider, filters.agent, filters.status, filters.user].filter(
-    Boolean,
-  ).length;
+  const activeFiltersCount = [
+    filters.period,
+    filters.provider,
+    filters.agent,
+    filters.status,
+    filters.user,
+    filters.group,
+  ].filter(Boolean).length;
 
   // ── Summary cards ────────────────────────────────────────
   const summaryCards = isRestricted
@@ -519,6 +525,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               currentAgent={filters.agent ?? ''}
               currentStatus={filters.status ?? ''}
               currentUser={filters.user ?? ''}
+              currentGroup={filters.group ?? ''}
             />
             {activeFiltersCount > 0 && (
               <span className="text-[10px] text-muted-foreground">
@@ -613,7 +620,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
         <SurfaceCard>
           <SurfaceCardHeader
             title="Consumo por usuario"
-            description="Actividad y costo estimado agrupado por usuario que disparó las ejecuciones."
+            description="Adopción y costo por usuario activo. Los usuarios sin consumo aparecen con cero para visibilizar la no-adopción."
             actions={
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
                 <Users className="h-4 w-4 text-muted-foreground" />
@@ -626,7 +633,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 {userConsumption === null
                   ? 'Sin permisos para ver consumo por usuario.'
-                  : 'Los logs actuales no registran usuario (triggered_by vacío). El filtro por usuario estará disponible cuando los agentes comiencen a registrar triggered_by en sus ejecuciones.'}
+                  : 'No hay usuarios activos que coincidan con los filtros actuales.'}
               </p>
             </div>
           ) : (
@@ -634,7 +641,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/40">
-                    {['Usuario', 'Ejecuciones', 'Llamadas a proveedores', 'Costo est.', 'Último uso'].map((h) => (
+                    {['Usuario', 'Ejecuciones', 'Llamadas', 'Proveedores', 'Costo est.', 'Último uso'].map((h) => (
                       <th
                         key={h}
                         className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
@@ -645,30 +652,38 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/20">
-                  {userConsumption.map((u) => (
-                    <tr key={u.triggered_by}>
-                      <td className="py-3 pr-4">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-foreground">
-                            {u.full_name ?? u.email ?? u.triggered_by.slice(0, 8)}
-                          </span>
-                          {u.full_name && u.email && (
-                            <span className="text-[10px] text-muted-foreground">{u.email}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 pr-4 text-right text-muted-foreground">{u.executions}</td>
-                      <td className="py-3 pr-4 text-right text-muted-foreground">{u.provider_calls}</td>
-                      <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
-                        {u.estimated_cost_usd > 0
-                          ? formatCost(u.estimated_cost_usd, 2)
-                          : <span className="text-muted-foreground/40">—</span>}
-                      </td>
-                      <td className="py-3 text-right text-muted-foreground">
-                        {formatRelativeTime(u.last_activity_at)}
-                      </td>
-                    </tr>
-                  ))}
+                  {userConsumption.map((u) => {
+                    const hasActivity = u.executions + u.provider_calls > 0;
+                    return (
+                      <tr key={u.triggered_by} className={hasActivity ? '' : 'opacity-60'}>
+                        <td className="py-3 pr-4">
+                          <div className="flex flex-col">
+                            <span className="font-medium text-foreground">
+                              {u.full_name ?? u.email ?? u.triggered_by.slice(0, 8)}
+                            </span>
+                            {u.full_name && u.email && (
+                              <span className="text-[10px] text-muted-foreground">{u.email}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4 text-right text-muted-foreground">{u.executions}</td>
+                        <td className="py-3 pr-4 text-right text-muted-foreground">{u.provider_calls}</td>
+                        <td className="py-3 pr-4 text-right text-muted-foreground">
+                          {u.providers.length > 0
+                            ? u.providers.map(providerDisplayName).join(', ')
+                            : <span className="text-muted-foreground/40">—</span>}
+                        </td>
+                        <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+                          {u.estimated_cost_usd > 0
+                            ? formatCost(u.estimated_cost_usd, 2)
+                            : <span className="text-muted-foreground/40">$0.00</span>}
+                        </td>
+                        <td className="py-3 text-right text-muted-foreground">
+                          {formatRelativeTime(u.last_activity_at)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
