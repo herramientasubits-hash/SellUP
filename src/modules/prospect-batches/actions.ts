@@ -20,6 +20,11 @@ import { testHubSpotConnection } from '@/server/services/hubspot-connection';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
 import { lookupTaxIdentifierForCandidate, type TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
+import {
+  findExistingAccountForCandidate,
+  sanitizeHubSpotErrorMessage,
+  type ExistingAccountMatchBy,
+} from './approval-idempotency';
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
 import { evaluateAutoEnrichmentEligibility } from '@/server/prospect-batches/candidate-enrichment-eligibility';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
@@ -1593,6 +1598,8 @@ export async function approveAndConvertCandidateAction(
 
   let accountCreated = false;
   let accountMeta = (candidate.metadata || {}) as Record<string, unknown>;
+  // 16K-O FIX 1 — cómo se resolvió la cuenta (para audit/metadata)
+  let accountMatchedBy: ExistingAccountMatchBy | null = null;
 
   if (accountId) {
     const { data: existingAccount } = await supabase
@@ -1606,6 +1613,32 @@ export async function approveAndConvertCandidateAction(
       accountMeta = (existingAccount.metadata || {}) as Record<string, unknown>;
     } else {
       accountId = null;
+    }
+  }
+
+  // 16K-O FIX 1 — Si no hay matched_account_id, re-derivar cuenta existente por
+  // tax_identifier+country o dominio antes de insertar una nueva. Evita crear una
+  // segunda cuenta para una empresa que ya existe (caso SITECO-like).
+  if (!accountId) {
+    const existingMatch = await findExistingAccountForCandidate(supabase, {
+      tax_identifier: candidate.tax_identifier,
+      country_code: candidate.country_code,
+      domain: candidate.domain,
+      website: candidate.website,
+    });
+
+    if (existingMatch) {
+      const { data: existingAccount } = await supabase
+        .from('accounts')
+        .select('id, name, metadata, hubspot_company_id')
+        .eq('id', existingMatch.accountId)
+        .single();
+
+      if (existingAccount) {
+        accountId = existingAccount.id;
+        accountMeta = (existingAccount.metadata || {}) as Record<string, unknown>;
+        accountMatchedBy = existingMatch.matchedBy;
+      }
     }
   }
 
@@ -1782,32 +1815,42 @@ export async function approveAndConvertCandidateAction(
         owner_id: mappedOwnerId,
       };
 
-      createResult = await createHubSpotCompany({
-        name: candidate.name,
-        country: candidate.country ?? null,
-        countryCode: candidate.country_code ?? null,
-        taxIdentifier: candidate.tax_identifier ?? null,
-        website: candidate.website ?? null,
-        domain: candidate.domain ?? null,
-        city: candidate.city ?? null,
-        region: candidate.region ?? null,
-        legalName: candidate.legal_name ?? null,
-        numberOfEmployees: candidate.company_size ?? null,
-        hubspotOwnerId: mappedOwnerId,
-        linkedinUrl,
-        industry: candidate.industry ?? null,
-        description,
-        approvedByEmail: mappedOwnerId ? null : userEmail,
-        approvedByName: userFullName,
-      });
+      // 16K-O FIX 2 — HubSpot nunca debe romper la conversión local. Si
+      // createHubSpotCompany lanza, registramos 'failed' y continuamos para
+      // completar la conversión en SellUp (sin dejar cuenta huérfana).
+      try {
+        createResult = await createHubSpotCompany({
+          name: candidate.name,
+          country: candidate.country ?? null,
+          countryCode: candidate.country_code ?? null,
+          taxIdentifier: candidate.tax_identifier ?? null,
+          website: candidate.website ?? null,
+          domain: candidate.domain ?? null,
+          city: candidate.city ?? null,
+          region: candidate.region ?? null,
+          legalName: candidate.legal_name ?? null,
+          numberOfEmployees: candidate.company_size ?? null,
+          hubspotOwnerId: mappedOwnerId,
+          linkedinUrl,
+          industry: candidate.industry ?? null,
+          description,
+          approvedByEmail: mappedOwnerId ? null : userEmail,
+          approvedByName: userFullName,
+        });
 
-      if (createResult.ok && createResult.hubspotCompanyId) {
-        hubspotAction = 'created';
-        hubspotCompanyId = createResult.hubspotCompanyId;
-        hubspotCompanyName = candidate.name;
-      } else {
+        if (createResult.ok && createResult.hubspotCompanyId) {
+          hubspotAction = 'created';
+          hubspotCompanyId = createResult.hubspotCompanyId;
+          hubspotCompanyName = candidate.name;
+        } else {
+          hubspotAction = 'failed';
+          hubspotError = createResult.error || 'Error al crear en HubSpot';
+        }
+      } catch (hubspotErr) {
+        createResult = null;
         hubspotAction = 'failed';
-        hubspotError = createResult.error || 'Error al crear en HubSpot';
+        hubspotError = sanitizeHubSpotErrorMessage(hubspotErr);
+        console.error('[approveAndConvertCandidateAction] HubSpot create threw (non-blocking):', hubspotError);
       }
     }
   }
@@ -1898,13 +1941,22 @@ export async function approveAndConvertCandidateAction(
     warnings: createResult?.warnings ?? [],
   };
 
+  // 16K-O FIX 1 — origen de la cuenta para audit/metadata
+  const sellupAccountSource: 'created' | 'matched_existing' | 'linked_existing' = accountCreated
+    ? 'created'
+    : accountMatchedBy
+      ? 'matched_existing'
+      : 'linked_existing';
+
   const approvalMetadata = {
     approved_at: nowStr,
     approved_by: internalUserId,
     sellup: {
       account_created: accountCreated,
       account_id: accountId,
-      action: accountCreated ? 'created' : 'linked_existing',
+      action: sellupAccountSource,
+      account_source: sellupAccountSource,
+      matched_by: accountMatchedBy,
     },
     hubspot: {
       attempted: hubspotAttempted,
@@ -1970,7 +2022,8 @@ export async function approveAndConvertCandidateAction(
       details: {
         candidate_name: candidate.name,
         account_id: accountId,
-        account_source: accountCreated ? 'manual' : 'linked_existing',
+        account_source: sellupAccountSource,
+        matched_by: accountMatchedBy,
         ...(ownerMappingDetails ? { hubspot_owner_mapping: ownerMappingDetails } : {}),
       },
     });
