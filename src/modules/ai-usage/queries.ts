@@ -2,6 +2,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { flattenOrgGroups } from '@/modules/access/group-tree';
 import type {
   AgentStat,
   ProviderStat,
@@ -265,9 +266,7 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
       admin.from('roles').select('id, key, name'),
       admin
         .from('organization_groups')
-        .select('id, name, parent_group_id, depth')
-        .order('depth', { ascending: true })
-        .order('name', { ascending: true }),
+        .select('id, name, parent_group_id'),
     ]);
 
   const logs = logsResult.data ?? [];
@@ -326,14 +325,17 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     .filter((r): r is FilterRole => r !== null)
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  // Groups: real organization_groups (full tree, so parents can resolve
-  // descendants client-side and server-side). depth/name already ordered.
-  const groups: FilterGroup[] = orgGroups.map((g) => ({
+  // Groups: real organization_groups in hierarchy order (pre-order tree walk
+  // sorted by name per level, same as the "Usuarios y grupos" screen). depth is
+  // derived from the tree level so the dropdown nests under the right parent.
+  const normalizedGroups = orgGroups.map((g) => ({
     id: g.id as string,
     name: g.name as string,
     parent_group_id: (g.parent_group_id as string | null) ?? null,
-    depth: (g.depth as number) ?? 0,
   }));
+  const groups: FilterGroup[] = flattenOrgGroups(normalizedGroups).map(
+    ({ group, depth }) => ({ ...group, depth }),
+  );
 
   return {
     providers,

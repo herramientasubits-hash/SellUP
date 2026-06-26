@@ -5,6 +5,7 @@ import { Users, Folder, FolderOpen, ChevronRight } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type { InternalUser, OrganizationGroup, Role } from '@/modules/access/types';
+import { buildOrgGroupForest, type OrgGroupNode } from '@/modules/access/group-tree';
 
 interface GroupsViewProps {
   users: InternalUser[];
@@ -18,35 +19,25 @@ interface GroupNode {
   members: InternalUser[];
 }
 
+// Shares the hierarchy ordering with the /ai-usage Grupo filter via
+// buildOrgGroupForest (roots + children sorted by name per level). Members are
+// attached on top of that shared structure so both surfaces nest identically.
 function buildGroupTree(groups: OrganizationGroup[], users: InternalUser[]): GroupNode[] {
-  const nodeMap = new Map<string, GroupNode>(
-    groups.map(g => [g.id, { group: g, children: [], members: [] }])
-  );
-
+  const membersByGroup = new Map<string, InternalUser[]>();
   for (const user of users) {
-    if (user.group_id && nodeMap.has(user.group_id)) {
-      nodeMap.get(user.group_id)!.members.push(user);
-    }
+    if (!user.group_id) continue;
+    const arr = membersByGroup.get(user.group_id) ?? [];
+    arr.push(user);
+    membersByGroup.set(user.group_id, arr);
   }
 
-  const roots: GroupNode[] = [];
-  for (const node of nodeMap.values()) {
-    const pid = node.group.parent_group_id;
-    if (pid && nodeMap.has(pid)) {
-      nodeMap.get(pid)!.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
+  const attach = (node: OrgGroupNode<OrganizationGroup>): GroupNode => ({
+    group: node.group,
+    members: membersByGroup.get(node.group.id) ?? [],
+    children: node.children.map(attach),
+  });
 
-  // Sort children and roots by name
-  const sortNodes = (nodes: GroupNode[]) => {
-    nodes.sort((a, b) => a.group.name.localeCompare(b.group.name));
-    nodes.forEach(n => sortNodes(n.children));
-  };
-  sortNodes(roots);
-
-  return roots;
+  return buildOrgGroupForest(groups).map(attach);
 }
 
 function getInitials(name: string | null, email: string): string {

@@ -42,6 +42,14 @@ function labelUser(u: FilterUser) {
   return u.full_name ?? u.email ?? u.id.slice(0, 8);
 }
 
+function labelStatus(key: string) {
+  return key.replace(/_/g, ' ');
+}
+
+// Per-level indentation for the Grupo dropdown so nesting reads like the
+// "Usuarios y grupos" screen. Step grows with tree depth (root = 0).
+const GROUP_INDENT_STEP_PX = 16;
+
 // Resolve the selected group plus every descendant from the real hierarchy
 // (organization_groups, max 3 levels). Selecting a parent therefore scopes to
 // the whole subtree — matching the server-side resolution.
@@ -156,6 +164,54 @@ export function FiltersClient({
     });
   }, [options.users, currentRole, groupScope]);
 
+  // Lookup maps so each trigger renders a human-readable label for its selected
+  // value. Base UI's <SelectValue> falls back to the raw value (a UUID) when no
+  // label can be resolved, so every dropdown resolves its own label here and
+  // never leaks an id to the user.
+  const groupName = useMemo(
+    () => new Map(options.groups.map((g) => [g.id, g.name])),
+    [options.groups],
+  );
+  const userById = useMemo(
+    () => new Map(options.users.map((u) => [u.id, u])),
+    [options.users],
+  );
+  const roleLabelByKey = useMemo(
+    () => new Map(options.roles.map((r) => [r.key, r.label])),
+    [options.roles],
+  );
+  const agentNameByKey = useMemo(
+    () => new Map(options.agents.map((a) => [a.key, a.name])),
+    [options.agents],
+  );
+
+  // Trigger label resolvers: 'all'/empty → "Todos…"; known value → its label;
+  // an unknown selected id (stale URL param) → an explicit "no encontrado"
+  // message instead of a raw UUID.
+  const groupTriggerLabel = (value: string) => {
+    if (!value || value === 'all') return 'Todos los grupos';
+    return groupName.get(value) ?? 'Grupo no encontrado';
+  };
+  const userTriggerLabel = (value: string) => {
+    if (!value || value === 'all') return 'Todos los usuarios';
+    const u = userById.get(value);
+    return u ? labelUser(u) : 'Usuario no encontrado';
+  };
+  const roleTriggerLabel = (value: string) => {
+    if (!value || value === 'all') return 'Todos los roles';
+    return roleLabelByKey.get(value) ?? 'Rol no encontrado';
+  };
+  const periodTriggerLabel = (value: string) =>
+    PERIOD_OPTIONS.find((o) => o.value === value)?.label ?? 'Todo el período';
+  const providerTriggerLabel = (value: string) =>
+    !value || value === 'all' ? 'Todos los proveedores' : labelProvider(value);
+  const agentTriggerLabel = (value: string) =>
+    !value || value === 'all'
+      ? 'Todos los agentes'
+      : labelAgent(value, agentNameByKey.get(value) ?? null);
+  const statusTriggerLabel = (value: string) =>
+    !value || value === 'all' ? 'Todos los estados' : labelStatus(value);
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mr-1">
@@ -168,7 +224,7 @@ export function FiltersClient({
         onValueChange={(v) => setParam('period', v)}
       >
         <SelectTrigger className="h-8 w-[160px] text-xs">
-          <SelectValue placeholder="Período" />
+          <SelectValue placeholder="Período">{periodTriggerLabel}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {PERIOD_OPTIONS.map((o) => (
@@ -186,7 +242,7 @@ export function FiltersClient({
           onValueChange={(v) => setParam('provider', v)}
         >
           <SelectTrigger className="h-8 w-[160px] text-xs">
-            <SelectValue placeholder="Proveedor" />
+            <SelectValue placeholder="Proveedor">{providerTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
@@ -208,7 +264,7 @@ export function FiltersClient({
           onValueChange={(v) => setParam('agent', v)}
         >
           <SelectTrigger className="h-8 w-[200px] text-xs">
-            <SelectValue placeholder="Agente" />
+            <SelectValue placeholder="Agente">{agentTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
@@ -230,7 +286,9 @@ export function FiltersClient({
           onValueChange={(v) => setParam('status', v)}
         >
           <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue placeholder="Estado" />
+            <SelectValue placeholder="Estado" className="capitalize">
+              {statusTriggerLabel}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
@@ -249,7 +307,7 @@ export function FiltersClient({
       {options.roles.length > 0 && (
         <Select value={currentRole || 'all'} onValueChange={onRoleChange}>
           <SelectTrigger className="h-8 w-[170px] text-xs">
-            <SelectValue placeholder="Rol" />
+            <SelectValue placeholder="Rol">{roleTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
@@ -268,7 +326,7 @@ export function FiltersClient({
       {options.groups.length > 0 && (
         <Select value={currentGroupId || 'all'} onValueChange={onGroupChange}>
           <SelectTrigger className="h-8 w-[190px] text-xs">
-            <SelectValue placeholder="Grupo" />
+            <SelectValue placeholder="Grupo">{groupTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
@@ -276,7 +334,9 @@ export function FiltersClient({
             </SelectItem>
             {options.groups.map((g) => (
               <SelectItem key={g.id} value={g.id} className="text-xs">
-                <span style={{ paddingLeft: `${g.depth * 12}px` }}>{g.name}</span>
+                <span style={{ paddingLeft: `${g.depth * GROUP_INDENT_STEP_PX}px` }}>
+                  {g.name}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -290,7 +350,7 @@ export function FiltersClient({
           onValueChange={(v) => setParam('user', v)}
         >
           <SelectTrigger className="h-8 w-[180px] text-xs">
-            <SelectValue placeholder="Usuario" />
+            <SelectValue placeholder="Usuario">{userTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
