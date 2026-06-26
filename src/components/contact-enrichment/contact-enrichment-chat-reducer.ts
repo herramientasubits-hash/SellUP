@@ -36,6 +36,20 @@ const SELECTED_CONFIRM =
 
 const RUN_DONE = 'Listo. Creé el run y revisé los contactos existentes antes de enriquecer.';
 
+const APOLLO_SEARCHING = 'Voy a buscar perfiles relevantes en Apollo…';
+
+const APOLLO_DONE_WITH_CANDIDATES =
+  'Encontré candidatos en Apollo y los dejé listos para revisión. No creé contactos finales: requieren tu aprobación.';
+
+const APOLLO_DONE_NO_CANDIDATES =
+  'No encontré contactos nuevos en Apollo para esta empresa. No se crearon candidatos.';
+
+const APOLLO_NOT_CONNECTED =
+  'Apollo no está conectado o no tiene credenciales disponibles.\nNo se crearon candidatos.';
+
+const APOLLO_SKIPPED =
+  'No tengo datos suficientes (dominio o nombre) para buscar en Apollo de forma segura. No se crearon candidatos.';
+
 // ── Message minting helper ─────────────────────────────────────────────────────
 
 type DraftMessage = { role: AgentChatRole; content: string; tone?: AgentChatTone };
@@ -122,6 +136,7 @@ export function createInitialContactEnrichmentChatState(
     selectedCandidate: null,
     skippedHubSpot: false,
     runResult: null,
+    apolloResult: null,
     errorMessage: null,
   };
 
@@ -299,6 +314,40 @@ export function contactEnrichmentChatReducer(
         step: 'error',
         errorMessage: action.message,
         ...appendMessages(state, [{ role: 'system', content: action.message, tone: 'error' }]),
+      };
+    }
+
+    case 'APOLLO_START': {
+      if (state.step !== 'done') return state;
+      return {
+        ...state,
+        step: 'searching_apollo',
+        errorMessage: null,
+        ...appendMessages(state, [
+          { role: 'user', content: 'Buscar contactos ahora' },
+          { role: 'assistant', content: APOLLO_SEARCHING },
+        ]),
+      };
+    }
+
+    case 'APOLLO_SUCCEEDED': {
+      const created = action.result.candidatesCreated;
+      const content = created > 0 ? APOLLO_DONE_WITH_CANDIDATES : APOLLO_DONE_NO_CANDIDATES;
+      return {
+        ...state,
+        step: 'done',
+        apolloResult: action.result,
+        ...appendMessages(state, [{ role: 'assistant', content }]),
+      };
+    }
+
+    case 'APOLLO_FAILED': {
+      const reason = action.result.providerStatus === 'skipped' ? APOLLO_SKIPPED : APOLLO_NOT_CONNECTED;
+      return {
+        ...state,
+        step: 'done',
+        apolloResult: action.result,
+        ...appendMessages(state, [{ role: 'system', content: reason, tone: 'warning' }]),
       };
     }
 

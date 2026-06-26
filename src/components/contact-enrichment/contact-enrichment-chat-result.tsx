@@ -8,6 +8,7 @@ import type {
   CompanyCandidate,
   ContactEnrichmentRunResult,
 } from '@/modules/contact-enrichment/types';
+import type { ApolloEnrichmentUiResult } from './contact-enrichment-chat-types';
 
 // ── Source badge ────────────────────────────────────────────────────────────
 
@@ -78,9 +79,11 @@ export function CompanyChip({ candidate }: { candidate: CompanyCandidate }) {
 export function RunResultSnapshot({
   runResult,
   candidate,
+  apolloResult,
 }: {
   runResult: ContactEnrichmentRunResult;
   candidate: CompanyCandidate | null;
+  apolloResult?: ApolloEnrichmentUiResult | null;
 }) {
   const snapshot = runResult.existingContactsSnapshot;
   const combined = snapshot?.combined;
@@ -104,7 +107,11 @@ export function RunResultSnapshot({
               variant="outline"
               className="text-xs text-emerald-600 border-emerald-500/30 bg-emerald-500/10"
             >
-              Listo para enriquecer
+              {apolloResult?.status === 'ready_for_review'
+                ? 'Listo para revisión'
+                : apolloResult?.status === 'completed'
+                  ? 'Completado'
+                  : 'Listo para enriquecer'}
             </Badge>
           </dd>
         </div>
@@ -116,7 +123,9 @@ export function RunResultSnapshot({
         )}
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Candidatos</dt>
-          <dd className="font-medium text-foreground">{runResult.candidatesCount}</dd>
+          <dd className="font-medium text-foreground">
+            {apolloResult ? apolloResult.totalCandidates : runResult.candidatesCount}
+          </dd>
         </div>
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Run ID</dt>
@@ -198,10 +207,55 @@ export function RunResultSnapshot({
         </div>
       )}
 
-      {/* Nota secundaria — no es acción disponible aún (Apollo/Lusha en hito posterior) */}
-      <p className="border-t border-border pt-3 text-xs text-muted-foreground">
-        En el siguiente hito conectaremos Apollo / Lusha para poblar los candidatos.
-      </p>
+      {apolloResult ? (
+        <ApolloResultSummary result={apolloResult} />
+      ) : (
+        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+          Apollo buscará perfiles de RR. HH. para crear candidatos revisables. No se crean
+          contactos finales ni se escribe en HubSpot.
+        </p>
+      )}
     </SurfaceCard>
+  );
+}
+
+// ── Apollo result summary (Hito 17A.3A) ───────────────────────────────────────
+
+function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
+  if (result.providerStatus === 'error' || result.providerStatus === 'skipped') {
+    return (
+      <div className="border-t border-border pt-3">
+        <p className="text-xs text-amber-600">
+          {result.error ?? 'Apollo no pudo ejecutarse. No se crearon candidatos.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border pt-3">
+      <p className="text-xs font-medium text-foreground">Resultado de Apollo</p>
+      <dl className="space-y-1.5 text-xs">
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Candidatos creados</dt>
+          <dd className="font-semibold text-foreground">{result.candidatesCreated}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Duplicados omitidos</dt>
+          <dd className="font-medium text-foreground">{result.duplicatesSkipped}</dd>
+        </div>
+        {result.possibleDuplicates > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Posibles duplicados</dt>
+            <dd className="text-amber-600">{result.possibleDuplicates}</dd>
+          </div>
+        )}
+      </dl>
+      <p className="text-xs text-muted-foreground">
+        {result.candidatesCreated > 0
+          ? 'Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.'
+          : 'No se crearon candidatos nuevos.'}
+      </p>
+    </div>
   );
 }

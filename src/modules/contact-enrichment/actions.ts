@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import { startContactEnrichmentRun } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-runner';
+import { executeContactEnrichmentApolloRun } from '@/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner';
 import type { Agent2AInput, CompanyResolutionResult, ContactEnrichmentRunResult } from './types';
 
 // ── Auth helper (patrón idéntico a prospect-batches/actions.ts) ───────────────
@@ -155,5 +156,53 @@ export async function startContactEnrichmentRunAction(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error iniciando run de enriquecimiento';
     return { success: false, error: message };
+  }
+}
+
+// ── Apollo: generar candidatos reales (Hito 17A.3A) ───────────
+
+export interface RunApolloActionResult {
+  success: boolean;
+  status?: 'ready_for_review' | 'completed' | 'skipped' | 'error';
+  candidatesCreated?: number;
+  duplicatesSkipped?: number;
+  possibleDuplicates?: number;
+  totalCandidates?: number;
+  providerStatus?: 'success' | 'skipped' | 'error';
+  estimatedCostUsd?: number;
+  error?: string;
+}
+
+/**
+ * Ejecuta Apollo para un run en ready_to_enrich: busca personas reales,
+ * normaliza, deduplica contra el snapshot y crea candidatos en staging.
+ * NO crea contactos finales ni escribe en HubSpot. Requiere revisión humana.
+ */
+export async function runContactEnrichmentApolloAction(
+  runId: unknown,
+): Promise<RunApolloActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+
+    if (typeof runId !== 'string' || !runId.trim()) {
+      throw new Error('runId inválido');
+    }
+
+    const result = await executeContactEnrichmentApolloRun(runId.trim(), internalUserId);
+
+    return {
+      success: result.status !== 'error',
+      status: result.status,
+      candidatesCreated: result.candidatesCreated,
+      duplicatesSkipped: result.duplicatesSkipped,
+      possibleDuplicates: result.possibleDuplicates,
+      totalCandidates: result.totalCandidates,
+      providerStatus: result.providerStatus,
+      estimatedCostUsd: result.estimatedCostUsd,
+      error: result.error,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error ejecutando Apollo';
+    return { success: false, status: 'error', error: message };
   }
 }

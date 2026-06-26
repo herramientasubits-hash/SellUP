@@ -15,7 +15,21 @@ export type ContactEnrichmentChatStep =
   | 'confirming' // a candidate is ready — user confirms
   | 'creating_run' // creating the run + reading existing contacts
   | 'done' // run created — snapshot shown
+  | 'searching_apollo' // querying Apollo for real candidates (Hito 17A.3A)
   | 'error'; // controlled error
+
+// ── Apollo enrichment result (Hito 17A.3A) ─────────────────────────────────────
+
+export interface ApolloEnrichmentUiResult {
+  status: 'ready_for_review' | 'completed' | 'skipped' | 'error';
+  candidatesCreated: number;
+  duplicatesSkipped: number;
+  possibleDuplicates: number;
+  totalCandidates: number;
+  providerStatus: 'success' | 'skipped' | 'error';
+  estimatedCostUsd: number;
+  error?: string;
+}
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -30,6 +44,8 @@ export interface ContactEnrichmentChatState {
   selectedCandidate: CompanyCandidate | null;
   skippedHubSpot: boolean;
   runResult: ContactEnrichmentRunResult | null;
+  /** Apollo candidate-sourcing result (Hito 17A.3A). Null until Apollo runs. */
+  apolloResult: ApolloEnrichmentUiResult | null;
   errorMessage: string | null;
 }
 
@@ -47,6 +63,9 @@ export type ContactEnrichmentChatAction =
   | { type: 'CONFIRM' }
   | { type: 'RUN_SUCCEEDED'; result: ContactEnrichmentRunResult }
   | { type: 'RUN_FAILED'; message: string }
+  | { type: 'APOLLO_START' }
+  | { type: 'APOLLO_SUCCEEDED'; result: ApolloEnrichmentUiResult }
+  | { type: 'APOLLO_FAILED'; result: ApolloEnrichmentUiResult }
   | { type: 'RESET' };
 
 // ── Preloaded company (contextual sidepanel entry from /accounts) ──────────────

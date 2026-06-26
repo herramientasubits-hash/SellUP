@@ -59,6 +59,16 @@ export interface ApolloPerson {
   linkedin_url: string | null;
   phone_numbers: { sanitized_number: string; type: string }[];
   organization: Pick<ApolloOrganization, 'id' | 'name' | 'website_url'> | null;
+  // Campos opcionales adicionales que devuelve mixed_people/api_search.
+  // Aditivos: no afectan a los consumidores existentes.
+  seniority?: string | null;
+  departments?: string[];
+  subdepartments?: string[];
+  headline?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  email_status?: string | null;
 }
 
 // ============================================================
@@ -84,7 +94,12 @@ export interface EnrichOrganizationParams {
 export interface SearchPeopleParams {
   q_person_name?: string;
   q_organization_name?: string;
+  q_organization_domains?: string[];
   person_titles?: string[];
+  person_seniorities?: string[];
+  person_department_or_subdepartments?: string[];
+  person_locations?: string[];
+  organization_locations?: string[];
   page?: number;
   per_page?: number;
 }

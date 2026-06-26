@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Check, Globe, MapPin, PenLine, AlertCircle } from 'lucide-react';
+import { Building2, Check, Globe, MapPin, PenLine, AlertCircle, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -14,6 +14,7 @@ import {
 import {
   resolveContactEnrichmentCompanyAction,
   startContactEnrichmentRunAction,
+  runContactEnrichmentApolloAction,
 } from '@/modules/contact-enrichment/actions';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
@@ -45,6 +46,8 @@ function composerPlaceholder(step: ContactEnrichmentChatStep): string {
       return 'Confirma la empresa para continuar';
     case 'creating_run':
       return 'Creando run…';
+    case 'searching_apollo':
+      return 'Buscando en Apollo…';
     case 'done':
       return 'Enriquecimiento preparado';
     case 'error':
@@ -57,6 +60,7 @@ function composerPlaceholder(step: ContactEnrichmentChatStep): string {
 function typingLabelForStep(step: ContactEnrichmentChatStep): string {
   if (step === 'resolving') return 'Buscando en SellUp y HubSpot…';
   if (step === 'creating_run') return 'Creando run y revisando contactos existentes…';
+  if (step === 'searching_apollo') return 'Buscando perfiles relevantes en Apollo…';
   return 'escribiendo';
 }
 
@@ -79,7 +83,10 @@ export function ContactEnrichmentChatWizard({
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   const { visibleCount, isRevealing } = useProgressiveReveal(state.messages.length);
-  const isLoadingStep = state.step === 'resolving' || state.step === 'creating_run';
+  const isLoadingStep =
+    state.step === 'resolving' ||
+    state.step === 'creating_run' ||
+    state.step === 'searching_apollo';
   const isTyping = isRevealing || isLoadingStep;
   const showActiveRegion = !isTyping;
 
@@ -155,6 +162,31 @@ export function ContactEnrichmentChatWizard({
       return;
     }
     dispatch({ type: 'RUN_SUCCEEDED', result: result.data });
+  }
+
+  async function handleSearchApollo() {
+    const runId = state.runResult?.runId;
+    if (!runId || state.step !== 'done') return;
+    dispatch({ type: 'APOLLO_START' });
+
+    const result = await runContactEnrichmentApolloAction(runId);
+
+    const uiResult = {
+      status: result.status ?? 'error',
+      candidatesCreated: result.candidatesCreated ?? 0,
+      duplicatesSkipped: result.duplicatesSkipped ?? 0,
+      possibleDuplicates: result.possibleDuplicates ?? 0,
+      totalCandidates: result.totalCandidates ?? 0,
+      providerStatus: result.providerStatus ?? 'error',
+      estimatedCostUsd: result.estimatedCostUsd ?? 0,
+      error: result.error,
+    } as const;
+
+    if (!result.success || result.providerStatus !== 'success') {
+      dispatch({ type: 'APOLLO_FAILED', result: uiResult });
+      return;
+    }
+    dispatch({ type: 'APOLLO_SUCCEEDED', result: uiResult });
   }
 
   function handleReset() {
@@ -233,7 +265,14 @@ export function ContactEnrichmentChatWizard({
                 <RunResultSnapshot
                   runResult={state.runResult}
                   candidate={state.selectedCandidate}
+                  apolloResult={state.apolloResult}
                 />
+                {!state.apolloResult && (
+                  <Button onClick={handleSearchApollo} className="w-full">
+                    <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                    Buscar contactos ahora
+                  </Button>
+                )}
                 <SecondaryReset onReset={handleReset} label="Enriquecer otra empresa" />
               </div>
             )}
