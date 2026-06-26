@@ -446,4 +446,12 @@ async function main() {
   }
 }
 
-main();
+// Guard: only run CLI when this file is the entry point, not when imported as a module.
+const isDirectEntry =
+  process.argv[1] != null &&
+  (process.argv[1].endsWith('import-peru-sunat-snapshot.ts') ||
+    process.argv[1].endsWith('import-peru-sunat-snapshot.js'));
+
+if (isDirectEntry) {
+  main();
+}
