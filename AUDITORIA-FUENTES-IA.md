@@ -2587,3 +2587,58 @@ Próximo offset disponible: 100000
 SUNAT sigue siendo validación legal oficial (snapshot).
 Migo sigue siendo validación legal complementaria (API).
 ```
+
+---
+
+## Hito Perú.9B — Endurecer importer SUNAT para CLI estable en Node 20
+
+### 1. Hallazgos operativos resueltos
+
+- **Comando oficial:** `npm run sunat:peru:import-snapshot`.
+- **Alias inexistente:** `npm run import:peru:sunat-snapshot` **no existe** en
+  `package.json` y no debe usarse como comando operativo.
+- **Falla en Node 20:** en modo `--apply` el importer construía el cliente
+  Supabase y reventaba con `Node.js 20 detected without native WebSocket support`
+  (Node < 22 no expone `WebSocket` global; realtime-js lo requiere).
+
+### 2. Ajuste para Node 20 (CLI/server-only)
+
+Se extrajo el shim que ya usaba `report-peru-source-coverage.ts` a un helper
+compartido `scripts/peru/ensure-node20-websocket-shim.ts` (basado en `undici`).
+El importer lo invoca **dentro de `main()`** (entrypoint CLI), de modo que:
+
+- es no-op cuando ya existe `WebSocket` global (browser / Node 22+ / Next),
+- nunca se importa desde código de app/cliente,
+- no hace llamadas externas ni expone claves,
+- no altera la lógica del importer (dry-run sigue siendo el default; sin `--apply` no escribe).
+
+### 3. Archivos creados / modificados
+
+| Artefacto | Estado |
+|-----------|--------|
+| `scripts/peru/ensure-node20-websocket-shim.ts` | **Creado** — shim WebSocket CLI/server-only |
+| `scripts/peru/report-peru-source-coverage.ts` | **Modificado** — reutiliza el helper |
+| `src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts` | **Modificado** — aplica el shim en `main()` |
+| `src/server/source-catalog/connectors/sunat-peru/__tests__/peru-9b-node20-shim.test.ts` | **Creado** — 13 tests (comando oficial, shim CLI-only, sin secretos, dry-run default) |
+| `package.json` | **Modificado** — script `test:peru:9b-node20-shim` |
+| `docs/PERU_MVP_ACTIVATION_PLAN.md` | **Actualizado** — §Perú.9B |
+| `AUDITORIA-FUENTES-IA.md` | **Actualizado** — esta sección |
+
+### 4. Validación sin cargar datos
+
+- Dry-run `--offset 150000 --limit 1000`: parsea 1.000 filas, `rowsUpserted=0`, `dryRun=true`.
+- `report:peru:source-coverage`: 150.000 filas, next offset 150.000, `coverageSource=live_database`.
+- **No se ejecutó `--apply` real.** La ruta `--apply` se validará en Perú.9C con el próximo chunk controlado.
+
+### 5. Guardrails respetados
+
+| Guardrail | Estado |
+|-----------|--------|
+| No se cargaron más filas SUNAT | ✅ |
+| No se hizo apply real / writes en Supabase | ✅ |
+| No se llamó SUNAT web / Migo / Tavily / LLM | ✅ |
+| No se ejecutó discovery | ✅ |
+| No se crearon candidatos, cuentas ni batches | ✅ |
+| No se tocó Agente 1 ni Agente 2 / contact-enrichment | ✅ |
+| No se creó UI ni se expusieron claves | ✅ |
+| No se hizo force push | ✅ |

@@ -631,6 +631,26 @@ npm run sunat:peru:import-snapshot -- --dry-run --limit 100
 npm run sunat:peru:import-snapshot -- --apply --limit 100
 ```
 
+> **Comando oficial:** `npm run sunat:peru:import-snapshot`.
+> El alias `npm run import:peru:sunat-snapshot` **no existe** y no debe usarse.
+
+#### Perú.9B — Estabilidad CLI en Node 20
+
+En Node < 22 no hay `WebSocket` global y el cliente de `@supabase/supabase-js`
+(realtime-js) lo necesita al construirse, por lo que `--apply` fallaba con
+`Node.js 20 detected without native WebSocket support`. Se añadió un shim
+**CLI/server-only** (`scripts/peru/ensure-node20-websocket-shim.ts`, usando
+`undici`) que el importer invoca dentro de `main()` y que el reporte de
+cobertura reutiliza. El shim:
+
+- es no-op cuando ya existe un `WebSocket` global (browser / Node 22+ / Next),
+- no se importa desde código de app/cliente,
+- no hace llamadas externas ni expone claves,
+- no cambia la lógica del importer (dry-run sigue siendo el default).
+
+La validación de la ruta `--apply` real se hará en Perú.9C con el próximo chunk
+controlado (offset 150000).
+
 ### Parsing del snapshot filtrado
 
 El archivo `.tmp/sunat-peru/ruc20-filtered-snapshot.txt` es pipe-delimited con 15 columnas:

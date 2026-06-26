@@ -11,16 +11,14 @@
  * Run: npm run report:peru:source-coverage
  */
 
-import { WebSocket as UndiciWebSocket } from 'undici';
+import { ensureNode20WebSocketShim } from './ensure-node20-websocket-shim';
 
 import { getPeruSourceCoverageSummary } from '../../src/server/services/peru-source-coverage-summary';
 
 // CLI-only shim: Node < 22 has no global WebSocket, which @supabase/supabase-js
 // (realtime-js) needs at client construction. Next.js provides one at runtime,
 // so this lives in the script, not the shared service. Read-only either way.
-if (!(globalThis as { WebSocket?: unknown }).WebSocket) {
-  (globalThis as { WebSocket?: unknown }).WebSocket = UndiciWebSocket;
-}
+ensureNode20WebSocketShim();
 
 async function main() {
   const summary = await getPeruSourceCoverageSummary();

@@ -30,6 +30,8 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+import { ensureNode20WebSocketShim } from '../../../../../scripts/peru/ensure-node20-websocket-shim';
+
 // ── Constants ──────────────────────────────────────────────────
 
 const SNAPSHOT_TABLE = 'peru_sunat_ruc_snapshot';
@@ -398,6 +400,11 @@ export async function runImporter(
 // ── CLI entrypoint ─────────────────────────────────────────────
 
 async function main() {
+  // CLI-only: Node < 22 has no global WebSocket, which the Supabase client
+  // (realtime-js) needs at construction in --apply mode. Applied here in the
+  // CLI entrypoint so it never affects app/client bundles. No-op on Node 22+.
+  ensureNode20WebSocketShim();
+
   const config = parseCliArgs(process.argv);
 
   const mode = config.dryRun ? 'DRY-RUN' : `APPLY (limit=${config.limit})`;
