@@ -1023,3 +1023,28 @@ En candidato y en empresa (cuenta) existen bloques separados:
 | 20108567792 | COLOURS REPSSA | BAJA DE OFICIO | NO HALLADO |
 | 20211159597 | MARIA AUXILIADORA S A | BAJA DE OFICIO | HABIDO |
 | 20123198434 | AEROMUNDO S.A. | BAJA DE OFICIO | HABIDO |
+
+### Perú.7E — Confirmación SUNAT snapshot a 100.000 filas
+
+**Fecha:** 2026-06-26. **Tipo:** verificación operativa / estado de datos.
+**Resultado:** `public.peru_sunat_ruc_snapshot` confirmada en 100.000 filas.
+**Hallazgo:** no fue necesario ejecutar nuevos chunks porque la expansión ya estaba aplicada antes del hito.
+**Próximo offset disponible:** 100000. Sin llamadas a SUNAT web, Migo, Tavily ni LLM. Sin creación de candidatos, cuentas o batches. Sin cambios de código.
+
+**Distribución final:**
+
+| Estado | Condición | Filas |
+|--------|-----------|-------|
+| ACTIVO | HABIDO | 14.221 |
+| ACTIVO | NO HABIDO | 1.199 |
+| INACTIVO | HABIDO | 48.188 |
+| INACTIVO | NO HABIDO | 36.392 |
+| **TOTAL** | | **100.000** |
+
+**Lookups de control:**
+
+| RUC | Razón social | Lookup result |
+|-----|-------------|---------------|
+| 20302537870 | ROTO SERVICE SRL | flagged / taxpayer_inactive |
+| 20297843967 | LABORES LEGALES S.R.LTDA. | flagged / taxpayer_inactive |
+| 20302538761 | CONVENCIONES & EVENTOS S.A. | flagged / taxpayer_inactive |

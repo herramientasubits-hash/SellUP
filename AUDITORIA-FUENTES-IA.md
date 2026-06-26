@@ -2525,3 +2525,65 @@ Cobertura estimada: 50.000 / ~851.000 RUC20 totales ≈ 5.9%
 Próximo offset disponible: 50000
 Próximo hito recomendado: ampliar a 100.000+ filas para mayor cobertura de validación legal
 ```
+
+## Hito Perú.7E — Confirmación SUNAT snapshot a 100.000 filas
+
+**Hito:** Perú.7E
+**Fecha:** 2026-06-26
+**Tipo:** Verificación operativa / estado de datos. Sin modificaciones a código fuente.
+
+### 1. Objetivo
+
+Confirmar que `public.peru_sunat_ruc_snapshot` ya había alcanzado las 100.000 filas antes de iniciar el hito.
+No fue necesario ejecutar nuevos chunks: la expansión ya estaba aplicada.
+
+### 2. Hallazgo
+
+La tabla `peru_sunat_ruc_snapshot` ya contaba con **100.000 filas** al inicio del hito.
+No se ejecutaron chunks adicionales durante Perú.7E.
+El próximo offset operativo disponible es **100000**.
+
+### 3. Estado final en Supabase
+
+| Métrica | Valor |
+|---------|-------|
+| Filas totales (`peru_sunat_ruc_snapshot`) | **100.000** |
+| ACTIVO + HABIDO | **14.221** |
+| ACTIVO + NO HABIDO | **1.199** |
+| INACTIVO + HABIDO | **48.188** |
+| INACTIVO + NO HABIDO | **36.392** |
+
+> Las 14.221 filas `ACTIVO + HABIDO` representan el universo de empresas peruanas legalmente válidas disponibles para validación en el lookup SUNAT del flujo de enriquecimiento post-aprobación.
+
+### 4. Lookups de control verificados
+
+| RUC | Razón social | Lookup result |
+|-----|-------------|---------------|
+| 20302537870 | ROTO SERVICE SRL | flagged / taxpayer_inactive |
+| 20297843967 | LABORES LEGALES S.R.LTDA. | flagged / taxpayer_inactive |
+| 20302538761 | CONVENCIONES & EVENTOS S.A. | flagged / taxpayer_inactive |
+
+### 5. Guardrails respetados
+
+| Guardrail | Estado |
+|-----------|--------|
+| No se descargó SUNAT ZIP | ✅ |
+| No se descomprimió en Vercel | ✅ |
+| No se llamó SUNAT API web | ✅ |
+| No se llamó Migo | ✅ |
+| No se llamó Tavily | ✅ |
+| No se llamó LLM externo | ✅ |
+| No se crearon candidatos, cuentas ni batches | ✅ |
+| No se modificó código fuente | ✅ |
+| No se tocó Agente 1 ni Agente 2A | ✅ |
+| No se tocó Chile / México / Colombia | ✅ |
+| No se hizo force push | ✅ |
+
+### 6. Estado del snapshot SUNAT
+
+```
+Cobertura estimada: 100.000 / ~851.000 RUC20 totales ≈ 11.7%
+Próximo offset disponible: 100000
+SUNAT sigue siendo validación legal oficial (snapshot).
+Migo sigue siendo validación legal complementaria (API).
+```
