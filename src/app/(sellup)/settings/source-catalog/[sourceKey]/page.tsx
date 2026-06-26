@@ -9,6 +9,8 @@ import {
 } from '@/modules/source-catalog/queries';
 import { getSourceConnectionTestHistory } from '@/modules/source-catalog/history-queries';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { getPeruSourceCoverageSummary } from '@/server/services/peru-source-coverage-summary';
+import { PeruCoverageCard } from '@/components/source-catalog/peru-coverage-card';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -45,10 +47,15 @@ export default async function SourceDetailPage({ params }: Props) {
 
   if (!source) notFound();
 
-  const [history, connectionRecord, isAdmin] = await Promise.all([
+  const isSunatPeru = source.key === 'pe_sunat_bulk';
+
+  const [history, connectionRecord, isAdmin, peruCoverage] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
     getSourceConnectionRecord(sourceKey),
     isCurrentUserAdmin(),
+    isSunatPeru
+      ? getPeruSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const statusClass = operationalStatusBadgeClass(source.operationalStatus);
@@ -252,6 +259,13 @@ export default async function SourceDetailPage({ params }: Props) {
           hasStoredCredential={connectionRecord?.credentials_status === 'stored'}
           isAdmin={isAdmin}
         />
+      )}
+
+      {/* Cobertura Perú — solo pe_sunat_bulk */}
+      {isSunatPeru && (
+        peruCoverage
+          ? <PeruCoverageCard summary={peruCoverage} />
+          : <PeruCoverageCard error />
       )}
 
       {/* Prueba de conexión */}
