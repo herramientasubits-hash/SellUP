@@ -180,6 +180,18 @@ export async function startContactEnrichmentRunAction(
 
 // ── Apollo: generar candidatos reales (Hito 17A.3A) ───────────
 
+export interface RunApolloActionCostGuardrail {
+  phone_completion_enabled: boolean;
+  estimated_credits_before_completion: number;
+  max_credits_per_run: number;
+  guardrail_blocked: boolean;
+  blocked_reason?: string;
+  actual_credits_email: number;
+  actual_credits_phone: number;
+  actual_credits_total: number;
+  blocked_profiles_count: number;
+}
+
 export interface RunApolloActionResult {
   success: boolean;
   status?: 'ready_for_review' | 'completed' | 'skipped' | 'error';
@@ -201,6 +213,8 @@ export interface RunApolloActionResult {
   noActionableContactsFound?: boolean;
   providerStatus?: 'success' | 'skipped' | 'error';
   estimatedCostUsd?: number;
+  /** Guardrail de costo y completion (Hito 17A.6B). */
+  costGuardrail?: RunApolloActionCostGuardrail;
   error?: string;
 }
 
@@ -236,6 +250,7 @@ export async function runContactEnrichmentApolloAction(
       noActionableContactsFound: result.noActionableContactsFound,
       providerStatus: result.providerStatus,
       estimatedCostUsd: result.estimatedCostUsd,
+      costGuardrail: result.costGuardrail,
       error: result.error,
     };
   } catch (err) {

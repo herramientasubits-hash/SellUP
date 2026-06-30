@@ -90,6 +90,17 @@ export interface ApolloEnrichmentRunResult {
   providerStatus: 'success' | 'skipped' | 'error';
   estimatedCostUsd: number;
   totalCandidates: number;
+  costGuardrail?: {
+    phone_completion_enabled: boolean;
+    estimated_credits_before_completion: number;
+    max_credits_per_run: number;
+    guardrail_blocked: boolean;
+    blocked_reason?: string;
+    actual_credits_email: number;
+    actual_credits_phone: number;
+    actual_credits_total: number;
+    blocked_profiles_count: number;
+  };
   error?: string;
 }
 
@@ -855,5 +866,6 @@ export async function executeContactEnrichmentApolloRun(
     providerStatus: 'success',
     estimatedCostUsd,
     totalCandidates: insertedCount,
+    costGuardrail: completionSummary.cost_guardrail,
   };
 }

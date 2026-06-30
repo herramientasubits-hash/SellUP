@@ -1,9 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Check, Globe, MapPin } from 'lucide-react';
+import { Building2, Check, Globe, MapPin, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import type {
   CompanyCandidate,
   ContactEnrichmentRunResult,
@@ -219,6 +220,58 @@ export function RunResultSnapshot({
   );
 }
 
+// ── Apollo pre-flight card (Hito 17A.6B) ─────────────────────────────────────
+
+export function ApolloPreflightCard() {
+  const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
+  return (
+    <SurfaceCard className="space-y-3 p-4">
+      <div className="flex items-center gap-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-su-brand-soft">
+          <ShieldCheck className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+        </div>
+        <p className="text-sm font-semibold text-foreground">Control de créditos Apollo</p>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        SellUp buscará contactos y solo intentará completar los perfiles con mayor probabilidad de
+        ser útiles. La búsqueda puede consumir créditos según el plan de Apollo. SellUp controla
+        especialmente los créditos de completion/reveal para evitar gastos innecesarios.
+      </p>
+      <dl className="space-y-1.5 text-xs">
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Máximo de perfiles a completar</dt>
+          <dd className="font-medium text-foreground">{g.maxCompletionCandidates}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Créditos máximos estimados de completion</dt>
+          <dd className="font-medium text-foreground">{g.maxCompletionCreditsPerRun}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Email revelado</dt>
+          <dd className="font-medium text-foreground">~{g.emailRevealCredits} crédito</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Teléfono revelado</dt>
+          <dd className="font-medium text-foreground">
+            ~{g.phoneRevealCredits} créditos —{' '}
+            <span className={g.phoneCompletionEnabled ? 'text-foreground' : 'text-muted-foreground'}>
+              {g.phoneCompletionEnabled ? 'activado' : 'desactivado'}
+            </span>
+          </dd>
+        </div>
+      </dl>
+      <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+        Solo se completarán perfiles de alta relevancia (RR. HH., Talento, Aprendizaje, Cultura).
+        No se gastarán créditos en perfiles de baja relevancia o sin identidad suficiente.
+        <br />
+        <span className="mt-1 inline-block">
+          Nota: para sincronizar con HubSpot, el contacto aprobado deberá tener email.
+        </span>
+      </p>
+    </SurfaceCard>
+  );
+}
+
 // ── Apollo result summary (Hito 17A.3A) ───────────────────────────────────────
 
 function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
@@ -289,6 +342,48 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
               ? 'Apollo encontró perfiles, pero ninguno tenía suficiente relevancia o datos completos para revisión. No se crearon contactos finales.'
               : 'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.'}
       </p>
+
+      {result.costGuardrail && (
+        <div className="space-y-1.5 border-t border-border/50 pt-2">
+          <p className="text-[11px] font-medium text-muted-foreground">Créditos de completion</p>
+          <dl className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Email</dt>
+              <dd className="font-medium text-foreground">
+                {result.costGuardrail.actual_credits_email}
+              </dd>
+            </div>
+            {result.costGuardrail.phone_completion_enabled && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Teléfono</dt>
+                <dd className="font-medium text-foreground">
+                  {result.costGuardrail.actual_credits_phone}
+                </dd>
+              </div>
+            )}
+            {!result.costGuardrail.phone_completion_enabled && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Teléfono</dt>
+                <dd className="text-muted-foreground">desactivado</dd>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-border/50 pt-1">
+              <dt className="text-muted-foreground">Total</dt>
+              <dd className="font-semibold text-foreground">
+                {result.costGuardrail.actual_credits_total === 0
+                  ? 'sin créditos de completion'
+                  : `${result.costGuardrail.actual_credits_total} créditos`}
+              </dd>
+            </div>
+          </dl>
+          {result.costGuardrail.guardrail_blocked && (
+            <p className="text-[11px] text-amber-600">
+              Guardrail activado — algunos perfiles no se completaron para no superar el límite de{' '}
+              {result.costGuardrail.max_credits_per_run} créditos.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

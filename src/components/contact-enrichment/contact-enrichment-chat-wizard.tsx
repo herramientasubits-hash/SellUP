@@ -28,7 +28,7 @@ import type {
   ContactEnrichmentChatStep,
   ContactEnrichmentInitialCompany,
 } from './contact-enrichment-chat-types';
-import { SourceBadge, CompanyChip, RunResultSnapshot } from './contact-enrichment-chat-result';
+import { SourceBadge, CompanyChip, RunResultSnapshot, ApolloPreflightCard } from './contact-enrichment-chat-result';
 
 // ── Composer copy by step ──────────────────────────────────────────────────────
 
@@ -185,8 +185,9 @@ export function ContactEnrichmentChatWizard({
       noActionableContactsFound: result.noActionableContactsFound ?? false,
       providerStatus: result.providerStatus ?? 'error',
       estimatedCostUsd: result.estimatedCostUsd ?? 0,
+      costGuardrail: result.costGuardrail,
       error: result.error,
-    } as const;
+    };
 
     if (!result.success || result.providerStatus !== 'success') {
       dispatch({ type: 'APOLLO_FAILED', result: uiResult });
@@ -274,10 +275,13 @@ export function ContactEnrichmentChatWizard({
                   apolloResult={state.apolloResult}
                 />
                 {!state.apolloResult && (
-                  <Button onClick={handleSearchApollo} className="w-full">
-                    <Sparkles className="mr-2 h-4 w-4" aria-hidden />
-                    Buscar contactos ahora
-                  </Button>
+                  <>
+                    <ApolloPreflightCard />
+                    <Button onClick={handleSearchApollo} className="w-full">
+                      <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                      Buscar contactos con control de créditos
+                    </Button>
+                  </>
                 )}
                 <SecondaryReset onReset={handleReset} label="Enriquecer otra empresa" />
               </div>

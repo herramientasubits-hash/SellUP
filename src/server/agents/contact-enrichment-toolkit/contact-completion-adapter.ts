@@ -22,37 +22,24 @@ import type {
   ContactRelevanceResult,
   ContactRelevanceStatus,
 } from './contact-relevance-classifier';
+import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 
-// ── Constantes de configuración local ──────────────────────────
+// ── Constantes de configuración — derivadas del config compartido ──────────────
 
-/** Tope de candidatos a completar por run (control de costo / créditos). */
-export const MAX_COMPLETION_CANDIDATES = 3;
+export const MAX_COMPLETION_CANDIDATES =
+  APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxCompletionCandidates;
 
-/**
- * Créditos estimados por email completado (modelo operativo interno, inspirado
- * en flujos n8n anteriores: completion_credits = emails + 8 * phones).
- */
-export const COMPLETION_CREDIT_EMAIL = 1;
+export const COMPLETION_CREDIT_EMAIL =
+  APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.emailRevealCredits;
 
-/**
- * Créditos estimados por teléfono completado (modelo operativo interno).
- * 8× el costo de un email — mucho más caro en el modelo anterior de n8n.
- */
-export const COMPLETION_CREDIT_PHONE = 8;
+export const COMPLETION_CREDIT_PHONE =
+  APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.phoneRevealCredits;
 
-/**
- * Completion de teléfonos desactivada por default.
- * Apollo requiere un webhook separado para revelar números reales (caro).
- * Activar solo cuando el flujo de reveal esté implementado y presupuestado.
- */
-export const PHONE_COMPLETION_ENABLED = false;
+export const PHONE_COMPLETION_ENABLED =
+  APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.phoneCompletionEnabled;
 
-/**
- * Presupuesto máximo de créditos de completion por run (guardrail de costo).
- * Conservador: permite hasta 3 emails (= MAX_COMPLETION_CANDIDATES × 1 crédito).
- * Si se activa phone_completion, bajar este valor o ajustar.
- */
-export const MAX_COMPLETION_CREDITS_PER_RUN = 10;
+export const MAX_COMPLETION_CREDITS_PER_RUN =
+  APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxCompletionCreditsPerRun;
 
 /** Canales accionables que cuentan para dejar un candidato revisable. */
 export const ACTIONABLE_CHANNEL_FIELDS = ['email', 'linkedin_url', 'phone'] as const;
