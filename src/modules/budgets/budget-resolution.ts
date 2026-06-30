@@ -15,12 +15,17 @@ import type {
   AdminProviderBudgetRow,
 } from './types';
 import { getPeriodBounds } from './periods';
+import { collectGroupSubtreeIds } from '@/modules/access/group-tree';
 import {
   getAdminClient,
   getActiveRulesForProvider,
   getAllActiveRules,
+  getAllOrgGroups,
+  buildGroupAncestorChain,
   getUserBudgetContext,
   getConsumptionForUser,
+  getConsumptionForGroups,
+  getConsumptionForRole,
   getConsumptionGlobal,
   getConsumptionByProvider,
   getToolCatalog,
@@ -30,35 +35,44 @@ import {
 
 /**
  * Picks the most specific active rule for a user from a pre-sorted list.
- * Priority: user → group → role → global.
+ * Priority: user → group (closest ancestor wins) → role → global.
  *
  * scope_id stores:
- *   user  → userId (UUID string)
- *   group → groupId (UUID string)
- *   role  → role key (text)
+ *   user   → userId (UUID string)
+ *   group  → groupId (UUID string) — matched against the ancestor chain
+ *   role   → role key (text)
  *   global → null
+ *
+ * groupAncestorIds: ordered closest-first [userGroupId, parentId, …].
+ * The first ancestor that has a group rule wins, so a child group rule
+ * always beats a parent group rule.
  */
 function matchRule(
   rules: BudgetRule[],
   userId: string,
   roleKey: string | null,
-  groupId: string | null,
+  groupAncestorIds: string[],
 ): { rule: BudgetRule; scope: Exclude<BudgetScopeApplied, 'none'> } | null {
-  for (const rule of rules) {
-    switch (rule.scope_type) {
-      case 'user':
-        if (rule.scope_id === userId) return { rule, scope: 'user' };
-        break;
-      case 'group':
-        if (groupId && rule.scope_id === groupId) return { rule, scope: 'group' };
-        break;
-      case 'role':
-        if (roleKey && rule.scope_id === roleKey) return { rule, scope: 'role' };
-        break;
-      case 'global':
-        return { rule, scope: 'global' };
-    }
+  // 1. user
+  const userRule = rules.find((r) => r.scope_type === 'user' && r.scope_id === userId);
+  if (userRule) return { rule: userRule, scope: 'user' };
+
+  // 2. group — walk up the ancestor chain so the most specific group wins
+  for (const ancestorId of groupAncestorIds) {
+    const groupRule = rules.find((r) => r.scope_type === 'group' && r.scope_id === ancestorId);
+    if (groupRule) return { rule: groupRule, scope: 'group' };
   }
+
+  // 3. role
+  if (roleKey) {
+    const roleRule = rules.find((r) => r.scope_type === 'role' && r.scope_id === roleKey);
+    if (roleRule) return { rule: roleRule, scope: 'role' };
+  }
+
+  // 4. global
+  const globalRule = rules.find((r) => r.scope_type === 'global');
+  if (globalRule) return { rule: globalRule, scope: 'global' };
+
   return null;
 }
 
@@ -135,12 +149,14 @@ export async function checkBudget(
 ): Promise<BudgetCheckResult> {
   const admin = getAdminClient();
 
-  const [rules, ctx] = await Promise.all([
+  const [rules, ctx, allGroups] = await Promise.all([
     getActiveRulesForProvider(admin, providerKey),
     getUserBudgetContext(admin, userId),
+    getAllOrgGroups(admin),
   ]);
 
-  const match = matchRule(rules, userId, ctx.roleKey, ctx.groupId);
+  const groupAncestorIds = ctx.groupId ? buildGroupAncestorChain(ctx.groupId, allGroups) : [];
+  const match = matchRule(rules, userId, ctx.roleKey, groupAncestorIds);
   const matchedRule = match ? toMatchedRule(match.rule, match.scope) : null;
 
   const periodType = matchedRule?.periodType ?? 'monthly';
@@ -148,10 +164,22 @@ export async function checkBudget(
   const periodStart = bounds.start.toISOString();
   const periodEnd = bounds.end.toISOString();
 
-  const isGlobal = match?.scope === 'global';
-  const consumed = isGlobal
-    ? await getConsumptionGlobal(admin, providerKey, periodStart, periodEnd)
-    : await getConsumptionForUser(admin, providerKey, userId, periodStart, periodEnd);
+  let consumed: Awaited<ReturnType<typeof getConsumptionForUser>>;
+  if (!match) {
+    consumed = { credits: 0, usd: 0 };
+  } else if (match.scope === 'global') {
+    consumed = await getConsumptionGlobal(admin, providerKey, periodStart, periodEnd);
+  } else if (match.scope === 'group') {
+    // Shared pool: matched group + all its descendants
+    const groupIds = collectGroupSubtreeIds([match.rule.scope_id!], allGroups);
+    consumed = await getConsumptionForGroups(admin, providerKey, groupIds, periodStart, periodEnd);
+  } else if (match.scope === 'role') {
+    // Shared pool: all users with this role
+    consumed = await getConsumptionForRole(admin, providerKey, ctx.roleKey!, periodStart, periodEnd);
+  } else {
+    // user — individual consumption
+    consumed = await getConsumptionForUser(admin, providerKey, userId, periodStart, periodEnd);
+  }
 
   const projected = { credits: operation.credits ?? 0, usd: operation.usd ?? 0 };
 

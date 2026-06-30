@@ -7,6 +7,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { BudgetRule } from '@/modules/usage-tracking/types';
+import type { OrgGroupLike } from '@/modules/access/group-tree';
 import type { UserBudgetContext, PeriodConsumption } from './types';
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -98,6 +99,40 @@ export async function getUserBudgetContext(
   }
 }
 
+// ─── Group hierarchy ─────────────────────────────────────────────────────────
+
+/**
+ * Fetches all organization_groups rows (id, name, parent_group_id).
+ * Used by budget resolution to build ancestor chains and descendant sets.
+ */
+export async function getAllOrgGroups(admin: AdminClient): Promise<OrgGroupLike[]> {
+  const { data } = await admin
+    .from('organization_groups')
+    .select('id, name, parent_group_id');
+  return (data ?? []) as OrgGroupLike[];
+}
+
+/**
+ * Pure helper. Returns the ancestor chain of a group ordered closest-first:
+ *   [groupId, parentId, grandparentId, ...]
+ * Includes groupId itself. Guards against cycles via a visited set.
+ */
+export function buildGroupAncestorChain(
+  groupId: string,
+  allGroups: OrgGroupLike[],
+): string[] {
+  const byId = new Map(allGroups.map((g) => [g.id, g]));
+  const chain: string[] = [];
+  const visited = new Set<string>();
+  let current: string | null = groupId;
+  while (current !== null && !visited.has(current)) {
+    visited.add(current);
+    chain.push(current);
+    current = byId.get(current)?.parent_group_id ?? null;
+  }
+  return chain;
+}
+
 // ─── Consumption ──────────────────────────────────────────────────────────────
 
 /**
@@ -117,6 +152,66 @@ export async function getConsumptionForUser(
     .select('credits_used, estimated_cost_usd')
     .eq('provider_key', providerKey)
     .eq('triggered_by', userId)
+    .gte('created_at', periodStart)
+    .lt('created_at', periodEnd);
+
+  if (error || !data) return { credits: 0, usd: 0 };
+
+  const credits = data.reduce((s, r) => s + Number(r.credits_used ?? 0), 0);
+  const usd = data.reduce((s, r) => s + Number(r.estimated_cost_usd ?? 0), 0);
+  return { credits, usd };
+}
+
+/**
+ * Aggregates credits_used and estimated_cost_usd for a set of group IDs.
+ * Used for the group rule check — the pool covers the matched group and all
+ * its descendants. Logs created before triggered_by_group_id was populated
+ * (Hito A or earlier) will have null there and will NOT be counted; this is
+ * expected and documented: only logs with a group snapshot count toward group
+ * budgets. Historical logs without snapshot still count for user and global rules.
+ */
+export async function getConsumptionForGroups(
+  admin: AdminClient,
+  providerKey: string,
+  groupIds: string[],
+  periodStart: string,
+  periodEnd: string,
+): Promise<PeriodConsumption> {
+  if (groupIds.length === 0) return { credits: 0, usd: 0 };
+
+  const { data, error } = await admin
+    .from('provider_usage_logs')
+    .select('credits_used, estimated_cost_usd')
+    .eq('provider_key', providerKey)
+    .in('triggered_by_group_id', groupIds)
+    .gte('created_at', periodStart)
+    .lt('created_at', periodEnd);
+
+  if (error || !data) return { credits: 0, usd: 0 };
+
+  const credits = data.reduce((s, r) => s + Number(r.credits_used ?? 0), 0);
+  const usd = data.reduce((s, r) => s + Number(r.estimated_cost_usd ?? 0), 0);
+  return { credits, usd };
+}
+
+/**
+ * Aggregates credits_used and estimated_cost_usd for all users with a given role.
+ * Used for the role rule check — the pool is shared across the entire role.
+ * Logs created before triggered_by_role_key was populated will have null and
+ * will NOT be counted; same historical caveat as group logs above.
+ */
+export async function getConsumptionForRole(
+  admin: AdminClient,
+  providerKey: string,
+  roleKey: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<PeriodConsumption> {
+  const { data, error } = await admin
+    .from('provider_usage_logs')
+    .select('credits_used, estimated_cost_usd')
+    .eq('provider_key', providerKey)
+    .eq('triggered_by_role_key', roleKey)
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
