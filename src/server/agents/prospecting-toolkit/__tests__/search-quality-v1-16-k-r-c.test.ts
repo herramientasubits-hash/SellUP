@@ -48,12 +48,12 @@ const BATCH_ID = 'cccccccc-dddd-eeee-ffff-000000000001';
 const USER_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const TAVILY_UNIT_COST = 0.008;
 
-// Réplica fiel de la config estricta de producción (LINKEDIN_SEARCH_STRICT_CONFIG).
+// Réplica fiel de la config estricta de producción (LINKEDIN_SEARCH_STRICT_CONFIG) — v1.16K-R-I.
 const STRICT_CONFIG: LinkedInSearchConfig = {
   enabled: true,
   provider: 'tavily',
-  maxPerBatch: 3,
-  minConfidenceScore: 70,
+  maxPerBatch: 5,
+  minConfidenceScore: 65,
   maxQueriesPerCandidate: 1,
   maxResultsPerQuery: 1,
 };
@@ -269,8 +269,8 @@ describe('G4 — la validación posterior sigue estricta pese a la query más su
 // G5 — Caps de costo intactos
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('G5 — los caps de costo no cambian', () => {
-  it('maxPerBatch=3 y maxResultsPerQuery=1 se respetan en metadata', async () => {
+describe('G5 — los caps de costo no cambian (v1.16K-R-I: cap=5)', () => {
+  it('maxPerBatch=5 y maxResultsPerQuery=1 se respetan en metadata; 6 candidatos → 1 batch_cap_reached', async () => {
     const provider = makeTrackingProvider(() => []);
     const output = await runControlledLinkedInCompanySearch(
       [
@@ -278,6 +278,8 @@ describe('G5 — los caps de costo no cambian', () => {
         makeCandidate({ name: 'Beta SAS', domain: 'beta.co' }),
         makeCandidate({ name: 'Gamma SAS', domain: 'gamma.co' }),
         makeCandidate({ name: 'Delta SAS', domain: 'delta.co' }),
+        makeCandidate({ name: 'Epsilon SAS', domain: 'epsilon.co' }),
+        makeCandidate({ name: 'Zeta SAS', domain: 'zeta.co' }),
       ],
       STRICT_CONFIG,
       provider.fn,
@@ -288,11 +290,11 @@ describe('G5 — los caps de costo no cambian', () => {
       },
     );
 
-    assert.ok(provider.queries.length <= 3, 'maxPerBatch=3 limita las llamadas');
-    assert.equal(output.batchMetadata.max_per_batch, 3);
+    assert.ok(provider.queries.length <= 5, 'maxPerBatch=5 limita las llamadas');
+    assert.equal(output.batchMetadata.max_per_batch, 5);
     assert.equal(output.batchMetadata.max_results_per_query, 1);
     assert.equal(output.batchMetadata.max_queries_per_candidate, 1);
-    // 4 candidatos, cap 3 → al menos uno cae en batch_cap_reached
+    // 6 candidatos, cap 5 → al menos uno cae en batch_cap_reached
     assert.ok(output.results.some((r) => r.skipReason === 'batch_cap_reached'));
   });
 });
@@ -314,5 +316,141 @@ describe('G6 — prioritizeCandidatesForLinkedInSearch devuelve todos los índic
     assert.ok(order.indexOf(1) < order.indexOf(0));
     // El inelegible (índice 2) va al final.
     assert.equal(order[order.length - 1], 2);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// G7 — v1.16K-R-I coverage uplift: maxPerBatch=5, minConfidenceScore=65
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('G7 — v1.16K-R-I: maxPerBatch=5, minConfidenceScore=65', () => {
+  it('LINKEDIN_SEARCH_STRICT_CONFIG.maxPerBatch es 5', async () => {
+    // Importación dinámica para no romper el mock del módulo.
+    const { LINKEDIN_SEARCH_STRICT_CONFIG } = await import('../incremental-search');
+    assert.equal(LINKEDIN_SEARCH_STRICT_CONFIG.maxPerBatch, 5);
+  });
+
+  it('LINKEDIN_SEARCH_STRICT_CONFIG.minConfidenceScore es 65', async () => {
+    const { LINKEDIN_SEARCH_STRICT_CONFIG } = await import('../incremental-search');
+    assert.equal(LINKEDIN_SEARCH_STRICT_CONFIG.minConfidenceScore, 65);
+  });
+
+  it('LINKEDIN_SEARCH_STRICT_CONFIG.maxQueriesPerCandidate sigue en 1', async () => {
+    const { LINKEDIN_SEARCH_STRICT_CONFIG } = await import('../incremental-search');
+    assert.equal(LINKEDIN_SEARCH_STRICT_CONFIG.maxQueriesPerCandidate, 1);
+  });
+
+  it('LINKEDIN_SEARCH_STRICT_CONFIG.maxResultsPerQuery sigue en 3', async () => {
+    const { LINKEDIN_SEARCH_STRICT_CONFIG } = await import('../incremental-search');
+    assert.equal(LINKEDIN_SEARCH_STRICT_CONFIG.maxResultsPerQuery, 3);
+  });
+
+  it('con 8 candidatos elegibles, Tavily intenta máximo 5', async () => {
+    const provider = makeTrackingProvider(() => []);
+    const candidates = Array.from({ length: 8 }, (_, i) =>
+      makeCandidate({ name: `Company ${i + 1}`, domain: `company${i + 1}.co`, confidenceScore: 75 }),
+    );
+
+    const output = await runControlledLinkedInCompanySearch(
+      candidates,
+      STRICT_CONFIG,
+      provider.fn,
+      CHECKED_AT,
+      {
+        usageContext: { batchId: BATCH_ID, userId: USER_A, dryRun: false, unitCostUsd: TAVILY_UNIT_COST },
+        usageLoggerFn: async () => {},
+      },
+    );
+
+    assert.equal(provider.queries.length, 5, 'exactamente 5 llamadas con 8 candidatos elegibles');
+    assert.equal(output.batchMetadata.attempted_count, 5);
+    assert.ok(output.results.some((r) => r.skipReason === 'batch_cap_reached'), 'al menos uno cae en batch_cap_reached');
+  });
+
+  it('candidato con confidenceScore=65 ahora es elegible (antes 70 era el mínimo)', async () => {
+    let called = false;
+    const provider = makeTrackingProvider(() => {
+      called = true;
+      return [];
+    });
+
+    await runControlledLinkedInCompanySearch(
+      [makeCandidate({ confidenceScore: 65 })],
+      STRICT_CONFIG,
+      provider.fn,
+      CHECKED_AT,
+      {
+        usageContext: { batchId: BATCH_ID, userId: USER_A, dryRun: false, unitCostUsd: TAVILY_UNIT_COST },
+        usageLoggerFn: async () => {},
+      },
+    );
+
+    assert.ok(called, 'candidato con score=65 debe intentarse con minConfidenceScore=65');
+  });
+
+  it('candidato con confidenceScore=64 sigue siendo low_confidence', async () => {
+    let called = false;
+    const provider = makeTrackingProvider(() => {
+      called = true;
+      return [];
+    });
+
+    const output = await runControlledLinkedInCompanySearch(
+      [makeCandidate({ confidenceScore: 64 })],
+      STRICT_CONFIG,
+      provider.fn,
+      CHECKED_AT,
+      {
+        usageContext: { batchId: BATCH_ID, userId: USER_A, dryRun: false, unitCostUsd: TAVILY_UNIT_COST },
+        usageLoggerFn: async () => {},
+      },
+    );
+
+    assert.ok(!called, 'candidato con score=64 no debe llamar al provider');
+    assert.equal(output.results[0].skipReason, 'low_confidence');
+  });
+
+  it('ambiguous sigue siendo suggested/review, no found', async () => {
+    const provider = makeTrackingProvider(() => ['https://www.linkedin.com/company/completely-different-slug']);
+
+    const output = await runControlledLinkedInCompanySearch(
+      [makeCandidate({ name: 'Highteck', domain: 'highteck.com.co', confidenceScore: 65 })],
+      STRICT_CONFIG,
+      provider.fn,
+      CHECKED_AT,
+      {
+        usageContext: { batchId: BATCH_ID, userId: USER_A, dryRun: false, unitCostUsd: TAVILY_UNIT_COST },
+        usageLoggerFn: async () => {},
+      },
+    );
+
+    assert.notEqual(output.results[0].enrichment.status, 'found', 'ambiguous no se convierte en found');
+    assert.equal(output.batchMetadata.found_count, 0);
+  });
+
+  it('costo máximo por batch sigue siendo bajo: 5 candidatos × 1 crédito = 5 créditos = USD 0.040', async () => {
+    const captured: { estimated_cost_usd: number }[] = [];
+    const loggerFn = createLinkedInUsageLoggerFn(USER_A, async (input) => {
+      captured.push({ estimated_cost_usd: input.estimated_cost_usd ?? 0 });
+      return { kind: 'logged' };
+    });
+    const provider = makeTrackingProvider(() => []);
+
+    await runControlledLinkedInCompanySearch(
+      Array.from({ length: 5 }, (_, i) =>
+        makeCandidate({ name: `Empresa ${i + 1}`, domain: `empresa${i + 1}.co` }),
+      ),
+      STRICT_CONFIG,
+      provider.fn,
+      CHECKED_AT,
+      {
+        usageContext: { batchId: BATCH_ID, userId: USER_A, dryRun: false, unitCostUsd: TAVILY_UNIT_COST },
+        usageLoggerFn: loggerFn,
+      },
+    );
+
+    assert.equal(captured.length, 5, '5 logs de uso — uno por candidato intentado');
+    const totalCost = captured.reduce((sum, e) => sum + e.estimated_cost_usd, 0);
+    assert.ok(Math.abs(totalCost - 0.04) < 0.0001, `costo total = USD ${totalCost.toFixed(4)}, esperado USD 0.0400`);
   });
 });
