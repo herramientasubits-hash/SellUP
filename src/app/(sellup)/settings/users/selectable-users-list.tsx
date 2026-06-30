@@ -29,6 +29,7 @@ import {
 } from '@/modules/access/actions';
 import { UserActions } from './user-actions';
 import type { InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
+import { formatGroupDisplayName, formatGroupLabel } from '@/modules/access/display-helpers';
 
 const NO_GROUP = '__none__';
 
@@ -43,8 +44,7 @@ function getRoleLabel(roleKey: string | null, roles: Role[]): string {
 }
 
 function getGroupLabel(groupId: string | null, groups: OrganizationGroup[]): string {
-  if (!groupId) return 'Sin grupo';
-  return groups.find(g => g.id === groupId)?.name ?? 'Sin grupo';
+  return formatGroupLabel(groupId, groups);
 }
 
 function formatDate(dateStr: string | null): string {
@@ -386,7 +386,7 @@ export function SelectableUsersList({
                     <SelectItem value={NO_GROUP}>Sin grupo (desasignar)</SelectItem>
                     {groups.map(g => (
                       <SelectItem key={g.id} value={g.id}>
-                        {'  '.repeat(g.depth)}{g.depth > 0 ? '· ' : ''}{g.name}
+                        {'  '.repeat(g.depth)}{g.depth > 0 ? '· ' : ''}{formatGroupDisplayName(g)}
                       </SelectItem>
                     ))}
                   </SelectContent>

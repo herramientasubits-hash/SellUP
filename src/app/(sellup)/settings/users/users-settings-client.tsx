@@ -164,6 +164,7 @@ export function UsersSettingsClient({
             users={users}
             groups={groups}
             roles={roles}
+            isAdmin={isAdmin}
           />
         </TabsContent>
       </Tabs>

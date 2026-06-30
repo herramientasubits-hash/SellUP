@@ -34,6 +34,7 @@ interface GroupsTabProps {
   users: InternalUser[];
   groups: OrganizationGroup[];
   roles: Role[];
+  isAdmin?: boolean;
   initialGroupFilter?: string;
   onGroupFilterChange?: (g: string | null) => void;
 }
@@ -272,7 +273,7 @@ interface GroupsTabProps {
   roles: Role[];
 }
 
-export function GroupsTab({ users, groups, roles }: GroupsTabProps) {
+export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabProps) {
   const [viewMode, setViewMode] = useState<GroupViewMode>('list');
   const activeUsers = useMemo(() => users.filter(u => u.access_status === 'active'), [users]);
 
@@ -314,7 +315,7 @@ export function GroupsTab({ users, groups, roles }: GroupsTabProps) {
 
       {viewMode === 'org' && (
         <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border/40">
-          <GroupsView users={activeUsers} groups={groups} roles={roles} />
+          <GroupsView users={activeUsers} groups={groups} roles={roles} isAdmin={isAdmin} />
         </div>
       )}
     </div>

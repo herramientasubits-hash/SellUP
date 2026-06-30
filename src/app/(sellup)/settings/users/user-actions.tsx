@@ -37,6 +37,7 @@ import {
   activateFromRejected,
 } from '@/modules/access/actions';
 import type { InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
+import { formatGroupDisplayName, formatGroupLabel } from '@/modules/access/display-helpers';
 
 const SELF_MANAGER_VALUE = '__self__';
 
@@ -456,13 +457,18 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
               onValueChange={(v) => setSelectedGroup(v ?? NO_GROUP_VALUE)}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Seleccionar grupo" />
+                {/* Provide children to avoid Radix showing raw UUID before SelectItem text registers */}
+                <SelectValue>
+                  {!selectedGroup || selectedGroup === NO_GROUP_VALUE
+                    ? 'Sin grupo'
+                    : formatGroupLabel(selectedGroup, groups)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_GROUP_VALUE}>Sin grupo</SelectItem>
                 {groups.map((g) => (
                   <SelectItem key={g.id} value={g.id}>
-                    {g.name}
+                    {formatGroupDisplayName(g)}
                   </SelectItem>
                 ))}
               </SelectContent>

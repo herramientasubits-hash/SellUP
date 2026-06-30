@@ -1,16 +1,19 @@
 'use client';
 
-import { useMemo } from 'react';
-import { Users, Folder, FolderOpen, ChevronRight } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Users, Folder, FolderOpen, ChevronRight, UserPlus } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import type { InternalUser, OrganizationGroup, Role } from '@/modules/access/types';
 import { buildOrgGroupForest, type OrgGroupNode } from '@/modules/access/group-tree';
+import { AssignUsersToGroupDialog } from './assign-users-to-group-dialog';
 
 interface GroupsViewProps {
   users: InternalUser[];
   groups: OrganizationGroup[];
   roles: Role[];
+  isAdmin?: boolean;
 }
 
 interface GroupNode {
@@ -78,10 +81,14 @@ function MemberChip({ user, roles }: MemberChipProps) {
 interface GroupNodeCardProps {
   node: GroupNode;
   roles: Role[];
+  allGroups: OrganizationGroup[];
+  allActiveUsers: InternalUser[];
+  isAdmin: boolean;
   depth?: number;
 }
 
-function GroupNodeCard({ node, roles, depth = 0 }: GroupNodeCardProps) {
+function GroupNodeCard({ node, roles, allGroups, allActiveUsers, isAdmin, depth = 0 }: GroupNodeCardProps) {
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
   const hasMembers = node.members.length > 0;
   const hasChildren = node.children.length > 0;
   const totalDescendants = countMembers(node);
@@ -102,7 +109,7 @@ function GroupNodeCard({ node, roles, depth = 0 }: GroupNodeCardProps) {
           <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
         )}
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-semibold text-foreground">{node.group.name}</span>
+          <span className="text-sm font-semibold text-foreground">{node.group.name || 'Grupo sin nombre'}</span>
           {node.group.description && (
             <span className="ml-2 text-xs text-muted-foreground">{node.group.description}</span>
           )}
@@ -111,7 +118,28 @@ function GroupNodeCard({ node, roles, depth = 0 }: GroupNodeCardProps) {
           <Users className="mr-1 h-3 w-3" />
           {totalDescendants}
         </Badge>
+        {isAdmin && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => setShowAssignDialog(true)}
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Agregar usuarios
+          </Button>
+        )}
       </div>
+
+      {isAdmin && (
+        <AssignUsersToGroupDialog
+          group={node.group}
+          allGroups={allGroups}
+          activeUsers={allActiveUsers}
+          open={showAssignDialog}
+          onClose={() => setShowAssignDialog(false)}
+        />
+      )}
 
       {/* Members grid */}
       {hasMembers && (
@@ -139,7 +167,14 @@ function GroupNodeCard({ node, roles, depth = 0 }: GroupNodeCardProps) {
                 <ChevronRight className="h-3.5 w-3.5 text-border shrink-0" />
               </div>
               <div className="flex-1">
-                <GroupNodeCard node={child} roles={roles} depth={Math.min(depth + 1, 2)} />
+                <GroupNodeCard
+                  node={child}
+                  roles={roles}
+                  allGroups={allGroups}
+                  allActiveUsers={allActiveUsers}
+                  isAdmin={isAdmin}
+                  depth={Math.min(depth + 1, 2)}
+                />
               </div>
             </div>
           ))}
@@ -153,7 +188,7 @@ function countMembers(node: GroupNode): number {
   return node.members.length + node.children.reduce((acc, c) => acc + countMembers(c), 0);
 }
 
-export function GroupsView({ users, groups, roles }: GroupsViewProps) {
+export function GroupsView({ users, groups, roles, isAdmin = false }: GroupsViewProps) {
   const activeUsers = useMemo(() => users.filter(u => u.access_status === 'active'), [users]);
   const tree = useMemo(() => buildGroupTree(groups, activeUsers), [groups, activeUsers]);
   const ungrouped = useMemo(() => activeUsers.filter(u => !u.group_id), [activeUsers]);
@@ -171,7 +206,15 @@ export function GroupsView({ users, groups, roles }: GroupsViewProps) {
   return (
     <div className="space-y-4">
       {tree.map(root => (
-        <GroupNodeCard key={root.group.id} node={root} roles={roles} depth={0} />
+        <GroupNodeCard
+          key={root.group.id}
+          node={root}
+          roles={roles}
+          allGroups={groups}
+          allActiveUsers={activeUsers}
+          isAdmin={isAdmin}
+          depth={0}
+        />
       ))}
 
       {/* Ungrouped users */}

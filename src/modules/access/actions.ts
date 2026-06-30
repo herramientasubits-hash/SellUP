@@ -1005,3 +1005,58 @@ export async function bulkAssignGroup(
   ));
   return { success: true };
 }
+
+// ─── Assign users to group (from Groups view, with full validation) ────────────
+
+export async function assignUsersToGroup(
+  groupId: string,
+  userIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  if (!userIds.length) return { success: true };
+  const supabase = await createClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  if (!currentUser) return { success: false, error: 'No autenticado' };
+
+  const { data: isAdminResult } = await supabase.rpc('is_admin', { p_auth_user_id: currentUser.id });
+  if (!isAdminResult) return { success: false, error: 'Solo administradores pueden asignar grupos' };
+
+  const { data: adminUser } = await supabase
+    .from('internal_users')
+    .select('id')
+    .eq('auth_user_id', currentUser.id)
+    .eq('access_status', 'active')
+    .single();
+  if (!adminUser) return { success: false, error: 'No autorizado' };
+
+  const { data: group } = await supabase
+    .from('organization_groups')
+    .select('id')
+    .eq('id', groupId)
+    .single();
+  if (!group) return { success: false, error: 'Grupo no encontrado' };
+
+  const { data: targetUsers } = await supabase
+    .from('internal_users')
+    .select('id')
+    .in('id', userIds);
+  if (!targetUsers || targetUsers.length !== userIds.length) {
+    return { success: false, error: 'Uno o más usuarios no fueron encontrados' };
+  }
+
+  const { error } = await supabase
+    .from('internal_users')
+    .update({ group_id: groupId, updated_at: new Date().toISOString() })
+    .in('id', userIds);
+  if (error) return { success: false, error: error.message };
+
+  await Promise.allSettled(userIds.map(id =>
+    supabase.rpc('log_access_event', {
+      p_actor_user_id: adminUser.id,
+      p_target_user_id: id,
+      p_action_type: 'group_assigned',
+      p_metadata: { new_group_id: groupId },
+    })
+  ));
+
+  return { success: true };
+}
