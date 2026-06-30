@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Globe, ShieldCheck, ExternalLink } from 'lucide-react';
+import { Building2, Globe, ShieldCheck, ExternalLink, Link2 } from 'lucide-react';
+import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -483,6 +484,32 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           <ExternalLink className="h-2 w-2 opacity-60" />
                         </a>
                       )}
+                      {(() => {
+                        const liUrl = getCandidateLinkedInUrl(c.metadata);
+                        if (!liUrl) return null;
+                        return (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger render={
+                                <a
+                                  href={liUrl.startsWith('http') ? liUrl : `https://${liUrl}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label="Abrir LinkedIn de la empresa"
+                                  className="inline-flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Link2 className="h-2.5 w-2.5" />
+                                  <span>LinkedIn</span>
+                                </a>
+                              } />
+                              <TooltipContent className="text-[11px] bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                                Abrir LinkedIn de la empresa
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      })()}
                     </div>
                   </td>
 

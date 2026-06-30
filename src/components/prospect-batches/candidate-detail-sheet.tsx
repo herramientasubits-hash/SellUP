@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   Globe,
   Link2,
@@ -705,7 +706,9 @@ export function CandidateDetailSheet({
     })() ??
     null;
   const hasLinkedinSignal = importMeta?.validation?.quality_check?.has_linkedin === true;
-  const effectiveLinkedinUrl = linkedinUrl ?? (isExternalImport ? importLinkedinUrl : null);
+  // v1.16K-R-E: additional fallback from linkedin_enrichment / rich_profile
+  const tavilyLinkedinUrl = getCandidateLinkedInUrl(candidate?.metadata);
+  const effectiveLinkedinUrl = linkedinUrl ?? (isExternalImport ? importLinkedinUrl : null) ?? tavilyLinkedinUrl;
 
   // Validation-derived state for external_import candidates
   const validationMetaSheet = importMeta?.validation;
