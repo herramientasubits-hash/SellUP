@@ -13,6 +13,7 @@ import {
   extractTenderIdFromOcid,
   fetchOcdsListado,
   fetchOcdsTender,
+  fetchOcdsAward,
   extractTotal,
   extractListItems,
   extractRelease,
@@ -87,17 +88,26 @@ describe('extractTotal / extractListItems', () => {
     assert.equal(extractTotal({ pagination: {} }), null);
   });
 
-  it('extrae items con ocid + urlTender desde data[]', () => {
+  it('extrae items con ocid + urlTender + urlAward desde data[]', () => {
     const items = extractListItems({
       data: [
-        { ocid: 'ocds-a', urlTender: 'https://x/a' },
+        { ocid: 'ocds-a', urlTender: 'https://x/a', urlAward: 'https://x/award/a' },
         { ocid: 'ocds-b' },
         { noOcid: true },
       ],
     });
     assert.deepEqual(items, [
-      { ocid: 'ocds-a', urlTender: 'https://x/a' },
-      { ocid: 'ocds-b', urlTender: null },
+      { ocid: 'ocds-a', urlTender: 'https://x/a', urlAward: 'https://x/award/a' },
+      { ocid: 'ocds-b', urlTender: null, urlAward: null },
+    ]);
+  });
+
+  it('urlAward queda null si no viene en el item', () => {
+    const items = extractListItems({
+      data: [{ ocid: 'ocds-70d2nz-4280-18-LP26', urlTender: 'https://x/t' }],
+    });
+    assert.deepEqual(items, [
+      { ocid: 'ocds-70d2nz-4280-18-LP26', urlTender: 'https://x/t', urlAward: null },
     ]);
   });
 
@@ -136,7 +146,7 @@ describe('fetchOcdsListado', () => {
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal(result.total, 42);
-      assert.deepEqual(result.items, [{ ocid: 'ocds-1', urlTender: 'u1' }]);
+      assert.deepEqual(result.items, [{ ocid: 'ocds-1', urlTender: 'u1', urlAward: null }]);
     }
   });
 
@@ -193,5 +203,46 @@ describe('fetchOcdsTender', () => {
     globalThis.fetch = (async () => jsonResponse({}, 404)) as typeof fetch;
     const result = await fetchOcdsTender('ocds-1');
     assert.equal(result.ok, false);
+  });
+});
+
+describe('fetchOcdsAward', () => {
+  it('usa la URL completa del listado sin reconstruirla', async () => {
+    let requestedUrl = '';
+    const awardUrl = 'https://api.mercadopublico.cl/APISOCDS/OCDS/award/4280-24-LP99';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requestedUrl = String(input);
+      return jsonResponse({ releases: [{ ocid: 'ocds-70d2nz-4280-24-LP99', awards: [] }] });
+    }) as typeof fetch;
+
+    const result = await fetchOcdsAward(awardUrl);
+    assert.equal(result.ok, true);
+    assert.equal(requestedUrl, awardUrl, 'debe usar la URL exacta sin modificar');
+  });
+
+  it('devuelve release con awards del endpoint', async () => {
+    globalThis.fetch = (async () =>
+      jsonResponse({
+        releases: [
+          {
+            ocid: 'ocds-70d2nz-4280-24-LP99',
+            awards: [{ id: 'award-1', status: 'active', suppliers: [{ id: 's1', name: 'Proveedor' }] }],
+            parties: [{ id: 's1', name: 'Proveedor', roles: ['supplier'] }],
+          },
+        ],
+      })) as typeof fetch;
+
+    const result = await fetchOcdsAward('https://api.mercadopublico.cl/APISOCDS/OCDS/award/4280-24-LP99');
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.ok(Array.isArray(result.release.awards) && result.release.awards.length === 1);
+    }
+  });
+
+  it('maneja HTTP error en award endpoint', async () => {
+    globalThis.fetch = (async () => jsonResponse({}, 503)) as typeof fetch;
+    const result = await fetchOcdsAward('https://api.mercadopublico.cl/APISOCDS/OCDS/award/fail');
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.ok(result.error.includes('503'));
   });
 });

@@ -184,7 +184,11 @@ export function extractListItems(
         typeof obj.urlTender === 'string' && obj.urlTender.length > 0
           ? obj.urlTender
           : null;
-      return { ocid, urlTender };
+      const urlAward =
+        typeof obj.urlAward === 'string' && obj.urlAward.length > 0
+          ? obj.urlAward
+          : null;
+      return { ocid, urlTender, urlAward };
     })
     .filter((x): x is ChileCompraOcdsListItem => x !== null);
 }
@@ -264,6 +268,54 @@ export function extractRelease(body: unknown): OcdsRelease | null {
   }
 
   return null;
+}
+
+export type FetchAwardResult =
+  | { ok: true; release: OcdsRelease }
+  | { ok: false; error: string };
+
+/**
+ * Consulta el endpoint de adjudicación usando la URL completa proveniente del listado.
+ * La URL viene de `urlAward` y se usa tal cual (no se reconstruye manualmente).
+ * Reutiliza `extractRelease` para tolerar distintas envolturas OCDS.
+ */
+export async function fetchOcdsAward(urlAward: string): Promise<FetchAwardResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OCDS_TIMEOUT_MS);
+
+  let responseText: string;
+  try {
+    let response: Response;
+    try {
+      response = await fetch(urlAward, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: OCDS_HEADERS,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!response.ok) {
+      return { ok: false, error: `HTTP ${response.status} en award ${urlAward}` };
+    }
+    responseText = await response.text();
+  } catch (error: unknown) {
+    const t = mapTransportError(error);
+    return { ok: false, error: t.error };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(responseText);
+  } catch {
+    return { ok: false, error: 'Award no es JSON válido' };
+  }
+
+  const release = extractRelease(parsed);
+  if (!release) {
+    return { ok: false, error: 'Award sin release OCDS reconocible' };
+  }
+  return { ok: true, release };
 }
 
 // ─── Error sanitization ──────────────────────────────────────────────────────────

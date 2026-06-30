@@ -94,6 +94,7 @@ export type OcdsRelease = {
 export type ChileCompraOcdsListItem = {
   ocid: string;
   urlTender: string | null;
+  urlAward: string | null;
 };
 
 // ─── Proceso normalizado (salida por item del dry-run) ──────────────────────────

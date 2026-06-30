@@ -376,7 +376,7 @@ describe('Mapping — campos snapshot', () => {
     assert.ok(!('tender' in rawData), 'raw_data no debe contener release.tender');
     assert.ok(!('parties' in rawData), 'raw_data no debe contener release.parties');
     assert.ok(!('awards' in rawData), 'raw_data no debe contener release.awards');
-    assert.equal(rawData['etl_version'], 'v1.16CL-D');
+    assert.equal(rawData['etl_version'], 'v1.16CL-D.1');
     assert.equal(rawData['source'], 'chilecompra_ocds');
   });
 
@@ -483,5 +483,149 @@ describe('Priority score', () => {
   });
   it('score 2 para awardsCount > 5 con monto bajo', () => {
     assert.equal(computePriorityScore(0, 6), 2);
+  });
+});
+
+// ─── 8. Award endpoint ─────────────────────────────────────────────────────────
+
+describe('Award endpoint — ETL usa urlAward cuando existe', () => {
+  it('llama _fetchAward cuando el item tiene urlAward y produce métricas de adjudicación', async () => {
+    const awardRelease: OcdsRelease = {
+      ocid: 'ocds-70d2nz-4280-24-LP99',
+      awards: [
+        {
+          id: 'award-99',
+          status: 'active',
+          suppliers: [{ id: 'supplier-1', name: 'Proveedor SA' }],
+          // @ts-expect-error
+          value: { amount: 5_000_000, currency: 'CLP' },
+        },
+      ],
+      parties: [
+        {
+          id: 'supplier-1',
+          name: 'Proveedor SA',
+          roles: ['supplier'],
+          identifier: { scheme: 'CL-RUT', id: '76.543.210-K' },
+        },
+      ],
+    };
+
+    const tenderRelease: OcdsRelease = {
+      ocid: 'ocds-70d2nz-4280-24-LP99',
+      tender: { id: '4280-24-LP99', title: 'Licitación test award' },
+      parties: [],
+      awards: [],
+    };
+
+    const mockListado = async () => ({
+      ok: true as const,
+      total: 1,
+      items: [
+        {
+          ocid: 'ocds-70d2nz-4280-24-LP99',
+          urlTender: 'https://api.mercadopublico.cl/APISOCDS/OCDS/tender/4280-24-LP99',
+          urlAward: 'https://api.mercadopublico.cl/APISOCDS/OCDS/award/4280-24-LP99',
+        },
+      ],
+    });
+
+    let awardFetchCalled = false;
+    const mockFetchAward = async (_url: string) => {
+      awardFetchCalled = true;
+      return { ok: true as const, release: awardRelease };
+    };
+
+    const mockFetchTender = async (_ocid: string) => ({
+      ok: true as const,
+      release: tenderRelease,
+    });
+
+    const result = await runChileCompraOcdsSnapshotEtl({
+      year: 2024,
+      months: [6],
+      dryRun: true,
+      _fetchListado: mockListado,
+      _fetchTender: mockFetchTender,
+      _fetchAward: mockFetchAward,
+    });
+
+    assert.equal(awardFetchCalled, true, 'debe llamar _fetchAward cuando urlAward existe');
+    assert.equal(result.awarded_processes, 1, 'debe contar el proceso como adjudicado');
+    assert.equal(result.suppliers_unique, 1, 'debe contar 1 proveedor único');
+    assert.equal(result.records_found, 1, 'debe encontrar 1 record');
+    assert.equal(result.award_url_missing, 0, 'no debe contar award_url_missing');
+    assert.equal(result.writes_performed, 0);
+  });
+
+  it('cuenta award_url_missing cuando el item no tiene urlAward', async () => {
+    const mockListado = async () => ({
+      ok: true as const,
+      total: 1,
+      items: [
+        {
+          ocid: 'ocds-70d2nz-4280-24-LP98',
+          urlTender: 'https://api.mercadopublico.cl/APISOCDS/OCDS/tender/4280-24-LP98',
+          urlAward: null,
+        },
+      ],
+    });
+
+    const mockFetchTender = async (_ocid: string) => ({
+      ok: true as const,
+      release: { ocid: 'ocds-70d2nz-4280-24-LP98', awards: [], parties: [] } as OcdsRelease,
+    });
+
+    const result = await runChileCompraOcdsSnapshotEtl({
+      year: 2024,
+      months: [6],
+      dryRun: true,
+      _fetchListado: mockListado,
+      _fetchTender: mockFetchTender,
+    });
+
+    assert.equal(result.award_url_missing, 1, 'debe contar 1 award_url_missing');
+    assert.equal(result.processes_without_award, 1, 'proceso sin awards válidos');
+  });
+
+  it('continúa procesando si award endpoint falla', async () => {
+    const mockListado = async () => ({
+      ok: true as const,
+      total: 1,
+      items: [
+        {
+          ocid: 'ocds-70d2nz-4280-24-LP97',
+          urlTender: 'https://api.mercadopublico.cl/APISOCDS/OCDS/tender/4280-24-LP97',
+          urlAward: 'https://api.mercadopublico.cl/APISOCDS/OCDS/award/4280-24-LP97',
+        },
+      ],
+    });
+
+    const mockFetchTender = async (_ocid: string) => ({
+      ok: true as const,
+      release: { ocid: 'ocds-70d2nz-4280-24-LP97', awards: [], parties: [] } as OcdsRelease,
+    });
+
+    const mockFetchAward = async (_url: string) => ({
+      ok: false as const,
+      error: 'HTTP 503 en award',
+    });
+
+    const result = await runChileCompraOcdsSnapshotEtl({
+      year: 2024,
+      months: [6],
+      dryRun: true,
+      _fetchListado: mockListado,
+      _fetchTender: mockFetchTender,
+      _fetchAward: mockFetchAward,
+    });
+
+    assert.equal(result.ok, true, 'ETL no debe abortar por fallo en award endpoint');
+    assert.ok(
+      result.errors.some((e) => e.includes('HTTP 503 en award')),
+      'debe registrar el error del award en errors',
+    );
+    assert.equal(result.processes_scanned, 1);
+    assert.equal(result.award_url_missing, 0, 'no es missing url, es fallo de fetch');
   });
 });

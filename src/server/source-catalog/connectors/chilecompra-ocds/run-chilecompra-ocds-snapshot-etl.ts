@@ -21,13 +21,15 @@ import { createClient } from '@supabase/supabase-js';
 import {
   fetchOcdsListado,
   fetchOcdsTender,
+  fetchOcdsAward,
   buildTenderUrl,
   OCDS_SERVER_MAX_LIMIT,
 } from './chilecompra-ocds-client';
+import type { FetchAwardResult } from './chilecompra-ocds-client';
 import { normalizeRut, resolveBuyer, collectUnspsc } from './normalizers';
 import type { OcdsRelease, OcdsAward } from './types';
 
-const ETL_VERSION = 'v1.16CL-D';
+const ETL_VERSION = 'v1.16CL-D.1';
 const BATCH_SIZE = 100;
 const DETAIL_CONCURRENCY = 3;
 const ARRAY_MAX = 50;
@@ -47,6 +49,8 @@ export type ChileCompraOcdsSnapshotEtlInput = {
   _fetchListado?: typeof fetchOcdsListado;
   /** Override tender fetcher for testing (no red real). */
   _fetchTender?: typeof fetchOcdsTender;
+  /** Override award fetcher for testing (no red real). */
+  _fetchAward?: (urlAward: string) => Promise<FetchAwardResult>;
 };
 
 export type ChileCompraOcdsSnapshotEtlResult = {
@@ -63,6 +67,7 @@ export type ChileCompraOcdsSnapshotEtlResult = {
   records_found: number;
   records_upserted: number;
   processes_without_award: number;
+  award_url_missing: number;
   awards_without_supplier_rut: number;
   awards_with_missing_amount: number;
   awards_in_non_clp_currency: number;
@@ -430,6 +435,7 @@ export async function runChileCompraOcdsSnapshotEtl(
     allowPartialWrite = false,
     _fetchListado = fetchOcdsListado,
     _fetchTender = fetchOcdsTender,
+    _fetchAward = fetchOcdsAward,
   } = input;
 
   const errors: string[] = [];
@@ -455,6 +461,7 @@ export async function runChileCompraOcdsSnapshotEtl(
       records_found: 0,
       records_upserted: 0,
       processes_without_award: 0,
+      award_url_missing: 0,
       awards_without_supplier_rut: 0,
       awards_with_missing_amount: 0,
       awards_in_non_clp_currency: 0,
@@ -474,6 +481,7 @@ export async function runChileCompraOcdsSnapshotEtl(
   let detailsSuccess = 0;
   let detailsFailed = 0;
   let awardedProcesses = 0;
+  let awardUrlMissing = 0;
 
   const globalCounters: ProcessReleaseCounters = {
     processesWithoutAward: 0,
@@ -523,7 +531,31 @@ export async function runChileCompraOcdsSnapshotEtl(
             return null;
           }
           detailsSuccess++;
-          return { release: tenderResult.release, item };
+
+          // Usar award endpoint cuando urlAward está disponible en el listado
+          let release = tenderResult.release;
+          if (item.urlAward) {
+            const awardResult = await _fetchAward(item.urlAward);
+            if (awardResult.ok) {
+              const awardRelease = awardResult.release;
+              release = {
+                ...release,
+                // Awards provienen del endpoint dedicado
+                awards: awardRelease.awards ?? release.awards,
+                // Parties: combinar tender + award para resolver suppliers por RUT
+                parties: [
+                  ...(release.parties ?? []),
+                  ...(awardRelease.parties ?? []),
+                ],
+              };
+            } else {
+              errors.push(`Award ${item.urlAward}: ${awardResult.error}`);
+            }
+          } else {
+            awardUrlMissing++;
+          }
+
+          return { release, item };
         },
       );
 
@@ -569,6 +601,7 @@ export async function runChileCompraOcdsSnapshotEtl(
       records_found: recordsFound,
       records_upserted: 0,
       processes_without_award: globalCounters.processesWithoutAward,
+      award_url_missing: awardUrlMissing,
       awards_without_supplier_rut: globalCounters.awardsWithoutSupplierRut,
       awards_with_missing_amount: globalCounters.awardsWithMissingAmount,
       awards_in_non_clp_currency: globalCounters.awardsInNonClpCurrency,
@@ -649,6 +682,7 @@ export async function runChileCompraOcdsSnapshotEtl(
       records_found: recordsFound,
       records_upserted: recordsUpserted,
       processes_without_award: globalCounters.processesWithoutAward,
+      award_url_missing: awardUrlMissing,
       awards_without_supplier_rut: globalCounters.awardsWithoutSupplierRut,
       awards_with_missing_amount: globalCounters.awardsWithMissingAmount,
       awards_in_non_clp_currency: globalCounters.awardsInNonClpCurrency,
@@ -682,6 +716,7 @@ export async function runChileCompraOcdsSnapshotEtl(
       records_found: recordsFound,
       records_upserted: recordsUpserted,
       processes_without_award: globalCounters.processesWithoutAward,
+      award_url_missing: awardUrlMissing,
       awards_without_supplier_rut: globalCounters.awardsWithoutSupplierRut,
       awards_with_missing_amount: globalCounters.awardsWithMissingAmount,
       awards_in_non_clp_currency: globalCounters.awardsInNonClpCurrency,
