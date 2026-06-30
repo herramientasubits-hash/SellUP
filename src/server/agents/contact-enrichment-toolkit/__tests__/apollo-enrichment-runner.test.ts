@@ -21,6 +21,7 @@ import {
 } from '../contact-completion-adapter';
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
 import type { AgentRunStep } from '@/modules/usage-tracking/types';
+import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 
 /** Vista mínima de un candidato escrito (para inspeccionar metadata en tests). */
 interface DeduplicatedContactLike {
@@ -79,7 +80,9 @@ interface Harness {
   deps: ApolloEnrichmentRunnerDeps;
   getStore: () => ContactEnrichmentRunRow;
   getWriteCalls: () => number;
+  /** @deprecated usa getUsageLogs() para verificar argumentos */
   getUsageLogged: () => boolean;
+  getUsageLogs: () => LogProviderUsageInput[];
 }
 
 function makeHarness(
@@ -88,7 +91,7 @@ function makeHarness(
 ): Harness {
   let store = initialRun;
   let writeCalls = 0;
-  let usageLogged = false;
+  const usageLogs: LogProviderUsageInput[] = [];
 
   const deps: ApolloEnrichmentRunnerDeps = {
     loadRun: async () => store,
@@ -118,8 +121,8 @@ function makeHarness(
       } satisfies CompleteContactResult;
     },
     loadApolloUnitCost: async () => 0.00875,
-    logUsage: async () => {
-      usageLogged = true;
+    logUsage: async (input) => {
+      usageLogs.push(input);
       return true;
     },
     createStep: async () => ({ id: 'step-1' }) as unknown as AgentRunStep,
@@ -130,7 +133,8 @@ function makeHarness(
     deps,
     getStore: () => store,
     getWriteCalls: () => writeCalls,
-    getUsageLogged: () => usageLogged,
+    getUsageLogged: () => usageLogs.length > 0,
+    getUsageLogs: () => usageLogs,
   };
 }
 
@@ -539,6 +543,169 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(result.status, 'ready_for_review');
     assert.equal(result.candidatesCreated, 2);
     assert.equal(result.actionableContactsCount, 2);
+  });
+
+  // ── Trazabilidad provider_usage_logs (Hito 17A.6E) ──────────────────────────
+
+  it('Caso A — 0 resultados registra usage log con credits=0, status=success', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=siesa.com); department=HR', rawResultsCount: 0 },
+        { attempt: 'hr_titles_without_department', filters: 'org(dominio=siesa.com); titles=HR', rawResultsCount: 0 },
+        { attempt: 'broad_seniorities_only', filters: 'org(dominio=siesa.com); seniorities', rawResultsCount: 0 },
+      ],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 0, rawResultsCount: 0 },
+      searchGuardrail: {
+        max_search_attempts: 3,
+        max_results_per_attempt: 5,
+        max_results_per_run: 15,
+        estimated_search_credits: 0,
+        blocked_by_search_budget: false,
+        stopped_early_reason: 'all_attempts_exhausted',
+      },
+    };
+    const h = makeHarness(makeRun({ company_name: 'Siesa', company_domain: 'siesa.com' }), apollo);
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const logs = h.getUsageLogs();
+    assert.ok(logs.length >= 1, 'debe haber al menos un usage log');
+    const searchLog = logs.find((l) => l.operation_key === 'people_search');
+    assert.ok(searchLog, 'debe existir log people_search');
+    assert.equal(searchLog.status, 'success');
+    assert.equal(searchLog.credits_used, 0);
+    assert.equal(searchLog.results_returned, 0);
+    assert.equal(searchLog.estimated_cost_usd, 0);
+    assert.equal((searchLog.metadata as Record<string, unknown>)?.company_name, 'Siesa');
+    assert.equal((searchLog.metadata as Record<string, unknown>)?.company_domain, 'siesa.com');
+    assert.equal((searchLog.metadata as Record<string, unknown>)?.raw_results_count, 0);
+    assert.ok(
+      (searchLog.metadata as Record<string, unknown>)?.search_guardrail,
+      'metadata debe incluir search_guardrail',
+    );
+  });
+
+  it('Caso A — 0 resultados: credits_used=0 y estimated_cost_usd=0 en el log', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [],
+      attempts: [],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 0, rawResultsCount: 0 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const searchLog = h.getUsageLogs().find((l) => l.operation_key === 'people_search');
+    assert.ok(searchLog);
+    assert.equal(searchLog.credits_used, 0);
+    assert.equal(searchLog.estimated_cost_usd, 0);
+  });
+
+  it('Caso B — error de proveedor registra usage log con status=error', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'error',
+      people: [],
+      attempts: [],
+      reason: 'Apollo no está conectado o no tiene credenciales disponibles',
+    };
+    const h = makeHarness(makeRun({ company_name: 'Siesa', company_domain: 'siesa.com' }), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'error');
+    const logs = h.getUsageLogs();
+    assert.ok(logs.length >= 1, 'debe haber al menos un usage log incluso con error');
+    const errorLog = logs.find((l) => l.operation_key === 'people_search');
+    assert.ok(errorLog, 'debe existir log people_search');
+    assert.equal(errorLog.status, 'error');
+    assert.equal(errorLog.credits_used, 0);
+    assert.ok(errorLog.error_message, 'debe incluir error_message');
+    assert.equal((errorLog.metadata as Record<string, unknown>)?.company_name, 'Siesa');
+  });
+
+  it('Caso C — resultados normales conservan logging existente', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [person('a', 'a@corp.com'), person('b', 'b@corp.com')],
+      attempts: [{ attempt: 'strict_hr_department', filters: 'org(dominio=corp.com)', rawResultsCount: 2 }],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 2, rawResultsCount: 2 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const searchLog = h.getUsageLogs().find((l) => l.operation_key === 'people_search');
+    assert.ok(searchLog, 'debe existir log people_search');
+    assert.equal(searchLog.status, 'success');
+    assert.equal(searchLog.credits_used, 2);
+    assert.equal(searchLog.results_returned, 2);
+    assert.equal((searchLog.metadata as Record<string, unknown>)?.raw_results_count, 2);
+  });
+
+  it('Caso D — búsqueda bloqueada (skipped) no registra success falso', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'skipped',
+      people: [],
+      attempts: [],
+      reason: 'Datos insuficientes para Apollo: falta dominio y nombre de empresa',
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const successLog = h.getUsageLogs().find((l) => l.status === 'success');
+    assert.equal(successLog, undefined, 'no debe haber log success cuando se saltó sin llamar Apollo');
+  });
+
+  it('metadata incluye search_guardrail cuando hay resultados', async () => {
+    const guardrail: SearchGuardrailMeta = {
+      max_search_attempts: 3,
+      max_results_per_attempt: 5,
+      max_results_per_run: 15,
+      estimated_search_credits: 1,
+      blocked_by_search_budget: false,
+      stopped_early_reason: 'target_reviewable_reached',
+    };
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [person('a', 'a@corp.com')],
+      attempts: [{ attempt: 'strict_hr_department', filters: 'org(dominio=corp.com)', rawResultsCount: 1 }],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 1, rawResultsCount: 1 },
+      searchGuardrail: guardrail,
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const searchLog = h.getUsageLogs().find((l) => l.operation_key === 'people_search');
+    assert.ok(searchLog);
+    const sg = (searchLog.metadata as Record<string, unknown>)?.search_guardrail as Record<string, unknown>;
+    assert.ok(sg, 'search_guardrail debe estar en metadata');
+    assert.equal(sg.stopped_early_reason, 'target_reviewable_reached');
+  });
+
+  it('no ejecuta Apollo real en ningún test — todos usan stub runApollo', async () => {
+    // Este test verifica que el harness intercepte la llamada Apollo sin red real.
+    let apolloCalled = false;
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [],
+      attempts: [],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 0, rawResultsCount: 0 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+    h.deps.runApollo = async () => {
+      apolloCalled = true;
+      return apollo;
+    };
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(apolloCalled, true, 'runApollo stub fue invocado');
+    // Si hubiera llamada real, necesitaría credenciales y fallaría en CI.
   });
 
   it('summary incluye el bloque contact_completion', async () => {

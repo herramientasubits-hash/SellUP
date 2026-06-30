@@ -501,6 +501,7 @@ export async function executeContactEnrichmentApolloRun(
       possible_duplicates_count: 0,
       estimated_cost_usd: 0,
       search_attempts: toAttemptSummaries(apollo.attempts),
+      search_guardrail: apollo.searchGuardrail,
       reason: apollo.reason,
     };
     await updateRun(runId, {
@@ -514,6 +515,25 @@ export async function executeContactEnrichmentApolloRun(
         duration_ms: Date.now() - startMs,
       });
     }
+    // Registrar intento fallido — hubo una llamada real a Apollo aunque resultó en error.
+    await logUsage({
+      agent_run_id: run.agent_run_id ?? undefined,
+      agent_run_step_id: step?.id,
+      provider_key: APOLLO_PROVIDER_KEY,
+      operation_key: APOLLO_OPERATION_KEY,
+      credits_used: 0,
+      results_returned: 0,
+      estimated_cost_usd: 0,
+      status: 'error',
+      error_message: apollo.reason,
+      duration_ms: Date.now() - startMs,
+      triggered_by: triggeredBy ?? undefined,
+      metadata: {
+        company_name: run.company_name,
+        company_domain: run.company_domain,
+        search_guardrail: apollo.searchGuardrail ?? null,
+      },
+    });
     return emptyRunResult({
       status: 'error',
       runStatus: 'failed',
@@ -768,6 +788,7 @@ export async function executeContactEnrichmentApolloRun(
     metadata: {
       company_name: run.company_name,
       company_domain: run.company_domain,
+      raw_results_count: rawResultsCount,
       normalized_count: normalized.length,
       evaluated_count: relevanceFilter.evaluated_count,
       inserted_candidates_count: insertedCount,
@@ -777,6 +798,7 @@ export async function executeContactEnrichmentApolloRun(
       pricing_source: 'provider_pricing_config',
       pricing_basis: 'per_result_as_credit',
       unit_cost_usd: unitCost,
+      search_guardrail: apollo.searchGuardrail ?? null,
     },
   });
 
