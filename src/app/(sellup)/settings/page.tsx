@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive, BarChart2, Database } from "lucide-react";
+import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive, BarChart2, Database, Coins } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
@@ -79,6 +79,14 @@ const CONFIG_SECTIONS = [
     href: "/settings/source-catalog",
     adminOnly: true,
     badge: "52 fuentes",
+  },
+  {
+    title: "Créditos y presupuestos",
+    description: "Controla el consumo de herramientas con créditos, costos y reglas por proveedor.",
+    status: "Funcional",
+    icon: Coins,
+    href: "/settings/budget-credits",
+    adminOnly: true,
   },
 ];
 
