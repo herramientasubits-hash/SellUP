@@ -1,5 +1,3 @@
-'use server';
-
 // Scope-aware filter options for Empresas, Prospectos, and other operativa modules.
 //
 // Returns the users, groups, and roles that the current user is allowed to use
