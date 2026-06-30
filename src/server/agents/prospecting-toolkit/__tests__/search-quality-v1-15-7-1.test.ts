@@ -331,9 +331,10 @@ describe('F4 — usageLoggerFn exitoso → contadores correctos', () => {
 
   it('1 candidato, Q1 not_found, Q2 found: 2 logs exitosos', async () => {
     const logger = captureLogger();
+    // v1.16K-R-C: Q1 es nombre solo (sin dominio); Q2 (fallback) añade el dominio.
+    // Para forzar Q1 not_found y Q2 found, el found viene de la query con dominio.
     const provider = async (query: string): Promise<string[]> => {
-      if (query.includes('loggro.com')) return [];
-      if (query.includes('Loggro Enterprise')) return ['https://www.linkedin.com/company/loggroenterprise'];
+      if (query.includes('loggro.com')) return ['https://www.linkedin.com/company/loggroenterprise'];
       return [];
     };
 
@@ -393,7 +394,9 @@ describe('F5 — tavily + enabled + !dryRun + usageLoggerFn + batchId=null → b
       provider,
       CHECKED_AT,
       {
-        usageContext: { dryRun: false, userId: FAKE_USER_ID },  // batchId absent
+        // unitCostUsd presente para pasar Guard B (missing_pricing) y aislar Guard C.
+        // batchId ausente a propósito → debe disparar Guard C (missing_batch_id).
+        usageContext: { dryRun: false, userId: FAKE_USER_ID, unitCostUsd: 0.008 },
         usageLoggerFn: logger.fn,
       },
     );

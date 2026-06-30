@@ -254,11 +254,12 @@ describe('F5 — Q1 not_found, Q2 found → 2 usage logs para ese candidato', ()
   it('Q1 vacío, Q2 found → 2 payloads, selected_status=found en el segundo', async () => {
     const logger = captureLogger();
 
+    // v1.16K-R-C: Q1 es nombre solo (mayor recall); Q2 (fallback) añade el dominio.
+    // Para forzar Q1 not_found y Q2 found, el found viene de la query con dominio.
     const provider = async (query: string): Promise<string[]> => {
-      // Q1 incluye dominio → no encontrado
-      if (query.includes('loggro.com')) return [];
-      // Q2 solo nombre → found
-      if (query.includes('Loggro Enterprise')) return ['https://www.linkedin.com/company/loggroenterprise'];
+      // Q2 incluye el dominio → found
+      if (query.includes('loggro.com')) return ['https://www.linkedin.com/company/loggroenterprise'];
+      // Q1 solo nombre → no encontrado
       return [];
     };
 

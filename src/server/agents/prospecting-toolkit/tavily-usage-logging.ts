@@ -243,6 +243,11 @@ export function createLinkedInUsageLoggerFn(
       usage_key: payload.usage_key,
       provider_key: payload.provider,
       operation_key: payload.feature,
+      // v1.16K-R-C: persist Tavily credits consumed per LinkedIn search call.
+      // Tavily bills 1 credit per basic search; payload.search_depth is always
+      // 'basic' for LinkedIn company search. Previously omitted, which left
+      // credits_used NULL in provider_usage_logs (cost was logged, credits weren't).
+      credits_used: creditsForSearchDepth(payload.search_depth),
       results_returned: payload.result_count,
       estimated_cost_usd: payload.estimated_cost_usd ?? 0,
       status: payload.status === 'success' ? 'success' : 'error',

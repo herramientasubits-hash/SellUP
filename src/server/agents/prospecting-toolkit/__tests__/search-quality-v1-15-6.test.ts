@@ -82,35 +82,37 @@ function makeEnabledConfig(overrides: Partial<LinkedInSearchConfig> = {}): Linke
 // ━━━ F1 — buildLinkedInSearchQueryVariants genera variantes correctas ━━━━━━━
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Nota v1.16K-R-C: Q1 ahora es la variante de MAYOR recall (nombre + site:, sin
+// dominio bloqueante). Q2 (fallback) añade el dominio como señal blanda sin comillas.
 describe('F1 — Query variants correctas', () => {
-  it('Con dominio genera Q1 (con dominio) y Q2 (solo nombre)', () => {
+  it('Con dominio: Q1 sin dominio (recall) y Q2 con dominio como señal blanda', () => {
     const variants = buildLinkedInSearchQueryVariants('Loggro Enterprise', 'loggro.com', 2);
     assert.strictEqual(variants.length, 2);
-    assert.strictEqual(variants[0], '"Loggro Enterprise" "loggro.com" site:linkedin.com/company');
-    assert.strictEqual(variants[1], '"Loggro Enterprise" site:linkedin.com/company');
+    assert.strictEqual(variants[0], 'site:linkedin.com/company "Loggro Enterprise"');
+    assert.strictEqual(variants[1], 'site:linkedin.com/company "Loggro Enterprise" loggro.com');
   });
 
   it('Sin dominio genera solo Q1 (nombre único)', () => {
     const variants = buildLinkedInSearchQueryVariants('Loggro Enterprise', null, 2);
     assert.strictEqual(variants.length, 1);
-    assert.strictEqual(variants[0], '"Loggro Enterprise" site:linkedin.com/company');
+    assert.strictEqual(variants[0], 'site:linkedin.com/company "Loggro Enterprise"');
   });
 
-  it('maxQueries=1 con dominio retorna solo Q1', () => {
+  it('maxQueries=1 con dominio retorna solo Q1 (la menos restrictiva, sin dominio)', () => {
     const variants = buildLinkedInSearchQueryVariants('Softland', 'softland.com', 1);
     assert.strictEqual(variants.length, 1);
-    assert.strictEqual(variants[0], '"Softland" "softland.com" site:linkedin.com/company');
+    assert.strictEqual(variants[0], 'site:linkedin.com/company "Softland"');
   });
 
   it('Factory + factory.com.co genera variantes correctas', () => {
     const variants = buildLinkedInSearchQueryVariants('Factory', 'factory.com.co', 2);
-    assert.strictEqual(variants[0], '"Factory" "factory.com.co" site:linkedin.com/company');
-    assert.strictEqual(variants[1], '"Factory" site:linkedin.com/company');
+    assert.strictEqual(variants[0], 'site:linkedin.com/company "Factory"');
+    assert.strictEqual(variants[1], 'site:linkedin.com/company "Factory" factory.com.co');
   });
 
-  it('Q1 con dominio ≠ Q2 sin dominio cuando hay dominio válido', () => {
+  it('Q1 (sin dominio) ≠ Q2 (con dominio) cuando hay dominio válido', () => {
     const q1 = buildLinkedInSearchQuery('Softland', 'softland.com');
-    const q2 = buildLinkedInSearchQuery('Softland', null);
+    const q2 = buildLinkedInSearchQuery('Softland', 'softland.com', { includeDomainSignal: true });
     assert.notStrictEqual(q1, q2);
     const variants = buildLinkedInSearchQueryVariants('Softland', 'softland.com', 2);
     assert.strictEqual(variants[0], q1);
@@ -137,8 +139,9 @@ describe('F2 — Se detiene tras found', () => {
 
     const trackingProvider = async (query: string): Promise<string[]> => {
       queriesExecuted.push(query);
-      // Q1 contiene dominio → found
-      if (query.includes('softland.com')) {
+      // v1.16K-R-C: Q1 es la variante de mayor recall (nombre, SIN dominio).
+      // Q2 (fallback) añade el dominio. Aquí Q1 ya retorna found.
+      if (!query.includes('softland.com')) {
         return ['https://www.linkedin.com/company/softland'];
       }
       return [];
@@ -183,15 +186,14 @@ describe('F2 — Se detiene tras found', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('F3 — Q1 not_found, Q2 found', () => {
-  it('Q1 (con dominio) retorna vacío, Q2 (nombre solo) retorna found → status=found, queries=2', async () => {
+  it('Q1 (nombre solo) retorna vacío, Q2 (con dominio) retorna found → status=found, queries=2', async () => {
     const queriesExecuted: string[] = [];
 
     const provider = async (query: string): Promise<string[]> => {
       queriesExecuted.push(query);
-      // Q1 incluye 'loggro.com' → not_found
-      if (query.includes('loggro.com')) return [];
-      // Q2 es nombre solo → found
-      if (query.includes('Loggro Enterprise')) {
+      // v1.16K-R-C: Q2 (fallback) es la que añade el dominio como señal blanda.
+      // Q2 incluye 'loggro.com' → found; Q1 (nombre solo) → not_found.
+      if (query.includes('loggro.com')) {
         return ['https://www.linkedin.com/company/loggroenterprise'];
       }
       return [];
@@ -244,7 +246,13 @@ describe('F4 — maxQueriesPerCandidate respetado', () => {
     );
 
     assert.strictEqual(queriesExecuted.length, 1, 'Solo Q1 con maxQueriesPerCandidate=1');
-    assert.ok(queriesExecuted[0].includes('softland.com'), 'Q1 debe incluir dominio');
+    // v1.16K-R-C: Q1 es la variante de mayor recall: nombre + site:, SIN dominio bloqueante.
+    assert.ok(queriesExecuted[0].includes('"Softland"'), 'Q1 debe incluir el nombre entre comillas');
+    assert.ok(
+      queriesExecuted[0].includes('site:linkedin.com/company'),
+      'Q1 debe incluir site:linkedin.com/company',
+    );
+    assert.ok(!queriesExecuted[0].includes('softland.com'), 'Q1 NO debe exigir el dominio');
   });
 
   it('maxQueriesPerCandidate=2 con not_found en Q1 ejecuta Q2', async () => {

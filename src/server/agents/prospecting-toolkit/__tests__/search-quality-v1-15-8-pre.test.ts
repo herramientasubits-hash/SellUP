@@ -111,6 +111,19 @@ describe('F1 — payload success llama realLogTavilyUsage con mapping correcto',
     assert.equal(mock.captured!.estimated_cost_usd, 0.008);
   });
 
+  // v1.16K-R-C: credits_used debe quedar = 1 (1 crédito Tavily basic por búsqueda
+  // LinkedIn), nunca null. Regresión: antes el adapter no seteaba credits_used y
+  // provider_usage_logs registraba credits_used=null pese a costo > 0.
+  it('credits_used = 1 (no null) para linkedin_company_search basic', async () => {
+    const mock = makeLogUsageMock({ kind: 'logged' });
+    const fn = createLinkedInUsageLoggerFn(USER_ID, mock.fn);
+    await fn(makePayload({ search_depth: 'basic', estimated_cost_usd: 0.008 }));
+
+    assert.notEqual(mock.captured!.credits_used, null, 'credits_used no debe ser null');
+    assert.notEqual(mock.captured!.credits_used, undefined, 'credits_used no debe ser undefined');
+    assert.equal(mock.captured!.credits_used, 1, 'una búsqueda basic consume 1 crédito');
+  });
+
   it('status success', async () => {
     const mock = makeLogUsageMock({ kind: 'logged' });
     const fn = createLinkedInUsageLoggerFn(USER_ID, mock.fn);

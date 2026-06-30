@@ -218,56 +218,202 @@ export function isEligibleForLinkedInSearch(
   return { eligible: true, skipReason: null };
 }
 
+// ─── Candidate prioritisation for LinkedIn search (v1.16K-R-C) ─────────────────
+
+// Dominios genéricos / de correo gratuito que NO son un dominio corporativo
+// confiable y por tanto restan señal para encontrar la company page.
+const GENERIC_FREE_DOMAINS = new Set([
+  'gmail.com',
+  'hotmail.com',
+  'outlook.com',
+  'yahoo.com',
+  'yahoo.es',
+  'live.com',
+  'icloud.com',
+  'aol.com',
+  'protonmail.com',
+  'gmx.com',
+]);
+
+// Palabras conectores que delatan un nombre tipo eslogan ("Tu Partner de
+// Bienestar") en lugar de una razón social canónica.
+const SLOGAN_CONNECTOR_RE = /\b(tu|de|del|la|el|los|las|para|por|con|y|en|tus|su)\b/i;
+
+/** Un dominio es confiable si tiene TLD, base > 2 chars y no es correo gratuito. */
+export function hasReliableDomain(domain: string | null): boolean {
+  if (!domain) return false;
+  const clean = domain.trim().toLowerCase().replace(/^www\./, '');
+  if (!clean.includes('.')) return false;
+  if (GENERIC_FREE_DOMAINS.has(clean)) return false;
+  const base = clean.split('.')[0] ?? '';
+  return base.length > 2;
+}
+
+/** Un nombre parece eslogan/genérico si es muy largo o usa conectores. */
+export function isSloganLikeName(name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return true;
+  const words = trimmed.split(/\s+/);
+  // 4+ palabras con un conector ("Tu Partner de Bienestar") → eslogan.
+  if (words.length >= 4 && SLOGAN_CONNECTOR_RE.test(trimmed)) return true;
+  // 6+ palabras casi siempre es una frase, no una razón social.
+  if (words.length >= 6) return true;
+  return false;
+}
+
+/**
+ * Puntúa qué tan probable es encontrar una LinkedIn company page para el
+ * candidato. Mayor score = se intenta primero dentro del cap del batch.
+ *
+ * Heurística pura (sin I/O):
+ *   + dominio corporativo confiable        → +40
+ *   + nombre canónico (no eslogan)         → +30
+ *   + no bloqueado por duplicate guard     → +20
+ *   + no bloqueado por evidence policy     → +10
+ *   + confianza base (escala 0..10)        → +0..10
+ *   − nombre tipo eslogan/genérico         → −30
+ */
+export function linkedInSearchPriorityScore(
+  c: ControlledLinkedInSearchCandidate,
+): number {
+  let score = 0;
+  if (hasReliableDomain(c.domain)) score += 40;
+  if (!isSloganLikeName(c.name)) score += 30;
+  if (!c.isBlockedByDuplicateGuard) score += 20;
+  if (!c.isBlockedByEvidencePolicy) score += 10;
+  score += (Math.max(0, Math.min(c.confidenceScore, 100)) / 100) * 10;
+  if (isSloganLikeName(c.name)) score -= 30;
+  return score;
+}
+
+/**
+ * Devuelve los índices de `candidates` en el orden en que deben INTENTARSE las
+ * búsquedas LinkedIn: candidatos elegibles primero (mejor score primero), luego
+ * los no elegibles. El orden de salida de resultados sigue siendo el original;
+ * esto solo decide en quién se gasta el cap del batch (v1.16K-R-C).
+ *
+ * Orden estable: ante empate, se respeta el índice original.
+ */
+export function prioritizeCandidatesForLinkedInSearch(
+  candidates: ControlledLinkedInSearchCandidate[],
+  config: LinkedInSearchConfig,
+): number[] {
+  return candidates
+    .map((c, index) => ({
+      index,
+      eligible: isEligibleForLinkedInSearch(c, config).eligible,
+      score: linkedInSearchPriorityScore(c),
+    }))
+    .sort((a, b) => {
+      if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
+      if (b.score !== a.score) return b.score - a.score;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.index);
+}
+
 // ─── Query builder ────────────────────────────────────────────────────────────
 
 /**
- * Construye una query conservadora para buscar la página LinkedIn de la empresa.
+ * Mapeo countryCode → término de país legible para usar como señal blanda
+ * (sin comillas) en la query. Solo países LatAm + ES/US donde opera el agente.
+ * No bloquea resultados: es un keyword adicional, no una frase exacta requerida.
+ */
+const COUNTRY_QUERY_TERMS: Record<string, string> = {
+  CO: 'Colombia',
+  MX: 'Mexico',
+  AR: 'Argentina',
+  CL: 'Chile',
+  PE: 'Peru',
+  EC: 'Ecuador',
+  BO: 'Bolivia',
+  UY: 'Uruguay',
+  PY: 'Paraguay',
+  VE: 'Venezuela',
+  US: 'United States',
+  ES: 'Spain',
+};
+
+export type LinkedInSearchQueryOptions = {
+  /** countryCode del candidato. Si mapea a un país conocido, se añade como señal blanda. */
+  countryCode?: string | null;
+  /**
+   * Si true, añade el dominio como señal blanda (sin comillas) al final.
+   * El dominio NUNCA se exige con comillas: rara vez aparece literal en el
+   * snippet de LinkedIn y bloquearía el recall (causa raíz v1.16K-R-B).
+   */
+  includeDomainSignal?: boolean;
+};
+
+/**
+ * Construye una query conservadora pero menos restrictiva para buscar la página
+ * LinkedIn de la empresa (v1.16K-R-C).
  *
- * Reglas:
- *   - Siempre usa comillas alrededor del nombre exacto.
- *   - Si hay dominio válido, añade el dominio completo como señal adicional.
- *   - NO busca por sector, país, keywords genéricas, ni industria.
- *   - Siempre termina en site:linkedin.com/company.
+ * Cambio v1.16K-R-C — la query ya NO exige el dominio entre comillas. El dominio
+ * literal casi nunca aparece en el snippet/título de una página company de
+ * LinkedIn, por lo que `"<name>" "<domain>" site:...` bloqueaba el recall
+ * (0 found en la prueba real). Ahora:
+ *   - El nombre va entre comillas (señal exacta, evita falsos positivos amplios).
+ *   - El operador site:linkedin.com/company va PRIMERO (sesga el motor a company pages).
+ *   - El país se añade como señal blanda (sin comillas) cuando se conoce.
+ *   - El dominio solo se añade como señal blanda secundaria (sin comillas) y solo
+ *     cuando includeDomainSignal=true (variante de fallback).
+ *
+ * Reglas mantenidas:
+ *   - Siempre incluye site:linkedin.com/company.
+ *   - NO busca por sector, industria ni keywords genéricas.
+ *   - La validación posterior estricta (evaluateLinkedInCompanyMatch) es la que
+ *     decide found/ambiguous; aflojar la query no afloja la validación.
  */
 export function buildLinkedInSearchQuery(
   candidateName: string,
   domain: string | null,
+  options?: LinkedInSearchQueryOptions,
 ): string {
   const escapedName = `"${candidateName.trim()}"`;
+  const parts: string[] = ['site:linkedin.com/company', escapedName];
 
-  if (domain) {
+  const cc = options?.countryCode?.toUpperCase();
+  const countryTerm = cc ? COUNTRY_QUERY_TERMS[cc] : undefined;
+  if (countryTerm) parts.push(countryTerm);
+
+  if (options?.includeDomainSignal && domain) {
     const cleanDomain = domain.replace(/^www\./, '');
-    if (cleanDomain.length > 2) {
-      return `${escapedName} "${cleanDomain}" site:linkedin.com/company`;
-    }
+    if (cleanDomain.length > 2) parts.push(cleanDomain);
   }
 
-  return `${escapedName} site:linkedin.com/company`;
+  return parts.join(' ');
 }
 
 /**
- * Construye variantes de query para mejorar recall.
+ * Construye variantes de query para mejorar recall (v1.16K-R-C).
  *
- * Variantes (en orden de precisión):
- *   Q1: "<name>" "<domain>" site:linkedin.com/company  (si hay dominio válido)
- *   Q2: "<name>" site:linkedin.com/company             (siempre)
+ * Variantes (en orden de uso):
+ *   Q1 (primaria, menos restrictiva): site:linkedin.com/company "<name>" [country]
+ *   Q2 (fallback): site:linkedin.com/company "<name>" [country] <domain>
  *
- * Si no hay dominio o el dominio es inválido, Q1 == Q2, por lo que solo
- * se retorna una variante única.
+ * Con maxQueries=1 (config estricta de producción) solo se ejecuta Q1, que es
+ * la forma de mayor recall (sin dominio bloqueante). Q2 añade el dominio como
+ * señal blanda únicamente cuando se permite una segunda query.
  *
- * Reglas:
- *   - NO usa sector, país, keywords genéricas, industria.
- *   - Devuelve máximo maxQueries variantes únicas.
+ * Si no hay dominio válido, Q1 == Q2 → una sola variante.
  */
 export function buildLinkedInSearchQueryVariants(
   candidateName: string,
   domain: string | null,
   maxQueries: number = 2,
+  options?: LinkedInSearchQueryOptions,
 ): string[] {
-  const q1 = buildLinkedInSearchQuery(candidateName, domain);
-  const q2 = buildLinkedInSearchQuery(candidateName, null);
+  const q1 = buildLinkedInSearchQuery(candidateName, domain, {
+    countryCode: options?.countryCode,
+    includeDomainSignal: false,
+  });
+  const q2 = buildLinkedInSearchQuery(candidateName, domain, {
+    countryCode: options?.countryCode,
+    includeDomainSignal: true,
+  });
 
-  // Si no hay dominio o dominio inválido, Q1 y Q2 son idénticas → solo 1 variante
+  // Sin dominio válido, Q1 y Q2 son idénticas → solo 1 variante
   if (q1 === q2) {
     return [q1].slice(0, maxQueries);
   }
@@ -555,14 +701,19 @@ export async function runControlledLinkedInCompanySearch(
   let usageLogFailedCount = 0;
   const usageLogErrors: string[] = [];
 
-  const results: ControlledLinkedInSearchResult[] = [];
+  // v1.16K-R-C: attempt the most LinkedIn-findable candidates first so the batch
+  // cap is spent on high-signal candidates. Results are still keyed by original
+  // index and emitted in input order (the writer maps enrichments back by index).
+  const attemptOrder = prioritizeCandidatesForLinkedInSearch(candidates, config);
+  const resultByIndex = new Map<number, ControlledLinkedInSearchResult>();
 
-  for (const candidate of candidates) {
+  for (const candidateIndex of attemptOrder) {
+    const candidate = candidates[candidateIndex];
     const eligibility = isEligibleForLinkedInSearch(candidate, config);
 
     if (!eligibility.eligible) {
       batchMeta.skipped_count++;
-      results.push({
+      resultByIndex.set(candidateIndex, {
         candidateName: candidate.name,
         attempted: false,
         skipReason: eligibility.skipReason,
@@ -575,7 +726,7 @@ export async function runControlledLinkedInCompanySearch(
     // Cap check: se compara contra queries totales ejecutadas (no candidatos)
     if (batchMeta.attempted_query_count >= effectiveMaxPerBatch) {
       batchMeta.skipped_count++;
-      results.push({
+      resultByIndex.set(candidateIndex, {
         candidateName: candidate.name,
         attempted: false,
         skipReason: 'batch_cap_reached',
@@ -589,6 +740,7 @@ export async function runControlledLinkedInCompanySearch(
       candidate.name,
       candidate.domain,
       maxQueriesPerCandidate,
+      { countryCode: candidate.countryCode },
     );
 
     batchMeta.attempted_count++;
@@ -720,7 +872,7 @@ export async function runControlledLinkedInCompanySearch(
     else if (enrichment.status === 'rejected') batchMeta.rejected_count++;
     else batchMeta.not_found_count++;
 
-    results.push({
+    resultByIndex.set(candidateIndex, {
       candidateName: candidate.name,
       attempted: true,
       skipReason: null,
@@ -728,6 +880,17 @@ export async function runControlledLinkedInCompanySearch(
       query: lastQuery,
     });
   }
+
+  // Emit results in the original input order (writer aligns enrichments by index).
+  const results: ControlledLinkedInSearchResult[] = candidates.map((candidate, index) =>
+    resultByIndex.get(index) ?? {
+      candidateName: candidate.name,
+      attempted: false,
+      skipReason: 'not_processed',
+      enrichment: candidate.currentEnrichment,
+      query: null,
+    },
+  );
 
   // Finalise batch metadata (v1.15.7 + v1.15.7.1)
   batchMeta.estimated_cost_usd = unitCostUsd !== null ? totalEstimatedCostUsd : null;

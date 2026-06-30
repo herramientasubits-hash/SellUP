@@ -806,14 +806,16 @@ describe('F18 — Tests solo usan mock provider', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('Query builder integrated tests', () => {
-  it('buildLinkedInSearchQuery constructs valid site-restricted query', () => {
+  it('buildLinkedInSearchQuery constructs valid site-restricted query (v1.16K-R-C: domain is a soft signal, not a quoted requirement)', () => {
+    // Default: name quoted + site operator, NO blocking domain phrase.
     const q1 = buildLinkedInSearchQuery('Softland', 'softland.com');
-    assert.strictEqual(q1, '"Softland" "softland.com" site:linkedin.com/company');
+    assert.strictEqual(q1, 'site:linkedin.com/company "Softland"');
 
-    const q2 = buildLinkedInSearchQuery('Factory', 'factory.com.co');
-    assert.strictEqual(q2, '"Factory" "factory.com.co" site:linkedin.com/company');
+    // Domain only joins as an unquoted soft signal when explicitly requested.
+    const q2 = buildLinkedInSearchQuery('Factory', 'factory.com.co', { includeDomainSignal: true });
+    assert.strictEqual(q2, 'site:linkedin.com/company "Factory" factory.com.co');
 
     const q3 = buildLinkedInSearchQuery('TestCo', null);
-    assert.strictEqual(q3, '"TestCo" site:linkedin.com/company');
+    assert.strictEqual(q3, 'site:linkedin.com/company "TestCo"');
   });
 });

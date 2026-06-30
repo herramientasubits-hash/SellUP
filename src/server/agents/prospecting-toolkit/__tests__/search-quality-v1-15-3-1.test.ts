@@ -76,21 +76,32 @@ function makeSearchCandidate(
 // ━━━ F1 — Query usa dominio completo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('F1 — Query usa dominio completo (Softland)', () => {
-  it('buildLinkedInSearchQuery retorna dominio completo softland.com', () => {
+// Nota v1.16K-R-C: el dominio dejó de exigirse con comillas (bloqueaba recall).
+// Ahora solo se añade como señal blanda (sin comillas) cuando includeDomainSignal=true.
+describe('F1 — Dominio como señal blanda opcional (Softland)', () => {
+  it('por defecto NO incluye el dominio (recall máximo)', () => {
     const query = buildLinkedInSearchQuery('Softland', 'softland.com');
-    assert.strictEqual(query, '"Softland" "softland.com" site:linkedin.com/company');
+    assert.strictEqual(query, 'site:linkedin.com/company "Softland"');
+  });
+
+  it('con includeDomainSignal añade el dominio sin comillas como señal secundaria', () => {
+    const query = buildLinkedInSearchQuery('Softland', 'softland.com', {
+      includeDomainSignal: true,
+    });
+    assert.strictEqual(query, 'site:linkedin.com/company "Softland" softland.com');
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ━━━ F2 — Query usa dominio completo com.co ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━ F2 — Dominio com.co como señal blanda ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('F2 — Query usa dominio completo com.co (Factory)', () => {
-  it('buildLinkedInSearchQuery retorna dominio completo factory.com.co', () => {
-    const query = buildLinkedInSearchQuery('Factory', 'factory.com.co');
-    assert.strictEqual(query, '"Factory" "factory.com.co" site:linkedin.com/company');
+describe('F2 — Dominio com.co como señal blanda (Factory)', () => {
+  it('con includeDomainSignal añade factory.com.co sin comillas', () => {
+    const query = buildLinkedInSearchQuery('Factory', 'factory.com.co', {
+      includeDomainSignal: true,
+    });
+    assert.strictEqual(query, 'site:linkedin.com/company "Factory" factory.com.co');
   });
 });
 
@@ -101,12 +112,12 @@ describe('F2 — Query usa dominio completo com.co (Factory)', () => {
 describe('F3 — Query sin domain válido', () => {
   it('buildLinkedInSearchQuery usa solo nombre cuando domain es null', () => {
     const query = buildLinkedInSearchQuery('Softland', null);
-    assert.strictEqual(query, '"Softland" site:linkedin.com/company');
+    assert.strictEqual(query, 'site:linkedin.com/company "Softland"');
   });
 
-  it('buildLinkedInSearchQuery usa solo nombre cuando domain es muy corto', () => {
-    const query = buildLinkedInSearchQuery('Softland', 'co');
-    assert.strictEqual(query, '"Softland" site:linkedin.com/company');
+  it('buildLinkedInSearchQuery ignora el dominio cuando es muy corto (señal blanda)', () => {
+    const query = buildLinkedInSearchQuery('Softland', 'co', { includeDomainSignal: true });
+    assert.strictEqual(query, 'site:linkedin.com/company "Softland"');
   });
 });
 
