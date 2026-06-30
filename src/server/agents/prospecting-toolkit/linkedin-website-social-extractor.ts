@@ -57,6 +57,9 @@ export type WebsiteExtractionBatchSummary = {
   not_found_count: number;
   skipped_count: number;
   error_count: number;
+  // v1.16K-R-H: ambiguous URLs preserved as reviewable suggestions
+  suggested_count: number;
+  pages_attempted_count: number;
 };
 
 // ─── Pure helper: HTML parser ─────────────────────────────────────────────
@@ -160,34 +163,15 @@ function selectBestLinkedInFromCandidates(
   return best;
 }
 
-/**
- * Intenta extraer una URL de LinkedIn Company desde el home del sitio oficial.
- *
- * - Timeout máximo: FETCH_TIMEOUT_MS.
- * - Lee máximo MAX_HTML_BYTES del response stream.
- * - No sigue más de 3 redirects.
- * - No falla el pipeline si fetch falla — retorna status=error.
- * - No llama Tavily. No crea logs de uso.
- */
-export async function extractLinkedInFromOfficialWebsite(
-  input: WebsiteLinkedInExtractorInput,
-): Promise<WebsiteLinkedInExtractionResult> {
-  const normalizedUrl = normalizeWebsiteUrl(input.website);
+// ─── Internal page fetcher ─────────────────────────────────────────────────
 
-  if (!normalizedUrl) {
-    return { status: 'skipped', linkedInUrl: null, slug: null, reason: 'invalid_website_url' };
-  }
-
-  // Rechazar URLs que no sean HTTP/HTTPS (e.g. mailto:, javascript:)
-  if (!normalizedUrl.startsWith('http')) {
-    return { status: 'skipped', linkedInUrl: null, slug: null, reason: 'non_http_url' };
-  }
-
+/** Fetches one URL and returns extracted LinkedIn company URLs, or null on error/skip. */
+async function fetchPageLinkedInUrls(pageUrl: string): Promise<string[] | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(normalizedUrl, {
+    const response = await fetch(pageUrl, {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; SellUpBot/1.0)',
@@ -199,25 +183,19 @@ export async function extractLinkedInFromOfficialWebsite(
 
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      return {
-        status: 'error',
-        linkedInUrl: null,
-        slug: null,
-        reason: `http_${response.status}`,
-      };
-    }
+    if (!response.ok) return null;
 
     const contentType = response.headers.get('content-type') ?? '';
-    if (!contentType.includes('text/html') && !contentType.includes('text/plain') && !contentType.includes('application/xhtml')) {
-      return { status: 'skipped', linkedInUrl: null, slug: null, reason: 'non_html_content_type' };
+    if (
+      !contentType.includes('text/html') &&
+      !contentType.includes('text/plain') &&
+      !contentType.includes('application/xhtml')
+    ) {
+      return null;
     }
 
-    // Leer solo hasta MAX_HTML_BYTES para evitar páginas masivas
     const reader = response.body?.getReader();
-    if (!reader) {
-      return { status: 'error', linkedInUrl: null, slug: null, reason: 'no_readable_body' };
-    }
+    if (!reader) return null;
 
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
@@ -232,10 +210,8 @@ export async function extractLinkedInFromOfficialWebsite(
       }
     }
 
-    // Cancel the reader to free resources
     reader.cancel().catch(() => {});
 
-    // Decode the accumulated chunks
     const decoder = new TextDecoder('utf-8', { fatal: false });
     const html = decoder.decode(
       chunks.reduce((acc, chunk) => {
@@ -246,22 +222,69 @@ export async function extractLinkedInFromOfficialWebsite(
       }, new Uint8Array(0)),
     );
 
-    const foundUrls = extractLinkedInCompanyUrlsFromHtml(html);
+    return extractLinkedInCompanyUrlsFromHtml(html);
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
 
-    if (foundUrls.length === 0) {
-      return { status: 'not_found', linkedInUrl: null, slug: null, reason: null };
-    }
+/**
+ * Intenta extraer una URL de LinkedIn Company desde el sitio oficial.
+ * v1.16K-R-H: multi-page extraction — intenta en orden:
+ *   A. origin/root del website
+ *   B. URL exacta original (si es diferente al root)
+ *   C. origin/contacto
+ *   D. origin/contact
+ *
+ * Para en cuanto encuentra una URL válida.
+ * Máximo 4 páginas por candidato. Timeout por página: FETCH_TIMEOUT_MS.
+ * No llama Tavily. No crea logs de uso. No falla el pipeline.
+ */
+export async function extractLinkedInFromOfficialWebsite(
+  input: WebsiteLinkedInExtractorInput,
+): Promise<WebsiteLinkedInExtractionResult & { pages_attempted: number }> {
+  const normalizedUrl = normalizeWebsiteUrl(input.website);
+
+  if (!normalizedUrl) {
+    return { status: 'skipped', linkedInUrl: null, slug: null, reason: 'invalid_website_url', pages_attempted: 0 };
+  }
+
+  if (!normalizedUrl.startsWith('http')) {
+    return { status: 'skipped', linkedInUrl: null, slug: null, reason: 'non_http_url', pages_attempted: 0 };
+  }
+
+  // Build ordered page list (deduplicated)
+  let origin: string;
+  try {
+    origin = new URL(normalizedUrl).origin;
+  } catch {
+    return { status: 'skipped', linkedInUrl: null, slug: null, reason: 'invalid_website_url', pages_attempted: 0 };
+  }
+
+  const rootUrl = `${origin}/`;
+  const pageCandidates: string[] = [rootUrl];
+
+  // Add original URL only if it differs from root
+  const originalNormalized = normalizedUrl.endsWith('/') ? normalizedUrl : `${normalizedUrl}/`;
+  if (originalNormalized !== rootUrl && normalizedUrl !== rootUrl) {
+    pageCandidates.push(normalizedUrl);
+  }
+
+  pageCandidates.push(`${origin}/contacto`);
+  pageCandidates.push(`${origin}/contact`);
+
+  let pagesAttempted = 0;
+
+  for (const pageUrl of pageCandidates) {
+    pagesAttempted++;
+
+    const foundUrls = await fetchPageLinkedInUrls(pageUrl);
+
+    if (!foundUrls || foundUrls.length === 0) continue;
 
     const best = selectBestLinkedInFromCandidates(foundUrls, input);
-
-    if (!best) {
-      return {
-        status: 'not_found',
-        linkedInUrl: null,
-        slug: null,
-        reason: 'urls_found_but_no_confident_match',
-      };
-    }
+    if (!best) continue;
 
     const normalized = normalizeLinkedInCompanyUrl(best.url);
     return {
@@ -269,17 +292,17 @@ export async function extractLinkedInFromOfficialWebsite(
       linkedInUrl: normalized.normalized ?? best.url,
       slug: normalized.slug,
       reason: null,
-    };
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    const isAbort = err instanceof Error && err.name === 'AbortError';
-    return {
-      status: 'error',
-      linkedInUrl: null,
-      slug: null,
-      reason: isAbort ? 'timeout' : 'fetch_error',
+      pages_attempted: pagesAttempted,
     };
   }
+
+  return {
+    status: 'not_found',
+    linkedInUrl: null,
+    slug: null,
+    reason: pagesAttempted > 0 ? 'not_found_in_pages' : null,
+    pages_attempted: pagesAttempted,
+  };
 }
 
 // ─── Batch runner ─────────────────────────────────────────────────────────
@@ -319,6 +342,8 @@ export async function runWebsiteLinkedInExtraction(
     not_found_count: 0,
     skipped_count: 0,
     error_count: 0,
+    suggested_count: 0,
+    pages_attempted_count: 0,
   };
 
   const results: WebsiteLinkedInBatchResult[] = [];
@@ -343,8 +368,9 @@ export async function runWebsiteLinkedInExtraction(
       countryCode: candidate.countryCode,
     });
 
+    summary.pages_attempted_count += extraction.pages_attempted;
+
     if (extraction.status === 'found' && extraction.linkedInUrl) {
-      // Build enrichment through the canonical pipeline for consistent metadata shape
       const enrichment = buildLinkedInEnrichmentMetadata({
         candidateName: candidate.name,
         candidateDomain: candidate.domain,
@@ -358,7 +384,6 @@ export async function runWebsiteLinkedInExtraction(
         summary.found_count++;
         results.push({ enrichment, extractionStatus: 'found' });
       } else {
-        // URL found but match validation rejected it
         summary.not_found_count++;
         results.push({ enrichment: candidate.currentEnrichment, extractionStatus: 'not_found' });
       }
@@ -369,7 +394,6 @@ export async function runWebsiteLinkedInExtraction(
       summary.skipped_count++;
       results.push({ enrichment: candidate.currentEnrichment, extractionStatus: 'skipped' });
     } else {
-      // error — non-blocking
       summary.error_count++;
       results.push({ enrichment: candidate.currentEnrichment, extractionStatus: 'error' });
     }

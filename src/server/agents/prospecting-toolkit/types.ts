@@ -345,6 +345,10 @@ export type LinkedInEnrichmentMetadata = {
   warnings: string[];
   source: LinkedInEnrichmentSource;
   checked_at: string;
+  // v1.16K-R-H: present when status=ambiguous and company_url is a valid company page.
+  // Signals that the URL is a reviewable suggestion, not a confirmed match.
+  review_required?: boolean;
+  suggestion_type?: 'linkedin_company_candidate';
 };
 
 // ============================================================

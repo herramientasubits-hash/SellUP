@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
+import { getCandidateLinkedInUrl, getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   Globe,
   Link2,
@@ -709,6 +709,12 @@ export function CandidateDetailSheet({
   // v1.16K-R-E: additional fallback from linkedin_enrichment / rich_profile
   const tavilyLinkedinUrl = getCandidateLinkedInUrl(candidate?.metadata);
   const effectiveLinkedinUrl = linkedinUrl ?? (isExternalImport ? importLinkedinUrl : null) ?? tavilyLinkedinUrl;
+  // v1.16K-R-H: suggested display (ambiguous with valid company_url)
+  const tavilyLinkedinDisplay = getCandidateLinkedInDisplay(candidate?.metadata);
+  const suggestedLinkedinDisplay =
+    !effectiveLinkedinUrl && tavilyLinkedinDisplay?.status === 'suggested'
+      ? tavilyLinkedinDisplay
+      : null;
 
   // Validation-derived state for external_import candidates
   const validationMetaSheet = importMeta?.validation;
@@ -1431,6 +1437,8 @@ export function CandidateDetailSheet({
                     label={
                       effectiveLinkedinUrl
                         ? "LinkedIn corporativo"
+                        : suggestedLinkedinDisplay
+                        ? "LinkedIn sugerido"
                         : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl))
                         ? "Coincidencias no confirmadas"
                         : "LinkedIn corporativo"
@@ -1458,6 +1466,21 @@ export function CandidateDetailSheet({
                               {linkedinConfidence}
                             </span>
                           )}
+                        </div>
+                      ) : suggestedLinkedinDisplay ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <a
+                              href={suggestedLinkedinDisplay.url.startsWith('http') ? suggestedLinkedinDisplay.url : `https://${suggestedLinkedinDisplay.url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline font-medium text-xs"
+                            >
+                              <Link2 className="h-3 w-3 shrink-0" />
+                              Ver perfil
+                            </a>
+                          </div>
+                          <p className="text-[9px] text-muted-foreground/60 italic">Requiere revisión manual</p>
                         </div>
                       ) : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl)) ? (
                         <div className="space-y-1.5">

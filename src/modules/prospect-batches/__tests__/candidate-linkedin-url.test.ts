@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { getCandidateLinkedInUrl, isLinkedInCompanyUrl } from '../candidate-linkedin-url';
+import { getCandidateLinkedInUrl, getCandidateLinkedInDisplay, isLinkedInCompanyUrl } from '../candidate-linkedin-url';
 
 describe('isLinkedInCompanyUrl', () => {
   it('accepts linkedin.com/company/ URL', () => {
@@ -105,5 +105,91 @@ describe('getCandidateLinkedInUrl', () => {
       rich_profile: { company: { linkedin_url: null } },
     };
     assert.equal(getCandidateLinkedInUrl(metadata), null);
+  });
+});
+
+// ─── v1.16K-R-H: getCandidateLinkedInDisplay ─────────────────────────────────
+
+describe('getCandidateLinkedInDisplay', () => {
+  it('returns status=found for linkedin_enrichment with status=found', () => {
+    const metadata = {
+      linkedin_enrichment: {
+        status: 'found',
+        company_url: 'https://www.linkedin.com/company/clarocolombia',
+      },
+    };
+    const result = getCandidateLinkedInDisplay(metadata);
+    assert.ok(result !== null);
+    assert.equal(result!.status, 'found');
+    assert.equal(result!.url, 'https://www.linkedin.com/company/clarocolombia');
+    assert.equal(result!.reviewRequired, false);
+  });
+
+  it('returns status=suggested for ambiguous with valid company_url', () => {
+    const metadata = {
+      linkedin_enrichment: {
+        status: 'ambiguous',
+        company_url: 'https://www.linkedin.com/company/intersalud-ocupacional',
+        confidence: 60,
+      },
+    };
+    const result = getCandidateLinkedInDisplay(metadata);
+    assert.ok(result !== null);
+    assert.equal(result!.status, 'suggested');
+    assert.equal(result!.url, 'https://www.linkedin.com/company/intersalud-ocupacional');
+    assert.equal(result!.reviewRequired, true);
+  });
+
+  it('returns null for ambiguous without company_url', () => {
+    const metadata = {
+      linkedin_enrichment: { status: 'ambiguous', confidence: 60 },
+    };
+    assert.equal(getCandidateLinkedInDisplay(metadata), null);
+  });
+
+  it('returns null for ambiguous with /in/ path', () => {
+    const metadata = {
+      linkedin_enrichment: {
+        status: 'ambiguous',
+        company_url: 'https://www.linkedin.com/in/someone',
+      },
+    };
+    assert.equal(getCandidateLinkedInDisplay(metadata), null);
+  });
+
+  it('returns null for ambiguous with /posts/ path', () => {
+    const metadata = {
+      linkedin_enrichment: {
+        status: 'ambiguous',
+        company_url: 'https://www.linkedin.com/posts/something',
+      },
+    };
+    assert.equal(getCandidateLinkedInDisplay(metadata), null);
+  });
+
+  it('returns null for status=not_found', () => {
+    const metadata = {
+      linkedin_enrichment: {
+        status: 'not_found',
+        company_url: null,
+      },
+    };
+    assert.equal(getCandidateLinkedInDisplay(metadata), null);
+  });
+
+  it('returns found from rich_profile when no linkedin_enrichment', () => {
+    const metadata = {
+      rich_profile: {
+        company: { linkedin_url: 'https://www.linkedin.com/company/someco' },
+      },
+    };
+    const result = getCandidateLinkedInDisplay(metadata);
+    assert.ok(result !== null);
+    assert.equal(result!.status, 'found');
+    assert.equal(result!.reviewRequired, false);
+  });
+
+  it('returns null when metadata is null', () => {
+    assert.equal(getCandidateLinkedInDisplay(null), null);
   });
 });

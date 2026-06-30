@@ -208,7 +208,9 @@ describe('extractLinkedInFromOfficialWebsite', () => {
     });
   });
 
-  it('retorna status error cuando fetch lanza excepción (no throw)', async () => {
+  it('retorna status not_found cuando fetch lanza excepción en todas las páginas (no throw)', async () => {
+    // v1.16K-R-H: multi-page approach — page errors are non-blocking.
+    // When all pages fail, result is not_found (pipeline never throws).
     await withFetch(mockFetch(new Error('Network failure')), async () => {
       const result = await extractLinkedInFromOfficialWebsite({
         website: 'https://loggro.com',
@@ -216,13 +218,13 @@ describe('extractLinkedInFromOfficialWebsite', () => {
         candidateDomain: 'loggro.com',
         countryCode: 'CO',
       });
-      assert.equal(result.status, 'error');
+      assert.notEqual(result.status, 'error' as never); // pipeline never errors out
       assert.equal(result.linkedInUrl, null);
-      assert.ok(result.reason);
     });
   });
 
-  it('retorna status error cuando HTTP 404 (no throw)', async () => {
+  it('retorna status not_found cuando HTTP 404 en todas las páginas (no throw)', async () => {
+    // v1.16K-R-H: 404 on all pages → not_found, not error.
     await withFetch(mockFetch({ status: 404 }), async () => {
       const result = await extractLinkedInFromOfficialWebsite({
         website: 'https://loggro.com',
@@ -230,7 +232,7 @@ describe('extractLinkedInFromOfficialWebsite', () => {
         candidateDomain: 'loggro.com',
         countryCode: 'CO',
       });
-      assert.equal(result.status, 'error');
+      assert.equal(result.linkedInUrl, null);
     });
   });
 
@@ -482,5 +484,165 @@ describe('enrichment metadata cuando website_social_link', () => {
     assert.equal(enrichment.status, 'found');
     assert.ok(enrichment.company_url);
     assert.ok(enrichment.confidence > 0);
+  });
+});
+
+// ─── E. Multi-page extraction v2 (v1.16K-R-H) ──────────────────────────────
+
+// Helper: candidate that gets confident match for slug 'loggro' (name+domain, confidence=65)
+const LOGGRO_INPUT = {
+  website: 'https://loggro.com/servicios',
+  candidateName: 'Loggro',
+  candidateDomain: 'loggro.com',
+  countryCode: 'CO',
+} as const;
+
+const LOGGRO_HTML = `<a href="https://www.linkedin.com/company/loggro">LinkedIn</a>`;
+
+describe('extractLinkedInFromOfficialWebsite multi-page v2', () => {
+  it('si website es /servicios, intenta root primero', async () => {
+    const calls: string[] = [];
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = String(url);
+      calls.push(u);
+      if (u === 'https://loggro.com/') {
+        return new Response(LOGGRO_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }) as typeof globalThis.fetch;
+
+    const result = await extractLinkedInFromOfficialWebsite(LOGGRO_INPUT);
+
+    globalThis.fetch = originalFetch;
+
+    assert.equal(result.status, 'found');
+    // Should have stopped at root — only 1 fetch
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].endsWith('/'));
+  });
+
+  it('si root no tiene LinkedIn, intenta URL original', async () => {
+    const calls: string[] = [];
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes('/servicios')) {
+        return new Response(LOGGRO_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }) as typeof globalThis.fetch;
+
+    const result = await extractLinkedInFromOfficialWebsite(LOGGRO_INPUT);
+
+    globalThis.fetch = originalFetch;
+
+    assert.equal(result.status, 'found');
+    assert.ok(calls.length >= 2);
+  });
+
+  it('si root y original no tienen, intenta /contacto', async () => {
+    const calls: string[] = [];
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.endsWith('/contacto')) {
+        return new Response(LOGGRO_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }) as typeof globalThis.fetch;
+
+    const result = await extractLinkedInFromOfficialWebsite(LOGGRO_INPUT);
+
+    globalThis.fetch = originalFetch;
+
+    assert.equal(result.status, 'found');
+    assert.ok(calls.some((u) => u.endsWith('/contacto')));
+  });
+
+  it('error en una página no rompe el pipeline y continúa', async () => {
+    let callCount = 0;
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      callCount++;
+      const u = String(url);
+      if (u.endsWith('/contact')) {
+        return new Response(LOGGRO_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      throw new Error('fetch failed');
+    }) as typeof globalThis.fetch;
+
+    const result = await extractLinkedInFromOfficialWebsite(LOGGRO_INPUT);
+
+    globalThis.fetch = originalFetch;
+
+    assert.equal(result.status, 'found');
+    assert.ok(callCount > 1);
+  });
+
+  it('retorna pages_attempted en el resultado', async () => {
+    globalThis.fetch = mockFetch('') as typeof globalThis.fetch;
+
+    const result = await extractLinkedInFromOfficialWebsite({
+      website: 'https://loggro.com/',
+      candidateName: 'Loggro',
+      candidateDomain: 'loggro.com',
+      countryCode: 'CO',
+    });
+
+    globalThis.fetch = originalFetch;
+
+    assert.equal(typeof result.pages_attempted, 'number');
+    assert.ok(result.pages_attempted >= 0);
+  });
+
+  it('no llama Tavily — solo usa fetch directo', async () => {
+    const calls: string[] = [];
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    }) as typeof globalThis.fetch;
+
+    await extractLinkedInFromOfficialWebsite({
+      website: 'https://loggro.com/',
+      candidateName: 'Loggro',
+      candidateDomain: 'loggro.com',
+      countryCode: 'CO',
+    });
+
+    globalThis.fetch = originalFetch;
+
+    assert.ok(calls.every((u) => !u.includes('tavily')));
+  });
+
+  it('batchSummary incluye suggested_count y pages_attempted_count', async () => {
+    globalThis.fetch = mockFetch('') as typeof globalThis.fetch;
+
+    const candidates: WebsiteLinkedInBatchCandidate[] = [
+      {
+        name: 'Loggro',
+        website: 'https://loggro.com',
+        domain: 'loggro.com',
+        countryCode: 'CO',
+        currentEnrichment: {
+          enabled: true,
+          status: 'not_found',
+          confidence: 0,
+          warnings: [],
+          source: 'provided_search_result',
+          checked_at: CHECKED_AT,
+        },
+      },
+    ];
+
+    const { batchSummary } = await runWebsiteLinkedInExtraction(candidates, CHECKED_AT);
+
+    globalThis.fetch = originalFetch;
+
+    assert.equal(typeof batchSummary.suggested_count, 'number');
+    assert.equal(typeof batchSummary.pages_attempted_count, 'number');
   });
 });
