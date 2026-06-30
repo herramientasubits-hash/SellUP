@@ -46,13 +46,13 @@ function isValidHttpUrl(url: string | undefined): url is string {
  * Cada llamada hace exactamente 1 request POST a Tavily.
  * Sin retry. Sin cache. Sin estado interno.
  *
- * @param maxResultsPerQuery Número de resultados a solicitar a Tavily (1-5). Default 1.
- *   Usar 3 en modo recall test para evaluar múltiples candidatos por query.
- *   El orchestrator selecciona el mejor resultado entre los retornados.
+ * @param maxResultsPerQuery Número de resultados a solicitar a Tavily (1-5). Default 3.
+ *   Tavily bills per query call, not per result, so requesting 3 costs the same
+ *   1 credit as requesting 1. The orchestrator selects the best URL among the results.
  * @returns La función proveedora. Si no hay key disponible, retorna [] sin error fatal.
  */
 export function createTavilyLinkedInSearchProvider(
-  maxResultsPerQuery: number = 1,
+  maxResultsPerQuery: number = 3,
 ): LinkedInSearchProviderFn {
   const effectiveMaxResults = Math.max(1, Math.min(maxResultsPerQuery, 5));
 

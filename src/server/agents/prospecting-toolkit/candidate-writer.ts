@@ -2292,7 +2292,9 @@ export async function writeProspectingCandidates(
         const { data: usageLogs, error: logsError } = await admin
           .from('provider_usage_logs')
           .select('credits_used, metadata')
-          .eq('batch_id', batchId);
+          .eq('batch_id', batchId)
+          .eq('provider_key', 'tavily')
+          .eq('operation_key', 'multi_query_web_search');
 
         if (!logsError && Array.isArray(usageLogs) && usageLogs.length > 0) {
           logsAvailable = true;

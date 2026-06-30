@@ -52,7 +52,11 @@ export const DEFAULT_LINKEDIN_SEARCH_CONFIG: LinkedInSearchConfig = {
   maxPerBatch: 5,
   minConfidenceScore: 70,
   maxQueriesPerCandidate: 2,
-  maxResultsPerQuery: 1,
+  // Tavily bills per query call, not per result returned. Requesting 3 results
+  // per query costs the same 1 credit as requesting 1, but gives the selector
+  // up to 3 URLs to pick from — increasing the chance that at least one is a
+  // valid /company/ page even when the top result is a /posts/ or /feed/ URL.
+  maxResultsPerQuery: 3,
 };
 
 // ─── Usage logging (v1.15.7) ─────────────────────────────────────────────────
