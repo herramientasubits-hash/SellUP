@@ -233,9 +233,9 @@ export function ApolloPreflightCard() {
         <p className="text-sm font-semibold text-foreground">Control de créditos Apollo</p>
       </div>
       <p className="text-xs text-muted-foreground">
-        SellUp buscará contactos y solo intentará completar los perfiles con mayor probabilidad de
-        ser útiles. La búsqueda puede consumir créditos según el plan de Apollo. SellUp controla
-        especialmente los créditos de completion/reveal para evitar gastos innecesarios.
+        SellUp buscará contactos con email, teléfono o LinkedIn. Solo intentará completar los
+        perfiles con mayor probabilidad de ser útiles. Para controlar costos, no realizará reveal
+        automático de teléfonos sin confirmación.
       </p>
       <dl className="space-y-1.5 text-xs">
         <div className="flex justify-between">
@@ -251,12 +251,14 @@ export function ApolloPreflightCard() {
           <dd className="font-medium text-foreground">~{g.emailRevealCredits} crédito</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-muted-foreground">Teléfono revelado</dt>
-          <dd className="font-medium text-foreground">
+          <dt className="text-muted-foreground">Teléfono (de búsqueda)</dt>
+          <dd className="font-medium text-foreground">se conserva si Apollo lo entrega</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
+          <dd className="text-muted-foreground">
             ~{g.phoneRevealCredits} créditos —{' '}
-            <span className={g.phoneCompletionEnabled ? 'text-foreground' : 'text-muted-foreground'}>
-              {g.phoneCompletionEnabled ? 'activado' : 'desactivado'}
-            </span>
+            {g.automaticPhoneRevealEnabled ? 'activado' : 'requiere confirmación'}
           </dd>
         </div>
       </dl>
@@ -363,8 +365,8 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
             )}
             {!result.costGuardrail.phone_completion_enabled && (
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Teléfono</dt>
-                <dd className="text-muted-foreground">desactivado</dd>
+                <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
+                <dd className="text-muted-foreground">no ejecutado</dd>
               </div>
             )}
             <div className="flex justify-between border-t border-border/50 pt-1">

@@ -100,6 +100,17 @@ describe('isActionableContactCandidate', () => {
     const c = contact({ title: null, email: 'ana@corp.com', enrichmentMetadata: {} });
     assert.equal(isActionableContactCandidate(c, 'high_relevance'), false);
   });
+
+  // Regla 17A.6C: teléfono es canal accionable válido aunque reveal automático esté desactivado
+  it('nombre completo + title + phone (sin email/linkedin) → accionable (phone es canal válido)', () => {
+    const c = contact({ phone: '+57 300 000 0000', email: null, linkedinUrl: null });
+    assert.equal(isActionableContactCandidate(c, 'high_relevance'), true);
+  });
+
+  it('nombre completo + title sin email, sin phone, sin linkedin → NO pasa a revisión', () => {
+    const c = contact({ email: null, phone: null, linkedinUrl: null });
+    assert.equal(isActionableContactCandidate(c, 'high_relevance'), false);
+  });
 });
 
 // ── mergeCompletedContactData ───────────────────────────────────

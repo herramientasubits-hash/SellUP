@@ -19,8 +19,16 @@ describe('APOLLO_CONTACT_ENRICHMENT_GUARDRAILS', () => {
     assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxCompletionCreditsPerRun, 10);
   });
 
-  it('phoneCompletionEnabled = false', () => {
-    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.phoneCompletionEnabled, false);
+  it('automaticPhoneRevealEnabled = false (reveal automático desactivado, no el dato de teléfono)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.automaticPhoneRevealEnabled, false);
+  });
+
+  it('automaticPhoneRevealEnabled=false no implica que phone sea canal inválido — solo que no se revela automáticamente', () => {
+    const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
+    // El guardrail controla el reveal/match adicional, no los datos de búsqueda.
+    assert.equal(g.automaticPhoneRevealEnabled, false);
+    // El costo de reveal sigue configurado para cuando se active en el futuro.
+    assert.ok(g.phoneRevealCredits > 0, 'phoneRevealCredits debe estar configurado aunque el reveal esté desactivado');
   });
 
   it('emailRevealCredits = 1', () => {

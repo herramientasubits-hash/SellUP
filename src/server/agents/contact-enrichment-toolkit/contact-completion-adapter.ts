@@ -35,8 +35,9 @@ export const COMPLETION_CREDIT_EMAIL =
 export const COMPLETION_CREDIT_PHONE =
   APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.phoneRevealCredits;
 
+/** False = reveal automático de teléfono desactivado; los phones de búsqueda se conservan. */
 export const PHONE_COMPLETION_ENABLED =
-  APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.phoneCompletionEnabled;
+  APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.automaticPhoneRevealEnabled;
 
 export const MAX_COMPLETION_CREDITS_PER_RUN =
   APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxCompletionCreditsPerRun;

@@ -11,8 +11,13 @@ export const APOLLO_CONTACT_ENRICHMENT_GUARDRAILS = {
   /** Presupuesto máximo de créditos de completion por run. */
   maxCompletionCreditsPerRun: 10,
 
-  /** Completion de teléfonos desactivada por control de costo. */
-  phoneCompletionEnabled: false,
+  /**
+   * Reveal automático de teléfono desactivado por control de costo (~8 créditos).
+   * SellUp conserva teléfonos que Apollo ya entregó en la búsqueda inicial;
+   * solo el reveal adicional mediante people/match está desactivado hasta
+   * que el operador lo confirme explícitamente.
+   */
+  automaticPhoneRevealEnabled: false,
 
   /** Crédito estimado por email revelado. */
   emailRevealCredits: 1,
