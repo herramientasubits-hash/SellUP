@@ -106,6 +106,8 @@
     "agent1:smoke:icp-size-gate-write": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-icp-size-gate-write.ts",
     "source:fedesoft:sample": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/run-fedesoft-sample.ts",
     "source:fedesoft:snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/source-catalog/load-fedesoft-snapshot.ts",
+    "rd:dgii:bulk:dry-run": "NODE_ENV=development node --env-file=.env.local --import tsx src/server/source-catalog/connectors/dgii-rd/run-dgii-bulk-dry-run.ts",
+    "test:rd:dgii": "node --import tsx --test src/server/source-catalog/connectors/dgii-rd/__tests__/normalizers.test.ts src/server/source-catalog/connectors/dgii-rd/__tests__/dgii-bulk-parser.test.ts",
     "sunat:peru:import-snapshot": "NODE_ENV=development node --env-file=.env.local --import tsx src/server/source-catalog/connectors/sunat-peru/import-peru-sunat-snapshot.ts",
     "sunat:peru:expand-7c": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/peru/expand-sunat-snapshot-7c.ts",
     "test:sunat-peru-5b": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-5b-importer.test.ts",
