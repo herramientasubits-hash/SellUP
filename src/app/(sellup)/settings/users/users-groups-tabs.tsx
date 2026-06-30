@@ -222,7 +222,7 @@ export function UsersTab({
 
       {/* Preapproved list */}
       {showPreapprovedList && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
           {preapprovals.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">
               No hay preautorizaciones pendientes.
@@ -242,21 +242,23 @@ export function UsersTab({
 
       {/* User list */}
       {showUserList && (
-        filteredUsers.length === 0 ? (
-          <div className="py-12 text-center text-muted-foreground text-sm">
-            No hay usuarios en esta categoría.
-          </div>
-        ) : (
-          <UserList
-            users={filteredUsers}
-            roles={roles}
-            allUsers={allUsers}
-            activeUsers={activeUsers}
-            groups={groups}
-            filter={filter}
-            isAdmin={isAdmin}
-          />
-        )
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {filteredUsers.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground text-sm">
+              No hay usuarios en esta categoría.
+            </div>
+          ) : (
+            <UserList
+              users={filteredUsers}
+              roles={roles}
+              allUsers={allUsers}
+              activeUsers={activeUsers}
+              groups={groups}
+              filter={filter}
+              isAdmin={isAdmin}
+            />
+          )}
+        </div>
       )}
     </div>
   );
