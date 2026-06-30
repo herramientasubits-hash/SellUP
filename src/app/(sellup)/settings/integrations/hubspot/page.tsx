@@ -7,6 +7,11 @@ import { getHubSpotIntegration } from '@/modules/integrations/actions';
 import { HubSpotActionsPanel } from './hubspot-actions-client';
 import type { HubSpotMetadata } from '@/modules/integrations/types';
 import { computeHubSpotScopeReadiness } from '@/server/services/hubspot-connection';
+import {
+  computeHubSpotContactSyncReadiness,
+  type HubSpotConnectionRow,
+  type HubSpotContactSyncReadiness,
+} from '@/server/integrations/hubspot-contact-sync';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -135,6 +140,148 @@ function ScopeReadinessCard({ scopes }: { scopes: string[] | undefined }) {
   );
 }
 
+function ReadinessCheckRow({
+  label,
+  ok,
+  hint,
+}: {
+  label: string;
+  ok: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-2.5 border-b border-border/40 last:border-b-0">
+      <div className="flex-1 min-w-0">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        {hint && !ok && (
+          <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+            {hint}
+          </p>
+        )}
+      </div>
+      {ok ? (
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          Listo
+        </span>
+      ) : (
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-medium text-amber-500">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+          Falta
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ContactSyncReadinessCard({
+  readiness,
+}: {
+  readiness: HubSpotContactSyncReadiness;
+}) {
+  const { ok, status, checks, missingScopes } = readiness;
+
+  const summaryConfig: Record<
+    typeof status,
+    { label: string; description: string; color: string; bg: string; border: string }
+  > = {
+    ready: {
+      label: 'Listo para sincronizar contactos',
+      description:
+        'SellUp puede crear contactos en HubSpot y asociarlos con empresas existentes.',
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-emerald-500/10',
+      border: 'border-emerald-500/30',
+    },
+    not_connected: {
+      label: 'HubSpot no está conectado',
+      description: 'Conecta HubSpot antes de sincronizar contactos.',
+      color: 'text-muted-foreground',
+      bg: 'bg-muted/30',
+      border: 'border-border/40',
+    },
+    missing_credentials: {
+      label: 'Faltan credenciales',
+      description: 'Guarda el Private App Access Token de HubSpot para continuar.',
+      color: 'text-amber-700 dark:text-amber-400',
+      bg: 'bg-amber-500/10',
+      border: 'border-amber-500/30',
+    },
+    missing_vault_secret: {
+      label: 'Falta vincular la credencial segura',
+      description:
+        'La conexión existe, pero SellUp no tiene asociado el secreto del token en Vault. Guarda nuevamente el token.',
+      color: 'text-amber-700 dark:text-amber-400',
+      bg: 'bg-amber-500/10',
+      border: 'border-amber-500/30',
+    },
+    missing_scopes: {
+      label: 'Faltan permisos en la Private App',
+      description: `Agrega los siguientes scopes al Private App de HubSpot: ${missingScopes.join(', ')}.`,
+      color: 'text-amber-700 dark:text-amber-400',
+      bg: 'bg-amber-500/10',
+      border: 'border-amber-500/30',
+    },
+  };
+
+  const summary = summaryConfig[status];
+
+  return (
+    <SurfaceCard>
+      <SurfaceCardHeader
+        title="Estado para sincronización de contactos"
+        description="Verifica que HubSpot esté listo para crear y asociar contactos desde SellUp."
+      />
+      <div className="space-y-4">
+        <div
+          className={`rounded-lg border px-3 py-3 ${summary.bg} ${summary.border}`}
+        >
+          <p className={`text-[0.8125rem] font-semibold ${summary.color}`}>{summary.label}</p>
+          <p className={`mt-0.5 text-[11px] leading-relaxed ${summary.color} opacity-90`}>
+            {summary.description}
+          </p>
+        </div>
+
+        <div>
+          <ReadinessCheckRow
+            label="Conexión activa"
+            ok={checks.integrationConnected}
+          />
+          <ReadinessCheckRow
+            label="Credenciales almacenadas"
+            ok={checks.credentialsStored}
+          />
+          <ReadinessCheckRow
+            label="Token vinculado en Vault"
+            ok={checks.vaultSecretLinked}
+            hint="Guarda nuevamente el token en el panel de Acciones."
+          />
+          <ReadinessCheckRow
+            label="Permiso para leer contactos"
+            ok={checks.contactsRead}
+            hint="Agrega crm.objects.contacts.read al Private App de HubSpot."
+          />
+          <ReadinessCheckRow
+            label="Permiso para crear contactos"
+            ok={checks.contactsWrite}
+            hint="Agrega crm.objects.contacts.write al Private App de HubSpot."
+          />
+          <ReadinessCheckRow
+            label="Permiso para leer empresas"
+            ok={checks.companiesRead}
+            hint="Agrega crm.objects.companies.read al Private App de HubSpot."
+          />
+          <ReadinessCheckRow
+            label="Permiso para asociar con empresas"
+            ok={checks.companiesWrite}
+            hint="Agrega crm.objects.companies.write al Private App de HubSpot."
+          />
+        </div>
+      </div>
+    </SurfaceCard>
+  );
+}
+
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 border-b border-border/40 last:border-b-0">
@@ -154,6 +301,16 @@ export default async function HubSpotIntegrationPage() {
   const conn = integration.connection;
   const hasCredential = conn?.credentials_status === 'stored';
   const metadata = conn?.metadata as HubSpotMetadata | null;
+
+  const connectionRow: HubSpotConnectionRow | null = conn
+    ? {
+        connection_status: conn.connection_status,
+        credentials_status: conn.credentials_status,
+        vault_secret_id: conn.vault_secret_id,
+        metadata: conn.metadata,
+      }
+    : null;
+  const contactSyncReadiness = computeHubSpotContactSyncReadiness(connectionRow);
 
   return (
     <div className="space-y-8">
@@ -259,8 +416,11 @@ export default async function HubSpotIntegrationPage() {
         </SurfaceCard>
       </div>
 
-      {/* Permisos HubSpot */}
+      {/* Permisos HubSpot (companies legacy) */}
       <ScopeReadinessCard scopes={metadata?.scopes} />
+
+      {/* Readiness para sincronización de contactos */}
+      <ContactSyncReadinessCard readiness={contactSyncReadiness} />
 
       {/* Panel de acciones */}
       <SurfaceCard>

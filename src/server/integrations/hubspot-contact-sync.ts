@@ -18,6 +18,112 @@ const INTEGRATION_KEY = 'hubspot';
 const CONTACTS_WRITE_SCOPE = 'crm.objects.contacts.write';
 const HUBSPOT_BASE = 'https://api.hubapi.com';
 
+const CONTACT_SYNC_REQUIRED_SCOPES = [
+  'crm.objects.contacts.read',
+  'crm.objects.contacts.write',
+  'crm.objects.companies.read',
+  'crm.objects.companies.write',
+] as const;
+
+export type ContactSyncStatus =
+  | 'ready'
+  | 'not_connected'
+  | 'missing_credentials'
+  | 'missing_vault_secret'
+  | 'missing_scopes';
+
+export interface HubSpotContactSyncReadiness {
+  ok: boolean;
+  status: ContactSyncStatus;
+  checks: {
+    integrationConnected: boolean;
+    credentialsStored: boolean;
+    vaultSecretLinked: boolean;
+    contactsRead: boolean;
+    contactsWrite: boolean;
+    companiesRead: boolean;
+    companiesWrite: boolean;
+  };
+  missingScopes: string[];
+}
+
+const EMPTY_CHECKS = {
+  integrationConnected: false,
+  credentialsStored: false,
+  vaultSecretLinked: false,
+  contactsRead: false,
+  contactsWrite: false,
+  companiesRead: false,
+  companiesWrite: false,
+} as const;
+
+/**
+ * Lógica pura (sin DB) que evalúa una fila de conexión para determinar si
+ * HubSpot está listo para sincronizar contactos.
+ * Valida: connection_status, credentials_status, vault_secret_id, y los 4 scopes
+ * requeridos (contacts.read/write, companies.read/write).
+ * No depende de scope_readiness — puede ser null en producción.
+ */
+export function computeHubSpotContactSyncReadiness(
+  row: HubSpotConnectionRow | null,
+): HubSpotContactSyncReadiness {
+  if (!row || row.connection_status !== 'connected') {
+    return {
+      ok: false,
+      status: 'not_connected',
+      checks: { ...EMPTY_CHECKS },
+      missingScopes: [...CONTACT_SYNC_REQUIRED_SCOPES],
+    };
+  }
+
+  if (row.credentials_status !== 'stored') {
+    return {
+      ok: false,
+      status: 'missing_credentials',
+      checks: { ...EMPTY_CHECKS, integrationConnected: true },
+      missingScopes: [...CONTACT_SYNC_REQUIRED_SCOPES],
+    };
+  }
+
+  if (!row.vault_secret_id) {
+    return {
+      ok: false,
+      status: 'missing_vault_secret',
+      checks: { ...EMPTY_CHECKS, integrationConnected: true, credentialsStored: true },
+      missingScopes: [...CONTACT_SYNC_REQUIRED_SCOPES],
+    };
+  }
+
+  const scopes = Array.isArray(row.metadata?.scopes) ? (row.metadata.scopes as string[]) : [];
+  const hasScopes = scopes.length > 0;
+
+  const contactsRead = !hasScopes || scopes.includes('crm.objects.contacts.read');
+  const contactsWrite = !hasScopes || scopes.includes('crm.objects.contacts.write');
+  const companiesRead = !hasScopes || scopes.includes('crm.objects.companies.read');
+  const companiesWrite = !hasScopes || scopes.includes('crm.objects.companies.write');
+
+  const missingScopes = hasScopes
+    ? CONTACT_SYNC_REQUIRED_SCOPES.filter((s) => !scopes.includes(s))
+    : [];
+
+  const ok = contactsRead && contactsWrite && companiesRead && companiesWrite;
+
+  return {
+    ok,
+    status: ok ? 'ready' : 'missing_scopes',
+    checks: {
+      integrationConnected: true,
+      credentialsStored: true,
+      vaultSecretLinked: true,
+      contactsRead,
+      contactsWrite,
+      companiesRead,
+      companiesWrite,
+    },
+    missingScopes,
+  };
+}
+
 function getAdminSupabase() {
   if (!supabaseServiceKey) {
     throw new Error('enrichment_configuration_unavailable');

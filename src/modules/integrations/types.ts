@@ -36,6 +36,7 @@ export interface ExternalIntegrationConnection {
   auth_type: AuthType;
   credentials_status: CredentialsStatus;
   connection_status: ConnectionStatus;
+  vault_secret_id: string | null;
   last_tested_at: string | null;
   last_tested_by: string | null;
   last_connection_error: string | null;
