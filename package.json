@@ -121,11 +121,13 @@
   "smoke:peru:migo-fallback-dry-run": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-fallback-dry-run.ts",
   "smoke:peru:migo-visual-validation": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-peru-migo-visual-validation.ts",
   "report:peru:source-coverage": "node --env-file=.env.local --import tsx scripts/peru/report-peru-source-coverage.ts",
+    "refresh:peru:source-coverage-summary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/peru/refresh-peru-source-coverage-summary.ts",
   "test:peru:8a-source-coverage": "node --import tsx --test src/server/services/__tests__/peru-8a-source-coverage-summary.test.ts",
   "test:peru:8b-coverage-card": "node --import tsx --test src/components/source-catalog/__tests__/peru-8b-coverage-card.test.ts",
   "test:peru:8c-dynamic-coverage": "node --import tsx --test src/server/services/__tests__/peru-8c-dynamic-coverage.test.ts",
   "test:peru:9b-node20-shim": "node --import tsx --test src/server/source-catalog/connectors/sunat-peru/__tests__/peru-9b-node20-shim.test.ts",
-  "test:peru:9g-coverage-denominators": "node --import tsx --test src/server/services/__tests__/peru-9g-coverage-denominators.test.ts"
+  "test:peru:9g-coverage-denominators": "node --import tsx --test src/server/services/__tests__/peru-9g-coverage-denominators.test.ts",
+    "test:peru:9m1-coverage-summary-table": "node --import tsx --test src/server/services/__tests__/peru-9m1-coverage-summary-table.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

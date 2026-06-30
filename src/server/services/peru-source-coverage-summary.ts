@@ -223,6 +223,70 @@ const supabaseUrl =
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const SNAPSHOT_TABLE = 'peru_sunat_ruc_snapshot';
+const COVERAGE_SUMMARY_TABLE = 'source_coverage_summaries';
+
+// ---------------------------------------------------------------------------
+// Summary-table read (Perú.9M.1 — primary path, avoids COUNT(*) at render)
+// ---------------------------------------------------------------------------
+
+/**
+ * Row shape returned by source_coverage_summaries for pe_sunat_bulk.
+ * Only the fields we consume — extra columns are ignored.
+ */
+interface CoverageSummaryRow {
+  loaded_rows: number;
+  next_recommended_offset: number;
+  audited_total_rows: number;
+  audited_active_habido_rows: number;
+  active_habido_rows: number;
+  active_no_habido_rows: number;
+  inactive_habido_rows: number;
+  inactive_no_habido_rows: number;
+}
+
+/**
+ * Reads the pre-computed summary row for pe_sunat_bulk from
+ * source_coverage_summaries. Returns null when absent or on any error —
+ * caller falls back to the dynamic COUNT path. Never throws. Never writes.
+ */
+export async function getSunatCoverageSummaryRow(): Promise<CoverageSummaryRow | null> {
+  if (!supabaseServiceKey) return null;
+
+  let admin;
+  try {
+    admin = createClient(supabaseUrl, supabaseServiceKey);
+  } catch {
+    return null;
+  }
+
+  try {
+    const { data, error } = await admin
+      .from(COVERAGE_SUMMARY_TABLE)
+      .select(
+        'loaded_rows,next_recommended_offset,audited_total_rows,audited_active_habido_rows,' +
+        'active_habido_rows,active_no_habido_rows,inactive_habido_rows,inactive_no_habido_rows',
+      )
+      .eq('source_key', 'pe_sunat_bulk')
+      .single();
+
+    if (error || !data) return null;
+
+    const row = data as unknown as CoverageSummaryRow;
+
+    // Sanity: loaded_rows must be positive and breakdown must sum exactly.
+    if (row.loaded_rows <= 0) return null;
+    const sum =
+      row.active_habido_rows +
+      row.active_no_habido_rows +
+      row.inactive_habido_rows +
+      row.inactive_no_habido_rows;
+    if (sum !== row.loaded_rows) return null;
+
+    return row;
+  } catch {
+    return null;
+  }
+}
 
 /** Boolean columns used to bucket the snapshot distribution. */
 type SnapshotBoolColumn = 'is_active' | 'is_habido';
@@ -383,14 +447,16 @@ export async function resolveMigoConfigured(): Promise<boolean | 'unknown'> {
 /**
  * Returns a full, read-only coverage summary.
  *
- * When `counts` is provided, it is used verbatim (audited_fallback provenance)
- * — useful for tests and callers that already hold counts. When omitted, the
- * service attempts a dynamic read-only DB read (coverageSource = live_database)
- * and falls back to the audited constants (coverageSource = audited_fallback)
- * if Supabase is unavailable, the env is missing, or any query fails.
+ * Resolution order (Perú.9M.1):
+ *   1. source_coverage_summaries table (fast, no COUNT(*))    → live_database
+ *   2. Dynamic COUNT(*) on peru_sunat_ruc_snapshot (slow)     → live_database
+ *   3. Audited constants fallback                             → audited_fallback
+ *
+ * When `counts` is provided explicitly it is used verbatim — useful for tests
+ * and callers that already hold audited counts.
  *
  * @param counts   Provide to override with explicit audited counts.
- *                 Omit to read dynamically with safe fallback.
+ *                 Omit to resolve dynamically with safe fallback.
  */
 export async function getPeruSourceCoverageSummary(
   counts?: SunatSnapshotCounts
@@ -401,6 +467,23 @@ export async function getPeruSourceCoverageSummary(
     return buildPeruCoverageSummary(counts, migoConfigured, 'audited_fallback');
   }
 
+  // --- Path 1: pre-computed summary table (Perú.9M.1) ---
+  const summaryRow = await getSunatCoverageSummaryRow();
+  if (summaryRow) {
+    const counts: SunatSnapshotCounts = {
+      total: summaryRow.loaded_rows,
+      activeHabido: summaryRow.active_habido_rows,
+      activeNotHabido: summaryRow.active_no_habido_rows,
+      inactiveHabido: summaryRow.inactive_habido_rows,
+      inactiveNotHabido: summaryRow.inactive_no_habido_rows,
+    };
+    // buildSunatCoverage uses AUDITED_TOTAL_RUC20_ROWS / AUDITED_ACTIVE_HABIDO_RUC20_ROWS
+    // from module-level constants; the summary row's audited_* columns are stored for
+    // traceability but we keep the canonical constants to avoid drift.
+    return buildPeruCoverageSummary(counts, migoConfigured, 'live_database');
+  }
+
+  // --- Path 2: dynamic COUNT(*) (original path, retained as fallback) ---
   const { counts: resolvedCounts, coverageSource, coverageSourceReason } =
     await resolveSunatCounts();
   return buildPeruCoverageSummary(

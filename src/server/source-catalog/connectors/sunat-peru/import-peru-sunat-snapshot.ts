@@ -325,6 +325,99 @@ export async function upsertBatch(
   return { upserted: rows.length, error: null };
 }
 
+// ── Coverage summary update (Perú.9M.1) ───────────────────────
+
+const COVERAGE_SUMMARY_TABLE = 'source_coverage_summaries';
+
+/**
+ * After a successful --apply run, increments the pre-computed coverage summary.
+ *
+ * Guardrails:
+ *   - Only called when config.apply === true (never on dry-run)
+ *   - Only updates if the current summary's next_recommended_offset matches
+ *     the apply's offset (prevents double-counting on retries)
+ *   - On any failure: logs a warning, does NOT throw — the apply already
+ *     succeeded and the snapshot table is the source of truth
+ *   - Never reads from SUNAT web, Migo, Tavily, or any LLM
+ */
+export async function updateCoverageSummaryAfterApply(
+  supabase: SupabaseClient<any>,
+  applyOffset: number,
+  report: ImportReport,
+): Promise<void> {
+  if (!report.applied || report.rowsUpserted === 0) return;
+
+  try {
+    // Read current summary row
+    const { data: rawCurrent, error: readErr } = await supabase
+      .from(COVERAGE_SUMMARY_TABLE)
+      .select(
+        'loaded_rows,next_recommended_offset,active_habido_rows,active_no_habido_rows,' +
+        'inactive_habido_rows,inactive_no_habido_rows,audited_total_rows,audited_active_habido_rows',
+      )
+      .eq('source_key', SOURCE_KEY)
+      .single();
+
+    const current = rawCurrent as unknown as {
+      loaded_rows: number;
+      next_recommended_offset: number;
+      active_habido_rows: number;
+      active_no_habido_rows: number;
+      inactive_habido_rows: number;
+      inactive_no_habido_rows: number;
+    } | null;
+
+    if (readErr || !current) {
+      console.warn(
+        '[sunat:importer] coverage_summary_skip: summary row not found, skipping update.',
+      );
+      return;
+    }
+
+    // Guard: only update if the current next_recommended_offset matches this apply's offset.
+    // This prevents double-counting when an apply is retried.
+    if (current.next_recommended_offset !== applyOffset) {
+      console.warn(
+        `[sunat:importer] coverage_summary_skip: summary.next_recommended_offset (${current.next_recommended_offset}) ` +
+        `!== apply offset (${applyOffset}). Skipping summary update to prevent double-count.`,
+      );
+      return;
+    }
+
+    const newLoadedRows = current.loaded_rows + report.rowsUpserted;
+    const newNextOffset = applyOffset + (report.limit ?? report.rowsUpserted);
+
+    // Note: we cannot compute the breakdown delta from the importer's report
+    // (it doesn't track per-row is_active/is_habido distribution).
+    // We update only the totals; use --from-live-counts to refresh breakdown.
+    const { error: updateErr } = await supabase
+      .from(COVERAGE_SUMMARY_TABLE)
+      .update({
+        loaded_rows: newLoadedRows,
+        next_recommended_offset: newNextOffset,
+        refresh_source: 'sunat_importer_apply',
+        refreshed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('source_key', SOURCE_KEY)
+      .eq('next_recommended_offset', applyOffset); // optimistic lock
+
+    if (updateErr) {
+      console.warn(
+        `[sunat:importer] coverage_summary_warn: update failed: ${updateErr.message}`,
+      );
+    } else {
+      console.log(
+        `[sunat:importer] coverage_summary_updated: loaded_rows=${newLoadedRows}, next_offset=${newNextOffset}`,
+      );
+    }
+  } catch (err) {
+    // Non-fatal — the snapshot apply already succeeded.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[sunat:importer] coverage_summary_warn: ${msg}`);
+  }
+}
+
 // ── Main importer ──────────────────────────────────────────────
 
 export async function runImporter(
