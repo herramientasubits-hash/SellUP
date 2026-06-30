@@ -67,7 +67,7 @@ describe('normalizeRut', () => {
 
 describe('normalizeOcdsRelease — release con buyer', () => {
   it('normaliza campos básicos y resuelve el comprador por rol', () => {
-    const result = normalizeOcdsRelease(makeRelease(), 'https://mp.cl/tender/3955');
+    const result = normalizeOcdsRelease(makeRelease(), { urlTender: 'https://mp.cl/tender/3955' });
     assert.ok(result);
     assert.equal(result!.ocid, 'ocds-70d2nz-3955-1-LE25');
     assert.equal(result!.tender_title, 'Servicio de aseo municipal');
@@ -90,6 +90,34 @@ describe('normalizeOcdsRelease — release con buyer', () => {
   it('descarta el item (null) cuando falta ocid', () => {
     const result = normalizeOcdsRelease(makeRelease({ ocid: null }));
     assert.equal(result, null);
+  });
+
+  it('conserva el ocid original del listado y el tender_id extraído', () => {
+    // El detalle puede no traer ocid; el contexto del listado es la autoridad.
+    const release = makeRelease({ ocid: null });
+    const result = normalizeOcdsRelease(release, {
+      ocid: 'ocds-70d2nz-4280-18-LP26',
+      tenderId: '4280-18-LP26',
+      urlTender: 'https://mp.cl/tender/4280',
+    });
+    assert.ok(result);
+    assert.equal(result!.ocid, 'ocds-70d2nz-4280-18-LP26');
+    assert.equal(result!.tender_id, '4280-18-LP26');
+    assert.equal(result!.source_url, 'https://mp.cl/tender/4280');
+  });
+
+  it('deriva tender_id del ocid cuando el contexto no lo trae', () => {
+    const result = normalizeOcdsRelease(makeRelease());
+    // ocid del fixture: ocds-70d2nz-3955-1-LE25 → tender id 3955-1-LE25
+    assert.equal(result!.tender_id, '3955-1-LE25');
+  });
+
+  it('source_url cae al endpoint de detalle con tender id cuando no hay urlTender', () => {
+    const result = normalizeOcdsRelease(makeRelease(), { tenderId: '3955-1-LE25' });
+    assert.equal(
+      result!.source_url,
+      'https://api.mercadopublico.cl/APISOCDS/OCDS/tender/3955-1-LE25',
+    );
   });
 
   it('RUT del comprador es string, nunca number', () => {

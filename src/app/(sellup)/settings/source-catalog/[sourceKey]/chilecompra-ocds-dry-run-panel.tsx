@@ -100,10 +100,15 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
   const s = report.summary;
 
   if (report.items.length === 0) {
+    // Distinguir "el mes no trae procesos" de "hay procesos pero todos los
+    // detalles fallaron al normalizarse" (p. ej. tender id mal construido).
+    const listedButDetailsFailed = s.listed_count > 0;
     return (
       <div className="space-y-3">
         <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-sm text-muted-foreground">
-          No se encontraron procesos para el mes consultado.
+          {listedButDetailsFailed
+            ? 'Se encontraron procesos, pero no fue posible normalizar los detalles.'
+            : 'No se encontraron procesos para el mes consultado.'}
         </div>
         {report.warnings.map((w, i) => (
           <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>

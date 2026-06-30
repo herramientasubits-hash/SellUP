@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   buildListadoUrl,
   buildTenderUrl,
+  extractTenderIdFromOcid,
   fetchOcdsListado,
   fetchOcdsTender,
   extractTotal,
@@ -37,9 +38,9 @@ describe('URL builders', () => {
     assert.equal(url, 'https://api.mercadopublico.cl/APISOCDS/OCDS/listaOCDSAgnoMes/2026/6/0/5');
   });
 
-  it('construye URL de detalle con ocid', () => {
-    const url = buildTenderUrl('ocds-70d2nz-3955-1-LE25');
-    assert.equal(url, 'https://api.mercadopublico.cl/APISOCDS/OCDS/tender/ocds-70d2nz-3955-1-LE25');
+  it('construye URL de detalle con tender id (builder de bajo nivel, sin stripping)', () => {
+    const url = buildTenderUrl('3955-1-LE25');
+    assert.equal(url, 'https://api.mercadopublico.cl/APISOCDS/OCDS/tender/3955-1-LE25');
   });
 
   it('respeta limit máximo server-side (1000)', () => {
@@ -50,6 +51,30 @@ describe('URL builders', () => {
   it('clampa offset/limit negativos a valores seguros', () => {
     const url = buildListadoUrl(2026, 6, -10, 0);
     assert.ok(url.endsWith('/0/1'));
+  });
+});
+
+describe('extractTenderIdFromOcid', () => {
+  it('remueve el prefijo OCDS y conserva el tender id', () => {
+    assert.equal(extractTenderIdFromOcid('ocds-70d2nz-4280-18-LP26'), '4280-18-LP26');
+  });
+
+  it('devuelve el tender id tal cual cuando no trae prefijo OCDS', () => {
+    assert.equal(extractTenderIdFromOcid('4280-18-LP26'), '4280-18-LP26');
+  });
+
+  it('conserva guiones internos del identificador final', () => {
+    assert.equal(extractTenderIdFromOcid('ocds-70d2nz-705290-49-LR26'), '705290-49-LR26');
+  });
+
+  it('mantiene string (no convierte a número)', () => {
+    const out = extractTenderIdFromOcid('ocds-70d2nz-621-513-LR26');
+    assert.equal(typeof out, 'string');
+    assert.equal(out, '621-513-LR26');
+  });
+
+  it('trimea espacios alrededor', () => {
+    assert.equal(extractTenderIdFromOcid('  ocds-70d2nz-4280-18-LP26  '), '4280-18-LP26');
   });
 });
 
@@ -147,6 +172,21 @@ describe('fetchOcdsTender', () => {
     const result = await fetchOcdsTender('ocds-1');
     assert.equal(result.ok, true);
     if (result.ok) assert.equal(result.release.ocid, 'ocds-1');
+  });
+
+  it('construye la URL de detalle con el tender id extraído, no con el OCID completo', async () => {
+    let requestedUrl = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requestedUrl = String(input);
+      return jsonResponse({ releases: [{ ocid: 'ocds-70d2nz-4280-18-LP26', tender: { id: '4280-18-LP26' } }] });
+    }) as typeof fetch;
+    const result = await fetchOcdsTender('ocds-70d2nz-4280-18-LP26');
+    assert.equal(result.ok, true);
+    assert.ok(
+      requestedUrl.endsWith('/tender/4280-18-LP26'),
+      `URL esperada con tender id; recibida: ${requestedUrl}`,
+    );
+    assert.ok(!requestedUrl.includes('ocds-70d2nz'), 'la URL no debe contener el OCID completo');
   });
 
   it('maneja HTTP error en detalle', async () => {

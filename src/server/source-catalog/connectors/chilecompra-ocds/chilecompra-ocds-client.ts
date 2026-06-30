@@ -3,7 +3,11 @@
  *
  * Endpoints OCDS abiertos (sin auth, sin API key):
  *   Listado: /APISOCDS/OCDS/listaOCDSAgnoMes/{year}/{month}/{offset}/{limit}
- *   Detalle: /APISOCDS/OCDS/tender/{ocid}
+ *   Detalle: /APISOCDS/OCDS/tender/{tender_id}
+ *
+ * NOTA: el listado devuelve OCID completos (`ocds-70d2nz-4280-18-LP26`), pero el
+ * endpoint de detalle espera el tender id de la licitación (`4280-18-LP26`).
+ * Ver `extractTenderIdFromOcid`.
  *
  * Solo requests GET. Sin writes. Timeout 10s. Un solo intento.
  * Separado del connector legacy `chilecompra-chile` (ticket/Clave Única).
@@ -34,8 +38,31 @@ export function buildListadoUrl(
   return `${OCDS_BASE}/listaOCDSAgnoMes/${year}/${month}/${safeOffset}/${safeLimit}`;
 }
 
-export function buildTenderUrl(ocid: string): string {
-  return `${OCDS_BASE}/tender/${encodeURIComponent(ocid)}`;
+/**
+ * Construye la URL de detalle a partir de un tender id ya extraído.
+ * Builder de bajo nivel: NO normaliza ni remueve prefijos OCDS. Los callers
+ * deben pasar el tender id (ver `extractTenderIdFromOcid`).
+ */
+export function buildTenderUrl(tenderId: string): string {
+  return `${OCDS_BASE}/tender/${encodeURIComponent(tenderId)}`;
+}
+
+/**
+ * Extrae el tender id de la licitación desde un OCID OCDS, conservando string.
+ *
+ * El OCID de Mercado Público tiene la forma `ocds-{publisherPrefix}-{tenderId}`,
+ * p. ej. `ocds-70d2nz-4280-18-LP26` → `4280-18-LP26`.
+ *
+ * Regla:
+ *  - Si empieza con prefijo OCDS (`ocds-<prefix>-`), se remueve y se conserva
+ *    el identificador de licitación final (que puede contener más guiones).
+ *  - Si ya es un tender id (no empieza con `ocds-`), se devuelve tal cual.
+ *  - Nunca convierte a número; siempre string.
+ */
+export function extractTenderIdFromOcid(idOrOcid: string): string {
+  const trimmed = idOrOcid.trim();
+  const match = trimmed.match(/^ocds-[^-]+-(.+)$/i);
+  return match ? match[1] : trimmed;
 }
 
 // ─── Result types ──────────────────────────────────────────────────────────────
@@ -164,8 +191,14 @@ export function extractListItems(
 
 // ─── Detalle ───────────────────────────────────────────────────────────────────
 
-export async function fetchOcdsTender(ocid: string): Promise<FetchTenderResult> {
-  const url = buildTenderUrl(ocid);
+/**
+ * Consulta el detalle de una licitación. Acepta un OCID completo o un tender id;
+ * internamente extrae el tender id y construye la URL de detalle con él, no con
+ * el OCID completo. El OCID original se conserva solo para trazabilidad de errores.
+ */
+export async function fetchOcdsTender(idOrOcid: string): Promise<FetchTenderResult> {
+  const tenderId = extractTenderIdFromOcid(idOrOcid);
+  const url = buildTenderUrl(tenderId);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OCDS_TIMEOUT_MS);
@@ -183,7 +216,7 @@ export async function fetchOcdsTender(ocid: string): Promise<FetchTenderResult> 
       clearTimeout(timeout);
     }
     if (!response.ok) {
-      return { ok: false, error: `HTTP ${response.status} en detalle ${ocid}` };
+      return { ok: false, error: `HTTP ${response.status} en detalle ${idOrOcid}` };
     }
     responseText = await response.text();
   } catch (error: unknown) {

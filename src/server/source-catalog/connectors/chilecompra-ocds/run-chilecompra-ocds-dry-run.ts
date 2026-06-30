@@ -8,7 +8,11 @@
  * Si un detalle falla, se cuenta el fallo y se continúa con el resto.
  */
 
-import { fetchOcdsListado, fetchOcdsTender } from './chilecompra-ocds-client';
+import {
+  extractTenderIdFromOcid,
+  fetchOcdsListado,
+  fetchOcdsTender,
+} from './chilecompra-ocds-client';
 import { normalizeOcdsRelease } from './normalizers';
 import type {
   ChileCompraOcdsDryRunInput,
@@ -117,9 +121,16 @@ export async function runChileCompraOcdsDryRun(
     sample,
     DETAIL_CONCURRENCY,
     async (listItem): Promise<NormalizedOcdsProcess | null> => {
-      const detail = await fetchOcdsTender(listItem.ocid);
+      // El listado trae OCID completos; el detalle se consulta con el tender id.
+      const tenderId = extractTenderIdFromOcid(listItem.ocid);
+      const detail = await fetchOcdsTender(tenderId);
       if (!detail.ok) return null;
-      return normalizeOcdsRelease(detail.release, listItem.urlTender);
+      // Conservar el OCID original del listado para trazabilidad.
+      return normalizeOcdsRelease(detail.release, {
+        ocid: listItem.ocid,
+        tenderId,
+        urlTender: listItem.urlTender,
+      });
     },
   );
 

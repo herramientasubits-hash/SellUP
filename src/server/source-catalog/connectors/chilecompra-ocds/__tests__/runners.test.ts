@@ -131,6 +131,56 @@ describe('runChileCompraOcdsDryRun', () => {
     globalThis.fetch = (async () => jsonResponse({ pagination: { total: 0 }, data: [] })) as typeof fetch;
     const report = await runChileCompraOcdsDryRun({ year: 2026, month: 6, sampleSize: 5 });
     assert.equal(report.items.length, 0);
+    assert.equal(report.summary.listed_count, 0);
     assert.equal(report.summary.writes_performed, 0);
+  });
+
+  it('listado con OCID completo → detalle consultado con tender id extraído', async () => {
+    const detailUrls: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('listaOCDSAgnoMes')) {
+        return jsonResponse({
+          pagination: { total: 1 },
+          data: [{ ocid: 'ocds-70d2nz-4280-18-LP26', urlTender: 'https://mp.cl/t/4280' }],
+        });
+      }
+      detailUrls.push(url);
+      // El detalle real responde solo si la URL trae el tender id, no el OCID.
+      return jsonResponse(makeReleaseBody('ocds-70d2nz-4280-18-LP26'));
+    }) as typeof fetch;
+
+    const report = await runChileCompraOcdsDryRun({ year: 2026, month: 6, sampleSize: 1 });
+    assert.equal(detailUrls.length, 1);
+    assert.ok(detailUrls[0].endsWith('/tender/4280-18-LP26'), `recibida: ${detailUrls[0]}`);
+    assert.ok(!detailUrls[0].includes('ocds-70d2nz'));
+    assert.equal(report.summary.details_success, 1);
+    // ocid original preservado; tender_id = id extraído.
+    assert.equal(report.items[0].ocid, 'ocds-70d2nz-4280-18-LP26');
+    assert.equal(report.items[0].tender_id, '4280-18-LP26');
+  });
+
+  it('procesos listados pero todos los detalles fallan → listed_count>0 sin empty state', async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('listaOCDSAgnoMes')) {
+        return jsonResponse({
+          pagination: { total: 8863 },
+          data: [
+            { ocid: 'ocds-70d2nz-4280-18-LP26', urlTender: 'u1' },
+            { ocid: 'ocds-70d2nz-705290-49-LR26', urlTender: 'u2' },
+          ],
+        });
+      }
+      return jsonResponse({ error: 'boom' }, 500);
+    }) as typeof fetch;
+
+    const report = await runChileCompraOcdsDryRun({ year: 2026, month: 6, sampleSize: 2 });
+    assert.equal(report.items.length, 0);
+    assert.equal(report.summary.listed_count, 2);
+    assert.equal(report.summary.details_failed, 2);
+    assert.equal(report.summary.details_success, 0);
+    // El runner ya NO está en estado vacío real: listó procesos.
+    assert.ok(report.summary.listed_count > 0 && report.summary.details_failed > 0);
   });
 });

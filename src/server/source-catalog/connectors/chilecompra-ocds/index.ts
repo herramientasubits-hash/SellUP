@@ -10,6 +10,7 @@ export {
   OCDS_SERVER_MAX_LIMIT,
   buildListadoUrl,
   buildTenderUrl,
+  extractTenderIdFromOcid,
   fetchOcdsListado,
   fetchOcdsTender,
   extractTotal,

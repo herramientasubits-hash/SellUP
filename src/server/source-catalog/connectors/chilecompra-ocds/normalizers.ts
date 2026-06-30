@@ -15,7 +15,7 @@
  *    deduplicado por código dentro del mismo proceso.
  */
 
-import { buildTenderUrl } from './chilecompra-ocds-client';
+import { buildTenderUrl, extractTenderIdFromOcid } from './chilecompra-ocds-client';
 import type {
   NormalizedOcdsProcess,
   OcdsAward,
@@ -148,27 +148,46 @@ function shortenDescription(value: unknown): string | null {
 }
 
 /**
+ * Contexto de trazabilidad proveniente del listado, inyectado por el dry-run.
+ *  - `ocid`: OCID original del listado (autoridad para trazabilidad).
+ *  - `tenderId`: tender id extraído usado para llamar al endpoint de detalle.
+ *  - `urlTender`: URL del listado (preferida como source_url si está presente).
+ */
+export type NormalizeContext = {
+  ocid?: string | null;
+  tenderId?: string | null;
+  urlTender?: string | null;
+};
+
+/**
  * Normaliza un release OCDS a NormalizedOcdsProcess.
  * Retorna null si falta el ocid (item descartado).
  *
- * @param release Release OCDS crudo.
- * @param urlTender URL del listado (preferida como source_url si está presente).
+ * Conserva el OCID original (del listado o del release) en `ocid` y el tender id
+ * extraído (usado para el detalle) en `tender_id`.
+ *
+ * @param release Release OCDS crudo del detalle.
+ * @param context Trazabilidad del listado (ocid original, tender id, urlTender).
  */
 export function normalizeOcdsRelease(
   release: OcdsRelease,
-  urlTender?: string | null,
+  context: NormalizeContext = {},
 ): NormalizedOcdsProcess | null {
-  const ocid = toStr(release.ocid);
+  const ocid = toStr(context.ocid) ?? toStr(release.ocid);
   if (!ocid) return null;
 
   const tender = release.tender ?? {};
+  // tender id: el extraído usado para el detalle, con fallback a derivarlo del
+  // ocid original y, en último caso, al tender.id que venga en el release.
+  const tenderId =
+    toStr(context.tenderId) ?? extractTenderIdFromOcid(ocid) ?? toStr(tender.id);
   const buyer = resolveBuyer(release);
   const award = resolveAward(release);
   const unspsc = collectUnspsc(release);
 
   return {
     ocid,
-    tender_id: toStr(tender.id),
+    tender_id: tenderId,
     tender_title: toStr(tender.title),
     tender_description_short: shortenDescription(tender.description),
     tender_status: toStr(tender.status),
@@ -186,6 +205,6 @@ export function normalizeOcdsRelease(
     awarded_supplier_rut: award.supplierRut,
     unspsc_codes: unspsc.codes,
     unspsc_descriptions: unspsc.descriptions,
-    source_url: toStr(urlTender) ?? buildTenderUrl(ocid),
+    source_url: toStr(context.urlTender) ?? buildTenderUrl(tenderId ?? ocid),
   };
 }
