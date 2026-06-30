@@ -85,17 +85,19 @@ const DEFAULT_NEGATIVE_MEMORY_LOOKBACK_DAYS = 30;
 // ─── LinkedIn company search (v1.16K-R) ──────────────────────────────────────
 // Strictly-capped config used ONLY when ENABLE_LINKEDIN_COMPANY_SEARCH=true.
 // Low caps keep credit exposure minimal for a controlled, opt-in trial:
-//   - maxPerBatch 3   → at most 3 candidates searched per batch (hard cap is 5).
-//   - maxQueriesPerCandidate 1 / maxResultsPerQuery 1 → 1 Tavily call/candidate.
+//   - maxPerBatch 3              → at most 3 candidates searched per batch (hard cap is 5).
+//   - maxQueriesPerCandidate 1   → 1 Tavily call/candidate.
+//   - maxResultsPerQuery 3 (v1.16K-R-D.1) → scan up to 3 results per call to improve recall;
+//     billing stays 1 credit/call (Tavily basic search pricing is per-call, not per-result).
 // When the flag is false (default), no override is built and the writer performs
 // zero LinkedIn searches — preserving current behavior and cost exactly.
-const LINKEDIN_SEARCH_STRICT_CONFIG: LinkedInSearchConfig = {
+export const LINKEDIN_SEARCH_STRICT_CONFIG: LinkedInSearchConfig = {
   enabled: true,
   provider: 'tavily',
   maxPerBatch: 3,
   minConfidenceScore: 70,
   maxQueriesPerCandidate: 1,
-  maxResultsPerQuery: 1,
+  maxResultsPerQuery: 3,
 };
 
 /**
@@ -133,7 +135,7 @@ async function buildLinkedInSearchOverride(
   return {
     config: LINKEDIN_SEARCH_STRICT_CONFIG,
     providerFn: createTavilyLinkedInSearchProvider(
-      LINKEDIN_SEARCH_STRICT_CONFIG.maxResultsPerQuery ?? 1,
+      LINKEDIN_SEARCH_STRICT_CONFIG.maxResultsPerQuery ?? 3,
     ),
     usageLoggerFn: createLinkedInUsageLoggerFn(triggeredByUserId),
     unitCostUsd,

@@ -213,7 +213,7 @@ describe('FIX 2 — runIncrementalProspectingSearch wires LinkedIn override by f
     // Strict caps: low per-batch and per-candidate.
     assert.ok(override.config.maxPerBatch <= 5, 'maxPerBatch must respect the hard cap');
     assert.equal(override.config.maxQueriesPerCandidate, 1, 'one query per candidate');
-    assert.equal(override.config.maxResultsPerQuery, 1, 'one result per query');
+    assert.equal(override.config.maxResultsPerQuery, 3, 'three results per query (v1.16K-R-D.1: improves recall at same credit cost)');
     assert.equal(typeof override.providerFn, 'function', 'a provider fn must be wired');
     assert.equal(typeof override.usageLoggerFn, 'function', 'a usage logger must be wired');
   });

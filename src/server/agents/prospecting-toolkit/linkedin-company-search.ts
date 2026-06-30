@@ -603,7 +603,9 @@ export async function runControlledLinkedInCompanySearch(
   // Default 1 para backward compat con configs sin maxQueriesPerCandidate.
   // DEFAULT_LINKEDIN_SEARCH_CONFIG lo fija en 2 explícitamente.
   const maxQueriesPerCandidate = config.maxQueriesPerCandidate ?? 1;
-  const maxResultsPerQuery = config.maxResultsPerQuery ?? 1;
+  // Default 3 (v1.16K-R-D.1): up to 3 results per call improves recall at zero extra cost
+  // (Tavily basic search bills per-call, not per-result). Old fallback was 1.
+  const maxResultsPerQuery = config.maxResultsPerQuery ?? 3;
 
   const resolvedSource: LinkedInEnrichmentSource =
     config.provider === 'mock' ? 'mock_linkedin_search' : 'tavily_linkedin_search';

@@ -32,6 +32,7 @@ import {
   type LinkedInUsageLoggerFn,
 } from '../linkedin-company-search';
 import { normalizeLinkedInCompanyUrl } from '../linkedin-company-enrichment';
+import { LINKEDIN_SEARCH_STRICT_CONFIG } from '../incremental-search';
 import { readWizardConsumedCreditsFromDb } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reconciliation';
 
 const CHECKED_AT = '2026-06-30T10:00:00.000Z';
@@ -94,6 +95,28 @@ function makeCapturingLogger(): {
 describe('DEFAULT_LINKEDIN_SEARCH_CONFIG.maxResultsPerQuery', () => {
   it('is 3 (cost-free recall improvement)', () => {
     assert.equal(DEFAULT_LINKEDIN_SEARCH_CONFIG.maxResultsPerQuery, 3);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// STRICT CONFIG (v1.16K-R-D.1) — real config used by incremental-search caller
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('LINKEDIN_SEARCH_STRICT_CONFIG — caller config used by buildLinkedInSearchOverride', () => {
+  it('maxResultsPerQuery is 3, not 1 (v1.16K-R-D.1 fix)', () => {
+    assert.equal(
+      LINKEDIN_SEARCH_STRICT_CONFIG.maxResultsPerQuery,
+      3,
+      'LINKEDIN_SEARCH_STRICT_CONFIG must use maxResultsPerQuery=3 so runtime does not override to 1',
+    );
+  });
+
+  it('maxPerBatch stays 3 (credit cap unchanged)', () => {
+    assert.equal(LINKEDIN_SEARCH_STRICT_CONFIG.maxPerBatch, 3);
+  });
+
+  it('maxQueriesPerCandidate stays 1 (1 Tavily call per candidate)', () => {
+    assert.equal(LINKEDIN_SEARCH_STRICT_CONFIG.maxQueriesPerCandidate, 1);
   });
 });
 
