@@ -19,7 +19,11 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { MobileNavLink } from "@/components/layout/app-sidebar";
-import { mainNavItems } from "@/config/navigation";
+import {
+  mainNavItems,
+  getVisibleNavItems,
+  type NavAccessContext,
+} from "@/config/navigation";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -35,10 +39,13 @@ import { createClient } from "@/lib/supabase/client";
 interface AppHeaderProps {
   user: User;
   initialUnreadCount?: number;
+  navAccess: NavAccessContext;
 }
 
-export function AppHeader({ user, initialUnreadCount = 0 }: AppHeaderProps) {
+export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeaderProps) {
   const router = useRouter();
+
+  const visibleNavItems = getVisibleNavItems(mainNavItems, navAccess);
 
   const displayName =
     (user.user_metadata?.full_name as string | undefined) ??
@@ -137,7 +144,7 @@ export function AppHeader({ user, initialUnreadCount = 0 }: AppHeaderProps) {
                 Navegación
               </p>
               <div className="flex flex-col gap-0.5">
-                {mainNavItems.map((item) => (
+                {visibleNavItems.map((item) => (
                   <MobileNavLink key={item.href} item={item} />
                 ))}
               </div>

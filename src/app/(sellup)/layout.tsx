@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { AppShell } from '@/components/layout/app-shell';
+import { isCurrentUserAdmin, getCurrentUser } from '@/modules/access/actions';
+import type { NavAccessContext } from '@/config/navigation';
 
 export default async function SellUpLayout({
   children,
@@ -34,15 +36,27 @@ export default async function SellUpLayout({
     redirect(accessRedirects[accessStatus] ?? '/access-pending');
   }
 
-  const { count } = await supabase
-    .from('user_notifications')
-    .select('id', { count: 'exact', head: true })
-    .eq('is_read', false);
+  const [{ count }, isAdmin, internalUserRecord] = await Promise.all([
+    supabase
+      .from('user_notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_read', false),
+    isCurrentUserAdmin(),
+    getCurrentUser(),
+  ]);
 
   const unreadCount = count ?? 0;
 
+  // Permission context for the sidebar. Only serializable primitives cross the
+  // Server → Client boundary; the nav renderers filter items with the pure
+  // helper from @/config/navigation so unavailable modules are never shown.
+  const navAccess: NavAccessContext = {
+    isAdmin,
+    roleKey: internalUserRecord?.role_key ?? null,
+  };
+
   return (
-    <AppShell user={user} initialUnreadCount={unreadCount}>
+    <AppShell user={user} initialUnreadCount={unreadCount} navAccess={navAccess}>
       {children}
     </AppShell>
   );

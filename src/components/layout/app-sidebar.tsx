@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { LogOut, Settings } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
-import { mainNavItems } from "@/config/navigation";
+import {
+  mainNavItems,
+  getVisibleNavItems,
+  type NavAccessContext,
+} from "@/config/navigation";
 import { NavLink, MobileNavLink } from "@/components/navigation/nav-link";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -32,6 +36,7 @@ interface AppSidebarProps {
   className?: string;
   user: User;
   initialUnreadCount?: number;
+  navAccess: NavAccessContext;
 }
 
 /**
@@ -44,8 +49,11 @@ export function AppSidebar({
   className,
   user,
   initialUnreadCount = 0,
+  navAccess,
 }: AppSidebarProps) {
   const router = useRouter();
+
+  const visibleNavItems = getVisibleNavItems(mainNavItems, navAccess);
 
   const displayName =
     (user.user_metadata?.full_name as string | undefined) ??
@@ -142,7 +150,7 @@ export function AppSidebar({
 
       {/* Nav — middle, icon-rail with hover tooltips */}
       <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-4">
-        {mainNavItems.map((item, i) => (
+        {visibleNavItems.map((item, i) => (
             <div
               key={item.href}
               style={{ animationDelay: `${i * 40}ms` }}
