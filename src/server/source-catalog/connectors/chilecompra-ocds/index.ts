@@ -33,6 +33,7 @@ export {
 
 export { runChileCompraOcdsHealthCheck } from './run-chilecompra-ocds-health-check';
 export { runChileCompraOcdsDryRun } from './run-chilecompra-ocds-dry-run';
+export { runChileCompraOcdsSnapshotEtl } from './run-chilecompra-ocds-snapshot-etl';
 
 export type {
   OcdsRelease,
