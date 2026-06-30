@@ -328,6 +328,9 @@ export type LinkedInEnrichmentSource =
   // v1.16K-R: company LinkedIn URL returned by Apollo's organization search.
   // Cost-zero — the URL is already in the Apollo payload; we only preserve it.
   | 'apollo'
+  // v1.16K-R-G: LinkedIn URL found by fetching the company's official website.
+  // Cost-zero — no external search API. Runs before Tavily as a free first pass.
+  | 'website_social_link'
   | 'future_provider'
   | 'none';
 

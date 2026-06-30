@@ -35,6 +35,10 @@ import {
   runControlledLinkedInCompanySearch,
   DEFAULT_LINKEDIN_SEARCH_CONFIG,
 } from "./linkedin-company-search";
+import {
+  runWebsiteLinkedInExtraction,
+} from "./linkedin-website-social-extractor";
+import type { WebsiteExtractionBatchSummary } from "./linkedin-website-social-extractor";
 import type {
   LinkedInSearchConfig,
   LinkedInSearchProviderFn,
@@ -1479,6 +1483,35 @@ export async function writeProspectingCandidates(
     }),
   );
 
+  // ── Pre-Pass B: Website Social Link Extraction (v1.16K-R-G) ─────────────────
+  // For ALL candidates with a known website, try to extract a LinkedIn company URL
+  // directly from the official site before Tavily. Cost: $0 — no external search API.
+  // Runs independently of the Tavily cap: even if maxPerBatch=3, every candidate with
+  // a website gets this free pass.
+  let websiteExtractionBatchSummary: WebsiteExtractionBatchSummary | null = null;
+
+  {
+    const websiteExtractionCandidates = toPersist.map(({ candidate, domain: d }, i) => ({
+      name: candidate.name,
+      website: candidate.website ?? null,
+      domain: d,
+      countryCode: candidate.countryCode ?? null,
+      currentEnrichment: preComputedLinkedInEnrichments[i],
+    }));
+
+    const websiteOutput = await runWebsiteLinkedInExtraction(websiteExtractionCandidates, nowIso);
+
+    websiteExtractionBatchSummary = websiteOutput.batchSummary;
+
+    // Apply results: update enrichments where website extraction found a match
+    for (let i = 0; i < websiteOutput.results.length; i++) {
+      const result = websiteOutput.results[i];
+      if (result.extractionStatus === 'found') {
+        preComputedLinkedInEnrichments[i] = result.enrichment;
+      }
+    }
+  }
+
   let linkedInBatchSearchMetadata: LinkedInBatchSearchMetadata | null = null;
 
   if (linkedInSearchConfig.enabled) {
@@ -2391,7 +2424,7 @@ export async function writeProspectingCandidates(
       tavily_usage_reconciliation: tavilyUsageReconciliation,
       // v1.16K-K FIX 5: detailed omitted samples for post-run auditing
       writer_omitted_samples: writerOmittedSamples,
-      ...(linkedInBatchSearchMetadata ? { linkedin_search: linkedInBatchSearchMetadata } : {}),
+      ...(websiteExtractionBatchSummary ? { linkedin_search: { website_extraction: websiteExtractionBatchSummary, ...(linkedInBatchSearchMetadata ?? {}) } } : linkedInBatchSearchMetadata ? { linkedin_search: linkedInBatchSearchMetadata } : {}),
       ...(targetCapMetadata ? { target_cap: targetCapMetadata } : {}),
       ...(reconciledAdaptiveForStorage != null ? { adaptive_discovery: reconciledAdaptiveForStorage } : {}),
       ...(richProfileBatchMetadata
