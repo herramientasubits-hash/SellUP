@@ -157,16 +157,53 @@ function tryGetAdminClient() {
 }
 
 /**
+ * Resuelve el role_key y group_id del usuario para el snapshot de consumo.
+ * Retorna nulls si triggered_by está ausente o el lookup falla.
+ * Nunca lanza — el log Tavily no debe fallar por un snapshot faltante.
+ * Usa dos queries simples para evitar dependencia de tipos generados del join.
+ */
+async function resolveTavilyUserSnapshot(
+  admin: Awaited<ReturnType<typeof tryGetAdminClient>>,
+  triggeredBy: string | null | undefined,
+): Promise<{ roleKey: string | null; groupId: string | null }> {
+  const empty = { roleKey: null, groupId: null };
+  if (!triggeredBy || !admin) return empty;
+  try {
+    const { data: user, error: userError } = await admin
+      .from('internal_users')
+      .select('role_id, group_id')
+      .eq('id', triggeredBy)
+      .single();
+    if (userError || !user) return empty;
+    const groupId = typeof user.group_id === 'string' ? user.group_id : null;
+    if (!user.role_id) return { roleKey: null, groupId };
+    const { data: role, error: roleError } = await admin
+      .from('roles')
+      .select('key')
+      .eq('id', user.role_id)
+      .single();
+    const roleKey = !roleError && role && typeof role.key === 'string' ? role.key : null;
+    return { roleKey, groupId };
+  } catch {
+    return empty;
+  }
+}
+
+/**
  * Inserta un registro en provider_usage_logs con manejo de conflicto por usage_key.
  *
  * - SQLSTATE 23505 en usage_key → ya_registrado (already_logged), no error.
  * - Otros errores → failed.
  * - real_cost_usd nunca se escribe.
+ * - triggered_by_role_key / triggered_by_group_id: snapshot al momento del consumo.
+ *   Si el lookup falla, quedan NULL sin romper idempotencia ni el log.
  */
 export async function realLogTavilyUsage(input: LogProviderUsageInput): Promise<UsageLogResult> {
   try {
     const admin = tryGetAdminClient();
     if (!admin) return { kind: 'failed', error: 'Supabase not configured' };
+
+    const { roleKey, groupId } = await resolveTavilyUserSnapshot(admin, input.triggered_by);
 
     const { error } = await admin.from('provider_usage_logs').insert({
       agent_run_id: input.agent_run_id ?? null,
@@ -187,6 +224,8 @@ export async function realLogTavilyUsage(input: LogProviderUsageInput): Promise<
       error_message: input.error_message ? input.error_message.slice(0, 500) : null,
       duration_ms: input.duration_ms ?? null,
       triggered_by: input.triggered_by ?? null,
+      triggered_by_role_key: roleKey,
+      triggered_by_group_id: groupId,
       metadata: input.metadata ?? {},
     });
 

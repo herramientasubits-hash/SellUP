@@ -97,8 +97,55 @@ export interface ProviderUsageLog {
   error_message: string | null;
   duration_ms: number | null;
   triggered_by: string | null;
+  /** Snapshot del role.key del usuario al momento del consumo. */
+  triggered_by_role_key: string | null;
+  /** Snapshot del group_id primario del usuario al momento del consumo. */
+  triggered_by_group_id: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
+}
+
+// ============================================================
+// tool_catalog — catálogo de proveedores/herramientas
+// ============================================================
+
+export type ToolType = 'llm' | 'data_enrichment' | 'web_search' | 'crm' | 'other';
+export type ConsumptionUnit = 'tokens' | 'credits' | 'requests' | 'usd_estimated';
+
+export interface ToolCatalogEntry {
+  id: string;
+  provider_key: string;
+  display_name: string;
+  tool_type: ToolType;
+  consumption_unit: ConsumptionUnit;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// budget_rules — reglas de límite presupuestal
+// ============================================================
+
+export type BudgetScopeType = 'global' | 'role' | 'group' | 'user';
+export type BudgetPeriodType = 'monthly' | 'quarterly' | 'annual' | 'custom';
+export type BudgetOnExceed = 'alert' | 'block' | 'require_approval';
+
+export interface BudgetRule {
+  id: string;
+  provider_key: string;
+  scope_type: BudgetScopeType;
+  scope_id: string | null;
+  period_type: BudgetPeriodType;
+  limit_credits: number | null;
+  limit_usd: number | null;
+  on_exceed: BudgetOnExceed;
+  is_active: boolean;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ProviderPricingConfig {

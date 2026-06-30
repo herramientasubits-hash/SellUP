@@ -183,9 +183,52 @@ export async function finishAgentRunStep(
 // provider_usage_logs
 // ============================================================
 
+/**
+ * Resuelve el role_key y group_id del usuario al momento del consumo.
+ * Devuelve nulls si triggered_by está ausente, el usuario no existe, o el
+ * lookup falla. Nunca lanza — el log no debe fallar por un snapshot faltante.
+ * Usa dos queries simples para evitar dependencia de tipos generados del join.
+ */
+async function resolveUserSnapshot(
+  admin: ReturnType<typeof getAdminClient>,
+  triggeredBy: string | null | undefined,
+): Promise<{ roleKey: string | null; groupId: string | null }> {
+  const empty = { roleKey: null, groupId: null };
+  if (!triggeredBy) return empty;
+
+  try {
+    const { data: user, error: userError } = await admin
+      .from('internal_users')
+      .select('role_id, group_id')
+      .eq('id', triggeredBy)
+      .single();
+
+    if (userError || !user) return empty;
+
+    const groupId = typeof user.group_id === 'string' ? user.group_id : null;
+
+    if (!user.role_id) return { roleKey: null, groupId };
+
+    const { data: role, error: roleError } = await admin
+      .from('roles')
+      .select('key')
+      .eq('id', user.role_id)
+      .single();
+
+    const roleKey = !roleError && role && typeof role.key === 'string' ? role.key : null;
+
+    return { roleKey, groupId };
+  } catch {
+    return empty;
+  }
+}
+
 export async function logProviderUsage(input: LogProviderUsageInput): Promise<boolean> {
   try {
     const admin = getAdminClient();
+
+    const { roleKey, groupId } = await resolveUserSnapshot(admin, input.triggered_by);
+
     const { error } = await admin.from('provider_usage_logs').insert({
       agent_run_id: input.agent_run_id ?? null,
       agent_run_step_id: input.agent_run_step_id ?? null,
@@ -205,6 +248,8 @@ export async function logProviderUsage(input: LogProviderUsageInput): Promise<bo
       error_message: input.error_message ? input.error_message.slice(0, 500) : null,
       duration_ms: input.duration_ms ?? null,
       triggered_by: input.triggered_by ?? null,
+      triggered_by_role_key: roleKey,
+      triggered_by_group_id: groupId,
       metadata: sanitizeMetadata(input.metadata ?? {}),
     });
 
