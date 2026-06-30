@@ -40,6 +40,9 @@ async function main() {
     `SUNAT active + habido loaded: ${sunat.activeHabidoRows.toLocaleString('en-US')} (~${sunat.activeHabidoCoveragePercent.toFixed(1)}% of audited active+habido RUC-20 rows)`,
   );
   console.log(`SUNAT coverage source:     ${sunat.coverageSource}`);
+  if (sunat.coverageSourceReason) {
+    console.log(`SUNAT fallback reason:     ${sunat.coverageSourceReason}`);
+  }
   console.log('────────────────────────────────────────');
   console.log(`Migo role:                 ${migo.role}`);
   console.log(`Migo configured:           ${migo.configured}`);

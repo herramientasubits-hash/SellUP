@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import {
   formatMigoConfigured,
   formatCoverageSource,
+  formatCoverageSourceReason,
   formatCoveragePercent,
   formatLoadedRows,
 } from '../peru-coverage-card';
@@ -174,6 +175,49 @@ describe('Coverage indicator source display', () => {
       assert.ok(!label.includes('raw_payload'), 'must not contain raw_payload');
       assert.ok(!label.includes('rawPayload'), 'must not contain rawPayload');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8d. Card shows a discreet, safe fallback reason (Perú.9K.1)
+// ---------------------------------------------------------------------------
+describe('Fallback reason display (Perú.9K.1)', () => {
+  it('8d-1. returns null when there is no reason (live read → no motivo line)', () => {
+    assert.equal(formatCoverageSourceReason(undefined), null);
+  });
+
+  it('8d-2. maps every reason to the same neutral, user-safe phrase', () => {
+    for (const reason of ['missing_env', 'query_failed', 'unknown'] as const) {
+      assert.equal(formatCoverageSourceReason(reason), 'lectura dinámica no disponible');
+    }
+  });
+
+  it('8d-3. reason label leaks no key, token, URL, or raw payload', () => {
+    for (const reason of ['missing_env', 'query_failed', 'unknown'] as const) {
+      const label = formatCoverageSourceReason(reason) ?? '';
+      assert.ok(!label.includes('MIGO_API_KEY'));
+      assert.ok(!label.includes('SUPABASE_SERVICE_ROLE_KEY'));
+      assert.ok(!label.includes('Bearer'));
+      assert.ok(!label.includes('Authorization'));
+      assert.ok(!label.includes('supabase.co'));
+      assert.ok(!label.includes('raw_payload'));
+      assert.ok(!label.includes('rawPayload'));
+    }
+  });
+
+  it('8d-4. live summary carries no coverageSourceReason to render', () => {
+    const summary = buildPeruCoverageSummary(MOCK_COUNTS, 'unknown', 'live_database');
+    assert.equal(summary.sunat.coverageSourceReason, undefined);
+    assert.equal(formatCoverageSourceReason(summary.sunat.coverageSourceReason), null);
+  });
+
+  it('8d-5. fallback summary surfaces the safe motivo line', () => {
+    const summary = buildPeruCoverageSummary(MOCK_COUNTS, 'unknown', 'audited_fallback', 'query_failed');
+    assert.equal(summary.sunat.coverageSourceReason, 'query_failed');
+    assert.equal(
+      formatCoverageSourceReason(summary.sunat.coverageSourceReason),
+      'lectura dinámica no disponible',
+    );
   });
 });
 

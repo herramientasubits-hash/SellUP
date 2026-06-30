@@ -207,3 +207,52 @@ describe('formatCoverageSource (card label)', () => {
     assert.equal(formatCoverageSource(audited.coverageSource), 'fallback auditado');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Perú.9K.1 — Safe, traceable fallback reason (no secrets, no raw errors)
+// ---------------------------------------------------------------------------
+describe('coverageSourceReason — traceable fallback (Perú.9K.1)', () => {
+  it('a. tags query_failed when the dynamic read throws', async () => {
+    const { coverageSource, coverageSourceReason } = await resolveSunatCounts(async () => {
+      throw new Error('statement timeout');
+    });
+    assert.equal(coverageSource, 'audited_fallback');
+    assert.equal(coverageSourceReason, 'query_failed');
+  });
+
+  it('b. tags a reason (missing_env|unknown) when the dynamic read returns null', async () => {
+    const { coverageSource, coverageSourceReason } = await resolveSunatCounts(async () => null);
+    assert.equal(coverageSource, 'audited_fallback');
+    assert.ok(
+      coverageSourceReason === 'missing_env' || coverageSourceReason === 'unknown',
+      `expected missing_env|unknown but got: ${coverageSourceReason}`,
+    );
+  });
+
+  it('c. live_database carries NO coverageSourceReason (clean success)', async () => {
+    const result = await resolveSunatCounts(async () => LIVE_COUNTS);
+    assert.equal(result.coverageSource, 'live_database');
+    assert.equal(result.coverageSourceReason, undefined);
+  });
+
+  it('d. buildSunatCoverage attaches reason only on fallback, never on live', () => {
+    const live = buildSunatCoverage(LIVE_COUNTS, 'live_database', 'query_failed');
+    const fallback = buildSunatCoverage(AUDITED_SUNAT_SNAPSHOT, 'audited_fallback', 'query_failed');
+    // Live must stay clean even if a reason is mistakenly passed.
+    assert.equal(live.coverageSourceReason, undefined);
+    assert.equal(fallback.coverageSourceReason, 'query_failed');
+  });
+
+  it('e. the reason value never leaks raw errors, keys, URLs, or payloads', async () => {
+    const { coverageSourceReason } = await resolveSunatCounts(async () => {
+      throw new Error('connect ECONNREFUSED https://secret.supabase.co key=sk_live_123');
+    });
+    const text = String(coverageSourceReason);
+    assert.ok(!text.includes('supabase'), 'reason must not contain host');
+    assert.ok(!text.includes('sk_live'), 'reason must not contain key material');
+    assert.ok(!text.includes('ECONNREFUSED'), 'reason must not contain raw error');
+    assert.ok(!text.toLowerCase().includes('bearer'));
+    // It is one of the closed enum values only.
+    assert.ok(['missing_env', 'query_failed', 'unknown'].includes(text));
+  });
+});

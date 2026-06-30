@@ -10,6 +10,7 @@
 
 import type {
   CoverageSource,
+  CoverageSourceReason,
   PeruSourceCoverageSummary,
 } from '@/server/services/peru-source-coverage-summary';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -26,6 +27,18 @@ export function formatMigoConfigured(configured: boolean | 'unknown'): string {
 
 export function formatCoverageSource(source: CoverageSource): string {
   return source === 'live_database' ? 'base de datos en vivo' : 'fallback auditado';
+}
+
+/**
+ * Discreet, secret-free explanation for an audited fallback. Returns null when
+ * there is nothing safe to show. Never exposes raw errors, URLs, keys, or
+ * payloads — every reason collapses to the same neutral, user-facing phrase.
+ */
+export function formatCoverageSourceReason(
+  reason: CoverageSourceReason | undefined,
+): string | null {
+  if (!reason) return null;
+  return 'lectura dinámica no disponible';
 }
 
 export function formatCoveragePercent(percent: number): string {
@@ -150,6 +163,11 @@ export function PeruCoverageCard({ summary, error }: Props) {
           <p className="mt-2 text-[11px] text-muted-foreground/80">
             Fuente del indicador: {formatCoverageSource(sunat.coverageSource)}
           </p>
+          {formatCoverageSourceReason(sunat.coverageSourceReason) && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground/60">
+              Motivo: {formatCoverageSourceReason(sunat.coverageSourceReason)}
+            </p>
+          )}
         </section>
 
         {/* Migo block */}

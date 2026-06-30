@@ -29,6 +29,17 @@ export interface SunatSnapshotCounts {
 /** Origin of the SUNAT coverage numbers shown in the indicator. */
 export type CoverageSource = 'live_database' | 'audited_fallback';
 
+/**
+ * Safe, secret-free explanation for why the indicator fell back to audited
+ * constants instead of reading live. Surfaced discreetly in the UI for
+ * traceability — never carries raw errors, URLs, keys, or payloads.
+ *
+ *   missing_env  : SUPABASE_SERVICE_ROLE_KEY not present in this runtime.
+ *   query_failed : the read-only COUNT query threw (e.g. statement timeout).
+ *   unknown      : the dynamic read returned no counts for an unclassified reason.
+ */
+export type CoverageSourceReason = 'missing_env' | 'query_failed' | 'unknown';
+
 /** Last confirmed snapshot distribution (Perú.7F, 2026-06-26). */
 export const AUDITED_SUNAT_SNAPSHOT: SunatSnapshotCounts = {
   total: 100_000,
@@ -82,6 +93,11 @@ export interface SunatCoverage {
    */
   coveragePercent: number;
   coverageSource: CoverageSource;
+  /**
+   * Present only when coverageSource is 'audited_fallback'. Safe, secret-free
+   * classification of why the live read was unavailable. Omitted on success.
+   */
+  coverageSourceReason?: CoverageSourceReason;
   officialLegalValidation: true;
   providesCiiu: false;
   providesOfficialSector: false;
@@ -126,6 +142,7 @@ export interface PeruSourceCoverageSummary {
 export function buildSunatCoverage(
   counts: SunatSnapshotCounts,
   coverageSource: CoverageSource = 'audited_fallback',
+  coverageSourceReason?: CoverageSourceReason,
 ): SunatCoverage {
   const loadedRowsCoveragePercent =
     Math.round((counts.total / AUDITED_TOTAL_RUC20_ROWS) * 1000) / 10;
@@ -148,6 +165,10 @@ export function buildSunatCoverage(
     // Deprecated compat alias → loaded-snapshot coverage, never the old 851_883 math.
     coveragePercent: loadedRowsCoveragePercent,
     coverageSource,
+    // Only attach a reason on fallback; success stays clean (field omitted).
+    ...(coverageSource === 'audited_fallback' && coverageSourceReason
+      ? { coverageSourceReason }
+      : {}),
     officialLegalValidation: true,
     providesCiiu: false,
     providesOfficialSector: false,
@@ -181,11 +202,12 @@ export function buildGuardrails(): PeruGuardrails {
 export function buildPeruCoverageSummary(
   counts: SunatSnapshotCounts,
   migoConfigured: boolean | 'unknown',
-  coverageSource: CoverageSource = 'audited_fallback'
+  coverageSource: CoverageSource = 'audited_fallback',
+  coverageSourceReason?: CoverageSourceReason,
 ): PeruSourceCoverageSummary {
   return {
     countryCode: 'PE',
-    sunat: buildSunatCoverage(counts, coverageSource),
+    sunat: buildSunatCoverage(counts, coverageSource, coverageSourceReason),
     migo: buildMigoCoverage(migoConfigured),
     guardrails: buildGuardrails(),
   };
@@ -256,6 +278,19 @@ export async function computeDynamicCounts(
  * Server-side only: relies on SUPABASE_SERVICE_ROLE_KEY which is never exposed
  * to the browser bundle.
  */
+/**
+ * Per-attempt ceiling for a single COUNT. Set ABOVE the database statement
+ * timeout on purpose: an exact count over a multi-million-row table can legitimately
+ * take several seconds, so this only guards against a truly hung connection — it
+ * must never abort a slow-but-successful count (which would force a needless
+ * fallback). A genuinely slow query is ended by the DB's own timeout and then
+ * retried below.
+ */
+const COUNT_QUERY_TIMEOUT_MS = 10_000;
+
+/** How many times to attempt the full distribution read before giving up. */
+const DYNAMIC_READ_MAX_ATTEMPTS = 3;
+
 export async function getDynamicSunatCoverageCounts(): Promise<SunatSnapshotCounts | null> {
   if (!supabaseServiceKey) return null;
 
@@ -269,7 +304,8 @@ export async function getDynamicSunatCoverageCounts(): Promise<SunatSnapshotCoun
   const countRows: SnapshotCountQuery = async (filters) => {
     let query = admin
       .from(SNAPSHOT_TABLE)
-      .select('ruc', { count: 'exact', head: true });
+      .select('ruc', { count: 'exact', head: true })
+      .abortSignal(AbortSignal.timeout(COUNT_QUERY_TIMEOUT_MS));
     for (const [column, value] of filters) {
       query = query.eq(column, value);
     }
@@ -278,11 +314,21 @@ export async function getDynamicSunatCoverageCounts(): Promise<SunatSnapshotCoun
     return count ?? 0;
   };
 
-  try {
-    return await computeDynamicCounts(countRows);
-  } catch {
-    return null;
+  // Read-only retry: the exact COUNT intermittently times out on a cold
+  // connection, which previously surfaced as a silent audited_fallback even
+  // though 1.75M rows are loaded. Retrying the read-only counts (never a write)
+  // makes the live read reliable on Vercel. On persistent failure, return null
+  // so the caller falls back to audited constants with a traceable reason.
+  for (let attempt = 1; attempt <= DYNAMIC_READ_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await computeDynamicCounts(countRows);
+    } catch {
+      if (attempt === DYNAMIC_READ_MAX_ATTEMPTS) return null;
+      await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+    }
   }
+
+  return null;
 }
 
 /**
@@ -292,16 +338,28 @@ export async function getDynamicSunatCoverageCounts(): Promise<SunatSnapshotCoun
  */
 export async function resolveSunatCounts(
   fetchDynamic: () => Promise<SunatSnapshotCounts | null> = getDynamicSunatCoverageCounts,
-): Promise<{ counts: SunatSnapshotCounts; coverageSource: CoverageSource }> {
+): Promise<{
+  counts: SunatSnapshotCounts;
+  coverageSource: CoverageSource;
+  coverageSourceReason?: CoverageSourceReason;
+}> {
   try {
     const dynamic = await fetchDynamic();
     if (dynamic) {
       return { counts: dynamic, coverageSource: 'live_database' };
     }
+    // Reader returned no counts: distinguish a missing env from an unclassified
+    // miss so the fallback is traceable. No secrets — only presence is checked.
+    const reason: CoverageSourceReason = supabaseServiceKey ? 'unknown' : 'missing_env';
+    return { counts: AUDITED_SUNAT_SNAPSHOT, coverageSource: 'audited_fallback', coverageSourceReason: reason };
   } catch {
-    // Any failure → safe audited fallback below.
+    // Read threw (e.g. statement timeout) → safe audited fallback, traceable.
+    return {
+      counts: AUDITED_SUNAT_SNAPSHOT,
+      coverageSource: 'audited_fallback',
+      coverageSourceReason: 'query_failed',
+    };
   }
-  return { counts: AUDITED_SUNAT_SNAPSHOT, coverageSource: 'audited_fallback' };
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +401,12 @@ export async function getPeruSourceCoverageSummary(
     return buildPeruCoverageSummary(counts, migoConfigured, 'audited_fallback');
   }
 
-  const { counts: resolvedCounts, coverageSource } = await resolveSunatCounts();
-  return buildPeruCoverageSummary(resolvedCounts, migoConfigured, coverageSource);
+  const { counts: resolvedCounts, coverageSource, coverageSourceReason } =
+    await resolveSunatCounts();
+  return buildPeruCoverageSummary(
+    resolvedCounts,
+    migoConfigured,
+    coverageSource,
+    coverageSourceReason,
+  );
 }
