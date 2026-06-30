@@ -14,6 +14,7 @@ const supabaseUrl =
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
+const INTEGRATION_KEY = 'hubspot';
 const CONTACTS_WRITE_SCOPE = 'crm.objects.contacts.write';
 const HUBSPOT_BASE = 'https://api.hubapi.com';
 
@@ -33,10 +34,45 @@ async function getHubSpotToken(): Promise<string | null> {
   return data as string | null;
 }
 
+export interface HubSpotConnectionRow {
+  connection_status: string | null;
+  credentials_status: string | null;
+  vault_secret_id: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
 /**
- * Estado de conexión para escribir contactos. Si la conexión declara scopes y no
- * incluye contacts.write → canWriteContacts=false. Si no hay scopes declarados,
- * se permite intentar (la API responderá 403 y se reportará como error).
+ * Lógica pura (sin DB) que evalúa una fila de conexión HubSpot.
+ * Exportada para testear sin Supabase.
+ *
+ * Reglas:
+ *  - connection_status debe ser 'connected'
+ *  - credentials_status debe ser 'stored'
+ *  - vault_secret_id no puede ser null
+ *  - canWriteContacts: true si metadata.scopes incluye contacts.write (o si
+ *    no hay scopes declarados → se intenta y la API responderá 403 en ese caso)
+ *
+ * No depende de scope_readiness (puede ser null en producción).
+ */
+export function evaluateHubSpotConnectionRow(row: HubSpotConnectionRow | null): {
+  connected: boolean;
+  canWriteContacts: boolean;
+} {
+  if (!row) return { connected: false, canWriteContacts: false };
+  if (row.connection_status !== 'connected') return { connected: false, canWriteContacts: false };
+  if (row.credentials_status !== 'stored') return { connected: false, canWriteContacts: false };
+  if (!row.vault_secret_id) return { connected: false, canWriteContacts: false };
+
+  const scopes = Array.isArray(row.metadata?.scopes) ? (row.metadata.scopes as string[]) : [];
+  const canWriteContacts = scopes.length === 0 || scopes.includes(CONTACTS_WRITE_SCOPE);
+  return { connected: true, canWriteContacts };
+}
+
+/**
+ * Estado de conexión para escribir contactos. Filtra por integration_key='hubspot',
+ * connection_status='connected' y credentials_status='stored'. Si la conexión
+ * declara scopes y no incluye contacts.write → canWriteContacts=false. Si no hay
+ * scopes declarados, se permite intentar (la API responderá 403 si faltan permisos).
  */
 export async function getHubSpotContactSyncConnection(): Promise<{
   connected: boolean;
@@ -44,18 +80,17 @@ export async function getHubSpotContactSyncConnection(): Promise<{
 }> {
   try {
     const admin = getAdminSupabase();
-    const { data } = await admin
+    const { data, error } = await admin
       .from('external_integration_connections')
-      .select('connection_status, metadata')
+      .select('connection_status, credentials_status, vault_secret_id, metadata')
+      .eq('integration_key', INTEGRATION_KEY)
       .eq('connection_status', 'connected')
+      .eq('credentials_status', 'stored')
       .single();
 
-    if (!data) return { connected: false, canWriteContacts: false };
+    if (error || !data) return { connected: false, canWriteContacts: false };
 
-    const meta = data.metadata as Record<string, unknown> | null;
-    const scopes = Array.isArray(meta?.scopes) ? (meta.scopes as string[]) : [];
-    const canWriteContacts = scopes.length === 0 || scopes.includes(CONTACTS_WRITE_SCOPE);
-    return { connected: true, canWriteContacts };
+    return evaluateHubSpotConnectionRow(data as HubSpotConnectionRow);
   } catch {
     return { connected: false, canWriteContacts: false };
   }
