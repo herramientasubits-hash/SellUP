@@ -137,6 +137,17 @@ const CONTENT_PAGE_PATH_PATTERNS = [
   '/guide/',                              // guías
   '/full-guide/',                         // guías completas
   'nearshore-software-development',       // artículos tipo "nearshore software development Colombia"
+  '/case-study/',                         // caso de éxito en inglés
+  '/case-studies/',                       // casos de éxito en inglés
+  '/success-story/',                      // historia de éxito
+  '/success-stories/',                    // historias de éxito
+  '/press/',                              // sala de prensa
+  '/press-release/',                      // comunicados de prensa
+  '/press-releases/',
+  '/comunicado/',                         // comunicados en español
+  '/comunicados/',
+  '/nouvelles/',                          // noticias en francés (p.ej. moodle.com/fr/nouvelles/...)
+  '/historias/',                          // historias editoriales
 ];
 
 const CONTENT_PAGE_NAME_PATTERNS = [
@@ -233,6 +244,11 @@ const DIRECTORY_SOURCE_DOMAINS = new Set([
   'computrabajo.com',
   'indeed.com',
   'glassdoor.com',
+  // Directorios de empresas globales (v1.16K-S)
+  'kompass.com',
+  'europages.com',
+  'manta.com',
+  'dnb.com',
 ]);
 
 /**

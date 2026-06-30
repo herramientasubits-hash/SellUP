@@ -35,6 +35,9 @@ export type SourceUrlQuality =
   | 'forum_or_community'
   | 'review_site'
   | 'landing_page'
+  | 'document_repository_page'
+  | 'directory_or_listing_page'
+  | 'content_article_third_party_mention'
   | 'unknown';
 
 export type SourceUrlQualityResult = {
@@ -61,6 +64,9 @@ const BLOCKED_QUALITIES = new Set<SourceUrlQuality>([
   'forum_or_community',
   'review_site',
   'landing_page',
+  'document_repository_page',
+  'directory_or_listing_page',
+  'content_article_third_party_mention',
 ]);
 
 // ─── Bonos de ranking por calidad ────────────────────────────────────────────
@@ -86,7 +92,96 @@ const RANKING_BONUS: Record<SourceUrlQuality, number> = {
   forum_or_community: -90,
   review_site: -80,
   landing_page: -70,
+  document_repository_page: -90,
+  directory_or_listing_page: -80,
+  content_article_third_party_mention: -85,
 };
+
+// ─── Dominios de repositorios documentales ──────────────────────────────────
+// Sitios académicos, repositorios institucionales o archivos de documentos
+// que aparecen como fuente pero no son empresas prospecto B2B.
+
+const DOCUMENT_REPOSITORY_DOMAINS = new Set([
+  'unesdoc.unesco.org',
+  'repositorio.unal.edu.co',
+  'repository.ucatolica.edu.co',
+  'bdigital.unal.edu.co',
+  'dialnet.unirioja.es',
+  'scielo.org',
+  'redalyc.org',
+  'doaj.org',
+  'eric.ed.gov',
+  'arxiv.org',
+  'ssrn.com',
+  'papers.ssrn.com',
+  'researchgate.net',
+  'academia.edu',
+]);
+
+// ─── Dominios de directorios y listados de empresas ─────────────────────────
+// Plataformas de directorio tipo Kompass, Europages, etc. que agregan perfiles
+// de empresas pero no son el sitio oficial de ninguna empresa candidata.
+
+const DIRECTORY_LISTING_DOMAINS = new Set([
+  'kompass.com',
+  'europages.com',
+  'europages.es',
+  'europages.co',
+  'dnb.com',
+  'manta.com',
+  'buzzfile.com',
+  'bizmatch.net',
+]);
+
+// ─── Paths de repositorios/archivos de documentos ───────────────────────────
+
+const DOCUMENT_REPO_PATH_SIGNALS = [
+  '/ark:/',
+  '/handle/',
+  '/bitstream/',
+  '/xmlui/',
+  '/repository/',
+  '/repositorio/',
+  '/publication/',
+  '/publications/',
+  '/library/',
+  '/biblioteca/',
+];
+
+// ─── Paths de directorios y listados ────────────────────────────────────────
+
+const DIRECTORY_LISTING_PATH_SIGNALS = [
+  '/x/distributor/',
+  '/distributor/',
+  '/distributors/',
+  '/directory/',
+  '/directorio/',
+  '/catalog/',
+  '/catalogo/',
+  '/listado/',
+  '/listing/',
+  '/proveedores/',
+  '/suppliers/',
+];
+
+// ─── Paths de prensa, noticias y casos de éxito de terceros ─────────────────
+// Cuando la URL es una nota de prensa, artículo o caso de éxito en el sitio
+// de un publicador (p.ej. moodle.com/fr/nouvelles/...), el candidato real
+// sería la empresa mencionada en el artículo, no el publicador.
+
+const PRESS_AND_CASE_STUDY_PATH_SIGNALS = [
+  '/nouvelles/',
+  '/press/',
+  '/press-release/',
+  '/press-releases/',
+  '/comunicado/',
+  '/comunicados/',
+  '/case-study/',
+  '/case-studies/',
+  '/success-story/',
+  '/success-stories/',
+  '/historias/',
+];
 
 // ─── Dominios de directorios de partners ────────────────────────────────────
 
@@ -294,6 +389,64 @@ export function classifySourceUrlQuality(
   const path = parsedUrl.pathname.toLowerCase();
   const depth = pathDepth(path);
   const nameLower = (name ?? '').toLowerCase();
+
+  // ── 0a. Repositorio documental (dominio) ─────────────────────────────────────
+  if (DOCUMENT_REPOSITORY_DOMAINS.has(domain)) {
+    return {
+      quality: 'document_repository_page',
+      blocked: true,
+      reason: `Dominio de repositorio documental/académico (${domain})`,
+      rankingBonus: RANKING_BONUS.document_repository_page,
+    };
+  }
+
+  // ── 0b. Repositorio documental (path) ────────────────────────────────────────
+  // Cubre patrones como /ark:/, /handle/, /bitstream/, /repository/, etc.
+  // También detecta URLs que terminan en .pdf.
+  if (DOCUMENT_REPO_PATH_SIGNALS.some((s) => path.includes(s)) || path.endsWith('.pdf')) {
+    return {
+      quality: 'document_repository_page',
+      blocked: true,
+      reason: `Path indica repositorio documental o archivo: ${path.slice(0, 80)}`,
+      rankingBonus: RANKING_BONUS.document_repository_page,
+    };
+  }
+
+  // ── 0c. Directorio o listado de empresas (dominio) ───────────────────────────
+  // Subdominios de estos directorios también quedan bloqueados (co.kompass.com, etc.)
+  if (
+    DIRECTORY_LISTING_DOMAINS.has(domain) ||
+    [...DIRECTORY_LISTING_DOMAINS].some((d) => domain.endsWith(`.${d}`))
+  ) {
+    return {
+      quality: 'directory_or_listing_page',
+      blocked: true,
+      reason: `Dominio de directorio/listado de empresas (${domain})`,
+      rankingBonus: RANKING_BONUS.directory_or_listing_page,
+    };
+  }
+
+  // ── 0d. Directorio o listado de empresas (path) ──────────────────────────────
+  if (DIRECTORY_LISTING_PATH_SIGNALS.some((s) => path.includes(s))) {
+    return {
+      quality: 'directory_or_listing_page',
+      blocked: true,
+      reason: `Path indica directorio o listado de empresas: ${path.slice(0, 80)}`,
+      rankingBonus: RANKING_BONUS.directory_or_listing_page,
+    };
+  }
+
+  // ── 0e. Prensa, noticias o casos de éxito de terceros ────────────────────────
+  // Nota de prensa o artículo publicado en el sitio de otro (p.ej. moodle.com/fr/nouvelles/...).
+  // El candidato real sería la empresa mencionada en el texto, no el dominio publicador.
+  if (PRESS_AND_CASE_STUDY_PATH_SIGNALS.some((s) => path.includes(s))) {
+    return {
+      quality: 'content_article_third_party_mention',
+      blocked: true,
+      reason: `Path indica nota de prensa, caso de éxito o artículo de terceros: ${path.slice(0, 80)}`,
+      rankingBonus: RANKING_BONUS.content_article_third_party_mention,
+    };
+  }
 
   // ── 1. Directorio de partners (dominio) ──────────────────────────────────────
   if (PARTNER_DIRECTORY_DOMAINS.has(domain)) {
