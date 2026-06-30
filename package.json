@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "test:commercial-scope": "node --import tsx --test src/modules/access/__tests__/commercial-scope-logic.test.ts",
     "benchmark:prospects": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/benchmark-prospect-generation.ts",
     "benchmark:reassess-a": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/benchmark-reassess-result-a.ts",
     "test:benchmark": "node --import tsx --test src/server/benchmark/prospect-benchmark/__tests__/candidate-validator.test.ts src/server/benchmark/prospect-benchmark/__tests__/entity-verifier.test.ts src/server/benchmark/prospect-benchmark/__tests__/scoring-caps.test.ts src/server/benchmark/prospect-benchmark/__tests__/selection-pipeline.test.ts src/server/benchmark/prospect-benchmark/__tests__/multistage.test.ts src/server/benchmark/prospect-benchmark/multistage/__tests__/web-search-audit.test.ts src/server/benchmark/prospect-benchmark/__tests__/url-canonicalizer.test.ts src/server/benchmark/prospect-benchmark/multistage/__tests__/response-recovery.test.ts src/server/benchmark/prospect-benchmark/__tests__/context-assembler.test.ts src/server/benchmark/prospect-benchmark/__tests__/output-validator.test.ts src/server/benchmark/prospect-benchmark/__tests__/eligibility-gates.test.ts src/server/benchmark/prospect-benchmark/__tests__/verification-hardening.test.ts src/server/benchmark/prospect-benchmark/__tests__/budget-and-size-filter.test.ts",

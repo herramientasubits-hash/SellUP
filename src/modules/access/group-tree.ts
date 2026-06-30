@@ -72,6 +72,40 @@ export function buildOrgGroupForest<G extends OrgGroupLike>(
 }
 
 /**
+ * Collect a set of root groups plus every descendant, following `parent_group_id`
+ * downwards. Used by the commercial scope layer to expand a líder/manager's
+ * home group(s) into the full subtree of groups they may see. Cycles are guarded
+ * via a visited set; ids absent from `groups` are ignored.
+ *
+ * The result includes each provided root that exists in `groups`. Returns a
+ * de-duplicated array; order is not significant.
+ */
+export function collectGroupSubtreeIds<G extends OrgGroupLike>(
+  rootIds: string[],
+  groups: G[],
+): string[] {
+  const childrenByParent = new Map<string, string[]>();
+  const known = new Set<string>();
+  for (const g of groups) {
+    known.add(g.id);
+    if (!g.parent_group_id) continue;
+    const arr = childrenByParent.get(g.parent_group_id) ?? [];
+    arr.push(g.id);
+    childrenByParent.set(g.parent_group_id, arr);
+  }
+
+  const result = new Set<string>();
+  const stack = [...rootIds];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (result.has(id) || !known.has(id)) continue;
+    result.add(id);
+    for (const childId of childrenByParent.get(id) ?? []) stack.push(childId);
+  }
+  return [...result];
+}
+
+/**
  * Pre-order flatten of the group forest: each group followed by its descendants,
  * with the tree-derived depth. Drives ordered, indented dropdowns/lists.
  */

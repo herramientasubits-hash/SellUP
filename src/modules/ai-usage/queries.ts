@@ -3,6 +3,8 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { flattenOrgGroups } from '@/modules/access/group-tree';
+import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import type {
   AgentStat,
   ProviderStat,
@@ -153,6 +155,33 @@ type UserScope = { mode: 'none' } | { mode: 'ids'; ids: string[] };
 
 type AdminClient = ReturnType<typeof getAdminClient>;
 
+// ============================================================
+// AI-usage access (commercial scope)
+//   - 'denied' → caller returns null (UI shows the restricted banner).
+//   - 'all'    → no base constraint on triggered_by.
+//   - 'ids'    → base constraint: triggered_by ∈ ids (the viewer's team/self).
+//
+// Flag OFF (default): preserves the historical behaviour — admin only.
+// Flag ON: admin sees all, líder/manager see their team, vendedor sees self.
+// ============================================================
+
+type AiUsageAccess =
+  | { mode: 'denied' }
+  | { mode: 'all' }
+  | { mode: 'ids'; ids: string[] };
+
+async function resolveAiUsageAccess(): Promise<AiUsageAccess> {
+  if (!isCommercialScopeEnabled()) {
+    const isAdmin = await isCurrentUserAdmin();
+    return isAdmin ? { mode: 'all' } : { mode: 'denied' };
+  }
+
+  const scope = await resolveCommercialScope();
+  if (!scope) return { mode: 'denied' };
+  if (scope.canViewAll) return { mode: 'all' };
+  return { mode: 'ids', ids: scope.allowedUserIds };
+}
+
 async function getActiveUserIdsForRoleKey(
   admin: AdminClient,
   roleKey: string,
@@ -225,8 +254,14 @@ async function getActiveUserIdsForGroupScope(
 async function resolveUserScope(
   admin: AdminClient,
   filters: UsageFilters,
+  baseIds: string[] | null = null,
 ): Promise<UserScope> {
   const constraints: string[][] = [];
+
+  // Commercial-scope base constraint (team/self). Intersected with the
+  // explicit filters below, so a non-admin can never widen results by passing
+  // ?user=/?role=/?groupId= outside their reach.
+  if (baseIds !== null) constraints.push(baseIds);
 
   if (filters.role) {
     constraints.push(await getActiveUserIdsForRoleKey(admin, filters.role));
@@ -249,20 +284,34 @@ async function resolveUserScope(
 }
 
 export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
-  const isAdmin = await isCurrentUserAdmin();
-  if (!isAdmin) return null;
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
 
   const admin = getAdminClient();
+
+  // When scoped (team/self), restrict the selectable Usuario/Grupo options to
+  // the viewer's reach so the filter UI can never offer an out-of-scope target.
+  // null = unrestricted (admin / view-all).
+  let allowedUserIds: string[] | null = null;
+  let allowedGroupIdSet: Set<string> | null = null;
+  if (access.mode === 'ids') {
+    allowedUserIds = access.ids;
+    const scope = await resolveCommercialScope();
+    allowedGroupIdSet = new Set(scope?.allowedGroupIds ?? []);
+  }
+
+  let usersQuery = admin
+    .from('internal_users')
+    .select('id, full_name, email, role_id, group_id, access_status')
+    .eq('access_status', ACTIVE_USER_STATUS)
+    .order('full_name', { ascending: true });
+  if (allowedUserIds !== null) usersQuery = usersQuery.in('id', allowedUserIds);
 
   const [logsResult, runsResult, usersResult, rolesResult, groupsResult] =
     await Promise.all([
       admin.from('provider_usage_logs').select('provider_key, status, triggered_by'),
       admin.from('agent_runs').select('agent_key, agent_name, triggered_by, status'),
-      admin
-        .from('internal_users')
-        .select('id, full_name, email, role_id, group_id, access_status')
-        .eq('access_status', ACTIVE_USER_STATUS)
-        .order('full_name', { ascending: true }),
+      usersQuery,
       admin.from('roles').select('id, key, name'),
       admin
         .from('organization_groups')
@@ -328,11 +377,14 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
   // Groups: real organization_groups in hierarchy order (pre-order tree walk
   // sorted by name per level, same as the "Usuarios y grupos" screen). depth is
   // derived from the tree level so the dropdown nests under the right parent.
-  const normalizedGroups = orgGroups.map((g) => ({
-    id: g.id as string,
-    name: g.name as string,
-    parent_group_id: (g.parent_group_id as string | null) ?? null,
-  }));
+  const normalizedGroups = orgGroups
+    .map((g) => ({
+      id: g.id as string,
+      name: g.name as string,
+      parent_group_id: (g.parent_group_id as string | null) ?? null,
+    }))
+    // When scoped, only offer groups inside the viewer's subtree.
+    .filter((g) => allowedGroupIdSet === null || allowedGroupIdSet.has(g.id));
   const groups: FilterGroup[] = flattenOrgGroups(normalizedGroups).map(
     ({ group, depth }) => ({ ...group, depth }),
   );
@@ -356,12 +408,13 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
 export async function getAiUsageSummary(
   filters: UsageFilters = {},
 ): Promise<AiUsageSummary | null> {
-  const isAdmin = await isCurrentUserAdmin();
-  if (!isAdmin) return null;
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
-  const scope = await resolveUserScope(admin, filters);
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const scope = await resolveUserScope(admin, filters, baseIds);
 
   // A user/group filter that resolves to zero users → empty metrics.
   if (scope.mode === 'ids' && scope.ids.length === 0) {
@@ -421,12 +474,13 @@ export async function getAiUsageSummary(
 export async function getAgentStats(
   filters: UsageFilters = {},
 ): Promise<AgentStat[] | null> {
-  const isAdmin = await isCurrentUserAdmin();
-  if (!isAdmin) return null;
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
-  const scope = await resolveUserScope(admin, filters);
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const scope = await resolveUserScope(admin, filters, baseIds);
   if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
   let query = admin
@@ -485,12 +539,13 @@ export async function getAgentStats(
 export async function getProviderStats(
   filters: UsageFilters = {},
 ): Promise<ProviderStat[] | null> {
-  const isAdmin = await isCurrentUserAdmin();
-  if (!isAdmin) return null;
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
-  const scope = await resolveUserScope(admin, filters);
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const scope = await resolveUserScope(admin, filters, baseIds);
   if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
   let query = admin
@@ -556,12 +611,13 @@ export async function getRecentProviderLogs(
   limit = 25,
   filters: UsageFilters = {},
 ): Promise<ProviderUsageLog[] | null> {
-  const isAdmin = await isCurrentUserAdmin();
-  if (!isAdmin) return null;
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
-  const scope = await resolveUserScope(admin, filters);
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const scope = await resolveUserScope(admin, filters, baseIds);
   if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
   let query = admin
@@ -617,12 +673,13 @@ function newAgg(): UserAgg {
 export async function getUserConsumption(
   filters: UsageFilters = {},
 ): Promise<UserConsumptionRow[] | null> {
-  const isAdmin = await isCurrentUserAdmin();
-  if (!isAdmin) return null;
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
 
   const admin = getAdminClient();
   const since = periodStart(filters.period);
-  const scope = await resolveUserScope(admin, filters);
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const scope = await resolveUserScope(admin, filters, baseIds);
   if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
   // Display roster: active users, scoped to the selected user/group.

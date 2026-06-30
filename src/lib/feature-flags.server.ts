@@ -28,6 +28,29 @@ export function isPostApprovalSourceEnrichmentEnabled(): boolean {
   );
 }
 
+/** Flag name constant for the global commercial visibility scope layer. */
+export const COMMERCIAL_SCOPE_FLAG = 'ENABLE_COMMERCIAL_SCOPE';
+
+/**
+ * Returns true when ENABLE_COMMERCIAL_SCOPE is "true".
+ *
+ * Default: false. When disabled (the production default), every operativa
+ * surface behaves exactly as before: Empresas/Prospectos remain visible to all
+ * active users and Uso de IA stays admin-only. When enabled, the commercial
+ * scope layer (src/modules/access/commercial-scope.ts) restricts each surface
+ * server-side by role + hierarchy: admin sees everything, líder/manager see
+ * their group subtree and direct reports, vendedor/BD see only their own data.
+ *
+ * Gated so the rollout is reversible: it must be turned on only after the
+ * role/group assignments in the live database have been verified, otherwise
+ * users with unpopulated role/group data could lose visibility.
+ */
+export function isCommercialScopeEnabled(): boolean {
+  return (
+    process.env[COMMERCIAL_SCOPE_FLAG]?.trim().toLowerCase() === 'true'
+  );
+}
+
 /** Flag name constant for controlled LinkedIn company URL search (v1.16K-R). */
 export const LINKEDIN_COMPANY_SEARCH_FLAG = 'ENABLE_LINKEDIN_COMPANY_SEARCH';
 
