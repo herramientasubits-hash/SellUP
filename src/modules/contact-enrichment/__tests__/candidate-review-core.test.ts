@@ -14,6 +14,7 @@ import {
   findDuplicateContact,
   mapCandidateSource,
   mapCandidateSeniority,
+  parseContactName,
   buildContactInsertPayload,
   buildContactTraceMetadata,
   runApproveCandidate,
@@ -347,5 +348,115 @@ describe('runDiscardCandidate', () => {
     const result = await runDiscardCandidate('cand-1', 'X', deps);
     assert.equal(result.ok, false);
     assert.equal(updated.length, 0);
+  });
+});
+
+// ── parseContactName (Hito 17A.5A) ─────────────────────────────
+
+describe('parseContactName', () => {
+  it('dos palabras: firstName + lastName', () => {
+    const r = parseContactName('Valeria Gómez');
+    assert.equal(r.firstName, 'Valeria');
+    assert.equal(r.lastName, 'Gómez');
+    assert.equal(r.normalizedFullName, 'Valeria Gómez');
+  });
+
+  it('cuatro palabras: firstName + resto como lastName', () => {
+    const r = parseContactName('Juan Carlos Pérez Gómez');
+    assert.equal(r.firstName, 'Juan');
+    assert.equal(r.lastName, 'Carlos Pérez Gómez');
+  });
+
+  it('una sola palabra: firstName, lastName null', () => {
+    const r = parseContactName('María');
+    assert.equal(r.firstName, 'María');
+    assert.equal(r.lastName, null);
+  });
+
+  it('colapsa espacios múltiples', () => {
+    const r = parseContactName('  Ana   Torres  ');
+    assert.equal(r.firstName, 'Ana');
+    assert.equal(r.lastName, 'Torres');
+    assert.equal(r.normalizedFullName, 'Ana Torres');
+  });
+});
+
+// ── buildContactInsertPayload — normalización 17A.5A ───────────
+
+describe('buildContactInsertPayload — normalización 17A.5A', () => {
+  it('rellena first/last desde full_name cuando el candidato los tiene null', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ first_name: null, last_name: null, full_name: 'Valeria Gómez QA' }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.first_name, 'Valeria');
+    assert.equal(payload.last_name, 'Gómez QA');
+    assert.equal(payload.full_name, 'Valeria Gómez QA');
+  });
+
+  it('normaliza email a lowercase', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ email: 'VALERIA@Corp.COM' }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.email, 'valeria@corp.com');
+  });
+
+  it('email vacío queda null', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ email: '   ' }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.email, null);
+  });
+
+  it('LinkedIn sin https:// obtiene prefijo', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ linkedin_url: 'linkedin.com/in/valeria' }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.linkedin_url, 'https://linkedin.com/in/valeria');
+  });
+
+  it('LinkedIn null queda null', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ linkedin_url: null }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.linkedin_url, null);
+  });
+
+  it('phone vacío queda null', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ phone: '   ' }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.phone, null);
+  });
+
+  it('metadata.normalization existe con status normalized y campos', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ first_name: null, last_name: null, full_name: 'Valeria Gómez QA' }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    const norm = payload.metadata.normalization as { status: string; fields: string[] };
+    assert.equal(norm.status, 'normalized');
+    assert.ok(Array.isArray(norm.fields));
+    assert.ok(norm.fields.includes('first_name'));
+    assert.ok(norm.fields.includes('last_name'));
+    assert.ok(norm.fields.includes('full_name'));
+  });
+
+  it('no modifica el status del candidato (sin side effects)', () => {
+    const candidate = makeCandidate({ first_name: null, last_name: null });
+    buildContactInsertPayload({ candidate, accountId: 'acc-1', internalUserId: 'user-1' });
+    assert.equal(candidate.status, 'pending_review');
   });
 });

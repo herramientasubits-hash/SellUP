@@ -156,6 +156,42 @@ function cleanString(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Parsea un nombre completo en firstName y lastName.
+ * Reglas simples: una palabra → lastName null; dos o más → primera + resto.
+ * Colapsa espacios múltiples. Preserva acentos y caracteres latinos.
+ */
+export function parseContactName(fullName: string): {
+  firstName: string | null;
+  lastName: string | null;
+  normalizedFullName: string;
+} {
+  const normalized = fullName.trim().replace(/\s+/g, ' ');
+  if (!normalized) return { firstName: null, lastName: null, normalizedFullName: '' };
+  const parts = normalized.split(' ');
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: null, normalizedFullName: normalized };
+  }
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+    normalizedFullName: normalized,
+  };
+}
+
+/**
+ * Normaliza una URL de LinkedIn para almacenamiento:
+ * añade https:// si parece linkedin.com/... sin protocolo.
+ */
+function normalizeLinkedinUrl(value: string | null | undefined): string | null {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  if (/^(www\.)?linkedin\.com\//i.test(cleaned)) {
+    return 'https://' + cleaned.replace(/^www\./i, '');
+  }
+  return cleaned;
+}
+
 // ── Registro del candidato cargado (proyección para review) ─────
 
 export interface CandidateRecord {
@@ -218,20 +254,42 @@ export function buildContactInsertPayload(args: {
   internalUserId: string;
 }): ContactInsertPayload {
   const { candidate, accountId, internalUserId } = args;
+
+  // Normalización de nombre: usa first/last del candidato si ya vienen completos,
+  // con fallback a parsear full_name cuando son null (p. ej. aprobaciones manuales).
+  const parsedName = parseContactName(candidate.full_name);
+  const firstName = cleanString(candidate.first_name) ?? parsedName.firstName;
+  const lastName = cleanString(candidate.last_name) ?? parsedName.lastName;
+  const fullName = parsedName.normalizedFullName || candidate.full_name.trim();
+
+  const email = sanitizeEmail(candidate.email);
+  const linkedinUrl = normalizeLinkedinUrl(candidate.linkedin_url);
+  const phone = cleanString(candidate.phone);
+
+  const normalizedFields: string[] = ['full_name'];
+  if (firstName !== null) normalizedFields.push('first_name');
+  if (lastName !== null) normalizedFields.push('last_name');
+  if (email !== null) normalizedFields.push('email');
+  if (linkedinUrl !== null) normalizedFields.push('linkedin_url');
+  if (phone !== null) normalizedFields.push('phone');
+
   return {
     account_id: accountId,
-    first_name: cleanString(candidate.first_name),
-    last_name: cleanString(candidate.last_name),
-    full_name: candidate.full_name.trim(),
-    email: sanitizeEmail(candidate.email),
-    phone: cleanString(candidate.phone),
-    linkedin_url: cleanString(candidate.linkedin_url),
+    first_name: firstName,
+    last_name: lastName,
+    full_name: fullName,
+    email,
+    phone,
+    linkedin_url: linkedinUrl,
     job_title: cleanString(candidate.title),
     department: cleanString(candidate.department),
     seniority: mapCandidateSeniority(candidate.seniority),
     source: mapCandidateSource(candidate.source),
     contact_status: 'active',
-    metadata: buildContactTraceMetadata(candidate),
+    metadata: {
+      ...buildContactTraceMetadata(candidate),
+      normalization: { status: 'normalized', fields: normalizedFields },
+    },
     created_by: internalUserId,
     updated_by: internalUserId,
   };
