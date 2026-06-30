@@ -11,6 +11,8 @@ import {
   accToSnapshotRow,
   computePriorityScore,
   normalizeChileanLegalName,
+  cleanOcdsComposedName,
+  expandOcdsComposedName,
   runChileCompraOcdsSnapshotEtl,
 } from '../run-chilecompra-ocds-snapshot-etl';
 import type { ProcessReleaseCounters } from '../run-chilecompra-ocds-snapshot-etl';
@@ -376,7 +378,7 @@ describe('Mapping — campos snapshot', () => {
     assert.ok(!('tender' in rawData), 'raw_data no debe contener release.tender');
     assert.ok(!('parties' in rawData), 'raw_data no debe contener release.parties');
     assert.ok(!('awards' in rawData), 'raw_data no debe contener release.awards');
-    assert.equal(rawData['etl_version'], 'v1.16CL-D.1');
+    assert.equal(rawData['etl_version'], 'v1.16CL-D.2');
     assert.equal(rawData['source'], 'chilecompra_ocds');
   });
 
@@ -486,7 +488,273 @@ describe('Priority score', () => {
   });
 });
 
-// ─── 8. Award endpoint ─────────────────────────────────────────────────────────
+// ─── 8. Name cleanup ──────────────────────────────────────────────────────────
+
+describe('cleanOcdsComposedName — limpieza de nombres con pipe', () => {
+  it('nombre sin pipe: retorna tal cual sin hadPipe', () => {
+    const result = cleanOcdsComposedName('DEMARCO S.A.');
+    assert.equal(result.cleanName, 'DEMARCO S.A.');
+    assert.equal(result.hadPipe, false);
+    assert.deepEqual(result.segments, ['DEMARCO S.A.']);
+  });
+
+  it('nombre duplicado con pipe se colapsa al primero', () => {
+    const result = cleanOcdsComposedName('DEMARCO S.A. | DEMARCO S.A.');
+    assert.equal(result.cleanName, 'DEMARCO S.A.');
+    assert.equal(result.hadPipe, true);
+  });
+
+  it('razón social + nombre comercial distintos: conserva primer segmento', () => {
+    const result = cleanOcdsComposedName(
+      'CONSULTORA, CARLA PATRICIA ROJAS NECULHUAL EMPRESA INDIVIDUAL DE RESPO | Diversity Development Consulting',
+    );
+    assert.equal(
+      result.cleanName,
+      'CONSULTORA, CARLA PATRICIA ROJAS NECULHUAL EMPRESA INDIVIDUAL DE RESPO',
+    );
+    assert.equal(result.hadPipe, true);
+    assert.equal(result.segments.length, 2);
+  });
+
+  it('variante de capitalización con pipe: conserva primer segmento', () => {
+    const result = cleanOcdsComposedName('Datamedica S.A. | Datamedica SPA.');
+    assert.equal(result.cleanName, 'Datamedica S.A.');
+    assert.equal(result.hadPipe, true);
+  });
+
+  it('null/vacío: retorna cleanName null', () => {
+    assert.equal(cleanOcdsComposedName(null).cleanName, null);
+    assert.equal(cleanOcdsComposedName('').cleanName, null);
+    assert.equal(cleanOcdsComposedName('   ').cleanName, null);
+  });
+});
+
+describe('expandOcdsComposedName — expansión buyer_names', () => {
+  it('buyer duplicado con pipe se colapsa a un solo segmento', () => {
+    const result = expandOcdsComposedName(
+      'ILUSTRE MUNICIPALIDAD DE SAN CARLOS | ILUSTRE MUNICIPALIDAD DE SAN CARLOS',
+    );
+    assert.deepEqual(result, ['ILUSTRE MUNICIPALIDAD DE SAN CARLOS']);
+  });
+
+  it('organismo + unidad compradora distintos se conservan como dos segmentos', () => {
+    const result = expandOcdsComposedName(
+      'SERVICIO DE SALUD VINA DEL MAR QUILLOTA | Hospital San Martín de Quillota',
+    );
+    assert.equal(result.length, 2);
+    assert.equal(result[0], 'SERVICIO DE SALUD VINA DEL MAR QUILLOTA');
+    assert.equal(result[1], 'Hospital San Martín de Quillota');
+  });
+
+  it('nombre sin pipe: retorna array con un elemento', () => {
+    const result = expandOcdsComposedName('Ministerio de Salud');
+    assert.deepEqual(result, ['Ministerio de Salud']);
+  });
+
+  it('null/vacío: retorna array vacío', () => {
+    assert.deepEqual(expandOcdsComposedName(null), []);
+    assert.deepEqual(expandOcdsComposedName(''), []);
+  });
+});
+
+describe('Name cleanup — integración en processRelease', () => {
+  it('supplier con nombre duplicado pipe: legal_name limpio, original guardado', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    const release = makeRelease({
+      parties: [
+        {
+          id: 'supplier-1',
+          name: 'DEMARCO S.A. | DEMARCO S.A.',
+          roles: ['supplier'],
+          identifier: { scheme: 'CL-RUT', id: '76.543.210-K' },
+        },
+        {
+          id: 'buyer-1',
+          name: 'Municipalidad de Santiago',
+          roles: ['buyer'],
+          identifier: { scheme: 'CL-RUT', id: '69.123.456-7' },
+        },
+      ],
+      awards: [
+        {
+          id: 'award-1',
+          status: 'active',
+          suppliers: [{ id: 'supplier-1', name: 'DEMARCO S.A. | DEMARCO S.A.' }],
+          // @ts-expect-error
+          value: { amount: 500_000, currency: 'CLP' },
+        },
+      ],
+    });
+
+    processRelease(release, release.ocid!, null, map, counters);
+
+    const acc = map.values().next().value;
+    assert.equal(acc.legalName, 'DEMARCO S.A.', 'legal_name debe estar limpio');
+    assert.equal(
+      acc.originalLegalNameSample,
+      'DEMARCO S.A. | DEMARCO S.A.',
+      'original debe guardarse para trazabilidad',
+    );
+  });
+
+  it('normalized_legal_name se calcula desde el nombre limpio (sin pipe)', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    const release = makeRelease({
+      parties: [
+        {
+          id: 'supplier-1',
+          name: 'Servicios Pérez Ltda. | Servicios Pérez Ltda.',
+          roles: ['supplier'],
+          identifier: { scheme: 'CL-RUT', id: '76.543.210-K' },
+        },
+        {
+          id: 'buyer-1',
+          name: 'Municipalidad',
+          roles: ['buyer'],
+          identifier: { scheme: 'CL-RUT', id: '69.123.456-7' },
+        },
+      ],
+      awards: [
+        {
+          id: 'award-1',
+          status: 'active',
+          suppliers: [{ id: 'supplier-1', name: 'Servicios Pérez Ltda. | Servicios Pérez Ltda.' }],
+          // @ts-expect-error
+          value: { amount: 100_000, currency: 'CLP' },
+        },
+      ],
+    });
+
+    processRelease(release, release.ocid!, null, map, counters);
+    const acc = map.values().next().value;
+    const row = accToSnapshotRow(acc, 2024, [6], new Date().toISOString());
+
+    assert.equal(row['legal_name'], 'Servicios Pérez Ltda.', 'legal_name sin pipe');
+    const normalizedName = row['normalized_legal_name'] as string | null;
+    assert.ok(normalizedName !== null, 'normalized_legal_name no debe ser null');
+    assert.ok(
+      !normalizedName!.includes('|'),
+      'normalized_legal_name no debe contener pipe',
+    );
+  });
+
+  it('buyer duplicado con pipe: buyerNames tiene solo un segmento', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    const release = makeRelease({
+      parties: [
+        {
+          id: 'supplier-1',
+          name: 'Proveedor SA',
+          roles: ['supplier'],
+          identifier: { scheme: 'CL-RUT', id: '76.543.210-K' },
+        },
+        {
+          id: 'buyer-1',
+          name: 'ILUSTRE MUNICIPALIDAD DE SAN CARLOS | ILUSTRE MUNICIPALIDAD DE SAN CARLOS',
+          roles: ['buyer'],
+          identifier: { scheme: 'CL-RUT', id: '69.123.456-7' },
+        },
+      ],
+      buyer: { id: 'buyer-1', name: 'ILUSTRE MUNICIPALIDAD DE SAN CARLOS | ILUSTRE MUNICIPALIDAD DE SAN CARLOS' },
+    });
+
+    processRelease(release, release.ocid!, null, map, counters);
+
+    const acc = map.values().next().value;
+    assert.equal(acc.buyerNames.size, 1, 'buyer duplicado debe colapsar a 1');
+    assert.ok(acc.buyerNames.has('ILUSTRE MUNICIPALIDAD DE SAN CARLOS'));
+  });
+
+  it('buyer organismo + unidad distintos: buyerNames tiene dos segmentos', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    const release = makeRelease({
+      parties: [
+        {
+          id: 'supplier-1',
+          name: 'Proveedor SA',
+          roles: ['supplier'],
+          identifier: { scheme: 'CL-RUT', id: '76.543.210-K' },
+        },
+        {
+          id: 'buyer-1',
+          name: 'SERVICIO DE SALUD VINA DEL MAR QUILLOTA | Hospital San Martín de Quillota',
+          roles: ['buyer'],
+          identifier: { scheme: 'CL-RUT', id: '69.999.999-9' },
+        },
+      ],
+      buyer: { id: 'buyer-1', name: 'SERVICIO DE SALUD VINA DEL MAR QUILLOTA | Hospital San Martín de Quillota' },
+    });
+
+    processRelease(release, release.ocid!, null, map, counters);
+
+    const acc = map.values().next().value;
+    assert.equal(acc.buyerNames.size, 2, 'organismo + unidad deben conservarse como 2 entries');
+    assert.ok(acc.buyerNames.has('SERVICIO DE SALUD VINA DEL MAR QUILLOTA'));
+    assert.ok(acc.buyerNames.has('Hospital San Martín de Quillota'));
+  });
+
+  it('raw_data conserva original_supplier_name_sample cuando hubo limpieza', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    const release = makeRelease({
+      parties: [
+        {
+          id: 'supplier-1',
+          name: 'Empresa ABC | ABC Consulting',
+          roles: ['supplier'],
+          identifier: { scheme: 'CL-RUT', id: '76.543.210-K' },
+        },
+        {
+          id: 'buyer-1',
+          name: 'Municipalidad',
+          roles: ['buyer'],
+          identifier: { scheme: 'CL-RUT', id: '69.123.456-7' },
+        },
+      ],
+      awards: [
+        {
+          id: 'award-1',
+          status: 'active',
+          suppliers: [{ id: 'supplier-1', name: 'Empresa ABC | ABC Consulting' }],
+          // @ts-expect-error
+          value: { amount: 200_000, currency: 'CLP' },
+        },
+      ],
+    });
+
+    processRelease(release, release.ocid!, null, map, counters);
+    const acc = map.values().next().value;
+    const row = accToSnapshotRow(acc, 2024, [6], new Date().toISOString());
+    const rawData = row['raw_data'] as Record<string, unknown>;
+
+    assert.equal(
+      rawData['original_supplier_name_sample'],
+      'Empresa ABC | ABC Consulting',
+      'raw_data debe conservar el nombre original con pipe',
+    );
+  });
+
+  it('raw_data original_supplier_name_sample es null cuando no hubo limpieza', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    processRelease(makeRelease(), makeRelease().ocid!, null, map, counters);
+    const acc = map.values().next().value;
+    const row = accToSnapshotRow(acc, 2024, [1], new Date().toISOString());
+    const rawData = row['raw_data'] as Record<string, unknown>;
+
+    assert.equal(
+      rawData['original_supplier_name_sample'],
+      null,
+      'sin pipe no debe guardar original',
+    );
+  });
+});
+
+// ─── 9. Award endpoint ─────────────────────────────────────────────────────────
 
 describe('Award endpoint — ETL usa urlAward cuando existe', () => {
   it('llama _fetchAward cuando el item tiene urlAward y produce métricas de adjudicación', async () => {

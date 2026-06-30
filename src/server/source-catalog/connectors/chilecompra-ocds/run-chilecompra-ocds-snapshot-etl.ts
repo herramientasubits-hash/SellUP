@@ -29,7 +29,7 @@ import type { FetchAwardResult } from './chilecompra-ocds-client';
 import { normalizeRut, resolveBuyer, collectUnspsc } from './normalizers';
 import type { OcdsRelease, OcdsAward } from './types';
 
-const ETL_VERSION = 'v1.16CL-D.1';
+const ETL_VERSION = 'v1.16CL-D.2';
 const BATCH_SIZE = 100;
 const DETAIL_CONCURRENCY = 3;
 const ARRAY_MAX = 50;
@@ -78,12 +78,73 @@ export type ChileCompraOcdsSnapshotEtlResult = {
   warnings: string[];
 };
 
+// ─── OCDS composed name helpers ───────────────────────────────────────────────
+
+/**
+ * Limpia un nombre OCDS compuesto con separador "|".
+ *
+ * Regla:
+ *  - Un segmento → devuelve tal cual.
+ *  - Todos iguales (case-insensitive) → devuelve el primero.
+ *  - Segmentos distintos → devuelve el primero (razón social oficial principal).
+ *
+ * El primer segmento suele ser la razón social registrada; el segundo, el nombre
+ * comercial o alias. Para enrichment usamos la razón social como fuente de verdad.
+ */
+export function cleanOcdsComposedName(raw: string | null | undefined): {
+  cleanName: string | null;
+  hadPipe: boolean;
+  segments: string[];
+} {
+  const trimmed = typeof raw === 'string' ? raw.trim() : null;
+  if (!trimmed) return { cleanName: null, hadPipe: false, segments: [] };
+
+  const segments = trimmed
+    .split('|')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  if (segments.length === 0) return { cleanName: null, hadPipe: false, segments: [] };
+  if (segments.length === 1) return { cleanName: segments[0], hadPipe: false, segments };
+
+  return { cleanName: segments[0], hadPipe: true, segments };
+}
+
+/**
+ * Expande un nombre OCDS compuesto con "|" en segmentos únicos (dedup case-insensitive).
+ *
+ * Útil para buyer_names donde organismo + unidad compradora son entidades distintas
+ * que aportan información diferente y deben conservarse por separado.
+ */
+export function expandOcdsComposedName(raw: string | null | undefined): string[] {
+  const trimmed = typeof raw === 'string' ? raw.trim() : null;
+  if (!trimmed) return [];
+
+  const segments = trimmed
+    .split('|')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const s of segments) {
+    const key = s.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(s);
+    }
+  }
+  return result;
+}
+
 // ─── Supplier accumulator ──────────────────────────────────────────────────────
 
 type SupplierAcc = {
   taxId: string;
   normalizedTaxId: string;
   legalName: string | null;
+  /** Nombre original (antes de limpiar el pipe) para trazabilidad. Solo primer caso. */
+  originalLegalNameSample: string | null;
   totalAwardedAmountClp: number;
   awardsCount: number;
   lastAwardDate: string | null;
@@ -99,11 +160,12 @@ type SupplierAcc = {
   currenciesSeen: Set<string>;
 };
 
-function makeAcc(taxId: string, normalizedTaxId: string, legalName: string | null): SupplierAcc {
+function makeAcc(taxId: string, normalizedTaxId: string, legalName: string | null, originalLegalNameSample: string | null = null): SupplierAcc {
   return {
     taxId,
     normalizedTaxId,
     legalName,
+    originalLegalNameSample,
     totalAwardedAmountClp: 0,
     awardsCount: 0,
     lastAwardDate: null,
@@ -187,7 +249,9 @@ export function processRelease(
 
     for (const supplier of suppliers) {
       const supplierId = toStr(supplier.id);
-      const supplierName = toStr(supplier.name);
+      const rawSupplierName = toStr(supplier.name);
+      const { cleanName: supplierName, hadPipe: supplierNameHadPipe } =
+        cleanOcdsComposedName(rawSupplierName);
 
       // Resolver RUT del proveedor cruzando contra parties
       let supplierRut: string | null = null;
@@ -212,13 +276,25 @@ export function processRelease(
       hadValidSupplier = true;
 
       if (!map.has(normalizedTaxId)) {
-        map.set(normalizedTaxId, makeAcc(supplierRut, normalizedTaxId, supplierName));
+        map.set(
+          normalizedTaxId,
+          makeAcc(
+            supplierRut,
+            normalizedTaxId,
+            supplierName,
+            supplierNameHadPipe ? rawSupplierName : null,
+          ),
+        );
       }
 
       const acc = map.get(normalizedTaxId)!;
 
       // Actualizar nombre si aún no tenemos uno
       if (!acc.legalName && supplierName) acc.legalName = supplierName;
+      // Conservar primera muestra del nombre original con pipe para trazabilidad
+      if (!acc.originalLegalNameSample && supplierNameHadPipe && rawSupplierName) {
+        acc.originalLegalNameSample = rawSupplierName;
+      }
 
       // Monto
       const awardValue = (award as Record<string, unknown>)['value'] as
@@ -254,8 +330,10 @@ export function processRelease(
         }
       }
 
-      // Compradores
-      if (buyer.name) addToSet(acc.buyerNames, buyer.name);
+      // Compradores — expandir nombres compuestos con "|" en segmentos únicos
+      for (const segment of expandOcdsComposedName(buyer.name)) {
+        addToSet(acc.buyerNames, segment);
+      }
       if (buyer.rut) addToSet(acc.buyerRuts, buyer.rut);
 
       // UNSPSC (dedup por código dentro del proceso; merge al acumulador)
@@ -348,6 +426,7 @@ export function accToSnapshotRow(
       etl_version: ETL_VERSION,
       generated_at: generatedAt,
       source: 'chilecompra_ocds',
+      original_supplier_name_sample: acc.originalLegalNameSample ?? null,
     },
     imported_at: generatedAt,
   };
