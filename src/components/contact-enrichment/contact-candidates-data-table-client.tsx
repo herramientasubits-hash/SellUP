@@ -5,7 +5,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { Mail, Phone, Link2, Building2, Globe, UserSearch } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
-import { DataTable, DataTableColumnHeader } from '@/components/data-table';
+import { DataTable, DataTableColumnHeader, type DataTableBulkAction } from '@/components/data-table';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidateDetailSheet } from '@/components/contact-enrichment/contact-candidate-detail-sheet';
 import type {
@@ -209,6 +209,19 @@ export function ContactCandidatesDataTableClient({
     setDetailOpen(true);
   }, []);
 
+  const bulkActions = React.useMemo<DataTableBulkAction<PendingContactCandidate>[]>(
+    () => [
+      {
+        id: 'view-detail',
+        label: 'Ver detalle',
+        icon: UserSearch,
+        disabled: (rows) => rows.length !== 1,
+        onClick: (rows) => openDetail(rows[0]),
+      },
+    ],
+    [openDetail],
+  );
+
   const columns: ColumnDef<PendingContactCandidate, unknown>[] = React.useMemo(
     () => [
       {
@@ -356,6 +369,8 @@ export function ContactCandidatesDataTableClient({
           />
         ) : undefined
       }
+      enableRowSelection
+      bulkActions={bulkActions}
       enableColumnReorder
       initialPageSize={20}
       fillHeight
