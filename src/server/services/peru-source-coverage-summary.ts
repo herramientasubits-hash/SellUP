@@ -77,7 +77,7 @@ export interface SunatCoverage {
   inactiveHabidoRows: number;
   inactiveNotHabidoRows: number;
   nextRecommendedOffset: number;
-  coverageLabel: 'partial_snapshot';
+  coverageLabel: 'partial_snapshot' | 'complete_snapshot';
   /** Audited full RUC-20 universe (active + inactive). Denominator for loaded coverage. */
   auditedTotalRuc20Rows: number;
   /** Audited ACTIVO + HABIDO RUC-20 universe. Denominator for active+habido coverage. */
@@ -157,7 +157,7 @@ export function buildSunatCoverage(
     inactiveHabidoRows: counts.inactiveHabido,
     inactiveNotHabidoRows: counts.inactiveNotHabido,
     nextRecommendedOffset: counts.total,
-    coverageLabel: 'partial_snapshot',
+    coverageLabel: counts.total >= AUDITED_TOTAL_RUC20_ROWS ? 'complete_snapshot' : 'partial_snapshot',
     auditedTotalRuc20Rows: AUDITED_TOTAL_RUC20_ROWS,
     auditedActiveHabidoRuc20Rows: AUDITED_ACTIVE_HABIDO_RUC20_ROWS,
     loadedRowsCoveragePercent,
