@@ -1,5 +1,4 @@
 import { Building2, CheckCircle2, GitMerge, Upload } from 'lucide-react';
-import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';
@@ -22,7 +21,6 @@ import {
   getCommercialScopeFilterOptions,
   resolveScopeOwnerFilter,
 } from '@/modules/access/commercial-scope-filter-options';
-import { ScopeFiltersClient } from '@/components/shared/scope-filters-client';
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
 import { loadActiveCatalog } from '@/modules/industry-catalog/loader';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
@@ -207,25 +205,15 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         ) : null
       }
     >
-      <>
-        {scopeFilterOptions.showScopeFilters && !sourceId && (
-          <div className="px-1 pb-3">
-            <Suspense>
-              <ScopeFiltersClient
-                scopeFilterOptions={scopeFilterOptions}
-                currentUserId={params.userId ?? ''}
-                currentGroupId={params.groupId ?? ''}
-                currentRoleKey={params.roleKey ?? ''}
-              />
-            </Suspense>
-          </div>
-        )}
-        <ProspectsDataTableClient
-          candidates={candidates as ProspectCandidateWithReviewer[]}
-          sourceId={sourceId ?? undefined}
-          sourceBatchType={sourceBatchType ?? undefined}
-        />
-      </>
+      <ProspectsDataTableClient
+        candidates={candidates as ProspectCandidateWithReviewer[]}
+        sourceId={sourceId ?? undefined}
+        sourceBatchType={sourceBatchType ?? undefined}
+        scopeFilterOptions={scopeFilterOptions}
+        currentUserId={params.userId ?? ''}
+        currentGroupId={params.groupId ?? ''}
+        currentRoleKey={params.roleKey ?? ''}
+      />
     </DataTablePage>
   );
 }

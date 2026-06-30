@@ -2,14 +2,12 @@
 
 // Scope-aware filter dropdowns (Usuario / Grupo / Rol) for operativa modules.
 //
-// Rendered client-side; reads/writes query params via useRouter so each filter
-// change is reflected in the URL and triggers a server re-fetch for modules
-// that apply these filters server-side (e.g. Prospectos).
-//
-// For modules with client-side TanStack filtering (e.g. Empresas), this
-// component is not used — the DataTable column filters handle that flow.
+// Two variants:
+//   ScopeFiltersClient   — URL-param driven (Prospectos, server-side filtering).
+//   ScopeFilterDrawerSection — callback-driven (Empresas, Contactos, client-side filtering).
+//   ScopeFiltersInDrawer — wraps ScopeFiltersClient for use inside a settings drawer.
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, Suspense } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
   Select,
@@ -160,11 +158,7 @@ export function ScopeFiltersClient({
   if (!scopeFilterOptions.showScopeFilters) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mr-1">
-        Equipo
-      </span>
-
+    <div className="flex flex-col gap-2">
       {scopeFilterOptions.roles.length > 1 && (
         <Select value={currentRoleKey || 'all'} onValueChange={onRoleChange}>
           <SelectTrigger className="h-8 w-[170px] text-xs">
@@ -220,6 +214,171 @@ export function ScopeFiltersClient({
           </SelectContent>
         </Select>
       )}
+    </div>
+  );
+}
+
+// ── Drawer wrapper for Prospectos (URL-param variant) ──────────────────────────
+//
+// Renders ScopeFiltersClient inside a settings-drawer section with a proper
+// heading. ScopeFiltersClient uses useSearchParams so it needs a Suspense
+// boundary — callers can also wrap at a higher level.
+
+interface ScopeFiltersInDrawerProps {
+  scopeFilterOptions: ScopeFilterOptions;
+  currentUserId: string;
+  currentGroupId: string;
+  currentRoleKey: string;
+  paramKeys?: { user?: string; group?: string; role?: string };
+}
+
+export function ScopeFiltersInDrawer(props: ScopeFiltersInDrawerProps) {
+  if (!props.scopeFilterOptions.showScopeFilters) return null;
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+        Alcance de equipo
+      </p>
+      <Suspense>
+        <ScopeFiltersClient {...props} />
+      </Suspense>
+    </div>
+  );
+}
+
+// ── Callback-based drawer section (Empresas, Contactos) ───────────────────────
+//
+// Client-side filtering: does not write URL params. Callers manage state and
+// use it to pre-filter the data array before passing it to DataTable.
+
+export interface ScopeFilterState {
+  userId: string;
+  groupId: string;
+  roleKey: string;
+}
+
+interface ScopeFilterDrawerSectionProps {
+  scopeFilterOptions: ScopeFilterOptions;
+  value: ScopeFilterState;
+  onChange: (next: ScopeFilterState) => void;
+}
+
+export function ScopeFilterDrawerSection({
+  scopeFilterOptions,
+  value,
+  onChange,
+}: ScopeFilterDrawerSectionProps) {
+  const groupScope = useMemo(
+    () => (value.groupId ? groupDescendantIds(value.groupId, scopeFilterOptions.groups) : null),
+    [value.groupId, scopeFilterOptions.groups],
+  );
+
+  const visibleUsers = useMemo(
+    () =>
+      scopeFilterOptions.users.filter((u) => {
+        if (value.roleKey && u.role_key !== value.roleKey) return false;
+        if (groupScope && (!u.group_id || !groupScope.has(u.group_id))) return false;
+        return true;
+      }),
+    [scopeFilterOptions.users, value.roleKey, groupScope],
+  );
+
+  const groupName = useMemo(
+    () => new Map(scopeFilterOptions.groups.map((g) => [g.id, g.name])),
+    [scopeFilterOptions.groups],
+  );
+  const userById = useMemo(
+    () => new Map(scopeFilterOptions.users.map((u) => [u.id, u])),
+    [scopeFilterOptions.users],
+  );
+  const roleLabelByKey = useMemo(
+    () => new Map(scopeFilterOptions.roles.map((r) => [r.key, r.label])),
+    [scopeFilterOptions.roles],
+  );
+
+  const groupTriggerLabel = (v: string) =>
+    !v || v === 'all' ? 'Todos los grupos' : (groupName.get(v) ?? 'Grupo');
+  const userTriggerLabel = (v: string) => {
+    if (!v || v === 'all') return 'Todos los usuarios';
+    const u = userById.get(v);
+    return u ? labelUser(u) : 'Usuario';
+  };
+  const roleTriggerLabel = (v: string) =>
+    !v || v === 'all' ? 'Todos los roles' : (roleLabelByKey.get(v) ?? 'Rol');
+
+  // When group changes, invalidate user if it falls outside the new scope.
+  const onGroupChange = (gid: string | null) => {
+    const next: ScopeFilterState = { ...value, groupId: gid ?? '' };
+    if (gid) {
+      const scope = groupDescendantIds(gid, scopeFilterOptions.groups);
+      const selectedUser = scopeFilterOptions.users.find((u) => u.id === value.userId);
+      if (selectedUser && (!selectedUser.group_id || !scope.has(selectedUser.group_id))) {
+        next.userId = '';
+      }
+    }
+    onChange(next);
+  };
+
+  // When role changes, invalidate user if its role doesn't match.
+  const onRoleChange = (rk: string | null) => {
+    const next: ScopeFilterState = { ...value, roleKey: rk ?? '' };
+    const selectedUser = scopeFilterOptions.users.find((u) => u.id === value.userId);
+    if (selectedUser && rk && selectedUser.role_key !== rk) next.userId = '';
+    onChange(next);
+  };
+
+  if (!scopeFilterOptions.showScopeFilters) return null;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+        Alcance de equipo
+      </p>
+      <div className="flex flex-col gap-2">
+        {scopeFilterOptions.roles.length > 1 && (
+          <Select value={value.roleKey || 'all'} onValueChange={(v) => onRoleChange(v === 'all' ? null : v)}>
+            <SelectTrigger className="h-8 text-xs w-full">
+              <SelectValue placeholder="Rol">{roleTriggerLabel(value.roleKey)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los roles</SelectItem>
+              {scopeFilterOptions.roles.map((r) => (
+                <SelectItem key={r.key} value={r.key} className="text-xs">{r.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {scopeFilterOptions.groups.length > 0 && (
+          <Select value={value.groupId || 'all'} onValueChange={(v) => onGroupChange(v === 'all' ? null : v)}>
+            <SelectTrigger className="h-8 text-xs w-full">
+              <SelectValue placeholder="Grupo">{groupTriggerLabel(value.groupId)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los grupos</SelectItem>
+              {scopeFilterOptions.groups.map((g) => (
+                <SelectItem key={g.id} value={g.id} className="text-xs">
+                  <span style={{ paddingLeft: `${g.depth * GROUP_INDENT_STEP_PX}px` }}>{g.name}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {visibleUsers.length > 0 && (
+          <Select value={value.userId || 'all'} onValueChange={(v) => onChange({ ...value, userId: v === 'all' || v === null ? '' : v })}>
+            <SelectTrigger className="h-8 text-xs w-full">
+              <SelectValue placeholder="Usuario responsable">{userTriggerLabel(value.userId)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los usuarios</SelectItem>
+              {visibleUsers.map((u) => (
+                <SelectItem key={u.id} value={u.id} className="text-xs">{labelUser(u)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
     </div>
   );
 }

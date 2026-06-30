@@ -51,6 +51,8 @@ import {
 } from '@/modules/prospect-batches/types';
 import { createClient } from '@/lib/supabase/client';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
+import { ScopeFiltersInDrawer } from '@/components/shared/scope-filters-client';
+import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 // ── Derived types ──────────────────────────────────────────────
 
@@ -580,12 +582,20 @@ interface ProspectsDataTableClientProps {
   candidates: ProspectCandidateWithReviewer[];
   sourceId?: string;
   sourceBatchType?: string;
+  scopeFilterOptions?: ScopeFilterOptions;
+  currentUserId?: string;
+  currentGroupId?: string;
+  currentRoleKey?: string;
 }
 
 export function ProspectsDataTableClient({
   candidates,
   sourceId,
   sourceBatchType,
+  scopeFilterOptions,
+  currentUserId = '',
+  currentGroupId = '',
+  currentRoleKey = '',
 }: ProspectsDataTableClientProps) {
   const router = useRouter();
 
@@ -1056,6 +1066,16 @@ export function ProspectsDataTableClient({
           setDetailOpen(true);
         }}
         rowClickable
+        settingsExtraSections={
+          scopeFilterOptions && !sourceId ? (
+            <ScopeFiltersInDrawer
+              scopeFilterOptions={scopeFilterOptions}
+              currentUserId={currentUserId}
+              currentGroupId={currentGroupId}
+              currentRoleKey={currentRoleKey}
+            />
+          ) : undefined
+        }
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="mb-3 rounded-full bg-muted/60 p-3">

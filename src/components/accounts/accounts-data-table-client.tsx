@@ -41,6 +41,10 @@ import {
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import {
+  ScopeFilterDrawerSection,
+  type ScopeFilterState,
+} from '@/components/shared/scope-filters-client';
 import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
@@ -122,6 +126,43 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [archiving, setArchiving] = React.useState(false);
   const [enrichAccount, setEnrichAccount] = React.useState<Row | null>(null);
+
+  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
+    userId: '',
+    groupId: '',
+    roleKey: '',
+  });
+
+  const filteredAccounts = React.useMemo(() => {
+    if (!scopeFilterOptions?.showScopeFilters) return accounts;
+    const { userId, groupId, roleKey } = scopeFilter;
+    if (!userId && !groupId && !roleKey) return accounts;
+    const allowedUserIds = new Set(
+      scopeFilterOptions.users
+        .filter((u) => {
+          if (roleKey && u.role_key !== roleKey) return false;
+          if (groupId) {
+            // simple descendant check: include if user group equals or starts with groupId hierarchy
+            if (!u.group_id) return false;
+            const group = scopeFilterOptions.groups.find((g) => g.id === groupId);
+            if (!group) return false;
+            // allow user if their group_id is in subtree — using the path/parent pattern
+            const inSubtree = (gid: string): boolean => {
+              if (gid === groupId) return true;
+              const g = scopeFilterOptions.groups.find((x) => x.id === gid);
+              return g?.parent_group_id ? inSubtree(g.parent_group_id) : false;
+            };
+            if (!inSubtree(u.group_id)) return false;
+          }
+          return true;
+        })
+        .map((u) => u.id),
+    );
+    return accounts.filter((a) => {
+      if (userId) return a.owner_id === userId;
+      return a.owner_id != null && allowedUserIds.has(a.owner_id);
+    });
+  }, [accounts, scopeFilter, scopeFilterOptions]);
 
   const openDetail = React.useCallback((id: string) => {
     setDetailAccountId(id);
@@ -463,11 +504,11 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
     <>
       <DataTable
         columns={columns}
-        data={accounts}
+        data={filteredAccounts}
         getRowId={(row) => row.id}
         title="Listado de empresas"
         description="Empresas, pipeline, fuente y estado."
-        count={accounts.length}
+        count={filteredAccounts.length}
         enableRowSelection
         contextMenu={contextMenu}
         bulkActions={bulkActions}
@@ -476,6 +517,15 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         fillHeight
         onRowClick={(row) => openDetail(row.id)}
         rowClickable
+        settingsExtraSections={
+          scopeFilterOptions?.showScopeFilters ? (
+            <ScopeFilterDrawerSection
+              scopeFilterOptions={scopeFilterOptions}
+              value={scopeFilter}
+              onChange={setScopeFilter}
+            />
+          ) : undefined
+        }
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="mb-3 rounded-full bg-muted/60 p-3">

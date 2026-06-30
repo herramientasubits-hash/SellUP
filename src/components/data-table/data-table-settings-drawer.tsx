@@ -32,6 +32,8 @@ interface DataTableSettingsDrawerProps<TData> {
   table: Table<TData>;
   title?: string;
   description?: string;
+  /** Optional extra sections rendered before the column-visibility section. */
+  extraSections?: React.ReactNode;
 }
 
 export function DataTableSettingsDrawer<TData>({
@@ -42,6 +44,7 @@ export function DataTableSettingsDrawer<TData>({
   table,
   title = "Ajustes de tabla",
   description = "Configura la búsqueda global y las columnas visibles en la tabla.",
+  extraSections,
 }: DataTableSettingsDrawerProps<TData>) {
   const setGlobalSearch = (globalSearch: boolean) =>
     onChange({ ...value, globalSearch });
@@ -101,6 +104,13 @@ export function DataTableSettingsDrawer<TData>({
               onChange={(v) => onChange({ ...value, loadMode: v as DataTableLoadMode })}
             />
           </SettingGroup>
+
+          {extraSections && (
+            <>
+              <Separator />
+              {extraSections}
+            </>
+          )}
 
           <Separator />
 

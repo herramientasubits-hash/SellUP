@@ -22,6 +22,11 @@ import {
   type ContactRole,
 } from '@/modules/contacts/types';
 import type { ContactListItem } from '@/modules/contacts/actions';
+import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import {
+  ScopeFilterDrawerSection,
+  type ScopeFilterState,
+} from '@/components/shared/scope-filters-client';
 import { ContactDetailSheet } from './contact-detail-sheet';
 import { EditContactDrawer } from './edit-contact-drawer';
 import { setPrimaryContact, changeContactStatus, archiveContact } from '@/modules/contacts/actions';
@@ -68,14 +73,56 @@ type Row = ContactListItem;
 
 interface ContactsDataTableClientProps {
   contacts: ContactListItem[];
+  /** owner_id keyed by account_id — used for scope pre-filtering (contact → account → owner). */
+  accountOwners?: Map<string, string>;
+  scopeFilterOptions?: ScopeFilterOptions;
 }
 
-export function ContactsDataTableClient({ contacts }: ContactsDataTableClientProps) {
+export function ContactsDataTableClient({
+  contacts,
+  accountOwners,
+  scopeFilterOptions,
+}: ContactsDataTableClientProps) {
   const router = useRouter();
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [editingContact, setEditingContact] = React.useState<ContactListItem | null>(null);
   const [editOpen, setEditOpen] = React.useState(false);
+
+  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
+    userId: '',
+    groupId: '',
+    roleKey: '',
+  });
+
+  const filteredContacts = React.useMemo(() => {
+    if (!scopeFilterOptions?.showScopeFilters || !accountOwners) return contacts;
+    const { userId, groupId, roleKey } = scopeFilter;
+    if (!userId && !groupId && !roleKey) return contacts;
+    const allowedUserIds = new Set(
+      scopeFilterOptions.users
+        .filter((u) => {
+          if (roleKey && u.role_key !== roleKey) return false;
+          if (groupId) {
+            if (!u.group_id) return false;
+            const inSubtree = (gid: string): boolean => {
+              if (gid === groupId) return true;
+              const g = scopeFilterOptions.groups.find((x) => x.id === gid);
+              return g?.parent_group_id ? inSubtree(g.parent_group_id) : false;
+            };
+            if (!inSubtree(u.group_id)) return false;
+          }
+          return true;
+        })
+        .map((u) => u.id),
+    );
+    return contacts.filter((c) => {
+      const ownerId = c.account_id ? accountOwners.get(c.account_id) : undefined;
+      if (!ownerId) return false;
+      if (userId) return ownerId === userId;
+      return allowedUserIds.has(ownerId);
+    });
+  }, [contacts, scopeFilter, scopeFilterOptions, accountOwners]);
 
   const openDetail = React.useCallback((contactId: string) => {
     setDetailContactId(contactId);
@@ -434,11 +481,11 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
     <>
       <DataTable
         columns={columns}
-        data={contacts}
+        data={filteredContacts}
         getRowId={(row) => row.id}
         title="Listado de contactos"
         description="Contactos vinculados a cuentas, roles, estado y fuente."
-        count={contacts.length}
+        count={filteredContacts.length}
         enableRowSelection
         contextMenu={contextMenu}
         bulkActions={bulkActions}
@@ -447,6 +494,15 @@ export function ContactsDataTableClient({ contacts }: ContactsDataTableClientPro
         fillHeight
         onRowClick={(row) => openDetail(row.id)}
         rowClickable
+        settingsExtraSections={
+          scopeFilterOptions?.showScopeFilters ? (
+            <ScopeFilterDrawerSection
+              scopeFilterOptions={scopeFilterOptions}
+              value={scopeFilter}
+              onChange={setScopeFilter}
+            />
+          ) : undefined
+        }
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="mb-3 rounded-full bg-muted/60 p-3">

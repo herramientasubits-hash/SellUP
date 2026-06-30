@@ -147,6 +147,12 @@ interface DataTableProps<TData> {
   hideToolbar?: boolean;
 
   /**
+   * Extra sections rendered inside the settings drawer, before column
+   * visibility. Use to inject module-specific filters (e.g. scope filters).
+   */
+  settingsExtraSections?: React.ReactNode;
+
+  /**
    * Fill the parent's height and scroll the table internally (sticky thead
    * inside the scroll container). The parent must be a flex container with
    * a defined height (e.g. <DataTablePage>).
@@ -196,6 +202,7 @@ export function DataTable<TData>({
   emptyState,
   loading = false,
   hideToolbar = false,
+  settingsExtraSections,
   fillHeight = false,
 }: DataTableProps<TData>) {
   const tableWrapperRef = React.useRef<HTMLDivElement | null>(null);
@@ -566,6 +573,7 @@ export function DataTable<TData>({
         value={settings}
         onChange={setSettings}
         table={table}
+        extraSections={settingsExtraSections}
       />
     </div>
   );
