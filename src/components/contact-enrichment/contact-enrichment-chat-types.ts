@@ -32,6 +32,12 @@ export interface ApolloEnrichmentUiResult {
   rejectedByRelevance: number;
   /** Apollo encontró perfiles pero ninguno pasó el filtro de revisión. */
   noReviewableContactsFound: boolean;
+  /** Candidatos a los que se intentó completar datos vía people/match. */
+  completionAttempted: number;
+  /** Candidatos relevantes que quedaron con datos accionables. */
+  actionableContactsCount: number;
+  /** Apollo trajo perfiles relevantes pero ninguno quedó accionable. */
+  noActionableContactsFound: boolean;
   providerStatus: 'success' | 'skipped' | 'error';
   estimatedCostUsd: number;
   error?: string;

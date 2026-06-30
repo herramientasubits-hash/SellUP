@@ -39,10 +39,13 @@ const RUN_DONE = 'Listo. Creé el run y revisé los contactos existentes antes d
 const APOLLO_SEARCHING = 'Voy a buscar perfiles relevantes en Apollo…';
 
 const APOLLO_DONE_WITH_CANDIDATES =
-  'Encontré candidatos relevantes en Apollo y los dejé listos para revisión. No creé contactos finales: requieren tu aprobación.';
+  'Encontré candidatos relevantes y con datos de contacto suficientes. Los dejé listos para revisión. No creé contactos finales: requieren tu aprobación.';
 
 const APOLLO_DONE_FILTERED =
   'Apollo encontró perfiles, pero ninguno tenía suficiente relevancia o datos completos para revisión. No se crearon contactos finales.';
+
+const APOLLO_DONE_NO_ACTIONABLE =
+  'Apollo encontró perfiles, pero ninguno tenía datos suficientes de contacto (email, LinkedIn o teléfono) para revisión. No se crearon contactos finales.';
 
 const APOLLO_DONE_NO_CANDIDATES =
   'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.';
@@ -338,9 +341,11 @@ export function contactEnrichmentChatReducer(
       const content =
         created > 0
           ? APOLLO_DONE_WITH_CANDIDATES
-          : action.result.noReviewableContactsFound
-            ? APOLLO_DONE_FILTERED
-            : APOLLO_DONE_NO_CANDIDATES;
+          : action.result.noActionableContactsFound
+            ? APOLLO_DONE_NO_ACTIONABLE
+            : action.result.noReviewableContactsFound
+              ? APOLLO_DONE_FILTERED
+              : APOLLO_DONE_NO_CANDIDATES;
       return {
         ...state,
         step: 'done',

@@ -15,6 +15,10 @@ import {
   type ApolloEnrichmentRunnerDeps,
 } from '../apollo-enrichment-runner';
 import type { ApolloPeopleAdapterResult } from '../apollo-people-adapter';
+import {
+  isActionableContactCandidate,
+  type CompleteContactResult,
+} from '../contact-completion-adapter';
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
 import type { AgentRunStep } from '@/modules/usage-tracking/types';
 
@@ -90,6 +94,19 @@ function makeHarness(
     writeCandidates: async (_runId, candidates) => {
       writeCalls += 1;
       return { inserted: candidates.length, skippedNoName: 0 };
+    },
+    // Stub por defecto: NUNCA ejecuta Apollo real. Refleja si el candidato ya
+    // es accionable; no completa nada. Tests específicos lo sobreescriben.
+    completeContact: async ({ candidate, relevanceStatus }) => {
+      const actionable = isActionableContactCandidate(candidate, relevanceStatus);
+      return {
+        status: 'skipped',
+        contact: candidate,
+        completedFields: [],
+        wasActionableBefore: actionable,
+        isActionableAfter: actionable,
+        reason: actionable ? 'candidate_already_actionable' : 'insufficient_input_for_match',
+      } satisfies CompleteContactResult;
     },
     loadApolloUnitCost: async () => 0.00875,
     logUsage: async () => {
@@ -392,5 +409,177 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(h.getWriteCalls(), 1);
     // El estado final es de revisión, nunca promueve a contactos reales.
     assert.equal(result.runStatus, 'ready_for_review');
+  });
+
+  // ── Completado selectivo + filtro accionable (Hito 17A.3C) ──────────────────
+
+  /** Perfil HR relevante PERO sin canal accionable (legacy "Mauricio"). */
+  function personNoChannel(id: string): ApolloPerson {
+    return {
+      id,
+      first_name: 'Persona',
+      last_name: id,
+      title: 'HR Manager',
+      email: null,
+      linkedin_url: null,
+      phone_numbers: [],
+      organization: { id: 'org-1', name: 'Corp', website_url: 'https://corp.com' },
+      seniority: 'manager',
+      departments: ['human_resources'],
+      country: 'Colombia',
+    };
+  }
+
+  function apolloWith(people: ApolloPerson[]): ApolloPeopleAdapterResult {
+    return {
+      status: 'success',
+      people,
+      attempts: [
+        { attempt: 'hr_titles_without_department', filters: 'org(dominio=corp.com); titles=HR', rawResultsCount: people.length },
+      ],
+      chosenAttempt: 'hr_titles_without_department',
+      providerUsage: {
+        provider: 'apollo',
+        operation: 'people_search',
+        creditsUsed: people.length,
+        rawResultsCount: people.length,
+      },
+    };
+  }
+
+  it('completa email vía match → inserta candidato y queda ready_for_review', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'completed',
+      contact: { ...candidate, email: 'm1@corp.com' },
+      completedFields: ['email'],
+      wasActionableBefore: false,
+      isActionableAfter: true,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'ready_for_review');
+    assert.equal(result.candidatesCreated, 1);
+    assert.equal(result.completionCompleted, 1);
+    assert.equal(result.actionableContactsCount, 1);
+  });
+
+  it('completa LinkedIn vía match → inserta candidato', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'completed',
+      contact: { ...candidate, linkedinUrl: 'https://linkedin.com/in/m1' },
+      completedFields: ['linkedin_url'],
+      wasActionableBefore: false,
+      isActionableAfter: true,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.candidatesCreated, 1);
+    assert.equal(result.status, 'ready_for_review');
+  });
+
+  it('match falla → no rompe el run, candidato sin canal NO se inserta', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'error',
+      contact: candidate,
+      completedFields: [],
+      wasActionableBefore: false,
+      isActionableAfter: false,
+      reason: 'boom',
+    });
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.candidatesCreated, 0);
+    assert.equal(h.getStore().status, 'completed');
+  });
+
+  it('ningún candidato queda accionable → status completed, no_actionable_contacts_found', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1'), personNoChannel('m2')]));
+    // completeContact default skip (no completa) → siguen sin canal.
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.candidatesCreated, 0);
+    assert.equal(result.noActionableContactsFound, true);
+    const summary = h.getStore().summary as Record<string, unknown>;
+    assert.equal(summary.no_actionable_contacts_found, true);
+  });
+
+  it('2 candidatos quedan accionables → ready_for_review', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1'), personNoChannel('m2')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'completed',
+      contact: { ...candidate, email: `${candidate.lastName}@corp.com` },
+      completedFields: ['email'],
+      wasActionableBefore: false,
+      isActionableAfter: true,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'ready_for_review');
+    assert.equal(result.candidatesCreated, 2);
+    assert.equal(result.actionableContactsCount, 2);
+  });
+
+  it('summary incluye el bloque contact_completion', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'completed',
+      contact: { ...candidate, email: 'm1@corp.com' },
+      completedFields: ['email'],
+      wasActionableBefore: false,
+      isActionableAfter: true,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const apolloBlock = (h.getStore().summary as Record<string, unknown>)
+      .apollo_enrichment as Record<string, unknown>;
+    const completion = apolloBlock.contact_completion as Record<string, unknown>;
+    assert.ok(completion, 'contact_completion debe existir');
+    assert.equal(completion.eligible_count, 1);
+    assert.equal(completion.completed_count, 1);
+    assert.equal(completion.actionable_after_completion_count, 1);
+    assert.equal(completion.max_completion_candidates, 3);
+    const fields = completion.completed_fields_count as Record<string, number>;
+    assert.equal(fields.email, 1);
+  });
+
+  it('candidato insertado lleva bloque completion en enrichment_metadata', async () => {
+    interface MetaRow { enrichmentMetadata: Record<string, unknown> }
+    let written: MetaRow[] = [];
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'completed',
+      contact: { ...candidate, email: 'm1@corp.com' },
+      completedFields: ['email'],
+      wasActionableBefore: false,
+      isActionableAfter: true,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+    h.deps.writeCandidates = async (_runId, candidates) => {
+      written = candidates as unknown as MetaRow[];
+      return { inserted: candidates.length, skippedNoName: 0 };
+    };
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(written.length, 1);
+    const completion = written[0].enrichmentMetadata.completion as Record<string, unknown>;
+    assert.equal(completion.status, 'completed');
+    assert.equal(completion.had_actionable_channel, true);
+    assert.deepEqual(completion.completed_fields, ['email']);
   });
 });

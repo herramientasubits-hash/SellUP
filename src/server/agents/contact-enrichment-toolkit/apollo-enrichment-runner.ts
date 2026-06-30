@@ -27,9 +27,19 @@ import {
   type ContactRelevanceResult,
   type ContactRelevanceStatus,
 } from './contact-relevance-classifier';
+import {
+  completeContactWithApollo,
+  isActionableContactCandidate,
+  selectCandidatesForCompletion,
+  MAX_COMPLETION_CANDIDATES,
+  type CompleteContactInput,
+  type CompleteContactResult,
+  type ClassifiedCandidate,
+} from './contact-completion-adapter';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
 const APOLLO_OPERATION_KEY = 'people_search';
+const APOLLO_MATCH_OPERATION_KEY = 'person_match';
 
 function getAdminClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -65,6 +75,14 @@ export interface ApolloEnrichmentRunResult {
   rejectedByRelevance: number;
   /** Apollo trajo perfiles pero ninguno pasó el filtro de revisión. */
   noReviewableContactsFound: boolean;
+  /** Candidatos a los que se intentó completar datos vía people/match. */
+  completionAttempted: number;
+  /** Candidatos cuyos datos se completaron con éxito. */
+  completionCompleted: number;
+  /** Candidatos relevantes que quedaron con datos accionables tras completar. */
+  actionableContactsCount: number;
+  /** Apollo trajo perfiles relevantes pero ninguno quedó accionable. */
+  noActionableContactsFound: boolean;
   providerStatus: 'success' | 'skipped' | 'error';
   estimatedCostUsd: number;
   totalCandidates: number;
@@ -94,6 +112,10 @@ export interface ApolloEnrichmentRunnerDeps {
     candidates: DeduplicatedContact[],
   ) => Promise<WriteCandidatesResult>;
   loadApolloUnitCost?: () => Promise<number>;
+  /** Completa selectivamente un candidato vía people/match (Hito 17A.3C). */
+  completeContact?: (
+    input: CompleteContactInput,
+  ) => Promise<CompleteContactResult>;
   logUsage?: typeof logProviderUsage;
   createStep?: typeof createAgentRunStep;
   finishStep?: typeof finishAgentRunStep;
@@ -179,6 +201,19 @@ interface RelevanceFilterSummary {
   top_rejection_reasons: string[];
 }
 
+/** Resumen del completado selectivo de contactos (Hito 17A.3C). */
+interface ContactCompletionSummary {
+  eligible_count: number;
+  attempted_count: number;
+  completed_count: number;
+  skipped_count: number;
+  failed_count: number;
+  actionable_after_completion_count: number;
+  rejected_missing_actionable_channel_count: number;
+  completed_fields_count: { email: number; linkedin_url: number; phone: number };
+  max_completion_candidates: number;
+}
+
 interface ApolloEnrichmentSummaryBlock {
   status: 'success' | 'skipped' | 'error';
   searched_at: string;
@@ -193,7 +228,37 @@ interface ApolloEnrichmentSummaryBlock {
   search_attempts: ApolloSearchAttemptSummary[];
   /** Resultado del filtro de relevancia/calidad (Hito 17A.3B). */
   relevance_filter?: RelevanceFilterSummary;
+  /** Resultado del completado selectivo de datos (Hito 17A.3C). */
+  contact_completion?: ContactCompletionSummary;
   reason?: string;
+}
+
+/** Resultado vacío base: evita repetir los 16 campos en cada retorno temprano. */
+function emptyRunResult(
+  overrides: Partial<ApolloEnrichmentRunResult> & {
+    status: ApolloEnrichmentRunResult['status'];
+    runStatus: ContactEnrichmentRunStatus;
+    providerStatus: ApolloEnrichmentRunResult['providerStatus'];
+  },
+): ApolloEnrichmentRunResult {
+  return {
+    candidatesCreated: 0,
+    duplicatesSkipped: 0,
+    possibleDuplicates: 0,
+    exactDuplicates: 0,
+    rawResultsCount: 0,
+    normalizedCount: 0,
+    evaluatedCount: 0,
+    rejectedByRelevance: 0,
+    noReviewableContactsFound: false,
+    completionAttempted: 0,
+    completionCompleted: 0,
+    actionableContactsCount: 0,
+    noActionableContactsFound: false,
+    estimatedCostUsd: 0,
+    totalCandidates: 0,
+    ...overrides,
+  };
 }
 
 /** Contacto normalizado + su veredicto de relevancia (uso interno del runner). */
@@ -296,6 +361,31 @@ function buildSummary(
   };
 }
 
+/**
+ * Metadata resumida de completion para un candidato insertado (sin payload crudo).
+ *  - completed → campos completados + canal accionable.
+ *  - skipped/error → status + motivo.
+ *  - sin intento (no seleccionado) → skipped/not_selected_for_completion.
+ */
+function buildCompletionMetadata(
+  res: CompleteContactResult | undefined,
+  hadActionableChannel: boolean,
+): Record<string, unknown> {
+  if (!res) {
+    return { status: 'skipped', reason: 'not_selected_for_completion' };
+  }
+  if (res.status === 'completed') {
+    return {
+      status: 'completed',
+      provider: 'apollo',
+      operation: 'person_match',
+      completed_fields: res.completedFields,
+      had_actionable_channel: hadActionableChannel,
+    };
+  }
+  return { status: res.status, reason: res.reason ?? null };
+}
+
 // ── Runner principal ───────────────────────────────────────────
 
 export async function executeContactEnrichmentApolloRun(
@@ -309,6 +399,7 @@ export async function executeContactEnrichmentApolloRun(
     runApollo = searchApolloPeopleForCompany,
     writeCandidates = writeContactCandidates,
     loadApolloUnitCost = defaultLoadApolloUnitCost,
+    completeContact = completeContactWithApollo,
     logUsage = logProviderUsage,
     createStep = createAgentRunStep,
     finishStep = finishAgentRunStep,
@@ -319,44 +410,22 @@ export async function executeContactEnrichmentApolloRun(
   // 1. Cargar run
   const run = await loadRun(runId);
   if (!run) {
-    return {
+    return emptyRunResult({
       status: 'error',
       runStatus: 'failed',
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      possibleDuplicates: 0,
-      exactDuplicates: 0,
-      rawResultsCount: 0,
-      normalizedCount: 0,
-      evaluatedCount: 0,
-      rejectedByRelevance: 0,
-      noReviewableContactsFound: false,
       providerStatus: 'error',
-      estimatedCostUsd: 0,
-      totalCandidates: 0,
       error: 'Run de enriquecimiento no encontrado',
-    };
+    });
   }
 
   // 2. Validar estado
   if (run.status !== 'ready_to_enrich') {
-    return {
+    return emptyRunResult({
       status: 'error',
       runStatus: run.status,
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      possibleDuplicates: 0,
-      exactDuplicates: 0,
-      rawResultsCount: 0,
-      normalizedCount: 0,
-      evaluatedCount: 0,
-      rejectedByRelevance: 0,
-      noReviewableContactsFound: false,
       providerStatus: 'error',
-      estimatedCostUsd: 0,
-      totalCandidates: 0,
       error: `El run no está en estado ready_to_enrich (actual: ${run.status})`,
-    };
+    });
   }
 
   const prevSummary = run.summary ?? {};
@@ -413,23 +482,12 @@ export async function executeContactEnrichmentApolloRun(
         duration_ms: Date.now() - startMs,
       });
     }
-    return {
+    return emptyRunResult({
       status: 'error',
       runStatus: 'failed',
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      possibleDuplicates: 0,
-      exactDuplicates: 0,
-      rawResultsCount: 0,
-      normalizedCount: 0,
-      evaluatedCount: 0,
-      rejectedByRelevance: 0,
-      noReviewableContactsFound: false,
       providerStatus: 'error',
-      estimatedCostUsd: 0,
-      totalCandidates: 0,
       error: apollo.reason,
-    };
+    });
   }
 
   // 5b. Datos insuficientes → skipped, vuelve a ready_to_enrich para reintentar
@@ -458,58 +516,114 @@ export async function executeContactEnrichmentApolloRun(
         duration_ms: Date.now() - startMs,
       });
     }
-    return {
+    return emptyRunResult({
       status: 'skipped',
       runStatus: 'ready_to_enrich',
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      possibleDuplicates: 0,
-      exactDuplicates: 0,
-      rawResultsCount: 0,
-      normalizedCount: 0,
-      evaluatedCount: 0,
-      rejectedByRelevance: 0,
-      noReviewableContactsFound: false,
       providerStatus: 'skipped',
-      estimatedCostUsd: 0,
-      totalCandidates: 0,
       error: apollo.reason,
-    };
+    });
   }
 
   // 6. Normalizar
   const rawResultsCount = apollo.providerUsage?.rawResultsCount ?? apollo.people.length;
   const { normalized } = normalizeApolloPeople(apollo.people);
 
-  // 7. Clasificar relevancia/calidad. Solo los revisables pasan a dedup/inserción;
-  //    los demás se contabilizan (relevance_filter) sin guardar payload crudo.
+  // 7. Clasificar relevancia/calidad. Solo los revisables avanzan a completado/
+  //    dedup/inserción; los demás se contabilizan (relevance_filter) sin payload crudo.
   const classified: ClassifiedContact[] = normalized.map((contact) => ({
     contact,
     relevance: classifyNormalizedContact(contact),
   }));
   const relevanceFilter = buildRelevanceFilter(classified);
   const chosenAttempt = apollo.chosenAttempt ?? null;
-
-  // Solo revisables, con su veredicto de relevancia + intento Apollo en metadata.
-  const reviewable: NormalizedApolloContact[] = classified
-    .filter(({ relevance }) => relevance.shouldInsertForReview)
-    .map(({ contact, relevance }) => ({
-      ...contact,
-      enrichmentMetadata: {
-        ...contact.enrichmentMetadata,
-        relevance: relevanceMetadata(relevance),
-        apollo_search_attempt: chosenAttempt,
-      },
-    }));
   const rejectedByRelevance = relevanceFilter.rejected_count;
 
-  // 8. Deduplicar (solo revisables) contra snapshot + intra-run
-  const dedup = deduplicateContacts(reviewable, dedupSnapshot);
+  // Revisables (relevancia/calidad OK), conservando su veredicto de relevancia.
+  const reviewableClassified: ClassifiedCandidate[] = classified.filter(
+    ({ relevance }) => relevance.shouldInsertForReview,
+  );
 
-  // 9. Escribir candidatos (no_match + possible_duplicate)
+  // 7b. Completado selectivo (Hito 17A.3C): solo los mejores revisables, tope duro.
+  //     Los ya accionables se omiten sin consumir créditos.
+  const unitCost = await loadApolloUnitCost();
+  const selected = selectCandidatesForCompletion(reviewableClassified, MAX_COMPLETION_CANDIDATES);
+  const completionByContact = new Map<NormalizedApolloContact, CompleteContactResult>();
+  let completionCredits = 0;
+
+  const completionSummary: ContactCompletionSummary = {
+    eligible_count: selected.length,
+    attempted_count: 0,
+    completed_count: 0,
+    skipped_count: 0,
+    failed_count: 0,
+    actionable_after_completion_count: 0,
+    rejected_missing_actionable_channel_count: 0,
+    completed_fields_count: { email: 0, linkedin_url: 0, phone: 0 },
+    max_completion_candidates: MAX_COMPLETION_CANDIDATES,
+  };
+
+  for (const item of selected) {
+    const res = await completeContact({
+      candidate: item.contact,
+      companyName: run.company_name,
+      companyDomain: run.company_domain,
+      relevanceStatus: item.relevance.relevanceStatus,
+    });
+    completionByContact.set(item.contact, res);
+    if (res.providerUsage?.creditsUsed) completionCredits += res.providerUsage.creditsUsed;
+
+    if (res.status === 'completed') {
+      completionSummary.attempted_count += 1;
+      completionSummary.completed_count += 1;
+      for (const field of res.completedFields) {
+        if (field === 'email') completionSummary.completed_fields_count.email += 1;
+        else if (field === 'linkedin_url') completionSummary.completed_fields_count.linkedin_url += 1;
+        else if (field === 'phone') completionSummary.completed_fields_count.phone += 1;
+      }
+    } else if (res.status === 'error' || res.reason === 'no_match_data') {
+      // Consumió crédito (o falló el proveedor) pero no completó datos útiles.
+      completionSummary.attempted_count += 1;
+      completionSummary.failed_count += 1;
+    } else {
+      // skipped sin crédito: candidate_already_actionable / insufficient_input_for_match.
+      completionSummary.skipped_count += 1;
+    }
+  }
+
+  // 7c. Filtro accionable final: cada revisable (completado o no) debe quedar con
+  //     nombre + cargo + al menos un canal (email/linkedin/phone). Sin canal → fuera.
+  const actionableContacts: NormalizedApolloContact[] = [];
+  for (const item of reviewableClassified) {
+    const res = completionByContact.get(item.contact);
+    const finalContact = res?.contact ?? item.contact;
+    if (!isActionableContactCandidate(finalContact, item.relevance.relevanceStatus)) continue;
+
+    actionableContacts.push({
+      ...finalContact,
+      enrichmentMetadata: {
+        ...finalContact.enrichmentMetadata,
+        relevance: relevanceMetadata(item.relevance),
+        apollo_search_attempt: chosenAttempt,
+        completion: buildCompletionMetadata(res, true),
+      },
+    });
+  }
+  completionSummary.actionable_after_completion_count = actionableContacts.length;
+  completionSummary.rejected_missing_actionable_channel_count =
+    reviewableClassified.length - actionableContacts.length;
+
+  // 8. Deduplicar (solo accionables) contra snapshot + intra-run.
+  const dedup = deduplicateContacts(actionableContacts, dedupSnapshot);
+
+  // 9. Costo estimado: créditos de people_search + people/match (ya consumidos).
+  const searchCredits = apollo.providerUsage?.creditsUsed ?? rawResultsCount;
+  const totalCredits = searchCredits + completionCredits;
+  const estimatedCostUsd = Number((totalCredits * unitCost).toFixed(6));
+
+  // 10. Escribir candidatos accionables (no_match + possible_duplicate).
   const writeResult = await writeCandidates(runId, dedup.toInsert);
 
-  // 9a. Error de escritura → failed controlado
+  // 10a. Error de escritura → failed controlado (créditos ya gastados se reportan).
   if (writeResult.error) {
     const apolloBlock: ApolloEnrichmentSummaryBlock = {
       status: 'error',
@@ -520,13 +634,15 @@ export async function executeContactEnrichmentApolloRun(
       duplicates_skipped_count: dedup.exactDuplicateCount,
       exact_duplicates_count: dedup.exactDuplicateCount,
       possible_duplicates_count: dedup.possibleDuplicateCount,
-      estimated_cost_usd: 0,
+      estimated_cost_usd: estimatedCostUsd,
       search_attempts: toAttemptSummaries(apollo.attempts),
       relevance_filter: relevanceFilter,
+      contact_completion: completionSummary,
       reason: `Error al escribir candidatos: ${writeResult.error}`,
     };
     await updateRun(runId, {
       status: 'failed',
+      estimated_cost_usd: estimatedCostUsd,
       summary: buildSummary(prevSummary, 0, apolloBlock),
     });
     if (step) {
@@ -536,10 +652,10 @@ export async function executeContactEnrichmentApolloRun(
         duration_ms: Date.now() - startMs,
       });
     }
-    return {
+    return emptyRunResult({
       status: 'error',
       runStatus: 'failed',
-      candidatesCreated: 0,
+      providerStatus: 'success',
       duplicatesSkipped: dedup.exactDuplicateCount,
       possibleDuplicates: dedup.possibleDuplicateCount,
       exactDuplicates: dedup.exactDuplicateCount,
@@ -547,29 +663,25 @@ export async function executeContactEnrichmentApolloRun(
       normalizedCount: normalized.length,
       evaluatedCount: relevanceFilter.evaluated_count,
       rejectedByRelevance,
-      noReviewableContactsFound: false,
-      providerStatus: 'success',
-      estimatedCostUsd: 0,
-      totalCandidates: 0,
+      completionAttempted: completionSummary.attempted_count,
+      completionCompleted: completionSummary.completed_count,
+      actionableContactsCount: actionableContacts.length,
+      estimatedCostUsd,
       error: writeResult.error,
-    };
+    });
   }
 
   const insertedCount = writeResult.inserted;
 
-  // 9. Costo estimado + registro de uso del proveedor
-  const unitCost = await loadApolloUnitCost();
-  const creditsUsed = apollo.providerUsage?.creditsUsed ?? rawResultsCount;
-  const estimatedCostUsd = Number((creditsUsed * unitCost).toFixed(6));
-
+  // 11. Registro de uso del proveedor: people_search siempre; people/match si hubo.
   await logUsage({
     agent_run_id: run.agent_run_id ?? undefined,
     agent_run_step_id: step?.id,
     provider_key: APOLLO_PROVIDER_KEY,
     operation_key: APOLLO_OPERATION_KEY,
-    credits_used: creditsUsed,
+    credits_used: searchCredits,
     results_returned: rawResultsCount,
-    estimated_cost_usd: estimatedCostUsd,
+    estimated_cost_usd: Number((searchCredits * unitCost).toFixed(6)),
     status: 'success',
     duration_ms: Date.now() - startMs,
     triggered_by: triggeredBy ?? undefined,
@@ -588,11 +700,40 @@ export async function executeContactEnrichmentApolloRun(
     },
   });
 
-  // 10. Estado final + summary preservando snapshot.
-  //  - rawResultsCount === 0           → Apollo no encontró a nadie.
-  //  - rawResultsCount > 0, inserted 0 → encontró perfiles pero ninguno revisable.
+  if (completionCredits > 0) {
+    await logUsage({
+      agent_run_id: run.agent_run_id ?? undefined,
+      agent_run_step_id: step?.id,
+      provider_key: APOLLO_PROVIDER_KEY,
+      operation_key: APOLLO_MATCH_OPERATION_KEY,
+      credits_used: completionCredits,
+      results_returned: completionSummary.completed_count,
+      estimated_cost_usd: Number((completionCredits * unitCost).toFixed(6)),
+      status: 'success',
+      duration_ms: Date.now() - startMs,
+      triggered_by: triggeredBy ?? undefined,
+      metadata: {
+        company_name: run.company_name,
+        company_domain: run.company_domain,
+        eligible_count: completionSummary.eligible_count,
+        attempted_count: completionSummary.attempted_count,
+        completed_count: completionSummary.completed_count,
+        failed_count: completionSummary.failed_count,
+        pricing_source: 'provider_pricing_config',
+        pricing_basis: 'per_result_as_credit',
+        unit_cost_usd: unitCost,
+      },
+    });
+  }
+
+  // 12. Estado final + summary preservando snapshot.
+  //  - rawResultsCount === 0                  → Apollo no encontró a nadie.
+  //  - perfiles > 0, inserted 0               → encontró perfiles pero ninguno revisable.
+  //  - revisables > 0, accionables 0          → ninguno con canal accionable.
   const noContactsFound = rawResultsCount === 0;
   const noReviewableContactsFound = !noContactsFound && insertedCount === 0;
+  const noActionableContactsFound =
+    !noContactsFound && reviewableClassified.length > 0 && actionableContacts.length === 0;
   const finalStatus: ContactEnrichmentRunStatus =
     insertedCount > 0 ? 'ready_for_review' : 'completed';
 
@@ -608,11 +749,13 @@ export async function executeContactEnrichmentApolloRun(
     estimated_cost_usd: estimatedCostUsd,
     search_attempts: toAttemptSummaries(apollo.attempts),
     relevance_filter: relevanceFilter,
+    contact_completion: completionSummary,
   };
 
   const summaryFlags: Record<string, unknown> = {
     no_contacts_found: noContactsFound,
     no_reviewable_contacts_found: noReviewableContactsFound,
+    no_actionable_contacts_found: noActionableContactsFound,
   };
 
   await updateRun(runId, {
@@ -632,6 +775,9 @@ export async function executeContactEnrichmentApolloRun(
         evaluated_count: relevanceFilter.evaluated_count,
         inserted_candidates_count: insertedCount,
         rejected_by_relevance_count: rejectedByRelevance,
+        completion_attempted_count: completionSummary.attempted_count,
+        completion_completed_count: completionSummary.completed_count,
+        actionable_after_completion_count: actionableContacts.length,
         exact_duplicates_count: dedup.exactDuplicateCount,
         possible_duplicates_count: dedup.possibleDuplicateCount,
       },
@@ -650,6 +796,10 @@ export async function executeContactEnrichmentApolloRun(
     evaluatedCount: relevanceFilter.evaluated_count,
     rejectedByRelevance,
     noReviewableContactsFound,
+    completionAttempted: completionSummary.attempted_count,
+    completionCompleted: completionSummary.completed_count,
+    actionableContactsCount: actionableContacts.length,
+    noActionableContactsFound,
     providerStatus: 'success',
     estimatedCostUsd,
     totalCandidates: insertedCount,

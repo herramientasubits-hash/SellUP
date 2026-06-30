@@ -183,6 +183,12 @@ export interface RunApolloActionResult {
   rejectedByRelevance?: number;
   /** Apollo encontró perfiles pero ninguno pasó el filtro de revisión. */
   noReviewableContactsFound?: boolean;
+  /** Candidatos a los que se intentó completar datos vía people/match. */
+  completionAttempted?: number;
+  /** Candidatos relevantes que quedaron con datos accionables. */
+  actionableContactsCount?: number;
+  /** Apollo trajo perfiles relevantes pero ninguno quedó accionable. */
+  noActionableContactsFound?: boolean;
   providerStatus?: 'success' | 'skipped' | 'error';
   estimatedCostUsd?: number;
   error?: string;
@@ -215,6 +221,9 @@ export async function runContactEnrichmentApolloAction(
       rawResultsCount: result.rawResultsCount,
       rejectedByRelevance: result.rejectedByRelevance,
       noReviewableContactsFound: result.noReviewableContactsFound,
+      completionAttempted: result.completionAttempted,
+      actionableContactsCount: result.actionableContactsCount,
+      noActionableContactsFound: result.noActionableContactsFound,
       providerStatus: result.providerStatus,
       estimatedCostUsd: result.estimatedCostUsd,
       error: result.error,

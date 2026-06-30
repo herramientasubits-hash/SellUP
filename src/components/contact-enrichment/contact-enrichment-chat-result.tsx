@@ -232,7 +232,10 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
     );
   }
 
-  const noReviewable = result.candidatesCreated === 0 && result.noReviewableContactsFound;
+  const noActionable =
+    result.candidatesCreated === 0 && result.noActionableContactsFound;
+  const noReviewable =
+    result.candidatesCreated === 0 && !noActionable && result.noReviewableContactsFound;
 
   return (
     <div className="space-y-3 border-t border-border pt-3">
@@ -247,6 +250,14 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
           <dd className={result.rejectedByRelevance > 0 ? 'text-amber-600' : 'text-foreground'}>
             {result.rejectedByRelevance}
           </dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Intentos de completar datos</dt>
+          <dd className="font-medium text-foreground">{result.completionAttempted}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Candidatos con datos accionables</dt>
+          <dd className="font-medium text-foreground">{result.actionableContactsCount}</dd>
         </div>
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Candidatos listos para revisión</dt>
@@ -272,9 +283,11 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
       <p className="text-xs text-muted-foreground">
         {result.candidatesCreated > 0
           ? 'Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.'
-          : noReviewable
-            ? 'Apollo encontró perfiles, pero ninguno tenía suficiente relevancia o datos completos para revisión. No se crearon contactos finales.'
-            : 'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.'}
+          : noActionable
+            ? 'Apollo encontró perfiles, pero ninguno tenía datos suficientes de contacto (email, LinkedIn o teléfono) para revisión. No se crearon contactos finales.'
+            : noReviewable
+              ? 'Apollo encontró perfiles, pero ninguno tenía suficiente relevancia o datos completos para revisión. No se crearon contactos finales.'
+              : 'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.'}
       </p>
     </div>
   );
