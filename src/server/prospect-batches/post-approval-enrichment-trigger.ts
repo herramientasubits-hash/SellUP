@@ -130,13 +130,16 @@ export async function triggerPostApprovalEnrichment(
     params;
   const triggeredAt = new Date().toISOString();
 
-  // Country guard: CO-only sources (co_siis, co_superfinanciera, etc.) must not
-  // be queued for non-CO candidates.
+  // Country guard: CO-only adapters must not be queued for non-CO candidates.
+  // PE is supported: SUNAT snapshot + Migo fallback run in the worker directly
+  // (no CO adapter source_keys required).
   const candidateCountryCode = typeof candidate.country_code === 'string'
     ? candidate.country_code.toUpperCase()
     : null;
 
-  if (candidateCountryCode !== 'CO') {
+  const isSupportedCountry = candidateCountryCode === 'CO' || candidateCountryCode === 'PE';
+
+  if (!isSupportedCountry) {
     const skippedMeta: PostApprovalEnrichmentMeta = {
       requested: false,
       strategy: 'nit_first',
@@ -155,6 +158,9 @@ export async function triggerPostApprovalEnrichment(
     let enrichMeta: PostApprovalEnrichmentMeta;
 
     if (nit) {
+      // CO: queue with all NIT-safe CO adapters.
+      // PE: queue with empty source_keys — worker uses SUNAT + Migo steps directly.
+      const sourceKeys = candidateCountryCode === 'CO' ? planNitFirstSourceKeys() : [];
       enrichMeta = {
         requested: true,
         strategy: 'nit_first',
@@ -162,7 +168,7 @@ export async function triggerPostApprovalEnrichment(
         account_id: accountId,
         status: 'queued',
         nit,
-        source_keys: planNitFirstSourceKeys(),
+        source_keys: sourceKeys,
         triggered_at: triggeredAt,
       };
     } else {

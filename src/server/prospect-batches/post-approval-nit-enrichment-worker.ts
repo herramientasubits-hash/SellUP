@@ -248,14 +248,19 @@ export async function executeNitAdapters(params: {
 // ── Status determination ───────────────────────────────────────────────────────
 
 /**
- * completed             — no adapter errored
+ * completed             — no adapter errored (or no adapters ran — e.g. PE)
  * completed_with_warnings — at least one errored, at least one did not
- * error                 — all adapters errored or no adapters ran
+ * error                 — all adapters errored
+ *
+ * Empty results (results.length === 0) returns 'completed': countries like PE
+ * that do not use CO adapter source_keys still complete successfully via their
+ * own direct enrichment steps (SUNAT + Migo). Treating empty as 'error' would
+ * misleadingly mark every PE candidate as failed.
  */
 export function determineFinalStatus(
   results: AdapterRunResult[],
 ): CandidateFinalStatus {
-  if (results.length === 0) return 'error';
+  if (results.length === 0) return 'completed';
   const errorCount = results.filter((r) => r.output.status === 'error').length;
   if (errorCount === 0) return 'completed';
   if (errorCount < results.length) return 'completed_with_warnings';

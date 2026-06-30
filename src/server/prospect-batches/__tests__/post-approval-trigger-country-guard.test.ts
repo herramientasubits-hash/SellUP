@@ -1,10 +1,11 @@
 /**
- * Tests — v1.16K-M Post-approval enrichment trigger country guard
+ * Tests — v1.16K-M / Perú.9O Post-approval enrichment trigger country guard
  *
  * Verifies that triggerPostApprovalEnrichment:
- * - Returns skipped + country_not_supported for non-CO candidates (MX, CL, PE, EC)
+ * - Returns skipped + country_not_supported for unsupported countries (MX, CL, EC)
+ * - Queues PE candidates with empty source_keys (SUNAT+Migo run in worker directly)
  * - Still proceeds normally for CO candidates (queued when NIT present)
- * - Never queues CO-specific source keys for non-CO countries
+ * - Never queues CO-specific source keys for PE candidates
  */
 
 import { describe, it } from 'node:test';
@@ -43,7 +44,7 @@ function makeParams(countryCode: string | null, taxId?: string) {
   };
 }
 
-describe('PATCG1 — country guard skips non-CO candidates', () => {
+describe('PATCG1 — country guard skips unsupported countries', () => {
   it('MX → status skipped, reason country_not_supported', async () => {
     const result = await triggerPostApprovalEnrichment(makeParams('MX', 'SOME-RFC'));
     assert.equal(result.triggered, false);
@@ -58,13 +59,6 @@ describe('PATCG1 — country guard skips non-CO candidates', () => {
     assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
   });
 
-  it('PE → status skipped, reason country_not_supported', async () => {
-    const result = await triggerPostApprovalEnrichment(makeParams('PE', '20123456789'));
-    assert.equal(result.triggered, false);
-    assert.equal(result.meta.status, 'skipped');
-    assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
-  });
-
   it('EC → status skipped, reason country_not_supported', async () => {
     const result = await triggerPostApprovalEnrichment(makeParams('EC', '1234567890001'));
     assert.equal(result.triggered, false);
@@ -72,11 +66,33 @@ describe('PATCG1 — country guard skips non-CO candidates', () => {
     assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
   });
 
-  it('null country → skipped (not CO)', async () => {
+  it('null country → skipped (not supported)', async () => {
     const result = await triggerPostApprovalEnrichment(makeParams(null));
     assert.equal(result.triggered, false);
     assert.equal(result.meta.status, 'skipped');
     assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
+  });
+});
+
+describe('PATCG1B — PE candidates queue with SUNAT enrichment', () => {
+  it('PE with RUC → triggered=true, status=queued', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PE', '20615264335'));
+    assert.equal(result.triggered, true);
+    assert.equal(result.meta.status, 'queued');
+    assert.equal(result.meta.nit, '20615264335');
+  });
+
+  it('PE with RUC → source_keys empty (no CO adapters for PE)', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PE', '20615264335'));
+    assert.ok(Array.isArray(result.meta.source_keys));
+    assert.equal(result.meta.source_keys!.length, 0, 'PE source_keys must be empty — SUNAT+Migo run in worker directly');
+  });
+
+  it('PE without RUC → triggered=false, status=skipped, reason=missing_tax_id', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PE'));
+    assert.equal(result.triggered, false);
+    assert.equal(result.meta.status, 'skipped');
+    assert.equal(result.meta.reason, 'missing_tax_id');
   });
 });
 
