@@ -197,7 +197,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 <TabsList variant="segmented" className="mx-7 mt-4">
                   <TabsTrigger value="resumen"><User className="h-4 w-4" /> Resumen</TabsTrigger>
                   <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
-                  <TabsTrigger value="enriquecimiento"><Sparkles className="h-4 w-4" /> Enriquecimiento</TabsTrigger>
+                  <TabsTrigger value="enriquecimiento"><Sparkles className="h-4 w-4" /> Origen y calidad</TabsTrigger>
                   <TabsTrigger value="hubspot"><Globe className="h-4 w-4" /> HubSpot</TabsTrigger>
                 </TabsList>
 
