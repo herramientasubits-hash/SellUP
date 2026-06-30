@@ -327,15 +327,12 @@ export function SelectableUsersList({
               {getDateLabel(user)}
             </div>
 
-            {isAdmin && (
-              <UserActions user={user} roles={roles} activeUsers={activeUsers} groups={groups} />
-            )}
           </div>
         );
       })}
       </div>
 
-      {/* Floating bulk toolbar */}
+      {/* Floating action toolbar */}
       {selectedIds.length > 0 && isAdmin && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 animate-su-slide-in">
           <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card px-4 py-2.5 shadow-lg">
@@ -343,18 +340,35 @@ export function SelectableUsersList({
               {selectedIds.length} seleccionado{selectedIds.length > 1 ? 's' : ''}
             </span>
             <div className="h-4 w-px bg-border" />
-            {bulkActions.map(action => (
-              <Button
-                key={action.id}
-                size="sm"
-                variant={action.variant}
-                className="gap-1.5 h-8 text-xs"
-                onClick={() => setActiveAction(action)}
-              >
-                {action.icon}
-                {action.label}
-              </Button>
-            ))}
+            {selectedIds.length === 1 ? (
+              /* Single selection: show per-user individual actions */
+              (() => {
+                const selectedUser = users.find(u => u.id === selectedIds[0]);
+                return selectedUser ? (
+                  <UserActions
+                    user={selectedUser}
+                    roles={roles}
+                    activeUsers={activeUsers}
+                    groups={groups}
+                    triggerMode="inline"
+                  />
+                ) : null;
+              })()
+            ) : (
+              /* Multiple selection: show bulk actions */
+              bulkActions.map(action => (
+                <Button
+                  key={action.id}
+                  size="sm"
+                  variant={action.variant}
+                  className="gap-1.5 h-8 text-xs"
+                  onClick={() => setActiveAction(action)}
+                >
+                  {action.icon}
+                  {action.label}
+                </Button>
+              ))
+            )}
             <div className="h-4 w-px bg-border" />
             <button
               onClick={() => setSelectedIds([])}

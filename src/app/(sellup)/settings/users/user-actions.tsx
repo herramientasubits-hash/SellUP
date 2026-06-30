@@ -48,9 +48,10 @@ interface UserActionsProps {
   roles: Role[];
   activeUsers: InternalUser[];
   groups: OrganizationGroup[];
+  triggerMode?: 'dropdown' | 'inline';
 }
 
-export function UserActions({ user, roles, activeUsers, groups }: UserActionsProps) {
+export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'dropdown' }: UserActionsProps) {
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
@@ -150,90 +151,155 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger>
-          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted">
-            <MoreHorizontal className="h-4 w-4" />
-          </div>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+      {triggerMode === 'dropdown' ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger>
+            <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted">
+              <MoreHorizontal className="h-4 w-4" />
+            </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {user.access_status === 'pending_approval' && (
+              <>
+                <DropdownMenuItem onClick={() => setShowApproveDialog(true)}>
+                  <Check className="mr-2 h-4 w-4" />
+                  Aprobar y asignar rol
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowRejectDialog(true)}>
+                  <X className="mr-2 h-4 w-4" />
+                  Rechazar
+                </DropdownMenuItem>
+              </>
+            )}
+            {user.access_status === 'active' && (
+              <>
+                <DropdownMenuItem onClick={() => {
+                  setSelectedRole(user.role_id ?? '');
+                  setShowRoleDialog(true);
+                }}>
+                  Cambiar rol
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => {
+                  setSelectedManager(user.manager_id ?? SELF_MANAGER_VALUE);
+                  setShowManagerDialog(true);
+                }}>
+                  <UserCog className="mr-2 h-4 w-4" />
+                  Cambiar jefe directo
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => {
+                  setSelectedGroup(user.group_id ?? NO_GROUP_VALUE);
+                  setShowGroupDialog(true);
+                }}>
+                  <Users className="mr-2 h-4 w-4" />
+                  Asignar grupo
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowSuspendDialog(true)}>
+                  <Pause className="mr-2 h-4 w-4" />
+                  Suspender acceso
+                </DropdownMenuItem>
+              </>
+            )}
+            {user.access_status === 'suspended' && (
+              <>
+                <DropdownMenuItem onClick={() => setShowReactivateDialog(true)}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Reactivar acceso
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} className="text-muted-foreground">
+                  <Archive className="mr-2 h-4 w-4" />
+                  Archivar usuario
+                </DropdownMenuItem>
+              </>
+            )}
+            {user.access_status === 'rejected' && (
+              <>
+                <DropdownMenuItem onClick={() => {
+                  setSelectedRole('');
+                  setSelectedManager('');
+                  setShowActivateRejectedDialog(true);
+                }}>
+                  <Check className="mr-2 h-4 w-4" />
+                  Activar (asignar rol)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowSuspendDialog(true)}>
+                  <Pause className="mr-2 h-4 w-4" />
+                  Suspender acceso
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} className="text-muted-foreground">
+                  <Archive className="mr-2 h-4 w-4" />
+                  Archivar usuario
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        /* Inline mode: action buttons for the floating selection bar (single user) */
+        <div className="flex items-center gap-1.5">
           {user.access_status === 'pending_approval' && (
             <>
-              <DropdownMenuItem onClick={() => setShowApproveDialog(true)}>
-                <Check className="mr-2 h-4 w-4" />
+              <Button size="sm" variant="default" className="gap-1.5 h-8 text-xs" onClick={() => setShowApproveDialog(true)}>
+                <Check className="h-3.5 w-3.5" />
                 Aprobar y asignar rol
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowRejectDialog(true)}>
-                <X className="mr-2 h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowRejectDialog(true)}>
+                <X className="h-3.5 w-3.5" />
                 Rechazar
-              </DropdownMenuItem>
+              </Button>
             </>
           )}
           {user.access_status === 'active' && (
             <>
-              <DropdownMenuItem onClick={() => {
-                setSelectedRole(user.role_id ?? '');
-                setShowRoleDialog(true);
-              }}>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedRole(user.role_id ?? ''); setShowRoleDialog(true); }}>
                 Cambiar rol
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                setSelectedManager(user.manager_id ?? SELF_MANAGER_VALUE);
-                setShowManagerDialog(true);
-              }}>
-                <UserCog className="mr-2 h-4 w-4" />
-                Cambiar jefe directo
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                setSelectedGroup(user.group_id ?? NO_GROUP_VALUE);
-                setShowGroupDialog(true);
-              }}>
-                <Users className="mr-2 h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedManager(user.manager_id ?? SELF_MANAGER_VALUE); setShowManagerDialog(true); }}>
+                <UserCog className="h-3.5 w-3.5" />
+                Jefe directo
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedGroup(user.group_id ?? NO_GROUP_VALUE); setShowGroupDialog(true); }}>
+                <Users className="h-3.5 w-3.5" />
                 Asignar grupo
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setShowSuspendDialog(true)}>
-                <Pause className="mr-2 h-4 w-4" />
-                Suspender acceso
-              </DropdownMenuItem>
+              </Button>
+              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowSuspendDialog(true)}>
+                <Pause className="h-3.5 w-3.5" />
+                Suspender
+              </Button>
             </>
           )}
           {user.access_status === 'suspended' && (
             <>
-              <DropdownMenuItem onClick={() => setShowReactivateDialog(true)}>
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reactivar acceso
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} className="text-muted-foreground">
-                <Archive className="mr-2 h-4 w-4" />
-                Archivar usuario
-              </DropdownMenuItem>
+              <Button size="sm" variant="default" className="gap-1.5 h-8 text-xs" onClick={() => setShowReactivateDialog(true)}>
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reactivar
+              </Button>
+              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowArchiveDialog(true)}>
+                <Archive className="h-3.5 w-3.5" />
+                Archivar
+              </Button>
             </>
           )}
           {user.access_status === 'rejected' && (
             <>
-              <DropdownMenuItem onClick={() => {
-                setSelectedRole('');
-                setSelectedManager('');
-                setShowActivateRejectedDialog(true);
-              }}>
-                <Check className="mr-2 h-4 w-4" />
-                Activar (asignar rol)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowSuspendDialog(true)}>
-                <Pause className="mr-2 h-4 w-4" />
-                Suspender acceso
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} className="text-muted-foreground">
-                <Archive className="mr-2 h-4 w-4" />
-                Archivar usuario
-              </DropdownMenuItem>
+              <Button size="sm" variant="default" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedRole(''); setSelectedManager(''); setShowActivateRejectedDialog(true); }}>
+                <Check className="h-3.5 w-3.5" />
+                Activar (rol)
+              </Button>
+              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowSuspendDialog(true)}>
+                <Pause className="h-3.5 w-3.5" />
+                Suspender
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground" onClick={() => setShowArchiveDialog(true)}>
+                <Archive className="h-3.5 w-3.5" />
+                Archivar
+              </Button>
             </>
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </div>
+      )}
 
       {/* Approve Dialog */}
       <Dialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
