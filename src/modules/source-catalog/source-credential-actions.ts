@@ -10,6 +10,14 @@ import type { DenueCandidateDryRunReport } from '@/server/source-catalog/connect
 import { runClResDryRun } from '@/server/source-catalog/connectors/datos-gob-chile/run-cl-res-dry-run';
 import { runChileCompraDryRun } from '@/server/source-catalog/connectors/chilecompra-chile/run-chilecompra-dry-run';
 import type { NormalizedChileCompraSupplier } from '@/server/source-catalog/connectors/chilecompra-chile/types';
+import { runChileCompraOcdsHealthCheck } from '@/server/source-catalog/connectors/chilecompra-ocds/run-chilecompra-ocds-health-check';
+import { runChileCompraOcdsDryRun } from '@/server/source-catalog/connectors/chilecompra-ocds/run-chilecompra-ocds-dry-run';
+import type {
+  ChileCompraOcdsHealthCheckInput,
+  ChileCompraOcdsHealthCheckReport,
+  ChileCompraOcdsDryRunInput,
+  ChileCompraOcdsDryRunReport,
+} from '@/server/source-catalog/connectors/chilecompra-ocds/types';
 import { testMigoConnection } from '@/server/services/migo-connection';
 
 // ─── Admin Supabase (service role — server-only) ───────────────────────────────
@@ -995,6 +1003,126 @@ export async function runSourceDryRunAction(
       ok: false,
       sourceKey,
       error: `Error ejecutando dry-run: ${sanitizeConnectionError(dryRunErr)}`,
+    };
+  }
+}
+
+// ─── ChileCompra OCDS (cl_chilecompra_ocds) — read-only, sin credencial ──────────
+//
+// Fuente abierta OCDS de Mercado Público. Sin auth. Sin writes a Supabase.
+// Separada del connector legacy `chilecompra-chile` (ticket/Clave Única).
+// No crea cuentas, candidatos, lotes ni snapshots. No registra audit (sin writes).
+
+const ocdsRateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const OCDS_RATE_LIMIT_WINDOW_MS = 300_000;
+const OCDS_RATE_LIMIT_MAX = 5;
+
+function checkOcdsRateLimit(userId: string, kind: 'health' | 'dryrun'): boolean {
+  const key = `${userId}:cl_chilecompra_ocds:${kind}`;
+  const now = Date.now();
+  const entry = ocdsRateLimitMap.get(key);
+  if (!entry || now - entry.windowStart > OCDS_RATE_LIMIT_WINDOW_MS) {
+    ocdsRateLimitMap.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= OCDS_RATE_LIMIT_MAX) return false;
+  entry.count += 1;
+  return true;
+}
+
+/** Valida año/mes provenientes del cliente. Retorna error legible o null. */
+function validateYearMonth(year: number, month: number): string | null {
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    return 'Año inválido.';
+  }
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    return 'Mes inválido.';
+  }
+  return null;
+}
+
+export type ChileCompraOcdsHealthCheckActionResult = {
+  ok: boolean;
+  report?: ChileCompraOcdsHealthCheckReport;
+  error?: string;
+};
+
+export type ChileCompraOcdsDryRunActionResult = {
+  ok: boolean;
+  report?: ChileCompraOcdsDryRunReport;
+  error?: string;
+};
+
+export async function runChileCompraOcdsHealthCheckAction(
+  input: ChileCompraOcdsHealthCheckInput,
+): Promise<ChileCompraOcdsHealthCheckActionResult> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) {
+    return { ok: false, error: authError ?? 'No autorizado' };
+  }
+
+  const invalid = validateYearMonth(input.year, input.month);
+  if (invalid) {
+    return { ok: false, error: invalid };
+  }
+
+  if (!checkOcdsRateLimit(actorId, 'health')) {
+    return {
+      ok: false,
+      error: 'Demasiadas verificaciones. Espera unos minutos antes de volver a intentar.',
+    };
+  }
+
+  try {
+    const report = await runChileCompraOcdsHealthCheck({
+      year: input.year,
+      month: input.month,
+      limit: input.limit,
+      offset: input.offset,
+    });
+    return { ok: report.status === 'operational', report };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      error: `No se pudo consultar la fuente OCDS. ${sanitizeConnectionError(err)}. No se escribió ningún dato.`,
+    };
+  }
+}
+
+export async function runChileCompraOcdsDryRunAction(
+  input: ChileCompraOcdsDryRunInput,
+): Promise<ChileCompraOcdsDryRunActionResult> {
+  const supabase = await createClient();
+  const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
+  if (!actorId) {
+    return { ok: false, error: authError ?? 'No autorizado' };
+  }
+
+  const invalid = validateYearMonth(input.year, input.month);
+  if (invalid) {
+    return { ok: false, error: invalid };
+  }
+
+  if (!checkOcdsRateLimit(actorId, 'dryrun')) {
+    return {
+      ok: false,
+      error: 'Demasiadas ejecuciones de dry-run. Espera unos minutos antes de volver a intentar.',
+    };
+  }
+
+  try {
+    const report = await runChileCompraOcdsDryRun({
+      year: input.year,
+      month: input.month,
+      sampleSize: input.sampleSize,
+      offset: input.offset,
+    });
+    return { ok: true, report };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      error: `No se pudo consultar la fuente OCDS. ${sanitizeConnectionError(err)}. No se escribió ningún dato.`,
     };
   }
 }

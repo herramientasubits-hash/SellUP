@@ -850,6 +850,41 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'No escribir RUT como tax_identifier fuera de un flujo controlado y auditado.',
     ],
   },
+  {
+    key: 'cl_chilecompra_ocds',
+    name: 'ChileCompra / Mercado Público OCDS',
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'eligible_not_connected',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Fuente abierta OCDS sin credenciales. Health-check y dry-run read-only disponibles; no escribe en Supabase ni genera prospectos.',
+    countryCodes: ['CL'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://datos-abiertos.chilecompra.cl/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Inteligencia comercial B2G en Chile a partir de datos abiertos OCDS de Mercado Público. Permite observar la demanda pública chilena: organismos compradores, montos licitados, rubros por clasificación UNSPSC y proveedores adjudicados cuando la licitación tiene adjudicación. Es una señal de mercado, no un generador de prospectos: no crea cuentas ni candidatos automáticamente y no reemplaza a Tavily, Apollo ni Lusha. Los compradores son entidades públicas; los proveedores privados solo aparecen en adjudicaciones.',
+    limitations: [
+      'Patrón N+1: el detalle requiere una llamada por proceso.',
+      'El listado solo trae ocid y urlTender; los datos ricos viven únicamente en el detalle.',
+      'Los compradores públicos no son prospectos privados B2B.',
+      'Los proveedores privados solo aparecen en awards de licitaciones adjudicadas.',
+      'No incluye website ni contacto comercial confiable del proveedor.',
+      'Las clasificaciones UNSPSC requieren mapping sectorial para ser útiles en SellUp.',
+      'Volumen alto: miles de procesos por mes.',
+      'Rate limits del API OCDS desconocidos.',
+    ],
+    riskNotes: [
+      'No crear cuentas automáticamente desde esta fuente.',
+      'No crear candidatos automáticamente desde esta fuente.',
+      'Deduplicar por ocid y por RUT, nunca solo por nombre.',
+      'Usar exclusivamente como señal B2G de inteligencia de demanda.',
+      'Diferenciar del connector ChileCompra legacy con ticket/Clave Única.',
+    ],
+  },
 
   // ── República Dominicana ────────────────────────────────────────────────────
   {

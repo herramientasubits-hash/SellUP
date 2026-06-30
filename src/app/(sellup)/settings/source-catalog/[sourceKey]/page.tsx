@@ -27,7 +27,8 @@ import { SourceCredentialPanel } from './source-credential-panel';
 import { SourceDryRunPanel } from './source-dry-run-panel';
 import { DenuePreviewBatchPanel } from './denue-preview-batch-panel';
 import { ChileResDryRunPanel } from './chile-res-dry-run-panel';
-// ChileCompraDryRunPanel import omitted — descartado del MVP
+import { ChileCompraOcdsDryRunPanel } from './chilecompra-ocds-dry-run-panel';
+// ChileCompraDryRunPanel (legacy ticket) import omitted — descartado del MVP
 
 export const dynamic = 'force-dynamic';
 
@@ -251,7 +252,12 @@ export default async function SourceDetailPage({ params }: Props) {
         <ChileResDryRunPanel isAdmin={isAdmin} />
       )}
 
-      {/* ChileCompra descartado del MVP — dry-run panel desactivado */}
+      {/* ChileCompra OCDS abierto (solo cl_chilecompra_ocds) — read-only, sin credencial */}
+      {source.key === 'cl_chilecompra_ocds' && (
+        <ChileCompraOcdsDryRunPanel isAdmin={isAdmin} />
+      )}
+
+      {/* ChileCompra legacy (ticket/Clave Única) descartado del MVP — dry-run panel desactivado */}
 
       {/* Lote preview DENUE (solo mx_denue) */}
       {source.key === 'mx_denue' && (
