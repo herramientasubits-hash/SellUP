@@ -276,7 +276,7 @@ export async function getConsumptionByProvider(
 }
 
 /**
- * Returns active tool_catalog entries for display name resolution.
+ * Returns active tool_catalog entries for display name resolution (name map only).
  */
 export async function getToolCatalog(
   admin: AdminClient,
@@ -289,4 +289,23 @@ export async function getToolCatalog(
   return new Map(
     (data ?? []).map((r) => [r.provider_key as string, r.display_name as string]),
   );
+}
+
+/**
+ * Returns all active tool_catalog entries as a list.
+ * Used by getAdminBudgetSummary() as the canonical provider base.
+ */
+export async function getActiveCatalogEntries(
+  admin: AdminClient,
+): Promise<Array<{ providerKey: string; displayName: string }>> {
+  const { data } = await admin
+    .from('tool_catalog')
+    .select('provider_key, display_name')
+    .eq('is_active', true)
+    .order('provider_key');
+
+  return (data ?? []).map((r) => ({
+    providerKey: r.provider_key as string,
+    displayName: r.display_name as string,
+  }));
 }

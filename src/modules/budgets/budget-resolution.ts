@@ -28,7 +28,7 @@ import {
   getConsumptionForRole,
   getConsumptionGlobal,
   getConsumptionByProvider,
-  getToolCatalog,
+  getActiveCatalogEntries,
 } from './queries';
 
 // ─── Rule matching ────────────────────────────────────────────────────────────
@@ -216,12 +216,18 @@ export async function checkBudget(
 export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
   const admin = getAdminClient();
 
-  const [allRules, catalog] = await Promise.all([
+  const now = new Date();
+  const defaultBounds = getPeriodBounds('monthly', now);
+  const periodStart = defaultBounds.start.toISOString();
+  const periodEnd = defaultBounds.end.toISOString();
+
+  const [catalogEntries, allRules, consumption] = await Promise.all([
+    getActiveCatalogEntries(admin),
     getAllActiveRules(admin),
-    getToolCatalog(admin),
+    getConsumptionByProvider(admin, periodStart, periodEnd),
   ]);
 
-  // Group rules by provider
+  // Group rules by provider_key
   const rulesByProvider = new Map<string, BudgetRule[]>();
   for (const rule of allRules) {
     const arr = rulesByProvider.get(rule.provider_key) ?? [];
@@ -229,74 +235,43 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
     rulesByProvider.set(rule.provider_key, arr);
   }
 
-  // Use monthly as the default period for the summary aggregation.
-  // For providers that have a global rule, use that rule's period.
-  const now = new Date();
-  const defaultBounds = getPeriodBounds('monthly', now);
+  // Base: all active catalog entries. Merge rules + consumption onto each.
+  const providers: AdminProviderBudgetRow[] = await Promise.all(
+    catalogEntries.map(async ({ providerKey, displayName }) => {
+      const rules = rulesByProvider.get(providerKey) ?? [];
+      const globalRule = rules.find((r) => r.scope_type === 'global') ?? null;
+      const periodType = globalRule?.period_type ?? 'monthly';
+      const bounds = getPeriodBounds(periodType, now);
+      const ps = bounds.start.toISOString();
+      const pe = bounds.end.toISOString();
 
-  // Collect distinct period windows needed so we can batch consumption queries.
-  // For simplicity, query monthly for all (admin sees current month snapshot).
-  const periodStart = defaultBounds.start.toISOString();
-  const periodEnd = defaultBounds.end.toISOString();
+      const consumed =
+        ps === periodStart
+          ? (consumption.get(providerKey) ?? { credits: 0, usd: 0 })
+          : await getConsumptionGlobal(admin, providerKey, ps, pe);
 
-  const consumption = await getConsumptionByProvider(admin, periodStart, periodEnd);
+      const limitCredits = globalRule?.limit_credits != null ? Number(globalRule.limit_credits) : null;
+      const limitUsd = globalRule?.limit_usd != null ? Number(globalRule.limit_usd) : null;
 
-  const providers: AdminProviderBudgetRow[] = [];
+      return {
+        providerKey,
+        displayName,
+        activeRules: rules.length,
+        globalLimitCredits: limitCredits,
+        globalLimitUsd: limitUsd,
+        consumedCredits: consumed.credits,
+        consumedUsd: consumed.usd,
+        remainingCredits: limitCredits !== null ? Math.max(0, limitCredits - consumed.credits) : null,
+        remainingUsd: limitUsd !== null ? Math.max(0, limitUsd - consumed.usd) : null,
+        periodType,
+        periodStart: ps,
+        periodEnd: pe,
+        onExceed: globalRule?.on_exceed ?? null,
+      };
+    }),
+  );
 
-  // All providers with at least one rule
-  for (const [providerKey, rules] of rulesByProvider.entries()) {
-    const globalRule = rules.find((r) => r.scope_type === 'global') ?? null;
-    const periodType = globalRule?.period_type ?? 'monthly';
-    const bounds = getPeriodBounds(periodType, now);
-    const ps = bounds.start.toISOString();
-    const pe = bounds.end.toISOString();
-
-    // Re-query with correct period if it differs from monthly default
-    const consumed =
-      ps === periodStart
-        ? (consumption.get(providerKey) ?? { credits: 0, usd: 0 })
-        : await getConsumptionGlobal(admin, providerKey, ps, pe);
-
-    const limitCredits = globalRule?.limit_credits != null ? Number(globalRule.limit_credits) : null;
-    const limitUsd = globalRule?.limit_usd != null ? Number(globalRule.limit_usd) : null;
-
-    providers.push({
-      providerKey,
-      displayName: catalog.get(providerKey) ?? null,
-      activeRules: rules.length,
-      globalLimitCredits: limitCredits,
-      globalLimitUsd: limitUsd,
-      consumedCredits: consumed.credits,
-      consumedUsd: consumed.usd,
-      remainingCredits: limitCredits !== null ? Math.max(0, limitCredits - consumed.credits) : null,
-      remainingUsd: limitUsd !== null ? Math.max(0, limitUsd - consumed.usd) : null,
-      periodType,
-      periodStart: ps,
-      periodEnd: pe,
-      onExceed: globalRule?.on_exceed ?? null,
-    });
-  }
-
-  // Also include providers that have consumption but no rules (informational)
-  for (const [providerKey, consumed] of consumption.entries()) {
-    if (rulesByProvider.has(providerKey)) continue;
-    providers.push({
-      providerKey,
-      displayName: catalog.get(providerKey) ?? null,
-      activeRules: 0,
-      globalLimitCredits: null,
-      globalLimitUsd: null,
-      consumedCredits: consumed.credits,
-      consumedUsd: consumed.usd,
-      remainingCredits: null,
-      remainingUsd: null,
-      periodType: 'monthly',
-      periodStart,
-      periodEnd,
-      onExceed: null,
-    });
-  }
-
+  // Sort by provider_key (catalog query already orders, but keep sort as safety)
   providers.sort((a, b) => a.providerKey.localeCompare(b.providerKey));
 
   return { providers, resolvedAt: now.toISOString() };
