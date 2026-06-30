@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Check, X, Pause, UserCog, Archive, RotateCcw } from 'lucide-react';
+import { MoreHorizontal, Check, X, Pause, UserCog, Archive, RotateCcw, Users } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,30 +32,36 @@ import {
   reactivateUser,
   changeUserRole,
   changeUserManager,
+  changeUserGroup,
   archiveUser,
   activateFromRejected,
 } from '@/modules/access/actions';
-import type { InternalUser, Role } from '@/modules/access/types';
+import type { InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
 
 const SELF_MANAGER_VALUE = '__self__';
+
+const NO_GROUP_VALUE = '__no_group__';
 
 interface UserActionsProps {
   user: InternalUser;
   roles: Role[];
   activeUsers: InternalUser[];
+  groups: OrganizationGroup[];
 }
 
-export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
+export function UserActions({ user, roles, activeUsers, groups }: UserActionsProps) {
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
   const [showReactivateDialog, setShowReactivateDialog] = useState(false);
   const [showRoleDialog, setShowRoleDialog] = useState(false);
   const [showManagerDialog, setShowManagerDialog] = useState(false);
+  const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showActivateRejectedDialog, setShowActivateRejectedDialog] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [selectedManager, setSelectedManager] = useState<string>('');
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   // Possible managers: active users excluding the user being edited
@@ -115,6 +121,15 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
     window.location.reload();
   };
 
+  const handleGroupChange = async () => {
+    setLoading(true);
+    const newGroupId = selectedGroup === NO_GROUP_VALUE || selectedGroup === '' ? null : selectedGroup;
+    await changeUserGroup(user.id, newGroupId);
+    setLoading(false);
+    setShowGroupDialog(false);
+    window.location.reload();
+  };
+
   const handleArchive = async () => {
     setLoading(true);
     await archiveUser(user.id);
@@ -167,6 +182,13 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
               }}>
                 <UserCog className="mr-2 h-4 w-4" />
                 Cambiar jefe directo
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                setSelectedGroup(user.group_id ?? NO_GROUP_VALUE);
+                setShowGroupDialog(true);
+              }}>
+                <Users className="mr-2 h-4 w-4" />
+                Asignar grupo
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowSuspendDialog(true)}>
@@ -414,6 +436,44 @@ export function UserActions({ user, roles, activeUsers, }: UserActionsProps) {
             <Button variant="destructive" onClick={handleArchive} disabled={loading}>
               <Archive className="mr-2 h-4 w-4" />
               Archivar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Group Dialog */}
+      <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Asignar grupo</DialogTitle>
+            <DialogDescription>
+              Asigna {user.full_name ?? user.email} a un grupo o equipo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Select
+              value={selectedGroup || NO_GROUP_VALUE}
+              onValueChange={(v) => setSelectedGroup(v ?? NO_GROUP_VALUE)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar grupo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_GROUP_VALUE}>Sin grupo</SelectItem>
+                {groups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGroupDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleGroupChange} disabled={loading}>
+              Guardar
             </Button>
           </DialogFooter>
         </DialogContent>

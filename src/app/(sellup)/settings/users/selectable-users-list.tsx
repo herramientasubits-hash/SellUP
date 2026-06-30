@@ -42,6 +42,11 @@ function getRoleLabel(roleKey: string | null, roles: Role[]): string {
   return roles.find(r => r.key === roleKey)?.name ?? roleKey;
 }
 
+function getGroupLabel(groupId: string | null, groups: OrganizationGroup[]): string {
+  if (!groupId) return 'Sin grupo';
+  return groups.find(g => g.id === groupId)?.name ?? 'Sin grupo';
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('es-CO', {
@@ -311,6 +316,10 @@ export function SelectableUsersList({
             </div>
 
             <div className="hidden min-w-[120px] text-xs text-muted-foreground md:block">
+              {user.access_status === 'active' ? getGroupLabel(user.group_id, groups) : null}
+            </div>
+
+            <div className="hidden min-w-[120px] text-xs text-muted-foreground md:block">
               {user.access_status === 'active' ? getManagerLabel(user.manager_id, allUsers) : null}
             </div>
 
@@ -319,7 +328,7 @@ export function SelectableUsersList({
             </div>
 
             {isAdmin && (
-              <UserActions user={user} roles={roles} activeUsers={activeUsers} />
+              <UserActions user={user} roles={roles} activeUsers={activeUsers} groups={groups} />
             )}
           </div>
         );

@@ -563,6 +563,9 @@ export async function changeUserGroup(
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
 
+  const { data: isAdmin } = await supabase.rpc('is_admin', { p_auth_user_id: currentUser.id });
+  if (!isAdmin) return { success: false, error: 'Solo administradores pueden cambiar el grupo' };
+
   const { data: adminUser } = await supabase
     .from('internal_users')
     .select('id')
@@ -570,6 +573,15 @@ export async function changeUserGroup(
     .eq('access_status', 'active')
     .single();
   if (!adminUser) return { success: false, error: 'No autorizado' };
+
+  if (newGroupId !== null) {
+    const { data: group } = await supabase
+      .from('organization_groups')
+      .select('id')
+      .eq('id', newGroupId)
+      .single();
+    if (!group) return { success: false, error: 'Grupo no encontrado' };
+  }
 
   const { data: targetUser } = await supabase
     .from('internal_users')
