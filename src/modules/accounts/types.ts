@@ -96,6 +96,7 @@ export interface AccountListItem {
   pipeline_status: PipelineStatus;
   source: AccountSource;
   created_at: string;
+  owner_id: string | null;
   owner_name: string | null;
 }
 

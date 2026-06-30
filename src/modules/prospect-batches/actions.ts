@@ -13,7 +13,8 @@ import {
   buildIncrementalSearchInputFromCTAInput,
   buildWriterPipelineCTABatchMetadata,
 } from '@/server/agents/prospecting-toolkit/prospect-cta-bridge';
-import { isPostApprovalSourceEnrichmentEnabled } from '@/lib/feature-flags.server';
+import { isPostApprovalSourceEnrichmentEnabled, isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { triggerPostApprovalEnrichment } from '@/server/prospect-batches/post-approval-enrichment-trigger';
 import { mergePeruSunatMetadataIntoAccountMetadata } from '@/server/prospect-batches/peru-sunat-metadata-merge';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
@@ -270,6 +271,44 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
   });
 }
 
+// ── Commercial scope ──────────────────────────────────────────
+//
+// prospect_candidates has no direct owner column. The only user attribution is
+// indirect, via batch_id → prospect_batches.owner_id / created_by. So a
+// non-admin's visible candidates are exactly those whose batch they (or someone
+// in their scope) own or created. Candidates without a batch are therefore not
+// visible to non-admins. This is reported as a model gap to reconcile (a direct
+// created_by on prospect_candidates would let us scope candidates that live
+// outside a batch). Gated behind ENABLE_COMMERCIAL_SCOPE.
+
+const BATCH_OWNER_COLUMNS = ['owner_id', 'created_by'] as const;
+
+/**
+ * Resolve the prospect_batches.ids whose candidates the current user may see.
+ *  - `null` → no constraint (scope flag off, or admin / view-all).
+ *  - `[]`   → nothing visible.
+ *  - `[ids]`→ restrict candidates to these batch ids.
+ */
+async function resolveAllowedBatchIds(): Promise<string[] | null> {
+  if (!isCommercialScopeEnabled()) return null;
+  const scope = await resolveCommercialScope();
+  if (!scope) return [];
+  if (scope.canViewAll) return null;
+
+  const allowed = scope.allowedUserIds;
+  if (allowed.length === 0) return [];
+
+  const supabase = await createClient();
+  const orClause = BATCH_OWNER_COLUMNS.map(
+    (col) => `${col}.in.(${allowed.join(',')})`,
+  ).join(',');
+  const { data } = await supabase
+    .from('prospect_batches')
+    .select('id')
+    .or(orClause);
+  return (data ?? []).map((b: { id: string }) => b.id as string);
+}
+
 // ── Detalle de lote ───────────────────────────────────────────
 
 export async function getProspectBatchById(id: string): Promise<ProspectBatchWithMeta | null> {
@@ -287,6 +326,20 @@ export async function getProspectBatchById(id: string): Promise<ProspectBatchWit
     .single();
 
   if (error || !batch) return null;
+
+  // Scope guard: a non-admin must not open a batch (or its candidates via a
+  // ?sourceId= deep link) outside their allowed owner/creator set.
+  if (isCommercialScopeEnabled()) {
+    const scope = await resolveCommercialScope();
+    if (!scope) return null;
+    if (!scope.canViewAll) {
+      const allowed = new Set(scope.allowedUserIds);
+      const ownerInScope = batch.owner_id != null && allowed.has(batch.owner_id);
+      const creatorInScope =
+        batch.created_by != null && allowed.has(batch.created_by);
+      if (!ownerInScope && !creatorInScope) return null;
+    }
+  }
 
   const { data: candidates } = await supabase
     .from('prospect_candidates')
@@ -3732,6 +3785,9 @@ export interface GlobalCandidatesFilters {
   search?: string;
   limit?: number;
   offset?: number;
+  /** Restrict to candidates belonging to batches owned/created by these user ids.
+   *  Always intersected with commercial scope — cannot widen visibility. */
+  ownerUserIds?: string[];
 }
 
 export interface GlobalCandidatesResult {
@@ -3821,6 +3877,39 @@ export async function getGlobalCandidatesList(
   await requireActiveUser();
   const supabase = await createClient();
 
+  // Commercial scope: restrict candidates to batches inside the viewer's reach.
+  // null = no constraint (admin / flag off); [] = nothing visible.
+  const allowedBatchIds = await resolveAllowedBatchIds();
+  if (allowedBatchIds !== null && allowedBatchIds.length === 0) {
+    return { candidates: [], total: 0 };
+  }
+  let allowedBatchSet =
+    allowedBatchIds !== null ? new Set(allowedBatchIds) : null;
+
+  // ownerUserIds filter: narrow to batches belonging to specific users, always
+  // intersected with scope so it can never widen visibility.
+  if (filters.ownerUserIds && filters.ownerUserIds.length > 0) {
+    const orClause = BATCH_OWNER_COLUMNS.map(
+      (col) => `${col}.in.(${filters.ownerUserIds!.join(',')})`,
+    ).join(',');
+    const { data: ownerBatches } = await supabase
+      .from('prospect_batches')
+      .select('id')
+      .or(orClause);
+    const ownerBatchIds = (ownerBatches ?? []).map((b: { id: string }) => b.id);
+    const ownerSet = new Set(ownerBatchIds);
+    if (allowedBatchSet) {
+      // Intersect: only batches that are both in scope and match the owner filter.
+      const intersected = ownerBatchIds.filter((id) => allowedBatchSet!.has(id));
+      if (intersected.length === 0) return { candidates: [], total: 0 };
+      allowedBatchSet = new Set(intersected);
+    } else {
+      // Admin (no scope constraint): restrict to owner-matching batches only.
+      if (ownerSet.size === 0) return { candidates: [], total: 0 };
+      allowedBatchSet = ownerSet;
+    }
+  }
+
   let query = supabase
     .from('prospect_candidates')
     .select(`
@@ -3829,29 +3918,40 @@ export async function getGlobalCandidatesList(
       batch:prospect_batches!prospect_candidates_batch_id_fkey(name, source, created_at)
     `, { count: 'exact' });
 
-  // 1. Filtrar por batch_id
+  // 1. Filtrar por batch_id (deep link). Honra el scope: un batch fuera de
+  //    alcance no devuelve filas.
   if (filters.batchId) {
+    if (allowedBatchSet && !allowedBatchSet.has(filters.batchId)) {
+      return { candidates: [], total: 0 };
+    }
     query = query.eq('batch_id', filters.batchId);
   }
 
-  // 2. Filtrar por source (batch source)
+  // 2. Filtrar por source (batch source), intersectado con el scope.
   if (filters.source) {
     const { data: matchingBatches, error: batchErr } = await supabase
       .from('prospect_batches')
       .select('id')
       .eq('source', filters.source);
-    
+
     if (batchErr) {
       console.error('[getGlobalCandidatesList] Error al buscar lotes por source:', batchErr);
     }
-    
-    const matchingIds = (matchingBatches ?? []).map((b: { id: string }) => b.id);
+
+    let matchingIds = (matchingBatches ?? []).map((b: { id: string }) => b.id);
+    if (allowedBatchSet) {
+      matchingIds = matchingIds.filter((bid) => allowedBatchSet.has(bid));
+    }
     if (matchingIds.length > 0) {
       query = query.in('batch_id', matchingIds);
     } else {
-      // Si no hay lotes con ese source, retornar vacío inmediatamente
+      // Sin lotes que cumplan source ∩ scope → vacío inmediato.
       return { candidates: [], total: 0 };
     }
+  } else if (!filters.batchId && allowedBatchSet !== null) {
+    // 3. Sin filtro de batch/source: limitar a los lotes en alcance (ya incorpora
+    //    ownerUserIds si se aplicó ese filtro adicional).
+    query = query.in('batch_id', [...allowedBatchSet]);
   }
 
   // 3. Filtrar por status (candidato)
@@ -3926,37 +4026,55 @@ export async function getGlobalProspectsKPIs(): Promise<ProspectsKPIs> {
   await requireActiveUser();
   const supabase = await createClient();
 
+  // Commercial scope: KPIs count only candidates inside the viewer's reach.
+  const allowedBatchIds = await resolveAllowedBatchIds();
+  if (allowedBatchIds !== null && allowedBatchIds.length === 0) {
+    return { needsReview: 0, readyForApproval: 0, possibleDuplicates: 0, importedRecently: 0 };
+  }
+
   // Calculate 7 days ago timestamp
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
+  // Apply the batch scope to each count query when active.
+  const scoped = <T extends { in: (col: string, vals: string[]) => T }>(q: T): T =>
+    allowedBatchIds !== null ? q.in('batch_id', allowedBatchIds) : q;
+
   const [needsReviewRes, readyForApprovalRes, possibleDuplicatesRes, importedRecentlyRes] = await Promise.all([
     // 1. Pendientes de revisión (candidates with status needs_review, generated, normalized)
-    supabase
-      .from('prospect_candidates')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['needs_review', 'generated', 'normalized']),
+    scoped(
+      supabase
+        .from('prospect_candidates')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['needs_review', 'generated', 'normalized']),
+    ),
 
     // 2. Listos para aprobar (status in needs_review, generated, normalized AND (review_status is null or ready_for_approval) AND not blocked by exact duplicate / unchecked / insufficient data)
-    supabase
-      .from('prospect_candidates')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['needs_review', 'generated', 'normalized'])
-      .or('review_status.is.null,review_status.eq.ready_for_approval')
-      .in('duplicate_status', ['no_match', 'related_company', 'possible_duplicate']),
+    scoped(
+      supabase
+        .from('prospect_candidates')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['needs_review', 'generated', 'normalized'])
+        .or('review_status.is.null,review_status.eq.ready_for_approval')
+        .in('duplicate_status', ['no_match', 'related_company', 'possible_duplicate']),
+    ),
 
     // 3. Posibles duplicados (duplicate_status = possible_duplicate in active review states)
-    supabase
-      .from('prospect_candidates')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['needs_review', 'generated', 'normalized'])
-      .eq('duplicate_status', 'possible_duplicate'),
+    scoped(
+      supabase
+        .from('prospect_candidates')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['needs_review', 'generated', 'normalized'])
+        .eq('duplicate_status', 'possible_duplicate'),
+    ),
 
     // 4. Importados recientemente (source_primary = external_import in the last 7 days)
-    supabase
-      .from('prospect_candidates')
-      .select('*', { count: 'exact', head: true })
-      .eq('source_primary', 'external_import')
-      .gte('created_at', sevenDaysAgo),
+    scoped(
+      supabase
+        .from('prospect_candidates')
+        .select('*', { count: 'exact', head: true })
+        .eq('source_primary', 'external_import')
+        .gte('created_at', sevenDaysAgo),
+    ),
   ]);
 
   return {

@@ -13,6 +13,7 @@ import {
   getAccountsList,
   getActiveUsers,
 } from '@/modules/accounts/actions';
+import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
@@ -28,10 +29,11 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     return <ProspectsModulePanel params={prospectsParams} />;
   }
 
-  const [summary, accounts, users] = await Promise.all([
+  const [summary, accounts, users, scopeFilterOptions] = await Promise.all([
     getAccountsSummary(),
     getAccountsList(),
     getActiveUsers(),
+    getCommercialScopeFilterOptions(),
   ]);
 
   return (
@@ -85,7 +87,7 @@ export default async function AccountsPage({ searchParams }: PageProps) {
         </div>
       }
     >
-      <AccountsDataTableClient accounts={accounts} users={users} />
+      <AccountsDataTableClient accounts={accounts} users={users} scopeFilterOptions={scopeFilterOptions} />
     </DataTablePage>
   );
 }

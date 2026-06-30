@@ -2,6 +2,9 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import { resolveCommercialScope } from '@/modules/access/commercial-scope';
+import { resolveScopedUserIds } from '@/modules/access/commercial-scope-logic';
 import type {
   Account,
   AccountWithOwner,
@@ -67,6 +70,43 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
 }
 
 // ============================================================
+// Commercial scope
+// ============================================================
+
+// Columns on `accounts` that attribute a row to an internal user. A non-admin
+// sees an account when they (or someone in their scope) either own it or
+// created it.
+const ACCOUNT_OWNER_COLUMNS = ['owner_id', 'created_by'] as const;
+
+/**
+ * Resolve the internal_users.ids whose accounts the current user may see.
+ *
+ * Returns:
+ *  - `null` → apply no constraint (scope flag off, or admin / view-all).
+ *  - `[]`   → constraint that matches nothing (e.g. requested a user outside scope).
+ *  - `[ids]`→ restrict to accounts owned/created by these ids.
+ *
+ * Gated behind ENABLE_COMMERCIAL_SCOPE: when the flag is off the result is
+ * always `null`, preserving the pre-scope behaviour (all active users see all
+ * accounts).
+ */
+async function resolveAccountScopeIds(
+  requestedUserId?: string,
+): Promise<string[] | null> {
+  if (!isCommercialScopeEnabled()) return null;
+  const scope = await resolveCommercialScope();
+  if (!scope) return []; // authenticated-but-no-scope → see nothing, never all
+  return resolveScopedUserIds(scope, requestedUserId);
+}
+
+/** Build a PostgREST `.or()` clause matching any owner column against `ids`. */
+function ownerOrClause(ids: string[]): string {
+  return ACCOUNT_OWNER_COLUMNS.map((col) => `${col}.in.(${ids.join(',')})`).join(
+    ',',
+  );
+}
+
+// ============================================================
 // Utilidades
 // ============================================================
 
@@ -98,10 +138,19 @@ export async function getAccountsSummary(): Promise<AccountsSummary> {
   await requireActiveUser();
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  const scopeIds = await resolveAccountScopeIds();
+  // Empty scope → no accounts visible; return a zeroed summary.
+  if (scopeIds !== null && scopeIds.length === 0) {
+    return { total: 0, new: 0, ready_for_research: 0, ready_for_outreach: 0, archived: 0 };
+  }
+
+  let summaryQuery = supabase
     .from('accounts')
     .select('pipeline_status')
     .is('archived_at', null);
+  if (scopeIds) summaryQuery = summaryQuery.or(ownerOrClause(scopeIds));
+
+  const { data, error } = await summaryQuery;
 
   if (error) throw new Error(`getAccountsSummary: ${error.message}`);
 
@@ -117,10 +166,13 @@ export async function getAccountsSummary(): Promise<AccountsSummary> {
     { total: 0, new: 0, ready_for_research: 0, ready_for_outreach: 0, archived: 0 },
   );
 
-  const { count: archivedCount } = await supabase
+  let archivedQuery = supabase
     .from('accounts')
     .select('id', { count: 'exact', head: true })
     .not('archived_at', 'is', null);
+  if (scopeIds) archivedQuery = archivedQuery.or(ownerOrClause(scopeIds));
+
+  const { count: archivedCount } = await archivedQuery;
 
   counts.archived = archivedCount ?? 0;
 
@@ -135,15 +187,21 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
   await requireActiveUser();
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  const scopeIds = await resolveAccountScopeIds();
+  if (scopeIds !== null && scopeIds.length === 0) return [];
+
+  let listQuery = supabase
     .from('accounts')
     .select(
       `id, name, country, country_code, industry, website, domain,
-       pipeline_status, source, created_at,
+       pipeline_status, source, created_at, owner_id,
        owner:owner_id ( full_name )`,
     )
     .order('created_at', { ascending: false })
     .limit(200);
+  if (scopeIds) listQuery = listQuery.or(ownerOrClause(scopeIds));
+
+  const { data, error } = await listQuery;
 
   if (error) throw new Error(`getAccountsList: ${error.message}`);
 
@@ -158,6 +216,7 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
     pipeline_status: row.pipeline_status as PipelineStatus,
     source: row.source as Account['source'],
     created_at: row.created_at,
+    owner_id: (row.owner_id as string | null) ?? null,
     owner_name: (row.owner as unknown as { full_name: string | null } | null)?.full_name ?? null,
   }));
 }
@@ -182,6 +241,17 @@ export async function getAccountById(id: string): Promise<AccountWithOwner | nul
   if (error) {
     if (error.code === 'PGRST116') return null;
     throw new Error(`getAccountById: ${error.message}`);
+  }
+
+  // Enforce scope on direct id access: a non-admin must not open an account
+  // outside their allowed owner/creator set by guessing its id.
+  const scopeIds = await resolveAccountScopeIds();
+  if (scopeIds !== null) {
+    const allowed = new Set(scopeIds);
+    const acct = data as unknown as AccountWithOwner;
+    const ownerInScope = acct.owner_id != null && allowed.has(acct.owner_id);
+    const creatorInScope = acct.created_by != null && allowed.has(acct.created_by);
+    if (!ownerInScope && !creatorInScope) return null;
   }
 
   return data as unknown as AccountWithOwner;

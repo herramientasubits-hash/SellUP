@@ -40,6 +40,7 @@ import {
   type InternalUserOption,
   type PipelineStatus,
 } from '@/modules/accounts/types';
+import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
@@ -109,9 +110,10 @@ type Row = AccountListItem;
 interface AccountsDataTableClientProps {
   accounts: AccountListItem[];
   users: InternalUserOption[];
+  scopeFilterOptions?: ScopeFilterOptions;
 }
 
-export function AccountsDataTableClient({ accounts, users }: AccountsDataTableClientProps) {
+export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }: AccountsDataTableClientProps) {
   const router = useRouter();
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
@@ -268,10 +270,10 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
         },
       },
       {
-        id: 'owner_name',
-        accessorKey: 'owner_name',
+        id: 'owner_id',
+        accessorKey: 'owner_id',
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Owner" />
+          <DataTableColumnHeader column={column} title="Responsable" />
         ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground">
@@ -280,7 +282,27 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
         ),
         size: 140,
         minSize: 100,
-        meta: { label: 'Owner', popoverTitle: 'Owner' },
+        filterFn: (row, _columnId, filterValue: string[]) => {
+          if (!filterValue || filterValue.length === 0) return true;
+          const val = row.original.owner_id;
+          if (!val) return false;
+          return filterValue.includes(val);
+        },
+        meta: {
+          label: 'Responsable',
+          popoverTitle: 'Responsable',
+          ...(scopeFilterOptions?.showScopeFilters && scopeFilterOptions.users.length > 0
+            ? {
+                filterOptions: scopeFilterOptions.users.map((u) => ({
+                  value: u.id,
+                  label:
+                    u.full_name && u.email
+                      ? `${u.full_name} (${u.email})`
+                      : (u.full_name ?? u.email ?? u.id.slice(0, 8)),
+                })),
+              }
+            : {}),
+        },
       },
       {
         id: 'source',
@@ -325,7 +347,7 @@ export function AccountsDataTableClient({ accounts, users }: AccountsDataTableCl
         meta: { label: 'Creación', popoverTitle: 'Creación', disableFilter: true },
       },
     ],
-    [openDetail],
+    [openDetail, scopeFilterOptions],
   );
 
   // ── Context menu ──────────────────────────────────────────────
