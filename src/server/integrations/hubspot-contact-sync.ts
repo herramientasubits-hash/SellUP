@@ -69,10 +69,13 @@ export function evaluateHubSpotConnectionRow(row: HubSpotConnectionRow | null): 
 }
 
 /**
- * Estado de conexión para escribir contactos. Filtra por integration_key='hubspot',
- * connection_status='connected' y credentials_status='stored'. Si la conexión
- * declara scopes y no incluye contacts.write → canWriteContacts=false. Si no hay
- * scopes declarados, se permite intentar (la API responderá 403 si faltan permisos).
+ * Estado de conexión para escribir contactos.
+ * Dos pasos: primero resuelve el id de la integración desde external_integrations
+ * (que sí tiene integration_key), luego busca la conexión en
+ * external_integration_connections por integration_id.
+ *
+ * external_integration_connections NO tiene columna integration_key — el join
+ * es por integration_id → external_integrations.id.
  */
 export async function getHubSpotContactSyncConnection(): Promise<{
   connected: boolean;
@@ -80,18 +83,44 @@ export async function getHubSpotContactSyncConnection(): Promise<{
 }> {
   try {
     const admin = getAdminSupabase();
-    const { data, error } = await admin
-      .from('external_integration_connections')
-      .select('connection_status, credentials_status, vault_secret_id, metadata')
+
+    // Paso 1: resolver el id de la integración HubSpot.
+    const { data: integration, error: intError } = await admin
+      .from('external_integrations')
+      .select('id')
       .eq('integration_key', INTEGRATION_KEY)
-      .eq('connection_status', 'connected')
-      .eq('credentials_status', 'stored')
       .single();
 
-    if (error || !data) return { connected: false, canWriteContacts: false };
+    if (intError || !integration) {
+      console.error('[hubspot-contact-sync] HubSpot integration not found', {
+        errorCode: intError?.code,
+        errorMessage: intError?.message,
+      });
+      return { connected: false, canWriteContacts: false };
+    }
 
-    return evaluateHubSpotConnectionRow(data as HubSpotConnectionRow);
-  } catch {
+    // Paso 2: buscar la conexión activa por integration_id.
+    const { data: connection, error: connError } = await admin
+      .from('external_integration_connections')
+      .select('connection_status, credentials_status, vault_secret_id, metadata')
+      .eq('integration_id', integration.id)
+      .eq('connection_status', 'connected')
+      .eq('credentials_status', 'stored')
+      .maybeSingle();
+
+    if (connError) {
+      console.error('[hubspot-contact-sync] Failed to load HubSpot connection', {
+        errorCode: connError.code,
+        errorMessage: connError.message,
+      });
+      return { connected: false, canWriteContacts: false };
+    }
+
+    return evaluateHubSpotConnectionRow(connection as HubSpotConnectionRow | null);
+  } catch (err) {
+    console.error('[hubspot-contact-sync] Unexpected error loading connection', {
+      message: err instanceof Error ? err.message : String(err),
+    });
     return { connected: false, canWriteContacts: false };
   }
 }

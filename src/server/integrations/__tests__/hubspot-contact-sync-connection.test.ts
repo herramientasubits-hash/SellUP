@@ -1,5 +1,16 @@
 // Tests para evaluateHubSpotConnectionRow — lógica pura de readiness sin Supabase.
 // Cubre los escenarios definidos en el hito 17A.4C bug-fix.
+//
+// Por qué el fix anterior no detectó el bug real:
+//   Los tests solo cubrían evaluateHubSpotConnectionRow (pura, sin DB). El bug
+//   estaba en la capa de query: getHubSpotContactSyncConnection usaba
+//   .eq('integration_key', 'hubspot') sobre external_integration_connections,
+//   tabla que NO tiene esa columna (sí la tiene external_integrations). PostgREST
+//   devolvía error → data null → connected:false. La lógica pura era correcta;
+//   el schema real no fue validado con tests de integración.
+//
+// Los tests de evaluateHubSpotConnectionRow siguen siendo válidos y se amplían
+// con casos que documentan el contrato del schema real de dos pasos.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -111,4 +122,52 @@ test('8. metadata null → canWriteContacts=true (best-effort, sin scopes declar
   const result = evaluateHubSpotConnectionRow(makeRow({ metadata: null }));
   assert.equal(result.connected, true);
   assert.equal(result.canWriteContacts, true);
+});
+
+// ── Contrato del schema real (dos pasos) ─────────────────────────
+// evaluateHubSpotConnectionRow recibe solo la fila de external_integration_connections.
+// getHubSpotContactSyncConnection hace dos queries:
+//   1. external_integrations WHERE integration_key='hubspot'  → obtiene id
+//   2. external_integration_connections WHERE integration_id=<id> → obtiene fila
+// Estos tests documentan que evaluateHubSpotConnectionRow cubre correctamente
+// ambos casos de "no hay conexión" que pueden venir del paso 2.
+
+test('9. schema real: integración encontrada pero sin conexión → row null → connected=false', () => {
+  // Simula paso 2 que devuelve null (maybeSingle sin match)
+  const result = evaluateHubSpotConnectionRow(null);
+  assert.equal(result.connected, false);
+  assert.equal(result.canWriteContacts, false);
+});
+
+test('10. schema real: conexión con vault_secret_id y todos los scopes → connected=true', () => {
+  // Fila que vendría del paso 2 con schema correcto
+  const row: HubSpotConnectionRow = {
+    connection_status: 'connected',
+    credentials_status: 'stored',
+    vault_secret_id: 'cddab8d9-8786-43d2-99ef-f9a65b0fabde',
+    metadata: {
+      scopes: [
+        'crm.objects.contacts.read',
+        'crm.objects.contacts.write',
+        'crm.objects.companies.read',
+        'crm.objects.companies.write',
+        'crm.objects.deals.read',
+        'crm.objects.owners.read',
+        'crm.schemas.companies.read',
+        'oauth',
+      ],
+    },
+  };
+  const result = evaluateHubSpotConnectionRow(row);
+  assert.equal(result.connected, true);
+  assert.equal(result.canWriteContacts, true);
+});
+
+test('11. schema real: fila sin integration_key (columna no existe) no afecta evaluación', () => {
+  // external_integration_connections no tiene integration_key — el evaluador
+  // no la busca, por lo que una fila sin esa propiedad pasa igual.
+  const row = makeRow();
+  assert.ok(!('integration_key' in row), 'HubSpotConnectionRow no debe incluir integration_key');
+  const result = evaluateHubSpotConnectionRow(row);
+  assert.equal(result.connected, true);
 });
