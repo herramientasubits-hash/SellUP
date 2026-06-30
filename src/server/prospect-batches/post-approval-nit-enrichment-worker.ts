@@ -1,5 +1,5 @@
 /**
- * Post-Approval NIT Enrichment Worker — v1.16K-E
+ * Post-Approval NIT Enrichment Worker — v1.16K-E / v1.16CL-E
  *
  * Processes candidates with:
  *   metadata.post_approval_enrichment.status = 'queued'
@@ -31,6 +31,8 @@ import { mergePeruMigoMetadataIntoAccountMetadata } from './peru-migo-metadata-m
 import { lookupPeruMigoByRuc } from '../services/peru-migo-legal-lookup';
 import type { PeruSunatLegalLookupResult } from '../services/peru-sunat-legal-lookup';
 import type { PeMigoApiLookupResult } from './peru-migo-legal-enrichment';
+import { enrichChileCandidateWithChileCompraOcds } from './chilecompra-ocds-post-approval-enrichment';
+import type { ChileCompraOcdsLookupInput, ChileCompraOcdsLookupResult } from '../services/chilecompra-ocds-lookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -43,6 +45,8 @@ export interface PostApprovalNitWorkerParams {
   peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>;
   /** For testing only — overrides lookupPeruMigoByRuc for PE Migo enrichment. */
   peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>;
+  /** For testing only — overrides lookupChileCompraOcdsByRut for CL enrichment. */
+  chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>;
   /** For smoke/testing only — limits processing to a single candidate by id. */
   candidateId?: string;
 }
@@ -605,6 +609,90 @@ async function runPeruMigoEnrichmentForCandidate(
   }
 }
 
+// ── Chile ChileCompra OCDS enrichment step ────────────────────────────────────
+
+/**
+ * Runs ChileCompra OCDS snapshot lookup for CL candidates and saves
+ * cl_chilecompra_ocds block to candidate and account.
+ * Non-critical: errors are logged and swallowed.
+ * Only called when candidate.country_code === 'CL'.
+ */
+async function runChileCompraEnrichmentForCandidate(
+  candidate: CandidateRow,
+  existingMeta: Record<string, unknown>,
+  supabase: SupabaseClient,
+  lookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>,
+): Promise<void> {
+  try {
+    const clResult = await enrichChileCandidateWithChileCompraOcds(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        taxId: candidate.tax_identifier,
+        metadata: existingMeta,
+      },
+      lookupFnOverride,
+    );
+
+    if (!clResult.enriched || !clResult.cl_chilecompra_ocds) return;
+
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            cl_chilecompra_ocds: clResult.cl_chilecompra_ocds,
+          },
+        },
+        updated_at: clResult.cl_chilecompra_ocds.enriched_at,
+      })
+      .eq('id', candidate.id);
+
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const existingAccountSourceEnrichment =
+        (existingAccountMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: {
+            ...existingAccountMeta,
+            source_enrichment: {
+              ...existingAccountSourceEnrichment,
+              cl_chilecompra_ocds: clResult.cl_chilecompra_ocds,
+            },
+          },
+          updated_at: clResult.cl_chilecompra_ocds.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] Chile ChileCompra enrichment non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Single candidate processing ────────────────────────────────────────────────
 
 async function processCandidateNitEnrichment(
@@ -613,6 +701,7 @@ async function processCandidateNitEnrichment(
   adapterRegistryOverride?: Record<string, SourceEnrichmentAdapter>,
   peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>,
   peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>,
+  chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
@@ -657,6 +746,16 @@ async function processCandidateNitEnrichment(
       peruSunatStatus,
       supabase,
       peruMigoLookupFnOverride,
+    );
+  }
+
+  // v1.16CL-E — Chile ChileCompra OCDS enrichment — non-blocking, snapshot only
+  if ((candidate.country_code ?? '').toUpperCase() === 'CL') {
+    await runChileCompraEnrichmentForCandidate(
+      candidate,
+      meta,
+      supabase,
+      chileLookupFnOverride,
     );
   }
 
@@ -720,6 +819,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         params.adapterRegistryOverride,
         params.peruLookupFnOverride,
         params.peruMigoLookupFnOverride,
+        params.chileLookupFnOverride,
       );
       stats.processed++;
 
