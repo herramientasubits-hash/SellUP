@@ -28,6 +28,32 @@ import type {
 /** Tope de candidatos a completar por run (control de costo / créditos). */
 export const MAX_COMPLETION_CANDIDATES = 3;
 
+/**
+ * Créditos estimados por email completado (modelo operativo interno, inspirado
+ * en flujos n8n anteriores: completion_credits = emails + 8 * phones).
+ */
+export const COMPLETION_CREDIT_EMAIL = 1;
+
+/**
+ * Créditos estimados por teléfono completado (modelo operativo interno).
+ * 8× el costo de un email — mucho más caro en el modelo anterior de n8n.
+ */
+export const COMPLETION_CREDIT_PHONE = 8;
+
+/**
+ * Completion de teléfonos desactivada por default.
+ * Apollo requiere un webhook separado para revelar números reales (caro).
+ * Activar solo cuando el flujo de reveal esté implementado y presupuestado.
+ */
+export const PHONE_COMPLETION_ENABLED = false;
+
+/**
+ * Presupuesto máximo de créditos de completion por run (guardrail de costo).
+ * Conservador: permite hasta 3 emails (= MAX_COMPLETION_CANDIDATES × 1 crédito).
+ * Si se activa phone_completion, bajar este valor o ajustar.
+ */
+export const MAX_COMPLETION_CREDITS_PER_RUN = 10;
+
 /** Canales accionables que cuentan para dejar un candidato revisable. */
 export const ACTIONABLE_CHANNEL_FIELDS = ['email', 'linkedin_url', 'phone'] as const;
 export type ActionableChannelField = (typeof ACTIONABLE_CHANNEL_FIELDS)[number];
@@ -66,6 +92,71 @@ export interface ContactCompletionDeps {
   matchPerson?: (params: MatchPersonParams) => Promise<ApolloEnrichResult<ApolloPerson>>;
   /** Costo unitario por crédito Apollo (para estimar el costo del match). */
   unitCostUsd?: number;
+}
+
+// ── Guardrail de costo de completion ──────────────────────────
+
+export interface CompletionCostGuardrailResult {
+  allowed: boolean;
+  /** Créditos estimados antes de ejecutar completion. */
+  estimatedCredits: number;
+  /** Presupuesto máximo configurado para este run. */
+  maxCredits: number;
+  /** Razón del bloqueo (undefined si está permitido). */
+  blockedReason?: string;
+}
+
+/**
+ * Estima los créditos de completion antes de ejecutar el run.
+ * Modelo operativo interno (inspirado en flujos n8n):
+ *   credits = candidates × (CREDIT_EMAIL + (phoneEnabled ? CREDIT_PHONE : 0))
+ */
+export function estimateCompletionCredits(
+  candidatesCount: number,
+  phoneEnabled: boolean = PHONE_COMPLETION_ENABLED,
+): number {
+  const perCandidate = COMPLETION_CREDIT_EMAIL + (phoneEnabled ? COMPLETION_CREDIT_PHONE : 0);
+  return candidatesCount * perCandidate;
+}
+
+/**
+ * Calcula los créditos reales de completion basados en los campos que se completaron.
+ * Modelo operativo interno (n8n): email=1, phone=8.
+ * Siempre devuelve al menos 1 cuando el match fue llamado (costo de la llamada API).
+ */
+export function calculateActualCompletionCredits(
+  completedFields: string[],
+  phoneEnabled: boolean = PHONE_COMPLETION_ENABLED,
+): number {
+  const emailCredits = completedFields.includes('email') ? COMPLETION_CREDIT_EMAIL : 0;
+  const phoneCredits =
+    phoneEnabled && completedFields.includes('phone') ? COMPLETION_CREDIT_PHONE : 0;
+  return Math.max(1, emailCredits + phoneCredits);
+}
+
+/**
+ * Verifica si la completion está dentro del presupuesto máximo del run.
+ * Se ejecuta ANTES del loop de completion para evitar gastar créditos.
+ */
+export function checkCompletionCostGuardrail(
+  candidatesCount: number,
+  options: {
+    phoneEnabled?: boolean;
+    maxCreditsPerRun?: number;
+  } = {},
+): CompletionCostGuardrailResult {
+  const phoneEnabled = options.phoneEnabled ?? PHONE_COMPLETION_ENABLED;
+  const maxCredits = options.maxCreditsPerRun ?? MAX_COMPLETION_CREDITS_PER_RUN;
+  const estimatedCredits = estimateCompletionCredits(candidatesCount, phoneEnabled);
+  const allowed = estimatedCredits <= maxCredits;
+  return {
+    allowed,
+    estimatedCredits,
+    maxCredits,
+    blockedReason: allowed
+      ? undefined
+      : `completion bloqueada: ${estimatedCredits} créditos estimados supera el límite de ${maxCredits}`,
+  };
 }
 
 // ── Helpers de calidad de nombre / canal ───────────────────────
@@ -304,13 +395,22 @@ export async function completeContactWithApollo(
   const completedFields = diffCompletedFields(candidate, merged);
   const isActionableAfter = isActionableContactCandidate(merged, relevanceStatus);
 
+  // Créditos reales basados en lo que se completó (modelo operativo n8n: email=1, phone=8).
+  const actualCredits = calculateActualCompletionCredits(completedFields);
+
   return {
     status: 'completed',
     contact: merged,
     completedFields,
     wasActionableBefore: false,
     isActionableAfter,
-    providerUsage,
+    providerUsage: {
+      ...providerUsage,
+      creditsUsed: actualCredits,
+      ...(typeof unitCostUsd === 'number' && unitCostUsd >= 0
+        ? { estimatedCostUsd: Number((actualCredits * unitCostUsd).toFixed(6)) }
+        : {}),
+    },
   };
 }
 

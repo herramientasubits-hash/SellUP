@@ -31,10 +31,14 @@ import {
   completeContactWithApollo,
   isActionableContactCandidate,
   selectCandidatesForCompletion,
+  checkCompletionCostGuardrail,
   MAX_COMPLETION_CANDIDATES,
+  PHONE_COMPLETION_ENABLED,
+  MAX_COMPLETION_CREDITS_PER_RUN,
   type CompleteContactInput,
   type CompleteContactResult,
   type ClassifiedCandidate,
+  type CompletionCostGuardrailResult,
 } from './contact-completion-adapter';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
@@ -201,7 +205,7 @@ interface RelevanceFilterSummary {
   top_rejection_reasons: string[];
 }
 
-/** Resumen del completado selectivo de contactos (Hito 17A.3C). */
+/** Resumen del completado selectivo de contactos (Hito 17A.3C/17A.6A). */
 interface ContactCompletionSummary {
   eligible_count: number;
   attempted_count: number;
@@ -212,6 +216,18 @@ interface ContactCompletionSummary {
   rejected_missing_actionable_channel_count: number;
   completed_fields_count: { email: number; linkedin_url: number; phone: number };
   max_completion_candidates: number;
+  /** Guardrail de costo (Hito 17A.6A). */
+  cost_guardrail: {
+    phone_completion_enabled: boolean;
+    estimated_credits_before_completion: number;
+    max_credits_per_run: number;
+    guardrail_blocked: boolean;
+    blocked_reason?: string;
+    actual_credits_email: number;
+    actual_credits_phone: number;
+    actual_credits_total: number;
+    blocked_profiles_count: number;
+  };
 }
 
 interface ApolloEnrichmentSummaryBlock {
@@ -543,12 +559,24 @@ export async function executeContactEnrichmentApolloRun(
     ({ relevance }) => relevance.shouldInsertForReview,
   );
 
-  // 7b. Completado selectivo (Hito 17A.3C): solo los mejores revisables, tope duro.
-  //     Los ya accionables se omiten sin consumir créditos.
+  // 7b. Completado selectivo (Hito 17A.3C / 17A.6A):
+  //     - Tope duro de candidatos (MAX_COMPLETION_CANDIDATES = 3).
+  //     - Guardrail de costo PRE-vuelo: estima créditos antes de llamar a Apollo.
+  //     - Si el estimado supera MAX_COMPLETION_CREDITS_PER_RUN → salta toda la completion.
+  //     - Modelo de créditos interno (n8n): email=1, phone=8.
+  //     - Los ya accionables se omiten sin consumir créditos.
   const unitCost = await loadApolloUnitCost();
   const selected = selectCandidatesForCompletion(reviewableClassified, MAX_COMPLETION_CANDIDATES);
+
+  const guardrail: CompletionCostGuardrailResult = checkCompletionCostGuardrail(selected.length, {
+    phoneEnabled: PHONE_COMPLETION_ENABLED,
+    maxCreditsPerRun: MAX_COMPLETION_CREDITS_PER_RUN,
+  });
+
   const completionByContact = new Map<NormalizedApolloContact, CompleteContactResult>();
   let completionCredits = 0;
+  let creditsEmail = 0;
+  let creditsPhone = 0;
 
   const completionSummary: ContactCompletionSummary = {
     eligible_count: selected.length,
@@ -560,35 +588,59 @@ export async function executeContactEnrichmentApolloRun(
     rejected_missing_actionable_channel_count: 0,
     completed_fields_count: { email: 0, linkedin_url: 0, phone: 0 },
     max_completion_candidates: MAX_COMPLETION_CANDIDATES,
+    cost_guardrail: {
+      phone_completion_enabled: PHONE_COMPLETION_ENABLED,
+      estimated_credits_before_completion: guardrail.estimatedCredits,
+      max_credits_per_run: guardrail.maxCredits,
+      guardrail_blocked: !guardrail.allowed,
+      blocked_reason: guardrail.blockedReason,
+      actual_credits_email: 0,
+      actual_credits_phone: 0,
+      actual_credits_total: 0,
+      blocked_profiles_count: guardrail.allowed ? 0 : selected.length,
+    },
   };
 
-  for (const item of selected) {
-    const res = await completeContact({
-      candidate: item.contact,
-      companyName: run.company_name,
-      companyDomain: run.company_domain,
-      relevanceStatus: item.relevance.relevanceStatus,
-    });
-    completionByContact.set(item.contact, res);
-    if (res.providerUsage?.creditsUsed) completionCredits += res.providerUsage.creditsUsed;
+  if (guardrail.allowed) {
+    for (const item of selected) {
+      const res = await completeContact({
+        candidate: item.contact,
+        companyName: run.company_name,
+        companyDomain: run.company_domain,
+        relevanceStatus: item.relevance.relevanceStatus,
+      });
+      completionByContact.set(item.contact, res);
+      if (res.providerUsage?.creditsUsed) completionCredits += res.providerUsage.creditsUsed;
 
-    if (res.status === 'completed') {
-      completionSummary.attempted_count += 1;
-      completionSummary.completed_count += 1;
-      for (const field of res.completedFields) {
-        if (field === 'email') completionSummary.completed_fields_count.email += 1;
-        else if (field === 'linkedin_url') completionSummary.completed_fields_count.linkedin_url += 1;
-        else if (field === 'phone') completionSummary.completed_fields_count.phone += 1;
+      if (res.status === 'completed') {
+        completionSummary.attempted_count += 1;
+        completionSummary.completed_count += 1;
+        for (const field of res.completedFields) {
+          if (field === 'email') {
+            completionSummary.completed_fields_count.email += 1;
+            creditsEmail += 1;
+          } else if (field === 'linkedin_url') {
+            completionSummary.completed_fields_count.linkedin_url += 1;
+          } else if (field === 'phone') {
+            completionSummary.completed_fields_count.phone += 1;
+            creditsPhone += 8;
+          }
+        }
+      } else if (res.status === 'error' || res.reason === 'no_match_data') {
+        completionSummary.attempted_count += 1;
+        completionSummary.failed_count += 1;
+      } else {
+        completionSummary.skipped_count += 1;
       }
-    } else if (res.status === 'error' || res.reason === 'no_match_data') {
-      // Consumió crédito (o falló el proveedor) pero no completó datos útiles.
-      completionSummary.attempted_count += 1;
-      completionSummary.failed_count += 1;
-    } else {
-      // skipped sin crédito: candidate_already_actionable / insufficient_input_for_match.
-      completionSummary.skipped_count += 1;
     }
+  } else {
+    // Guardrail bloqueó — todos los seleccionados quedan sin intentar.
+    completionSummary.skipped_count = selected.length;
   }
+
+  completionSummary.cost_guardrail.actual_credits_email = creditsEmail;
+  completionSummary.cost_guardrail.actual_credits_phone = creditsPhone;
+  completionSummary.cost_guardrail.actual_credits_total = creditsEmail + creditsPhone;
 
   // 7c. Filtro accionable final: cada revisable (completado o no) debe quedar con
   //     nombre + cargo + al menos un canal (email/linkedin/phone). Sin canal → fuera.
