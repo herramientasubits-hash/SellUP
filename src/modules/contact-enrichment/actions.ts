@@ -1,10 +1,20 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import { startContactEnrichmentRun } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-runner';
 import { executeContactEnrichmentApolloRun } from '@/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner';
+import { logContactAudit } from '@/modules/contacts/actions';
+import {
+  runApproveCandidate,
+  runDiscardCandidate,
+  type CandidateRecord,
+  type CandidateReviewPatch,
+  type ContactInsertPayload,
+  type ExistingContactForDedup,
+} from './candidate-review-core';
 import type {
   Agent2AInput,
   CompanyResolutionResult,
@@ -360,4 +370,173 @@ export async function getPendingContactCandidatesCount(): Promise<number> {
 
   if (error) throw new Error(`getPendingContactCandidatesCount: ${error.message}`);
   return count ?? 0;
+}
+
+// ── Revisión humana: aprobar / rechazar (Hito 17A.4B) ─────────
+// Crea contacto oficial al aprobar y mueve el candidato fuera de pending_review.
+// El UPDATE sobre contact_enrichment_candidates exige service_role (RLS solo da
+// SELECT a authenticated), igual que el writer del toolkit. NO toca Apollo ni
+// HubSpot.
+
+/** Cliente service_role para mutar staging (mismo patrón que el writer). */
+function getServiceRoleClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Supabase service credentials not configured');
+  return createServiceRoleClient(url, key);
+}
+
+/** Columnas necesarias para mapear candidato → contacto (más que la proyección
+ *  de revisión: incluye seniority/department/first_name/last_name). */
+const CANDIDATE_REVIEW_SELECT =
+  `id, status, full_name, first_name, last_name, title, seniority, department,
+   email, phone, linkedin_url, source, enrichment_metadata, enrichment_run_id,
+   run:contact_enrichment_runs ( account_id )`;
+
+function mapCandidateRecord(row: unknown): CandidateRecord {
+  const r = row as Record<string, unknown>;
+  const runRaw = r.run;
+  const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
+    | { account_id: string | null }
+    | null
+    | undefined;
+  return {
+    id: r.id as string,
+    status: (r.status as ContactCandidateStatus) ?? 'pending_review',
+    full_name: (r.full_name as string | null) ?? '',
+    first_name: (r.first_name as string | null) ?? null,
+    last_name: (r.last_name as string | null) ?? null,
+    title: (r.title as string | null) ?? null,
+    seniority: (r.seniority as string | null) ?? null,
+    department: (r.department as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    phone: (r.phone as string | null) ?? null,
+    linkedin_url: (r.linkedin_url as string | null) ?? null,
+    source: (r.source as ContactSource) ?? 'apollo',
+    enrichment_metadata:
+      (r.enrichment_metadata as Record<string, unknown>) ?? {},
+    enrichment_run_id: (r.enrichment_run_id as string | null) ?? null,
+    account_id: run?.account_id ?? null,
+  };
+}
+
+export interface ApproveCandidateActionResult {
+  ok: boolean;
+  contactId?: string;
+  message?: string;
+  error?: string;
+  duplicate?: boolean;
+}
+
+export interface DiscardCandidateActionResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Aprueba un candidato y crea el contacto oficial en `contacts`. Bloquea si no
+ * hay cuenta SellUp asociada o si se detecta un duplicado en la cuenta.
+ */
+export async function approveContactCandidate(
+  candidateId: string,
+): Promise<ApproveCandidateActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+    const supabase = await createClient();
+    const admin = getServiceRoleClient();
+
+    const result = await runApproveCandidate(candidateId, {
+      actorId: internalUserId,
+      nowIso: new Date().toISOString(),
+      loadCandidate: async (id) => {
+        const { data, error } = await supabase
+          .from('contact_enrichment_candidates')
+          .select(CANDIDATE_REVIEW_SELECT)
+          .eq('id', id)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data ? mapCandidateRecord(data) : null;
+      },
+      loadExistingContacts: async (accountId): Promise<ExistingContactForDedup[]> => {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('id, email, linkedin_url, full_name')
+          .eq('account_id', accountId)
+          .is('archived_at', null);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as ExistingContactForDedup[];
+      },
+      insertContact: async (payload: ContactInsertPayload) => {
+        const { data, error } = await supabase
+          .from('contacts')
+          .insert(payload)
+          .select('id')
+          .single();
+        if (error) return { error: error.message };
+        return { id: data.id as string };
+      },
+      updateCandidate: async (id, patch: CandidateReviewPatch) => {
+        const { error } = await admin
+          .from('contact_enrichment_candidates')
+          .update(patch)
+          .eq('id', id);
+        return { error: error?.message };
+      },
+      logAudit: async ({ contactId, accountId, actorUserId }) => {
+        await logContactAudit({
+          contactId,
+          accountId,
+          actorUserId,
+          actionType: 'contact_created',
+          details: { source: 'contact_enrichment_candidate', candidate_id: candidateId },
+        });
+      },
+    });
+
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error aprobando el candidato';
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Rechaza un candidato: lo marca `discarded` y guarda el motivo. No crea contacto.
+ */
+export async function discardContactCandidate(
+  candidateId: string,
+  reason: string,
+): Promise<DiscardCandidateActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+    const admin = getServiceRoleClient();
+    const supabase = await createClient();
+
+    const result = await runDiscardCandidate(candidateId, reason, {
+      actorId: internalUserId,
+      nowIso: new Date().toISOString(),
+      loadCandidate: async (id) => {
+        const { data, error } = await supabase
+          .from('contact_enrichment_candidates')
+          .select(CANDIDATE_REVIEW_SELECT)
+          .eq('id', id)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data ? mapCandidateRecord(data) : null;
+      },
+      updateCandidate: async (id, patch: CandidateReviewPatch) => {
+        const { error } = await admin
+          .from('contact_enrichment_candidates')
+          .update(patch)
+          .eq('id', id);
+        return { error: error?.message };
+      },
+    });
+
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error rechazando el candidato';
+    return { ok: false, error: message };
+  }
 }

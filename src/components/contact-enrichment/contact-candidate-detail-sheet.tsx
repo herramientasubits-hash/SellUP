@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   UserSearch,
   User,
@@ -17,17 +19,45 @@ import {
   Copy,
   Hash,
   Info,
+  Check,
+  X,
+  Loader2,
+  Ban,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
-import { getPendingContactCandidateById } from '@/modules/contact-enrichment/actions';
+import {
+  getPendingContactCandidateById,
+  approveContactCandidate,
+  discardContactCandidate,
+} from '@/modules/contact-enrichment/actions';
 import type {
   PendingContactCandidate,
   ContactRelevanceStatus,
   ContactDuplicateStatus,
   ContactSource,
 } from '@/modules/contact-enrichment/types';
+
+// Motivos de rechazo sugeridos (Hito 17A.4B). "Otro" habilita un comentario
+// opcional; el resto se guarda tal cual en review_notes + metadata.review.
+const REJECTION_REASONS = [
+  'Cargo no relevante',
+  'Datos insuficientes',
+  'No pertenece a la empresa',
+  'Duplicado',
+  'No es decisor / sponsor útil',
+  'Otro',
+] as const;
 
 // ── Label & style maps (espejo de contact-candidates-data-table-client) ──────
 
@@ -97,20 +127,30 @@ interface ContactCandidateDetailSheetProps {
 }
 
 /**
- * Side panel de solo lectura para revisar un candidato del Agente 2A (ajuste
- * posterior a 17A.4A). Reutiliza el shell compartido `DrawerShell` + `SurfaceCard`,
- * el mismo patrón que el detalle de Cuentas/Prospectos (fetch por id con loading,
- * `null` ⇒ "no disponible"). NO incluye aprobar/rechazar ni crea contactos
- * finales: esas acciones llegan en 17A.4B.
+ * Side panel de revisión humana de un candidato del Agente 2A. Reutiliza el
+ * shell compartido `DrawerShell` + `SurfaceCard`, el mismo patrón que el detalle
+ * de Cuentas/Prospectos (fetch por id con loading, `null` ⇒ "no disponible").
+ * Hito 17A.4B: incluye aprobar (crea contacto oficial en `contacts`) y rechazar
+ * (marca `discarded` con motivo). NO escribe en HubSpot ni ejecuta Apollo.
  */
 export function ContactCandidateDetailSheet({
   candidateId,
   open,
   onClose,
 }: ContactCandidateDetailSheetProps) {
+  const router = useRouter();
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [notFound, setNotFound] = React.useState(false);
+
+  // Estado de revisión humana (Hito 17A.4B)
+  const [approving, setApproving] = React.useState(false);
+  const [rejecting, setRejecting] = React.useState(false);
+  const [showRejectForm, setShowRejectForm] = React.useState(false);
+  const [reason, setReason] = React.useState<string>(REJECTION_REASONS[0]);
+  const [otherComment, setOtherComment] = React.useState('');
+
+  const busy = approving || rejecting;
 
   React.useEffect(() => {
     if (open && candidateId) {
@@ -143,9 +183,61 @@ export function ContactCandidateDetailSheet({
       queueMicrotask(() => {
         setCandidate(null);
         setNotFound(false);
+        setApproving(false);
+        setRejecting(false);
+        setShowRejectForm(false);
+        setReason(REJECTION_REASONS[0]);
+        setOtherComment('');
       });
     }
   }, [open, candidateId]);
+
+  async function handleApprove() {
+    if (!candidate || busy) return;
+    setApproving(true);
+    try {
+      const result = await approveContactCandidate(candidate.id);
+      if (result.ok) {
+        toast.success(result.message ?? 'Contacto aprobado y creado en SellUp.');
+        router.refresh();
+        onClose();
+      } else if (result.duplicate) {
+        // El candidato pasó a `duplicate` y sale de revisión: refrescamos y cerramos.
+        toast.warning(result.error ?? 'Este candidato parece estar duplicado.');
+        router.refresh();
+        onClose();
+      } else {
+        toast.error(result.error ?? 'No fue posible aprobar el candidato.');
+      }
+    } catch {
+      toast.error('No fue posible aprobar el candidato.');
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  async function handleReject() {
+    if (!candidate || busy) return;
+    const finalReason =
+      reason === 'Otro' && otherComment.trim()
+        ? `Otro: ${otherComment.trim()}`
+        : reason;
+    setRejecting(true);
+    try {
+      const result = await discardContactCandidate(candidate.id, finalReason);
+      if (result.ok) {
+        toast.success(result.message ?? 'Candidato rechazado.');
+        router.refresh();
+        onClose();
+      } else {
+        toast.error(result.error ?? 'No fue posible rechazar el candidato.');
+      }
+    } catch {
+      toast.error('No fue posible rechazar el candidato.');
+    } finally {
+      setRejecting(false);
+    }
+  }
 
   const relevance = candidate?.enrichment_metadata?.relevance;
   const relevanceScore = toPercent(relevance?.score);
@@ -185,6 +277,85 @@ export function ContactCandidateDetailSheet({
               .filter(Boolean)
               .join(' · ')
           : undefined
+      }
+      actions={
+        candidate ? (
+          !showRejectForm ? (
+            <>
+              <p className="flex-1 text-[11px] text-muted-foreground/70">
+                {candidate.account_id
+                  ? 'Al aprobar se creará un contacto oficial en SellUp.'
+                  : 'Sin cuenta SellUp asociada: no se puede aprobar.'}
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setShowRejectForm(true)}
+                >
+                  <Ban className="h-4 w-4" />
+                  Rechazar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy || !candidate.account_id}
+                  onClick={handleApprove}
+                >
+                  {approving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Aprobando…
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      Aprobar candidato
+                    </>
+                  )}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="flex-1 text-[11px] text-muted-foreground/70">
+                Indica el motivo del rechazo.
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setShowRejectForm(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={busy}
+                  onClick={handleReject}
+                >
+                  {rejecting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Rechazando…
+                    </>
+                  ) : (
+                    <>
+                      <X className="h-4 w-4" />
+                      Confirmar rechazo
+                    </>
+                  )}
+                </Button>
+              </div>
+            </>
+          )
+        ) : undefined
       }
     >
       {notFound ? (
@@ -351,20 +522,66 @@ export function ContactCandidateDetailSheet({
             </dl>
           </SurfaceCard>
 
-          {/* 5. Estado del flujo (informativo, no accionable) */}
-          <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-3">
-            <div className="flex items-start gap-2.5">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-foreground">
-                  Este candidato aún no ha sido aprobado ni rechazado.
-                </p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  La aprobación/rechazo se implementará en el siguiente hito.
-                </p>
+          {/* 5. Revisión humana (Hito 17A.4B) */}
+          {showRejectForm ? (
+            <SurfaceCard>
+              <SurfaceCardHeader
+                title="Motivo de rechazo"
+                description="Quedará registrado en la trazabilidad del candidato."
+              />
+              <div className="space-y-3">
+                <Select value={reason} onValueChange={(v) => setReason(v ?? REJECTION_REASONS[0])}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecciona un motivo" />
+                  </SelectTrigger>
+                  <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
+                    {REJECTION_REASONS.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {r}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {reason === 'Otro' && (
+                  <Textarea
+                    value={otherComment}
+                    onChange={(e) => setOtherComment(e.target.value)}
+                    rows={3}
+                    placeholder="Comentario opcional…"
+                    className="text-sm"
+                  />
+                )}
+              </div>
+            </SurfaceCard>
+          ) : !candidate.account_id ? (
+            <div className="rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-3">
+              <div className="flex items-start gap-2.5">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-foreground">
+                    Este candidato no está asociado a una cuenta SellUp.
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Para aprobarlo y crear un contacto oficial debe existir una cuenta. Puedes
+                    rechazarlo indicando un motivo.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-3">
+              <div className="flex items-start gap-2.5">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-foreground">Revisión humana</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Aprueba para crear el contacto oficial en SellUp, o recházalo indicando un
+                    motivo.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </DrawerShell>
