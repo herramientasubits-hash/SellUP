@@ -15,12 +15,17 @@ import {
   Building2,
   Globe,
   Sparkles,
+  CheckCircle2,
+  XCircle,
+  Bot,
+  FileCheck2,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
+import { buildContactTraceabilityViewModel } from '@/modules/contacts/contact-traceability';
 import { getAccountById } from '@/modules/accounts/actions';
 import {
   ROLE_LABELS,
@@ -332,24 +337,9 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                   </SurfaceCard>
                 </TabsContent>
 
-                {/* Enriquecimiento */}
+                {/* Enriquecimiento — Calidad y trazabilidad */}
                 <TabsContent value="enriquecimiento">
-                  <SurfaceCard>
-                    <div className="flex flex-col items-center gap-3 py-10 text-center">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-                        <Globe className="h-5 w-5 text-muted-foreground/40" />
-                      </div>
-                      <div className="max-w-sm space-y-1">
-                        <p className="text-sm font-semibold text-foreground">
-                          Enriquecimiento — Próxima fase
-                        </p>
-                        <p className="text-xs text-muted-foreground leading-relaxed">
-                          Enriquecimiento automático con Apollo y Lusha: email verificado,
-                          teléfono directo, cargo actualizado y señales de intención.
-                        </p>
-                      </div>
-                    </div>
-                  </SurfaceCard>
+                  <ContactTraceabilityPanel contact={contact} />
                 </TabsContent>
 
                 {/* HubSpot */}
@@ -397,6 +387,243 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
               </Tabs>
             )}
     </DrawerShell>
+  );
+}
+
+// ── Calidad y trazabilidad ────────────────────────────────────────────────────
+
+function TraceCard({
+  title,
+  children,
+}: {
+  icon?: React.ComponentType<{ className?: string }>;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <SurfaceCard>
+      <SurfaceCardHeader title={title} />
+      <dl className="space-y-3">{children}</dl>
+    </SurfaceCard>
+  );
+}
+
+function TraceRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <div className="min-w-0 flex-1">
+        <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+          {label}
+        </dt>
+        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
+      </div>
+    </div>
+  );
+}
+
+function EmptyTrace({ message }: { message: string }) {
+  return (
+    <p className="py-2 text-xs text-muted-foreground/60 italic">{message}</p>
+  );
+}
+
+function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
+  const vm = buildContactTraceabilityViewModel(contact);
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {/* Card 1 — Origen */}
+      <TraceCard icon={Bot} title="Origen del contacto">
+        <TraceRow label="Origen">
+          <span className="flex items-center gap-1.5">
+            {vm.hasSourceCandidate ? (
+              <Badge
+                variant="outline"
+                className="text-[10px] bg-su-brand-soft text-su-brand border-transparent"
+              >
+                {vm.originLabel}
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
+              >
+                {vm.originLabel}
+              </Badge>
+            )}
+          </span>
+        </TraceRow>
+        <TraceRow label="Fuente">
+          <Badge
+            variant="outline"
+            className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
+          >
+            {vm.sourceLabel}
+          </Badge>
+        </TraceRow>
+        {vm.hasSourceCandidate && vm.sourceCandidateId && (
+          <TraceRow label="ID candidato">
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {vm.sourceCandidateId}
+            </span>
+          </TraceRow>
+        )}
+      </TraceCard>
+
+      {/* Card 2 — Calidad y datos accionables */}
+      <TraceCard icon={Sparkles} title="Calidad y datos accionables">
+        {vm.hasRelevanceData ? (
+          <>
+            <TraceRow label="Relevancia">
+              <RelevanceBadge label={vm.relevanceLabel} />
+            </TraceRow>
+            {vm.relevanceScore !== null && (
+              <TraceRow label="Score">
+                <span className="tabular-nums">{vm.relevanceScore.toFixed(2)}</span>
+              </TraceRow>
+            )}
+          </>
+        ) : (
+          <EmptyTrace message="Sin evaluación de IA registrada" />
+        )}
+        {vm.hasCompletionData ? (
+          <>
+            {vm.completedFields.length > 0 && (
+              <TraceRow label="Datos completados">
+                <span className="flex flex-wrap gap-1">
+                  {vm.completedFields.map((f) => (
+                    <Badge
+                      key={f}
+                      variant="outline"
+                      className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
+                    >
+                      {f}
+                    </Badge>
+                  ))}
+                </span>
+              </TraceRow>
+            )}
+            {vm.hasActionableChannel !== null && (
+              <TraceRow label="Canal accionable">
+                <span className="flex items-center gap-1">
+                  {vm.hasActionableChannel ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 text-muted-foreground/40" />
+                  )}
+                  <span>{vm.hasActionableChannel ? 'Sí' : 'No'}</span>
+                </span>
+              </TraceRow>
+            )}
+          </>
+        ) : null}
+      </TraceCard>
+
+      {/* Card 3 — Normalización */}
+      <TraceCard icon={FileCheck2} title="Normalización">
+        {vm.isNormalized ? (
+          <>
+            <TraceRow label="Estado">
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                <span>Normalizado</span>
+              </span>
+            </TraceRow>
+            {vm.normalizedFields.length > 0 && (
+              <TraceRow label="Campos normalizados">
+                <span className="flex flex-wrap gap-1">
+                  {vm.normalizedFields.map((f) => (
+                    <Badge
+                      key={f}
+                      variant="outline"
+                      className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
+                    >
+                      {f}
+                    </Badge>
+                  ))}
+                </span>
+              </TraceRow>
+            )}
+          </>
+        ) : (
+          <EmptyTrace message="Sin normalización registrada" />
+        )}
+      </TraceCard>
+
+      {/* Card 4 — HubSpot (resumen) */}
+      <TraceCard icon={Globe} title="HubSpot">
+        <TraceRow label="Estado">
+          {vm.hubspotContactId ? (
+            <span className="flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              <span>Sincronizado con HubSpot</span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1">
+              <XCircle className="h-3.5 w-3.5 text-muted-foreground/40" />
+              <span className="text-muted-foreground">No sincronizado con HubSpot</span>
+            </span>
+          )}
+        </TraceRow>
+        {vm.hubspotContactId && (
+          <TraceRow label="HubSpot Contact ID">
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {vm.hubspotContactId}
+            </span>
+          </TraceRow>
+        )}
+        {vm.hubspotMode && (
+          <TraceRow label="Modo">
+            <Badge
+              variant="outline"
+              className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
+            >
+              {vm.hubspotMode === 'created' ? 'Creado en HubSpot' :
+               vm.hubspotMode === 'linked_existing' ? 'Vinculado a existente' :
+               vm.hubspotMode}
+            </Badge>
+          </TraceRow>
+        )}
+        {vm.hubspotAssociationStatus && (
+          <TraceRow label="Asociación con empresa">
+            <Badge
+              variant="outline"
+              className={`text-[10px] border-transparent ${
+                vm.hubspotAssociationStatus === 'associated'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              }`}
+            >
+              {vm.hubspotAssociationStatus === 'associated' ? 'Asociado' :
+               vm.hubspotAssociationStatus === 'failed' ? 'Falló' :
+               vm.hubspotAssociationStatus}
+            </Badge>
+          </TraceRow>
+        )}
+        <p className="mt-2 text-[10px] text-muted-foreground/40 italic">
+          Para sincronizar o ver el detalle completo, ve al tab HubSpot.
+        </p>
+      </TraceCard>
+    </div>
+  );
+}
+
+function RelevanceBadge({ label }: { label: string }) {
+  const styles: Record<string, string> = {
+    Alta: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
+    Media: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
+    Baja: 'bg-muted/40 text-muted-foreground border-transparent',
+  };
+  return (
+    <Badge variant="outline" className={`text-[10px] ${styles[label] ?? 'bg-muted/40 text-muted-foreground border-transparent'}`}>
+      {label}
+    </Badge>
   );
 }
 
