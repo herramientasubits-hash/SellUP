@@ -11,6 +11,18 @@ import type {
   UpdateContactInput,
   ContactStatus,
 } from './types';
+import {
+  runSyncContactToHubSpot,
+  type ContactForSync,
+  type AccountForSync,
+  type SyncContactToHubSpotResult,
+} from './contact-hubspot-sync-core';
+import {
+  getHubSpotContactSyncConnection,
+  findHubSpotContactByEmail,
+  createHubSpotContact,
+  associateHubSpotContactWithCompany,
+} from '@/server/integrations/hubspot-contact-sync';
 
 // ============================================================
 // Auth helpers
@@ -506,4 +518,101 @@ export async function getContactAudit(contactId: string): Promise<ContactAuditEn
 
   if (error) throw new Error(`getContactAudit: ${error.message}`);
   return (data ?? []) as unknown as ContactAuditEntry[];
+}
+
+// ============================================================
+// syncContactToHubSpot — Hito 17A.4C
+// ============================================================
+// Sincronización MANUAL, controlada, uno a uno, de un contacto aprobado hacia
+// HubSpot. NO es automática al aprobar. NO hace bulk. NO crea empresas/deals/
+// notas. NO llama a Apollo ni toca candidatos. La lógica vive en el core puro
+// contact-hubspot-sync-core.ts; aquí se cablean las dependencias reales.
+
+export type { SyncContactToHubSpotResult } from './contact-hubspot-sync-core';
+
+export async function syncContactToHubSpot(
+  contactId: string,
+): Promise<SyncContactToHubSpotResult> {
+  let internalUserId: string;
+  try {
+    ({ internalUserId } = await requireActiveUser());
+  } catch {
+    return { ok: false, errorCode: 'UNKNOWN_ERROR', message: 'Sesión no válida.' };
+  }
+
+  const supabase = await createClient();
+
+  try {
+    return await runSyncContactToHubSpot(contactId, {
+      actorId: internalUserId,
+      nowIso: new Date().toISOString(),
+
+      loadContact: async (id): Promise<ContactForSync | null> => {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select(
+            'id, account_id, full_name, first_name, last_name, email, phone, mobile_phone, job_title, linkedin_url, hubspot_contact_id, metadata',
+          )
+          .eq('id', id)
+          .is('archived_at', null)
+          .maybeSingle();
+        if (error || !data) return null;
+        return {
+          ...(data as unknown as ContactForSync),
+          metadata: (data.metadata as Record<string, unknown> | null) ?? {},
+        };
+      },
+
+      loadAccount: async (accountId): Promise<AccountForSync | null> => {
+        const { data, error } = await supabase
+          .from('accounts')
+          .select('id, name, hubspot_company_id')
+          .eq('id', accountId)
+          .maybeSingle();
+        if (error || !data) return null;
+        return data as unknown as AccountForSync;
+      },
+
+      checkConnection: getHubSpotContactSyncConnection,
+      findHubSpotContactByEmail,
+      createHubSpotContact,
+      associateContactWithCompany: associateHubSpotContactWithCompany,
+
+      persistSync: async (id, patch) => {
+        const { error } = await supabase
+          .from('contacts')
+          .update({
+            hubspot_contact_id: patch.hubspot_contact_id,
+            metadata: patch.metadata,
+            updated_by: internalUserId,
+          })
+          .eq('id', id);
+        return { error: error?.message };
+      },
+
+      logAudit: async (entry) => {
+        await logContactAudit({
+          contactId: entry.contactId,
+          accountId: entry.accountId,
+          actorUserId: entry.actorUserId,
+          actionType: 'contact_updated',
+          details: {
+            hubspot_sync: {
+              mode: entry.mode,
+              hubspot_contact_id: entry.hubspotContactId,
+              hubspot_company_id: entry.hubspotCompanyId,
+              company_association: entry.companyAssociation,
+            },
+          },
+        });
+      },
+    });
+  } catch {
+    // No exponer detalles crípticos/sensibles a la UI (token, payload, HTTP raw).
+    return {
+      ok: false,
+      errorCode: 'HUBSPOT_ERROR',
+      message: 'No fue posible sincronizar el contacto con HubSpot.',
+    };
+  }
 }

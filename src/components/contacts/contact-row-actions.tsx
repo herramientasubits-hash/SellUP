@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Star, RefreshCw, Archive, Eye } from 'lucide-react';
+import { MoreHorizontal, Pencil, Star, RefreshCw, Archive, Eye, CheckCircle2, Cloud } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { setPrimaryContact, changeContactStatus, archiveContact } from '@/modules/contacts/actions';
+import {
+  setPrimaryContact,
+  changeContactStatus,
+  archiveContact,
+  syncContactToHubSpot,
+} from '@/modules/contacts/actions';
 import {
   CONTACT_STATUS_LABELS,
   type Contact,
@@ -64,6 +69,33 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
       router.refresh();
       onActionComplete?.();
       toast.success(`Estado actualizado: ${CONTACT_STATUS_LABELS[status]}`);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleSyncHubSpot() {
+    if (contact.hubspot_contact_id) return;
+    if (!contact.email) {
+      toast.error('No se puede sincronizar: el contacto no tiene email.');
+      return;
+    }
+    setPending(true);
+    try {
+      const result = await syncContactToHubSpot(contact.id);
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      if (result.status === 'created') {
+        toast.success('Contacto creado en HubSpot y vinculado a SellUp.');
+      } else if (result.status === 'linked_existing') {
+        toast.success('Contacto existente en HubSpot vinculado a SellUp.');
+      } else {
+        toast.info('Este contacto ya estaba sincronizado con HubSpot.');
+      }
+      router.refresh();
+      onActionComplete?.();
     } finally {
       setPending(false);
     }
@@ -129,6 +161,20 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+
+          <DropdownMenuSeparator />
+
+          {contact.hubspot_contact_id ? (
+            <DropdownMenuItem disabled>
+              <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-500" />
+              Sincronizado
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={handleSyncHubSpot}>
+              <Cloud className="mr-2 h-3.5 w-3.5" />
+              Sincronizar con HubSpot
+            </DropdownMenuItem>
+          )}
 
           <DropdownMenuSeparator />
 

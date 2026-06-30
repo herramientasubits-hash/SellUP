@@ -35,6 +35,7 @@ import {
 } from '@/modules/contacts/types';
 import type { AccountWithOwner } from '@/modules/accounts/types';
 import { ContactRowActions } from './contact-row-actions';
+import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
 
 const STATUS_STYLES: Record<ContactStatus, string> = {
   active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
@@ -354,7 +355,15 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 {/* HubSpot */}
                 <TabsContent value="hubspot">
                   <SurfaceCard>
-                    <SurfaceCardHeader title="Sincronización HubSpot" />
+                    <div className="flex items-start justify-between gap-4">
+                      <SurfaceCardHeader title="Sincronización HubSpot" />
+                      <ContactHubSpotSyncButton
+                        contactId={contact.id}
+                        alreadySynced={!!contact.hubspot_contact_id}
+                        hasEmail={!!contact.email}
+                        onSynced={() => loadData(contact.id)}
+                      />
+                    </div>
                     <dl className="space-y-3">
                       <DetailRow icon={Tag} label="HubSpot Contact ID">
                         {contact.hubspot_contact_id ? (
@@ -364,16 +373,56 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         )}
                       </DetailRow>
                       <DetailRow icon={Tag} label="Estado de sincronización">
-                        <Badge variant="outline" className="text-[10px] bg-muted/40 border-transparent text-muted-foreground">
-                          Sincronización no activa
-                        </Badge>
+                        <HubSpotSyncStatusBadge contact={contact} />
                       </DetailRow>
+                      {(() => {
+                        const sync = contact.metadata?.hubspot_sync as
+                          | Record<string, unknown>
+                          | undefined;
+                        const syncedAt = sync?.synced_at as string | undefined;
+                        return syncedAt ? (
+                          <DetailRow icon={Tag} label="Sincronizado el">
+                            {formatDate(syncedAt)}
+                          </DetailRow>
+                        ) : null;
+                      })()}
                     </dl>
+                    {!contact.email && (
+                      <p className="mt-3 text-[11px] text-muted-foreground">
+                        Este contacto no tiene email, requisito para sincronizar con HubSpot.
+                      </p>
+                    )}
                   </SurfaceCard>
                 </TabsContent>
               </Tabs>
             )}
     </DrawerShell>
+  );
+}
+
+function HubSpotSyncStatusBadge({ contact }: { contact: Contact }) {
+  const sync = contact.metadata?.hubspot_sync as Record<string, unknown> | undefined;
+  if (contact.hubspot_contact_id) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent"
+      >
+        Sincronizado
+      </Badge>
+    );
+  }
+  if (sync?.status === 'error') {
+    return (
+      <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-transparent">
+        Error de sincronización
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-[10px] bg-muted/40 border-transparent text-muted-foreground">
+      Sin sincronizar
+    </Badge>
   );
 }
 
