@@ -161,7 +161,7 @@ export function ScopeFiltersClient({
     <div className="flex flex-col gap-2">
       {scopeFilterOptions.roles.length > 1 && (
         <Select value={currentRoleKey || 'all'} onValueChange={onRoleChange}>
-          <SelectTrigger className="h-8 w-[170px] text-xs">
+          <SelectTrigger className="h-8 w-full text-xs">
             <SelectValue placeholder="Rol">{roleTriggerLabel(currentRoleKey)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -179,7 +179,7 @@ export function ScopeFiltersClient({
 
       {scopeFilterOptions.groups.length > 0 && (
         <Select value={currentGroupId || 'all'} onValueChange={onGroupChange}>
-          <SelectTrigger className="h-8 w-[190px] text-xs">
+          <SelectTrigger className="h-8 w-full text-xs">
             <SelectValue placeholder="Grupo">{groupTriggerLabel(currentGroupId)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -199,7 +199,7 @@ export function ScopeFiltersClient({
 
       {visibleUsers.length > 0 && (
         <Select value={currentUserId || 'all'} onValueChange={(v) => setParam(userKey, v)}>
-          <SelectTrigger className="h-8 w-[200px] text-xs">
+          <SelectTrigger className="h-8 w-full text-xs">
             <SelectValue placeholder="Usuario">{userTriggerLabel(currentUserId)}</SelectValue>
           </SelectTrigger>
           <SelectContent>

@@ -13,6 +13,11 @@ import type {
   ContactRelevanceStatus,
   ContactSource,
 } from '@/modules/contact-enrichment/types';
+import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import {
+  ScopeFilterDrawerSection,
+  type ScopeFilterState,
+} from '@/components/shared/scope-filters-client';
 
 // ── Label & style maps ─────────────────────────────────────────
 
@@ -149,15 +154,55 @@ function QualityCell({ candidate }: { candidate: PendingContactCandidate }) {
 
 interface ContactCandidatesDataTableClientProps {
   candidates: PendingContactCandidate[];
+  /** owner_id keyed by account_id — used for scope pre-filtering (candidate → account → owner). */
+  accountOwners?: Map<string, string>;
+  scopeFilterOptions?: ScopeFilterOptions;
 }
 
 export function ContactCandidatesDataTableClient({
   candidates,
+  accountOwners,
+  scopeFilterOptions,
 }: ContactCandidatesDataTableClientProps) {
   // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
   // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
   const [detailId, setDetailId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+
+  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
+    userId: '',
+    groupId: '',
+    roleKey: '',
+  });
+
+  const filteredCandidates = React.useMemo(() => {
+    if (!scopeFilterOptions?.showScopeFilters || !accountOwners) return candidates;
+    const { userId, groupId, roleKey } = scopeFilter;
+    if (!userId && !groupId && !roleKey) return candidates;
+    const allowedUserIds = new Set(
+      scopeFilterOptions.users
+        .filter((u) => {
+          if (roleKey && u.role_key !== roleKey) return false;
+          if (groupId) {
+            if (!u.group_id) return false;
+            const inSubtree = (gid: string): boolean => {
+              if (gid === groupId) return true;
+              const g = scopeFilterOptions.groups.find((x) => x.id === gid);
+              return g?.parent_group_id ? inSubtree(g.parent_group_id) : false;
+            };
+            if (!inSubtree(u.group_id)) return false;
+          }
+          return true;
+        })
+        .map((u) => u.id),
+    );
+    return candidates.filter((c) => {
+      const ownerId = c.account_id ? accountOwners.get(c.account_id) : undefined;
+      if (!ownerId) return false;
+      if (userId) return ownerId === userId;
+      return allowedUserIds.has(ownerId);
+    });
+  }, [candidates, scopeFilter, scopeFilterOptions, accountOwners]);
 
   const openDetail = React.useCallback((candidate: PendingContactCandidate) => {
     setDetailId(candidate.id);
@@ -297,11 +342,20 @@ export function ContactCandidatesDataTableClient({
     <>
     <DataTable
       columns={columns}
-      data={candidates}
+      data={filteredCandidates}
       getRowId={(row) => row.id}
       title="Candidatos por revisar"
       description="Perfiles encontrados por el Agente de contactos que pasaron el filtro de relevancia y esperan revisión humana."
-      count={candidates.length}
+      count={filteredCandidates.length}
+      settingsExtraSections={
+        scopeFilterOptions?.showScopeFilters ? (
+          <ScopeFilterDrawerSection
+            scopeFilterOptions={scopeFilterOptions}
+            value={scopeFilter}
+            onChange={setScopeFilter}
+          />
+        ) : undefined
+      }
       enableColumnReorder
       initialPageSize={20}
       fillHeight

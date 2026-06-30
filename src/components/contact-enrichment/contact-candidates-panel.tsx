@@ -7,6 +7,7 @@ import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-t
 import { ContactCandidatesDataTableClient } from '@/components/contact-enrichment/contact-candidates-data-table-client';
 import { getPendingContactCandidates } from '@/modules/contact-enrichment/actions';
 import { getAccountsList } from '@/modules/accounts/actions';
+import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 /**
  * Tab "Candidatos por revisar" del módulo Contactos (Hito 17A.4A).
@@ -18,12 +19,16 @@ import { getAccountsList } from '@/modules/accounts/actions';
  * conversacional ni "Crear contacto".
  */
 export async function ContactCandidatesPanel() {
-  const [candidates, accountsList] = await Promise.all([
+  const [candidates, accountsList, scopeFilterOptions] = await Promise.all([
     getPendingContactCandidates(),
     getAccountsList(),
+    getCommercialScopeFilterOptions(),
   ]);
 
   const accounts = accountsList.map((a) => ({ id: a.id, name: a.name }));
+  const accountOwners = new Map(
+    accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
+  );
 
   const total = candidates.length;
   const highRelevance = candidates.filter(
@@ -88,7 +93,11 @@ export async function ContactCandidatesPanel() {
         </div>
       }
     >
-      <ContactCandidatesDataTableClient candidates={candidates} />
+      <ContactCandidatesDataTableClient
+        candidates={candidates}
+        accountOwners={accountOwners}
+        scopeFilterOptions={scopeFilterOptions}
+      />
     </DataTablePage>
   );
 }
