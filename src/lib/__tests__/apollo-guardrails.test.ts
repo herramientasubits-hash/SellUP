@@ -11,6 +11,34 @@ import assert from 'node:assert/strict';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '../apollo-guardrails';
 
 describe('APOLLO_CONTACT_ENRICHMENT_GUARDRAILS', () => {
+  // ── Guardrails de búsqueda (17A.6D) ──────────────────────────
+  it('maxSearchAttempts = 3 (limita capas de búsqueda por run)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchAttempts, 3);
+  });
+
+  it('maxResultsPerSearchAttempt = 5 (per_page enviado a Apollo por intento)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxResultsPerSearchAttempt, 5);
+  });
+
+  it('maxSearchResultsPerRun = 15 (tope duro acumulado de resultados por run)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchResultsPerRun, 15);
+  });
+
+  it('maxEstimatedSearchCreditsPerRun = maxSearchResultsPerRun (Apollo cobra 1 crédito por resultado)', () => {
+    const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
+    assert.equal(g.maxEstimatedSearchCreditsPerRun, g.maxSearchResultsPerRun);
+  });
+
+  it('targetReviewableContacts = 2 (stop-early cuando se acumulan suficientes candidatos revisables)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.targetReviewableContacts, 2);
+  });
+
+  it('maxSearchResultsPerRun = maxSearchAttempts × maxResultsPerSearchAttempt (presupuesto consistente)', () => {
+    const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
+    assert.equal(g.maxSearchResultsPerRun, g.maxSearchAttempts * g.maxResultsPerSearchAttempt);
+  });
+
+  // ── Guardrails de completion ──────────────────────────────────
   it('maxCompletionCandidates = 3', () => {
     assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxCompletionCandidates, 3);
   });

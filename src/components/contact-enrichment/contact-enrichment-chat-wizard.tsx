@@ -186,6 +186,7 @@ export function ContactEnrichmentChatWizard({
       providerStatus: result.providerStatus ?? 'error',
       estimatedCostUsd: result.estimatedCostUsd ?? 0,
       costGuardrail: result.costGuardrail,
+      searchGuardrail: result.searchGuardrail,
       error: result.error,
     };
 

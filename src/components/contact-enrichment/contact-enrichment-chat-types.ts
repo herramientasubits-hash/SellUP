@@ -54,6 +54,15 @@ export interface ApolloEnrichmentUiResult {
   estimatedCostUsd: number;
   /** Guardrail de costo y completion (Hito 17A.6B). */
   costGuardrail?: ApolloEnrichmentUiCostGuardrail;
+  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  searchGuardrail?: {
+    max_search_attempts: number;
+    max_results_per_attempt: number;
+    max_results_per_run: number;
+    estimated_search_credits: number;
+    blocked_by_search_budget: boolean;
+    stopped_early_reason: string | null;
+  };
   error?: string;
 }
 

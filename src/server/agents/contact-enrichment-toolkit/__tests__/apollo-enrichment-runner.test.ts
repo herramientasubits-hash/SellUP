@@ -14,7 +14,7 @@ import {
   type ContactEnrichmentRunRow,
   type ApolloEnrichmentRunnerDeps,
 } from '../apollo-enrichment-runner';
-import type { ApolloPeopleAdapterResult } from '../apollo-people-adapter';
+import type { ApolloPeopleAdapterResult, SearchGuardrailMeta } from '../apollo-people-adapter';
 import {
   isActionableContactCandidate,
   type CompleteContactResult,
@@ -26,6 +26,15 @@ import type { AgentRunStep } from '@/modules/usage-tracking/types';
 interface DeduplicatedContactLike {
   enrichmentMetadata: Record<string, unknown>;
 }
+
+const DEFAULT_SEARCH_GUARDRAIL: SearchGuardrailMeta = {
+  max_search_attempts: 3,
+  max_results_per_attempt: 5,
+  max_results_per_run: 15,
+  estimated_search_credits: 2,
+  blocked_by_search_budget: false,
+  stopped_early_reason: 'target_reviewable_reached',
+};
 
 function person(id: string, email: string): ApolloPerson {
   return {

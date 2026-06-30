@@ -239,16 +239,30 @@ export function ApolloPreflightCard() {
       </p>
       <dl className="space-y-1.5 text-xs">
         <div className="flex justify-between">
+          <dt className="text-muted-foreground font-medium">Búsqueda Apollo</dt>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Máximo de intentos</dt>
+          <dd className="font-medium text-foreground">{g.maxSearchAttempts}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
+          <dd className="font-medium text-foreground">{g.maxSearchResultsPerRun}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Créditos estimados máximos de búsqueda</dt>
+          <dd className="font-medium text-foreground">{g.maxEstimatedSearchCreditsPerRun}</dd>
+        </div>
+        <div className="flex justify-between border-t border-border/30 pt-1.5 mt-1">
+          <dt className="text-muted-foreground font-medium">Completion de perfiles</dt>
+        </div>
+        <div className="flex justify-between">
           <dt className="text-muted-foreground">Máximo de perfiles a completar</dt>
           <dd className="font-medium text-foreground">{g.maxCompletionCandidates}</dd>
         </div>
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Créditos máximos estimados de completion</dt>
           <dd className="font-medium text-foreground">{g.maxCompletionCreditsPerRun}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Email revelado</dt>
-          <dd className="font-medium text-foreground">~{g.emailRevealCredits} crédito</dd>
         </div>
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Teléfono (de búsqueda)</dt>
@@ -263,8 +277,9 @@ export function ApolloPreflightCard() {
         </div>
       </dl>
       <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
-        Solo se completarán perfiles de alta relevancia (RR. HH., Talento, Aprendizaje, Cultura).
-        No se gastarán créditos en perfiles de baja relevancia o sin identidad suficiente.
+        La búsqueda puede consumir créditos según el plan. SellUp limita resultados e intentos para
+        evitar corridas amplias. Solo se completarán perfiles de alta relevancia (RR. HH., Talento,
+        Aprendizaje, Cultura).
         <br />
         <span className="mt-1 inline-block">
           Nota: para sincronizar con HubSpot, el contacto aprobado deberá tener email.
@@ -382,6 +397,44 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
             <p className="text-[11px] text-amber-600">
               Guardrail activado — algunos perfiles no se completaron para no superar el límite de{' '}
               {result.costGuardrail.max_credits_per_run} créditos.
+            </p>
+          )}
+        </div>
+      )}
+
+      {result.searchGuardrail && (
+        <div className="space-y-1.5 border-t border-border/50 pt-2">
+          <p className="text-[11px] font-medium text-muted-foreground">Búsqueda Apollo</p>
+          <dl className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Resultados evaluados</dt>
+              <dd className="font-medium text-foreground">
+                {result.searchGuardrail.estimated_search_credits}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Créditos estimados de búsqueda</dt>
+              <dd className="font-medium text-foreground">
+                {result.searchGuardrail.estimated_search_credits}
+              </dd>
+            </div>
+            {result.searchGuardrail.stopped_early_reason && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Motivo de corte</dt>
+                <dd className="text-muted-foreground">
+                  {result.searchGuardrail.stopped_early_reason === 'target_reviewable_reached'
+                    ? 'objetivo alcanzado'
+                    : result.searchGuardrail.stopped_early_reason === 'search_budget_reached'
+                      ? 'presupuesto agotado'
+                      : 'intentos agotados'}
+                </dd>
+              </div>
+            )}
+          </dl>
+          {result.searchGuardrail.blocked_by_search_budget && (
+            <p className="text-[11px] text-amber-600">
+              Búsqueda cortada por presupuesto — se superó el máximo de{' '}
+              {result.searchGuardrail.max_results_per_run} resultados.
             </p>
           )}
         </div>

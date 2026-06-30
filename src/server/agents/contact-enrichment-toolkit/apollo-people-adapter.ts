@@ -23,6 +23,7 @@ import {
   type ApolloSearchResult,
 } from '@/server/integrations/apollo-client';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
+import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import { normalizeApolloPerson } from './contact-normalizer';
 import { classifyNormalizedContact } from './contact-relevance-classifier';
 
@@ -65,14 +66,17 @@ export const TARGET_SENIORITIES: string[] = [
 /** Departamentos de Apollo relevantes para RR. HH. */
 export const HR_DEPARTMENTS: string[] = ['master_human_resources'];
 
-/** Límite por defecto de candidatos por run (control de costo). */
-export const DEFAULT_MAX_CANDIDATES = 10;
+/** Límite de resultados por intento (per_page). Deriva del guardrail compartido. */
+export const DEFAULT_MAX_CANDIDATES = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxResultsPerSearchAttempt;
 
-/** Tope duro para la cantidad de resultados crudos que pedimos a Apollo. */
-const HARD_RAW_FETCH_CAP = 25;
+/** Tope duro de intentos por run. Deriva del guardrail compartido. */
+const MAX_SEARCH_ATTEMPTS = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchAttempts;
 
-/** Tope duro de intentos por run (control de costo). */
-const MAX_SEARCH_ATTEMPTS = 7;
+/** Tope duro de resultados crudos acumulados por run (todos los intentos). */
+const MAX_SEARCH_RESULTS_PER_RUN = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchResultsPerRun;
+
+/** Contactos revisables que bastan para detener la búsqueda anticipadamente. */
+const TARGET_REVIEWABLE_CONTACTS = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.targetReviewableContacts;
 
 // ── Tipos ──────────────────────────────────────────────────────
 
@@ -99,6 +103,15 @@ export interface ApolloSearchAttemptMeta {
   rawResultsCount: number;
 }
 
+export interface SearchGuardrailMeta {
+  max_search_attempts: number;
+  max_results_per_attempt: number;
+  max_results_per_run: number;
+  estimated_search_credits: number;
+  blocked_by_search_budget: boolean;
+  stopped_early_reason: 'target_reviewable_reached' | 'search_budget_reached' | 'all_attempts_exhausted' | null;
+}
+
 export interface ApolloPeopleAdapterResult {
   status: 'success' | 'skipped' | 'error';
   people: ApolloPerson[];
@@ -107,6 +120,8 @@ export interface ApolloPeopleAdapterResult {
   attempts: ApolloSearchAttemptMeta[];
   /** Nombre del intento del que provienen `people` (para trazabilidad). */
   chosenAttempt?: string | null;
+  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). Siempre presente en runtime. */
+  searchGuardrail?: SearchGuardrailMeta;
   reason?: string;
 }
 
@@ -284,12 +299,22 @@ export async function searchApolloPeopleForCompany(
 ): Promise<ApolloPeopleAdapterResult> {
   const { isConnected = hasApolloApiKey, searchPeople = searchApolloPeople } = deps;
 
+  const baseSearchGuardrail: SearchGuardrailMeta = {
+    max_search_attempts: MAX_SEARCH_ATTEMPTS,
+    max_results_per_attempt: DEFAULT_MAX_CANDIDATES,
+    max_results_per_run: MAX_SEARCH_RESULTS_PER_RUN,
+    estimated_search_credits: 0,
+    blocked_by_search_budget: false,
+    stopped_early_reason: null,
+  };
+
   // 1. Datos mínimos suficientes.
   if (!hasMinimumData(input)) {
     return {
       status: 'skipped',
       people: [],
       attempts: [],
+      searchGuardrail: { ...baseSearchGuardrail, stopped_early_reason: null },
       reason: 'Datos insuficientes para Apollo: falta dominio y nombre de empresa',
     };
   }
@@ -301,21 +326,20 @@ export async function searchApolloPeopleForCompany(
       status: 'error',
       people: [],
       attempts: [],
+      searchGuardrail: { ...baseSearchGuardrail, stopped_early_reason: null },
       reason: 'Apollo no está conectado o no tiene credenciales disponibles',
     };
   }
 
-  const maxCandidates = Math.max(
-    1,
-    Math.min(input.maxCandidates ?? DEFAULT_MAX_CANDIDATES, HARD_RAW_FETCH_CAP),
-  );
-
-  const plans = buildAttemptPlans(input, maxCandidates);
+  const perPage = DEFAULT_MAX_CANDIDATES;
+  const plans = buildAttemptPlans(input, perPage);
 
   const attempts: ApolloSearchAttemptMeta[] = [];
   let totalRaw = 0;
   let chosen: ApolloPerson[] = [];
   let chosenAttempt: string | null = null;
+  let stoppedEarlyReason: SearchGuardrailMeta['stopped_early_reason'] = null;
+  let blockedBySearchBudget = false;
 
   // Mejor intento por cantidad de normalizables: usado solo si ningún intento
   // trae candidatos revisables, para que el runner pueda evaluarlos y
@@ -324,7 +348,17 @@ export async function searchApolloPeopleForCompany(
   let bestUsable = 0;
   let bestAttempt: string | null = null;
 
+  let totalReviewable = 0;
+
   for (const plan of plans) {
+    // Guardrail de presupuesto: si ya alcanzamos el máximo de resultados crudos,
+    // no hacemos más llamadas a Apollo aunque queden planes por ejecutar.
+    if (totalRaw >= MAX_SEARCH_RESULTS_PER_RUN) {
+      blockedBySearchBudget = true;
+      stoppedEarlyReason = 'search_budget_reached';
+      break;
+    }
+
     const result = await searchPeople(plan.params);
 
     // Error de proveedor → corta y reporta con los intentos hechos hasta ahora.
@@ -333,40 +367,64 @@ export async function searchApolloPeopleForCompany(
         status: 'error',
         people: [],
         attempts,
+        searchGuardrail: {
+          ...baseSearchGuardrail,
+          estimated_search_credits: totalRaw,
+          blocked_by_search_budget: false,
+          stopped_early_reason: null,
+        },
         reason: result.error?.message ?? 'Error consultando Apollo people search',
       };
     }
 
     const data = result.data ?? [];
-    totalRaw += data.length;
+    // Respeta el cap de resultados por run: nunca acumulamos más de lo permitido.
+    const remaining = MAX_SEARCH_RESULTS_PER_RUN - totalRaw;
+    const capped = data.slice(0, remaining);
+    totalRaw += capped.length;
+
     attempts.push({
       attempt: plan.name,
       filters: plan.filters,
-      rawResultsCount: data.length,
+      rawResultsCount: capped.length,
     });
 
-    // Stop early: solo nos detenemos si el intento trae candidatos REVISABLES
-    // (relevantes + con calidad mínima). Evita parar en ruido de un fallback amplio.
-    const reviewable = countReviewablePeople(data);
-    if (reviewable > 0) {
-      chosen = data.slice(0, maxCandidates);
+    // Stop early por revisables: detenemos si ya tenemos suficientes candidatos
+    // de calidad. Usa TARGET_REVIEWABLE_CONTACTS (no >0) para evitar parar
+    // en un único perfil marginal cuando podría haber mejores en el siguiente intento.
+    const reviewable = countReviewablePeople(capped);
+    totalReviewable += reviewable;
+    if (totalReviewable >= TARGET_REVIEWABLE_CONTACTS) {
+      chosen = capped.slice(0, perPage);
       chosenAttempt = plan.name;
+      stoppedEarlyReason = 'target_reviewable_reached';
       break;
     }
 
-    // Sin revisables aún: recuerda el intento con más normalizables.
-    const usable = data.filter(isNormalizablePerson).length;
+    // Sin suficientes revisables aún: recuerda el intento con más normalizables.
+    const usable = capped.filter(isNormalizablePerson).length;
     if (usable > bestUsable) {
       bestUsable = usable;
-      bestData = data;
+      bestData = capped;
       bestAttempt = plan.name;
     }
+
+    // Si este intento aportó algún revisable, registra los datos como candidato
+    // aunque no llegamos al target (puede ser el único intento exitoso).
+    if (reviewable > 0 && chosenAttempt === null) {
+      chosen = capped.slice(0, perPage);
+      chosenAttempt = plan.name;
+    }
+  }
+
+  if (stoppedEarlyReason === null) {
+    stoppedEarlyReason = 'all_attempts_exhausted';
   }
 
   // Ningún intento trajo revisables: devuelve el mejor por normalizables para
   // que el runner los clasifique y cuente como filtrados (o [] si todos vacíos).
   if (chosenAttempt === null && bestData.length > 0) {
-    chosen = bestData.slice(0, maxCandidates);
+    chosen = bestData.slice(0, perPage);
     chosenAttempt = bestAttempt;
   }
 
@@ -375,6 +433,14 @@ export async function searchApolloPeopleForCompany(
     people: chosen,
     attempts,
     chosenAttempt,
+    searchGuardrail: {
+      max_search_attempts: MAX_SEARCH_ATTEMPTS,
+      max_results_per_attempt: perPage,
+      max_results_per_run: MAX_SEARCH_RESULTS_PER_RUN,
+      estimated_search_credits: totalRaw,
+      blocked_by_search_budget: blockedBySearchBudget,
+      stopped_early_reason: stoppedEarlyReason,
+    },
     providerUsage: {
       provider: 'apollo',
       operation: 'people_search',

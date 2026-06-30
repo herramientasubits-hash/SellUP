@@ -14,6 +14,7 @@ import {
   searchApolloPeopleForCompany,
   DEFAULT_MAX_CANDIDATES,
   type ApolloPeopleAdapterResult,
+  type SearchGuardrailMeta,
 } from './apollo-people-adapter';
 import { normalizeApolloPeople, type NormalizedApolloContact } from './contact-normalizer';
 import {
@@ -101,6 +102,8 @@ export interface ApolloEnrichmentRunResult {
     actual_credits_total: number;
     blocked_profiles_count: number;
   };
+  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  searchGuardrail?: SearchGuardrailMeta;
   error?: string;
 }
 
@@ -253,6 +256,8 @@ interface ApolloEnrichmentSummaryBlock {
   estimated_cost_usd: number;
   /** Metadata por capa de búsqueda (fallback). Sin payload crudo. */
   search_attempts: ApolloSearchAttemptSummary[];
+  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  search_guardrail?: SearchGuardrailMeta;
   /** Resultado del filtro de relevancia/calidad (Hito 17A.3B). */
   relevance_filter?: RelevanceFilterSummary;
   /** Resultado del completado selectivo de datos (Hito 17A.3C). */
@@ -570,8 +575,10 @@ export async function executeContactEnrichmentApolloRun(
     ({ relevance }) => relevance.shouldInsertForReview,
   );
 
-  // 7b. Completado selectivo (Hito 17A.3C / 17A.6A):
+  // 7b. Completado selectivo (Hito 17A.3C / 17A.6A / 17A.6D):
   //     - Tope duro de candidatos (MAX_COMPLETION_CANDIDATES = 3).
+  //     - Guardrail de búsqueda (17A.6D): si el presupuesto de search fue excedido,
+  //       no seguimos a completion para no acumular más créditos.
   //     - Guardrail de costo PRE-vuelo: estima créditos antes de llamar a Apollo.
   //     - Si el estimado supera MAX_COMPLETION_CREDITS_PER_RUN → salta toda la completion.
   //     - Modelo de créditos interno (n8n): email=1, phone=8.
@@ -579,10 +586,19 @@ export async function executeContactEnrichmentApolloRun(
   const unitCost = await loadApolloUnitCost();
   const selected = selectCandidatesForCompletion(reviewableClassified, MAX_COMPLETION_CANDIDATES);
 
-  const guardrail: CompletionCostGuardrailResult = checkCompletionCostGuardrail(selected.length, {
-    phoneEnabled: PHONE_COMPLETION_ENABLED,
-    maxCreditsPerRun: MAX_COMPLETION_CREDITS_PER_RUN,
-  });
+  const searchBudgetExceeded = apollo.searchGuardrail?.blocked_by_search_budget ?? false;
+
+  const guardrail: CompletionCostGuardrailResult = searchBudgetExceeded
+    ? {
+        allowed: false,
+        estimatedCredits: apollo.searchGuardrail?.estimated_search_credits ?? 0,
+        maxCredits: MAX_COMPLETION_CREDITS_PER_RUN,
+        blockedReason: 'search_budget_exceeded',
+      }
+    : checkCompletionCostGuardrail(selected.length, {
+        phoneEnabled: PHONE_COMPLETION_ENABLED,
+        maxCreditsPerRun: MAX_COMPLETION_CREDITS_PER_RUN,
+      });
 
   const completionByContact = new Map<NormalizedApolloContact, CompleteContactResult>();
   let completionCredits = 0;
@@ -699,6 +715,7 @@ export async function executeContactEnrichmentApolloRun(
       possible_duplicates_count: dedup.possibleDuplicateCount,
       estimated_cost_usd: estimatedCostUsd,
       search_attempts: toAttemptSummaries(apollo.attempts),
+      search_guardrail: apollo.searchGuardrail,
       relevance_filter: relevanceFilter,
       contact_completion: completionSummary,
       reason: `Error al escribir candidatos: ${writeResult.error}`,
@@ -811,6 +828,7 @@ export async function executeContactEnrichmentApolloRun(
     possible_duplicates_count: dedup.possibleDuplicateCount,
     estimated_cost_usd: estimatedCostUsd,
     search_attempts: toAttemptSummaries(apollo.attempts),
+    search_guardrail: apollo.searchGuardrail,
     relevance_filter: relevanceFilter,
     contact_completion: completionSummary,
   };
@@ -867,5 +885,6 @@ export async function executeContactEnrichmentApolloRun(
     estimatedCostUsd,
     totalCandidates: insertedCount,
     costGuardrail: completionSummary.cost_guardrail,
+    searchGuardrail: apollo.searchGuardrail,
   };
 }

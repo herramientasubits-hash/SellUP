@@ -19,6 +19,7 @@ import {
   TARGET_SENIORITIES,
   HR_DEPARTMENTS,
 } from '../apollo-people-adapter';
+import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import type {
   ApolloPerson,
   ApolloSearchResult,
@@ -171,7 +172,7 @@ describe('searchApolloPeopleForCompany', () => {
     assert.equal(captured.length, 2); // nunca llega al tercer intento
   });
 
-  it('con dominio: si nada trae resultados → ejecuta los 7 intentos en orden (nombre HR antes del amplio)', async () => {
+  it('con dominio: si nada trae resultados → ejecuta los 3 intentos del guardrail (solo capas por dominio)', async () => {
     const captured: SearchPeopleParams[] = [];
     const result = await searchApolloPeopleForCompany(
       { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com' },
@@ -187,101 +188,63 @@ describe('searchApolloPeopleForCompany', () => {
     assert.equal(result.status, 'success');
     assert.equal(result.people.length, 0);
     assert.equal(result.chosenAttempt, null);
-    // 3 capas por dominio + 3 por nombre con filtros HR + 1 amplio por nombre.
-    assert.equal(captured.length, 7);
+    // Guardrail limita a maxSearchAttempts=3: solo las 3 capas por dominio.
+    assert.equal(captured.length, APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchAttempts);
     assert.deepEqual(
       result.attempts.map((a) => a.attempt),
-      [
-        'strict_hr_department',
-        'hr_titles_without_department',
-        'broad_seniorities_only',
-        'org_name_hr_department',
-        'org_name_hr_titles',
-        'org_name_hr_titles_no_seniority',
-        'broad_org_name_only',
-      ],
+      ['strict_hr_department', 'hr_titles_without_department', 'broad_seniorities_only'],
     );
-    // Intentos 4-6 usan q_organization_name CON filtros HR (no el amplio).
-    assert.equal(captured[3].q_organization_name, 'Corp');
-    assert.deepEqual(captured[3].person_department_or_subdepartments, HR_DEPARTMENTS);
-    assert.deepEqual(captured[4].person_titles, HR_PERSON_TITLES);
-    assert.deepEqual(captured[4].person_seniorities, TARGET_SENIORITIES);
-    assert.deepEqual(captured[5].person_titles, HR_PERSON_TITLES);
-    assert.equal(captured[5].person_seniorities, undefined);
-    // El 7º (último) intento es amplio: nombre sin filtros de persona.
-    assert.equal(captured[6].q_organization_name, 'Corp');
-    assert.equal(captured[6].q_organization_domains, undefined);
-    assert.equal(captured[6].person_seniorities, undefined);
-    assert.equal(captured[6].person_titles, undefined);
-    assert.equal(captured[6].person_department_or_subdepartments, undefined);
+    // Todos los intentos usan el dominio como filtro de organización.
+    assert.ok(captured.every((p) => Array.isArray(p.q_organization_domains)));
     // raw_results_count total = 0 → providerUsage refleja 0.
     assert.equal(result.providerUsage?.rawResultsCount, 0);
     assert.equal(result.providerUsage?.creditsUsed, 0);
   });
 
-  it('caso Bancolombia: dominio 0 en 3 capas, el 1er intento HR por nombre trae personas y para (no llega al amplio)', async () => {
+  it('caso Bancolombia: guardrail limita a 3 intentos por dominio aunque devuelvan 0 (sin fallback por nombre)', async () => {
+    // Con MAX_SEARCH_ATTEMPTS=3 y dominio disponible, solo se ejecutan las 3 capas
+    // por dominio. Los fallbacks por nombre quedan fuera del presupuesto de búsqueda.
     const captured: SearchPeopleParams[] = [];
     const result = await searchApolloPeopleForCompany(
-      { runId: 'run-1', companyName: 'Bancolombia', companyDomain: 'bancolombia.com', maxCandidates: 5 },
+      { runId: 'run-1', companyName: 'Bancolombia', companyDomain: 'bancolombia.com' },
       {
         isConnected: async () => true,
         searchPeople: async (params) => {
           captured.push(params);
-          // Capas 1-3 (con dominio) → 0; capas por nombre (HR) → personas revisables.
-          if (params.q_organization_domains) return ok([]);
-          if (params.q_organization_name) return ok(Array.from({ length: 3 }, (_, i) => person(`p-${i}`)));
           return ok([]);
         },
       },
     );
 
     assert.equal(result.status, 'success');
-    assert.equal(result.people.length, 3);
-    // Stop early en el 4º intento (1er intento HR por nombre): nunca llega al amplio.
-    assert.equal(captured.length, 4);
-    assert.equal(result.chosenAttempt, 'org_name_hr_department');
-    assert.equal(result.attempts[3].attempt, 'org_name_hr_department');
-    assert.equal(result.attempts[3].rawResultsCount, 3);
-    assert.ok(!result.attempts.some((a) => a.attempt === 'broad_org_name_only'));
-    assert.equal(captured[3].q_organization_name, 'Bancolombia');
+    assert.equal(result.people.length, 0);
+    // Solo las 3 capas del guardrail, todas por dominio.
+    assert.equal(captured.length, APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchAttempts);
+    assert.ok(captured.every((p) => Array.isArray(p.q_organization_domains)));
+    assert.ok(!result.attempts.some((a) => a.attempt === 'org_name_hr_department'));
   });
 
-  it('stop-early por revisabilidad: un intento amplio que solo trae ruido NO detiene la búsqueda', async () => {
-    // attempt 3 (broad_seniorities_only) trae un perfil normalizable pero NO relevante
-    // (Software Engineer); debe seguir hacia los intentos HR por nombre.
-    const noise: ApolloPerson = {
-      id: 'noise',
-      first_name: 'Diego',
-      last_name: 'Ramírez',
-      title: 'Software Engineer',
-      email: null,
-      linkedin_url: null,
-      phone_numbers: [],
-      organization: null,
-    };
+  it('stop-early por revisabilidad: al alcanzar targetReviewableContacts en attempt 1, no ejecuta attempt 2', async () => {
+    // Con targetReviewableContacts=2, en cuanto 2 candidatos revisables se acumulan,
+    // la búsqueda para y no consume más intentos.
     const captured: SearchPeopleParams[] = [];
     const result = await searchApolloPeopleForCompany(
-      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com', maxCandidates: 5 },
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com' },
       {
         isConnected: async () => true,
         searchPeople: async (params) => {
           captured.push(params);
-          // Capas 1-2 (dominio) → 0; capa 3 (broad seniorities) → ruido no relevante;
-          // capa 4 (HR por nombre) → candidato revisable.
-          if (captured.length === 3) return ok([noise]);
-          if (params.q_organization_name && params.person_department_or_subdepartments) {
-            return ok([person('hr-1')]);
-          }
-          return ok([]);
+          // Attempt 1 trae 3 personas con email → todas revisables (≥2 → stop).
+          return ok([person('p-0'), person('p-1'), person('p-2')]);
         },
       },
     );
 
     assert.equal(result.status, 'success');
-    // No paró en el ruido del intento 3: continuó hasta el intento HR por nombre.
-    assert.equal(result.chosenAttempt, 'org_name_hr_department');
-    assert.equal(result.people.length, 1);
-    assert.equal(result.people[0].id, 'hr-1');
+    // Stop early tras el primer intento: 3 revisables ≥ targetReviewableContacts=2.
+    assert.equal(captured.length, 1);
+    assert.equal(result.attempts[0].attempt, 'strict_hr_department');
+    assert.equal(result.searchGuardrail?.stopped_early_reason, 'target_reviewable_reached');
   });
 
   it('sin dominio (solo nombre): NO añade 4º fallback por nombre (sería redundante)', async () => {
@@ -303,16 +266,18 @@ describe('searchApolloPeopleForCompany', () => {
     assert.ok(!result.attempts.some((a) => a.attempt === 'broad_org_name_only'));
   });
 
-  it('no supera maxCandidates aunque Apollo devuelva más', async () => {
+  it('no supera maxResultsPerSearchAttempt del guardrail aunque Apollo devuelva más', async () => {
     const result = await searchApolloPeopleForCompany(
-      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com', maxCandidates: 3 },
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com' },
       {
         isConnected: async () => true,
         searchPeople: async () => ok(Array.from({ length: 20 }, (_, i) => person(`p-${i}`))),
       },
     );
 
-    assert.equal(result.people.length, 3);
+    // Guardrail limita a maxResultsPerSearchAttempt=5 por intento; el corte temprano por
+    // targetReviewableContacts=2 ocurre en el primer intento (todos tienen email).
+    assert.equal(result.people.length, APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxResultsPerSearchAttempt);
   });
 
   it('propaga error del proveedor como status error (con intentos previos)', async () => {

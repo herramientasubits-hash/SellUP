@@ -192,6 +192,15 @@ export interface RunApolloActionCostGuardrail {
   blocked_profiles_count: number;
 }
 
+export interface RunApolloActionSearchGuardrail {
+  max_search_attempts: number;
+  max_results_per_attempt: number;
+  max_results_per_run: number;
+  estimated_search_credits: number;
+  blocked_by_search_budget: boolean;
+  stopped_early_reason: 'target_reviewable_reached' | 'search_budget_reached' | 'all_attempts_exhausted' | null;
+}
+
 export interface RunApolloActionResult {
   success: boolean;
   status?: 'ready_for_review' | 'completed' | 'skipped' | 'error';
@@ -215,6 +224,8 @@ export interface RunApolloActionResult {
   estimatedCostUsd?: number;
   /** Guardrail de costo y completion (Hito 17A.6B). */
   costGuardrail?: RunApolloActionCostGuardrail;
+  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  searchGuardrail?: RunApolloActionSearchGuardrail;
   error?: string;
 }
 
@@ -251,6 +262,7 @@ export async function runContactEnrichmentApolloAction(
       providerStatus: result.providerStatus,
       estimatedCostUsd: result.estimatedCostUsd,
       costGuardrail: result.costGuardrail,
+      searchGuardrail: result.searchGuardrail,
       error: result.error,
     };
   } catch (err) {
