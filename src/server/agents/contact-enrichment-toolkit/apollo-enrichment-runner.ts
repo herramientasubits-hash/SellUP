@@ -15,6 +15,7 @@ import {
   DEFAULT_MAX_CANDIDATES,
   type ApolloPeopleAdapterResult,
   type SearchGuardrailMeta,
+  type ApolloOrgResolutionMeta,
 } from './apollo-people-adapter';
 import { normalizeApolloPeople, type NormalizedApolloContact } from './contact-normalizer';
 import {
@@ -267,6 +268,8 @@ interface ApolloEnrichmentSummaryBlock {
   search_attempts: ApolloSearchAttemptSummary[];
   /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
   search_guardrail?: SearchGuardrailMeta;
+  /** Resolución de organización Apollo (Hito 17A.8A). */
+  apollo_organization_resolution?: ApolloOrgResolutionMeta;
   /** Resultado del filtro de relevancia/calidad (Hito 17A.3B). */
   relevance_filter?: RelevanceFilterSummary;
   /** Resultado del completado selectivo de datos (Hito 17A.3C). */
@@ -533,6 +536,7 @@ export async function executeContactEnrichmentApolloRun(
       estimated_cost_usd: 0,
       search_attempts: toAttemptSummaries(apollo.attempts),
       search_guardrail: apollo.searchGuardrail,
+      apollo_organization_resolution: apollo.organizationResolution,
       reason: apollo.reason,
     };
     await updateRun(runId, {
@@ -768,6 +772,7 @@ export async function executeContactEnrichmentApolloRun(
       estimated_cost_usd: estimatedCostUsd,
       search_attempts: toAttemptSummaries(apollo.attempts),
       search_guardrail: apollo.searchGuardrail,
+      apollo_organization_resolution: apollo.organizationResolution,
       relevance_filter: relevanceFilter,
       contact_completion: completionSummary,
       reason: `Error al escribir candidatos: ${writeResult.error}`,
@@ -905,6 +910,7 @@ export async function executeContactEnrichmentApolloRun(
     estimated_cost_usd: estimatedCostUsd,
     search_attempts: toAttemptSummaries(apollo.attempts),
     search_guardrail: apollo.searchGuardrail,
+    apollo_organization_resolution: apollo.organizationResolution,
     relevance_filter: relevanceFilter,
     contact_completion: completionSummary,
   };

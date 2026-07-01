@@ -26,6 +26,10 @@ import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import { normalizeApolloPerson } from './contact-normalizer';
 import { classifyNormalizedContact } from './contact-relevance-classifier';
+import {
+  resolveApolloOrganization,
+  type ApolloOrgResolutionResult,
+} from './apollo-organization-resolver';
 
 // ── Filtros HR / seniority ─────────────────────────────────────
 
@@ -112,6 +116,17 @@ export interface SearchGuardrailMeta {
   stopped_early_reason: 'target_reviewable_reached' | 'search_budget_reached' | 'all_attempts_exhausted' | null;
 }
 
+export interface ApolloOrgResolutionMeta {
+  status: ApolloOrgResolutionResult['resolutionStatus'];
+  organization_id: string | null;
+  organization_name: string | null;
+  organization_domain: string | null;
+  resolution_method: 'domain' | 'name' | null;
+  domain_query_results: number;
+  name_query_results: number;
+  error?: string;
+}
+
 export interface ApolloPeopleAdapterResult {
   status: 'success' | 'skipped' | 'error';
   people: ApolloPerson[];
@@ -122,6 +137,8 @@ export interface ApolloPeopleAdapterResult {
   chosenAttempt?: string | null;
   /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). Siempre presente en runtime. */
   searchGuardrail?: SearchGuardrailMeta;
+  /** Resolución de organización Apollo (Hito 17A.8A). Presente cuando se ejecutó el resolver. */
+  organizationResolution?: ApolloOrgResolutionMeta;
   reason?: string;
 }
 
@@ -130,6 +147,15 @@ export interface ApolloPeopleAdapterResult {
 export interface ApolloPeopleAdapterDeps {
   isConnected?: () => Promise<boolean>;
   searchPeople?: (params: SearchPeopleParams) => Promise<ApolloSearchResult<ApolloPerson>>;
+  /**
+   * Resuelve el organization_id de Apollo para la empresa antes de buscar personas.
+   * Hito 17A.8A. Inyectable para tests. Default: implementación real.
+   * Pasar `async () => null` en tests que NO quieren probar la resolución de org.
+   */
+  resolveOrganization?: (
+    domain: string | null | undefined,
+    name: string,
+  ) => Promise<ApolloOrgResolutionResult | null>;
 }
 
 function hasMinimumData(input: ApolloPeopleAdapterInput): boolean {
@@ -190,24 +216,84 @@ interface AttemptPlan {
 }
 
 /**
- * Construye los planes de intento, de más estricto a más amplio.
+ * Construye planes de intento cuando se resolvió un organization_id de Apollo.
+ * Hito 17A.8A: organization_ids es el filtro más fiable en mixed_people/api_search.
+ *
+ * Estrategia:
+ *  Intento 1: org_id + department HR + seniorities (el más preciso)
+ *  Intento 2: org_id + títulos HR + seniorities
+ *  Intento 3: q_organization_name (fallback por nombre, señal diferente)
+ */
+function buildAttemptPlansWithOrgId(
+  input: ApolloPeopleAdapterInput,
+  perPage: number,
+  organizationId: string,
+): AttemptPlan[] {
+  const name = input.companyName?.trim() ?? '';
+  const orgDesc = `org_id=${organizationId}`;
+  const byOrgId: SearchPeopleParams = {
+    organization_ids: [organizationId],
+    page: 1,
+    per_page: perPage,
+  };
+  const byName: SearchPeopleParams = {
+    q_organization_name: name,
+    page: 1,
+    per_page: perPage,
+  };
+
+  const plans: AttemptPlan[] = [
+    {
+      name: 'org_id_hr_department',
+      filters: `org(${orgDesc}); department=HR; seniorities; sin titles`,
+      params: {
+        ...byOrgId,
+        person_seniorities: TARGET_SENIORITIES,
+        person_department_or_subdepartments: HR_DEPARTMENTS,
+      },
+    },
+    {
+      name: 'org_id_hr_titles',
+      filters: `org(${orgDesc}); titles=HR; seniorities; sin department`,
+      params: {
+        ...byOrgId,
+        person_titles: HR_PERSON_TITLES,
+        person_seniorities: TARGET_SENIORITIES,
+      },
+    },
+  ];
+
+  // Tercer intento: nombre como señal complementaria (captura perfiles que
+  // Apollo no devuelve por organization_id pero sí por nombre).
+  if (name) {
+    plans.push({
+      name: 'org_name_hr_titles_fallback',
+      filters: `org(nombre=${name}); titles=HR; seniorities; sin department`,
+      params: {
+        ...byName,
+        person_titles: HR_PERSON_TITLES,
+        person_seniorities: TARGET_SENIORITIES,
+      },
+    });
+  }
+
+  return plans.slice(0, MAX_SEARCH_ATTEMPTS);
+}
+
+/**
+ * Construye los planes de intento cuando NO se resolvió organization_id.
+ * Comportamiento original (Hito 17A.3A/17A.3B): prioriza dominio, fallback a nombre.
  *
  * Las capas 1-3 usan el filtro de organización preferente (dominio si existe).
- * La capa 4 es un fallback por nombre de organización (q_organization_name) SIN
- * filtros de persona: el diagnóstico (caso Bancolombia) confirmó que en este plan
- * de Apollo (mixed_people/api_search) ni q_organization_domains ni organization_ids
- * devuelven personas para empresas grandes cuyo dominio almacenado difiere
- * (p. ej. www.bancolombia.com), mientras que q_organization_name sí las trae.
- * Solo se añade cuando hay nombre y aporta una señal distinta a las capas previas
- * (es decir, cuando esas usaron el dominio como filtro de organización).
+ * La capa 4+ usa q_organization_name (caso Bancolombia: mixed_people/api_search
+ * puede ignorar q_organization_domains para empresas grandes).
  */
-function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): AttemptPlan[] {
+function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: number): AttemptPlan[] {
   const { filter, desc } = buildOrgFilter(input);
   const base: SearchPeopleParams = { ...filter, page: 1, per_page: perPage };
 
   const plans: AttemptPlan[] = [
     {
-      // Estricto pero no sobre-filtrado: department HR + seniorities, sin títulos.
       name: 'strict_hr_department',
       filters: `org(${desc}); department=HR; seniorities; sin titles`,
       params: {
@@ -217,7 +303,6 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
       },
     },
     {
-      // Títulos HR sin department.
       name: 'hr_titles_without_department',
       filters: `org(${desc}); titles=HR; seniorities; sin department`,
       params: {
@@ -227,7 +312,6 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
       },
     },
     {
-      // Fallback amplio controlado: solo seniorities, sin department ni titles.
       name: 'broad_seniorities_only',
       filters: `org(${desc}); seniorities; sin department; sin titles`,
       params: {
@@ -237,17 +321,13 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
     },
   ];
 
-  // Capas por nombre de organización (q_organization_name). Solo aportan valor
-  // cuando las capas previas filtraron por dominio; si ya filtraban por nombre
-  // (no había dominio) serían redundantes. Antes del fallback amplio (capa 7)
-  // se intenta acotar por HR para reducir ruido (caso Bancolombia).
+  // Capas por nombre (solo cuando las previas usaron dominio).
   const name = input.companyName?.trim();
   const usedDomain = !!input.companyDomain?.trim();
   if (name && usedDomain) {
     const byName: SearchPeopleParams = { q_organization_name: name, page: 1, per_page: perPage };
     plans.push(
       {
-        // Nombre + department HR + seniority.
         name: 'org_name_hr_department',
         filters: `org(nombre=${name}); department=HR; seniorities; sin titles`,
         params: {
@@ -257,7 +337,6 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
         },
       },
       {
-        // Nombre + títulos HR + seniority.
         name: 'org_name_hr_titles',
         filters: `org(nombre=${name}); titles=HR; seniorities; sin department`,
         params: {
@@ -267,7 +346,6 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
         },
       },
       {
-        // Nombre + títulos HR sin seniority (relaja un grado más).
         name: 'org_name_hr_titles_no_seniority',
         filters: `org(nombre=${name}); titles=HR; sin seniorities; sin department`,
         params: {
@@ -276,7 +354,6 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
         },
       },
       {
-        // Último recurso: nombre amplio, sin filtros de persona.
         name: 'broad_org_name_only',
         filters: `org(nombre=${name}); sin seniorities; sin titles; sin department`,
         params: { ...byName },
@@ -285,6 +362,17 @@ function buildAttemptPlans(input: ApolloPeopleAdapterInput, perPage: number): At
   }
 
   return plans.slice(0, MAX_SEARCH_ATTEMPTS);
+}
+
+function buildAttemptPlans(
+  input: ApolloPeopleAdapterInput,
+  perPage: number,
+  organizationId?: string | null,
+): AttemptPlan[] {
+  if (organizationId) {
+    return buildAttemptPlansWithOrgId(input, perPage, organizationId);
+  }
+  return buildAttemptPlansLegacy(input, perPage);
 }
 
 /**
@@ -297,7 +385,11 @@ export async function searchApolloPeopleForCompany(
   input: ApolloPeopleAdapterInput,
   deps: ApolloPeopleAdapterDeps = {},
 ): Promise<ApolloPeopleAdapterResult> {
-  const { isConnected = hasApolloApiKey, searchPeople = searchApolloPeople } = deps;
+  const {
+    isConnected = hasApolloApiKey,
+    searchPeople = searchApolloPeople,
+    resolveOrganization = resolveApolloOrganization,
+  } = deps;
 
   const baseSearchGuardrail: SearchGuardrailMeta = {
     max_search_attempts: MAX_SEARCH_ATTEMPTS,
@@ -331,8 +423,34 @@ export async function searchApolloPeopleForCompany(
     };
   }
 
+  // 3. Resolución de organización Apollo (Hito 17A.8A).
+  //    Non-blocking: si falla o no encuentra, continúa con el flujo legacy por dominio/nombre.
+  //    El organization_id (cuando existe) es más fiable que q_organization_domains en
+  //    mixed_people/api_search para empresas grandes (Siesa, Bancolombia, etc.).
+  let orgResolution: ApolloOrgResolutionResult | null = null;
+  try {
+    orgResolution = await resolveOrganization(input.companyDomain, input.companyName);
+  } catch {
+    // La resolución de org es best-effort. No bloquea el flujo.
+  }
+
+  const orgResolutionMeta: ApolloOrgResolutionMeta | undefined = orgResolution
+    ? {
+        status: orgResolution.resolutionStatus,
+        organization_id: orgResolution.organizationId,
+        organization_name: orgResolution.organizationName,
+        organization_domain: orgResolution.organizationDomain,
+        resolution_method: orgResolution.resolutionMethod,
+        domain_query_results: orgResolution.diagnostics.domain_query_results,
+        name_query_results: orgResolution.diagnostics.name_query_results,
+        error: orgResolution.error,
+      }
+    : undefined;
+
+  const resolvedOrgId = orgResolution?.organizationId ?? null;
+
   const perPage = DEFAULT_MAX_CANDIDATES;
-  const plans = buildAttemptPlans(input, perPage);
+  const plans = buildAttemptPlans(input, perPage, resolvedOrgId);
 
   const attempts: ApolloSearchAttemptMeta[] = [];
   let totalRaw = 0;
@@ -458,6 +576,7 @@ export async function searchApolloPeopleForCompany(
       blocked_by_search_budget: blockedBySearchBudget,
       stopped_early_reason: stoppedEarlyReason,
     },
+    organizationResolution: orgResolutionMeta,
     providerUsage: {
       provider: 'apollo',
       operation: 'people_search',
