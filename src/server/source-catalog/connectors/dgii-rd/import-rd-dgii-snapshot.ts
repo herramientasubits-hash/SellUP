@@ -25,6 +25,9 @@ import { join, dirname } from 'node:path';
 import { inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
+// CLI-only: Node < 22 has no global WebSocket, which the Supabase client needs.
+// Same pattern as SUNAT importer (Perú.9B). Must be called before createClient().
+import { ensureNode20WebSocketShim } from '../../../../../scripts/peru/ensure-node20-websocket-shim';
 import { headDgiiRncZip } from './dgii-bulk-client';
 import { parseDgiiLines } from './dgii-bulk-parser';
 import {
@@ -709,6 +712,9 @@ function printReport(report: ImportReport) {
 }
 
 async function main() {
+  // Node < 22 has no global WebSocket; install shim before Supabase client construction.
+  ensureNode20WebSocketShim();
+
   console.log('=== DGII República Dominicana — Snapshot Importer ===');
   console.log(`Hito: Centroamérica.1A.2`);
   console.log(`Tabla destino: ${SNAPSHOT_TABLE}`);

@@ -88,6 +88,10 @@ describe('normalizeDgiiStatus', () => {
     assert.equal(normalizeDgiiStatus('CESACIÓN TEMPORAL'), 'temporary_ceased');
   });
 
+  it('CESE TEMPORAL (variante corta del padrón) → temporary_ceased', () => {
+    assert.equal(normalizeDgiiStatus('CESE TEMPORAL'), 'temporary_ceased');
+  });
+
   it('valor desconocido → unknown', () => {
     assert.equal(normalizeDgiiStatus('OTRO ESTADO'), 'unknown');
   });
@@ -112,5 +116,9 @@ describe('isActiveDgiiTaxpayer', () => {
 
   it('CESACION TEMPORAL → false', () => {
     assert.equal(isActiveDgiiTaxpayer('CESACION TEMPORAL'), false);
+  });
+
+  it('CESE TEMPORAL → false', () => {
+    assert.equal(isActiveDgiiTaxpayer('CESE TEMPORAL'), false);
   });
 });

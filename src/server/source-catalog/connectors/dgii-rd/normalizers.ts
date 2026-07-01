@@ -41,8 +41,13 @@ export function normalizeDgiiStatus(value: string): DgiiNormalizedStatus {
   if (upper === 'ACTIVO') return 'active';
   if (upper === 'SUSPENDIDO') return 'suspended';
   if (upper === 'DADO DE BAJA') return 'inactive';
-  // Acepta con o sin tilde
-  if (upper === 'CESACION TEMPORAL' || upper === 'CESACIÓN TEMPORAL') return 'temporary_ceased';
+  // Acepta con o sin tilde; incluye variante corta CESE TEMPORAL que también aparece en el padrón
+  if (
+    upper === 'CESACION TEMPORAL' ||
+    upper === 'CESACIÓN TEMPORAL' ||
+    upper === 'CESE TEMPORAL'
+  )
+    return 'temporary_ceased';
   return 'unknown';
 }
 

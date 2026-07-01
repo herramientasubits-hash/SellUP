@@ -1,6 +1,6 @@
 /**
  * Tests para el importer snapshot DGII República Dominicana.
- * Centroamérica.1A.2
+ * Centroamérica.1A.2 / 1A.2C
  *
  * Verificaciones:
  * 1. CLI strict integer parsing rechaza 1e+06.
@@ -15,6 +15,8 @@
  * 10. No usa WebForms POST.
  * 11. No usa API Dominican Technology.
  * 12. No usa SOAP.
+ * 13. Shim Node 20: el módulo shim es importable y su función es no-op cuando WebSocket ya existe.
+ * 14. El script oficial puede ejecutar dry-run con offset alto sin runner temporal.
  */
 
 import { describe, it } from 'node:test';
@@ -415,5 +417,47 @@ describe('validateConfig', () => {
         reuseLocal: false,
       }),
     );
+  });
+});
+
+// ── 13. Shim Node 20 ───────────────────────────────────────────────────────────
+
+describe('Node 20 WebSocket shim', () => {
+  it('shim module is importable from scripts/peru/', async () => {
+    const { ensureNode20WebSocketShim } = await import(
+      '../../../../../../scripts/peru/ensure-node20-websocket-shim'
+    );
+    assert.equal(typeof ensureNode20WebSocketShim, 'function');
+  });
+
+  it('ensureNode20WebSocketShim is a no-op when WebSocket already exists', async () => {
+    const { ensureNode20WebSocketShim } = await import(
+      '../../../../../../scripts/peru/ensure-node20-websocket-shim'
+    );
+    // Save original state
+    const original = (globalThis as Record<string, unknown>)['WebSocket'];
+    // Ensure a WebSocket exists
+    (globalThis as Record<string, unknown>)['WebSocket'] = class FakeWS {};
+    const before = (globalThis as Record<string, unknown>)['WebSocket'];
+    ensureNode20WebSocketShim();
+    const after = (globalThis as Record<string, unknown>)['WebSocket'];
+    assert.equal(before, after, 'shim must not replace existing WebSocket');
+    // Restore
+    (globalThis as Record<string, unknown>)['WebSocket'] = original;
+  });
+});
+
+// ── 14. Dry-run funciona en offset alto sin runner temporal ───────────────────
+
+describe('dry-run in high offset window', () => {
+  it('parseCliArgs parses high offset correctly without scientific notation', () => {
+    const config = parseCliArgs(['node', 'script.ts', '--offset', '551000', '--limit', '1000']);
+    assert.equal(config.offset, 551000);
+    assert.equal(config.limit, 1000);
+    assert.equal(config.dryRun, true);
+  });
+
+  it('parseStrictNonNegativeIntegerArg handles offset 551000 as plain integer', () => {
+    assert.equal(parseStrictNonNegativeIntegerArg('551000', '--offset'), 551000);
   });
 });
