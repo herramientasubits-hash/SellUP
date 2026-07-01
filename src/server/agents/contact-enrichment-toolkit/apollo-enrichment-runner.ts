@@ -41,6 +41,11 @@ import {
   type ClassifiedCandidate,
   type CompletionCostGuardrailResult,
 } from './contact-completion-adapter';
+import {
+  evaluateApolloBudgetAlertOnly,
+  APOLLO_PROJECTED_CREDITS_CONSERVATIVE,
+  type ApolloBudgetCheckMeta,
+} from '@/modules/budgets/apollo-budget-alert';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
 const APOLLO_OPERATION_KEY = 'people_search';
@@ -104,6 +109,8 @@ export interface ApolloEnrichmentRunResult {
   };
   /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
   searchGuardrail?: SearchGuardrailMeta;
+  /** Evaluación de presupuesto alert-only (Hito E). */
+  budgetCheck?: ApolloBudgetCheckMeta;
   error?: string;
 }
 
@@ -137,6 +144,8 @@ export interface ApolloEnrichmentRunnerDeps {
   logUsage?: typeof logProviderUsage;
   createStep?: typeof createAgentRunStep;
   finishStep?: typeof finishAgentRunStep;
+  /** Evaluación de presupuesto alert-only (Hito E). Inyectable para tests. */
+  evaluateBudget?: (userId: string, projectedCredits: number) => Promise<ApolloBudgetCheckMeta>;
 }
 
 // ── Implementaciones por defecto (DB real) ─────────────────────
@@ -435,6 +444,7 @@ export async function executeContactEnrichmentApolloRun(
     logUsage = logProviderUsage,
     createStep = createAgentRunStep,
     finishStep = finishAgentRunStep,
+    evaluateBudget = evaluateApolloBudgetAlertOnly,
   } = deps;
 
   const startMs = Date.now();
@@ -462,6 +472,12 @@ export async function executeContactEnrichmentApolloRun(
 
   const prevSummary = run.summary ?? {};
   const searchedAt = new Date().toISOString();
+
+  // 2b. Evaluación de presupuesto alert-only (Hito E).
+  //     Nunca bloquea. triggeredBy es internalUserId cuando viene de actions.ts.
+  const budgetMeta: ApolloBudgetCheckMeta | null = triggeredBy
+    ? await evaluateBudget(triggeredBy, APOLLO_PROJECTED_CREDITS_CONSERVATIVE)
+    : null;
 
   // 3. Marcar enriching + abrir step
   await updateRun(runId, { status: 'enriching' });
@@ -799,6 +815,7 @@ export async function executeContactEnrichmentApolloRun(
       pricing_basis: 'per_result_as_credit',
       unit_cost_usd: unitCost,
       search_guardrail: apollo.searchGuardrail ?? null,
+      budget_check: budgetMeta,
     },
   });
 
@@ -908,5 +925,6 @@ export async function executeContactEnrichmentApolloRun(
     totalCandidates: insertedCount,
     costGuardrail: completionSummary.cost_guardrail,
     searchGuardrail: apollo.searchGuardrail,
+    budgetCheck: budgetMeta ?? undefined,
   };
 }
