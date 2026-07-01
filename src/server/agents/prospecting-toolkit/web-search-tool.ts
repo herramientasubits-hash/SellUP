@@ -41,6 +41,7 @@ import {
   type TavilyUsageDeps,
 } from './tavily-usage-logging';
 import { loadActiveTavilyMultiQueryPricing } from '@/modules/usage-tracking/provider-pricing';
+import { evaluateTavilyBudgetAlertOnly } from '@/modules/budgets/tavily-budget-alert';
 
 // Re-exportar desde query-builder para mantener la API pública estable
 export {
@@ -311,6 +312,12 @@ export async function runMultiQueryWebSearch(
     const usageKey = buildTavilyUsageKey(usageContext.batchId, usageContext.roundNumber);
     const { status, errorCode } = computeAggregateStatus(queryResults);
 
+    const budgetCheck = await evaluateTavilyBudgetAlertOnly(
+      usageContext.triggeredByUserId,
+      creditsUsed,
+      'multi_query_web_search',
+    );
+
     const usageMetadata: Record<string, unknown> = {
       round_number: usageContext.roundNumber,
       queries_planned: queries.length,
@@ -330,6 +337,7 @@ export async function runMultiQueryWebSearch(
       pipeline_mode: 'multi_query',
       agent_key: 'prospect_generation',
       request_source: 'prospect_chat_wizard',
+      budget_check: budgetCheck,
     };
 
     const logger = usageDeps?.logUsage ?? realLogTavilyUsage;

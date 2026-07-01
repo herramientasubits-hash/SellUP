@@ -26,6 +26,7 @@ import type { LogProviderUsageInput, ProviderUsageStatus } from '@/modules/usage
 import type { ActivePricingConfig } from '@/modules/usage-tracking/provider-pricing';
 import type { WebSearchInput, WebSearchOutput, WebSearchProviderKey, MultiQueryQueryResult } from './types';
 import type { LinkedInUsageLogPayload, LinkedInUsageLoggerFn } from './linkedin-company-search';
+import { evaluateTavilyBudgetAlertOnly } from '@/modules/budgets/tavily-budget-alert';
 
 // ─── Tipos de contexto ────────────────────────────────────────────────────────
 
@@ -277,6 +278,14 @@ export function createLinkedInUsageLoggerFn(
       throw new Error('missing_batch_id_for_linkedin_usage_log');
     }
 
+    const effectiveUserId = payload.user_id ?? userId ?? undefined;
+    const linkedInCredits = creditsForSearchDepth(payload.search_depth);
+    const budgetCheck = await evaluateTavilyBudgetAlertOnly(
+      effectiveUserId ?? null,
+      linkedInCredits,
+      payload.feature,
+    );
+
     const input: LogProviderUsageInput = {
       batch_id: payload.batch_id,
       usage_key: payload.usage_key,
@@ -286,11 +295,11 @@ export function createLinkedInUsageLoggerFn(
       // Tavily bills 1 credit per basic search; payload.search_depth is always
       // 'basic' for LinkedIn company search. Previously omitted, which left
       // credits_used NULL in provider_usage_logs (cost was logged, credits weren't).
-      credits_used: creditsForSearchDepth(payload.search_depth),
+      credits_used: linkedInCredits,
       results_returned: payload.result_count,
       estimated_cost_usd: payload.estimated_cost_usd ?? 0,
       status: payload.status === 'success' ? 'success' : 'error',
-      triggered_by: payload.user_id ?? userId ?? undefined,
+      triggered_by: effectiveUserId,
       metadata: {
         feature: payload.feature,
         agent: payload.agent,
@@ -301,6 +310,7 @@ export function createLinkedInUsageLoggerFn(
         selected_status: payload.selected_status,
         selected_url: payload.selected_url,
         query_length: payload.query.length,
+        budget_check: budgetCheck,
       },
     };
 
