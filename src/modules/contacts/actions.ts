@@ -82,6 +82,9 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
 import { checkAccountActiveForContact } from './account-active-guard';
 export { checkAccountActiveForContact };
 
+import { findContactDuplicate, dedupErrorMessage } from './contact-dedup';
+export type { ExistingContactForDedup, ContactDedupInput, DedupMatch } from './contact-dedup';
+
 // ============================================================
 // Utilidades
 // ============================================================
@@ -221,6 +224,21 @@ export async function createContact(
   if (!fullName) return { success: false, error: 'El nombre completo es requerido' };
 
   const email = sanitizeEmail(input.email);
+
+  // ── Deduplicación server-side (Hito 17A.7D) ─────────────────────
+  const { data: existingContacts } = await supabase
+    .from('contacts')
+    .select('id, email, linkedin_url, full_name')
+    .eq('account_id', input.account_id)
+    .is('archived_at', null);
+
+  const dupMatch = findContactDuplicate(
+    { email: input.email, linkedin_url: input.linkedin_url, full_name: fullName },
+    existingContacts ?? [],
+  );
+  if (dupMatch) return { success: false, error: dedupErrorMessage(dupMatch.matchedBy) };
+  // ────────────────────────────────────────────────────────────────
+
   const isPrimary = input.is_primary ?? false;
 
   if (isPrimary) {
