@@ -12,6 +12,13 @@ import {
 import type { BudgetOnExceed } from '@/modules/usage-tracking/types';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
+import {
+  getMeasurementStatus,
+  MEASUREMENT_STATUS_LABEL,
+  MEASUREMENT_STATUS_DESCRIPTION,
+  MEASUREMENT_STATUS_BADGE,
+  type MeasurementStatus,
+} from '@/modules/budgets/provider-measurement';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
@@ -27,7 +34,9 @@ function formatAmount(credits: number | null, usd: number | null): string {
   return parts.join(' · ') || '—';
 }
 
-function computeStatus(row: AdminProviderBudgetRow): 'no_rule' | 'ok' | 'warning' | 'exceeded' {
+type BudgetStatus = 'no_rule' | 'ok' | 'warning' | 'exceeded';
+
+function computeBudgetStatus(row: AdminProviderBudgetRow): BudgetStatus {
   if (row.activeRules === 0) return 'no_rule';
   const overCredits = row.remainingCredits != null && row.remainingCredits <= 0;
   const overUsd = row.remainingUsd != null && row.remainingUsd <= 0;
@@ -44,12 +53,15 @@ function computeStatus(row: AdminProviderBudgetRow): 'no_rule' | 'ok' | 'warning
   return 'ok';
 }
 
-const STATUS_BADGE: Record<string, { label: string; className: string }> = {
+const BUDGET_STATUS_BADGE: Record<BudgetStatus, { label: string; className: string }> = {
   no_rule:  { label: 'Sin regla',    className: 'border-border/40 bg-muted/30 text-muted-foreground' },
   ok:       { label: 'OK',           className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' },
   warning:  { label: 'Advertencia',  className: 'border-amber-500/30 bg-amber-500/10 text-amber-500' },
   exceeded: { label: 'Excedido',     className: 'border-destructive/30 bg-destructive/10 text-destructive' },
 };
+
+const STATUS_BADGE_NOT_MEASURED = { label: 'No medido', className: 'border-border/30 bg-muted/20 text-muted-foreground/60' };
+const STATUS_BADGE_PREPARED = { label: 'Preparado', className: 'border-border/40 bg-muted/30 text-muted-foreground' };
 
 const ACTION_LABEL: Record<BudgetOnExceed | 'none', string> = {
   alert:            'Alertar',
@@ -59,12 +71,12 @@ const ACTION_LABEL: Record<BudgetOnExceed | 'none', string> = {
 };
 
 const OUTCOME_BADGE: Record<string, { label: string; className: string }> = {
-  allowed:       { label: 'Permitido',         className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' },
-  alerted:       { label: 'Alerta',            className: 'border-amber-500/30 bg-amber-500/10 text-amber-500' },
-  would_block:   { label: 'Habría bloqueado',  className: 'border-destructive/30 bg-destructive/10 text-destructive' },
-  technical_error:{ label: 'Error técnico',    className: 'border-border/40 bg-muted/30 text-muted-foreground' },
-  missing_user:  { label: 'Sin usuario',       className: 'border-border/40 bg-muted/30 text-muted-foreground' },
-  unknown:       { label: 'Desconocido',       className: 'border-border/40 bg-muted/30 text-muted-foreground' },
+  allowed:        { label: 'Permitido',         className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' },
+  alerted:        { label: 'Alerta',            className: 'border-amber-500/30 bg-amber-500/10 text-amber-500' },
+  would_block:    { label: 'Habría bloqueado',  className: 'border-destructive/30 bg-destructive/10 text-destructive' },
+  technical_error:{ label: 'Error técnico',     className: 'border-border/40 bg-muted/30 text-muted-foreground' },
+  missing_user:   { label: 'Sin usuario',       className: 'border-border/40 bg-muted/30 text-muted-foreground' },
+  unknown:        { label: 'Desconocido',       className: 'border-border/40 bg-muted/30 text-muted-foreground' },
 };
 
 function formatDateShort(iso: string): string {
@@ -81,6 +93,76 @@ function formatDateLong(iso: string): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+}
+
+// ── Derived display values per measurement status ─────────────────────────────
+
+interface RowDisplay {
+  consumed: string;
+  limit: string;
+  available: string;
+  statusBadge: { label: string; className: string };
+  actionLabel: string;
+  canViewEvals: boolean;
+}
+
+function deriveRowDisplay(row: AdminProviderBudgetRow, ms: MeasurementStatus): RowDisplay {
+  if (ms === 'not_measured') {
+    return {
+      consumed:    '—',
+      limit:       'No aplica',
+      available:   'No aplica',
+      statusBadge: STATUS_BADGE_NOT_MEASURED,
+      actionLabel: 'No aplica',
+      canViewEvals: false,
+    };
+  }
+
+  if (ms === 'prepared') {
+    const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
+    return {
+      consumed:    '—',
+      limit:       hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
+      available:   hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
+      statusBadge: STATUS_BADGE_PREPARED,
+      actionLabel: row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
+      canViewEvals: true,
+    };
+  }
+
+  // active
+  const budgetStatus = computeBudgetStatus(row);
+  const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
+  const hasSpecificRulesOnly = row.activeRules > 0 && !hasGlobalRule;
+
+  const limit = hasGlobalRule
+    ? formatAmount(row.globalLimitCredits, row.globalLimitUsd)
+    : hasSpecificRulesOnly
+      ? 'Reglas específicas'
+      : 'Sin regla';
+
+  const available = hasGlobalRule
+    ? formatAmount(row.remainingCredits, row.remainingUsd)
+    : hasSpecificRulesOnly
+      ? 'Ver reglas'
+      : 'No aplica';
+
+  const actionKey: BudgetOnExceed | 'none' = hasSpecificRulesOnly
+    ? 'none'
+    : (row.onExceed as BudgetOnExceed) ?? 'none';
+
+  const actionLabel = hasSpecificRulesOnly
+    ? 'Por alcance'
+    : ACTION_LABEL[actionKey];
+
+  return {
+    consumed:    formatAmount(row.consumedCredits, row.consumedUsd),
+    limit,
+    available,
+    statusBadge: BUDGET_STATUS_BADGE[budgetStatus],
+    actionLabel,
+    canViewEvals: true,
+  };
 }
 
 // ── Latest evaluation cell ─────────────────────────────────────────────────
@@ -207,7 +289,53 @@ function LogEntryCard({ log }: { log: BudgetCheckLogEntry }) {
   );
 }
 
-// ── Side panel ────────────────────────────────────────────────────────────
+// ── Side panel status header ──────────────────────────────────────────────────
+
+function DrawerStatusHeader({
+  row,
+  ms,
+}: {
+  row: AdminProviderBudgetRow;
+  ms: MeasurementStatus;
+}) {
+  const msBadge = MEASUREMENT_STATUS_BADGE[ms];
+  const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
+  const ruleLabel = row.activeRules === 0
+    ? 'Ninguna'
+    : hasGlobalRule
+      ? 'Global'
+      : 'Específicas (por alcance)';
+
+  return (
+    <div className="mb-5 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1">Estado de medición</p>
+          <span
+            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${msBadge.className}`}
+          >
+            {MEASUREMENT_STATUS_LABEL[ms]}
+          </span>
+        </div>
+        {ms === 'active' && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1">Regla en última evaluación</p>
+            <p className="text-xs font-medium text-foreground">{ruleLabel}</p>
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+        {ms === 'not_measured'
+          ? 'Este proveedor no está siendo medido como consumo directo de SellUp por ahora.'
+          : ms === 'prepared'
+            ? 'Este proveedor todavía no tiene consumos registrados desde SellUp.'
+            : 'Las evaluaciones se registran cuando el proveedor consume créditos desde SellUp.'}
+      </p>
+    </div>
+  );
+}
+
+// ── Side panel ────────────────────────────────────────────────────────────────
 
 function ProviderActivityDrawer({
   provider,
@@ -218,6 +346,8 @@ function ProviderActivityDrawer({
   open: boolean;
   onClose: () => void;
 }) {
+  const ms = provider ? getMeasurementStatus(provider.providerKey) : 'prepared';
+
   return (
     <DrawerShell
       open={open}
@@ -241,14 +371,20 @@ function ProviderActivityDrawer({
     >
       {provider && (
         <div className="space-y-3">
+          <DrawerStatusHeader row={provider} ms={ms} />
+
           {provider.recentBudgetCheckLogs.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center">
               <p className="text-sm text-muted-foreground">
-                No hay evaluaciones de presupuesto registradas para este proveedor.
+                {ms === 'not_measured'
+                  ? 'Este proveedor no genera evaluaciones de presupuesto en SellUp.'
+                  : 'No hay evaluaciones de presupuesto registradas para este proveedor.'}
               </p>
-              <p className="text-xs text-muted-foreground/60">
-                Las evaluaciones aparecen aquí después de la primera ejecución.
-              </p>
+              {ms !== 'not_measured' && (
+                <p className="text-xs text-muted-foreground/60">
+                  Las evaluaciones aparecen aquí después de la primera ejecución.
+                </p>
+              )}
             </div>
           ) : (
             provider.recentBudgetCheckLogs.map((log) => (
@@ -261,7 +397,19 @@ function ProviderActivityDrawer({
   );
 }
 
-// ── Main table ────────────────────────────────────────────────────────────────
+// ── Main table ─────────────────────────────────────────────────────────────────
+
+const COLUMNS = [
+  'Proveedor',
+  'Reglas activas',
+  'Consumo del mes',
+  'Límite por regla',
+  'Disponible por regla',
+  'Estado de presupuesto',
+  'Última evaluación',
+  'Acción configurada',
+  '',
+];
 
 export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<AdminProviderBudgetRow | null>(null);
@@ -288,17 +436,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/40 bg-muted/20">
-                {[
-                  'Proveedor',
-                  'Reglas activas',
-                  'Consumido',
-                  'Límite global',
-                  'Disponible',
-                  'Estado',
-                  'Última evaluación',
-                  'Acción configurada',
-                  '',
-                ].map((col) => (
+                {COLUMNS.map((col) => (
                   <th
                     key={col}
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground"
@@ -310,53 +448,86 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
             </thead>
             <tbody className="divide-y divide-border/30">
               {providers.map((row) => {
-                const status = computeStatus(row);
-                const badge = STATUS_BADGE[status];
-                const actionKey: BudgetOnExceed | 'none' = (row.onExceed as BudgetOnExceed) ?? 'none';
-                const consumed = formatAmount(row.consumedCredits, row.consumedUsd);
-                const limit = formatAmount(row.globalLimitCredits, row.globalLimitUsd);
-                const available = formatAmount(row.remainingCredits, row.remainingUsd);
+                const ms = getMeasurementStatus(row.providerKey);
+                const display = deriveRowDisplay(row, ms);
+                const msBadge = MEASUREMENT_STATUS_BADGE[ms];
 
                 return (
                   <tr
                     key={row.providerKey}
                     className="hover:bg-muted/10 transition-colors"
                   >
+                    {/* Proveedor */}
                     <td className="px-4 py-3">
-                      <div>
+                      <div className="space-y-1">
                         <span className="font-medium text-foreground">
                           {row.displayName ?? row.providerKey}
                         </span>
-                        <span className="ml-2 text-[10px] text-muted-foreground/60">
-                          {row.providerKey}
-                        </span>
+                        <div>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}
+                          >
+                            {MEASUREMENT_STATUS_LABEL[ms]}
+                          </span>
+                          <span className="ml-1.5 text-[10px] text-muted-foreground/50">
+                            {MEASUREMENT_STATUS_DESCRIPTION[ms]}
+                          </span>
+                        </div>
                       </div>
                     </td>
+
+                    {/* Reglas activas */}
                     <td className="px-4 py-3 text-muted-foreground">
-                      {row.activeRules > 0 ? row.activeRules : '—'}
+                      {ms === 'not_measured' ? (
+                        <span className="text-muted-foreground/40">—</span>
+                      ) : row.activeRules > 0 ? (
+                        row.activeRules
+                      ) : (
+                        '—'
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-foreground">{consumed}</td>
-                    <td className="px-4 py-3 text-foreground">{limit}</td>
-                    <td className="px-4 py-3 text-foreground">{available}</td>
+
+                    {/* Consumo del mes */}
+                    <td className="px-4 py-3 text-foreground">{display.consumed}</td>
+
+                    {/* Límite por regla */}
+                    <td className="px-4 py-3 text-foreground text-xs">{display.limit}</td>
+
+                    {/* Disponible por regla */}
+                    <td className="px-4 py-3 text-foreground text-xs">{display.available}</td>
+
+                    {/* Estado de presupuesto */}
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${badge.className}`}
+                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${display.statusBadge.className}`}
                       >
-                        {badge.label}
+                        {display.statusBadge.label}
                       </span>
                     </td>
+
+                    {/* Última evaluación */}
                     <td className="px-4 py-3">
-                      <LatestEvalCell log={row.latestBudgetCheckLog ?? null} />
+                      {ms === 'not_measured' ? (
+                        <span className="text-xs text-muted-foreground/40">No aplica</span>
+                      ) : (
+                        <LatestEvalCell log={row.latestBudgetCheckLog ?? null} />
+                      )}
                     </td>
+
+                    {/* Acción configurada */}
                     <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {ACTION_LABEL[actionKey]}
+                      {display.actionLabel}
                     </td>
+
+                    {/* Ver evaluaciones */}
                     <td className="px-4 py-3">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                        onClick={() => setSelectedProvider(row)}
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30"
+                        onClick={() => display.canViewEvals && setSelectedProvider(row)}
+                        disabled={!display.canViewEvals}
+                        aria-label={`Ver evaluaciones de ${row.displayName ?? row.providerKey}`}
                       >
                         <Activity className="h-3 w-3 mr-1" />
                         Ver evaluaciones

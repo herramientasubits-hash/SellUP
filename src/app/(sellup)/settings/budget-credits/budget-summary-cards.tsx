@@ -1,8 +1,9 @@
 'use client';
 
-import { Cpu, ShieldCheck, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Cpu, Activity, TrendingUp, AlertTriangle } from 'lucide-react';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
+import { getMeasurementStatus } from '@/modules/budgets/provider-measurement';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
@@ -10,11 +11,17 @@ interface Props {
 
 export function BudgetSummaryCards({ providers }: Props) {
   const totalProviders = providers.length;
-  const withRules = providers.filter((p) => p.activeRules > 0).length;
-  const withoutGlobalRule = providers.filter((p) => p.globalLimitCredits == null && p.globalLimitUsd == null).length;
 
-  const totalCredits = providers.reduce((acc, p) => acc + p.consumedCredits, 0);
-  const totalUsd = providers.reduce((acc, p) => acc + p.consumedUsd, 0);
+  const activeProviders = providers.filter(
+    (p) => getMeasurementStatus(p.providerKey) === 'active',
+  );
+
+  const activeWithoutRule = activeProviders.filter(
+    (p) => p.globalLimitCredits == null && p.globalLimitUsd == null,
+  ).length;
+
+  const totalCredits = activeProviders.reduce((acc, p) => acc + p.consumedCredits, 0);
+  const totalUsd = activeProviders.reduce((acc, p) => acc + p.consumedUsd, 0);
 
   const consumptionLabel = [
     totalCredits > 0 ? `${totalCredits.toLocaleString()} créditos` : null,
@@ -25,16 +32,16 @@ export function BudgetSummaryCards({ providers }: Props) {
 
   const cards = [
     {
-      label: 'Proveedores activos',
+      label: 'Proveedores en catálogo',
       value: String(totalProviders),
       icon: Cpu,
       color: 'text-su-brand',
       bg: 'bg-su-brand-soft',
     },
     {
-      label: 'Con reglas activas',
-      value: String(withRules),
-      icon: ShieldCheck,
+      label: 'Con medición activa',
+      value: String(activeProviders.length),
+      icon: Activity,
       color: 'text-emerald-500',
       bg: 'bg-emerald-500/10',
     },
@@ -46,11 +53,11 @@ export function BudgetSummaryCards({ providers }: Props) {
       bg: 'bg-amber-500/10',
     },
     {
-      label: 'Sin regla global',
-      value: String(withoutGlobalRule),
+      label: 'Sin regla en proveedores medidos',
+      value: String(activeWithoutRule),
       icon: AlertTriangle,
-      color: withoutGlobalRule > 0 ? 'text-amber-500' : 'text-muted-foreground',
-      bg: withoutGlobalRule > 0 ? 'bg-amber-500/10' : 'bg-muted/30',
+      color: activeWithoutRule > 0 ? 'text-amber-500' : 'text-muted-foreground',
+      bg: activeWithoutRule > 0 ? 'bg-amber-500/10' : 'bg-muted/30',
     },
   ];
 
