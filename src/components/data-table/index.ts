@@ -10,3 +10,4 @@ export { DataTableColumnReorder, DataTableDragHandle } from "./data-table-column
 export { DataTableRowReorder, RowDragHandle } from "./data-table-row-reorder";
 export { DataTableSettingsDrawer, DataTableSettingsTrigger, type DataTableSettings, type DataTableLoadMode } from "./data-table-settings-drawer";
 export { DataTableToolbar } from "./data-table-toolbar";
+export { TruncatedCell } from "./data-table-cell-text";

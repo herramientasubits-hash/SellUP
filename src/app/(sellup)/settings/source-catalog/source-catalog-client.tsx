@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
-import { DataTable, DataTableColumnHeader, type DataTableContextMenuItem } from '@/components/data-table';
+import { DataTable, DataTableColumnHeader, TruncatedCell, type DataTableContextMenuItem } from '@/components/data-table';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { SourceCatalogViewModel, SourceViewModel, SourceStatusOverrides } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
@@ -199,7 +199,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
             <button
               type="button"
               onClick={() => openDetail(row.original)}
-              className="truncate text-sm font-medium text-foreground hover:text-su-brand transition-colors text-left"
+              title={row.original.name}
+              className="block w-full truncate text-sm font-medium text-foreground hover:text-su-brand transition-colors text-left"
             >
               {row.original.name}
             </button>
@@ -217,13 +218,16 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="País" />
         ),
-        cell: ({ row }) => (
-          <div className="truncate text-sm text-muted-foreground whitespace-nowrap">
-            {row.original.countryCodes.length > 0
-              ? row.original.countryCodes.map((c) => COUNTRY_LABELS[c] ?? c).join(', ')
-              : 'Global'}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const countryText = row.original.countryCodes.length > 0
+            ? row.original.countryCodes.map((c) => COUNTRY_LABELS[c] ?? c).join(', ')
+            : 'Global';
+          return (
+            <TruncatedCell className="text-sm text-muted-foreground" title={countryText}>
+              {countryText}
+            </TruncatedCell>
+          );
+        },
         size: 140,
         minSize: 120,
         filterFn: 'arrIncludesSome',
