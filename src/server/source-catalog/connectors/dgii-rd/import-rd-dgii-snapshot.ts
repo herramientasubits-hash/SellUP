@@ -28,6 +28,11 @@ import { createClient } from '@supabase/supabase-js';
 // CLI-only: Node < 22 has no global WebSocket, which the Supabase client needs.
 // Same pattern as SUNAT importer (Perú.9B). Must be called before createClient().
 import { ensureNode20WebSocketShim } from '../../../../../scripts/peru/ensure-node20-websocket-shim';
+import {
+  assertLargeImportAllowed,
+  logGuardrailDecision,
+  checkLargeImportGuardrail,
+} from '../../large-import-guardrail';
 import { headDgiiRncZip } from './dgii-bulk-client';
 import { parseDgiiLines } from './dgii-bulk-parser';
 import {
@@ -439,6 +444,36 @@ export async function runImporter(
   const importedAt = new Date().toISOString();
   const errors: string[] = [];
   const warnings: string[] = [];
+
+  // ── Guardrail: bloquea importaciones masivas por defecto ──────────────────
+  // rd_dgii_bulk está en la lista de fuentes bloqueadas (incidente jul-2026).
+  // En dry-run el guardrail siempre pasa; en apply requiere override explícito.
+  const guardrailInput = {
+    sourceKey: RD_DGII_BULK_SOURCE_KEY,
+    countryCode: RD_DGII_BULK_COUNTRY_CODE,
+    estimatedRows: config.limit,
+    isDryRun: config.dryRun,
+  };
+  const guardrailResult = checkLargeImportGuardrail(guardrailInput);
+  logGuardrailDecision(guardrailInput, guardrailResult);
+  if (!guardrailResult.allowed) {
+    errors.push(`guardrail_blocked: ${guardrailResult.reason}`);
+    return buildReport(config, {
+      sourceYear: new Date().getFullYear(),
+      linesRead: 0,
+      linesInWindow: 0,
+      businessRncRows: 0,
+      outOfScopePersonRows: 0,
+      invalidRows: 0,
+      parseErrors: 0,
+      rowsPrepared: 0,
+      rowsUpserted: 0,
+      chunksProcessed: 0,
+      errors,
+      warnings,
+      startMs,
+    });
+  }
 
   console.log(`\n── Paso 1: HEAD del ZIP DGII ─────────────────────────────────────`);
   const headResult = await headDgiiRncZip();

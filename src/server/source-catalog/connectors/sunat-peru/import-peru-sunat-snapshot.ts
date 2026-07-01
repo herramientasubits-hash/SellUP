@@ -31,6 +31,10 @@ import path from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { ensureNode20WebSocketShim } from '../../../../../scripts/peru/ensure-node20-websocket-shim';
+import {
+  checkLargeImportGuardrail,
+  logGuardrailDecision,
+} from '../../large-import-guardrail';
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -425,6 +429,21 @@ export async function runImporter(
 ): Promise<ImportReport> {
   assertNotVercel();
   validateConfig(config);
+
+  // ── Guardrail: bloquea importaciones masivas por defecto ──────────────────
+  // pe_sunat_bulk está en la lista de fuentes bloqueadas (incidente jul-2026).
+  // En dry-run el guardrail siempre pasa; en apply requiere override explícito.
+  const guardrailInput = {
+    sourceKey: SOURCE_KEY,
+    countryCode: 'PE',
+    estimatedRows: config.limit,
+    isDryRun: config.dryRun,
+  };
+  const guardrailResult = checkLargeImportGuardrail(guardrailInput);
+  logGuardrailDecision(guardrailInput, guardrailResult);
+  if (!guardrailResult.allowed) {
+    throw new Error(`[guardrail:blocked] ${guardrailResult.reason}\n\n${guardrailResult.howToOverride}`);
+  }
 
   const resolvedPath = path.resolve(config.snapshotPath);
 
