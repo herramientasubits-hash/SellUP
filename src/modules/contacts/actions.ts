@@ -240,6 +240,7 @@ export async function createContact(
     notes: input.notes?.trim() || null,
     created_by: internalUserId,
     updated_by: internalUserId,
+    ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
   };
 
   const { data, error } = await supabase.from('contacts').insert(payload).select('id').single();

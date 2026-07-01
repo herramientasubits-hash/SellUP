@@ -109,6 +109,7 @@ export interface CreateContactInput {
   contact_status?: ContactStatus;
   is_primary?: boolean;
   notes?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateContactInput {

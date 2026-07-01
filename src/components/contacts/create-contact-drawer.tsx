@@ -46,6 +46,11 @@ interface AccountOption {
 interface CreateContactDrawerProps {
   accountId?: string;
   accounts?: AccountOption[];
+  // Controlled mode (no trigger button rendered)
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  metadata?: Record<string, unknown>;
+  onSuccess?: (id: string, fullName: string) => void;
 }
 
 const EMPTY_FORM = {
@@ -66,9 +71,19 @@ const EMPTY_FORM = {
   notes: '',
 };
 
-export function CreateContactDrawer({ accountId, accounts }: CreateContactDrawerProps) {
+export function CreateContactDrawer({
+  accountId,
+  accounts,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  metadata,
+  onSuccess,
+}: CreateContactDrawerProps) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [form, setForm] = React.useState(EMPTY_FORM);
@@ -78,10 +93,22 @@ export function CreateContactDrawer({ accountId, accounts }: CreateContactDrawer
   }
 
   function handleClose() {
-    setOpen(false);
+    if (isControlled) {
+      controlledOnOpenChange?.(false);
+    } else {
+      setInternalOpen(false);
+    }
     setError(null);
     setForm(EMPTY_FORM);
   }
+
+  // Reset form when drawer opens in controlled mode
+  React.useEffect(() => {
+    if (isControlled && controlledOpen) {
+      setForm(EMPTY_FORM);
+      setError(null);
+    }
+  }, [isControlled, controlledOpen]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -120,6 +147,7 @@ export function CreateContactDrawer({ accountId, accounts }: CreateContactDrawer
         contact_status: form.contact_status,
         is_primary: form.is_primary,
         notes: form.notes || undefined,
+        ...(metadata ? { metadata } : {}),
       });
 
       if (!result.success) {
@@ -127,12 +155,12 @@ export function CreateContactDrawer({ accountId, accounts }: CreateContactDrawer
         return;
       }
 
-      const name = fullName;
       handleClose();
       router.refresh();
-      toast.success(`Contacto "${name}" creado`, {
+      toast.success(`Contacto "${fullName}" creado`, {
         description: form.is_primary ? 'Marcado como contacto primario.' : undefined,
       });
+      onSuccess?.(result.id, fullName);
     } finally {
       setPending(false);
     }
@@ -143,10 +171,12 @@ export function CreateContactDrawer({ accountId, accounts }: CreateContactDrawer
       open={open}
       onOpenChange={(v) => !v && handleClose()}
       trigger={
-        <Button onClick={() => setOpen(true)} size="sm">
-          <Plus className="h-4 w-4" />
-          Agregar contacto
-        </Button>
+        !isControlled ? (
+          <Button onClick={() => setInternalOpen(true)} size="sm">
+            <Plus className="h-4 w-4" />
+            Agregar contacto
+          </Button>
+        ) : undefined
       }
       title="Nuevo contacto"
       description="Registra un decisor, sponsor o persona clave vinculada a esta cuenta."

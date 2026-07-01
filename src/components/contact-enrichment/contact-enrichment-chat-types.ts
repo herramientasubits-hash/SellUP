@@ -103,6 +103,15 @@ export type ContactEnrichmentChatAction =
   | { type: 'APOLLO_FAILED'; result: ApolloEnrichmentUiResult }
   | { type: 'RESET' };
 
+// ── Manual contact context (Hito 17A.7C.2) ────────────────────────────────────
+
+export interface ManualContactContext {
+  accountId: string;
+  runId: string;
+  companyName: string | null;
+  companyDomain: string | null;
+}
+
 // ── Preloaded company (contextual sidepanel entry from /accounts) ──────────────
 
 export interface ContactEnrichmentInitialCompany {

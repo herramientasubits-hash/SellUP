@@ -8,14 +8,20 @@
 // consumido por el drawer y la página fallback.
 
 import { ContactEnrichmentChatWizard } from './contact-enrichment-chat-wizard';
-import type { ContactEnrichmentInitialCompany } from './contact-enrichment-chat-types';
+import type { ContactEnrichmentInitialCompany, ManualContactContext } from './contact-enrichment-chat-types';
 
-export type { ContactEnrichmentInitialCompany };
+export type { ContactEnrichmentInitialCompany, ManualContactContext };
 
 interface ContactEnrichmentWizardProps {
   initialCompany?: ContactEnrichmentInitialCompany;
+  onCreateManualContact?: (ctx: ManualContactContext) => void;
 }
 
-export function ContactEnrichmentWizard({ initialCompany }: ContactEnrichmentWizardProps = {}) {
-  return <ContactEnrichmentChatWizard initialCompany={initialCompany} />;
+export function ContactEnrichmentWizard({ initialCompany, onCreateManualContact }: ContactEnrichmentWizardProps = {}) {
+  return (
+    <ContactEnrichmentChatWizard
+      initialCompany={initialCompany}
+      onCreateManualContact={onCreateManualContact}
+    />
+  );
 }
