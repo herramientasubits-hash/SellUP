@@ -11,6 +11,19 @@ import { describe, it } from 'node:test';
 import { CATALOG_SOURCES } from '../source-catalog';
 import { AI_FLOW_STATUS_LABELS, CONNECTION_MODE_LABELS } from '../../../../modules/source-catalog/labels';
 
+function getRequiredSource(key: string) {
+  const source = CATALOG_SOURCES.find(s => s.key === key);
+  if (!source) throw new Error(`Source not found: ${key}`);
+  return source;
+}
+
+function requireDefined<T>(value: T | undefined | null, label: string): T {
+  if (value === undefined || value === null) {
+    throw new Error(`${label} should be defined`);
+  }
+  return value;
+}
+
 const chilecompraOcds = CATALOG_SOURCES.find(s => s.key === 'cl_chilecompra_ocds');
 const clRes = CATALOG_SOURCES.find(s => s.key === 'cl_res');
 const sunatBulk = CATALOG_SOURCES.find(s => s.key === 'pe_sunat_bulk');
@@ -26,12 +39,14 @@ describe('Chile.3 — cl_chilecompra_ocds catalog status', () => {
   });
 
   it('label does NOT say "Apta no conectada"', () => {
-    const label = AI_FLOW_STATUS_LABELS[chilecompraOcds!.aiFlowStatus];
+    const src = getRequiredSource('cl_chilecompra_ocds');
+    const label = AI_FLOW_STATUS_LABELS[requireDefined(src.aiFlowStatus, 'aiFlowStatus')];
     assert.notEqual(label, 'Apta no conectada');
   });
 
   it('label does NOT say "No conectada"', () => {
-    const label = AI_FLOW_STATUS_LABELS[chilecompraOcds!.aiFlowStatus];
+    const src = getRequiredSource('cl_chilecompra_ocds');
+    const label = AI_FLOW_STATUS_LABELS[requireDefined(src.aiFlowStatus, 'aiFlowStatus')];
     assert.notEqual(label, 'No conectada');
   });
 
@@ -40,7 +55,8 @@ describe('Chile.3 — cl_chilecompra_ocds catalog status', () => {
   });
 
   it('connectionMode label conveys no credentials required', () => {
-    const label = CONNECTION_MODE_LABELS[chilecompraOcds!.connectionMode];
+    const src = getRequiredSource('cl_chilecompra_ocds');
+    const label = CONNECTION_MODE_LABELS[requireDefined(src.connectionMode, 'connectionMode')];
     assert.notEqual(label, 'No conectada');
     assert.ok(label.length > 0, 'debe tener label');
   });
