@@ -276,10 +276,13 @@ export type FetchAwardResult =
 
 /**
  * Consulta el endpoint de adjudicación usando la URL completa proveniente del listado.
- * La URL viene de `urlAward` y se usa tal cual (no se reconstruye manualmente).
+ * El listado de Mercado Público devuelve urlAward con http://, pero el servidor solo
+ * responde por HTTPS — forzamos https:// antes de fetchar.
  * Reutiliza `extractRelease` para tolerar distintas envolturas OCDS.
  */
 export async function fetchOcdsAward(urlAward: string): Promise<FetchAwardResult> {
+  const safeUrl = urlAward.replace(/^http:\/\//i, 'https://');
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OCDS_TIMEOUT_MS);
 
@@ -287,7 +290,7 @@ export async function fetchOcdsAward(urlAward: string): Promise<FetchAwardResult
   try {
     let response: Response;
     try {
-      response = await fetch(urlAward, {
+      response = await fetch(safeUrl, {
         method: 'GET',
         signal: controller.signal,
         headers: OCDS_HEADERS,
@@ -296,7 +299,7 @@ export async function fetchOcdsAward(urlAward: string): Promise<FetchAwardResult
       clearTimeout(timeout);
     }
     if (!response.ok) {
-      return { ok: false, error: `HTTP ${response.status} en award ${urlAward}` };
+      return { ok: false, error: `HTTP ${response.status} en award ${safeUrl}` };
     }
     responseText = await response.text();
   } catch (error: unknown) {
