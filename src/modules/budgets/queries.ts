@@ -307,11 +307,12 @@ export async function getActiveCatalogEntries(
   quotaSyncedAt: string | null;
   quotaSyncError: string | null;
   quotaOverrideManual: boolean;
+  creditsRemainingExternal: number | null;
 }>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (admin as any)
     .from('tool_catalog')
-    .select('provider_key, display_name, monthly_credits_allowance, monthly_usd_allowance, quota_source, quota_synced_at, quota_sync_error, quota_override_manual')
+    .select('provider_key, display_name, monthly_credits_allowance, monthly_usd_allowance, quota_source, quota_synced_at, quota_sync_error, quota_override_manual, credits_remaining_external')
     .eq('is_active', true)
     .order('provider_key');
 
@@ -325,6 +326,7 @@ export async function getActiveCatalogEntries(
     quotaSyncedAt: (r.quota_synced_at as string | null) ?? null,
     quotaSyncError: (r.quota_sync_error as string | null) ?? null,
     quotaOverrideManual: (r.quota_override_manual as boolean | null) ?? false,
+    creditsRemainingExternal: r.credits_remaining_external != null ? Number(r.credits_remaining_external) : null,
   }));
 }
 

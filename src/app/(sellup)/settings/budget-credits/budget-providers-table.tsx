@@ -2,13 +2,15 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { Activity, Settings } from 'lucide-react';
+import { Activity, RefreshCw, Settings } from 'lucide-react';
 import type { AdminProviderBudgetRow, BudgetCheckLogEntry, QuotaSource } from '@/modules/budgets';
 import {
   parseBudgetCheck,
   SCOPE_LABEL,
   ON_EXCEED_LABEL,
+  syncProviderQuota,
 } from '@/modules/budgets';
+import { toast } from 'sonner';
 import type { BudgetOnExceed } from '@/modules/usage-tracking/types';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
@@ -395,6 +397,10 @@ function AllowanceSummaryBlock({
     );
   }
 
+  const syncedAtLabel = row.quotaSyncedAt
+    ? new Date(row.quotaSyncedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
+    : null;
+
   return (
     <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
@@ -429,6 +435,32 @@ function AllowanceSummaryBlock({
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Disp. regla SellUp</span>
           <p className="font-medium text-foreground">{ruleAvail}</p>
         </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Fuente de cuota</span>
+          <QuotaSourceBadge source={row.quotaSource} />
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Override manual</span>
+          <p className="font-medium text-foreground">{row.quotaOverrideManual ? 'Sí' : 'No'}</p>
+        </div>
+        {syncedAtLabel && (
+          <div className="col-span-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Última sincronización</span>
+            <p className="font-medium text-foreground">{syncedAtLabel}</p>
+          </div>
+        )}
+        {row.creditsRemainingExternal != null && (
+          <div className="col-span-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Créditos restantes (API proveedor)</span>
+            <p className="font-medium text-foreground">{row.creditsRemainingExternal.toLocaleString()} cr</p>
+          </div>
+        )}
+        {row.quotaSyncError && (
+          <div className="col-span-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Error de sincronización</span>
+            <p className="text-destructive text-xs">{row.quotaSyncError}</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -617,9 +649,12 @@ const COLUMNS = [
   '',
 ];
 
+const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha']);
+
 export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<AdminProviderBudgetRow | null>(null);
   const [editingProvider, setEditingProvider] = useState<AdminProviderBudgetRow | null>(null);
+  const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const resolvedDate = new Date(resolvedAt).toLocaleString('es-CO', {
@@ -628,9 +663,32 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
   });
 
   function handleAllowanceSaved() {
-    // Reload page to reflect updated allowances
     startTransition(() => {
       window.location.reload();
+    });
+  }
+
+  function handleSync(providerKey: string) {
+    if (syncingProvider) return;
+    setSyncingProvider(providerKey);
+    startTransition(async () => {
+      try {
+        const result = await syncProviderQuota(providerKey);
+        if (result.success) {
+          toast.success(
+            result.skippedAllowance
+              ? 'Dato externo actualizado (cuota manual preservada)'
+              : 'Cuota sincronizada',
+          );
+          window.location.reload();
+        } else {
+          toast.error(result.error ?? 'No se pudo sincronizar');
+        }
+      } catch {
+        toast.error('No se pudo sincronizar');
+      } finally {
+        setSyncingProvider(null);
+      }
     });
   }
 
@@ -778,6 +836,19 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                           >
                             <Settings className="h-3 w-3" />
                             {allowanceLabel === 'No configurado' ? 'Configurar' : 'Editar cuota'}
+                          </Button>
+                        )}
+                        {SYNC_CAPABLE_PROVIDERS.has(row.providerKey) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 gap-1"
+                            onClick={() => handleSync(row.providerKey)}
+                            disabled={syncingProvider !== null}
+                            aria-label={`Sincronizar cuota de ${row.displayName ?? row.providerKey}`}
+                          >
+                            <RefreshCw className={`h-3 w-3 ${syncingProvider === row.providerKey ? 'animate-spin' : ''}`} />
+                            {syncingProvider === row.providerKey ? 'Sync…' : 'Sync'}
                           </Button>
                         )}
                       </div>

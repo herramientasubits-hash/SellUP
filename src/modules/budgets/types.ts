@@ -108,6 +108,8 @@ export interface AdminProviderBudgetRow {
   quotaSyncError: string | null;
   /** true = admin has locked quota; API syncs must not overwrite. Hito L1. */
   quotaOverrideManual: boolean;
+  /** Credits remaining as reported by the provider's API. null if never synced. Hito L2. */
+  creditsRemainingExternal: number | null;
 }
 
 export interface AdminBudgetSummary {
