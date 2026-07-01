@@ -9,6 +9,7 @@ export type {
   UserBudgetContext,
   PeriodBounds,
   PeriodConsumption,
+  QuotaSource,
 } from './types';
 
 export { getPeriodBounds, periodStartIso, periodEndIso } from './periods';

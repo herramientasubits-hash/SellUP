@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { Activity, Settings } from 'lucide-react';
-import type { AdminProviderBudgetRow, BudgetCheckLogEntry } from '@/modules/budgets';
+import type { AdminProviderBudgetRow, BudgetCheckLogEntry, QuotaSource } from '@/modules/budgets';
 import {
   parseBudgetCheck,
   SCOPE_LABEL,
@@ -23,6 +23,25 @@ import { ProviderAllowanceDrawer } from './provider-allowance-drawer';
 interface Props {
   providers: AdminProviderBudgetRow[];
   resolvedAt: string;
+}
+
+// ── Quota source badge ────────────────────────────────────────────────────────
+
+const QUOTA_SOURCE_BADGE: Record<QuotaSource | 'none', { label: string; className: string }> = {
+  manual:     { label: 'Manual',      className: 'border-su-brand/30 bg-su-brand-soft text-su-brand' },
+  api_synced: { label: 'API synced',  className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  sync_error: { label: 'Sync error',  className: 'border-destructive/30 bg-destructive/10 text-destructive' },
+  none:       { label: 'No config.',  className: 'border-border/30 bg-muted/20 text-muted-foreground/60' },
+};
+
+function QuotaSourceBadge({ source }: { source: QuotaSource | null }) {
+  const key = source ?? 'none';
+  const badge = QUOTA_SOURCE_BADGE[key];
+  return (
+    <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${badge.className}`}>
+      {badge.label}
+    </span>
+  );
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -539,11 +558,13 @@ function AllowanceCell({
   allowance,
   available,
   isNotMeasured,
+  quotaSource,
   onConfigure,
 }: {
   allowance: string;
   available: { label: string; overrun: boolean } | null;
   isNotMeasured: boolean;
+  quotaSource: QuotaSource | null;
   onConfigure: () => void;
 }) {
   if (isNotMeasured) {
@@ -552,7 +573,10 @@ function AllowanceCell({
   if (allowance === 'No configurado') {
     return (
       <div className="space-y-1">
-        <p className="text-xs text-muted-foreground/60">No configurado</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-xs text-muted-foreground/60">No configurado</p>
+          <QuotaSourceBadge source={quotaSource} />
+        </div>
         <button
           type="button"
           onClick={onConfigure}
@@ -565,7 +589,10 @@ function AllowanceCell({
   }
   return (
     <div className="space-y-0.5">
-      <p className="text-xs text-foreground">{allowance}</p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-xs text-foreground">{allowance}</p>
+        <QuotaSourceBadge source={quotaSource} />
+      </div>
       {available && (
         <p className={`text-[10px] ${available.overrun ? 'text-destructive font-medium' : 'text-muted-foreground/70'}`}>
           {available.overrun ? '⚠ ' : ''}Disp: {available.label}
@@ -693,6 +720,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                         allowance={allowanceLabel}
                         available={availableResult}
                         isNotMeasured={isNotMeasured}
+                        quotaSource={row.quotaSource}
                         onConfigure={() => setEditingProvider(row)}
                       />
                     </td>

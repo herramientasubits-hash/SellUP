@@ -246,7 +246,7 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
 
   // Base: all active catalog entries. Merge rules + consumption onto each.
   const providers: AdminProviderBudgetRow[] = await Promise.all(
-    catalogEntries.map(async ({ providerKey, displayName, monthlyCreditsAllowance, monthlyUsdAllowance }) => {
+    catalogEntries.map(async ({ providerKey, displayName, monthlyCreditsAllowance, monthlyUsdAllowance, quotaSource, quotaSyncedAt, quotaSyncError, quotaOverrideManual }) => {
       const rules = rulesByProvider.get(providerKey) ?? [];
       const globalRule = rules.find((r) => r.scope_type === 'global') ?? null;
       const periodType = globalRule?.period_type ?? 'monthly';
@@ -295,6 +295,10 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
         providerMonthlyUsdAllowance: monthlyUsdAllowance,
         providerCreditsAvailable,
         providerUsdAvailable,
+        quotaSource: quotaSource as import('./types').QuotaSource | null,
+        quotaSyncedAt,
+        quotaSyncError,
+        quotaOverrideManual,
       };
     }),
   );

@@ -66,6 +66,8 @@ export interface BudgetCheckLogEntry {
   budgetCheck: any | null;
 }
 
+export type QuotaSource = 'manual' | 'api_synced' | 'sync_error';
+
 export interface AdminProviderBudgetRow {
   providerKey: string;
   displayName: string | null;
@@ -98,6 +100,14 @@ export interface AdminProviderBudgetRow {
   providerCreditsAvailable: number | null;
   /** usd_available_provider = usd_allowance - consumed_usd (null if allowance null). Hito J. */
   providerUsdAvailable: number | null;
+  /** Source of the quota data. null = not configured. Hito L1. */
+  quotaSource: QuotaSource | null;
+  /** Timestamp of last successful API sync. null if never synced. Hito L1. */
+  quotaSyncedAt: string | null;
+  /** Error message from last failed sync attempt. Hito L1. */
+  quotaSyncError: string | null;
+  /** true = admin has locked quota; API syncs must not overwrite. Hito L1. */
+  quotaOverrideManual: boolean;
 }
 
 export interface AdminBudgetSummary {

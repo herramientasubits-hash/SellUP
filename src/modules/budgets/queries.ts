@@ -303,18 +303,28 @@ export async function getActiveCatalogEntries(
   displayName: string;
   monthlyCreditsAllowance: number | null;
   monthlyUsdAllowance: number | null;
+  quotaSource: string | null;
+  quotaSyncedAt: string | null;
+  quotaSyncError: string | null;
+  quotaOverrideManual: boolean;
 }>> {
-  const { data } = await admin
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (admin as any)
     .from('tool_catalog')
-    .select('provider_key, display_name, monthly_credits_allowance, monthly_usd_allowance')
+    .select('provider_key, display_name, monthly_credits_allowance, monthly_usd_allowance, quota_source, quota_synced_at, quota_sync_error, quota_override_manual')
     .eq('is_active', true)
     .order('provider_key');
 
-  return (data ?? []).map((r) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({
     providerKey: r.provider_key as string,
     displayName: r.display_name as string,
     monthlyCreditsAllowance: r.monthly_credits_allowance != null ? Number(r.monthly_credits_allowance) : null,
     monthlyUsdAllowance: r.monthly_usd_allowance != null ? Number(r.monthly_usd_allowance) : null,
+    quotaSource: (r.quota_source as string | null) ?? null,
+    quotaSyncedAt: (r.quota_synced_at as string | null) ?? null,
+    quotaSyncError: (r.quota_sync_error as string | null) ?? null,
+    quotaOverrideManual: (r.quota_override_manual as boolean | null) ?? false,
   }));
 }
 
