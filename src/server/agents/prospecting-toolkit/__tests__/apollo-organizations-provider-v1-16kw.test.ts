@@ -194,7 +194,10 @@ describe('runApolloOrganizationsSearch — flag apagado (default)', () => {
   });
 });
 
-describe('runApolloOrganizationsSearch — flag encendido (dry-run con fixture)', () => {
+// v1.16K-X: el fixture fue reemplazado por llamadas reales con mock inyectable.
+// Con flag=true y sin API key configurada (entorno de test), Apollo responde 401
+// y el provider retorna skipped=true de forma controlada.
+describe('runApolloOrganizationsSearch — flag encendido sin API key (v1.16K-X)', () => {
   before(() => {
     process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
   });
@@ -203,47 +206,37 @@ describe('runApolloOrganizationsSearch — flag encendido (dry-run con fixture)'
     delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
   });
 
-  it('devuelve skipped=false con fixture cuando flag está activo', async () => {
-    const output = await runApolloOrganizationsSearch(
-      { query: 'software Colombia' },
-      10,
-    );
-
-    assert.equal(output.skipped, false);
-    assert.equal(output.provider, 'apollo_organizations');
-    assert.ok(output.results.length > 0);
-  });
-
-  it('resultado fixture tiene provider=apollo_organizations', async () => {
-    const output = await runApolloOrganizationsSearch(
-      { query: 'tech Bogotá' },
-      5,
-    );
-
-    for (const r of output.results) {
-      assert.equal(r.provider, 'apollo_organizations');
+  it('flag encendido sin API key → skipped controlado (no throw)', async () => {
+    // Sin mock inyectado: intenta Apollo real, getApolloApiKey devuelve null → 401 controlado.
+    let threw = false;
+    let output;
+    try {
+      output = await runApolloOrganizationsSearch({ query: 'software Colombia' }, 10);
+    } catch {
+      threw = true;
     }
+
+    assert.equal(threw, false, 'No debe lanzar aunque no haya API key');
+    assert.equal(output?.provider, 'apollo_organizations');
+    assert.ok(output?.skipped, 'Debe retornar skipped cuando no hay API key');
   });
 
-  it('fixture no usa API key real ni genera costo', async () => {
-    const output = await runApolloOrganizationsSearch(
-      { query: 'empresa demo' },
-      2,
-    );
+  it('resultado tiene provider=apollo_organizations cuando flag activo', async () => {
+    const output = await runApolloOrganizationsSearch({ query: 'tech Bogotá' }, 5);
+    assert.equal(output.provider, 'apollo_organizations');
+  });
 
+  it('flag encendido sin API key → estimatedCostUsd=0, credits=0', async () => {
+    const output = await runApolloOrganizationsSearch({ query: 'empresa demo' }, 2);
     assert.equal(output.estimatedCostUsd, 0);
     const usage = (output.metadata as Record<string, unknown>)?.usage as Record<string, unknown>;
     assert.equal(usage?.credits_used, 0);
-    assert.equal(usage?.status, 'dry_run');
   });
 
-  it('metadata indica dry_run incluso con flag encendido (hito dry-run)', async () => {
-    const output = await runApolloOrganizationsSearch(
-      { query: 'test dry run' },
-      1,
-    );
-
-    assert.equal((output.metadata as Record<string, unknown>)?.dry_run, true);
+  it('flag encendido sin API key → dry_run=false (es modo real con error controlado)', async () => {
+    const output = await runApolloOrganizationsSearch({ query: 'test real mode' }, 1);
+    // v1.16K-X: dry_run=false cuando el flag está activo; el error es controlado
+    assert.equal((output.metadata as Record<string, unknown>)?.dry_run, false);
   });
 });
 

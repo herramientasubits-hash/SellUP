@@ -1,23 +1,41 @@
 /**
- * Web Search Provider — Apollo Organizations (v1.16K-W)
+ * Web Search Provider — Apollo Organizations (v1.16K-X)
  *
  * Adapter de Apollo organization search para Agent 1 company discovery.
- * En este hito opera exclusivamente en modo dry-run: no llama a la API real,
- * no consume créditos, no escribe usage logs.
  *
- * El flag ENABLE_APOLLO_COMPANY_SEARCH (default: false) controla si las
- * llamadas reales están habilitadas. Mientras esté apagado, el provider
- * devuelve skipped=true con status="dry_run".
+ * Modos de operación:
+ *   ENABLE_APOLLO_COMPANY_SEARCH=false (default) → skipped, sin llamada real, sin créditos.
+ *   ENABLE_APOLLO_COMPANY_SEARCH=true            → llamada real a Apollo con guardrails duros.
+ *
+ * Guardrails (real-limited):
+ *   MAX_APOLLO_ORGANIZATIONS_PER_RUN    = 10  orgs como máximo por invocación.
+ *   MAX_APOLLO_ORGANIZATIONS_CREDITS    = 10  créditos estimados máximos por invocación.
+ *   1 organización retornada = 1 crédito estimado.
+ *
+ * Errores controlados:
+ *   - API key faltante       → skipped con skipReason 'apollo_api_key_missing'.
+ *   - HTTP 401/403           → error controlado, no throw.
+ *   - HTTP 429/quota         → quota_exceeded, no retry agresivo.
+ *   - Org sin name           → descartada silenciosamente.
+ *   - Cualquier otro error   → error controlado.
  *
  * Reglas críticas:
- * - No llama a searchApolloOrganizations() en este hito.
- * - No usa la API key de Apollo.
- * - No escribe provider_usage_logs.
- * - No modifica Tavily ni Agent 2A.
+ *   - No usa searchApolloPeople().
+ *   - No modifica Tavily ni Agent 2A.
+ *   - No reemplaza Tavily como default.
  */
 
 import type { WebSearchInput, WebSearchOutput, WebSearchResult } from '../types';
 import { isApolloCompanySearchEnabled } from '@/lib/feature-flags.server';
+import {
+  searchApolloOrganizations,
+  type ApolloOrganization,
+} from '@/server/integrations/apollo-client';
+import {
+  buildApolloOrgsUsageKey,
+  realLogApolloOrgsUsage,
+  type ApolloOrgsUsageContext,
+} from '../apollo-organizations-usage-logging';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -47,14 +65,25 @@ export type ApolloOrganizationSearchResultMetadata = {
   source_type: 'structured_company_database';
 };
 
-/** Contrato de usage metadata para cuando se implemente el hito real. */
+/** Metadata de uso registrada en cada WebSearchOutput. */
 export type ApolloOrganizationsUsageMetadata = {
   operation_key: 'organizations_search';
   provider_key: 'apollo';
   credits_used: number;
   estimated_cost_usd: number;
-  status: 'dry_run' | 'real';
+  status: 'dry_run' | 'real' | 'skipped' | 'error' | 'quota_exceeded';
 };
+
+// ─── Guardrails ───────────────────────────────────────────────────────────────
+
+const MAX_APOLLO_ORGANIZATIONS_PER_RUN = 10;
+const MAX_APOLLO_ORGANIZATIONS_CREDITS = 10;
+const APOLLO_ORGANIZATIONS_UNIT_COST_USD = 0.00875;
+
+function cappedMaxResults(requested: number): { cap: number; wasCapped: boolean } {
+  const cap = Math.min(requested, MAX_APOLLO_ORGANIZATIONS_PER_RUN);
+  return { cap, wasCapped: cap < requested };
+}
 
 // ─── Mapping puro Apollo org → WebSearchResult ────────────────────────────────
 
@@ -120,9 +149,26 @@ function extractDomain(websiteUrl: string | null | undefined): string | null {
   }
 }
 
-// ─── Fixture dry-run ──────────────────────────────────────────────────────────
+/**
+ * Convierte ApolloOrganization (apollo-client.ts) → ApolloOrganizationInput.
+ * Descarta orgs sin name: retorna null y el caller las filtra.
+ */
+function normalizeApolloOrg(org: ApolloOrganization): ApolloOrganizationInput | null {
+  if (!org.name?.trim()) return null;
+  return {
+    id: org.id,
+    name: org.name,
+    website_url: org.website_url,
+    primary_domain: extractDomain(org.website_url),
+    linkedin_url: org.linkedin_url,
+    industry: org.industry,
+    estimated_num_employees: org.estimated_num_employees ?? org.employee_count,
+    country: org.country,
+  };
+}
 
-/** Fixture representativo para dry-run. No se usa en producción real. */
+// ─── Fixture dry-run (solo usado cuando flag=off, para compatibilidad v1.16K-W) ──
+
 const DRY_RUN_FIXTURE_ORGS: ApolloOrganizationInput[] = [
   {
     id: 'dry-run-apollo-org-001',
@@ -146,24 +192,31 @@ const DRY_RUN_FIXTURE_ORGS: ApolloOrganizationInput[] = [
   },
 ];
 
+// ─── Deps inyectables (para tests) ───────────────────────────────────────────
+
+export type ApolloOrgsSearchDeps = {
+  searchOrgs?: typeof searchApolloOrganizations;
+  logUsage?: typeof realLogApolloOrgsUsage;
+};
+
 // ─── Provider público ─────────────────────────────────────────────────────────
 
 /**
  * Provider apollo_organizations para Agent 1.
  *
- * Mientras ENABLE_APOLLO_COMPANY_SEARCH=false (default), devuelve:
- * - skipped: true
- * - skipReason: 'apollo_company_search_disabled'
- * - estimatedCostUsd: 0
- * - status: 'dry_run' en metadata
+ * ENABLE_APOLLO_COMPANY_SEARCH=false → skipped, sin llamada real, sin créditos.
+ * ENABLE_APOLLO_COMPANY_SEARCH=true  → llamada real limitada (max 10 orgs).
  *
- * Cuando el flag esté activo (hito siguiente), aquí se conectará
- * searchApolloOrganizations() con budget caps y usage logging real.
+ * @param usageContext  Contexto de trazabilidad (batchId, agentRunId) — opcional.
+ * @param deps          Dependencias inyectables para tests.
  */
 export async function runApolloOrganizationsSearch(
   input: WebSearchInput,
   maxResults: number,
+  usageContext?: ApolloOrgsUsageContext,
+  deps?: ApolloOrgsSearchDeps,
 ): Promise<WebSearchOutput> {
+  // ── Flag apagado: skipped sin costo ──────────────────────────────────────────
   if (!isApolloCompanySearchEnabled()) {
     const usageMeta: ApolloOrganizationsUsageMetadata = {
       operation_key: 'organizations_search',
@@ -189,33 +242,206 @@ export async function runApolloOrganizationsSearch(
     };
   }
 
-  // Dry-run explícito: devuelve fixture sin llamar Apollo real.
-  // El hito real conectará searchApolloOrganizations() aquí.
-  const cap = Math.min(maxResults, DRY_RUN_FIXTURE_ORGS.length);
-  const results = DRY_RUN_FIXTURE_ORGS.slice(0, cap).map((org, i) =>
-    mapApolloOrganizationToSearchResult(org, i + 1),
+  // ── Guardrail: cap duro de resultados ────────────────────────────────────────
+  const { cap, wasCapped } = cappedMaxResults(maxResults);
+
+  const startMs = Date.now();
+  const usageKey = buildApolloOrgsUsageKey(
+    input.query,
+    usageContext?.batchId,
+    startMs,
   );
+
+  const searchFn = deps?.searchOrgs ?? searchApolloOrganizations;
+  const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;
+
+  // ── Llamada real a Apollo ────────────────────────────────────────────────────
+  let apolloResult: Awaited<ReturnType<typeof searchApolloOrganizations>>;
+  try {
+    apolloResult = await searchFn({
+      q_organization_name: input.query,
+      organization_locations: input.country ? [input.country] : undefined,
+      per_page: cap,
+      page: 1,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'unknown error';
+    const usageMeta: ApolloOrganizationsUsageMetadata = {
+      operation_key: 'organizations_search',
+      provider_key: 'apollo',
+      credits_used: 0,
+      estimated_cost_usd: 0,
+      status: 'error',
+    };
+
+    await logFn({
+      usage_key: usageKey,
+      provider_key: 'apollo',
+      operation_key: 'organizations_search',
+      batch_id: usageContext?.batchId ?? undefined,
+      agent_run_id: usageContext?.agentRunId ?? undefined,
+      credits_used: 0,
+      results_returned: 0,
+      estimated_cost_usd: 0,
+      status: 'error',
+      error_code: 'apollo_fetch_exception',
+      error_message: msg.slice(0, 200),
+      duration_ms: Date.now() - startMs,
+      triggered_by: usageContext?.triggeredByUserId ?? undefined,
+      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, 'error'),
+    });
+
+    return {
+      provider: 'apollo_organizations',
+      query: input.query,
+      results: [],
+      resultsCount: 0,
+      skipped: true,
+      skipReason: 'apollo_fetch_exception',
+      estimatedCostUsd: 0,
+      metadata: { dry_run: false, provider_mode: 'real_limited', usage: usageMeta },
+    };
+  }
+
+  // ── Manejo de respuestas de error Apollo ─────────────────────────────────────
+  if (!apolloResult.success || apolloResult.error) {
+    const statusCode = apolloResult.error?.statusCode ?? 0;
+    const isAuthError = statusCode === 401 || statusCode === 403;
+    const isQuota = statusCode === 429;
+
+    const usageStatus: ApolloOrganizationsUsageMetadata['status'] = isQuota
+      ? 'quota_exceeded'
+      : 'error';
+
+    const providerUsageStatus = isQuota ? 'quota_exceeded' as const : 'error' as const;
+
+    const usageMeta: ApolloOrganizationsUsageMetadata = {
+      operation_key: 'organizations_search',
+      provider_key: 'apollo',
+      credits_used: 0,
+      estimated_cost_usd: 0,
+      status: usageStatus,
+    };
+
+    await logFn({
+      usage_key: usageKey,
+      provider_key: 'apollo',
+      operation_key: 'organizations_search',
+      batch_id: usageContext?.batchId ?? undefined,
+      agent_run_id: usageContext?.agentRunId ?? undefined,
+      credits_used: 0,
+      results_returned: 0,
+      estimated_cost_usd: 0,
+      status: providerUsageStatus,
+      error_code: isAuthError
+        ? `apollo_http_${statusCode}`
+        : apolloResult.error?.error ?? 'apollo_api_error',
+      error_message: (apolloResult.error?.message ?? 'Apollo API error').slice(0, 200),
+      duration_ms: Date.now() - startMs,
+      triggered_by: usageContext?.triggeredByUserId ?? undefined,
+      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, usageStatus),
+    });
+
+    const skipReason = isQuota
+      ? 'apollo_quota_exceeded'
+      : isAuthError
+        ? `apollo_auth_error_${statusCode}`
+        : 'apollo_api_error';
+
+    return {
+      provider: 'apollo_organizations',
+      query: input.query,
+      results: [],
+      resultsCount: 0,
+      skipped: true,
+      skipReason,
+      estimatedCostUsd: 0,
+      metadata: { dry_run: false, provider_mode: 'real_limited', usage: usageMeta },
+    };
+  }
+
+  // ── Mapping resultados ───────────────────────────────────────────────────────
+  const rawOrgs = apolloResult.data ?? [];
+  const mapped: WebSearchResult[] = [];
+
+  for (const raw of rawOrgs) {
+    const normalized = normalizeApolloOrg(raw);
+    if (!normalized) continue; // descarta orgs sin name
+    try {
+      mapped.push(mapApolloOrganizationToSearchResult(normalized, mapped.length + 1));
+    } catch {
+      // descarta silenciosamente orgs que no se pueden mapear
+    }
+  }
+
+  // ── Cálculo de créditos y costo ───────────────────────────────────────────────
+  const creditsUsed = Math.min(mapped.length, MAX_APOLLO_ORGANIZATIONS_CREDITS);
+  const estimatedCostUsd = creditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
+
+  // ── Usage logging ─────────────────────────────────────────────────────────────
+  await logFn({
+    usage_key: usageKey,
+    provider_key: 'apollo',
+    operation_key: 'organizations_search',
+    batch_id: usageContext?.batchId ?? undefined,
+    agent_run_id: usageContext?.agentRunId ?? undefined,
+    credits_used: creditsUsed,
+    results_returned: mapped.length,
+    estimated_cost_usd: estimatedCostUsd,
+    status: 'success',
+    error_code: undefined,
+    error_message: undefined,
+    duration_ms: Date.now() - startMs,
+    triggered_by: usageContext?.triggeredByUserId ?? undefined,
+    metadata: buildUsageMetadata(input, cap, wasCapped, mapped.length, false, 'real'),
+  });
 
   const usageMeta: ApolloOrganizationsUsageMetadata = {
     operation_key: 'organizations_search',
     provider_key: 'apollo',
-    credits_used: 0,
-    estimated_cost_usd: 0,
-    status: 'dry_run',
+    credits_used: creditsUsed,
+    estimated_cost_usd: estimatedCostUsd,
+    status: 'real',
   };
 
   return {
     provider: 'apollo_organizations',
     query: input.query,
-    results,
-    resultsCount: results.length,
+    results: mapped,
+    resultsCount: mapped.length,
     skipped: false,
     skipReason: null,
-    estimatedCostUsd: 0,
+    estimatedCostUsd: estimatedCostUsd,
     metadata: {
-      dry_run: true,
-      note: 'Apollo Organizations dry-run — fixture data, no real API call',
+      dry_run: false,
+      provider_mode: 'real_limited',
+      capped: wasCapped,
       usage: usageMeta,
     },
+  };
+}
+
+// ─── Helper de metadata ───────────────────────────────────────────────────────
+
+function buildUsageMetadata(
+  input: WebSearchInput,
+  cappedMaxResults: number,
+  wasCapped: boolean,
+  resultsReturned: number,
+  dryRun: boolean,
+  status: string,
+): Record<string, unknown> {
+  return {
+    query: input.query.slice(0, 100),
+    country: input.country ?? null,
+    countryCode: input.countryCode ?? null,
+    industry: input.industry ?? null,
+    requested_max_results: cappedMaxResults,
+    capped_max_results: cappedMaxResults,
+    was_capped: wasCapped,
+    results_returned: resultsReturned,
+    dry_run: dryRun,
+    provider_mode: dryRun ? 'dry_run' : 'real_limited',
+    status,
   };
 }
