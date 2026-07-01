@@ -41,6 +41,7 @@ import { Section, Field, Row } from '@/components/accounts/account-form-helpers'
 interface AccountOption {
   id: string;
   name: string;
+  domain?: string | null;
 }
 
 interface CreateContactDrawerProps {
@@ -223,8 +224,29 @@ export function CreateContactDrawer({
         onSubmit={handleSubmit}
         className="space-y-8"
       >
-        {/* Cuenta (solo cuando no viene pre-seleccionada) */}
-        {!accountId && accounts && accounts.length > 0 && (
+        {/* Cuenta */}
+        {accountId ? (
+          // Cuenta pre-seleccionada (modo controlado desde contexto externo)
+          accounts && accounts.length > 0 ? (() => {
+            const found = accounts.find((a) => a.id === accountId);
+            const label = found
+              ? found.domain
+                ? `${found.name} · ${found.domain}`
+                : found.name
+              : 'Cuenta preseleccionada';
+            return (
+              <Section icon={Building2} label="Cuenta">
+                <Field label="Cuenta">
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                    {label}
+                  </div>
+                </Field>
+              </Section>
+            );
+          })()
+          : null
+        ) : accounts && accounts.length > 0 ? (
+          // Cuenta seleccionable (modo autónomo)
           <Section icon={Building2} label="Cuenta">
             <Field label="Cuenta *">
               <Select
@@ -237,14 +259,14 @@ export function CreateContactDrawer({
                 <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
                   {accounts.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
-                      {a.name}
+                      {a.domain ? `${a.name} · ${a.domain}` : a.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </Field>
           </Section>
-        )}
+        ) : null}
 
         {/* Identidad */}
         <Section icon={User} label="Identidad">

@@ -222,6 +222,39 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
 }
 
 // ============================================================
+// getActiveAccountsForPicker
+// ============================================================
+// Returns only non-archived accounts for use in contact-creation pickers.
+// Deduplicates by normalized domain via dedupAccountsForPicker (pure, testable).
+
+export type { AccountPickerOption } from './account-picker-dedup';
+import { dedupAccountsForPicker } from './account-picker-dedup';
+
+export async function getActiveAccountsForPicker(): Promise<import('./account-picker-dedup').AccountPickerOption[]> {
+  await requireActiveUser();
+  const supabase = await createClient();
+
+  const scopeIds = await resolveAccountScopeIds();
+  if (scopeIds !== null && scopeIds.length === 0) return [];
+
+  let query = supabase
+    .from('accounts')
+    .select('id, name, domain, hubspot_company_id')
+    .is('archived_at', null)
+    .neq('pipeline_status', 'archived')
+    .order('name', { ascending: true })
+    .limit(500);
+  if (scopeIds) query = query.or(ownerOrClause(scopeIds));
+
+  const { data, error } = await query;
+  if (error) throw new Error(`getActiveAccountsForPicker: ${error.message}`);
+
+  return dedupAccountsForPicker(
+    (data ?? []) as import('./account-picker-dedup').PickerRow[],
+  );
+}
+
+// ============================================================
 // getAccountById
 // ============================================================
 

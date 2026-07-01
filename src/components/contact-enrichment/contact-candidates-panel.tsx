@@ -6,7 +6,7 @@ import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-
 import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-tabs-nav';
 import { ContactCandidatesDataTableClient } from '@/components/contact-enrichment/contact-candidates-data-table-client';
 import { getPendingContactCandidates } from '@/modules/contact-enrichment/actions';
-import { getAccountsList } from '@/modules/accounts/actions';
+import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 /**
@@ -19,13 +19,13 @@ import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-sco
  * conversacional ni "Crear contacto".
  */
 export async function ContactCandidatesPanel() {
-  const [candidates, accountsList, scopeFilterOptions] = await Promise.all([
+  const [candidates, accountsList, accounts, scopeFilterOptions] = await Promise.all([
     getPendingContactCandidates(),
     getAccountsList(),
+    getActiveAccountsForPicker(),
     getCommercialScopeFilterOptions(),
   ]);
 
-  const accounts = accountsList.map((a) => ({ id: a.id, name: a.name }));
   const accountOwners = new Map(
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
   );

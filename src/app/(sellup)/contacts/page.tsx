@@ -2,7 +2,7 @@ import { Users, Crown, Target, Star } from 'lucide-react';
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { getAllContacts } from '@/modules/contacts/actions';
-import { getAccountsList } from '@/modules/accounts/actions';
+import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
@@ -25,13 +25,14 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
   // Tab por defecto: "Contactos aprobados" (comportamiento histórico de /contacts).
   // Las pills ya no muestran badge de conteo (ajuste posterior a 17A.4A), así que
   // no hace falta leer el staging de candidatos para el tab principal.
-  const [contacts, accountsList, scopeFilterOptions] = await Promise.all([
+  const [contacts, accountsList, pickerAccounts, scopeFilterOptions] = await Promise.all([
     getAllContacts(),
     getAccountsList(),
+    getActiveAccountsForPicker(),
     getCommercialScopeFilterOptions(),
   ]);
 
-  const accounts = accountsList.map((a) => ({ id: a.id, name: a.name }));
+  const accounts = pickerAccounts;
   const accountOwners = new Map(
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
   );
