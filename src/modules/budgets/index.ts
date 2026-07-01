@@ -5,6 +5,7 @@ export type {
   MatchedRule,
   AdminBudgetSummary,
   AdminProviderBudgetRow,
+  BudgetCheckLogEntry,
   UserBudgetContext,
   PeriodBounds,
   PeriodConsumption,
@@ -12,3 +13,10 @@ export type {
 
 export { getPeriodBounds, periodStartIso, periodEndIso } from './periods';
 export { checkBudget, getAdminBudgetSummary } from './budget-resolution';
+export {
+  parseBudgetCheck,
+  OUTCOME_LABEL,
+  SCOPE_LABEL,
+  ON_EXCEED_LABEL,
+} from './budget-check-parser';
+export type { ParsedBudgetCheck, BudgetCheckOutcome } from './budget-check-parser';

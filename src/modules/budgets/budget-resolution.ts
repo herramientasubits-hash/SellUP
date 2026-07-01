@@ -30,6 +30,7 @@ import {
   getConsumptionByProvider,
   getActiveCatalogEntries,
 } from './queries';
+import { getBudgetCheckActivity } from './budget-check-activity';
 
 // ─── Rule matching ────────────────────────────────────────────────────────────
 
@@ -227,6 +228,9 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
     getConsumptionByProvider(admin, periodStart, periodEnd),
   ]);
 
+  const providerKeys = catalogEntries.map((e) => e.providerKey);
+  const activityMap = await getBudgetCheckActivity(providerKeys);
+
   // Group rules by provider_key
   const rulesByProvider = new Map<string, BudgetRule[]>();
   for (const rule of allRules) {
@@ -267,6 +271,8 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
         periodStart: ps,
         periodEnd: pe,
         onExceed: globalRule?.on_exceed ?? null,
+        latestBudgetCheckLog: activityMap.get(providerKey)?.latest ?? null,
+        recentBudgetCheckLogs: activityMap.get(providerKey)?.recent ?? [],
       };
     }),
   );

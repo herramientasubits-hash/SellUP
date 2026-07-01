@@ -53,6 +53,19 @@ export interface BudgetCheckResult {
 
 // ─── Admin summary ─────────────────────────────────────────────────────────────
 
+// Forward-declared to avoid circular import; actual types live in budget-check-parser/activity.
+export interface BudgetCheckLogEntry {
+  id: string;
+  providerKey: string;
+  operationKey: string | null;
+  creditsUsed: number | null;
+  estimatedCostUsd: number | null;
+  status: string | null;
+  createdAt: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  budgetCheck: any | null;
+}
+
 export interface AdminProviderBudgetRow {
   providerKey: string;
   displayName: string | null;
@@ -69,6 +82,10 @@ export interface AdminProviderBudgetRow {
   periodStart: string | null;
   periodEnd: string | null;
   onExceed: BudgetOnExceed | null;
+  /** Latest log entry with a budget_check (null = never evaluated). Hito G. */
+  latestBudgetCheckLog: BudgetCheckLogEntry | null;
+  /** Up to 10 recent log entries with budget_check, newest first. Hito G. */
+  recentBudgetCheckLogs: BudgetCheckLogEntry[];
 }
 
 export interface AdminBudgetSummary {
