@@ -1,17 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Pencil, Power, PowerOff, ChevronLeft } from 'lucide-react';
+import { Plus, Pencil, Power, PowerOff, ChevronLeft, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { DrawerShell } from '@/components/shared/drawer-shell';
 import {
   Select,
   SelectContent,
@@ -59,6 +52,12 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('es-CO', { dateStyle: 'short' });
 }
 
+// ─── Shared form fields ───────────────────────────────────────────────────────
+
+function FieldWrapper({ children }: { children: React.ReactNode }) {
+  return <div className="w-full space-y-1.5">{children}</div>;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormState {
@@ -83,9 +82,9 @@ const DEFAULT_FORM: FormState = {
   notes: '',
 };
 
-// ─── Create dialog ────────────────────────────────────────────────────────────
+// ─── Create drawer ────────────────────────────────────────────────────────────
 
-function CreateDialog({
+function CreateDrawer({
   options,
   open,
   onOpenChange,
@@ -99,8 +98,11 @@ function CreateDialog({
   const [error, setError] = useState<string | null>(null);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    if (key === 'scopeType') setForm((prev) => ({ ...prev, scopeType: value as BudgetScopeType, scopeId: '' }));
+    if (key === 'scopeType') {
+      setForm((prev) => ({ ...prev, scopeType: value as BudgetScopeType, scopeId: '' }));
+    } else {
+      setForm((prev) => ({ ...prev, [key]: value }));
+    }
   }
 
   function reset() {
@@ -141,193 +143,212 @@ function CreateDialog({
     !loading;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Nueva regla de presupuesto</DialogTitle>
-          <DialogDescription>
-            Define un límite por proveedor, alcance y período.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Proveedor */}
-          <div className="space-y-1.5">
-            <Label>Proveedor <span className="text-destructive">*</span></Label>
-            <Select value={form.providerKey || undefined} onValueChange={(v) => set('providerKey', v ?? '')}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar proveedor" />
-              </SelectTrigger>
-              <SelectContent>
-                {options.providers.map((p) => (
-                  <SelectItem key={p.providerKey} value={p.providerKey}>
-                    {p.displayName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Alcance */}
-          <div className="space-y-1.5">
-            <Label>Alcance <span className="text-destructive">*</span></Label>
-            <Select value={form.scopeType} onValueChange={(v) => { setForm((prev) => ({ ...prev, scopeType: v as BudgetScopeType, scopeId: '' })); }}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(SCOPE_LABELS) as BudgetScopeType[]).map((k) => (
-                  <SelectItem key={k} value={k}>{SCOPE_LABELS[k]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Selector dinámico */}
-          {form.scopeType === 'role' && (
-            <div className="space-y-1.5">
-              <Label>Rol <span className="text-destructive">*</span></Label>
-              <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar rol" />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.roles.map((r) => (
-                    <SelectItem key={r.key} value={r.key}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {form.scopeType === 'group' && (
-            <div className="space-y-1.5">
-              <Label>Grupo <span className="text-destructive">*</span></Label>
-              <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar grupo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.groups.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>{g.displayPath}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {form.scopeType === 'user' && (
-            <div className="space-y-1.5">
-              <Label>Usuario <span className="text-destructive">*</span></Label>
-              <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar usuario" />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.users.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {/* Período */}
-          <div className="space-y-1.5">
-            <Label>Período <span className="text-destructive">*</span></Label>
-            <Select value={form.periodType} onValueChange={(v) => set('periodType', v as BudgetPeriodType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="monthly">Mensual</SelectItem>
-                <SelectItem value="quarterly">Trimestral</SelectItem>
-                <SelectItem value="annual">Anual</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Límites */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="cr-credits">Límite créditos</Label>
-              <Input
-                id="cr-credits"
-                type="number"
-                min="1"
-                placeholder="0"
-                value={form.limitCredits}
-                onChange={(e) => set('limitCredits', e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="cr-usd">Límite USD</Label>
-              <Input
-                id="cr-usd"
-                type="number"
-                min="0.01"
-                step="0.01"
-                placeholder="0.00"
-                value={form.limitUsd}
-                onChange={(e) => set('limitUsd', e.target.value)}
-              />
-            </div>
-          </div>
-          <p className="text-[11px] text-muted-foreground -mt-1">
-            Al menos uno es obligatorio. Ambos pueden coexistir.
-          </p>
-
-          {/* Acción al superar */}
-          <div className="space-y-1.5">
-            <Label>Acción al superar <span className="text-destructive">*</span></Label>
-            <Select value={form.onExceed} onValueChange={(v) => set('onExceed', v as BudgetOnExceed)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(ON_EXCEED_LABELS) as BudgetOnExceed[]).map((k) => (
-                  <SelectItem key={k} value={k}>{ON_EXCEED_LABELS[k]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Notas */}
-          <div className="space-y-1.5">
-            <Label htmlFor="cr-notes">Notas <span className="text-xs text-muted-foreground">(opcional)</span></Label>
-            <Textarea
-              id="cr-notes"
-              rows={2}
-              placeholder="Contexto adicional..."
-              value={form.notes}
-              onChange={(e) => set('notes', e.target.value)}
-              className="resize-none text-sm"
-            />
-          </div>
-
-          {error && (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {error}
-            </div>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => { onOpenChange(false); reset(); }} disabled={loading}>
+    <DrawerShell
+      open={open}
+      onOpenChange={(v) => {
+        onOpenChange(v);
+        if (!v) reset();
+      }}
+      title="Nueva regla de presupuesto"
+      description="Define un límite por proveedor, alcance y período."
+      icon={<ShieldAlert className="h-4 w-4 text-su-brand" />}
+      size="md"
+      actions={
+        <div className="flex w-full items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { onOpenChange(false); reset(); }}
+            disabled={loading}
+          >
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit}>
+          <Button size="sm" onClick={handleSubmit} disabled={!canSubmit}>
             {loading ? 'Creando...' : 'Crear regla'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {/* Proveedor */}
+        <FieldWrapper>
+          <Label>Proveedor <span className="text-destructive">*</span></Label>
+          <Select value={form.providerKey || undefined} onValueChange={(v) => set('providerKey', v ?? '')}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Seleccionar proveedor" />
+            </SelectTrigger>
+            <SelectContent>
+              {options.providers.map((p) => (
+                <SelectItem key={p.providerKey} value={p.providerKey}>
+                  {p.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldWrapper>
+
+        {/* Alcance */}
+        <FieldWrapper>
+          <Label>Alcance <span className="text-destructive">*</span></Label>
+          <Select
+            value={form.scopeType}
+            onValueChange={(v) => set('scopeType', v as BudgetScopeType)}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(SCOPE_LABELS) as BudgetScopeType[]).map((k) => (
+                <SelectItem key={k} value={k}>{SCOPE_LABELS[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldWrapper>
+
+        {/* Selector dinámico */}
+        {form.scopeType === 'role' && (
+          <FieldWrapper>
+            <Label>Rol <span className="text-destructive">*</span></Label>
+            <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar rol" />
+              </SelectTrigger>
+              <SelectContent>
+                {options.roles.map((r) => (
+                  <SelectItem key={r.key} value={r.key}>{r.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FieldWrapper>
+        )}
+
+        {form.scopeType === 'group' && (
+          <FieldWrapper>
+            <Label>Grupo <span className="text-destructive">*</span></Label>
+            <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar grupo" />
+              </SelectTrigger>
+              <SelectContent>
+                {options.groups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>{g.displayPath}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FieldWrapper>
+        )}
+
+        {form.scopeType === 'user' && (
+          <FieldWrapper>
+            <Label>Usuario <span className="text-destructive">*</span></Label>
+            <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar usuario" />
+              </SelectTrigger>
+              <SelectContent>
+                {options.users.length === 0 ? (
+                  <SelectItem value="_empty" disabled>Sin usuarios activos</SelectItem>
+                ) : (
+                  options.users.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.label}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </FieldWrapper>
+        )}
+
+        {/* Período */}
+        <FieldWrapper>
+          <Label>Período <span className="text-destructive">*</span></Label>
+          <Select value={form.periodType} onValueChange={(v) => set('periodType', v as BudgetPeriodType)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PERIOD_LABELS) as BudgetPeriodType[]).filter(k => k !== 'custom').map((k) => (
+                <SelectItem key={k} value={k}>{PERIOD_LABELS[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldWrapper>
+
+        {/* Límites */}
+        <div className="grid grid-cols-2 gap-3">
+          <FieldWrapper>
+            <Label htmlFor="cr-credits">Límite créditos</Label>
+            <Input
+              id="cr-credits"
+              type="number"
+              min="1"
+              placeholder="0"
+              className="w-full"
+              value={form.limitCredits}
+              onChange={(e) => set('limitCredits', e.target.value)}
+            />
+          </FieldWrapper>
+          <FieldWrapper>
+            <Label htmlFor="cr-usd">Límite USD</Label>
+            <Input
+              id="cr-usd"
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="0.00"
+              className="w-full"
+              value={form.limitUsd}
+              onChange={(e) => set('limitUsd', e.target.value)}
+            />
+          </FieldWrapper>
+        </div>
+        <p className="text-[11px] text-muted-foreground -mt-1">
+          Al menos uno es obligatorio. Ambos pueden coexistir.
+        </p>
+
+        {/* Acción al superar */}
+        <FieldWrapper>
+          <Label>Acción al superar <span className="text-destructive">*</span></Label>
+          <Select value={form.onExceed} onValueChange={(v) => set('onExceed', v as BudgetOnExceed)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(ON_EXCEED_LABELS) as BudgetOnExceed[]).map((k) => (
+                <SelectItem key={k} value={k}>{ON_EXCEED_LABELS[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldWrapper>
+
+        {/* Notas */}
+        <FieldWrapper>
+          <Label htmlFor="cr-notes">
+            Notas <span className="text-xs text-muted-foreground">(opcional)</span>
+          </Label>
+          <Textarea
+            id="cr-notes"
+            rows={2}
+            placeholder="Contexto adicional..."
+            value={form.notes}
+            onChange={(e) => set('notes', e.target.value)}
+            className="w-full resize-none text-sm"
+          />
+        </FieldWrapper>
+
+        {error && (
+          <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+      </div>
+    </DrawerShell>
   );
 }
 
-// ─── Edit dialog ──────────────────────────────────────────────────────────────
+// ─── Edit drawer ──────────────────────────────────────────────────────────────
 
-function EditDialog({
+function EditDrawer({
   rule,
   open,
   onOpenChange,
@@ -343,7 +364,6 @@ function EditDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Re-sync when the rule prop changes
   const ruleId = rule?.id;
   const [lastRuleId, setLastRuleId] = useState<string | undefined>(undefined);
   if (ruleId !== lastRuleId) {
@@ -384,90 +404,107 @@ function EditDialog({
   if (!rule) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Editar regla</DialogTitle>
-          <DialogDescription>
-            <span className="font-medium">{rule.providerDisplayName}</span> · <span>{rule.scopeLabel}</span>
-            <br />
-            <span className="text-[11px] text-muted-foreground">El proveedor y el alcance no se pueden cambiar. Para modificarlos, desactiva esta regla y crea una nueva.</span>
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Límites */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="ed-credits">Límite créditos</Label>
-              <Input
-                id="ed-credits"
-                type="number"
-                min="1"
-                placeholder="0"
-                value={limitCredits}
-                onChange={(e) => setLimitCredits(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ed-usd">Límite USD</Label>
-              <Input
-                id="ed-usd"
-                type="number"
-                min="0.01"
-                step="0.01"
-                placeholder="0.00"
-                value={limitUsd}
-                onChange={(e) => setLimitUsd(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Acción al superar */}
-          <div className="space-y-1.5">
-            <Label>Acción al superar</Label>
-            <Select value={onExceed} onValueChange={(v) => setOnExceed(v as BudgetOnExceed)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(ON_EXCEED_LABELS) as BudgetOnExceed[]).map((k) => (
-                  <SelectItem key={k} value={k}>{ON_EXCEED_LABELS[k]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Notas */}
-          <div className="space-y-1.5">
-            <Label htmlFor="ed-notes">Notas <span className="text-xs text-muted-foreground">(opcional)</span></Label>
-            <Textarea
-              id="ed-notes"
-              rows={2}
-              placeholder="Contexto adicional..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="resize-none text-sm"
-            />
-          </div>
-
-          {error && (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {error}
-            </div>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+    <DrawerShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Editar regla"
+      description={
+        <>
+          <span className="font-medium text-foreground">{rule.providerDisplayName}</span>
+          {' · '}
+          <span>{rule.scopeLabel}</span>
+          <br />
+          <span className="text-[11px]">
+            El proveedor y el alcance no se pueden cambiar. Para modificarlos, desactiva esta regla y crea una nueva.
+          </span>
+        </>
+      }
+      icon={<ShieldAlert className="h-4 w-4 text-su-brand" />}
+      size="md"
+      actions={
+        <div className="flex w-full items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={loading}
+          >
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit}>
+          <Button size="sm" onClick={handleSubmit} disabled={!canSubmit}>
             {loading ? 'Guardando...' : 'Guardar cambios'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {/* Límites */}
+        <div className="grid grid-cols-2 gap-3">
+          <FieldWrapper>
+            <Label htmlFor="ed-credits">Límite créditos</Label>
+            <Input
+              id="ed-credits"
+              type="number"
+              min="1"
+              placeholder="0"
+              className="w-full"
+              value={limitCredits}
+              onChange={(e) => setLimitCredits(e.target.value)}
+            />
+          </FieldWrapper>
+          <FieldWrapper>
+            <Label htmlFor="ed-usd">Límite USD</Label>
+            <Input
+              id="ed-usd"
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="0.00"
+              className="w-full"
+              value={limitUsd}
+              onChange={(e) => setLimitUsd(e.target.value)}
+            />
+          </FieldWrapper>
+        </div>
+
+        {/* Acción al superar */}
+        <FieldWrapper>
+          <Label>Acción al superar</Label>
+          <Select value={onExceed} onValueChange={(v) => setOnExceed(v as BudgetOnExceed)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(ON_EXCEED_LABELS) as BudgetOnExceed[]).map((k) => (
+                <SelectItem key={k} value={k}>{ON_EXCEED_LABELS[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldWrapper>
+
+        {/* Notas */}
+        <FieldWrapper>
+          <Label htmlFor="ed-notes">
+            Notas <span className="text-xs text-muted-foreground">(opcional)</span>
+          </Label>
+          <Textarea
+            id="ed-notes"
+            rows={2}
+            placeholder="Contexto adicional..."
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full resize-none text-sm"
+          />
+        </FieldWrapper>
+
+        {error && (
+          <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+      </div>
+    </DrawerShell>
   );
 }
 
@@ -605,8 +642,8 @@ export function BudgetRulesClient({ rules, options }: Props) {
         </div>
       )}
 
-      <CreateDialog options={options} open={showCreate} onOpenChange={setShowCreate} />
-      <EditDialog rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
+      <CreateDrawer options={options} open={showCreate} onOpenChange={setShowCreate} />
+      <EditDrawer rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
     </>
   );
 }

@@ -125,7 +125,7 @@ export async function getBudgetRuleFormOptions(): Promise<BudgetRuleFormOptions>
     admin
       .from('internal_users')
       .select('id, full_name, email')
-      .eq('access_status', 'approved')
+      .eq('access_status', 'active')
       .order('full_name'),
   ]);
 
