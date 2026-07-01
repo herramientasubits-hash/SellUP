@@ -218,6 +218,7 @@ export const CONNECTION_MODE_LABELS: Record<ConnectionMode, string> = {
   automatic_enrichment: 'Enrichment automático',
   source_guided_query: 'Source-guided query',
   offline_signal: 'Sin credenciales requeridas',
+  credential_configured: 'Credencial configurada',
   not_connected: 'No conectada',
   not_applicable: 'No aplica',
 };
@@ -231,6 +232,8 @@ export function connectionModeBadgeClass(mode: ConnectionMode): string {
     case 'source_guided_query':
       return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
     case 'offline_signal':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+    case 'credential_configured':
       return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
     case 'not_connected':
       return 'border-border/40 bg-muted/30 text-muted-foreground';

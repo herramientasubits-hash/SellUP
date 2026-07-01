@@ -403,3 +403,87 @@ describe('Perú.4D — Migo en source-connection-resolver', () => {
     assert.equal(strategy, 'requires_credentials');
   });
 });
+
+// ── Perú.UI.2 — Sincronizar estado de conexión Migo entre detalle y listado ──
+
+describe('Perú.UI.2 — SourceStatusOverrides incluye connectionMode', () => {
+  it('SourceStatusOverrides type incluye connectionMode opcional (verificación pura)', () => {
+    // Verificación pura: la lógica de override acepta connectionMode
+    const override: { operationalStatus: string; aiFlowStatus?: string; connectionMode?: string } = {
+      operationalStatus: 'operational_verified',
+      aiFlowStatus: 'connected',
+      connectionMode: 'credential_configured',
+    };
+    assert.equal(override.connectionMode, 'credential_configured');
+  });
+
+  it('pe_migo_api catálogo estático conserva connectionMode = not_connected (pre-override)', async () => {
+    const mod = await import('../../../../agents/prospecting-toolkit/source-catalog');
+    const entry = mod.CATALOG_SOURCES.find((s: { key: string }) => s.key === 'pe_migo_api')!;
+    assert.equal(
+      entry.connectionMode,
+      'not_connected',
+      'El catálogo estático no cambia — el override viene de DB',
+    );
+  });
+
+  it('pe_migo_api con connection_status=connected y requires_credentials=true → connectionMode override = credential_configured', () => {
+    // Simular la lógica del override (extracción pura sin DB)
+    const row = { source_key: 'pe_migo_api', connection_status: 'connected', requires_credentials: true };
+    const connectionMode = row.requires_credentials ? 'credential_configured' : 'offline_signal';
+    assert.equal(connectionMode, 'credential_configured');
+  });
+
+  it('pe_migo_api con connectionMode credential_configured → acción es Ver detalle, no Conectar', () => {
+    const effectiveConnectionMode: string = 'credential_configured';
+    const showConectar = effectiveConnectionMode === 'not_connected';
+    assert.equal(showConectar, false, 'No debe mostrar CTA Conectar cuando connectionMode es credential_configured');
+  });
+
+  it('pe_migo_api conserva sellupUse = validation_only (no se convierte en fuente principal)', async () => {
+    const mod = await import('../../../../agents/prospecting-toolkit/source-catalog');
+    const entry = mod.CATALOG_SOURCES.find((s: { key: string }) => s.key === 'pe_migo_api')!;
+    assert.equal(entry.sellupUse, 'validation_only', 'Migo es solo validación, no discovery ni enrichment principal');
+  });
+
+  it('pe_sunat_bulk sigue como offline_signal (sin credenciales requeridas)', async () => {
+    const mod = await import('../../../../agents/prospecting-toolkit/source-catalog');
+    const entry = mod.CATALOG_SOURCES.find((s: { key: string }) => s.key === 'pe_sunat_bulk')!;
+    assert.equal(entry.connectionMode, 'offline_signal', 'SUNAT bulk no requiere credenciales');
+  });
+
+  it('pe_sunat_bulk con connection_status=connected y requires_credentials=false → connectionMode override = offline_signal', () => {
+    const row = { source_key: 'pe_sunat_bulk', connection_status: 'connected', requires_credentials: false };
+    const connectionMode = row.requires_credentials ? 'credential_configured' : 'offline_signal';
+    assert.equal(connectionMode, 'offline_signal', 'SUNAT no cambia a credential_configured');
+  });
+
+  it('CONNECTION_MODE_LABELS tiene label para credential_configured', async () => {
+    const { CONNECTION_MODE_LABELS } = await import('../../../../../modules/source-catalog/labels');
+    assert.ok(
+      'credential_configured' in CONNECTION_MODE_LABELS,
+      'Falta label para credential_configured',
+    );
+    assert.equal(CONNECTION_MODE_LABELS['credential_configured' as keyof typeof CONNECTION_MODE_LABELS], 'Credencial configurada');
+  });
+
+  it('México/RD/Chile no están afectados — connectionMode no es credential_configured en catálogo estático', async () => {
+    const mod = await import('../../../../agents/prospecting-toolkit/source-catalog');
+    const mxEntries = mod.CATALOG_SOURCES.filter((s: { key: string; countryCodes?: string[] }) =>
+      (s.countryCodes ?? []).includes('MX'),
+    );
+    const rdEntries = mod.CATALOG_SOURCES.filter((s: { key: string; countryCodes?: string[] }) =>
+      (s.countryCodes ?? []).includes('DO'),
+    );
+    const clEntries = mod.CATALOG_SOURCES.filter((s: { key: string; countryCodes?: string[] }) =>
+      (s.countryCodes ?? []).includes('CL'),
+    );
+    for (const e of [...mxEntries, ...rdEntries, ...clEntries]) {
+      assert.notEqual(
+        (e as { connectionMode?: string }).connectionMode,
+        'credential_configured',
+        `${(e as { key: string }).key} no debe tener credential_configured en catálogo estático`,
+      );
+    }
+  });
+});

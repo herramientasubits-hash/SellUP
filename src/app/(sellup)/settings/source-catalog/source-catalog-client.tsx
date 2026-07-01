@@ -165,6 +165,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         ...s,
         operationalStatus: override?.operationalStatus ?? s.operationalStatus,
         aiFlowStatus: override?.aiFlowStatus ?? s.aiFlowStatus,
+        connectionMode: override?.connectionMode ?? s.connectionMode,
         latest: latestTests[s.key],
       };
     }),

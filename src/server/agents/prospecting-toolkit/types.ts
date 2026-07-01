@@ -101,6 +101,7 @@ export type ConnectionMode =
   | 'automatic_enrichment'
   | 'source_guided_query'
   | 'offline_signal'
+  | 'credential_configured'
   | 'not_connected'
   | 'not_applicable';
 
