@@ -1,19 +1,31 @@
 /**
- * Apollo Organizations Query Mapping (v1.16K-AA)
+ * Apollo Organizations Query Mapping (v1.16K-AB)
  *
  * Transforma criterios SellUp wizard → parámetros estructurados Apollo Organizations.
  *
- * Problema diagnosticado:
+ * Problema diagnosticado (v1.16K-AA):
  *   La versión anterior pasaba input.query (frase web estilo Tavily,
  *   ej. "sector educativo Colombia servicios corporativo") al campo
  *   q_organization_name, que Apollo interpreta como nombre exacto de empresa.
  *   Resultado: 0 coincidencias siempre.
  *
- * Solución:
+ * Corrección v1.16K-AA:
  *   - Usar q_keywords para texto libre (búsqueda más amplia en Apollo).
  *   - Derivar keywords estructuradas del sector/industria cuando existe mapping.
  *   - Usar organization_locations para país (no dentro del texto de query).
  *   - No enviar frases web largas innecesarias.
+ *
+ * Problema diagnosticado (v1.16K-AB):
+ *   Smoke test directo contra Apollo devolvió PwC Colombia como primer resultado
+ *   para el sector Educación. Causa: las keywords iniciales enviadas eran demasiado
+ *   amplias ("education e-learning elearning corporate training higher education").
+ *   Apollo priorizó "education" genérico y devolvió un universo de 153k empresas.
+ *
+ * Corrección v1.16K-AB:
+ *   - Reordenar keywords del sector Educación: señales específicas primero
+ *     (lms, learning management system, corporate training, e-learning, online learning).
+ *   - "education" genérico queda al final del array, fuera del slice(0, 5).
+ *   - Agregar relevance_strategy y generic_keywords_deprioritized a metadata.
  *
  * Reglas:
  *   - Puro: sin side effects, sin llamadas externas.
@@ -27,7 +39,7 @@ import type { WebSearchInput } from './types';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-export const APOLLO_QUERY_MAPPING_VERSION = 'v1.16K-AA';
+export const APOLLO_QUERY_MAPPING_VERSION = 'v1.16K-AB';
 
 // ─── Sector → keywords Apollo ─────────────────────────────────────────────────
 
@@ -39,9 +51,20 @@ export const APOLLO_QUERY_MAPPING_VERSION = 'v1.16K-AA';
  * Añadimos variantes en español para empresas latinas.
  */
 const SECTOR_KEYWORD_MAP: Record<string, string[]> = {
+  // v1.16K-AB: reordenado — señales específicas primero para que slice(0,5) sea preciso.
+  // "education" genérico quedó al final (posición 11) fuera del slice inicial.
   educación: [
-    'education', 'e-learning', 'elearning', 'corporate training',
-    'higher education', 'lms', 'learning management', 'training', 'educación',
+    'learning management system',
+    'lms',
+    'corporate training',
+    'e-learning',
+    'online learning',
+    'formación corporativa',
+    'capacitación',
+    'educación virtual',
+    'education management',
+    'higher education',
+    'education',
   ],
   tecnología: [
     'technology', 'software', 'IT services', 'SaaS', 'cloud',
@@ -116,6 +139,10 @@ export type ApolloQueryMappingMeta = {
   requested_max_results: number;
   capped_max_results: number;
   was_capped: boolean;
+  /** Estrategia de relevancia aplicada al construir las keywords. */
+  relevance_strategy: 'sector_specific_keywords' | 'query_fallback';
+  /** True cuando las keywords genéricas del sector fueron desplazadas al final del array. */
+  generic_keywords_deprioritized: boolean;
 };
 
 export type ApolloSearchParamsWithMeta = {
@@ -152,14 +179,21 @@ export function buildApolloOrganizationsSearchParams(
   const queryWords = input.query?.trim() ?? '';
 
   let keywordParts: string[];
+  let relevanceStrategy: ApolloQueryMappingMeta['relevance_strategy'];
   if (sectorKeywords.length > 0) {
     keywordParts = sectorKeywords.slice(0, 5);
+    relevanceStrategy = 'sector_specific_keywords';
   } else {
     keywordParts = [queryWords].filter(Boolean);
+    relevanceStrategy = 'query_fallback';
   }
 
   const apolloKeywords = keywordParts.join(' ').trim() || null;
   const apolloLocation = input.country?.trim() ?? null;
+
+  // generic_keywords_deprioritized: true cuando el sector tiene >5 keywords y las
+  // específicas occupan el slice inicial (es decir, "education" genérico queda fuera).
+  const genericKeywordsDeprioritized = sectorKeywords.length > 5 && relevanceStrategy === 'sector_specific_keywords';
 
   const params: SearchOrganizationsParams = {
     // q_keywords: búsqueda libre en descripción/keywords de la empresa (correcto)
@@ -183,6 +217,8 @@ export function buildApolloOrganizationsSearchParams(
     requested_max_results: cappedMaxResults,
     capped_max_results: cappedMaxResults,
     was_capped: false, // el caller lo rellena con el valor real del cap
+    relevance_strategy: relevanceStrategy,
+    generic_keywords_deprioritized: genericKeywordsDeprioritized,
   };
 
   return { params, meta };
