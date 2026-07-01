@@ -293,20 +293,28 @@ export async function getToolCatalog(
 
 /**
  * Returns all active tool_catalog entries as a list.
+ * Includes provider-level monthly allowances added in Hito J.
  * Used by getAdminBudgetSummary() as the canonical provider base.
  */
 export async function getActiveCatalogEntries(
   admin: AdminClient,
-): Promise<Array<{ providerKey: string; displayName: string }>> {
+): Promise<Array<{
+  providerKey: string;
+  displayName: string;
+  monthlyCreditsAllowance: number | null;
+  monthlyUsdAllowance: number | null;
+}>> {
   const { data } = await admin
     .from('tool_catalog')
-    .select('provider_key, display_name')
+    .select('provider_key, display_name, monthly_credits_allowance, monthly_usd_allowance')
     .eq('is_active', true)
     .order('provider_key');
 
   return (data ?? []).map((r) => ({
     providerKey: r.provider_key as string,
     displayName: r.display_name as string,
+    monthlyCreditsAllowance: r.monthly_credits_allowance != null ? Number(r.monthly_credits_allowance) : null,
+    monthlyUsdAllowance: r.monthly_usd_allowance != null ? Number(r.monthly_usd_allowance) : null,
   }));
 }
 

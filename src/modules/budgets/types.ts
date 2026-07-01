@@ -90,6 +90,14 @@ export interface AdminProviderBudgetRow {
   isConnected: boolean;
   /** Derived measurement state: active | connected | prepared | not_measured. Hito I. */
   measurementStatus: import('./provider-measurement').MeasurementStatus;
+  /** External contracted monthly credits quota (tool_catalog). Hito J. */
+  providerMonthlyCreditsAllowance: number | null;
+  /** External contracted monthly USD budget (tool_catalog). Hito J. */
+  providerMonthlyUsdAllowance: number | null;
+  /** credits_available_provider = allowance - consumed (null if allowance null). Hito J. */
+  providerCreditsAvailable: number | null;
+  /** usd_available_provider = usd_allowance - consumed_usd (null if allowance null). Hito J. */
+  providerUsdAvailable: number | null;
 }
 
 export interface AdminBudgetSummary {

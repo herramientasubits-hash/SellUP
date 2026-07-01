@@ -1,6 +1,6 @@
 'use client';
 
-import { Cpu, Activity, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Cpu, Activity, TrendingUp, PackageOpen } from 'lucide-react';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 
@@ -11,21 +11,31 @@ interface Props {
 export function BudgetSummaryCards({ providers }: Props) {
   const totalProviders = providers.length;
 
-  const activeProviders = providers.filter((p) => p.measurementStatus === 'active');
+  // Connected = connected + active (any state that means the provider is wired up)
+  const connectedProviders = providers.filter(
+    (p) => p.measurementStatus === 'connected' || p.measurementStatus === 'active',
+  );
 
-  const activeWithoutRule = activeProviders.filter(
-    (p) => p.globalLimitCredits == null && p.globalLimitUsd == null,
-  ).length;
+  // Active (have tracked consumption)
+  const activeProviders = providers.filter((p) => p.measurementStatus === 'active');
 
   const totalCredits = activeProviders.reduce((acc, p) => acc + p.consumedCredits, 0);
   const totalUsd = activeProviders.reduce((acc, p) => acc + p.consumedUsd, 0);
 
   const consumptionLabel = [
-    totalCredits > 0 ? `${totalCredits.toLocaleString()} créditos` : null,
+    totalCredits > 0 ? `${totalCredits.toLocaleString()} cr` : null,
     totalUsd > 0 ? `$${totalUsd.toFixed(2)} USD` : null,
   ]
     .filter(Boolean)
     .join(' · ') || '—';
+
+  // Sin cuota: connected/active providers that should have allowance but don't
+  // Exclude not_measured (samu_ia, etc.) and prepared (not connected)
+  const withoutAllowance = connectedProviders.filter(
+    (p) =>
+      p.providerMonthlyCreditsAllowance == null &&
+      p.providerMonthlyUsdAllowance == null,
+  ).length;
 
   const cards = [
     {
@@ -36,25 +46,25 @@ export function BudgetSummaryCards({ providers }: Props) {
       bg: 'bg-su-brand-soft',
     },
     {
-      label: 'Con medición activa',
-      value: String(activeProviders.length),
+      label: 'Conectados',
+      value: String(connectedProviders.length),
       icon: Activity,
       color: 'text-emerald-500',
       bg: 'bg-emerald-500/10',
     },
     {
-      label: 'Consumo estimado del mes',
+      label: 'Consumo del mes',
       value: consumptionLabel,
       icon: TrendingUp,
       color: 'text-amber-500',
       bg: 'bg-amber-500/10',
     },
     {
-      label: 'Sin regla en proveedores medidos',
-      value: String(activeWithoutRule),
-      icon: AlertTriangle,
-      color: activeWithoutRule > 0 ? 'text-amber-500' : 'text-muted-foreground',
-      bg: activeWithoutRule > 0 ? 'bg-amber-500/10' : 'bg-muted/30',
+      label: 'Sin cuota configurada',
+      value: String(withoutAllowance),
+      icon: PackageOpen,
+      color: withoutAllowance > 0 ? 'text-amber-500' : 'text-muted-foreground',
+      bg: withoutAllowance > 0 ? 'bg-amber-500/10' : 'bg-muted/30',
     },
   ];
 

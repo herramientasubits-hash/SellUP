@@ -246,7 +246,7 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
 
   // Base: all active catalog entries. Merge rules + consumption onto each.
   const providers: AdminProviderBudgetRow[] = await Promise.all(
-    catalogEntries.map(async ({ providerKey, displayName }) => {
+    catalogEntries.map(async ({ providerKey, displayName, monthlyCreditsAllowance, monthlyUsdAllowance }) => {
       const rules = rulesByProvider.get(providerKey) ?? [];
       const globalRule = rules.find((r) => r.scope_type === 'global') ?? null;
       const periodType = globalRule?.period_type ?? 'monthly';
@@ -264,6 +264,14 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
 
       const isConnected = connectionStatuses.has(providerKey);
       const hasTrackedConsumption = trackedProviders.has(providerKey);
+
+      // Provider allowance availability (may go negative — shows overrun, no clamping)
+      const providerCreditsAvailable = monthlyCreditsAllowance !== null
+        ? monthlyCreditsAllowance - consumed.credits
+        : null;
+      const providerUsdAvailable = monthlyUsdAllowance !== null
+        ? monthlyUsdAllowance - consumed.usd
+        : null;
 
       return {
         providerKey,
@@ -283,6 +291,10 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
         recentBudgetCheckLogs: activityMap.get(providerKey)?.recent ?? [],
         isConnected,
         measurementStatus: deriveMeasurementStatus(providerKey, hasTrackedConsumption, isConnected),
+        providerMonthlyCreditsAllowance: monthlyCreditsAllowance,
+        providerMonthlyUsdAllowance: monthlyUsdAllowance,
+        providerCreditsAvailable,
+        providerUsdAvailable,
       };
     }),
   );

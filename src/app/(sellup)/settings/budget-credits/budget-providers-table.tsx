@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { Activity } from 'lucide-react';
+import { Activity, Pencil } from 'lucide-react';
 import type { AdminProviderBudgetRow, BudgetCheckLogEntry } from '@/modules/budgets';
 import {
   parseBudgetCheck,
@@ -18,6 +18,7 @@ import {
   MEASUREMENT_STATUS_BADGE,
   type MeasurementStatus,
 } from '@/modules/budgets/provider-measurement';
+import { ProviderAllowanceDrawer } from './provider-allowance-drawer';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
@@ -30,6 +31,34 @@ function formatAmount(credits: number | null, usd: number | null): string {
   const parts: string[] = [];
   if (credits != null && credits > 0) parts.push(`${credits.toLocaleString()} cr`);
   if (usd != null && usd > 0) parts.push(`$${usd.toFixed(2)}`);
+  return parts.join(' · ') || '—';
+}
+
+function formatAllowanceAvailable(
+  credits: number | null,
+  usd: number | null,
+): { label: string; overrun: boolean } {
+  if (credits === null && usd === null) {
+    return { label: 'No configurado', overrun: false };
+  }
+  const parts: string[] = [];
+  let overrun = false;
+  if (credits !== null) {
+    if (credits < 0) overrun = true;
+    parts.push(`${credits.toLocaleString()} cr`);
+  }
+  if (usd !== null) {
+    if (usd < 0) overrun = true;
+    parts.push(`$${usd.toFixed(2)}`);
+  }
+  return { label: parts.join(' · ') || '—', overrun };
+}
+
+function formatAllowance(credits: number | null, usd: number | null): string {
+  if (credits === null && usd === null) return 'No configurado';
+  const parts: string[] = [];
+  if (credits !== null) parts.push(`${credits.toLocaleString()} cr`);
+  if (usd !== null) parts.push(`$${usd.toFixed(2)}`);
   return parts.join(' · ') || '—';
 }
 
@@ -99,8 +128,8 @@ function formatDateLong(iso: string): string {
 
 interface RowDisplay {
   consumed: string;
-  limit: string;
-  available: string;
+  ruleLimit: string;
+  ruleAvailable: string;
   statusBadge: { label: string; className: string };
   actionLabel: string;
   canViewEvals: boolean;
@@ -109,36 +138,36 @@ interface RowDisplay {
 function deriveRowDisplay(row: AdminProviderBudgetRow, ms: MeasurementStatus): RowDisplay {
   if (ms === 'not_measured') {
     return {
-      consumed:     '—',
-      limit:        'No aplica',
-      available:    'No aplica',
-      statusBadge:  STATUS_BADGE_NOT_MEASURED,
-      actionLabel:  'No aplica',
-      canViewEvals: false,
+      consumed:      '—',
+      ruleLimit:     'No aplica',
+      ruleAvailable: 'No aplica',
+      statusBadge:   STATUS_BADGE_NOT_MEASURED,
+      actionLabel:   'No aplica',
+      canViewEvals:  false,
     };
   }
 
   if (ms === 'prepared') {
     const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
     return {
-      consumed:     '—',
-      limit:        hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
-      available:    hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
-      statusBadge:  STATUS_BADGE_PREPARED,
-      actionLabel:  row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
-      canViewEvals: true,
+      consumed:      '—',
+      ruleLimit:     hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
+      ruleAvailable: hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
+      statusBadge:   STATUS_BADGE_PREPARED,
+      actionLabel:   row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
+      canViewEvals:  true,
     };
   }
 
   if (ms === 'connected') {
     const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
     return {
-      consumed:     '—',
-      limit:        hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
-      available:    hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
-      statusBadge:  STATUS_BADGE_CONNECTED,
-      actionLabel:  row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
-      canViewEvals: true,
+      consumed:      '—',
+      ruleLimit:     hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
+      ruleAvailable: hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
+      statusBadge:   STATUS_BADGE_CONNECTED,
+      actionLabel:   row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
+      canViewEvals:  true,
     };
   }
 
@@ -150,13 +179,13 @@ function deriveRowDisplay(row: AdminProviderBudgetRow, ms: MeasurementStatus): R
   const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
   const hasSpecificRulesOnly = row.activeRules > 0 && !hasGlobalRule;
 
-  const limit = hasGlobalRule
+  const ruleLimit = hasGlobalRule
     ? formatAmount(row.globalLimitCredits, row.globalLimitUsd)
     : hasSpecificRulesOnly
       ? 'Reglas específicas'
       : 'Sin regla';
 
-  const available = hasGlobalRule
+  const ruleAvailable = hasGlobalRule
     ? formatAmount(row.remainingCredits, row.remainingUsd)
     : hasSpecificRulesOnly
       ? 'Ver reglas'
@@ -172,8 +201,8 @@ function deriveRowDisplay(row: AdminProviderBudgetRow, ms: MeasurementStatus): R
 
   return {
     consumed,
-    limit,
-    available,
+    ruleLimit,
+    ruleAvailable,
     statusBadge:  BUDGET_STATUS_BADGE[budgetStatus],
     actionLabel,
     canViewEvals: true,
@@ -259,7 +288,7 @@ function LogEntryCard({ log }: { log: BudgetCheckLogEntry }) {
         )}
         {parsed?.remainingCredits != null && (
           <div>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Restante</span>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Restante (regla)</span>
             <p className="font-medium text-foreground">{parsed.remainingCredits.toLocaleString()} cr</p>
           </div>
         )}
@@ -304,6 +333,60 @@ function LogEntryCard({ log }: { log: BudgetCheckLogEntry }) {
   );
 }
 
+// ── Side panel allowance summary ──────────────────────────────────────────────
+
+function AllowanceSummaryBlock({ row }: { row: AdminProviderBudgetRow }) {
+  const creditsAllowance = formatAllowance(row.providerMonthlyCreditsAllowance, null);
+  const usdAllowance = formatAllowance(null, row.providerMonthlyUsdAllowance);
+  const creditsAvail = formatAllowanceAvailable(row.providerCreditsAvailable, null);
+  const usdAvail = formatAllowanceAvailable(null, row.providerUsdAvailable);
+  const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
+  const ruleLimit = hasGlobalRule
+    ? formatAmount(row.globalLimitCredits, row.globalLimitUsd)
+    : 'Sin regla';
+  const ruleAvail = hasGlobalRule
+    ? formatAmount(row.remainingCredits, row.remainingUsd)
+    : 'No aplica';
+
+  return (
+    <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
+        Cuota y disponibilidad
+      </p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Créditos proveedor</span>
+          <p className="font-medium text-foreground">{creditsAllowance}</p>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">USD proveedor</span>
+          <p className="font-medium text-foreground">{usdAllowance}</p>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Disp. proveedor (cr)</span>
+          <p className={`font-medium ${creditsAvail.overrun ? 'text-destructive' : 'text-foreground'}`}>
+            {creditsAvail.label}
+          </p>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Disp. proveedor (USD)</span>
+          <p className={`font-medium ${usdAvail.overrun ? 'text-destructive' : 'text-foreground'}`}>
+            {usdAvail.label}
+          </p>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Límite regla SellUp</span>
+          <p className="font-medium text-foreground">{ruleLimit}</p>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Disp. regla SellUp</span>
+          <p className="font-medium text-foreground">{ruleAvail}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Side panel status header ──────────────────────────────────────────────────
 
 function DrawerStatusHeader({
@@ -322,7 +405,7 @@ function DrawerStatusHeader({
       : 'Específicas (por alcance)';
 
   return (
-    <div className="mb-5 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
+    <div className="mb-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1">Estado de medición</p>
@@ -390,6 +473,9 @@ function ProviderActivityDrawer({
         <div className="space-y-3">
           <DrawerStatusHeader row={provider} ms={ms} />
 
+          {/* Allowance summary — always show in panel */}
+          <AllowanceSummaryBlock row={provider} />
+
           {provider.recentBudgetCheckLogs.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center">
               <p className="text-sm text-muted-foreground">
@@ -414,15 +500,42 @@ function ProviderActivityDrawer({
   );
 }
 
+// ── Provider allowance cells ──────────────────────────────────────────────────
+
+function AllowanceCell({
+  allowance,
+  available,
+  isNotMeasured,
+}: {
+  allowance: string;
+  available: { label: string; overrun: boolean } | null;
+  isNotMeasured: boolean;
+}) {
+  if (isNotMeasured) {
+    return <span className="text-xs text-muted-foreground/40">No aplica</span>;
+  }
+  return (
+    <div className="space-y-0.5">
+      <p className="text-xs text-foreground">{allowance}</p>
+      {available && (
+        <p className={`text-[10px] ${available.overrun ? 'text-destructive font-medium' : 'text-muted-foreground/70'}`}>
+          {available.overrun ? '⚠ ' : ''}Disp: {available.label}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Main table ─────────────────────────────────────────────────────────────────
 
 const COLUMNS = [
   'Proveedor',
   'Reglas activas',
   'Consumo del mes',
-  'Límite por regla',
-  'Disponible por regla',
-  'Estado de presupuesto',
+  'Créditos proveedor',
+  'Límite regla',
+  'Disp. regla',
+  'Estado',
   'Última evaluación',
   'Acción configurada',
   '',
@@ -430,11 +543,20 @@ const COLUMNS = [
 
 export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<AdminProviderBudgetRow | null>(null);
+  const [editingProvider, setEditingProvider] = useState<AdminProviderBudgetRow | null>(null);
+  const [, startTransition] = useTransition();
 
   const resolvedDate = new Date(resolvedAt).toLocaleString('es-CO', {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+
+  function handleAllowanceSaved() {
+    // Reload page to reflect updated allowances
+    startTransition(() => {
+      window.location.reload();
+    });
+  }
 
   if (providers.length === 0) {
     return (
@@ -456,7 +578,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                 {COLUMNS.map((col) => (
                   <th
                     key={col}
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground"
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     {col}
                   </th>
@@ -468,6 +590,15 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                 const ms = row.measurementStatus;
                 const display = deriveRowDisplay(row, ms);
                 const msBadge = MEASUREMENT_STATUS_BADGE[ms];
+                const isNotMeasured = ms === 'not_measured';
+
+                const allowanceLabel = isNotMeasured
+                  ? 'No aplica'
+                  : formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
+
+                const availableResult = isNotMeasured
+                  ? null
+                  : formatAllowanceAvailable(row.providerCreditsAvailable, row.providerUsdAvailable);
 
                 return (
                   <tr
@@ -477,7 +608,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                     {/* Proveedor */}
                     <td className="px-4 py-3">
                       <div className="space-y-1">
-                        <span className="font-medium text-foreground">
+                        <span className="font-medium text-foreground whitespace-nowrap">
                           {row.displayName ?? row.providerKey}
                         </span>
                         <div>
@@ -495,7 +626,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
 
                     {/* Reglas activas */}
                     <td className="px-4 py-3 text-muted-foreground">
-                      {ms === 'not_measured' ? (
+                      {isNotMeasured ? (
                         <span className="text-muted-foreground/40">—</span>
                       ) : row.activeRules > 0 ? (
                         row.activeRules
@@ -507,11 +638,20 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                     {/* Consumo del mes */}
                     <td className="px-4 py-3 text-foreground">{display.consumed}</td>
 
-                    {/* Límite por regla */}
-                    <td className="px-4 py-3 text-foreground text-xs">{display.limit}</td>
+                    {/* Créditos proveedor (allowance + disponible) */}
+                    <td className="px-4 py-3">
+                      <AllowanceCell
+                        allowance={allowanceLabel}
+                        available={availableResult}
+                        isNotMeasured={isNotMeasured}
+                      />
+                    </td>
+
+                    {/* Límite regla */}
+                    <td className="px-4 py-3 text-foreground text-xs whitespace-nowrap">{display.ruleLimit}</td>
 
                     {/* Disponible por regla */}
-                    <td className="px-4 py-3 text-foreground text-xs">{display.available}</td>
+                    <td className="px-4 py-3 text-foreground text-xs whitespace-nowrap">{display.ruleAvailable}</td>
 
                     {/* Estado de presupuesto */}
                     <td className="px-4 py-3">
@@ -524,7 +664,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
 
                     {/* Última evaluación */}
                     <td className="px-4 py-3">
-                      {ms === 'not_measured' ? (
+                      {isNotMeasured ? (
                         <span className="text-xs text-muted-foreground/40">No aplica</span>
                       ) : (
                         <LatestEvalCell log={row.latestBudgetCheckLog ?? null} />
@@ -532,23 +672,35 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                     </td>
 
                     {/* Acción configurada */}
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                    <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
                       {display.actionLabel}
                     </td>
 
-                    {/* Ver evaluaciones */}
+                    {/* Acciones */}
                     <td className="px-4 py-3">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30"
-                        onClick={() => display.canViewEvals && setSelectedProvider(row)}
-                        disabled={!display.canViewEvals}
-                        aria-label={`Ver evaluaciones de ${row.displayName ?? row.providerKey}`}
-                      >
-                        <Activity className="h-3 w-3 mr-1" />
-                        Ver evaluaciones
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30"
+                          onClick={() => display.canViewEvals && setSelectedProvider(row)}
+                          disabled={!display.canViewEvals}
+                          aria-label={`Ver evaluaciones de ${row.displayName ?? row.providerKey}`}
+                        >
+                          <Activity className="h-3 w-3 mr-1" />
+                          Ver
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setEditingProvider(row)}
+                          aria-label={`Editar cuota de ${row.displayName ?? row.providerKey}`}
+                          title="Editar cuota mensual"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -566,6 +718,13 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
         provider={selectedProvider}
         open={selectedProvider !== null}
         onClose={() => setSelectedProvider(null)}
+      />
+
+      <ProviderAllowanceDrawer
+        provider={editingProvider}
+        open={editingProvider !== null}
+        onClose={() => setEditingProvider(null)}
+        onSaved={handleAllowanceSaved}
       />
     </>
   );

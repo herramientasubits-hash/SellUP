@@ -13,6 +13,8 @@ export type {
 
 export { getPeriodBounds, periodStartIso, periodEndIso } from './periods';
 export { checkBudget, getAdminBudgetSummary } from './budget-resolution';
+export { updateProviderAllowance } from './allowance-actions';
+export type { UpdateProviderAllowanceResult } from './allowance-actions';
 export {
   parseBudgetCheck,
   OUTCOME_LABEL,
