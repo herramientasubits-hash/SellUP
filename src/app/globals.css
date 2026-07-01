@@ -674,6 +674,7 @@
   .su-table tbody td {
     padding: 0.75rem;
     vertical-align: middle;
+    overflow: hidden;
   }
   .su-table-compact tbody td {
     padding: 0.375rem 0.75rem;
