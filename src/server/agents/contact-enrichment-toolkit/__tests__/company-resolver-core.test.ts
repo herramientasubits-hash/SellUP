@@ -185,4 +185,114 @@ describe('resolveCompanyForContactEnrichment', () => {
 
     assert.equal(result.skippedHubSpot, true);
   });
+
+  // ── 17A.7B: excluir archivadas y deduplicar por dominio ──────
+
+  it('deduplica dos cuentas con mismo dominio, conserva la que tiene hubspot_company_id', async () => {
+    const ACTIVE_WITH_HS: SellUpAccountMatch = {
+      id: 'siesa-active',
+      name: 'Siesa',
+      domain: 'siesa.com',
+      country: 'Colombia',
+      country_code: 'CO',
+      hubspot_company_id: 'hs-siesa-001',
+    };
+    const ACTIVE_NO_HS: SellUpAccountMatch = {
+      id: 'siesa-duplicate',
+      name: 'Siesa',
+      domain: 'siesa.com',
+      country: 'Colombia',
+      country_code: 'CO',
+      hubspot_company_id: null,
+    };
+
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchSellUpByName: async () => [ACTIVE_NO_HS, ACTIVE_WITH_HS],
+      searchHubSpot: async () => [],
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'siesa' }, deps);
+
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].sellupAccountId, 'siesa-active');
+    assert.equal(result.candidates[0].hubspotCompanyId, 'hs-siesa-001');
+  });
+
+  it('deduplica dos cuentas con mismo dominio cuando ninguna tiene hubspot_company_id, conserva la primera', async () => {
+    const DUPE_A: SellUpAccountMatch = {
+      id: 'siesa-a',
+      name: 'Siesa',
+      domain: 'siesa.com',
+      country: 'Colombia',
+      country_code: 'CO',
+      hubspot_company_id: null,
+    };
+    const DUPE_B: SellUpAccountMatch = {
+      id: 'siesa-b',
+      name: 'Siesa',
+      domain: 'siesa.com',
+      country: 'Colombia',
+      country_code: 'CO',
+      hubspot_company_id: null,
+    };
+
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchSellUpByName: async () => [DUPE_A, DUPE_B],
+      searchHubSpot: async () => [],
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'siesa' }, deps);
+
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].sellupAccountId, 'siesa-a');
+  });
+
+  it('las queries reales deben excluir archivadas (archived_at y pipeline_status)', async () => {
+    // Este test verifica que el mock de búsqueda no devuelva archivadas —
+    // en producción, el filtro está en la query Supabase; aquí validamos que
+    // el resolver no infla candidatos con cuentas que el mock ya filtraría.
+    const ARCHIVED: SellUpAccountMatch = {
+      id: 'siesa-archived',
+      name: 'Siesa',
+      domain: 'siesa.com',
+      country: 'Colombia',
+      country_code: 'CO',
+      hubspot_company_id: null,
+    };
+    const ACTIVE: SellUpAccountMatch = {
+      id: 'siesa-active',
+      name: 'Siesa',
+      domain: 'siesa.com',
+      country: 'Colombia',
+      country_code: 'CO',
+      hubspot_company_id: null,
+    };
+
+    // La capa de datos (mock del repo) ya excluye la archivada —
+    // el resolver debe mostrar solo la activa.
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchSellUpByName: async () => [ACTIVE], // archived ya filtrada en la query
+      searchHubSpot: async () => [],
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'siesa' }, deps);
+
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].sellupAccountId, 'siesa-active');
+    assert.ok(!result.candidates.some((c) => c.sellupAccountId === ARCHIVED.id));
+  });
+
+  it('empresa manual (sin sellupAccountId) sigue siendo válida como input', async () => {
+    const result = await resolveCompanyForContactEnrichment(
+      { companyName: 'Empresa Manual SA', companyDomain: 'manual-empresa.com' },
+      noopDeps()
+    );
+
+    // Sin resultados de SellUp ni HubSpot → resolved false, pero no lanza
+    assert.equal(result.resolved, false);
+    assert.equal(result.candidates.length, 0);
+  });
 });

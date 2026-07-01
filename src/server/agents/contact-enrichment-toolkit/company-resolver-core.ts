@@ -33,6 +33,8 @@ async function defaultSearchByHubSpotId(hsId: string): Promise<SellUpAccountMatc
     .from('accounts')
     .select('id, name, domain, country, country_code, hubspot_company_id')
     .eq('hubspot_company_id', hsId)
+    .is('archived_at', null)
+    .neq('pipeline_status', 'archived')
     .limit(5);
   return data ?? [];
 }
@@ -44,6 +46,8 @@ async function defaultSearchByDomain(domain: string): Promise<SellUpAccountMatch
     .from('accounts')
     .select('id, name, domain, country, country_code, hubspot_company_id')
     .ilike('domain', `%${normalized}%`)
+    .is('archived_at', null)
+    .neq('pipeline_status', 'archived')
     .limit(5);
   return data ?? [];
 }
@@ -54,6 +58,8 @@ async function defaultSearchByName(name: string): Promise<SellUpAccountMatch[]> 
     .from('accounts')
     .select('id, name, domain, country, country_code, hubspot_company_id')
     .ilike('name', `%${name.trim()}%`)
+    .is('archived_at', null)
+    .neq('pipeline_status', 'archived')
     .limit(5);
   return data ?? [];
 }
@@ -207,7 +213,27 @@ export async function resolveCompanyForContactEnrichment(
     skippedHubSpot = true;
   }
 
-  const allCandidates = [...sellupCandidates, ...hubspotCandidates];
+  // Deduplicar por dominio normalizado: cuando hay múltiples SellUp con mismo dominio,
+  // mantener el que tenga hubspot_company_id (más completo), si hay empate el primero.
+  const seenDomains = new Set<string>();
+  const deduped: CompanyCandidate[] = [];
+  for (const c of sellupCandidates) {
+    const key = c.domain ? c.domain.toLowerCase().replace(/^www\./, '') : c.sellupAccountId ?? c.name;
+    if (!seenDomains.has(key)) {
+      seenDomains.add(key);
+      deduped.push(c);
+    } else {
+      // Si este candidato tiene hubspot_company_id y el ya registrado no, reemplazar
+      const existing = deduped.findIndex(
+        (x) => (x.domain ? x.domain.toLowerCase().replace(/^www\./, '') : x.sellupAccountId ?? x.name) === key
+      );
+      if (existing >= 0 && !deduped[existing].hubspotCompanyId && c.hubspotCompanyId) {
+        deduped[existing] = c;
+      }
+    }
+  }
+
+  const allCandidates = [...deduped, ...hubspotCandidates];
 
   if (allCandidates.length === 0) {
     return {
