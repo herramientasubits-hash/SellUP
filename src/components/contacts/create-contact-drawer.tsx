@@ -37,12 +37,10 @@ import {
   type ContactStatus,
 } from '@/modules/contacts/types';
 import { Section, Field, Row } from '@/components/accounts/account-form-helpers';
-
-interface AccountOption {
-  id: string;
-  name: string;
-  domain?: string | null;
-}
+import {
+  type AccountOption,
+  resolveSelectedAccountLabel,
+} from './account-picker-helpers';
 
 interface CreateContactDrawerProps {
   accountId?: string;
@@ -256,7 +254,18 @@ export function CreateContactDrawer({
                 onValueChange={(v) => set('account_id', v ?? '')}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar cuenta…" />
+                  {/* Render label explicitly — Base UI SelectValue cannot resolve
+                      item text when the popup is closed (items not mounted). */}
+                  {resolveSelectedAccountLabel(form.account_id, accounts, undefined) != null ? (
+                    <span
+                      data-slot="select-value"
+                      className="flex flex-1 text-left line-clamp-1"
+                    >
+                      {resolveSelectedAccountLabel(form.account_id, accounts, undefined)}
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="Seleccionar cuenta…" />
+                  )}
                 </SelectTrigger>
                 <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
                   {accounts.map((a) => (
