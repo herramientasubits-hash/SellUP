@@ -135,6 +135,8 @@ export async function triggerPostApprovalEnrichment(
   // (no CO adapter source_keys required).
   // CL is supported: ChileCompra OCDS snapshot lookup runs in the worker directly
   // (no CO adapter source_keys required — procurement_signal, not legal validation).
+  // DO is supported: DGII bulk snapshot lookup runs in the worker directly
+  // (no CO adapter source_keys required — legal_registry, RNC-based).
   const candidateCountryCode = typeof candidate.country_code === 'string'
     ? candidate.country_code.toUpperCase()
     : null;
@@ -142,7 +144,8 @@ export async function triggerPostApprovalEnrichment(
   const isSupportedCountry =
     candidateCountryCode === 'CO' ||
     candidateCountryCode === 'PE' ||
-    candidateCountryCode === 'CL';
+    candidateCountryCode === 'CL' ||
+    candidateCountryCode === 'DO';
 
   if (!isSupportedCountry) {
     const skippedMeta: PostApprovalEnrichmentMeta = {
@@ -167,6 +170,8 @@ export async function triggerPostApprovalEnrichment(
       // PE: queue with empty source_keys — worker uses SUNAT + Migo steps directly.
       // CL: queue with empty source_keys — worker uses ChileCompra OCDS step directly
       //     (procurement_signal only, not legal validation).
+      // DO: queue with empty source_keys — worker uses DGII bulk snapshot step directly
+      //     (legal_registry, RNC 9-digit lookup only, no CIIU, no WebForms).
       const sourceKeys = candidateCountryCode === 'CO' ? planNitFirstSourceKeys() : [];
       enrichMeta = {
         requested: true,

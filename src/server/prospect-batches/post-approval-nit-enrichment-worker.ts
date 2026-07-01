@@ -33,6 +33,8 @@ import type { PeruSunatLegalLookupResult } from '../services/peru-sunat-legal-lo
 import type { PeMigoApiLookupResult } from './peru-migo-legal-enrichment';
 import { enrichChileCandidateWithChileCompraOcds } from './chilecompra-ocds-post-approval-enrichment';
 import type { ChileCompraOcdsLookupInput, ChileCompraOcdsLookupResult } from '../services/chilecompra-ocds-lookup';
+import { enrichDominicanCandidateWithDgii } from './rd-dgii-post-approval-enrichment';
+import type { RdDgiiLookupResult } from '../services/rd-dgii-lookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,8 @@ export interface PostApprovalNitWorkerParams {
   peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>;
   /** For testing only — overrides lookupChileCompraOcdsByRut for CL enrichment. */
   chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>;
+  /** For testing only — overrides lookupDominicanDgiiByRnc for DO enrichment. */
+  rdLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>;
   /** For smoke/testing only — limits processing to a single candidate by id. */
   candidateId?: string;
 }
@@ -614,6 +618,93 @@ async function runPeruMigoEnrichmentForCandidate(
   }
 }
 
+// ── Dominican Republic DGII enrichment step ───────────────────────────────────
+
+/**
+ * Runs DGII bulk snapshot lookup for DO candidates and saves
+ * rd_dgii_bulk block to candidate and account.
+ * Non-critical: errors are logged and swallowed.
+ * Only called when candidate.country_code === 'DO'.
+ *
+ * Never calls DGII API, WebForms, SOAP, or any external service.
+ * Cédulas (11-digit identifiers) are rejected by the enrichment module.
+ */
+async function runRdDgiiEnrichmentForCandidate(
+  candidate: CandidateRow,
+  existingMeta: Record<string, unknown>,
+  supabase: SupabaseClient,
+  lookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>,
+): Promise<void> {
+  try {
+    const doResult = await enrichDominicanCandidateWithDgii(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        taxId: candidate.tax_identifier,
+        metadata: existingMeta,
+      },
+      lookupFnOverride,
+    );
+
+    if (!doResult.enriched || !doResult.rd_dgii_bulk) return;
+
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            rd_dgii_bulk: doResult.rd_dgii_bulk,
+          },
+        },
+        updated_at: doResult.rd_dgii_bulk.enriched_at,
+      })
+      .eq('id', candidate.id);
+
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const existingAccountSourceEnrichment =
+        (existingAccountMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: {
+            ...existingAccountMeta,
+            source_enrichment: {
+              ...existingAccountSourceEnrichment,
+              rd_dgii_bulk: doResult.rd_dgii_bulk,
+            },
+          },
+          updated_at: doResult.rd_dgii_bulk.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] RD DGII enrichment non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Chile ChileCompra OCDS enrichment step ────────────────────────────────────
 
 /**
@@ -707,6 +798,7 @@ async function processCandidateNitEnrichment(
   peruLookupFnOverride?: (ruc: string) => Promise<PeruSunatLegalLookupResult>,
   peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>,
   chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>,
+  rdLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
@@ -763,6 +855,17 @@ async function processCandidateNitEnrichment(
       chileLookupFnOverride,
     );
   }
+
+  // Centroamérica.1A.4 — Dominican Republic DGII enrichment — non-blocking, snapshot only
+  if ((candidate.country_code ?? '').toUpperCase() === 'DO') {
+    await runRdDgiiEnrichmentForCandidate(
+      candidate,
+      meta,
+      supabase,
+      rdLookupFnOverride,
+    );
+  }
+
 
   try {
     await insertPostApprovalAuditTrail(
@@ -825,6 +928,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         params.peruLookupFnOverride,
         params.peruMigoLookupFnOverride,
         params.chileLookupFnOverride,
+        params.rdLookupFnOverride,
       );
       stats.processed++;
 
