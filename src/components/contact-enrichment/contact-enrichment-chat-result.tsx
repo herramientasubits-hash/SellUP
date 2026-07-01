@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { AlertCircle, Building2, Check, Globe, Lightbulb, MapPin, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Building2, Check, Globe, Lightbulb, MapPin, ShieldCheck, UserPlus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import type {
@@ -11,6 +12,7 @@ import type {
 } from '@/modules/contact-enrichment/types';
 import type { ApolloEnrichmentUiResult } from './contact-enrichment-chat-types';
 import { getContactEnrichmentEmptyStateCopy } from './contact-enrichment-empty-state-copy';
+import { ContactEnrichmentManualContactDialog } from './contact-enrichment-manual-contact-dialog';
 
 // ── Source badge ────────────────────────────────────────────────────────────
 
@@ -87,6 +89,7 @@ export function RunResultSnapshot({
   candidate: CompanyCandidate | null;
   apolloResult?: ApolloEnrichmentUiResult | null;
 }) {
+  const accountId = candidate?.sellupAccountId ?? null;
   const snapshot = runResult.existingContactsSnapshot;
   const combined = snapshot?.combined;
   const sellup = snapshot?.sellup;
@@ -210,7 +213,13 @@ export function RunResultSnapshot({
       )}
 
       {apolloResult ? (
-        <ApolloResultSummary result={apolloResult} />
+        <ApolloResultSummary
+          result={apolloResult}
+          runId={runResult.runId}
+          accountId={accountId}
+          companyName={candidate?.name ?? null}
+          companyDomain={candidate?.domain ?? null}
+        />
       ) : (
         <p className="border-t border-border pt-3 text-xs text-muted-foreground">
           Apollo buscará perfiles de RR. HH. para crear candidatos revisables. No se crean
@@ -290,9 +299,19 @@ export function ApolloPreflightCard() {
   );
 }
 
-// ── Apollo empty state (Hito 17A.7A) ─────────────────────────────────────────
+// ── Apollo empty state (Hito 17A.7A + 17A.7C) ───────────────────────────────
 
-function ApolloEmptyState({ result }: { result: ApolloEnrichmentUiResult }) {
+interface ApolloEmptyStateProps {
+  result: ApolloEnrichmentUiResult;
+  runId?: string | null;
+  accountId?: string | null;
+  companyName?: string | null;
+  companyDomain?: string | null;
+}
+
+function ApolloEmptyState({ result, runId, accountId, companyName, companyDomain }: ApolloEmptyStateProps) {
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+
   const copy = getContactEnrichmentEmptyStateCopy({
     rawResultsCount: result.rawResultsCount,
     rejectedByRelevance: result.rejectedByRelevance,
@@ -302,43 +321,80 @@ function ApolloEmptyState({ result }: { result: ApolloEnrichmentUiResult }) {
     searchGuardrail: result.searchGuardrail,
   });
 
+  const canCreateManual = !!(runId && accountId);
+
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-          <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden />
+    <>
+      <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
+            <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
+            <p className="text-xs text-muted-foreground">{copy.detail}</p>
+          </div>
         </div>
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
-          <p className="text-xs text-muted-foreground">{copy.detail}</p>
+
+        <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
+          <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
         </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Lightbulb className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+            <p className="text-xs font-medium text-foreground">Qué puedes hacer</p>
+          </div>
+          <ul className="space-y-1.5">
+            {copy.tips.map((tip) => (
+              <li key={tip} className="flex items-start gap-2 text-xs text-muted-foreground">
+                <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
+                {tip}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {canCreateManual && (
+          <div className="border-t border-border/50 pt-3">
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={() => setDialogOpen(true)}
+            >
+              <UserPlus className="h-3.5 w-3.5" aria-hidden />
+              Crear contacto manualmente
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
-        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-center gap-1.5">
-          <Lightbulb className="h-3.5 w-3.5 text-su-brand" aria-hidden />
-          <p className="text-xs font-medium text-foreground">Qué puedes hacer</p>
-        </div>
-        <ul className="space-y-1.5">
-          {copy.tips.map((tip) => (
-            <li key={tip} className="flex items-start gap-2 text-xs text-muted-foreground">
-              <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
-              {tip}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
+      {canCreateManual && (
+        <ContactEnrichmentManualContactDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          accountId={accountId!}
+          runId={runId!}
+          companyName={companyName}
+          companyDomain={companyDomain}
+        />
+      )}
+    </>
   );
 }
 
 // ── Apollo result summary (Hito 17A.3A) ───────────────────────────────────────
 
-function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
+interface ApolloResultSummaryProps {
+  result: ApolloEnrichmentUiResult;
+  runId?: string | null;
+  accountId?: string | null;
+  companyName?: string | null;
+  companyDomain?: string | null;
+}
+
+function ApolloResultSummary({ result, runId, accountId, companyName, companyDomain }: ApolloResultSummaryProps) {
   if (result.providerStatus === 'error' || result.providerStatus === 'skipped') {
     return (
       <div className="border-t border-border pt-3">
@@ -396,7 +452,13 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
       </dl>
 
       {hasNoReviewableCandidates ? (
-        <ApolloEmptyState result={result} />
+        <ApolloEmptyState
+          result={result}
+          runId={runId}
+          accountId={accountId}
+          companyName={companyName}
+          companyDomain={companyDomain}
+        />
       ) : (
         <p className="text-xs text-muted-foreground">
           Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.
