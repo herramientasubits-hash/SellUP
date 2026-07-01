@@ -29,6 +29,10 @@ import type {
   ContactEnrichmentInitialCompany,
 } from './contact-enrichment-chat-types';
 import { SourceBadge, CompanyChip, RunResultSnapshot, ApolloPreflightCard } from './contact-enrichment-chat-result';
+import {
+  ContactEnrichmentManualContactView,
+  ContactEnrichmentManualContactSuccessView,
+} from './contact-enrichment-manual-contact-view';
 
 // ── Composer copy by step ──────────────────────────────────────────────────────
 
@@ -81,6 +85,11 @@ export function ContactEnrichmentChatWizard({
 
   const [composerText, setComposerText] = React.useState('');
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  type ManualViewMode = 'result' | 'manual_form' | 'manual_success';
+  const [manualViewMode, setManualViewMode] = React.useState<ManualViewMode>('result');
+  const [manualContactId, setManualContactId] = React.useState('');
+  const [manualContactName, setManualContactName] = React.useState('');
 
   const { visibleCount, isRevealing } = useProgressiveReveal(state.messages.length);
   const isLoadingStep =
@@ -199,6 +208,9 @@ export function ContactEnrichmentChatWizard({
 
   function handleReset() {
     setComposerText('');
+    setManualViewMode('result');
+    setManualContactId('');
+    setManualContactName('');
     dispatch({ type: 'RESET' });
   }
 
@@ -270,18 +282,43 @@ export function ContactEnrichmentChatWizard({
 
             {state.step === 'done' && state.runResult && (
               <div className="space-y-3">
-                <RunResultSnapshot
-                  runResult={state.runResult}
-                  candidate={state.selectedCandidate}
-                  apolloResult={state.apolloResult}
-                />
-                {!state.apolloResult && (
+                {manualViewMode === 'manual_form' ? (
+                  <ContactEnrichmentManualContactView
+                    accountId={state.selectedCandidate?.sellupAccountId ?? ''}
+                    runId={state.runResult.runId}
+                    companyName={state.selectedCandidate?.name ?? null}
+                    companyDomain={state.selectedCandidate?.domain ?? null}
+                    onCancel={() => setManualViewMode('result')}
+                    onSuccess={(contactId, fullName) => {
+                      setManualContactId(contactId);
+                      setManualContactName(fullName);
+                      setManualViewMode('manual_success');
+                    }}
+                  />
+                ) : manualViewMode === 'manual_success' ? (
+                  <ContactEnrichmentManualContactSuccessView
+                    contactId={manualContactId}
+                    fullName={manualContactName}
+                    onCreateAnother={() => setManualViewMode('manual_form')}
+                    onBack={() => setManualViewMode('result')}
+                  />
+                ) : (
                   <>
-                    <ApolloPreflightCard />
-                    <Button onClick={handleSearchApollo} className="w-full">
-                      <Sparkles className="mr-2 h-4 w-4" aria-hidden />
-                      Buscar contactos con control de créditos
-                    </Button>
+                    <RunResultSnapshot
+                      runResult={state.runResult}
+                      candidate={state.selectedCandidate}
+                      apolloResult={state.apolloResult}
+                      onCreateManualContact={() => setManualViewMode('manual_form')}
+                    />
+                    {!state.apolloResult && (
+                      <>
+                        <ApolloPreflightCard />
+                        <Button onClick={handleSearchApollo} className="w-full">
+                          <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                          Buscar contactos con control de créditos
+                        </Button>
+                      </>
+                    )}
                   </>
                 )}
                 <SecondaryReset onReset={handleReset} label="Enriquecer otra empresa" />

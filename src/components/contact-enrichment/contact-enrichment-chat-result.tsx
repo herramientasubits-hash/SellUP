@@ -12,7 +12,6 @@ import type {
 } from '@/modules/contact-enrichment/types';
 import type { ApolloEnrichmentUiResult } from './contact-enrichment-chat-types';
 import { getContactEnrichmentEmptyStateCopy } from './contact-enrichment-empty-state-copy';
-import { ContactEnrichmentManualContactDialog } from './contact-enrichment-manual-contact-dialog';
 
 // ── Source badge ────────────────────────────────────────────────────────────
 
@@ -84,10 +83,12 @@ export function RunResultSnapshot({
   runResult,
   candidate,
   apolloResult,
+  onCreateManualContact,
 }: {
   runResult: ContactEnrichmentRunResult;
   candidate: CompanyCandidate | null;
   apolloResult?: ApolloEnrichmentUiResult | null;
+  onCreateManualContact?: () => void;
 }) {
   const accountId = candidate?.sellupAccountId ?? null;
   const snapshot = runResult.existingContactsSnapshot;
@@ -219,6 +220,7 @@ export function RunResultSnapshot({
           accountId={accountId}
           companyName={candidate?.name ?? null}
           companyDomain={candidate?.domain ?? null}
+          onCreateManualContact={onCreateManualContact}
         />
       ) : (
         <p className="border-t border-border pt-3 text-xs text-muted-foreground">
@@ -307,11 +309,10 @@ interface ApolloEmptyStateProps {
   accountId?: string | null;
   companyName?: string | null;
   companyDomain?: string | null;
+  onCreateManualContact?: () => void;
 }
 
-function ApolloEmptyState({ result, runId, accountId, companyName, companyDomain }: ApolloEmptyStateProps) {
-  const [dialogOpen, setDialogOpen] = React.useState(false);
-
+function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: ApolloEmptyStateProps) {
   const copy = getContactEnrichmentEmptyStateCopy({
     rawResultsCount: result.rawResultsCount,
     rejectedByRelevance: result.rejectedByRelevance,
@@ -321,66 +322,53 @@ function ApolloEmptyState({ result, runId, accountId, companyName, companyDomain
     searchGuardrail: result.searchGuardrail,
   });
 
-  const canCreateManual = !!(runId && accountId);
+  const canCreateManual = !!(runId && accountId && onCreateManualContact);
 
   return (
-    <>
-      <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-            <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden />
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
-            <p className="text-xs text-muted-foreground">{copy.detail}</p>
-          </div>
+    <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
+          <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden />
         </div>
-
-        <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
-          <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
+          <p className="text-xs text-muted-foreground">{copy.detail}</p>
         </div>
+      </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <Lightbulb className="h-3.5 w-3.5 text-su-brand" aria-hidden />
-            <p className="text-xs font-medium text-foreground">Qué puedes hacer</p>
-          </div>
-          <ul className="space-y-1.5">
-            {copy.tips.map((tip) => (
-              <li key={tip} className="flex items-start gap-2 text-xs text-muted-foreground">
-                <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
-                {tip}
-              </li>
-            ))}
-          </ul>
+      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
+        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Lightbulb className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+          <p className="text-xs font-medium text-foreground">Qué puedes hacer</p>
         </div>
-
-        {canCreateManual && (
-          <div className="border-t border-border/50 pt-3">
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full gap-2"
-              onClick={() => setDialogOpen(true)}
-            >
-              <UserPlus className="h-3.5 w-3.5" aria-hidden />
-              Crear contacto manualmente
-            </Button>
-          </div>
-        )}
+        <ul className="space-y-1.5">
+          {copy.tips.map((tip) => (
+            <li key={tip} className="flex items-start gap-2 text-xs text-muted-foreground">
+              <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
+              {tip}
+            </li>
+          ))}
+        </ul>
       </div>
 
       {canCreateManual && (
-        <ContactEnrichmentManualContactDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          accountId={accountId!}
-          runId={runId!}
-          companyName={companyName}
-          companyDomain={companyDomain}
-        />
+        <div className="border-t border-border/50 pt-3">
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full gap-2"
+            onClick={onCreateManualContact}
+          >
+            <UserPlus className="h-3.5 w-3.5" aria-hidden />
+            Crear contacto manualmente
+          </Button>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -392,9 +380,10 @@ interface ApolloResultSummaryProps {
   accountId?: string | null;
   companyName?: string | null;
   companyDomain?: string | null;
+  onCreateManualContact?: () => void;
 }
 
-function ApolloResultSummary({ result, runId, accountId, companyName, companyDomain }: ApolloResultSummaryProps) {
+function ApolloResultSummary({ result, runId, accountId, companyName, companyDomain, onCreateManualContact }: ApolloResultSummaryProps) {
   if (result.providerStatus === 'error' || result.providerStatus === 'skipped') {
     return (
       <div className="border-t border-border pt-3">
@@ -458,6 +447,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
           accountId={accountId}
           companyName={companyName}
           companyDomain={companyDomain}
+          onCreateManualContact={onCreateManualContact}
         />
       ) : (
         <p className="text-xs text-muted-foreground">
