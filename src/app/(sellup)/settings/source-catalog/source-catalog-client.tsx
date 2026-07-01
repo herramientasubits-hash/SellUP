@@ -218,14 +218,14 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           <DataTableColumnHeader column={column} title="País" />
         ),
         cell: ({ row }) => (
-          <span className="truncate text-sm text-muted-foreground">
+          <div className="truncate text-sm text-muted-foreground whitespace-nowrap">
             {row.original.countryCodes.length > 0
               ? row.original.countryCodes.map((c) => COUNTRY_LABELS[c] ?? c).join(', ')
               : 'Global'}
-          </span>
+          </div>
         ),
-        size: 110,
-        minSize: 90,
+        size: 140,
+        minSize: 120,
         filterFn: 'arrIncludesSome',
         sortingFn: (a, b, columnId) => {
           const av = (a.getValue<string[]>(columnId) ?? []).join(', ');
@@ -254,8 +254,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
             {SELLUP_USE_LABELS[row.original.sellupUse]}
           </span>
         ),
-        size: 160,
-        minSize: 130,
+        size: 180,
+        minSize: 155,
         meta: {
           label: 'Uso en SellUp',
           popoverTitle: 'Uso en SellUp',
