@@ -35,6 +35,8 @@ import { enrichChileCandidateWithChileCompraOcds } from './chilecompra-ocds-post
 import type { ChileCompraOcdsLookupInput, ChileCompraOcdsLookupResult } from '../services/chilecompra-ocds-lookup';
 import { enrichDominicanCandidateWithDgii } from './rd-dgii-post-approval-enrichment';
 import type { RdDgiiLookupResult } from '../services/rd-dgii-lookup';
+import { enrichDominicanCandidateWithDgcp } from './rd-dgcp-post-approval-enrichment';
+import type { RdDgcpLookupResult } from '../services/rd-dgcp-lookup';
 import { enrichMexicoCandidateWithDenue } from './mx-denue-post-approval-enrichment';
 import type { DenueAdapterFn } from './mx-denue-post-approval-enrichment';
 
@@ -53,6 +55,8 @@ export interface PostApprovalNitWorkerParams {
   chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>;
   /** For testing only — overrides lookupDominicanDgiiByRnc for DO enrichment. */
   rdLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>;
+  /** For testing only — overrides lookupDominicanDgcpByRnc for DO DGCP procurement signal. */
+  rdDgcpLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgcpLookupResult>;
   /** For testing only — overrides denueEnrichmentAdapter.enrichCandidate for MX enrichment. */
   mxDenueAdapterFnOverride?: DenueAdapterFn;
   /** For smoke/testing only — limits processing to a single candidate by id. */
@@ -883,6 +887,92 @@ async function runChileCompraEnrichmentForCandidate(
   }
 }
 
+// ── Dominican Republic DGCP procurement signal step ──────────────────────────
+
+/**
+ * Runs DGCP local snapshot lookup for DO candidates and saves
+ * do_dgcp block to candidate and account.
+ * Non-critical: errors are logged and swallowed. DGII is unaffected.
+ * Only called when candidate.country_code === 'DO', after DGII.
+ *
+ * Never calls DGCP API. Query is local source_company_snapshots only.
+ */
+async function runRdDgcpEnrichmentForCandidate(
+  candidate: CandidateRow,
+  existingMeta: Record<string, unknown>,
+  supabase: SupabaseClient,
+  lookupFnOverride?: (input: { rnc: string }) => Promise<RdDgcpLookupResult>,
+): Promise<void> {
+  try {
+    const dgcpResult = await enrichDominicanCandidateWithDgcp(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        taxId: candidate.tax_identifier,
+        metadata: existingMeta,
+      },
+      lookupFnOverride,
+    );
+
+    if (!dgcpResult.enriched || !dgcpResult.do_dgcp) return;
+
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            do_dgcp: dgcpResult.do_dgcp,
+          },
+        },
+        updated_at: dgcpResult.do_dgcp.enriched_at,
+      })
+      .eq('id', candidate.id);
+
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const existingAccountSourceEnrichment =
+        (existingAccountMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: {
+            ...existingAccountMeta,
+            source_enrichment: {
+              ...existingAccountSourceEnrichment,
+              do_dgcp: dgcpResult.do_dgcp,
+            },
+          },
+          updated_at: dgcpResult.do_dgcp.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] RD DGCP procurement signal non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Single candidate processing ────────────────────────────────────────────────
 
 async function processCandidateNitEnrichment(
@@ -893,6 +983,7 @@ async function processCandidateNitEnrichment(
   peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>,
   chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>,
   rdLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>,
+  rdDgcpLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgcpLookupResult>,
   mxDenueAdapterFnOverride?: DenueAdapterFn,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
@@ -958,6 +1049,16 @@ async function processCandidateNitEnrichment(
       meta,
       supabase,
       rdLookupFnOverride,
+    );
+
+    // RepúblicaDominicana.2D — DGCP local procurement signal — non-blocking, snapshot only
+    // Runs after DGII. DGII result is unaffected by this step.
+    // Never calls DGCP API. source_type=procurement_signal, NOT legal/tax validation.
+    await runRdDgcpEnrichmentForCandidate(
+      candidate,
+      meta,
+      supabase,
+      rdDgcpLookupFnOverride,
     );
   }
 
@@ -1034,6 +1135,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         params.peruMigoLookupFnOverride,
         params.chileLookupFnOverride,
         params.rdLookupFnOverride,
+        params.rdDgcpLookupFnOverride,
         params.mxDenueAdapterFnOverride,
       );
       stats.processed++;
