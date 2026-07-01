@@ -41,6 +41,7 @@ import {
   APOLLO_QUERY_MAPPING_VERSION,
 } from '../apollo-organizations-query-mapping';
 import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
+import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -392,7 +393,15 @@ export async function runApolloOrganizationsSearch(
     }
   }
 
+  // ── Sector relevance gate (v1.16K-AD) ────────────────────────────────────────
+  // Filtra candidatos sin evidencia sectorial antes de persistir.
+  // Gate solo actúa para apollo_organizations; Tavily no afectado.
+  const gateResult = applyApolloSectorRelevanceGate(mapped, input.industry, 'apollo_organizations');
+  const filteredMapped = gateResult.passed;
+
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────
+  // Créditos basados en resultados retornados por Apollo (antes del gate),
+  // porque Apollo ya cobró por la búsqueda.
   const creditsUsed = Math.min(mapped.length, MAX_APOLLO_ORGANIZATIONS_CREDITS);
   const estimatedCostUsd = creditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
 
@@ -425,8 +434,8 @@ export async function runApolloOrganizationsSearch(
   return {
     provider: 'apollo_organizations',
     query: input.query,
-    results: mapped,
-    resultsCount: mapped.length,
+    results: filteredMapped,
+    resultsCount: filteredMapped.length,
     skipped: false,
     skipReason: null,
     estimatedCostUsd: estimatedCostUsd,
@@ -435,6 +444,7 @@ export async function runApolloOrganizationsSearch(
       provider_mode: 'real_limited',
       capped: wasCapped,
       usage: usageMeta,
+      apollo_sector_relevance_gate: gateResult.metadata,
     },
   };
 }
