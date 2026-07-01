@@ -193,3 +193,90 @@ describe('enrichChileCandidateWithChileCompraOcds', () => {
     // No throw confirms no DB write attempted in this pure layer
   });
 });
+
+// ── Semantic guardrail fields (Chile.2) ────────────────────────────────────────
+
+describe('semantic guardrail fields — procurement_signal, not legal validation', () => {
+  it('matched block has source_type=procurement_signal', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.source_type, 'procurement_signal');
+  });
+
+  it('matched block has legal_validation_status=not_applicable', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.legal_validation_status, 'not_applicable');
+  });
+
+  it('matched block has official_ciiu_available=false', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.official_ciiu_available, false);
+  });
+
+  it('matched block has ciiu_status=unavailable_for_mvp', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.ciiu_status, 'unavailable_for_mvp');
+  });
+
+  it('matched block has sector_source=not_official_legal_source', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.sector_source, 'not_official_legal_source');
+  });
+
+  it('matched block has human_review_required=true', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.human_review_required, true);
+  });
+
+  it('no_match block also has semantic guardrails', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '99999999-9' },
+      async () => makeNoMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.source_type, 'procurement_signal');
+    assert.equal(result.cl_chilecompra_ocds?.legal_validation_status, 'not_applicable');
+    assert.equal(result.cl_chilecompra_ocds?.official_ciiu_available, false);
+  });
+
+  it('error block also has semantic guardrails', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => { throw new Error('timeout'); },
+    );
+    assert.equal(result.cl_chilecompra_ocds?.source_type, 'procurement_signal');
+    assert.equal(result.cl_chilecompra_ocds?.legal_validation_status, 'not_applicable');
+  });
+
+  it('source_key is always cl_chilecompra_ocds', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.source_key, 'cl_chilecompra_ocds');
+  });
+
+  it('country_code is always CL', async () => {
+    const result = await enrichChileCandidateWithChileCompraOcds(
+      { countryCode: 'CL', taxId: '76543210-9' },
+      async () => makeMatchResult(),
+    );
+    assert.equal(result.cl_chilecompra_ocds?.country_code, 'CL');
+  });
+});

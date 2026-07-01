@@ -133,11 +133,16 @@ export async function triggerPostApprovalEnrichment(
   // Country guard: CO-only adapters must not be queued for non-CO candidates.
   // PE is supported: SUNAT snapshot + Migo fallback run in the worker directly
   // (no CO adapter source_keys required).
+  // CL is supported: ChileCompra OCDS snapshot lookup runs in the worker directly
+  // (no CO adapter source_keys required — procurement_signal, not legal validation).
   const candidateCountryCode = typeof candidate.country_code === 'string'
     ? candidate.country_code.toUpperCase()
     : null;
 
-  const isSupportedCountry = candidateCountryCode === 'CO' || candidateCountryCode === 'PE';
+  const isSupportedCountry =
+    candidateCountryCode === 'CO' ||
+    candidateCountryCode === 'PE' ||
+    candidateCountryCode === 'CL';
 
   if (!isSupportedCountry) {
     const skippedMeta: PostApprovalEnrichmentMeta = {
@@ -160,6 +165,8 @@ export async function triggerPostApprovalEnrichment(
     if (nit) {
       // CO: queue with all NIT-safe CO adapters.
       // PE: queue with empty source_keys — worker uses SUNAT + Migo steps directly.
+      // CL: queue with empty source_keys — worker uses ChileCompra OCDS step directly
+      //     (procurement_signal only, not legal validation).
       const sourceKeys = candidateCountryCode === 'CO' ? planNitFirstSourceKeys() : [];
       enrichMeta = {
         requested: true,

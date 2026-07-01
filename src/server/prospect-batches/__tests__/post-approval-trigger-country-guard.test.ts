@@ -1,11 +1,12 @@
 /**
- * Tests — v1.16K-M / Perú.9O Post-approval enrichment trigger country guard
+ * Tests — v1.16K-M / Perú.9O / Chile.2 Post-approval enrichment trigger country guard
  *
  * Verifies that triggerPostApprovalEnrichment:
- * - Returns skipped + country_not_supported for unsupported countries (MX, CL, EC)
+ * - Returns skipped + country_not_supported for unsupported countries (MX, EC)
+ * - Queues CL candidates with empty source_keys (ChileCompra OCDS runs in worker directly)
  * - Queues PE candidates with empty source_keys (SUNAT+Migo run in worker directly)
  * - Still proceeds normally for CO candidates (queued when NIT present)
- * - Never queues CO-specific source keys for PE candidates
+ * - Never queues CO-specific source keys for PE or CL candidates
  */
 
 import { describe, it } from 'node:test';
@@ -52,13 +53,6 @@ describe('PATCG1 — country guard skips unsupported countries', () => {
     assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
   });
 
-  it('CL → status skipped, reason country_not_supported', async () => {
-    const result = await triggerPostApprovalEnrichment(makeParams('CL', '12345678-9'));
-    assert.equal(result.triggered, false);
-    assert.equal(result.meta.status, 'skipped');
-    assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
-  });
-
   it('EC → status skipped, reason country_not_supported', async () => {
     const result = await triggerPostApprovalEnrichment(makeParams('EC', '1234567890001'));
     assert.equal(result.triggered, false);
@@ -71,6 +65,34 @@ describe('PATCG1 — country guard skips unsupported countries', () => {
     assert.equal(result.triggered, false);
     assert.equal(result.meta.status, 'skipped');
     assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
+  });
+});
+
+describe('PATCG1C — CL candidates queue with ChileCompra OCDS enrichment (Chile.2)', () => {
+  it('CL with RUT → triggered=true, status=queued', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CL', '12345678-9'));
+    assert.equal(result.triggered, true);
+    assert.equal(result.meta.status, 'queued');
+    assert.equal(result.meta.nit, '12345678-9');
+  });
+
+  it('CL with RUT → source_keys empty (ChileCompra OCDS runs in worker directly)', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CL', '12345678-9'));
+    assert.ok(Array.isArray(result.meta.source_keys));
+    assert.equal(result.meta.source_keys!.length, 0, 'CL source_keys must be empty — ChileCompra OCDS step runs in worker directly');
+  });
+
+  it('CL without RUT → triggered=false, status=skipped, reason=missing_tax_id', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CL'));
+    assert.equal(result.triggered, false);
+    assert.equal(result.meta.status, 'skipped');
+    assert.equal(result.meta.reason, 'missing_tax_id');
+  });
+
+  it('CL does not queue CO-specific source keys', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CL', '12345678-9'));
+    const keys = result.meta.source_keys ?? [];
+    assert.ok(!keys.some(k => k.startsWith('co_')), 'CL must not include CO source keys');
   });
 });
 

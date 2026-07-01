@@ -39,6 +39,15 @@ export interface ChileCompraOcdsEnrichmentBlock {
   priority_boost: number;
   reason: string | null;
   enriched_at: string;
+  // Semantic guardrails — ChileCompra is procurement evidence, not legal validation
+  source_key: 'cl_chilecompra_ocds';
+  country_code: 'CL';
+  source_type: 'procurement_signal';
+  legal_validation_status: 'not_applicable';
+  official_ciiu_available: false;
+  ciiu_status: 'unavailable_for_mvp';
+  sector_source: 'not_official_legal_source';
+  human_review_required: true;
 }
 
 export type ChileEnrichmentReason =
@@ -94,11 +103,23 @@ export function derivePriorityBoost(priorityScore: number | null): number {
 
 // ── Block builders ─────────────────────────────────────────────────────────────
 
+const SEMANTIC_GUARDRAILS = {
+  source_key: 'cl_chilecompra_ocds',
+  country_code: 'CL',
+  source_type: 'procurement_signal',
+  legal_validation_status: 'not_applicable',
+  official_ciiu_available: false,
+  ciiu_status: 'unavailable_for_mvp',
+  sector_source: 'not_official_legal_source',
+  human_review_required: true,
+} as const;
+
 function buildMatchBlock(
   result: ChileCompraOcdsLookupResult,
   enrichedAt: string,
 ): ChileCompraOcdsEnrichmentBlock {
   return {
+    ...SEMANTIC_GUARDRAILS,
     status: 'matched',
     matched_by: 'tax_id',
     confidence: 1,
@@ -117,6 +138,7 @@ function buildNoMatchBlock(
   enrichedAt: string,
 ): ChileCompraOcdsEnrichmentBlock {
   return {
+    ...SEMANTIC_GUARDRAILS,
     status: 'no_match',
     matched_by: null,
     confidence: 0,
@@ -131,6 +153,7 @@ function buildNoMatchBlock(
 
 function buildErrorBlock(reason: string, enrichedAt: string): ChileCompraOcdsEnrichmentBlock {
   return {
+    ...SEMANTIC_GUARDRAILS,
     status: 'error',
     matched_by: null,
     confidence: 0,
