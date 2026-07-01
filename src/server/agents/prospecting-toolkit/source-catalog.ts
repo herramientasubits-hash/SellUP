@@ -888,6 +888,37 @@ export const CATALOG_SOURCES: CatalogSource[] = [
 
   // ── República Dominicana ────────────────────────────────────────────────────
   {
+    key: 'rd_dgii_bulk',
+    name: 'DGII Padrón RNC (República Dominicana)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_post_approval',
+    connectionMode: 'offline_signal',
+    nextAction:
+      'Conectada como señal tributaria offline. Snapshot RNC jurídicos cargado. No requiere credenciales. Útil para validación RNC y enriquecimiento post-approval en flujos RD.',
+    countryCodes: ['DO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://dgii.gov.do/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Padrón de contribuyentes jurídicos (RNC) de la DGII. 493.548 empresas con razón social, estado tributario y actividad económica (texto libre). Fuente legal/tributaria para validar RNC y enriquecer cuentas RD post-approval. No usar para personas físicas (Cédula) ni como discovery abierto.',
+    limitations: [
+      'Solo RNC jurídicos (9 dígitos) — cédulas/personas físicas (11 dígitos) fuera de scope',
+      'Actividad económica en texto libre DGII — no hay CIIU oficial en esta versión del snapshot',
+      'No sector oficial ni CIIU normalizado para MVP',
+      'Snapshot estático — requiere re-carga manual para actualizar',
+      'No apto para discovery masivo sin filtro de estado tributario',
+    ],
+    riskNotes: [
+      'No crear cuentas ni candidatos automáticamente desde esta fuente',
+      'No usar cédulas/identificadores de 11 dígitos — fuera de scope',
+      'Validar estado tributario antes de prospectar (ACTIVO vs DADO DE BAJA)',
+      'No hay CIIU oficial — no inferir sector únicamente desde actividad económica texto libre',
+    ],
+  },
+  {
     key: 'do_camaratic',
     name: 'Cámara de Comercio y Producción (CAMARATIC)',
     countryCodes: ['DO'],

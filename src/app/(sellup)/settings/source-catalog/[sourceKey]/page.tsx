@@ -11,6 +11,8 @@ import { getSourceConnectionTestHistory } from '@/modules/source-catalog/history
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getPeruSourceCoverageSummary } from '@/server/services/peru-source-coverage-summary';
 import { PeruCoverageCard } from '@/components/source-catalog/peru-coverage-card';
+import { getRdSourceCoverageSummary } from '@/server/services/rd-source-coverage-summary';
+import { RdCoverageCard } from '@/components/source-catalog/rd-coverage-card';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -49,13 +51,17 @@ export default async function SourceDetailPage({ params }: Props) {
   if (!source) notFound();
 
   const isSunatPeru = source.key === 'pe_sunat_bulk';
+  const isDgiiRd = source.key === 'rd_dgii_bulk';
 
-  const [history, connectionRecord, isAdmin, peruCoverage] = await Promise.all([
+  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
     getSourceConnectionRecord(sourceKey),
     isCurrentUserAdmin(),
     isSunatPeru
       ? getPeruSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isDgiiRd
+      ? getRdSourceCoverageSummary().catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -272,6 +278,13 @@ export default async function SourceDetailPage({ params }: Props) {
         peruCoverage
           ? <PeruCoverageCard summary={peruCoverage} />
           : <PeruCoverageCard error />
+      )}
+
+      {/* Cobertura RD — solo rd_dgii_bulk */}
+      {isDgiiRd && (
+        rdCoverage
+          ? <RdCoverageCard summary={rdCoverage} />
+          : <RdCoverageCard error />
       )}
 
       {/* Prueba de conexión */}
