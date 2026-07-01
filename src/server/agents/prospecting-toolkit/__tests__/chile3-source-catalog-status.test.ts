@@ -77,8 +77,8 @@ describe('Chile.3 — Perú not affected', () => {
     assert.ok(sunatBulk);
   });
 
-  it('pe_sunat_bulk aiFlowStatus unchanged (eligible_not_connected)', () => {
-    assert.equal(sunatBulk?.aiFlowStatus, 'eligible_not_connected');
+  it('pe_sunat_bulk aiFlowStatus is connected_post_approval (updated in Peru.UI.1)', () => {
+    assert.equal(sunatBulk?.aiFlowStatus, 'connected_post_approval');
   });
 });
 
