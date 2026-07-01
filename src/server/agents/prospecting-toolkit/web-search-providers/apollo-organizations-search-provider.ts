@@ -36,6 +36,10 @@ import {
   realLogApolloOrgsUsage,
   type ApolloOrgsUsageContext,
 } from '../apollo-organizations-usage-logging';
+import {
+  buildApolloOrganizationsSearchParams,
+  APOLLO_QUERY_MAPPING_VERSION,
+} from '../apollo-organizations-query-mapping';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -255,15 +259,23 @@ export async function runApolloOrganizationsSearch(
   const searchFn = deps?.searchOrgs ?? searchApolloOrganizations;
   const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;
 
+  // ── Construir params estructurados Apollo (v1.16K-AA) ───────────────────────
+  // Usa q_keywords (búsqueda libre) en lugar de q_organization_name (nombre exacto).
+  // organization_locations recibe el país como filtro estructurado.
+  const { params: apolloParams, meta: mappingMeta } = buildApolloOrganizationsSearchParams(
+    input,
+    cap,
+  );
+  const apolloParamsSanitized = {
+    ...mappingMeta,
+    was_capped: wasCapped,
+    capped_max_results: cap,
+  };
+
   // ── Llamada real a Apollo ────────────────────────────────────────────────────
   let apolloResult: Awaited<ReturnType<typeof searchApolloOrganizations>>;
   try {
-    apolloResult = await searchFn({
-      q_organization_name: input.query,
-      organization_locations: input.country ? [input.country] : undefined,
-      per_page: cap,
-      page: 1,
-    });
+    apolloResult = await searchFn(apolloParams);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'unknown error';
     const usageMeta: ApolloOrganizationsUsageMetadata = {
@@ -288,7 +300,7 @@ export async function runApolloOrganizationsSearch(
       error_message: msg.slice(0, 200),
       duration_ms: Date.now() - startMs,
       triggered_by: usageContext?.triggeredByUserId ?? undefined,
-      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, 'error'),
+      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, 'error', apolloParamsSanitized),
     });
 
     return {
@@ -339,7 +351,7 @@ export async function runApolloOrganizationsSearch(
       error_message: (apolloResult.error?.message ?? 'Apollo API error').slice(0, 200),
       duration_ms: Date.now() - startMs,
       triggered_by: usageContext?.triggeredByUserId ?? undefined,
-      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, usageStatus),
+      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, usageStatus, apolloParamsSanitized),
     });
 
     const skipReason = isQuota
@@ -393,7 +405,7 @@ export async function runApolloOrganizationsSearch(
     error_message: undefined,
     duration_ms: Date.now() - startMs,
     triggered_by: usageContext?.triggeredByUserId ?? undefined,
-    metadata: buildUsageMetadata(input, cap, wasCapped, mapped.length, false, 'real'),
+    metadata: buildUsageMetadata(input, cap, wasCapped, mapped.length, false, 'real', apolloParamsSanitized),
   });
 
   const usageMeta: ApolloOrganizationsUsageMetadata = {
@@ -430,6 +442,7 @@ function buildUsageMetadata(
   resultsReturned: number,
   dryRun: boolean,
   status: string,
+  apolloParamsSanitized?: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
     query: input.query.slice(0, 100),
@@ -443,5 +456,7 @@ function buildUsageMetadata(
     dry_run: dryRun,
     provider_mode: dryRun ? 'dry_run' : 'real_limited',
     status,
+    mapping_version: APOLLO_QUERY_MAPPING_VERSION,
+    ...(apolloParamsSanitized ? { apollo_params_sanitized: apolloParamsSanitized } : {}),
   };
 }

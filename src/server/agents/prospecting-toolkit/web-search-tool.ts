@@ -65,6 +65,10 @@ const DEFAULT_SEARCH_DEPTH = 'standard' as const;
 const DEFAULT_MAX_RESULTS_PER_QUERY = 3;
 const MAX_RESULTS_PER_QUERY_LIMIT = 5;
 const MAX_QUERIES_LIMIT = 10;
+// Apollo Organizations tiene su propio logger per-query y sus créditos son más caros.
+// Cap duro de 3 queries por run para limitar exposición en QA real.
+// No afecta Tavily ni otros providers.
+const MAX_APOLLO_ORGANIZATIONS_QUERIES_PER_RUN = 3;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -207,10 +211,19 @@ export async function runMultiQueryWebSearch(
   );
   const searchDepth = input.searchDepth ?? DEFAULT_SEARCH_DEPTH;
 
-  const queries =
+  const allQueries =
     input.queries && input.queries.length > 0
       ? input.queries.slice(0, MAX_QUERIES_LIMIT)
       : buildCleanMultiQueryDiscoveryQueries(input.industry, input.country);
+
+  // Cap de queries para Apollo Organizations: máx 3 por run.
+  // Tavily y otros providers no se ven afectados.
+  const apolloQueriesCap =
+    provider === 'apollo_organizations'
+      ? MAX_APOLLO_ORGANIZATIONS_QUERIES_PER_RUN
+      : allQueries.length;
+  const queries = allQueries.slice(0, apolloQueriesCap);
+  const apolloQueriesSkippedByCap = allQueries.length - queries.length;
 
   // ── Paso 0: Validar pricing antes de ejecutar queries (solo ruta instrumentada) ─
   const usageContext = input.usageContext ?? null;
@@ -305,6 +318,11 @@ export async function runMultiQueryWebSearch(
     queriesExecuted: queries.length,
     queriesSkipped: queryResults.filter((q) => q.skipped).length,
     executedAt: new Date().toISOString(),
+    ...(provider === 'apollo_organizations' ? {
+      apollo_queries_planned: allQueries.length,
+      apollo_queries_executed: queries.length,
+      apollo_queries_skipped_by_cap: apolloQueriesSkippedByCap,
+    } : {}),
   };
 
   // ── Paso 5: Registrar consumo Tavily (excluye Apollo que tiene su propio logger) ──
