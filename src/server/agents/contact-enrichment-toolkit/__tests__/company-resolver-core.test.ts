@@ -295,4 +295,50 @@ describe('resolveCompanyForContactEnrichment', () => {
     assert.equal(result.resolved, false);
     assert.equal(result.candidates.length, 0);
   });
+
+  // ── 17A.7C.3: searchSellUpByAccountId filtra archivadas ──────────────────
+
+  it('retorna sin candidatos cuando searchSellUpByAccountId devuelve null (cuenta archivada o inexistente)', async () => {
+    // La implementación real de defaultSearchByAccountId ahora aplica
+    // .is('archived_at', null).neq('pipeline_status', 'archived').
+    // Cuando la cuenta está archivada, Supabase devuelve 0 filas → data = null.
+    // El mock simula ese comportamiento.
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchSellUpByAccountId: async () => null,
+    };
+
+    const result = await resolveCompanyForContactEnrichment(
+      { sellupAccountId: 'archived-account-uuid' },
+      deps,
+    );
+
+    assert.equal(result.resolved, false);
+    assert.equal(result.candidates.length, 0);
+  });
+
+  it('usa el account activo cuando searchSellUpByAccountId devuelve un match válido', async () => {
+    const ACTIVE: SellUpAccountMatch = {
+      id: 'siesa-active-uuid',
+      name: 'Siesa',
+      domain: 'siesa.com',
+      country: 'Colombia',
+      country_code: 'CO',
+      hubspot_company_id: null,
+    };
+
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchSellUpByAccountId: async (id) => (id === 'siesa-active-uuid' ? ACTIVE : null),
+    };
+
+    const result = await resolveCompanyForContactEnrichment(
+      { sellupAccountId: 'siesa-active-uuid' },
+      deps,
+    );
+
+    assert.equal(result.resolved, true);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].sellupAccountId, 'siesa-active-uuid');
+  });
 });

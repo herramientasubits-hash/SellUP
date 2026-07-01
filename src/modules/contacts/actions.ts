@@ -76,6 +76,13 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
 }
 
 // ============================================================
+// Validaciones puras (exportadas para tests)
+// ============================================================
+
+import { checkAccountActiveForContact } from './account-active-guard';
+export { checkAccountActiveForContact };
+
+// ============================================================
 // Utilidades
 // ============================================================
 
@@ -199,13 +206,16 @@ export async function createContact(
 
   if (!input.account_id) return { success: false, error: 'account_id es requerido' };
 
-  const { data: accountExists } = await supabase
+  const { data: account } = await supabase
     .from('accounts')
-    .select('id')
+    .select('id, archived_at, pipeline_status')
     .eq('id', input.account_id)
     .single();
 
-  if (!accountExists) return { success: false, error: 'Cuenta no encontrada' };
+  const accountCheck = checkAccountActiveForContact(
+    account as { archived_at: string | null; pipeline_status: string } | null,
+  );
+  if (!accountCheck.ok) return { success: false, error: accountCheck.error };
 
   const fullName = buildFullName(input.first_name, input.last_name, input.full_name);
   if (!fullName) return { success: false, error: 'El nombre completo es requerido' };

@@ -23,6 +23,8 @@ async function defaultSearchByAccountId(id: string): Promise<SellUpAccountMatch 
     .from('accounts')
     .select('id, name, domain, country, country_code, hubspot_company_id')
     .eq('id', id)
+    .is('archived_at', null)
+    .neq('pipeline_status', 'archived')
     .single();
   return data ?? null;
 }
