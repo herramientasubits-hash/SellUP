@@ -43,6 +43,7 @@ import {
 } from './tavily-usage-logging';
 import { loadActiveTavilyMultiQueryPricing } from '@/modules/usage-tracking/provider-pricing';
 import { evaluateTavilyBudgetAlertOnly } from '@/modules/budgets/tavily-budget-alert';
+import { resolveApolloMaxQueriesPerRun } from './apollo-cost-guardrails';
 
 // Re-exportar desde query-builder para mantener la API pública estable
 export {
@@ -66,9 +67,10 @@ const DEFAULT_MAX_RESULTS_PER_QUERY = 3;
 const MAX_RESULTS_PER_QUERY_LIMIT = 5;
 const MAX_QUERIES_LIMIT = 10;
 // Apollo Organizations tiene su propio logger per-query y sus créditos son más caros.
-// Cap duro de 3 queries por run para limitar exposición en QA real.
+// Cap configurable por env (AGENT1_APOLLO_MAX_QUERIES_PER_RUN). Default: 1. Hard cap: 3.
+// Este cap es por invocación de runMultiQueryWebSearch.
+// El cap GLOBAL por ejecución wizard se aplica en incremental-search.ts.
 // No afecta Tavily ni otros providers.
-const MAX_APOLLO_ORGANIZATIONS_QUERIES_PER_RUN = 3;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -216,13 +218,14 @@ export async function runMultiQueryWebSearch(
       ? input.queries.slice(0, MAX_QUERIES_LIMIT)
       : buildCleanMultiQueryDiscoveryQueries(input.industry, input.country);
 
-  // Cap de queries para Apollo Organizations: máx 3 por run.
+  // Cap de queries para Apollo Organizations por invocación.
+  // El cap real por ejecución wizard se controla en incremental-search.ts.
   // Tavily y otros providers no se ven afectados.
-  const apolloQueriesCap =
+  const apolloPerInvocationCap =
     provider === 'apollo_organizations'
-      ? MAX_APOLLO_ORGANIZATIONS_QUERIES_PER_RUN
+      ? resolveApolloMaxQueriesPerRun()
       : allQueries.length;
-  const queries = allQueries.slice(0, apolloQueriesCap);
+  const queries = allQueries.slice(0, apolloPerInvocationCap);
   const apolloQueriesSkippedByCap = allQueries.length - queries.length;
 
   // ── Paso 0: Validar pricing antes de ejecutar queries (solo ruta instrumentada) ─
@@ -319,9 +322,12 @@ export async function runMultiQueryWebSearch(
     queriesSkipped: queryResults.filter((q) => q.skipped).length,
     executedAt: new Date().toISOString(),
     ...(provider === 'apollo_organizations' ? {
-      apollo_queries_planned: allQueries.length,
-      apollo_queries_executed: queries.length,
-      apollo_queries_skipped_by_cap: apolloQueriesSkippedByCap,
+      apollo_queries_global_cap_enabled: true,
+      apollo_queries_global_cap: apolloPerInvocationCap,
+      apollo_queries_planned_total: allQueries.length,
+      apollo_queries_executed_total: queries.length,
+      apollo_queries_skipped_by_global_cap: apolloQueriesSkippedByCap,
+      apollo_cap_scope: 'per_invocation',
     } : {}),
   };
 

@@ -40,6 +40,7 @@ import {
   buildApolloOrganizationsSearchParams,
   APOLLO_QUERY_MAPPING_VERSION,
 } from '../apollo-organizations-query-mapping';
+import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -84,9 +85,12 @@ const MAX_APOLLO_ORGANIZATIONS_PER_RUN = 10;
 const MAX_APOLLO_ORGANIZATIONS_CREDITS = 10;
 const APOLLO_ORGANIZATIONS_UNIT_COST_USD = 0.00875;
 
-function cappedMaxResults(requested: number): { cap: number; wasCapped: boolean } {
-  const cap = Math.min(requested, MAX_APOLLO_ORGANIZATIONS_PER_RUN);
-  return { cap, wasCapped: cap < requested };
+function cappedMaxResults(requested: number): { cap: number; wasCapped: boolean; maxResultsCapSource: string } {
+  // Two-layer cap: env-configurable QA guardrail first, then hard provider limit.
+  const envCap = resolveApolloMaxResultsPerQuery();
+  const cap = Math.min(requested, envCap, MAX_APOLLO_ORGANIZATIONS_PER_RUN);
+  const maxResultsCapSource = cap < requested ? 'agent1_apollo_cost_guardrail' : 'none';
+  return { cap, wasCapped: cap < requested, maxResultsCapSource };
 }
 
 // ─── Mapping puro Apollo org → WebSearchResult ────────────────────────────────
@@ -246,8 +250,8 @@ export async function runApolloOrganizationsSearch(
     };
   }
 
-  // ── Guardrail: cap duro de resultados ────────────────────────────────────────
-  const { cap, wasCapped } = cappedMaxResults(maxResults);
+  // ── Guardrail: cap de resultados (env + hard limit) ─────────────────────────
+  const { cap, wasCapped, maxResultsCapSource } = cappedMaxResults(maxResults);
 
   const startMs = Date.now();
   const usageKey = buildApolloOrgsUsageKey(
@@ -270,6 +274,8 @@ export async function runApolloOrganizationsSearch(
     ...mappingMeta,
     was_capped: wasCapped,
     capped_max_results: cap,
+    requested_max_results: maxResults,
+    max_results_cap_source: maxResultsCapSource,
   };
 
   // ── Llamada real a Apollo ────────────────────────────────────────────────────

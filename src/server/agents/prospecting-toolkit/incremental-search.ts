@@ -36,6 +36,7 @@ import { createTavilyLinkedInSearchProvider } from './linkedin-company-search-ta
 import { createLinkedInUsageLoggerFn } from './tavily-usage-logging';
 import { loadActiveTavilyLinkedInCompanySearchPricing } from '@/modules/usage-tracking/provider-pricing';
 import { isLinkedInCompanySearchEnabled } from '@/lib/feature-flags.server';
+import { resolveApolloMaxQueriesPerRun } from './apollo-cost-guardrails';
 import { buildNoveltyIndex, evaluateCandidateNovelty } from './novelty-checker';
 import {
   buildCleanMultiQueryDiscoveryQueries,
@@ -388,6 +389,14 @@ export async function runIncrementalProspectingSearch(
   let totalQueriesGenerated = 0;
   let totalQueriesSkippedByCap = 0;
 
+  // ─── Apollo global query budget (v1.16K-AC) ──────────────────────────────────
+  // Cap que se acumula a lo largo de TODAS las rondas para provider apollo_organizations.
+  // Resuelve la causa raíz del consumo excesivo (N rondas × cap_por_invocación).
+  // Tavily y mock no se ven afectados.
+  const isApolloProvider = input.webSearchProvider === 'apollo_organizations';
+  const apolloGlobalCap = isApolloProvider ? resolveApolloMaxQueriesPerRun() : Infinity;
+  let apolloQueriesExecutedTotal = 0;
+
   const allQueryTraceSummaryEntries: Array<{
     query_text: string;
     query_type: string;
@@ -584,6 +593,26 @@ export async function runIncrementalProspectingSearch(
       }
     }
 
+    // ── Apollo global query budget cap (v1.16K-AC) ────────────────────────────
+    // Aplica DESPUÉS del cap por ronda para que ambas restricciones sean respetadas.
+    // Garantiza que el total de queries Apollo no supere apolloGlobalCap aunque
+    // el orquestador ejecute múltiples rondas.
+    if (isApolloProvider) {
+      const apolloRemaining = apolloGlobalCap - apolloQueriesExecutedTotal;
+      if (apolloRemaining <= 0) {
+        stoppedReason = 'max_rounds_reached';
+        break;
+      }
+      if (queryOverrides !== undefined && queryOverrides.length > apolloRemaining) {
+        queryOverrides = queryOverrides.slice(0, apolloRemaining);
+      } else if (queryOverrides === undefined) {
+        // Fallback defensivo: el wizard siempre pasa subindustries, pero si no hay
+        // queryOverrides, generamos queries básicas acotadas al presupuesto restante.
+        queryOverrides = buildCleanMultiQueryDiscoveryQueries(input.industry, input.country)
+          .slice(0, apolloRemaining);
+      }
+    }
+
     // ── Post-cap counting for runtime metadata ─────────────────────────────
     // Count only queries that survive the cap, so metadata reflects actual execution.
     if (queryOverrides !== undefined) {
@@ -624,6 +653,15 @@ export async function runIncrementalProspectingSearch(
     // For uncontrolled rounds (undefined overrides), generated equals executed.
     if (!hasExplicitOverrides) {
       totalQueriesGenerated += executedQueriesThisRound.length;
+    }
+
+    // ── Apollo global query budget: acumular ejecutadas (v1.16K-AC) ──────────
+    if (isApolloProvider) {
+      // Usar el conteo real si el pipeline lo reporta; si no, usar lo que enviamos.
+      const roundExecuted = executedQueriesThisRound.length > 0
+        ? executedQueriesThisRound.length
+        : (queryOverrides?.length ?? 1);
+      apolloQueriesExecutedTotal += roundExecuted;
     }
 
     // Acumula query_trace_summary de esta ronda anotado con round_number (Hito 16Z.3)
@@ -992,10 +1030,14 @@ export async function runIncrementalProspectingSearch(
         existingBatchId: input.existingBatchId ?? null,
       },
       // v1.16K-R: positional args 2-3 of writeProspectingCandidates.
-      // adminClientOverride stays undefined (writer reads env). The LinkedIn
-      // override is present only when ENABLE_LINKEDIN_COMPANY_SEARCH=true.
+      // adminClientOverride stays undefined (writer reads env).
+      // v1.16K-AC: LinkedIn enrichment is skipped when Apollo is the provider —
+      // Apollo already provides structured company data and adding Tavily LinkedIn
+      // searches would add cost without proportional benefit during QA runs.
       undefined,
-      await buildLinkedInSearchOverride(input.triggeredByUserId ?? null),
+      isApolloProvider
+        ? undefined
+        : await buildLinkedInSearchOverride(input.triggeredByUserId ?? null),
       );
 
       if (writerOutput.status === 'failed') {
