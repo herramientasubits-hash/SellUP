@@ -36,6 +36,8 @@ export interface ApolloOrganization {
   id: string;
   name: string | null;
   website_url: string | null;
+  /** Apollo canonical domain — more reliable than extracting from website_url. May be absent on older plan responses. */
+  primary_domain?: string | null;
   linkedin_url: string | null;
   industry: string | null;
   industry_tag_ids: string[];
@@ -47,6 +49,8 @@ export interface ApolloOrganization {
   annual_revenue: number | null;
   technologies: string[];
   short_description: string | null;
+  /** SEO-optimized description — supplements short_description for sector signal. May be absent on older plan responses. */
+  seo_description?: string | null;
   keywords: string[];
 }
 

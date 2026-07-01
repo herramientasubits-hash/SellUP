@@ -131,7 +131,8 @@ function getSectorSignals(sector: string | null | undefined): string[] | null {
 
 /**
  * Extrae el texto candidato de un resultado mapeado para análisis de señales.
- * Combina title, snippet, domain, url y metadata.industry si están disponibles.
+ * Combina title, snippet, domain, url, industry, keywords y short_description.
+ * Desde v1.16K-AE también extrae keywords/description desde apollo_profile.
  */
 function extractCandidateText(result: WebSearchResult): string {
   const parts: string[] = [];
@@ -149,13 +150,32 @@ function extractCandidateText(result: WebSearchResult): string {
     }
   }
 
-  // metadata puede tener domain e industry según ApolloOrganizationSearchResultMetadata
+  // metadata puede tener campos planos (domain, industry) y apollo_profile enriquecido
   const meta = result.metadata as Record<string, unknown> | undefined;
   if (meta) {
     const domain = meta['domain'];
     if (typeof domain === 'string' && domain) parts.push(domain);
     const industry = meta['industry'];
     if (typeof industry === 'string' && industry) parts.push(industry);
+
+    // Campos planos (v1.16K-AE): keywords y short_description directos en metadata
+    const metaKeywords = meta['keywords'];
+    if (Array.isArray(metaKeywords)) {
+      for (const k of metaKeywords) { if (typeof k === 'string' && k) parts.push(k); }
+    }
+    const metaDesc = meta['short_description'];
+    if (typeof metaDesc === 'string' && metaDesc) parts.push(metaDesc);
+
+    // apollo_profile enriquecido (v1.16K-AE): fuente más completa
+    const apolloProfile = meta['apollo_profile'] as Record<string, unknown> | undefined;
+    if (apolloProfile) {
+      const profileKeywords = apolloProfile['keywords'];
+      if (Array.isArray(profileKeywords)) {
+        for (const k of profileKeywords) { if (typeof k === 'string' && k) parts.push(k); }
+      }
+      const profileDesc = apolloProfile['short_description'];
+      if (typeof profileDesc === 'string' && profileDesc) parts.push(profileDesc);
+    }
   }
 
   return parts.join(' ').toLowerCase();

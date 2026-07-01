@@ -43,6 +43,13 @@ import {
 import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
 
+// ─── Versión de mapping de perfil ────────────────────────────────────────────
+
+export const APOLLO_PROFILE_MAPPING_VERSION = 'v1.16K-AE';
+
+/** Umbral ICP de tamaño (empleados). Sincronizado con icp-size-gate.ts DEFAULT_THRESHOLD. */
+export const ICP_SIZE_THRESHOLD = 200;
+
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
 /** Subconjunto mínimo de ApolloOrganization relevante para company discovery. */
@@ -54,7 +61,39 @@ export type ApolloOrganizationInput = {
   linkedin_url?: string | null;
   industry?: string | null;
   estimated_num_employees?: number | null;
+  city?: string | null;
   country?: string | null;
+  short_description?: string | null;
+  keywords?: string[];
+};
+
+/** Perfil Apollo sanitizado — sin secretos, sin PII personal. */
+export type ApolloProfileMetadata = {
+  organization_id: string;
+  website_url: string | null;
+  primary_domain: string | null;
+  linkedin_url: string | null;
+  industry: string | null;
+  keywords: string[];
+  estimated_num_employees: number | null;
+  employee_count_source: 'estimated_num_employees' | 'employee_count' | 'none';
+  city: string | null;
+  country: string | null;
+  short_description: string | null;
+  /** Nombres de campos no vacíos presentes en la respuesta Apollo — útil para debug. */
+  raw_fields_present: string[];
+  mapping_version: string;
+};
+
+export type SizeEvidenceStatus = 'passes' | 'below_threshold' | 'unknown';
+
+/** Evidencia de tamaño para ICP gate — sin inventar datos. */
+export type SizeEvidenceMetadata = {
+  source: 'apollo';
+  employee_count: number | null;
+  threshold: number;
+  status: SizeEvidenceStatus;
+  reason: string;
 };
 
 /** Metadata estructurada que el provider inyecta en cada WebSearchResult. */
@@ -64,11 +103,16 @@ export type ApolloOrganizationSearchResultMetadata = {
   website: string | null;
   industry: string | null;
   employee_count: number | null;
+  city: string | null;
   country: string | null;
   linkedin_url: string | null;
+  keywords: string[];
+  short_description: string | null;
   source_provider: 'apollo';
   source_key: 'apollo_organizations';
   source_type: 'structured_company_database';
+  apollo_profile: ApolloProfileMetadata;
+  size_evidence: SizeEvidenceMetadata;
 };
 
 /** Metadata de uso registrada en cada WebSearchOutput. */
@@ -115,24 +159,83 @@ export function mapApolloOrganizationToSearchResult(
   const website = org.website_url ?? (domain ? `https://${domain}` : null);
   const url = website ?? `https://apollo.io/companies/${org.id}`;
 
+  // Snippet enriquecido — incluye description y keywords para el sector gate.
   const snippetParts: string[] = [`Empresa: ${org.name}`];
   if (org.industry) snippetParts.push(`Industria: ${org.industry}`);
-  if (org.estimated_num_employees)
-    snippetParts.push(`Empleados: ${org.estimated_num_employees}`);
+  if (org.estimated_num_employees) snippetParts.push(`Empleados: ${org.estimated_num_employees}`);
+  if (org.city) snippetParts.push(`Ciudad: ${org.city}`);
   if (org.country) snippetParts.push(`País: ${org.country}`);
+  if (org.short_description) snippetParts.push(org.short_description.slice(0, 200));
+  if (org.keywords?.length) snippetParts.push(`Keywords: ${org.keywords.slice(0, 5).join(', ')}`);
   snippetParts.push('[Fuente: Apollo Organizations]');
+
+  // ── Size evidence ────────────────────────────────────────────────────────────
+  const employeeCount = org.estimated_num_employees ?? null;
+  let sizeStatus: SizeEvidenceStatus;
+  let sizeReason: string;
+  if (employeeCount === null) {
+    sizeStatus = 'unknown';
+    sizeReason = 'apollo_did_not_return_employee_count';
+  } else if (employeeCount >= ICP_SIZE_THRESHOLD) {
+    sizeStatus = 'passes';
+    sizeReason = `employee_count_${employeeCount}_gte_threshold_${ICP_SIZE_THRESHOLD}`;
+  } else {
+    sizeStatus = 'below_threshold';
+    sizeReason = `employee_count_${employeeCount}_lt_threshold_${ICP_SIZE_THRESHOLD}`;
+  }
+
+  const sizeEvidence: SizeEvidenceMetadata = {
+    source: 'apollo',
+    employee_count: employeeCount,
+    threshold: ICP_SIZE_THRESHOLD,
+    status: sizeStatus,
+    reason: sizeReason,
+  };
+
+  // ── Apollo profile sanitizado (sin secretos, sin PII personal) ────────────
+  const rawFieldsPresent: string[] = [];
+  if (org.website_url) rawFieldsPresent.push('website_url');
+  if (org.primary_domain) rawFieldsPresent.push('primary_domain');
+  if (org.linkedin_url) rawFieldsPresent.push('linkedin_url');
+  if (org.industry) rawFieldsPresent.push('industry');
+  if (org.keywords?.length) rawFieldsPresent.push('keywords');
+  if (employeeCount !== null) rawFieldsPresent.push('estimated_num_employees');
+  if (org.city) rawFieldsPresent.push('city');
+  if (org.country) rawFieldsPresent.push('country');
+  if (org.short_description) rawFieldsPresent.push('short_description');
+
+  const apolloProfile: ApolloProfileMetadata = {
+    organization_id: org.id,
+    website_url: org.website_url ?? null,
+    primary_domain: domain,
+    linkedin_url: org.linkedin_url ?? null,
+    industry: org.industry ?? null,
+    keywords: org.keywords ?? [],
+    estimated_num_employees: employeeCount,
+    employee_count_source: employeeCount !== null ? 'estimated_num_employees' : 'none',
+    city: org.city ?? null,
+    country: org.country ?? null,
+    short_description: org.short_description ?? null,
+    raw_fields_present: rawFieldsPresent,
+    mapping_version: APOLLO_PROFILE_MAPPING_VERSION,
+  };
 
   const orgMetadata: ApolloOrganizationSearchResultMetadata = {
     apollo_organization_id: org.id,
     domain,
     website,
     industry: org.industry ?? null,
-    employee_count: org.estimated_num_employees ?? null,
+    employee_count: employeeCount,
+    city: org.city ?? null,
     country: org.country ?? null,
     linkedin_url: org.linkedin_url ?? null,
+    keywords: org.keywords ?? [],
+    short_description: org.short_description ?? null,
     source_provider: 'apollo',
     source_key: 'apollo_organizations',
     source_type: 'structured_company_database',
+    apollo_profile: apolloProfile,
+    size_evidence: sizeEvidence,
   };
 
   return {
@@ -161,6 +264,7 @@ function extractDomain(websiteUrl: string | null | undefined): string | null {
 /**
  * Convierte ApolloOrganization (apollo-client.ts) → ApolloOrganizationInput.
  * Descarta orgs sin name: retorna null y el caller las filtra.
+ * Usa primary_domain de Apollo directamente (más fiable que derivarlo de website_url).
  */
 function normalizeApolloOrg(org: ApolloOrganization): ApolloOrganizationInput | null {
   if (!org.name?.trim()) return null;
@@ -168,11 +272,14 @@ function normalizeApolloOrg(org: ApolloOrganization): ApolloOrganizationInput | 
     id: org.id,
     name: org.name,
     website_url: org.website_url,
-    primary_domain: extractDomain(org.website_url),
+    primary_domain: org.primary_domain ?? extractDomain(org.website_url),
     linkedin_url: org.linkedin_url,
     industry: org.industry,
     estimated_num_employees: org.estimated_num_employees ?? org.employee_count,
+    city: org.city,
     country: org.country,
+    short_description: org.short_description ?? org.seo_description,
+    keywords: org.keywords ?? [],
   };
 }
 
