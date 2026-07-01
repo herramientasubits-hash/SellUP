@@ -54,10 +54,18 @@ export type UsageLogResult =
 
 export type UsageLogger = (input: LogProviderUsageInput) => Promise<UsageLogResult>;
 
+/** Context forwarded from runMultiQueryWebSearch to individual provider dispatchers for per-call logging. */
+export type DispatchUsageContext = {
+  batchId?: string | null;
+  triggeredByUserId?: string | null;
+  agentRunId?: string | null;
+};
+
 export type ProviderDispatcher = (
   provider: WebSearchProviderKey,
   input: WebSearchInput,
   maxResults: number,
+  usageContext?: DispatchUsageContext,
 ) => Promise<WebSearchOutput>;
 
 export type TavilyUsageDeps = {

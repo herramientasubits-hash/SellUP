@@ -14,7 +14,7 @@ import type { TavilyUsageBaseContext } from './tavily-usage-logging';
 
 // ─── Input ────────────────────────────────────────────────────────────────────
 
-export type IncrementalSearchWebProvider = 'tavily' | 'mock';
+export type IncrementalSearchWebProvider = 'tavily' | 'mock' | 'apollo_organizations';
 
 export type IncrementalSearchInput = {
   country: string;

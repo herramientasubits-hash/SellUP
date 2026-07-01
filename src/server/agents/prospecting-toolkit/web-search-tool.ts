@@ -39,6 +39,7 @@ import {
   realLogTavilyUsage,
   TavilyPricingUnavailableError,
   type TavilyUsageDeps,
+  type DispatchUsageContext,
 } from './tavily-usage-logging';
 import { loadActiveTavilyMultiQueryPricing } from '@/modules/usage-tracking/provider-pricing';
 import { evaluateTavilyBudgetAlertOnly } from '@/modules/budgets/tavily-budget-alert';
@@ -85,6 +86,7 @@ async function dispatchToProvider(
   provider: WebSearchProviderKey,
   input: WebSearchInput,
   maxResults: number,
+  usageContext?: DispatchUsageContext,
 ): Promise<WebSearchOutput> {
   switch (provider) {
     case 'mock':
@@ -94,7 +96,7 @@ async function dispatchToProvider(
     case 'google_cse':
       return runGoogleCseWebSearch(input, maxResults);
     case 'apollo_organizations':
-      return runApolloOrganizationsSearch(input, maxResults);
+      return runApolloOrganizationsSearch(input, maxResults, usageContext ?? undefined);
     default:
       return {
         provider,
@@ -238,7 +240,10 @@ export async function runMultiQueryWebSearch(
       intent: 'company_discovery',
     };
 
-    const raw = await dispatch(provider, searchInput, maxResultsPerQuery);
+    const dispatchContext: DispatchUsageContext | undefined = usageContext
+      ? { batchId: usageContext.batchId, triggeredByUserId: usageContext.triggeredByUserId, agentRunId: usageContext.agentRunId ?? undefined }
+      : undefined;
+    const raw = await dispatch(provider, searchInput, maxResultsPerQuery, dispatchContext);
 
     const validRaw = raw.results.filter((r) => {
       try { new URL(r.url); return true; } catch { return false; }
@@ -302,8 +307,11 @@ export async function runMultiQueryWebSearch(
     executedAt: new Date().toISOString(),
   };
 
-  // ── Paso 5: Registrar consumo económico (solo ruta instrumentada) ─────────
-  if (usageContext && activePricing) {
+  // ── Paso 5: Registrar consumo Tavily (excluye Apollo que tiene su propio logger) ──
+  // Apollo usa realLogApolloOrgsUsage dentro de runApolloOrganizationsSearch.
+  // Este bloque corre para 'tavily', 'mock' y cualquier otro provider no-Apollo,
+  // preservando la instrumentación existente sin duplicar logs de Apollo.
+  if (usageContext && activePricing && provider !== 'apollo_organizations') {
     const creditsPerQuery = creditsForSearchDepth(String(searchDepth));
     const successfulCount = queryResults.filter((q) => !q.skipped).length;
     const failedCount = queryResults.filter((q) => q.skipped).length;

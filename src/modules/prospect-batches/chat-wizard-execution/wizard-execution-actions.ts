@@ -14,6 +14,10 @@ import type { WizardExecutionReservationInput, WizardExecutionReservationResult,
 import { isTavilyConfiguredForWizard } from './wizard-availability';
 import { runWizardTavilySearch } from './wizard-tavily-executor';
 import type { WizardTavilyRunner, WizardTavilyInput } from './wizard-tavily-executor';
+import { runWizardApolloSearch } from './wizard-apollo-executor';
+import type { WizardApolloRunner } from './wizard-apollo-executor';
+import { resolveWizardDiscoveryProvider } from './wizard-provider-resolver';
+import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
@@ -67,6 +71,10 @@ export type WizardExecutionDeps = {
   // Existing
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   runTavilyPipeline: WizardTavilyRunner;
+  // Apollo routing — optional; only used when resolveProvider() returns 'apollo_organizations'
+  runApolloPipeline?: WizardApolloRunner;
+  // Provider resolver — injectable for tests; defaults to resolveWizardDiscoveryProvider()
+  resolveProvider?: () => WizardDiscoveryProviderKey;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
 };
 
@@ -140,6 +148,8 @@ export async function executeProspectWizardGenerationAction(
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
 
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),
+    runApolloPipeline: (apolloInput) => runWizardApolloSearch(apolloInput),
+    resolveProvider: resolveWizardDiscoveryProvider,
 
     markBatchFailed: (batchId, reason) =>
       markWizardBatchFailed(batchId, reason, async (id) => {
@@ -229,15 +239,20 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 5. Tavily availability — checked before reservation so no budget or batch is created if unavailable
-  const tavilyAvailable = await deps.checkTavilyAvailability();
-  if (!tavilyAvailable) {
-    return {
-      ok: false,
-      code: 'PROVIDER_UNAVAILABLE',
-      message: 'El proveedor de búsqueda Tavily no está disponible en este momento.',
-      retryable: true,
-    };
+  // 5a. Resolve discovery provider (server-side, double gate)
+  const discoveryProvider: WizardDiscoveryProviderKey = (deps.resolveProvider ?? resolveWizardDiscoveryProvider)();
+
+  // 5b. Tavily availability — only checked when Tavily is the selected provider
+  if (discoveryProvider === 'tavily') {
+    const tavilyAvailable = await deps.checkTavilyAvailability();
+    if (!tavilyAvailable) {
+      return {
+        ok: false,
+        code: 'PROVIDER_UNAVAILABLE',
+        message: 'El proveedor de búsqueda Tavily no está disponible en este momento.',
+        retryable: true,
+      };
+    }
   }
 
   // 6. Calculate max credits server-side — client cannot control this value
@@ -334,11 +349,19 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 11. Execute Tavily pipeline using the reserved batchId as anchor
+  // 11. Execute discovery pipeline (Tavily or Apollo) using the reserved batchId as anchor
   const reservedBatchId = reservation.batchId;
   let pipelineResult: IncrementalSearchOutput;
   try {
-    pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
+    if (discoveryProvider === 'apollo_organizations') {
+      const apolloRunner = deps.runApolloPipeline;
+      if (!apolloRunner) {
+        throw new Error('apollo_pipeline_not_configured');
+      }
+      pipelineResult = await apolloRunner({ resolved, reservedBatchId });
+    } else {
+      pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
+    }
   } catch {
     // Reconcile conservatively — Tavily may have partially executed
     const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
