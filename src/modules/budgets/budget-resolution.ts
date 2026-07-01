@@ -29,7 +29,10 @@ import {
   getConsumptionGlobal,
   getConsumptionByProvider,
   getActiveCatalogEntries,
+  getProviderConnectionStatuses,
+  getProvidersWithTrackedConsumption,
 } from './queries';
+import { deriveMeasurementStatus } from './provider-measurement';
 import { getBudgetCheckActivity } from './budget-check-activity';
 
 // ─── Rule matching ────────────────────────────────────────────────────────────
@@ -222,10 +225,12 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
   const periodStart = defaultBounds.start.toISOString();
   const periodEnd = defaultBounds.end.toISOString();
 
-  const [catalogEntries, allRules, consumption] = await Promise.all([
+  const [catalogEntries, allRules, consumption, connectionStatuses, trackedProviders] = await Promise.all([
     getActiveCatalogEntries(admin),
     getAllActiveRules(admin),
     getConsumptionByProvider(admin, periodStart, periodEnd),
+    getProviderConnectionStatuses(admin),
+    getProvidersWithTrackedConsumption(admin),
   ]);
 
   const providerKeys = catalogEntries.map((e) => e.providerKey);
@@ -257,6 +262,9 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
       const limitCredits = globalRule?.limit_credits != null ? Number(globalRule.limit_credits) : null;
       const limitUsd = globalRule?.limit_usd != null ? Number(globalRule.limit_usd) : null;
 
+      const isConnected = connectionStatuses.has(providerKey);
+      const hasTrackedConsumption = trackedProviders.has(providerKey);
+
       return {
         providerKey,
         displayName,
@@ -273,6 +281,8 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
         onExceed: globalRule?.on_exceed ?? null,
         latestBudgetCheckLog: activityMap.get(providerKey)?.latest ?? null,
         recentBudgetCheckLogs: activityMap.get(providerKey)?.recent ?? [],
+        isConnected,
+        measurementStatus: deriveMeasurementStatus(providerKey, hasTrackedConsumption, isConnected),
       };
     }),
   );

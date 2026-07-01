@@ -309,3 +309,70 @@ export async function getActiveCatalogEntries(
     displayName: r.display_name as string,
   }));
 }
+
+// ─── Connection status (Hito I) ───────────────────────────────────────────────
+
+/**
+ * Returns a set of provider keys that are currently connected.
+ * Sources: ai_providers, prospecting_provider_connections, external_integration_connections.
+ * Read-only. Never exposes credentials.
+ */
+export async function getProviderConnectionStatuses(
+  admin: AdminClient,
+): Promise<Set<string>> {
+  const [aiResult, prospResult, extResult] = await Promise.all([
+    // LLM providers: anthropic, openai, gemini
+    admin
+      .from('ai_providers')
+      .select('key, connection_status')
+      .eq('connection_status', 'connected'),
+    // Prospecting/enrichment providers: apollo, lusha
+    admin
+      .from('prospecting_provider_connections')
+      .select('connection_status, prospecting_providers(provider_key)')
+      .eq('connection_status', 'connected'),
+    // External integrations: tavily, samu_ia, hubspot
+    admin
+      .from('external_integration_connections')
+      .select('connection_status, external_integrations(integration_key)')
+      .eq('connection_status', 'connected'),
+  ]);
+
+  const connected = new Set<string>();
+
+  for (const row of aiResult.data ?? []) {
+    const key = row.key as string | null;
+    if (key) connected.add(key);
+  }
+
+  for (const row of prospResult.data ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const key = (row as any).prospecting_providers?.provider_key as string | undefined;
+    if (key) connected.add(key);
+  }
+
+  for (const row of extResult.data ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const key = (row as any).external_integrations?.integration_key as string | undefined;
+    if (key) connected.add(key);
+  }
+
+  return connected;
+}
+
+/**
+ * Returns the set of provider keys that have at least one usage log
+ * with credits_used > 0 or estimated_cost_usd > 0, indicating SellUp
+ * actively tracks consumption for that provider. Read-only.
+ */
+export async function getProvidersWithTrackedConsumption(
+  admin: AdminClient,
+): Promise<Set<string>> {
+  const { data } = await admin
+    .from('provider_usage_logs')
+    .select('provider_key')
+    .or('credits_used.gt.0,estimated_cost_usd.gt.0')
+    .limit(500);
+
+  return new Set((data ?? []).map((r) => r.provider_key as string));
+}

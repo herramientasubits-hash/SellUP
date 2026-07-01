@@ -3,7 +3,6 @@
 import { Cpu, Activity, TrendingUp, AlertTriangle } from 'lucide-react';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
-import { getMeasurementStatus } from '@/modules/budgets/provider-measurement';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
@@ -12,9 +11,7 @@ interface Props {
 export function BudgetSummaryCards({ providers }: Props) {
   const totalProviders = providers.length;
 
-  const activeProviders = providers.filter(
-    (p) => getMeasurementStatus(p.providerKey) === 'active',
-  );
+  const activeProviders = providers.filter((p) => p.measurementStatus === 'active');
 
   const activeWithoutRule = activeProviders.filter(
     (p) => p.globalLimitCredits == null && p.globalLimitUsd == null,

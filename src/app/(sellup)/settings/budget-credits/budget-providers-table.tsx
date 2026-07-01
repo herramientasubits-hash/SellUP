@@ -13,7 +13,6 @@ import type { BudgetOnExceed } from '@/modules/usage-tracking/types';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import {
-  getMeasurementStatus,
   MEASUREMENT_STATUS_LABEL,
   MEASUREMENT_STATUS_DESCRIPTION,
   MEASUREMENT_STATUS_BADGE,
@@ -60,8 +59,9 @@ const BUDGET_STATUS_BADGE: Record<BudgetStatus, { label: string; className: stri
   exceeded: { label: 'Excedido',     className: 'border-destructive/30 bg-destructive/10 text-destructive' },
 };
 
-const STATUS_BADGE_NOT_MEASURED = { label: 'No medido', className: 'border-border/30 bg-muted/20 text-muted-foreground/60' };
-const STATUS_BADGE_PREPARED = { label: 'Preparado', className: 'border-border/40 bg-muted/30 text-muted-foreground' };
+const STATUS_BADGE_NOT_MEASURED = { label: 'No medido',  className: 'border-border/30 bg-muted/20 text-muted-foreground/60' };
+const STATUS_BADGE_PREPARED    = { label: 'Preparado',  className: 'border-border/40 bg-muted/30 text-muted-foreground' };
+const STATUS_BADGE_CONNECTED   = { label: 'Conectado',  className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' };
 
 const ACTION_LABEL: Record<BudgetOnExceed | 'none', string> = {
   alert:            'Alertar',
@@ -109,11 +109,11 @@ interface RowDisplay {
 function deriveRowDisplay(row: AdminProviderBudgetRow, ms: MeasurementStatus): RowDisplay {
   if (ms === 'not_measured') {
     return {
-      consumed:    '—',
-      limit:       'No aplica',
-      available:   'No aplica',
-      statusBadge: STATUS_BADGE_NOT_MEASURED,
-      actionLabel: 'No aplica',
+      consumed:     '—',
+      limit:        'No aplica',
+      available:    'No aplica',
+      statusBadge:  STATUS_BADGE_NOT_MEASURED,
+      actionLabel:  'No aplica',
       canViewEvals: false,
     };
   }
@@ -121,16 +121,31 @@ function deriveRowDisplay(row: AdminProviderBudgetRow, ms: MeasurementStatus): R
   if (ms === 'prepared') {
     const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
     return {
-      consumed:    '—',
-      limit:       hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
-      available:   hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
-      statusBadge: STATUS_BADGE_PREPARED,
-      actionLabel: row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
+      consumed:     '—',
+      limit:        hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
+      available:    hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
+      statusBadge:  STATUS_BADGE_PREPARED,
+      actionLabel:  row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
       canViewEvals: true,
     };
   }
 
-  // active
+  if (ms === 'connected') {
+    const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
+    return {
+      consumed:     '—',
+      limit:        hasGlobalRule ? formatAmount(row.globalLimitCredits, row.globalLimitUsd) : 'Sin regla',
+      available:    hasGlobalRule ? formatAmount(row.remainingCredits, row.remainingUsd) : 'No aplica',
+      statusBadge:  STATUS_BADGE_CONNECTED,
+      actionLabel:  row.onExceed ? ACTION_LABEL[row.onExceed] : 'No configurado',
+      canViewEvals: true,
+    };
+  }
+
+  // active — explicitly show '0 cr' instead of '—' so the row doesn't look empty
+  const rawConsumed = formatAmount(row.consumedCredits, row.consumedUsd);
+  const consumed = rawConsumed === '—' ? '0 cr' : rawConsumed;
+
   const budgetStatus = computeBudgetStatus(row);
   const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
   const hasSpecificRulesOnly = row.activeRules > 0 && !hasGlobalRule;
@@ -156,10 +171,10 @@ function deriveRowDisplay(row: AdminProviderBudgetRow, ms: MeasurementStatus): R
     : ACTION_LABEL[actionKey];
 
   return {
-    consumed:    formatAmount(row.consumedCredits, row.consumedUsd),
+    consumed,
     limit,
     available,
-    statusBadge: BUDGET_STATUS_BADGE[budgetStatus],
+    statusBadge:  BUDGET_STATUS_BADGE[budgetStatus],
     actionLabel,
     canViewEvals: true,
   };
@@ -328,8 +343,10 @@ function DrawerStatusHeader({
         {ms === 'not_measured'
           ? 'Este proveedor no está siendo medido como consumo directo de SellUp por ahora.'
           : ms === 'prepared'
-            ? 'Este proveedor todavía no tiene consumos registrados desde SellUp.'
-            : 'Las evaluaciones se registran cuando el proveedor consume créditos desde SellUp.'}
+            ? 'Este proveedor todavía no tiene conexión configurada en SellUp.'
+            : ms === 'connected'
+              ? 'Este proveedor está configurado y conectado. SellUp todavía no registra consumo directo desde esta herramienta.'
+              : 'Las evaluaciones se registran cuando el proveedor consume créditos desde SellUp.'}
       </p>
     </div>
   );
@@ -346,7 +363,7 @@ function ProviderActivityDrawer({
   open: boolean;
   onClose: () => void;
 }) {
-  const ms = provider ? getMeasurementStatus(provider.providerKey) : 'prepared';
+  const ms = provider ? provider.measurementStatus : 'prepared';
 
   return (
     <DrawerShell
@@ -448,7 +465,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
             </thead>
             <tbody className="divide-y divide-border/30">
               {providers.map((row) => {
-                const ms = getMeasurementStatus(row.providerKey);
+                const ms = row.measurementStatus;
                 const display = deriveRowDisplay(row, ms);
                 const msBadge = MEASUREMENT_STATUS_BADGE[ms];
 

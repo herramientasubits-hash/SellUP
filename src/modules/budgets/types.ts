@@ -86,6 +86,10 @@ export interface AdminProviderBudgetRow {
   latestBudgetCheckLog: BudgetCheckLogEntry | null;
   /** Up to 10 recent log entries with budget_check, newest first. Hito G. */
   recentBudgetCheckLogs: BudgetCheckLogEntry[];
+  /** Derived from ai_providers / prospecting_provider_connections / external_integration_connections. Hito I. */
+  isConnected: boolean;
+  /** Derived measurement state: active | connected | prepared | not_measured. Hito I. */
+  measurementStatus: import('./provider-measurement').MeasurementStatus;
 }
 
 export interface AdminBudgetSummary {
