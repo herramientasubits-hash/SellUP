@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Check, Globe, MapPin, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Building2, Check, Globe, Lightbulb, MapPin, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
@@ -10,6 +10,7 @@ import type {
   ContactEnrichmentRunResult,
 } from '@/modules/contact-enrichment/types';
 import type { ApolloEnrichmentUiResult } from './contact-enrichment-chat-types';
+import { getContactEnrichmentEmptyStateCopy } from './contact-enrichment-empty-state-copy';
 
 // ── Source badge ────────────────────────────────────────────────────────────
 
@@ -289,6 +290,52 @@ export function ApolloPreflightCard() {
   );
 }
 
+// ── Apollo empty state (Hito 17A.7A) ─────────────────────────────────────────
+
+function ApolloEmptyState({ result }: { result: ApolloEnrichmentUiResult }) {
+  const copy = getContactEnrichmentEmptyStateCopy({
+    rawResultsCount: result.rawResultsCount,
+    rejectedByRelevance: result.rejectedByRelevance,
+    candidatesCreated: result.candidatesCreated,
+    noActionableContactsFound: result.noActionableContactsFound,
+    noReviewableContactsFound: result.noReviewableContactsFound,
+    searchGuardrail: result.searchGuardrail,
+  });
+
+  return (
+    <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
+          <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
+          <p className="text-xs text-muted-foreground">{copy.detail}</p>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
+        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Lightbulb className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+          <p className="text-xs font-medium text-foreground">Qué puedes hacer</p>
+        </div>
+        <ul className="space-y-1.5">
+          {copy.tips.map((tip) => (
+            <li key={tip} className="flex items-start gap-2 text-xs text-muted-foreground">
+              <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
+              {tip}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // ── Apollo result summary (Hito 17A.3A) ───────────────────────────────────────
 
 function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
@@ -302,10 +349,7 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
     );
   }
 
-  const noActionable =
-    result.candidatesCreated === 0 && result.noActionableContactsFound;
-  const noReviewable =
-    result.candidatesCreated === 0 && !noActionable && result.noReviewableContactsFound;
+  const hasNoReviewableCandidates = result.candidatesCreated === 0;
 
   return (
     <div className="space-y-3 border-t border-border pt-3">
@@ -350,15 +394,14 @@ function ApolloResultSummary({ result }: { result: ApolloEnrichmentUiResult }) {
           </dd>
         </div>
       </dl>
-      <p className="text-xs text-muted-foreground">
-        {result.candidatesCreated > 0
-          ? 'Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.'
-          : noActionable
-            ? 'Apollo encontró perfiles, pero ninguno tenía datos suficientes de contacto (email, LinkedIn o teléfono) para revisión. No se crearon contactos finales.'
-            : noReviewable
-              ? 'Apollo encontró perfiles, pero ninguno tenía suficiente relevancia o datos completos para revisión. No se crearon contactos finales.'
-              : 'No encontré contactos con los criterios actuales. Puedes intentar con otra empresa o revisar la configuración de Apollo.'}
-      </p>
+
+      {hasNoReviewableCandidates ? (
+        <ApolloEmptyState result={result} />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.
+        </p>
+      )}
 
       {result.costGuardrail && (
         <div className="space-y-1.5 border-t border-border/50 pt-2">
