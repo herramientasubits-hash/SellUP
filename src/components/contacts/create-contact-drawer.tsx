@@ -46,6 +46,9 @@ interface AccountOption {
 
 interface CreateContactDrawerProps {
   accountId?: string;
+  /** Readable label for the preselected account (e.g. "Siesa · siesa.com").
+   * Used as fallback when accountId is set but the account is not found in `accounts`. */
+  accountLabel?: string;
   accounts?: AccountOption[];
   // Controlled mode (no trigger button rendered)
   open?: boolean;
@@ -74,6 +77,7 @@ const EMPTY_FORM = {
 
 export function CreateContactDrawer({
   accountId,
+  accountLabel,
   accounts,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
@@ -225,27 +229,25 @@ export function CreateContactDrawer({
         className="space-y-8"
       >
         {/* Cuenta */}
-        {accountId ? (
-          // Cuenta pre-seleccionada (modo controlado desde contexto externo)
-          accounts && accounts.length > 0 ? (() => {
-            const found = accounts.find((a) => a.id === accountId);
-            const label = found
-              ? found.domain
-                ? `${found.name} · ${found.domain}`
-                : found.name
-              : 'Cuenta preseleccionada';
-            return (
-              <Section icon={Building2} label="Cuenta">
-                <Field label="Cuenta">
-                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
-                    {label}
-                  </div>
-                </Field>
-              </Section>
-            );
-          })()
-          : null
-        ) : accounts && accounts.length > 0 ? (
+        {accountId ? (() => {
+          // Cuenta pre-seleccionada (modo controlado desde contexto externo).
+          // Priority: found in accounts list → computed label; else → accountLabel prop; else fallback.
+          const found = accounts?.find((a) => a.id === accountId);
+          const label = found
+            ? found.domain
+              ? `${found.name} · ${found.domain}`
+              : found.name
+            : (accountLabel ?? 'Cuenta preseleccionada');
+          return (
+            <Section icon={Building2} label="Cuenta">
+              <Field label="Cuenta">
+                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                  {label}
+                </div>
+              </Field>
+            </Section>
+          );
+        })() : accounts && accounts.length > 0 ? (
           // Cuenta seleccionable (modo autónomo)
           <Section icon={Building2} label="Cuenta">
             <Field label="Cuenta *">

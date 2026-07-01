@@ -36,6 +36,13 @@ export function ContactsEnrichmentCTA() {
         open={createContactOpen}
         onOpenChange={handleCreateContactClose}
         accountId={manualCtx?.accountId}
+        accountLabel={
+          manualCtx?.companyName
+            ? manualCtx.companyDomain
+              ? `${manualCtx.companyName} · ${manualCtx.companyDomain}`
+              : manualCtx.companyName
+            : undefined
+        }
         metadata={
           manualCtx
             ? {
