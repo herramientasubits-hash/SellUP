@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { Activity, Pencil } from 'lucide-react';
+import { Activity, Settings } from 'lucide-react';
 import type { AdminProviderBudgetRow, BudgetCheckLogEntry } from '@/modules/budgets';
 import {
   parseBudgetCheck,
@@ -335,7 +335,13 @@ function LogEntryCard({ log }: { log: BudgetCheckLogEntry }) {
 
 // ── Side panel allowance summary ──────────────────────────────────────────────
 
-function AllowanceSummaryBlock({ row }: { row: AdminProviderBudgetRow }) {
+function AllowanceSummaryBlock({
+  row,
+  onConfigure,
+}: {
+  row: AdminProviderBudgetRow;
+  onConfigure: () => void;
+}) {
   const creditsAllowance = formatAllowance(row.providerMonthlyCreditsAllowance, null);
   const usdAllowance = formatAllowance(null, row.providerMonthlyUsdAllowance);
   const creditsAvail = formatAllowanceAvailable(row.providerCreditsAvailable, null);
@@ -347,6 +353,28 @@ function AllowanceSummaryBlock({ row }: { row: AdminProviderBudgetRow }) {
   const ruleAvail = hasGlobalRule
     ? formatAmount(row.remainingCredits, row.remainingUsd)
     : 'No aplica';
+
+  const hasAllowance =
+    row.providerMonthlyCreditsAllowance != null || row.providerMonthlyUsdAllowance != null;
+  const isNotMeasured = row.measurementStatus === 'not_measured';
+
+  if (!hasAllowance && !isNotMeasured) {
+    return (
+      <div className="rounded-lg border border-dashed border-border/50 bg-muted/5 px-4 py-4 space-y-2">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
+          Cuota del proveedor
+        </p>
+        <p className="text-xs text-muted-foreground">Cuota del proveedor no configurada.</p>
+        <button
+          type="button"
+          onClick={onConfigure}
+          className="text-xs text-su-brand hover:underline font-medium"
+        >
+          Configurar cuota →
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
@@ -441,10 +469,12 @@ function ProviderActivityDrawer({
   provider,
   open,
   onClose,
+  onConfigureAllowance,
 }: {
   provider: AdminProviderBudgetRow | null;
   open: boolean;
   onClose: () => void;
+  onConfigureAllowance: (row: AdminProviderBudgetRow) => void;
 }) {
   const ms = provider ? provider.measurementStatus : 'prepared';
 
@@ -474,7 +504,10 @@ function ProviderActivityDrawer({
           <DrawerStatusHeader row={provider} ms={ms} />
 
           {/* Allowance summary — always show in panel */}
-          <AllowanceSummaryBlock row={provider} />
+          <AllowanceSummaryBlock
+            row={provider}
+            onConfigure={() => { onClose(); onConfigureAllowance(provider); }}
+          />
 
           {provider.recentBudgetCheckLogs.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center">
@@ -506,13 +539,29 @@ function AllowanceCell({
   allowance,
   available,
   isNotMeasured,
+  onConfigure,
 }: {
   allowance: string;
   available: { label: string; overrun: boolean } | null;
   isNotMeasured: boolean;
+  onConfigure: () => void;
 }) {
   if (isNotMeasured) {
     return <span className="text-xs text-muted-foreground/40">No aplica</span>;
+  }
+  if (allowance === 'No configurado') {
+    return (
+      <div className="space-y-1">
+        <p className="text-xs text-muted-foreground/60">No configurado</p>
+        <button
+          type="button"
+          onClick={onConfigure}
+          className="text-[10px] text-su-brand hover:underline font-medium"
+        >
+          Configurar cuota →
+        </button>
+      </div>
+    );
   }
   return (
     <div className="space-y-0.5">
@@ -644,6 +693,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                         allowance={allowanceLabel}
                         available={availableResult}
                         isNotMeasured={isNotMeasured}
+                        onConfigure={() => setEditingProvider(row)}
                       />
                     </td>
 
@@ -678,28 +728,30 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
 
                     {/* Acciones */}
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap">
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30"
+                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 gap-1"
                           onClick={() => display.canViewEvals && setSelectedProvider(row)}
                           disabled={!display.canViewEvals}
                           aria-label={`Ver evaluaciones de ${row.displayName ?? row.providerKey}`}
                         >
-                          <Activity className="h-3 w-3 mr-1" />
+                          <Activity className="h-3 w-3" />
                           Ver
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => setEditingProvider(row)}
-                          aria-label={`Editar cuota de ${row.displayName ?? row.providerKey}`}
-                          title="Editar cuota mensual"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
+                        {!isNotMeasured && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                            onClick={() => setEditingProvider(row)}
+                            aria-label={`Configurar cuota de ${row.displayName ?? row.providerKey}`}
+                          >
+                            <Settings className="h-3 w-3" />
+                            {allowanceLabel === 'No configurado' ? 'Configurar' : 'Editar cuota'}
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -718,6 +770,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
         provider={selectedProvider}
         open={selectedProvider !== null}
         onClose={() => setSelectedProvider(null)}
+        onConfigureAllowance={(row) => { setSelectedProvider(null); setEditingProvider(row); }}
       />
 
       <ProviderAllowanceDrawer

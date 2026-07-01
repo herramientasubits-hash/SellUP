@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Pencil, Power, PowerOff, ChevronLeft, ShieldAlert } from 'lucide-react';
+import { Plus, Pencil, Power, PowerOff, ChevronLeft, ShieldAlert, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { createBudgetRule, updateBudgetRule, toggleBudgetRuleStatus } from '@/modules/budgets/rule-actions';
+import { createBudgetRule, updateBudgetRule, toggleBudgetRuleStatus, archiveBudgetRule } from '@/modules/budgets/rule-actions';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import type { BudgetOnExceed, BudgetPeriodType, BudgetScopeType } from '@/modules/usage-tracking/types';
 
@@ -519,11 +519,21 @@ export function BudgetRulesClient({ rules, options }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [editRule, setEditRule] = useState<BudgetRuleRow | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState<BudgetRuleRow | null>(null);
+  const [archiving, setArchiving] = useState<string | null>(null);
 
   async function handleToggle(rule: BudgetRuleRow) {
     setToggling(rule.id);
     await toggleBudgetRuleStatus(rule.id, !rule.is_active);
     setToggling(null);
+    window.location.reload();
+  }
+
+  async function handleArchive(rule: BudgetRuleRow) {
+    setArchiving(rule.id);
+    await archiveBudgetRule(rule.id);
+    setArchiving(null);
+    setConfirmArchive(null);
     window.location.reload();
   }
 
@@ -620,19 +630,30 @@ export function BudgetRulesClient({ rules, options }: Props) {
                         <Pencil className="h-3 w-3" />
                         Editar
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-xs gap-1"
-                        disabled={toggling === rule.id}
-                        onClick={() => handleToggle(rule)}
-                      >
-                        {rule.is_active ? (
-                          <><PowerOff className="h-3 w-3" />Desactivar</>
-                        ) : (
-                          <><Power className="h-3 w-3" />Activar</>
-                        )}
-                      </Button>
+                      {rule.is_active && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs gap-1 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                          disabled={toggling === rule.id || archiving === rule.id}
+                          onClick={() => setConfirmArchive(rule)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Eliminar
+                        </Button>
+                      )}
+                      {!rule.is_active && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs gap-1"
+                          disabled={toggling === rule.id}
+                          onClick={() => handleToggle(rule)}
+                        >
+                          <Power className="h-3 w-3" />
+                          Activar
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -644,6 +665,43 @@ export function BudgetRulesClient({ rules, options }: Props) {
 
       <CreateDrawer options={options} open={showCreate} onOpenChange={setShowCreate} />
       <EditDrawer rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
+
+      {/* Archive confirmation dialog */}
+      {confirmArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setConfirmArchive(null)}
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border/60 bg-card shadow-lg p-6 space-y-4 mx-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold text-foreground">¿Eliminar esta regla?</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                La regla de <span className="font-medium text-foreground">{confirmArchive.providerDisplayName}</span>{' '}
+                ({confirmArchive.scopeLabel}) dejará de aplicarse. No se eliminarán consumos ni evaluaciones históricas.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmArchive(null)}
+                disabled={archiving === confirmArchive.id}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={archiving === confirmArchive.id}
+                onClick={() => handleArchive(confirmArchive)}
+              >
+                {archiving === confirmArchive.id ? 'Eliminando...' : 'Eliminar regla'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
