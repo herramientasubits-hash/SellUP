@@ -733,6 +733,90 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(fields.email, 1);
   });
 
+  it('budget_check presente en log cuando triggeredBy es null (no_triggered_by)', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [],
+      attempts: [],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 0, rawResultsCount: 0 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+    // triggeredBy = undefined → debe producir budget_check con technical_error='no_triggered_by'
+    await executeContactEnrichmentApolloRun('run-1', undefined, h.deps);
+
+    const searchLog = h.getUsageLogs().find((l) => l.operation_key === 'people_search');
+    assert.ok(searchLog, 'debe existir log people_search');
+    const bc = (searchLog.metadata as Record<string, unknown>)?.budget_check as Record<string, unknown>;
+    assert.ok(bc, 'budget_check no debe ser null cuando triggeredBy es undefined');
+    assert.equal(bc.mode, 'alert_only');
+    assert.equal(bc.allowed, true);
+    assert.equal(bc.technical_error, 'no_triggered_by');
+  });
+
+  it('budget_check presente en log cuando Apollo devuelve 0 resultados con triggeredBy', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [],
+      attempts: [],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 0, rawResultsCount: 0 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+    h.deps.evaluateBudget = async () => ({
+      mode: 'alert_only',
+      provider_key: 'apollo',
+      allowed: true,
+      would_block_in_enforcement: false,
+      scope_applied: 'global',
+      matched_rule_id: null,
+      on_exceed: null,
+      reason: null,
+      consumed_credits: 10,
+      projected_credits: 1,
+      remaining_credits: 490,
+    });
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const searchLog = h.getUsageLogs().find((l) => l.operation_key === 'people_search');
+    assert.ok(searchLog);
+    const bc = (searchLog.metadata as Record<string, unknown>)?.budget_check as Record<string, unknown>;
+    assert.ok(bc, 'budget_check no debe ser null');
+    assert.equal(bc.mode, 'alert_only');
+    assert.equal(bc.consumed_credits, 10);
+  });
+
+  it('budget_check presente en log cuando Apollo devuelve error', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'error',
+      people: [],
+      attempts: [],
+      reason: 'Apollo no conectado',
+    };
+    const h = makeHarness(makeRun(), apollo);
+    h.deps.evaluateBudget = async () => ({
+      mode: 'alert_only',
+      provider_key: 'apollo',
+      allowed: true,
+      would_block_in_enforcement: false,
+      scope_applied: 'global',
+      matched_rule_id: null,
+      on_exceed: null,
+      reason: null,
+      consumed_credits: 5,
+      projected_credits: 1,
+      remaining_credits: 495,
+    });
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const errorLog = h.getUsageLogs().find((l) => l.operation_key === 'people_search');
+    assert.ok(errorLog, 'debe existir log people_search en rama error');
+    assert.equal(errorLog.status, 'error');
+    const bc = (errorLog.metadata as Record<string, unknown>)?.budget_check as Record<string, unknown>;
+    assert.ok(bc, 'budget_check no debe ser null en rama error');
+    assert.equal(bc.mode, 'alert_only');
+  });
+
   it('candidato insertado lleva bloque completion en enrichment_metadata', async () => {
     interface MetaRow { enrichmentMetadata: Record<string, unknown> }
     let written: MetaRow[] = [];

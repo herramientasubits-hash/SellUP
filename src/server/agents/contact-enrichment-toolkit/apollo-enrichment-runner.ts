@@ -475,9 +475,24 @@ export async function executeContactEnrichmentApolloRun(
 
   // 2b. Evaluación de presupuesto alert-only (Hito E).
   //     Nunca bloquea. triggeredBy es internalUserId cuando viene de actions.ts.
-  const budgetMeta: ApolloBudgetCheckMeta | null = triggeredBy
+  //     Si no hay triggeredBy, produce metadata con technical_error='no_triggered_by'
+  //     para que budget_check nunca quede null en provider_usage_logs.
+  const budgetMeta: ApolloBudgetCheckMeta = triggeredBy
     ? await evaluateBudget(triggeredBy, APOLLO_PROJECTED_CREDITS_CONSERVATIVE)
-    : null;
+    : {
+        mode: 'alert_only',
+        provider_key: APOLLO_PROVIDER_KEY,
+        allowed: true,
+        would_block_in_enforcement: false,
+        scope_applied: 'unknown',
+        matched_rule_id: null,
+        on_exceed: null,
+        reason: null,
+        consumed_credits: 0,
+        projected_credits: APOLLO_PROJECTED_CREDITS_CONSERVATIVE,
+        remaining_credits: null,
+        technical_error: 'no_triggered_by',
+      };
 
   // 3. Marcar enriching + abrir step
   await updateRun(runId, { status: 'enriching' });
@@ -548,6 +563,7 @@ export async function executeContactEnrichmentApolloRun(
         company_name: run.company_name,
         company_domain: run.company_domain,
         search_guardrail: apollo.searchGuardrail ?? null,
+        budget_check: budgetMeta,
       },
     });
     return emptyRunResult({
@@ -925,6 +941,6 @@ export async function executeContactEnrichmentApolloRun(
     totalCandidates: insertedCount,
     costGuardrail: completionSummary.cost_guardrail,
     searchGuardrail: apollo.searchGuardrail,
-    budgetCheck: budgetMeta ?? undefined,
+    budgetCheck: budgetMeta,
   };
 }
