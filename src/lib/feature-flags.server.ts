@@ -69,3 +69,21 @@ export function isLinkedInCompanySearchEnabled(): boolean {
     process.env[LINKEDIN_COMPANY_SEARCH_FLAG]?.trim().toLowerCase() === 'true'
   );
 }
+
+/** Flag name constant for Apollo company discovery in Agent 1 (v1.16K-W). */
+export const APOLLO_COMPANY_SEARCH_FLAG = 'ENABLE_APOLLO_COMPANY_SEARCH';
+
+/**
+ * Returns true when ENABLE_APOLLO_COMPANY_SEARCH is "true".
+ *
+ * Default: false. When disabled (the production default), the apollo_organizations
+ * provider returns a dry-run skipped output with zero cost and no API calls.
+ * When enabled, real Apollo organization searches are wired into Agent 1's
+ * discovery pipeline. Must not be enabled until pricing migration is applied
+ * and the real Apollo API integration is validated.
+ */
+export function isApolloCompanySearchEnabled(): boolean {
+  return (
+    process.env[APOLLO_COMPANY_SEARCH_FLAG]?.trim().toLowerCase() === 'true'
+  );
+}

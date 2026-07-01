@@ -174,7 +174,8 @@ export type WebSearchProviderKey =
   | "brave"
   | "serpapi"
   | "exa"
-  | "firecrawl";
+  | "firecrawl"
+  | "apollo_organizations";
 
 export type WebSearchIntent =
   | "company_discovery"

@@ -28,6 +28,7 @@ import type {
 import { runMockWebSearch } from './web-search-providers/mock-web-search-provider';
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
 import { runGoogleCseWebSearch } from './web-search-providers/google-cse-web-search-provider';
+import { runApolloOrganizationsSearch } from './web-search-providers/apollo-organizations-search-provider';
 import { filterNoiseResults } from './noise-filter';
 import { buildCleanMultiQueryDiscoveryQueries } from './query-builder';
 import {
@@ -91,6 +92,8 @@ async function dispatchToProvider(
       return runTavilyWebSearch(input, maxResults);
     case 'google_cse':
       return runGoogleCseWebSearch(input, maxResults);
+    case 'apollo_organizations':
+      return runApolloOrganizationsSearch(input, maxResults);
     default:
       return {
         provider,
