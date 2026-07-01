@@ -854,10 +854,10 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     key: 'cl_chilecompra_ocds',
     name: 'ChileCompra / Mercado Público OCDS',
     sellupUse: 'commercial_signal',
-    aiFlowStatus: 'eligible_not_connected',
-    connectionMode: 'not_connected',
+    aiFlowStatus: 'connected_post_approval',
+    connectionMode: 'offline_signal',
     nextAction:
-      'Fuente abierta OCDS sin credenciales. Health-check y dry-run read-only disponibles; no escribe en Supabase ni genera prospectos.',
+      'Conectada como señal comercial post-approval. No requiere credenciales. Enriquece metadata.source_enrichment.cl_chilecompra_ocds en candidatos CL con RUT tras aprobación.',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P1',

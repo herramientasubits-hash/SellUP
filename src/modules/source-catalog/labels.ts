@@ -178,6 +178,7 @@ export function sellupUseBadgeClass(use: SellupUse): string {
 
 export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   connected: 'Conectada',
+  connected_post_approval: 'Conectada · señal post-approval',
   eligible_not_connected: 'Apta no conectada',
   partial_pending_data: 'Parcial / pendiente datos',
   source_guided: 'Source-guided',
@@ -190,6 +191,8 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
 export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
   switch (status) {
     case 'connected':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+    case 'connected_post_approval':
       return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
     case 'eligible_not_connected':
       return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
@@ -214,6 +217,7 @@ export const CONNECTION_MODE_LABELS: Record<ConnectionMode, string> = {
   wizard_discovery: 'Wizard discovery',
   automatic_enrichment: 'Enrichment automático',
   source_guided_query: 'Source-guided query',
+  offline_signal: 'Sin credenciales requeridas',
   not_connected: 'No conectada',
   not_applicable: 'No aplica',
 };
@@ -226,6 +230,8 @@ export function connectionModeBadgeClass(mode: ConnectionMode): string {
       return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
     case 'source_guided_query':
       return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
+    case 'offline_signal':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
     case 'not_connected':
       return 'border-border/40 bg-muted/30 text-muted-foreground';
     case 'not_applicable':

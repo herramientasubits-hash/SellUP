@@ -87,6 +87,7 @@ export type SellupUse =
 
 export type AiFlowStatus =
   | 'connected'
+  | 'connected_post_approval'
   | 'eligible_not_connected'
   | 'partial_pending_data'
   | 'source_guided'
@@ -99,6 +100,7 @@ export type ConnectionMode =
   | 'wizard_discovery'
   | 'automatic_enrichment'
   | 'source_guided_query'
+  | 'offline_signal'
   | 'not_connected'
   | 'not_applicable';
 
