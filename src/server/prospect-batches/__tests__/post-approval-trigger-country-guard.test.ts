@@ -1,12 +1,13 @@
 /**
- * Tests — v1.16K-M / Perú.9O / Chile.2 Post-approval enrichment trigger country guard
+ * Tests — v1.16K-M / Perú.9O / Chile.2 / México.2B Post-approval enrichment trigger country guard
  *
  * Verifies that triggerPostApprovalEnrichment:
- * - Returns skipped + country_not_supported for unsupported countries (MX, EC)
+ * - Returns skipped + country_not_supported for unsupported countries (EC)
+ * - Queues MX candidates with empty source_keys even without RFC (DENUE uses name context)
  * - Queues CL candidates with empty source_keys (ChileCompra OCDS runs in worker directly)
  * - Queues PE candidates with empty source_keys (SUNAT+Migo run in worker directly)
  * - Still proceeds normally for CO candidates (queued when NIT present)
- * - Never queues CO-specific source keys for PE or CL candidates
+ * - Never queues CO-specific source keys for PE, CL, or MX candidates
  */
 
 import { describe, it } from 'node:test';
@@ -46,13 +47,6 @@ function makeParams(countryCode: string | null, taxId?: string) {
 }
 
 describe('PATCG1 — country guard skips unsupported countries', () => {
-  it('MX → status skipped, reason country_not_supported', async () => {
-    const result = await triggerPostApprovalEnrichment(makeParams('MX', 'SOME-RFC'));
-    assert.equal(result.triggered, false);
-    assert.equal(result.meta.status, 'skipped');
-    assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
-  });
-
   it('EC → status skipped, reason country_not_supported', async () => {
     const result = await triggerPostApprovalEnrichment(makeParams('EC', '1234567890001'));
     assert.equal(result.triggered, false);
@@ -115,6 +109,33 @@ describe('PATCG1B — PE candidates queue with SUNAT enrichment', () => {
     assert.equal(result.triggered, false);
     assert.equal(result.meta.status, 'skipped');
     assert.equal(result.meta.reason, 'missing_tax_id');
+  });
+});
+
+describe('PATCG1D — MX candidates queue via name context (México.2B)', () => {
+  it('MX with RFC → triggered=true, status=queued', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('MX', 'OXXO-RFC'));
+    assert.equal(result.triggered, true);
+    assert.equal(result.meta.status, 'queued');
+  });
+
+  it('MX without RFC → triggered=true, status=queued (DENUE uses name context)', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('MX'));
+    assert.equal(result.triggered, true);
+    assert.equal(result.meta.status, 'queued');
+    assert.equal(result.meta.reason, undefined, 'MX queues without RFC — no missing_tax_id reason');
+  });
+
+  it('MX → source_keys empty (DENUE runs in worker directly)', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('MX'));
+    assert.ok(Array.isArray(result.meta.source_keys));
+    assert.equal(result.meta.source_keys!.length, 0, 'MX source_keys must be empty — DENUE step runs in worker directly');
+  });
+
+  it('MX does not queue CO-specific source keys', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('MX', 'RFC-123'));
+    const keys = result.meta.source_keys ?? [];
+    assert.ok(!keys.some(k => k.startsWith('co_')), 'MX must not include CO source keys');
   });
 });
 

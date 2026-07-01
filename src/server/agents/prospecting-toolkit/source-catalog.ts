@@ -603,7 +603,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'enrichment',
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
-    nextAction: 'Única fuente MX conectada al flujo. Usar solo para discovery estructurado y enrichment contextual. Mantener human_review_required para RFC.',
+    nextAction: 'Conectada en wizard discovery y enriquecimiento post-approval contextual (México.2B). No valida RFC. source_type=official_business_directory. legal_validation_status=not_applicable. tax_validation_status=not_applicable. human_review_required siempre.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',

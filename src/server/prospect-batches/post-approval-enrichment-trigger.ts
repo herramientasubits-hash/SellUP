@@ -137,6 +137,8 @@ export async function triggerPostApprovalEnrichment(
   // (no CO adapter source_keys required — procurement_signal, not legal validation).
   // DO is supported: DGII bulk snapshot lookup runs in the worker directly
   // (no CO adapter source_keys required — legal_registry, RNC-based).
+  // MX is supported: DENUE live API lookup runs in the worker directly via name context
+  // (no CO adapter source_keys required — official_business_directory, name-based, no RFC).
   const candidateCountryCode = typeof candidate.country_code === 'string'
     ? candidate.country_code.toUpperCase()
     : null;
@@ -145,7 +147,8 @@ export async function triggerPostApprovalEnrichment(
     candidateCountryCode === 'CO' ||
     candidateCountryCode === 'PE' ||
     candidateCountryCode === 'CL' ||
-    candidateCountryCode === 'DO';
+    candidateCountryCode === 'DO' ||
+    candidateCountryCode === 'MX';
 
   if (!isSupportedCountry) {
     const skippedMeta: PostApprovalEnrichmentMeta = {
@@ -163,15 +166,20 @@ export async function triggerPostApprovalEnrichment(
   try {
     const nit = extractNitFromCandidate(candidate);
 
+    // MX queues even without NIT: DENUE uses name-context, RFC is not required.
+    const isMxNameContextOnly = candidateCountryCode === 'MX' && !nit;
+
     let enrichMeta: PostApprovalEnrichmentMeta;
 
-    if (nit) {
+    if (nit || isMxNameContextOnly) {
       // CO: queue with all NIT-safe CO adapters.
       // PE: queue with empty source_keys — worker uses SUNAT + Migo steps directly.
       // CL: queue with empty source_keys — worker uses ChileCompra OCDS step directly
       //     (procurement_signal only, not legal validation).
       // DO: queue with empty source_keys — worker uses DGII bulk snapshot step directly
       //     (legal_registry, RNC 9-digit lookup only, no CIIU, no WebForms).
+      // MX: queue with empty source_keys — worker uses DENUE live API by name context
+      //     (official_business_directory, not fiscal, no RFC, human_review_required).
       const sourceKeys = candidateCountryCode === 'CO' ? planNitFirstSourceKeys() : [];
       enrichMeta = {
         requested: true,
@@ -179,7 +187,7 @@ export async function triggerPostApprovalEnrichment(
         trigger: 'candidate_approval',
         account_id: accountId,
         status: 'queued',
-        nit,
+        ...(nit ? { nit } : {}),
         source_keys: sourceKeys,
         triggered_at: triggeredAt,
       };
@@ -222,19 +230,19 @@ export async function triggerPostApprovalEnrichment(
       actor_user_id: internalUserId,
       action_type: 'candidate_updated',
       details: {
-        sub_action: nit
+        sub_action: (nit || isMxNameContextOnly)
           ? 'post_approval_enrichment_queued'
           : 'post_approval_enrichment_skipped',
         account_id: accountId,
         strategy: 'nit_first',
         status: enrichMeta.status,
-        ...(nit
-          ? { nit_present: true, source_keys: enrichMeta.source_keys }
+        ...((nit || isMxNameContextOnly)
+          ? { nit_present: nit !== null, source_keys: enrichMeta.source_keys }
           : { reason: 'missing_tax_id' }),
       },
     });
 
-    return { triggered: nit !== null, meta: enrichMeta };
+    return { triggered: nit !== null || isMxNameContextOnly, meta: enrichMeta };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     console.warn(

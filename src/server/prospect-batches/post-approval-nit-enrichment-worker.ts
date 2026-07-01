@@ -35,6 +35,8 @@ import { enrichChileCandidateWithChileCompraOcds } from './chilecompra-ocds-post
 import type { ChileCompraOcdsLookupInput, ChileCompraOcdsLookupResult } from '../services/chilecompra-ocds-lookup';
 import { enrichDominicanCandidateWithDgii } from './rd-dgii-post-approval-enrichment';
 import type { RdDgiiLookupResult } from '../services/rd-dgii-lookup';
+import { enrichMexicoCandidateWithDenue } from './mx-denue-post-approval-enrichment';
+import type { DenueAdapterFn } from './mx-denue-post-approval-enrichment';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -51,6 +53,8 @@ export interface PostApprovalNitWorkerParams {
   chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>;
   /** For testing only — overrides lookupDominicanDgiiByRnc for DO enrichment. */
   rdLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>;
+  /** For testing only — overrides denueEnrichmentAdapter.enrichCandidate for MX enrichment. */
+  mxDenueAdapterFnOverride?: DenueAdapterFn;
   /** For smoke/testing only — limits processing to a single candidate by id. */
   candidateId?: string;
 }
@@ -705,6 +709,96 @@ async function runRdDgiiEnrichmentForCandidate(
   }
 }
 
+// ── México DENUE enrichment step ─────────────────────────────────────────────
+
+/**
+ * Runs DENUE live API lookup for MX candidates and saves mx_denue block
+ * to candidate and account.
+ * Non-critical: errors are logged and swallowed.
+ * Only called when candidate.country_code === 'MX'.
+ *
+ * DENUE is an official business directory (not a fiscal registry).
+ * - Does NOT validate RFC.
+ * - Does NOT produce CIIU codes.
+ * - Does NOT replace SAT or any Mexican fiscal source.
+ * - legal_validation_status and tax_validation_status are always 'not_applicable'.
+ */
+async function runMxDenueEnrichmentForCandidate(
+  candidate: CandidateRow,
+  existingMeta: Record<string, unknown>,
+  supabase: SupabaseClient,
+  adapterFnOverride?: DenueAdapterFn,
+): Promise<void> {
+  try {
+    const mxResult = await enrichMexicoCandidateWithDenue(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        candidateName: candidate.name,
+        metadata: existingMeta,
+      },
+      adapterFnOverride,
+    );
+
+    if (!mxResult.enriched || !mxResult.mx_denue) return;
+
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            mx_denue: mxResult.mx_denue,
+          },
+        },
+        updated_at: mxResult.mx_denue.enriched_at,
+      })
+      .eq('id', candidate.id);
+
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const existingAccountSourceEnrichment =
+        (existingAccountMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: {
+            ...existingAccountMeta,
+            source_enrichment: {
+              ...existingAccountSourceEnrichment,
+              mx_denue: mxResult.mx_denue,
+            },
+          },
+          updated_at: mxResult.mx_denue.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] MX DENUE enrichment non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Chile ChileCompra OCDS enrichment step ────────────────────────────────────
 
 /**
@@ -799,6 +893,7 @@ async function processCandidateNitEnrichment(
   peruMigoLookupFnOverride?: (ruc: string) => Promise<PeMigoApiLookupResult>,
   chileLookupFnOverride?: (input: ChileCompraOcdsLookupInput) => Promise<ChileCompraOcdsLookupResult>,
   rdLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>,
+  mxDenueAdapterFnOverride?: DenueAdapterFn,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
@@ -866,6 +961,16 @@ async function processCandidateNitEnrichment(
     );
   }
 
+  // México.2B — DENUE contextual enrichment — non-blocking, live API by name context
+  // official_business_directory only. Does NOT validate RFC. Does NOT produce CIIU.
+  if ((candidate.country_code ?? '').toUpperCase() === 'MX') {
+    await runMxDenueEnrichmentForCandidate(
+      candidate,
+      meta,
+      supabase,
+      mxDenueAdapterFnOverride,
+    );
+  }
 
   try {
     await insertPostApprovalAuditTrail(
@@ -929,6 +1034,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         params.peruMigoLookupFnOverride,
         params.chileLookupFnOverride,
         params.rdLookupFnOverride,
+        params.mxDenueAdapterFnOverride,
       );
       stats.processed++;
 
