@@ -784,6 +784,27 @@ export async function executeContactEnrichmentApolloRun(
         duration_ms: Date.now() - startMs,
       });
     }
+    // Apollo se ejecutó y posiblemente consumió créditos; registrar igual.
+    await logUsage({
+      agent_run_id: run.agent_run_id ?? undefined,
+      agent_run_step_id: step?.id,
+      provider_key: APOLLO_PROVIDER_KEY,
+      operation_key: APOLLO_OPERATION_KEY,
+      credits_used: searchCredits,
+      results_returned: rawResultsCount,
+      estimated_cost_usd: Number((searchCredits * unitCost).toFixed(6)),
+      status: 'error',
+      error_message: `write_candidates_failed: ${writeResult.error}`,
+      duration_ms: Date.now() - startMs,
+      triggered_by: triggeredBy ?? undefined,
+      metadata: {
+        company_name: run.company_name,
+        company_domain: run.company_domain,
+        raw_results_count: rawResultsCount,
+        write_error: writeResult.error,
+        budget_check: budgetMeta,
+      },
+    });
     return emptyRunResult({
       status: 'error',
       runStatus: 'failed',

@@ -359,7 +359,24 @@ export async function searchApolloPeopleForCompany(
       break;
     }
 
-    const result = await searchPeople(plan.params);
+    let result: Awaited<ReturnType<typeof searchPeople>>;
+    try {
+      result = await searchPeople(plan.params);
+    } catch (fetchErr) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      return {
+        status: 'error',
+        people: [],
+        attempts,
+        searchGuardrail: {
+          ...baseSearchGuardrail,
+          estimated_search_credits: totalRaw,
+          blocked_by_search_budget: false,
+          stopped_early_reason: null,
+        },
+        reason: `Error de red consultando Apollo: ${msg}`,
+      };
+    }
 
     // Error de proveedor → corta y reporta con los intentos hechos hasta ahora.
     if (!result.success) {
