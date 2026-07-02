@@ -31,6 +31,46 @@ import {
   type ApolloOrgResolutionResult,
 } from './apollo-organization-resolver';
 
+// ── Country code → Apollo location mapping (Hito 17A.9B.2) ───────
+
+/**
+ * Mapeo de ISO-3166-1 alpha-2 → nombre de país tal como lo entiende Apollo
+ * en el parámetro `person_locations`.
+ *
+ * Solo se incluyen países del mercado primario de SellUp. Si el código no está
+ * aquí devolvemos null (sin filtro), nunca bloqueamos la búsqueda.
+ */
+const COUNTRY_CODE_TO_APOLLO_LOCATION: Record<string, string> = {
+  AR: 'Argentina',
+  BO: 'Bolivia',
+  BR: 'Brazil',
+  CL: 'Chile',
+  CO: 'Colombia',
+  CR: 'Costa Rica',
+  EC: 'Ecuador',
+  ES: 'Spain',
+  GT: 'Guatemala',
+  HN: 'Honduras',
+  MX: 'Mexico',
+  PA: 'Panama',
+  PE: 'Peru',
+  PY: 'Paraguay',
+  SV: 'El Salvador',
+  UY: 'Uruguay',
+  US: 'United States',
+  VE: 'Venezuela',
+};
+
+/**
+ * Convierte un código ISO alpha-2 al nombre de país que Apollo acepta en
+ * `person_locations`. Devuelve `null` si el código es falsy o no está mapeado.
+ * No arroja excepción — los códigos no soportados simplemente no filtran.
+ */
+export function mapCountryCodeToApolloLocation(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return COUNTRY_CODE_TO_APOLLO_LOCATION[code.toUpperCase()] ?? null;
+}
+
 // ── Filtros HR / seniority ─────────────────────────────────────
 
 /** Títulos objetivo (ES + EN) para perfiles de RR. HH. / People / Talento. */
@@ -127,6 +167,14 @@ export interface ApolloOrgResolutionMeta {
   error?: string;
 }
 
+/** Diagnóstico del filtro de país aplicado a people_search (Hito 17A.9B.2). */
+export interface CountryFilterMeta {
+  country_code_received: string | null;
+  apollo_person_location_sent: string | null;
+  country_filter_applied: boolean;
+  country_filter_reason: string;
+}
+
 export interface ApolloPeopleAdapterResult {
   status: 'success' | 'skipped' | 'error';
   people: ApolloPerson[];
@@ -139,6 +187,8 @@ export interface ApolloPeopleAdapterResult {
   searchGuardrail?: SearchGuardrailMeta;
   /** Resolución de organización Apollo (Hito 17A.8A). Presente cuando se ejecutó el resolver. */
   organizationResolution?: ApolloOrgResolutionMeta;
+  /** Diagnóstico del filtro de país (Hito 17A.9B.2). Siempre presente en runtime. */
+  countryFilter?: CountryFilterMeta;
   reason?: string;
 }
 
@@ -218,6 +268,7 @@ interface AttemptPlan {
 /**
  * Construye planes de intento cuando se resolvió un organization_id de Apollo.
  * Hito 17A.8A: organization_ids es el filtro más fiable en mixed_people/api_search.
+ * Hito 17A.9B.2: inyecta person_locations cuando hay countryCode mapeado.
  *
  * Estrategia:
  *  Intento 1: org_id + department HR + seniorities (el más preciso)
@@ -228,24 +279,29 @@ function buildAttemptPlansWithOrgId(
   input: ApolloPeopleAdapterInput,
   perPage: number,
   organizationId: string,
+  personLocations?: string[],
 ): AttemptPlan[] {
   const name = input.companyName?.trim() ?? '';
   const orgDesc = `org_id=${organizationId}`;
+  const locationSuffix = personLocations ? `; location=${personLocations[0]}` : '';
+  const locationParams = personLocations ? { person_locations: personLocations } : {};
   const byOrgId: SearchPeopleParams = {
     organization_ids: [organizationId],
     page: 1,
     per_page: perPage,
+    ...locationParams,
   };
   const byName: SearchPeopleParams = {
     q_organization_name: name,
     page: 1,
     per_page: perPage,
+    ...locationParams,
   };
 
   const plans: AttemptPlan[] = [
     {
       name: 'org_id_hr_department',
-      filters: `org(${orgDesc}); department=HR; seniorities; sin titles`,
+      filters: `org(${orgDesc}); department=HR; seniorities; sin titles${locationSuffix}`,
       params: {
         ...byOrgId,
         person_seniorities: TARGET_SENIORITIES,
@@ -254,7 +310,7 @@ function buildAttemptPlansWithOrgId(
     },
     {
       name: 'org_id_hr_titles',
-      filters: `org(${orgDesc}); titles=HR; seniorities; sin department`,
+      filters: `org(${orgDesc}); titles=HR; seniorities; sin department${locationSuffix}`,
       params: {
         ...byOrgId,
         person_titles: HR_PERSON_TITLES,
@@ -268,7 +324,7 @@ function buildAttemptPlansWithOrgId(
   if (name) {
     plans.push({
       name: 'org_name_hr_titles_fallback',
-      filters: `org(nombre=${name}); titles=HR; seniorities; sin department`,
+      filters: `org(nombre=${name}); titles=HR; seniorities; sin department${locationSuffix}`,
       params: {
         ...byName,
         person_titles: HR_PERSON_TITLES,
@@ -283,19 +339,22 @@ function buildAttemptPlansWithOrgId(
 /**
  * Construye los planes de intento cuando NO se resolvió organization_id.
  * Comportamiento original (Hito 17A.3A/17A.3B): prioriza dominio, fallback a nombre.
+ * Hito 17A.9B.2: inyecta person_locations cuando hay countryCode mapeado.
  *
  * Las capas 1-3 usan el filtro de organización preferente (dominio si existe).
  * La capa 4+ usa q_organization_name (caso Bancolombia: mixed_people/api_search
  * puede ignorar q_organization_domains para empresas grandes).
  */
-function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: number): AttemptPlan[] {
+function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: number, personLocations?: string[]): AttemptPlan[] {
   const { filter, desc } = buildOrgFilter(input);
-  const base: SearchPeopleParams = { ...filter, page: 1, per_page: perPage };
+  const locationSuffix = personLocations ? `; location=${personLocations[0]}` : '';
+  const locationParams = personLocations ? { person_locations: personLocations } : {};
+  const base: SearchPeopleParams = { ...filter, page: 1, per_page: perPage, ...locationParams };
 
   const plans: AttemptPlan[] = [
     {
       name: 'strict_hr_department',
-      filters: `org(${desc}); department=HR; seniorities; sin titles`,
+      filters: `org(${desc}); department=HR; seniorities; sin titles${locationSuffix}`,
       params: {
         ...base,
         person_seniorities: TARGET_SENIORITIES,
@@ -304,7 +363,7 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
     },
     {
       name: 'hr_titles_without_department',
-      filters: `org(${desc}); titles=HR; seniorities; sin department`,
+      filters: `org(${desc}); titles=HR; seniorities; sin department${locationSuffix}`,
       params: {
         ...base,
         person_titles: HR_PERSON_TITLES,
@@ -313,7 +372,7 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
     },
     {
       name: 'broad_seniorities_only',
-      filters: `org(${desc}); seniorities; sin department; sin titles`,
+      filters: `org(${desc}); seniorities; sin department; sin titles${locationSuffix}`,
       params: {
         ...base,
         person_seniorities: TARGET_SENIORITIES,
@@ -325,11 +384,11 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
   const name = input.companyName?.trim();
   const usedDomain = !!input.companyDomain?.trim();
   if (name && usedDomain) {
-    const byName: SearchPeopleParams = { q_organization_name: name, page: 1, per_page: perPage };
+    const byName: SearchPeopleParams = { q_organization_name: name, page: 1, per_page: perPage, ...locationParams };
     plans.push(
       {
         name: 'org_name_hr_department',
-        filters: `org(nombre=${name}); department=HR; seniorities; sin titles`,
+        filters: `org(nombre=${name}); department=HR; seniorities; sin titles${locationSuffix}`,
         params: {
           ...byName,
           person_seniorities: TARGET_SENIORITIES,
@@ -338,7 +397,7 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
       },
       {
         name: 'org_name_hr_titles',
-        filters: `org(nombre=${name}); titles=HR; seniorities; sin department`,
+        filters: `org(nombre=${name}); titles=HR; seniorities; sin department${locationSuffix}`,
         params: {
           ...byName,
           person_titles: HR_PERSON_TITLES,
@@ -347,7 +406,7 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
       },
       {
         name: 'org_name_hr_titles_no_seniority',
-        filters: `org(nombre=${name}); titles=HR; sin seniorities; sin department`,
+        filters: `org(nombre=${name}); titles=HR; sin seniorities; sin department${locationSuffix}`,
         params: {
           ...byName,
           person_titles: HR_PERSON_TITLES,
@@ -355,7 +414,7 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
       },
       {
         name: 'broad_org_name_only',
-        filters: `org(nombre=${name}); sin seniorities; sin titles; sin department`,
+        filters: `org(nombre=${name}); sin seniorities; sin titles; sin department${locationSuffix}`,
         params: { ...byName },
       },
     );
@@ -368,11 +427,12 @@ function buildAttemptPlans(
   input: ApolloPeopleAdapterInput,
   perPage: number,
   organizationId?: string | null,
+  personLocations?: string[],
 ): AttemptPlan[] {
   if (organizationId) {
-    return buildAttemptPlansWithOrgId(input, perPage, organizationId);
+    return buildAttemptPlansWithOrgId(input, perPage, organizationId, personLocations);
   }
-  return buildAttemptPlansLegacy(input, perPage);
+  return buildAttemptPlansLegacy(input, perPage, personLocations);
 }
 
 /**
@@ -449,8 +509,33 @@ export async function searchApolloPeopleForCompany(
 
   const resolvedOrgId = orgResolution?.organizationId ?? null;
 
+  // 4. Filtro de país (Hito 17A.9B.2).
+  //    Non-blocking: si el código no está mapeado, la búsqueda continúa sin filtro.
+  const apolloLocation = mapCountryCodeToApolloLocation(input.companyCountryCode);
+  const personLocations = apolloLocation ? [apolloLocation] : undefined;
+  const countryFilterMeta: CountryFilterMeta = apolloLocation
+    ? {
+        country_code_received: input.companyCountryCode ?? null,
+        apollo_person_location_sent: apolloLocation,
+        country_filter_applied: true,
+        country_filter_reason: `countryCode '${input.companyCountryCode}' mapeado a '${apolloLocation}'`,
+      }
+    : input.companyCountryCode
+      ? {
+          country_code_received: input.companyCountryCode,
+          apollo_person_location_sent: null,
+          country_filter_applied: false,
+          country_filter_reason: `countryCode '${input.companyCountryCode}' no está en el mapping soportado`,
+        }
+      : {
+          country_code_received: null,
+          apollo_person_location_sent: null,
+          country_filter_applied: false,
+          country_filter_reason: 'No se recibió countryCode',
+        };
+
   const perPage = DEFAULT_MAX_CANDIDATES;
-  const plans = buildAttemptPlans(input, perPage, resolvedOrgId);
+  const plans = buildAttemptPlans(input, perPage, resolvedOrgId, personLocations);
 
   const attempts: ApolloSearchAttemptMeta[] = [];
   let totalRaw = 0;
@@ -492,6 +577,7 @@ export async function searchApolloPeopleForCompany(
           blocked_by_search_budget: false,
           stopped_early_reason: null,
         },
+        countryFilter: countryFilterMeta,
         reason: `Error de red consultando Apollo: ${msg}`,
       };
     }
@@ -508,6 +594,7 @@ export async function searchApolloPeopleForCompany(
           blocked_by_search_budget: false,
           stopped_early_reason: null,
         },
+        countryFilter: countryFilterMeta,
         reason: result.error?.message ?? 'Error consultando Apollo people search',
       };
     }
@@ -577,6 +664,7 @@ export async function searchApolloPeopleForCompany(
       stopped_early_reason: stoppedEarlyReason,
     },
     organizationResolution: orgResolutionMeta,
+    countryFilter: countryFilterMeta,
     providerUsage: {
       provider: 'apollo',
       operation: 'people_search',

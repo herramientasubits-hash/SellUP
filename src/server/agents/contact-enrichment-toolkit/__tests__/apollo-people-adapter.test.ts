@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 
 import {
   searchApolloPeopleForCompany,
+  mapCountryCodeToApolloLocation,
   HR_PERSON_TITLES,
   TARGET_SENIORITIES,
   HR_DEPARTMENTS,
@@ -523,5 +524,195 @@ describe('searchApolloPeopleForCompany — con organization_id resuelto (17A.8A)
     assert.ok(captured.every((p) => Array.isArray(p.q_organization_domains)));
     // organizationResolution ausente (resolver lanzó excepción).
     assert.equal(result.organizationResolution, undefined);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Sección 3 — Filtro de país (Hito 17A.9B.2)
+// ═══════════════════════════════════════════════════════════════
+
+describe('mapCountryCodeToApolloLocation', () => {
+  it('CO → Colombia', () => {
+    assert.equal(mapCountryCodeToApolloLocation('CO'), 'Colombia');
+  });
+
+  it('MX → Mexico', () => {
+    assert.equal(mapCountryCodeToApolloLocation('MX'), 'Mexico');
+  });
+
+  it('CL → Chile', () => {
+    assert.equal(mapCountryCodeToApolloLocation('CL'), 'Chile');
+  });
+
+  it('PE → Peru', () => {
+    assert.equal(mapCountryCodeToApolloLocation('PE'), 'Peru');
+  });
+
+  it('código no soportado → null (sin bloqueo)', () => {
+    assert.equal(mapCountryCodeToApolloLocation('ZZ'), null);
+  });
+
+  it('null → null', () => {
+    assert.equal(mapCountryCodeToApolloLocation(null), null);
+  });
+
+  it('undefined → null', () => {
+    assert.equal(mapCountryCodeToApolloLocation(undefined), null);
+  });
+
+  it('lowercase acepted (case-insensitive)', () => {
+    assert.equal(mapCountryCodeToApolloLocation('co'), 'Colombia');
+  });
+});
+
+describe('searchApolloPeopleForCompany — filtro de país (17A.9B.2)', () => {
+  it('CO → person_locations=[Colombia] en todos los intentos (legacy sin org_id)', async () => {
+    const captured: SearchPeopleParams[] = [];
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Bancolombia', companyDomain: 'bancolombia.com', companyCountryCode: 'CO' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: noOrg,
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok([]);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'success');
+    assert.ok(captured.length > 0);
+    assert.ok(captured.every((p) => Array.isArray(p.person_locations) && p.person_locations[0] === 'Colombia'));
+    assert.equal(result.countryFilter?.country_filter_applied, true);
+    assert.equal(result.countryFilter?.apollo_person_location_sent, 'Colombia');
+    assert.equal(result.countryFilter?.country_code_received, 'CO');
+  });
+
+  it('MX → person_locations=[Mexico] en todos los intentos', async () => {
+    const captured: SearchPeopleParams[] = [];
+    await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'OXXO', companyDomain: 'oxxo.com', companyCountryCode: 'MX' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: noOrg,
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok([]);
+        },
+      },
+    );
+
+    assert.ok(captured.every((p) => Array.isArray(p.person_locations) && p.person_locations[0] === 'Mexico'));
+  });
+
+  it('sin countryCode → no envía person_locations', async () => {
+    const captured: SearchPeopleParams[] = [];
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: noOrg,
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok([]);
+        },
+      },
+    );
+
+    assert.ok(captured.every((p) => p.person_locations === undefined));
+    assert.equal(result.countryFilter?.country_filter_applied, false);
+    assert.equal(result.countryFilter?.apollo_person_location_sent, null);
+    assert.equal(result.countryFilter?.country_code_received, null);
+  });
+
+  it('countryCode no soportado → no bloquea, no envía person_locations, registra metadata', async () => {
+    const captured: SearchPeopleParams[] = [];
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com', companyCountryCode: 'ZZ' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: noOrg,
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok([]);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'success');
+    assert.ok(captured.length > 0);
+    assert.ok(captured.every((p) => p.person_locations === undefined));
+    assert.equal(result.countryFilter?.country_filter_applied, false);
+    assert.equal(result.countryFilter?.country_code_received, 'ZZ');
+    assert.equal(result.countryFilter?.apollo_person_location_sent, null);
+    assert.ok(result.countryFilter?.country_filter_reason.includes('ZZ'));
+  });
+
+  it('CO con org_id resuelto → person_locations=[Colombia] en intentos con organization_ids', async () => {
+    const captured: SearchPeopleParams[] = [];
+    await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Siesa', companyDomain: 'siesa.com', companyCountryCode: 'CO' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: orgFound('apollo-siesa-123'),
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok([]);
+        },
+      },
+    );
+
+    // Los intentos con org_id conservan el filtro de país.
+    const orgIdAttempts = captured.filter((p) => Array.isArray(p.organization_ids));
+    assert.ok(orgIdAttempts.length > 0);
+    assert.ok(orgIdAttempts.every((p) => Array.isArray(p.person_locations) && p.person_locations[0] === 'Colombia'));
+  });
+
+  it('CO con org_id: intento fallback por q_organization_name también conserva person_locations', async () => {
+    const captured: SearchPeopleParams[] = [];
+    await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Siesa', companyDomain: 'siesa.com', companyCountryCode: 'CO' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: orgFound('apollo-siesa-123'),
+        // todos vacíos → llega al intento fallback por nombre
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok([]);
+        },
+      },
+    );
+
+    const nameAttempt = captured.find((p) => p.q_organization_name === 'Siesa');
+    assert.ok(nameAttempt !== undefined);
+    assert.deepEqual(nameAttempt?.person_locations, ['Colombia']);
+  });
+
+  it('countryFilter.country_filter_applied = true cuando countryCode está soportado', async () => {
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com', companyCountryCode: 'CL' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: noOrg,
+        searchPeople: async () => ok([]),
+      },
+    );
+
+    assert.equal(result.countryFilter?.country_filter_applied, true);
+    assert.equal(result.countryFilter?.apollo_person_location_sent, 'Chile');
+  });
+
+  it('countryFilter.country_filter_applied = false cuando no hay countryCode', async () => {
+    const result = await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com', companyCountryCode: null },
+      {
+        isConnected: async () => true,
+        resolveOrganization: noOrg,
+        searchPeople: async () => ok([]),
+      },
+    );
+
+    assert.equal(result.countryFilter?.country_filter_applied, false);
+    assert.equal(result.countryFilter?.country_code_received, null);
   });
 });
