@@ -13,10 +13,11 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAdminClient } from './queries';
 import { fetchTavilyQuota } from '@/server/services/tavily-quota-sync';
 import { fetchLushaQuota } from '@/server/services/lusha-quota-sync';
+import { fetchApolloQuota } from '@/server/services/apollo-quota-sync';
 import type { QuotaSyncObservability } from '@/server/services/tavily-quota-sync';
 
 // Proveedores habilitados para sync manual desde UI
-const SYNCABLE_PROVIDERS = ['tavily', 'lusha'] as const;
+const SYNCABLE_PROVIDERS = ['tavily', 'lusha', 'apollo'] as const;
 type SyncableProvider = (typeof SYNCABLE_PROVIDERS)[number];
 
 export interface QuotaSyncResult {
@@ -225,6 +226,34 @@ async function syncLusha(
   }, result.obs);
 }
 
+// ── Apollo sync ───────────────────────────────────────────────────────────────
+
+async function syncApollo(
+  admin: ReturnType<typeof getAdminClient>,
+): Promise<QuotaSyncResult> {
+  let result: Awaited<ReturnType<typeof fetchApolloQuota>>;
+  try {
+    result = await fetchApolloQuota();
+  } catch {
+    const errMsg = 'Error inesperado al obtener cuota de Apollo';
+    await applyFailedSync(admin, 'apollo', errMsg, undefined).catch(() => {});
+    return { success: false, error: errMsg };
+  }
+
+  if (!result.ok) {
+    await applyFailedSync(admin, 'apollo', result.error, result.obs).catch(() => {});
+    return { success: false, error: result.error };
+  }
+
+  return applySuccessfulSync(admin, 'apollo', {
+    creditsRemaining: result.data.creditsRemaining,
+    creditsUsed: result.data.creditsUsed,
+    planLimitCredits: result.data.planLimitCredits,
+    billingPeriodEnd: result.data.billingPeriodEnd,
+    creditsPerUsdRate: null, // Apollo no expone costo unitario por crédito en este endpoint
+  }, result.obs);
+}
+
 // ── Public actions ────────────────────────────────────────────────────────────
 
 /**
@@ -246,6 +275,7 @@ export async function syncProviderQuota(
 
   if (providerKey === 'tavily') return syncTavily(admin);
   if (providerKey === 'lusha') return syncLusha(admin);
+  if (providerKey === 'apollo') return syncApollo(admin);
 
   return { success: false, error: 'Proveedor no reconocido.' };
 }
@@ -287,6 +317,7 @@ export async function useApiQuotaAsPrimary(
   let syncResult: QuotaSyncResult;
   if (providerKey === 'tavily') syncResult = await syncTavily(admin);
   else if (providerKey === 'lusha') syncResult = await syncLusha(admin);
+  else if (providerKey === 'apollo') syncResult = await syncApollo(admin);
   else {
     // Unknown provider — restore override and bail
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
