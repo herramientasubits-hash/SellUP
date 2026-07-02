@@ -10,7 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveCompanyForContactEnrichment } from '../company-resolver-core';
+import { resolveCompanyForContactEnrichment, mapCountryToCode } from '../company-resolver-core';
 import type { CompanyResolverDeps, SellUpAccountMatch } from '../types';
 
 // ── Fixtures ─────────────────────────────────────────────────
@@ -340,5 +340,168 @@ describe('resolveCompanyForContactEnrichment', () => {
     assert.equal(result.resolved, true);
     assert.equal(result.candidates.length, 1);
     assert.equal(result.candidates[0].sellupAccountId, 'siesa-active-uuid');
+  });
+
+  // ── 17A.9F: HubSpot por nombre/dominio ────────────────────────────────────
+
+  it('retorna candidato HubSpot cuando SellUp no tiene match y HubSpot devuelve resultado por nombre', async () => {
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchHubSpot: async ({ name }) => {
+        if (name === 'ACRIP') {
+          return [{ id: 'hs-acrip-001', name: 'ACRIP', domain: 'acrip.org', website: 'https://acrip.org', country: 'Colombia', city: 'Bogotá' }];
+        }
+        return [];
+      },
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'ACRIP' }, deps);
+
+    assert.equal(result.resolved, true);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].source, 'hubspot');
+    assert.equal(result.candidates[0].hubspotCompanyId, 'hs-acrip-001');
+    assert.equal(result.candidates[0].name, 'ACRIP');
+    assert.equal(result.candidates[0].domain, 'acrip.org');
+  });
+
+  it('retorna candidato HubSpot con countryCode cuando HubSpot devuelve country', async () => {
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchHubSpot: async () => [
+        { id: 'hs-acrip-001', name: 'ACRIP', domain: 'acrip.org', website: null, country: 'Colombia', city: 'Bogotá' },
+      ],
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'ACRIP' }, deps);
+
+    assert.equal(result.candidates[0].country, 'Colombia');
+    assert.equal(result.candidates[0].countryCode, 'CO');
+  });
+
+  it('retorna candidato HubSpot cuando SellUp no tiene match y HubSpot devuelve resultado por dominio', async () => {
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchHubSpot: async ({ domain }) => {
+        if (domain === 'acrip.org') {
+          return [{ id: 'hs-acrip-001', name: 'ACRIP', domain: 'acrip.org', website: null, country: 'Colombia', city: null }];
+        }
+        return [];
+      },
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyDomain: 'acrip.org' }, deps);
+
+    assert.equal(result.resolved, true);
+    assert.equal(result.candidates[0].source, 'hubspot');
+    assert.equal(result.candidates[0].hubspotCompanyId, 'hs-acrip-001');
+    assert.equal(result.candidates[0].domain, 'acrip.org');
+    assert.equal(result.candidates[0].countryCode, 'CO');
+  });
+
+  it('devuelve múltiples candidatos HubSpot sin autoseleccionar (singleMatch: false)', async () => {
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchHubSpot: async () => [
+        { id: 'hs-coca-001', name: 'Coca-Cola México', domain: 'coca-cola.com.mx', website: null, country: 'México', city: null },
+        { id: 'hs-coca-002', name: 'Coca-Cola Colombia', domain: 'coca-cola.com.co', website: null, country: 'Colombia', city: null },
+      ],
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'Coca Cola' }, deps);
+
+    assert.equal(result.resolved, true);
+    assert.equal(result.singleMatch, false);
+    assert.equal(result.candidates.length, 2);
+    assert.equal(result.selected, undefined);
+    assert.equal(result.candidates[0].countryCode, 'MX');
+    assert.equal(result.candidates[1].countryCode, 'CO');
+  });
+
+  it('retorna skippedHubSpot: true cuando HubSpot está desconectado', async () => {
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchHubSpot: async () => [],  // searchHubSpotCompaniesForResolver retornaría skipped
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'ACRIP' }, deps);
+
+    // 0 candidatos SellUp + 0 HubSpot → resolved false
+    assert.equal(result.resolved, false);
+    assert.equal(result.candidates.length, 0);
+  });
+
+  it('candidato HubSpot tiene sellupAccountId undefined (account_id null en run)', async () => {
+    const deps: CompanyResolverDeps = {
+      ...noopDeps(),
+      searchHubSpot: async () => [
+        { id: 'hs-acrip-001', name: 'ACRIP', domain: 'acrip.org', website: null, country: 'Colombia', city: null },
+      ],
+    };
+
+    const result = await resolveCompanyForContactEnrichment({ companyName: 'ACRIP' }, deps);
+
+    const candidate = result.candidates[0];
+    assert.equal(candidate.source, 'hubspot');
+    assert.equal(candidate.sellupAccountId, undefined);
+    assert.ok(candidate.hubspotCompanyId);
+  });
+});
+
+// ── mapCountryToCode ─────────────────────────────────────────
+
+describe('mapCountryToCode', () => {
+  it('mapea Colombia → CO', () => {
+    assert.equal(mapCountryToCode('Colombia'), 'CO');
+  });
+
+  it('mapea México → MX (con tilde)', () => {
+    assert.equal(mapCountryToCode('México'), 'MX');
+  });
+
+  it('mapea Mexico → MX (sin tilde)', () => {
+    assert.equal(mapCountryToCode('Mexico'), 'MX');
+  });
+
+  it('mapea Chile → CL', () => {
+    assert.equal(mapCountryToCode('Chile'), 'CL');
+  });
+
+  it('mapea Perú → PE (con tilde)', () => {
+    assert.equal(mapCountryToCode('Perú'), 'PE');
+  });
+
+  it('mapea Peru → PE (sin tilde)', () => {
+    assert.equal(mapCountryToCode('Peru'), 'PE');
+  });
+
+  it('mapea Ecuador → EC', () => {
+    assert.equal(mapCountryToCode('Ecuador'), 'EC');
+  });
+
+  it('mapea Brasil → BR', () => {
+    assert.equal(mapCountryToCode('Brasil'), 'BR');
+  });
+
+  it('mapea Brazil → BR (inglés)', () => {
+    assert.equal(mapCountryToCode('Brazil'), 'BR');
+  });
+
+  it('mapea Costa Rica → CR', () => {
+    assert.equal(mapCountryToCode('Costa Rica'), 'CR');
+  });
+
+  it('retorna null para país no mapeado', () => {
+    assert.equal(mapCountryToCode('Klingonia'), null);
+  });
+
+  it('retorna null para null/undefined', () => {
+    assert.equal(mapCountryToCode(null), null);
+    assert.equal(mapCountryToCode(undefined), null);
+  });
+
+  it('es case-insensitive', () => {
+    assert.equal(mapCountryToCode('COLOMBIA'), 'CO');
+    assert.equal(mapCountryToCode('chile'), 'CL');
   });
 });

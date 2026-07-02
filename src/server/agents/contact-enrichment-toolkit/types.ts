@@ -33,6 +33,8 @@ export interface HubSpotCompanyMatch {
   name: string | null;
   domain: string | null;
   website: string | null;
+  country?: string | null;
+  city?: string | null;
 }
 
 export interface CompanyResolverDeps {

@@ -4,7 +4,7 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { Agent2AInput, CompanyCandidate, CompanyResolutionResult } from '@/modules/contact-enrichment/types';
 import type { CompanyResolverDeps, SellUpAccountMatch, HubSpotCompanyMatch } from './types';
-import { checkHubSpotCompanyDuplicate } from '@/server/integrations/hubspot-company-search';
+import { searchHubSpotCompaniesForResolver } from '@/server/integrations/hubspot-company-search';
 
 // ── Admin Supabase (service_role) ─────────────────────────────
 
@@ -13,6 +13,48 @@ function getAdminClient() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Supabase service credentials not configured');
   return createAdminClient(url, key);
+}
+
+// ── Country code mapping ─────────────────────────────────────
+
+const COUNTRY_CODE_MAP: Record<string, string> = {
+  colombia: 'CO',
+  'colombia ': 'CO',
+  mexico: 'MX',
+  méxico: 'MX',
+  'méxico ': 'MX',
+  chile: 'CL',
+  peru: 'PE',
+  perú: 'PE',
+  ecuador: 'EC',
+  brasil: 'BR',
+  brazil: 'BR',
+  panama: 'PA',
+  panamá: 'PA',
+  'costa rica': 'CR',
+  argentina: 'AR',
+  venezuela: 'VE',
+  bolivia: 'BO',
+  uruguay: 'UY',
+  paraguay: 'PY',
+  guatemala: 'GT',
+  honduras: 'HN',
+  'el salvador': 'SV',
+  nicaragua: 'NI',
+  'república dominicana': 'DO',
+  'republica dominicana': 'DO',
+  'dominican republic': 'DO',
+  cuba: 'CU',
+  'united states': 'US',
+  'estados unidos': 'US',
+  spain: 'ES',
+  españa: 'ES',
+};
+
+export function mapCountryToCode(country: string | null | undefined): string | null {
+  if (!country) return null;
+  const key = country.trim().toLowerCase();
+  return COUNTRY_CODE_MAP[key] ?? null;
 }
 
 // ── Default SellUp search implementations ────────────────────
@@ -67,12 +109,12 @@ async function defaultSearchByName(name: string): Promise<SellUpAccountMatch[]> 
 }
 
 async function defaultSearchHubSpot(opts: { domain?: string; name?: string }): Promise<HubSpotCompanyMatch[]> {
-  const result = await checkHubSpotCompanyDuplicate({
+  const result = await searchHubSpotCompaniesForResolver({
     domain: opts.domain,
-    companyName: opts.name,
+    name: opts.name,
   });
-  if (result.skipped || !result.checked) return [];
-  return result.matches;
+  if (result.skipped || result.error) return [];
+  return result.companies;
 }
 
 // ── Helpers de conversión ────────────────────────────────────
@@ -92,13 +134,15 @@ function sellupMatchToCandidate(match: SellUpAccountMatch, confidence: number): 
 }
 
 function hubspotMatchToCandidate(match: HubSpotCompanyMatch): CompanyCandidate {
+  const country = match.country ?? null;
+  const countryCode = mapCountryToCode(country);
   return {
     source: 'hubspot',
     hubspotCompanyId: match.id,
     name: match.name ?? 'Empresa sin nombre',
     domain: match.domain,
-    country: null,
-    countryCode: null,
+    country,
+    countryCode,
     linkedinUrl: null,
     matchConfidence: 0.8,
   };

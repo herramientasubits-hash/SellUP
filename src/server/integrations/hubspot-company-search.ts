@@ -1,14 +1,11 @@
 /**
- * HubSpot Company Search — Capa de preparación para validación de duplicidad futura.
+ * HubSpot Company Search — Búsqueda y deduplicación de empresas en HubSpot.
  *
- * STATUS: Implementado de forma aislada. NO está conectado aún al flujo de Prospectos.
+ * Incluye:
+ *  - checkHubSpotCompanyDuplicate: validación de duplicidad (para creación de prospectos)
+ *  - searchHubSpotCompaniesForResolver: búsqueda enriquecida (para el wizard de enriquecimiento)
  *
- * Este helper estará disponible para ser invocado desde el módulo de Prospectos
- * en la fase siguiente, cuando se construya la validación de duplicidad de empresas.
- *
- * Uso futuro esperado:
- *   const result = await checkHubSpotCompanyDuplicate({ companyName: 'Acme', domain: 'acme.com' });
- *   if (result.hasDuplicate) { ... }
+ * Ambas funciones son de solo lectura. No escriben en HubSpot.
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
@@ -18,14 +15,15 @@ const supabaseUrl =
   'https://lrdruowtadwbdulndlph.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
+const INTEGRATION_KEY = 'hubspot';
+
 function getAdminSupabase() {
   if (!supabaseServiceKey) {
     throw new Error('enrichment_configuration_unavailable');
   }
   return createAdminClient(supabaseUrl, supabaseServiceKey);
 }
-
-const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
 
 async function getHubSpotToken(): Promise<string | null> {
   const admin = getAdminSupabase();
@@ -36,14 +34,35 @@ async function getHubSpotToken(): Promise<string | null> {
   return data as string | null;
 }
 
+/**
+ * Verifica si HubSpot está conectado usando el mismo patrón de dos pasos que
+ * hubspot-contacts-reader.ts: primero busca el integration_id por integration_key,
+ * luego verifica connection_status y credentials_status.
+ *
+ * Evita el error de .single() cuando no hay filas o hay múltiples.
+ */
 async function isHubSpotConnected(): Promise<boolean> {
   const admin = getAdminSupabase();
-  const { data } = await admin
-    .from('external_integration_connections')
-    .select('connection_status, credentials_status')
-    .eq('connection_status', 'connected')
+
+  const { data: integration, error: intError } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', INTEGRATION_KEY)
     .single();
-  return !!data;
+
+  if (intError || !integration) return false;
+
+  const { data: connection } = await admin
+    .from('external_integration_connections')
+    .select('connection_status, credentials_status, vault_secret_id')
+    .eq('integration_id', integration.id)
+    .maybeSingle();
+
+  return (
+    connection?.connection_status === 'connected' &&
+    connection?.credentials_status === 'stored' &&
+    !!connection?.vault_secret_id
+  );
 }
 
 // ============================================================
@@ -55,6 +74,8 @@ export interface HubSpotCompany {
   name: string | null;
   domain: string | null;
   website: string | null;
+  country: string | null;
+  city: string | null;
 }
 
 export interface DuplicateCheckInput {
@@ -75,6 +96,8 @@ export interface DuplicateCheckResult {
 // Búsqueda de empresas por dominio (identificador recomendado por HubSpot)
 // ============================================================
 
+const COMPANY_PROPERTIES = ['name', 'domain', 'website', 'country', 'city'];
+
 async function searchCompaniesByDomain(
   token: string,
   domain: string
@@ -91,7 +114,7 @@ async function searchCompaniesByDomain(
         ],
       },
     ],
-    properties: ['name', 'domain', 'website'],
+    properties: COMPANY_PROPERTIES,
     limit: 5,
   };
 
@@ -116,6 +139,8 @@ async function searchCompaniesByDomain(
       name: r.properties.name ?? null,
       domain: r.properties.domain ?? null,
       website: r.properties.website ?? null,
+      country: r.properties.country ?? null,
+      city: r.properties.city ?? null,
     })
   );
 }
@@ -130,7 +155,7 @@ async function searchCompaniesByName(
 ): Promise<HubSpotCompany[]> {
   const body = {
     query: name.trim(),
-    properties: ['name', 'domain', 'website'],
+    properties: COMPANY_PROPERTIES,
     limit: 5,
   };
 
@@ -155,12 +180,14 @@ async function searchCompaniesByName(
       name: r.properties.name ?? null,
       domain: r.properties.domain ?? null,
       website: r.properties.website ?? null,
+      country: r.properties.country ?? null,
+      city: r.properties.city ?? null,
     })
   );
 }
 
 // ============================================================
-// Función principal — disponible para uso futuro en Prospectos
+// Función principal — validación de duplicidad para Prospectos
 // ============================================================
 
 /**
@@ -169,13 +196,6 @@ async function searchCompaniesByName(
  * - Si HubSpot no está conectado, retorna `skipped: true` sin error.
  * - El dominio es el identificador recomendado por HubSpot para deduplicación.
  * - Si no hay dominio, busca por nombre como fallback.
- *
- * @example
- * // En el flujo de Prospectos (fase siguiente):
- * const dup = await checkHubSpotCompanyDuplicate({ domain: 'acme.com', companyName: 'Acme Inc.' });
- * if (dup.hasDuplicate) {
- *   // Mostrar advertencia al usuario con dup.matches
- * }
  */
 export async function checkHubSpotCompanyDuplicate(
   input: DuplicateCheckInput
@@ -226,5 +246,70 @@ export async function checkHubSpotCompanyDuplicate(
       matches: [],
       error: msg,
     };
+  }
+}
+
+// ============================================================
+// Búsqueda enriquecida para el wizard de enriquecimiento (17A.9F)
+// ============================================================
+
+export type HubSpotCompanySearchSkipReason =
+  | 'not_connected'
+  | 'no_token'
+  | 'no_search_terms';
+
+export interface HubSpotCompanySearchResult {
+  /** true si se encontraron resultados. */
+  found: boolean;
+  companies: HubSpotCompany[];
+  /** true si HubSpot no está disponible — no es error fatal. */
+  skipped: boolean;
+  skipReason?: HubSpotCompanySearchSkipReason;
+  error?: string;
+}
+
+/**
+ * Busca empresas en HubSpot por dominio (exacto) o nombre (fulltext).
+ * Diseñada para el wizard de enriquecimiento — devuelve datos enriquecidos
+ * incluyendo country y city para mapear countryCode.
+ *
+ * - Si HubSpot no está conectado: skipped: true, sin error fatal.
+ * - Si no hay dominio ni nombre: skipped: true.
+ * - Busca por dominio primero; si 0 resultados, busca por nombre.
+ * - Devuelve hasta 5 empresas por búsqueda.
+ */
+export async function searchHubSpotCompaniesForResolver(opts: {
+  domain?: string;
+  name?: string;
+}): Promise<HubSpotCompanySearchResult> {
+  if (!opts.domain && !opts.name) {
+    return { found: false, companies: [], skipped: true, skipReason: 'no_search_terms' };
+  }
+
+  const connected = await isHubSpotConnected();
+  if (!connected) {
+    return { found: false, companies: [], skipped: true, skipReason: 'not_connected' };
+  }
+
+  const token = await getHubSpotToken();
+  if (!token) {
+    return { found: false, companies: [], skipped: true, skipReason: 'no_token' };
+  }
+
+  try {
+    let companies: HubSpotCompany[] = [];
+
+    if (opts.domain && opts.domain.trim().length > 0) {
+      companies = await searchCompaniesByDomain(token, opts.domain);
+    }
+
+    if (companies.length === 0 && opts.name && opts.name.trim().length > 0) {
+      companies = await searchCompaniesByName(token, opts.name);
+    }
+
+    return { found: companies.length > 0, companies, skipped: false };
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error desconocido';
+    return { found: false, companies: [], skipped: false, error };
   }
 }
