@@ -1,8 +1,10 @@
 /**
- * RepúblicaDominicana.2E — Upsert the source_coverage_summaries row for do_dgcp.
+ * DGCP RD — Upsert source_coverage_summaries for do_dgcp.
  *
- * Mode:
- *   --from-known-values : writes the verified values from hito RD.2E (2026-07-01)
+ * Modes:
+ *   --from-known-values : writes verified values from hito RD.2E (pilot, 47 rows)
+ *   --from-db-count     : reads actual count from source_company_snapshots and
+ *                         writes operational summary (RD.2G, 53k+ rows)
  *
  * Guardrails:
  *   - Never reads from dgcp.gob.do, dgii.gov.do, Tavily, any LLM, or SUNAT
@@ -100,15 +102,99 @@ async function upsertSummary(
 }
 
 // ---------------------------------------------------------------------------
+// Operational values — RepúblicaDominicana.2G bulk load (2026-07-02)
+// ---------------------------------------------------------------------------
+
+async function buildFromDbCount(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+): Promise<Record<string, unknown>> {
+  // HEAD count (no data transfer — only the count header)
+  const { count, error: countErr } = await admin
+    .from('source_company_snapshots')
+    .select('*', { count: 'exact', head: true })
+    .eq('source_key', 'do_dgcp')
+    .eq('country_code', 'DO');
+
+  if (countErr) {
+    throw new Error(`Count query failed: ${countErr.message}`);
+  }
+
+  const loadedRows: number = typeof count === 'number' ? count : 0;
+
+  // Years known from the RD.2G ETL run (2020-2026 filter applied)
+  // PostgREST does not support DISTINCT — use ETL-known values
+  const yearsLoaded = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
+
+  return {
+    source_key: 'do_dgcp',
+    country_code: 'DO',
+    coverage_kind: 'procurement_signal_snapshot',
+    entity_label: 'proveedores B2G',
+    // partial_snapshot: 2020-2026 loaded, pre-2020 historical data excluded
+    coverage_status: 'partial_snapshot',
+    loaded_rows: loadedRows,
+    audited_total_rows: 0,
+    audited_active_habido_rows: 0,
+    active_habido_rows: 0,
+    active_no_habido_rows: 0,
+    inactive_habido_rows: 0,
+    inactive_no_habido_rows: 0,
+    out_of_scope_entities: 0,
+    next_recommended_offset: 0,
+    refresh_source: 'rd_2g_bulk_load',
+    coverage_breakdown: {
+      source_type: 'procurement_signal',
+      load_type: 'bulk_xlsx',
+      load_mode: 'bulk_proveedores_contratos_xlsx_join',
+      years_loaded: yearsLoaded,
+      loaded_rows: loadedRows,
+      known_api_totals: {
+        providers_total_xlsx: 135_977,
+        contracts_total_xlsx: 696_019,
+        contracts_in_range_2020_2026: 513_824,
+        snapshots_built: 53_973,
+        skipped_invalid_rnc: 15_181,
+      },
+      limitations: [
+        'Carga parcial: años 2020-2026 (histórico pre-2020 excluido)',
+        '15.181 combinaciones RPE/año descartadas por RNC no dominicano (empresas extranjeras sin RNC de 9 dígitos)',
+        'DGCP es señal procurement B2G, no fuente legal ni tributaria',
+        'RNC proviene de campo NUMERO_DOCUMENTO en Proveedores.xlsx DGCP',
+        'CIIU no disponible en DGCP — no se inventa',
+        'No es fuente fiscal ni registro legal de empresas',
+        'No valida RNC — esa responsabilidad es de DGII',
+        'No reemplaza DGII para validación fiscal',
+      ],
+    },
+    coverage_notes: {
+      is_procurement_signal_only: true,
+      is_fiscal_source: false,
+      ciiu_status: 'unavailable_not_invented',
+      complete_snapshot: false,
+      connection_mode: 'not_connected',
+      ai_flow_status: 'eligible_not_connected',
+      snapshot_source: 'rd_2g_bulk_load',
+      years_covered: yearsLoaded,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // CLI entrypoint
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const fromKnown = args.includes('--from-known-values');
+  const fromDbCount = args.includes('--from-db-count');
 
-  if (!fromKnown) {
-    console.error('Usage: npx tsx scripts/rd/refresh-rd-dgcp-source-coverage-summary.ts --from-known-values');
+  if (!fromKnown && !fromDbCount) {
+    console.error(
+      'Usage:\n' +
+      '  npx tsx scripts/rd/refresh-rd-dgcp-source-coverage-summary.ts --from-known-values\n' +
+      '  npx tsx scripts/rd/refresh-rd-dgcp-source-coverage-summary.ts --from-db-count',
+    );
     process.exit(1);
   }
 
@@ -122,29 +208,40 @@ async function main(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createClient(url, key);
 
-  console.log('Mode: --from-known-values (RepúblicaDominicana.2E — 2026-07-01)');
-  console.log('');
-  console.log('Writing to source_coverage_summaries (do_dgcp only)...');
-  console.log('');
   console.log('Guardrails activos:');
   console.log('  ✓ No escribe en rd_dgii_bulk');
   console.log('  ✓ No escribe en accounts ni prospect_candidates');
-  console.log('  ✓ coverage_status = pilot_sample (NO complete_snapshot)');
+  console.log('  ✓ coverage_status ≠ complete_snapshot');
   console.log('  ✓ No llama DGCP API, DGII, Tavily, LLM, SUNAT');
   console.log('');
 
-  await upsertSummary(admin, KNOWN_VALUES);
+  if (fromKnown) {
+    console.log('Mode: --from-known-values (RepúblicaDominicana.2E — pilot 47 rows)');
+    console.log('');
+    await upsertSummary(admin, KNOWN_VALUES);
+    console.log('Upserted source_coverage_summaries row:');
+    console.log(`  source_key:      ${KNOWN_VALUES.source_key}`);
+    console.log(`  coverage_status: ${KNOWN_VALUES.coverage_status}  ← NOT complete_snapshot`);
+    console.log(`  loaded_rows:     ${KNOWN_VALUES.loaded_rows}`);
+    console.log(`  refresh_source:  ${KNOWN_VALUES.refresh_source}`);
+  } else {
+    console.log('Mode: --from-db-count (RepúblicaDominicana.2G — bulk operational load)');
+    console.log('Reading actual count from source_company_snapshots (do_dgcp)...');
+    console.log('');
+    const payload = await buildFromDbCount(admin);
+    await upsertSummary(admin, payload);
+    console.log('Upserted source_coverage_summaries row:');
+    console.log(`  source_key:      do_dgcp`);
+    console.log(`  coverage_status: ${String(payload.coverage_status)}  ← NOT complete_snapshot`);
+    console.log(`  loaded_rows:     ${String(payload.loaded_rows)}`);
+    console.log(`  refresh_source:  ${String(payload.refresh_source)}`);
+    const bd = payload.coverage_breakdown as Record<string, unknown>;
+    const yl = (bd?.years_loaded as number[]) ?? [];
+    console.log(`  years_loaded:    ${yl.join(', ')}`);
+  }
 
-  console.log('Upserted source_coverage_summaries row:');
-  console.log(`  source_key:        ${KNOWN_VALUES.source_key}`);
-  console.log(`  country_code:      ${KNOWN_VALUES.country_code}`);
-  console.log(`  coverage_status:   ${KNOWN_VALUES.coverage_status}  ← NOT complete_snapshot`);
-  console.log(`  coverage_kind:     ${KNOWN_VALUES.coverage_kind}`);
-  console.log(`  entity_label:      ${KNOWN_VALUES.entity_label}`);
-  console.log(`  loaded_rows:       ${KNOWN_VALUES.loaded_rows} (piloto controlado)`);
-  console.log(`  refresh_source:    ${KNOWN_VALUES.refresh_source}`);
   console.log('');
-  console.log('Done. Coverage summary para do_dgcp registrado como piloto parcial.');
+  console.log('Done. Coverage summary para do_dgcp actualizado.');
 }
 
 main().catch((err: unknown) => {
