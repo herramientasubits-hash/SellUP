@@ -6,8 +6,11 @@ import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { updateProviderAllowance } from '@/modules/budgets';
+import { updateProviderAllowance, useApiQuotaAsPrimary } from '@/modules/budgets';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
+import { toast } from 'sonner';
+
+const SYNCABLE_PROVIDERS = new Set(['tavily', 'lusha']);
 
 interface Props {
   provider: AdminProviderBudgetRow | null;
@@ -15,6 +18,100 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
 }
+
+// ── Quota source section ──────────────────────────────────────────────────────
+
+interface QuotaSourceSectionProps {
+  provider: AdminProviderBudgetRow;
+  isPendingApiSwitch: boolean;
+  apiSwitchError: string | null;
+  onUseApi: () => void;
+}
+
+function QuotaSourceSection({
+  provider,
+  isPendingApiSwitch,
+  apiSwitchError,
+  onUseApi,
+}: QuotaSourceSectionProps) {
+  const isSyncable = SYNCABLE_PROVIDERS.has(provider.providerKey);
+  const source = provider.quotaSource;
+  const hasExternalData =
+    provider.creditsRemainingExternal != null && provider.quotaSyncedAt != null;
+
+  let sourceLabel = 'No configurado';
+  let sourceDescription = 'La cuota de este proveedor no ha sido configurada.';
+  if (source === 'manual') {
+    sourceLabel = 'Manual';
+    sourceDescription = 'La cuota principal fue configurada por un admin.';
+  } else if (source === 'api_synced') {
+    sourceLabel = 'API synced';
+    sourceDescription = 'La cuota principal viene de la API del proveedor.';
+  } else if (source === 'sync_error') {
+    sourceLabel = 'Error de sync';
+    sourceDescription = 'El último intento de sincronización falló.';
+  }
+
+  return (
+    <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-2.5">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
+        Fuente de cuota
+      </p>
+      <div className="space-y-0.5">
+        <p className="text-xs font-medium text-foreground">Fuente actual: {sourceLabel}</p>
+        <p className="text-[11px] text-muted-foreground/70">{sourceDescription}</p>
+      </div>
+
+      {/* Manual con dato externo disponible → ofrecer usar API */}
+      {source === 'manual' && hasExternalData && isSyncable && (
+        <div className="pt-1 space-y-1">
+          <p className="text-[11px] text-muted-foreground/60">
+            Dato API disponible como referencia ({provider.creditsRemainingExternal?.toLocaleString()} cr restantes).
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={onUseApi}
+            disabled={isPendingApiSwitch}
+          >
+            {isPendingApiSwitch ? 'Cambiando…' : 'Usar cuota API como principal'}
+          </Button>
+        </div>
+      )}
+
+      {/* No configurado + syncable → ofrecer sincronizar y usar API */}
+      {source === null && isSyncable && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={onUseApi}
+          disabled={isPendingApiSwitch}
+        >
+          {isPendingApiSwitch ? 'Sincronizando…' : 'Sincronizar y usar API'}
+        </Button>
+      )}
+
+      {/* API synced → instrucción para volver a manual */}
+      {source === 'api_synced' && (
+        <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
+          Para usar valor manual, ingresa créditos o USD en el formulario y guarda.
+        </p>
+      )}
+
+      {apiSwitchError && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
+          <p className="text-xs text-destructive">{apiSwitchError}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function parseOptionalNumeric(value: string): number | null {
   const trimmed = value.trim();
@@ -28,6 +125,8 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
   const [usd, setUsd] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isApiSwitchPending, startApiSwitchTransition] = useTransition();
+  const [apiSwitchError, setApiSwitchError] = useState<string | null>(null);
 
   // Sync form state when provider changes
   const prevProviderKey = useState<string | null>(null);
@@ -36,6 +135,26 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
     setCredits(provider.providerMonthlyCreditsAllowance?.toString() ?? '');
     setUsd(provider.providerMonthlyUsdAllowance?.toString() ?? '');
     setError(null);
+    setApiSwitchError(null);
+  }
+
+  function handleUseApi() {
+    if (!provider) return;
+    setApiSwitchError(null);
+    startApiSwitchTransition(async () => {
+      try {
+        const result = await useApiQuotaAsPrimary(provider.providerKey);
+        if (!result.success) {
+          setApiSwitchError(result.error ?? 'No se pudo cambiar a cuota API.');
+          return;
+        }
+        toast.success('Cuota API establecida como fuente principal');
+        onSaved();
+        onClose();
+      } catch {
+        setApiSwitchError('Error inesperado al cambiar la fuente de cuota.');
+      }
+    });
   }
 
   const isNotApplicable = provider?.measurementStatus === 'not_measured';
@@ -92,6 +211,16 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
     >
       {provider && (
         <div className="space-y-5">
+          {/* Quota source section */}
+          {provider.measurementStatus !== 'not_measured' && (
+            <QuotaSourceSection
+              provider={provider}
+              isPendingApiSwitch={isApiSwitchPending}
+              apiSwitchError={apiSwitchError}
+              onUseApi={handleUseApi}
+            />
+          )}
+
           {/* Info box */}
           <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-1">
             <p className="text-xs font-medium text-foreground">

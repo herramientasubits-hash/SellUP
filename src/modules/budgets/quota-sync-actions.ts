@@ -216,7 +216,7 @@ async function syncLusha(
   }, result.obs);
 }
 
-// ── Public action ─────────────────────────────────────────────────────────────
+// ── Public actions ────────────────────────────────────────────────────────────
 
 /**
  * Sincroniza la cuota de un proveedor con su API.
@@ -239,4 +239,68 @@ export async function syncProviderQuota(
   if (providerKey === 'lusha') return syncLusha(admin);
 
   return { success: false, error: 'Proveedor no reconocido.' };
+}
+
+export interface UseApiQuotaResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Cambia la fuente de cuota del proveedor a API synced.
+ * Limpia quota_override_manual, ejecuta sync inmediato y deja que la API
+ * actualice monthly_credits_allowance.
+ * Si el sync falla, restaura quota_override_manual=true y quota_source='manual'
+ * para no perder la cuota manual configurada previamente.
+ * Admin-only. Sin cron. Sin enforcement. Sin backfill.
+ */
+export async function useApiQuotaAsPrimary(
+  providerKey: string,
+): Promise<UseApiQuotaResult> {
+  const isAdmin = await isCurrentUserAdmin();
+  if (!isAdmin) redirect('/settings');
+
+  if (!isSyncable(providerKey)) {
+    return { success: false, error: `Proveedor '${providerKey}' no soporta sync de cuota.` };
+  }
+
+  const admin = getAdminClient();
+
+  // Step 1: Clear manual override so applySuccessfulSync will update allowance
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (admin as any)
+    .from('tool_catalog')
+    .update({ quota_override_manual: false })
+    .eq('provider_key', providerKey);
+
+  // Step 2: Run sync — with override=false, applySuccessfulSync will write
+  // monthly_credits_allowance and quota_source=api_synced
+  let syncResult: QuotaSyncResult;
+  if (providerKey === 'tavily') syncResult = await syncTavily(admin);
+  else if (providerKey === 'lusha') syncResult = await syncLusha(admin);
+  else {
+    // Unknown provider — restore override and bail
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin as any)
+      .from('tool_catalog')
+      .update({ quota_override_manual: true, quota_source: 'manual' })
+      .eq('provider_key', providerKey);
+    return { success: false, error: 'Proveedor no reconocido.' };
+  }
+
+  if (!syncResult.success) {
+    // Restore manual state — applyFailedSync already logged the error and set
+    // quota_source='sync_error'; we now put it back to manual so no quota is lost.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin as any)
+      .from('tool_catalog')
+      .update({ quota_override_manual: true, quota_source: 'manual' })
+      .eq('provider_key', providerKey);
+    return {
+      success: false,
+      error: syncResult.error ?? 'No se pudo obtener la cuota del proveedor.',
+    };
+  }
+
+  return { success: true };
 }
