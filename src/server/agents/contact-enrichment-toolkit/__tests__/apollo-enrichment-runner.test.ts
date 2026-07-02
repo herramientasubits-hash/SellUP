@@ -817,6 +817,150 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(bc.mode, 'alert_only');
   });
 
+  // ── Tests adicionales — costos Apollo por tipo de operación (aclaración crítica) ──
+
+  // Test 1 — Perfil prometedor entra a completion solo si hay presupuesto (guardrail permite)
+  it('completeContact es llamado para perfiles elegibles cuando el guardrail permite', async () => {
+    let completionCalls = 0;
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1'), personNoChannel('m2')]));
+    h.deps.completeContact = async ({ candidate }) => {
+      completionCalls += 1;
+      return {
+        status: 'completed',
+        contact: { ...candidate, email: `${candidate.lastName}@corp.com` },
+        completedFields: ['email'],
+        wasActionableBefore: false,
+        isActionableAfter: true,
+        providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+      };
+    };
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    // Con 2 perfiles elegibles y guardrail que permite (2 × 1 = 2 créditos ≤ 10 max),
+    // completeContact debe ser invocado exactamente 2 veces.
+    assert.equal(completionCalls, 2, 'completeContact debe llamarse por cada perfil elegible dentro del presupuesto');
+  });
+
+  // Test 2 — Máximo 3 perfiles entran a completion
+  it('completeContact se llama como máximo 3 veces aunque haya más perfiles elegibles', async () => {
+    let completionCalls = 0;
+    // 5 perfiles HR relevantes — solo 3 deben pasar a completion (MAX_COMPLETION_CANDIDATES=3)
+    const people = Array.from({ length: 5 }, (_, i) => personNoChannel(`m${i}`));
+    const h = makeHarness(makeRun(), apolloWith(people));
+    h.deps.completeContact = async ({ candidate }) => {
+      completionCalls += 1;
+      return {
+        status: 'completed',
+        contact: { ...candidate, email: `${candidate.lastName}@corp.com` },
+        completedFields: ['email'],
+        wasActionableBefore: false,
+        isActionableAfter: true,
+        providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+      };
+    };
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(completionCalls, 3, 'máximo 3 perfiles deben entrar a completion (MAX_COMPLETION_CANDIDATES)');
+  });
+
+  // Test 3 — Si search budget excedido → guardrail_blocked=true y completeContact NO se llama
+  it('search budget excedido → guardrail_blocked=true en summary y completeContact no se llama', async () => {
+    let completionCalls = 0;
+    const blockedApollo: ApolloPeopleAdapterResult = {
+      ...apolloWith([personNoChannel('m1'), personNoChannel('m2')]),
+      searchGuardrail: {
+        max_search_attempts: 3,
+        max_results_per_attempt: 5,
+        max_results_per_run: 15,
+        estimated_search_credits: 20, // excede el límite
+        blocked_by_search_budget: true,
+        stopped_early_reason: 'search_budget_reached',
+      },
+    };
+    const h = makeHarness(makeRun(), blockedApollo);
+    h.deps.completeContact = async ({ candidate }) => {
+      completionCalls += 1;
+      return {
+        status: 'completed',
+        contact: { ...candidate, email: `${candidate.lastName}@corp.com` },
+        completedFields: ['email'],
+        wasActionableBefore: false,
+        isActionableAfter: true,
+        providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+      };
+    };
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    // completeContact nunca debe llamarse cuando el guardrail bloquea.
+    assert.equal(completionCalls, 0, 'completeContact no debe llamarse cuando guardrail bloquea');
+    // El summary debe reflejar guardrail_blocked=true.
+    const apolloBlock = (h.getStore().summary as Record<string, unknown>)
+      .apollo_enrichment as Record<string, unknown>;
+    const completion = apolloBlock.contact_completion as Record<string, unknown>;
+    assert.ok(completion, 'contact_completion debe existir en el summary');
+    const guardrail = completion.cost_guardrail as Record<string, unknown>;
+    assert.equal(guardrail.guardrail_blocked, true, 'guardrail_blocked debe ser true');
+    // Ningún candidato insertado porque completion fue bloqueado y los perfiles no tienen canal.
+    assert.equal(result.candidatesCreated, 0);
+  });
+
+  // Test 5 — actual_credits_phone = 0 en el summary del guardrail de completion
+  it('cost_guardrail.actual_credits_phone = 0 aunque el match devuelva datos', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'completed',
+      // Simula que el match devuelve email (canal accionable sin phone reveal).
+      contact: { ...candidate, email: 'm1@corp.com' },
+      completedFields: ['email'],
+      wasActionableBefore: false,
+      isActionableAfter: true,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const apolloBlock = (h.getStore().summary as Record<string, unknown>)
+      .apollo_enrichment as Record<string, unknown>;
+    const completion = apolloBlock.contact_completion as Record<string, unknown>;
+    const guardrail = completion.cost_guardrail as Record<string, unknown>;
+    // Phone reveal automático desactivado → actual_credits_phone siempre 0.
+    assert.equal(guardrail.actual_credits_phone, 0, 'actual_credits_phone debe ser siempre 0 (phone reveal desactivado)');
+    assert.equal(guardrail.phone_completion_enabled, false, 'phone_completion_enabled debe ser false');
+  });
+
+  // Test 8 — Summary separa search credits de completion/reveal credits (logs independientes)
+  it('logs separados para people_search y person_match cuando hay completion', async () => {
+    const h = makeHarness(makeRun(), apolloWith([personNoChannel('m1'), personNoChannel('m2')]));
+    h.deps.completeContact = async ({ candidate }) => ({
+      status: 'completed',
+      contact: { ...candidate, email: `${candidate.lastName}@corp.com` },
+      completedFields: ['email'],
+      wasActionableBefore: false,
+      isActionableAfter: true,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+
+    await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    const logs = h.getUsageLogs();
+    const searchLog = logs.find((l) => l.operation_key === 'people_search');
+    const matchLog = logs.find((l) => l.operation_key === 'person_match');
+
+    // Ambos logs deben existir por separado.
+    assert.ok(searchLog, 'debe existir log people_search (búsqueda inicial)');
+    assert.ok(matchLog, 'debe existir log person_match (completion/reveal)');
+
+    // Los créditos de búsqueda y de completion son independientes.
+    assert.ok((searchLog.credits_used ?? 0) >= 0, 'search log tiene sus propios créditos');
+    assert.ok((matchLog.credits_used ?? 0) > 0, 'match log tiene créditos positivos (completion ejecutada)');
+
+    // Los operation_key deben ser diferentes (separación explícita).
+    assert.notEqual(searchLog.operation_key, matchLog.operation_key);
+  });
+
   it('candidato insertado lleva bloque completion en enrichment_metadata', async () => {
     interface MetaRow { enrichmentMetadata: Record<string, unknown> }
     let written: MetaRow[] = [];
