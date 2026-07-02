@@ -595,6 +595,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           name: enrichAccount.name,
           domain: enrichAccount.domain,
           country: enrichAccount.country,
+          countryCode: enrichAccount.country_code,
           sellupAccountId: enrichAccount.id,
         } : null}
       />

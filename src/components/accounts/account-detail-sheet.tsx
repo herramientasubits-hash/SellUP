@@ -35,6 +35,7 @@ import {
 } from '@/modules/accounts/types';
 import type { Contact, ContactsSummary } from '@/modules/contacts/types';
 import { AccountDetailActions } from './account-detail-actions';
+import { AccountEnrichContactsButton } from './account-enrich-contacts-button';
 import { ContactsTab } from '@/components/contacts/contacts-tab';
 import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
 import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/peru-sunat-legal-validation-block';
@@ -150,6 +151,17 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
                 >
                   {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
                 </Badge>
+                <AccountEnrichContactsButton
+                  preloadedCompany={{
+                    name: data.account.name,
+                    domain: data.account.domain,
+                    country: data.account.country,
+                    countryCode: data.account.country_code,
+                    sellupAccountId: data.account.id,
+                    hubspotCompanyId: data.account.hubspot_company_id,
+                  }}
+                  disabled={data.account.pipeline_status === 'archived'}
+                />
                 <AccountDetailActions
                   accountId={data.account.id}
                   currentStatus={data.account.pipeline_status}

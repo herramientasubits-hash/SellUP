@@ -118,5 +118,9 @@ export interface ContactEnrichmentInitialCompany {
   name: string;
   domain?: string | null;
   country?: string | null;
+  /** ISO-2 country code (e.g. "CO"). Used to filter Apollo people_search by location (Hito 17A.9B.2). */
+  countryCode?: string | null;
   sellupAccountId?: string;
+  /** HubSpot company ID when the account is synced with HubSpot. */
+  hubspotCompanyId?: string | null;
 }

@@ -152,7 +152,9 @@ export function createInitialContactEnrichmentChatState(
       name: initialCompany.name,
       domain: initialCompany.domain ?? undefined,
       country: initialCompany.country ?? undefined,
+      countryCode: initialCompany.countryCode ?? undefined,
       sellupAccountId: initialCompany.sellupAccountId,
+      hubspotCompanyId: initialCompany.hubspotCompanyId ?? undefined,
       matchConfidence: 1,
     };
     return {

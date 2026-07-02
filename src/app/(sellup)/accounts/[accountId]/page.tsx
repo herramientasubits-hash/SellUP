@@ -29,6 +29,7 @@ import {
   type AccountAuditAction,
 } from '@/modules/accounts/types';
 import { AccountDetailActions } from '@/components/accounts/account-detail-actions';
+import { AccountEnrichContactsButton } from '@/components/accounts/account-enrich-contacts-button';
 import { RollbackBanner } from '@/components/accounts/rollback-banner';
 
 interface AccountDetailPageProps {
@@ -113,6 +114,17 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
             >
               {PIPELINE_STATUS_LABELS[account.pipeline_status]}
             </Badge>
+            <AccountEnrichContactsButton
+              preloadedCompany={{
+                name: account.name,
+                domain: account.domain,
+                country: account.country,
+                countryCode: account.country_code,
+                sellupAccountId: account.id,
+                hubspotCompanyId: account.hubspot_company_id,
+              }}
+              disabled={account.pipeline_status === 'archived'}
+            />
             <AccountDetailActions
               accountId={account.id}
               currentStatus={account.pipeline_status}
