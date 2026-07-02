@@ -115,12 +115,18 @@ export interface SearchPeopleParams {
 }
 
 export interface MatchPersonParams {
+  /** Apollo person ID — identificador más fuerte; garantiza match al perfil exacto del people_search. */
+  id?: string;
   first_name?: string;
   last_name?: string;
   organization_name?: string;
   email?: string;
   linkedin_url?: string;
   domain?: string;
+  /** Revelar email personal. Sin este flag Apollo devuelve email: null aunque la persona exista. */
+  reveal_personal_emails?: boolean;
+  /** Revelar teléfono. No activar: phone reveal está desactivado por política del plan. */
+  reveal_phone_number?: boolean;
 }
 
 export interface ApolloSearchResult<T> {

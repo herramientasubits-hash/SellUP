@@ -63,6 +63,42 @@ export interface CompletionProviderUsage {
   estimatedCostUsd?: number;
 }
 
+/**
+ * Diagnósticos seguros de un intento de people/match.
+ * No guarda emails, teléfonos, API keys ni raw responses.
+ * Solo shapes (qué campos estaban presentes), nunca valores sensibles.
+ */
+export interface CompletionMatchDiagnostics {
+  // ── Payload enviado (shapes, no valores) ──────────────────────
+  /** Campos presentes en el payload (sin valores). */
+  payload_fields_sent: string[];
+  /** El payload incluyó Apollo person ID (identificador fuerte). */
+  had_apollo_person_id: boolean;
+  /** El payload incluyó linkedin_url. */
+  had_linkedin_url: boolean;
+  /** El payload incluyó first_name + last_name. */
+  had_full_name: boolean;
+  /** El payload incluyó title en el candidato base. */
+  had_title: boolean;
+  // ── Respuesta recibida (shapes, no valores) ────────────────────
+  /** Apollo devolvió un objeto `person` en la respuesta. */
+  response_had_person_object: boolean;
+  /** La respuesta tenía campo email no-null (antes de normalización). */
+  response_had_email_field: boolean;
+  /** La respuesta tenía campo linkedin_url no-null. */
+  response_had_linkedin_field: boolean;
+  /** La respuesta tenía phone_numbers no-vacío. */
+  response_had_phone_field: boolean;
+  /** El email de la respuesta contenía placeholder de bloqueado. */
+  response_had_locked_email_signal: boolean;
+  /** email_status reportado por Apollo (safe: es un enum, no PII). */
+  response_email_status: string | null;
+  /** Claves top-level presentes en el objeto person (sin valores). */
+  response_keys_present: string[];
+  /** Siempre true: confirma que no se guardaron valores sensibles. */
+  skipped_sensitive_values: true;
+}
+
 export interface CompleteContactResult {
   status: 'completed' | 'skipped' | 'error';
   contact: NormalizedApolloContact;
@@ -74,6 +110,8 @@ export interface CompleteContactResult {
   isActionableAfter: boolean;
   providerUsage?: CompletionProviderUsage;
   reason?: string;
+  /** Diagnósticos seguros del intento (solo cuando se ejecutó matchPerson). */
+  matchDiagnostics?: CompletionMatchDiagnostics;
 }
 
 export interface ContactCompletionDeps {
@@ -270,23 +308,67 @@ function diffCompletedFields(
 
 function buildMatchParams(input: CompleteContactInput): MatchPersonParams | null {
   const { candidate, companyName, companyDomain } = input;
-  const params: MatchPersonParams = {};
 
+  // reveal_personal_emails: true es obligatorio para que Apollo devuelva el email.
+  // Sin este flag, people/match matchea el perfil pero retorna email: null.
+  const params: MatchPersonParams = { reveal_personal_emails: true };
+
+  // Apollo person ID es el identificador más fuerte: garantiza match al perfil exacto.
+  if (candidate.sourceContactId?.trim()) params.id = candidate.sourceContactId.trim();
   if (candidate.firstName?.trim()) params.first_name = candidate.firstName.trim();
   if (candidate.lastName?.trim()) params.last_name = candidate.lastName.trim();
   if (companyName?.trim()) params.organization_name = companyName.trim();
   if (companyDomain?.trim()) params.domain = companyDomain.trim();
   if (candidate.linkedinUrl?.trim()) params.linkedin_url = candidate.linkedinUrl.trim();
   if (candidate.email?.trim()) params.email = candidate.email.trim();
+  // reveal_phone_number permanece ausente: phone reveal desactivado por política.
 
-  // Identidad mínima para un match útil: LinkedIn, email, o nombre + empresa.
-  const hasStrongId = !!params.linkedin_url || !!params.email;
+  // Identidad mínima para un match útil: Apollo ID, LinkedIn, email, o nombre + empresa.
+  const hasStrongId = !!params.id || !!params.linkedin_url || !!params.email;
   const hasNameAndCompany =
     !!(params.first_name || params.last_name) &&
     !!(params.organization_name || params.domain);
 
   if (!hasStrongId && !hasNameAndCompany) return null;
   return params;
+}
+
+// ── Helpers de diagnóstico seguro ─────────────────────────────
+
+const LOCKED_EMAIL_SIGNALS = ['email_not_unlocked', 'domain.com', '@noemail.com'];
+
+function hasLockedEmailSignal(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  return LOCKED_EMAIL_SIGNALS.some((s) => lower.includes(s));
+}
+
+/** Construye diagnósticos seguros del payload enviado y la respuesta recibida. */
+function buildMatchDiagnostics(
+  params: MatchPersonParams,
+  candidate: NormalizedApolloContact,
+  person: ApolloPerson | null | undefined,
+): CompletionMatchDiagnostics {
+  const payloadKeys = (Object.keys(params) as (keyof MatchPersonParams)[]).filter(
+    (k) => params[k] !== undefined && params[k] !== null && params[k] !== false,
+  );
+  const responseKeys = person ? Object.keys(person) : [];
+
+  return {
+    payload_fields_sent: payloadKeys.map(String),
+    had_apollo_person_id: !!params.id,
+    had_linkedin_url: !!params.linkedin_url,
+    had_full_name: !!params.first_name && !!params.last_name,
+    had_title: !!candidate.title?.trim(),
+    response_had_person_object: !!person,
+    response_had_email_field: !!(person?.email),
+    response_had_linkedin_field: !!(person?.linkedin_url),
+    response_had_phone_field: !!(person?.phone_numbers?.length),
+    response_had_locked_email_signal: hasLockedEmailSignal(person?.email),
+    response_email_status: person?.email_status ?? null,
+    response_keys_present: responseKeys,
+    skipped_sensitive_values: true,
+  };
 }
 
 // ── Parte 1 — Completador selectivo ────────────────────────────
@@ -352,6 +434,9 @@ export async function completeContactWithApollo(
       : {}),
   };
 
+  // Diagnósticos seguros — capturados antes de normalizar para ver la respuesta cruda.
+  const matchDiagnostics = buildMatchDiagnostics(matchParams, candidate, result.data);
+
   if (!result.success) {
     return {
       status: 'error',
@@ -361,6 +446,7 @@ export async function completeContactWithApollo(
       isActionableAfter: false,
       providerUsage,
       reason: result.error?.message ?? 'Error en people/match',
+      matchDiagnostics,
     };
   }
 
@@ -376,6 +462,7 @@ export async function completeContactWithApollo(
       isActionableAfter: false,
       providerUsage,
       reason: 'no_match_data',
+      matchDiagnostics,
     };
   }
 
@@ -399,6 +486,7 @@ export async function completeContactWithApollo(
         ? { estimatedCostUsd: Number((actualCredits * unitCostUsd).toFixed(6)) }
         : {}),
     },
+    matchDiagnostics,
   };
 }
 

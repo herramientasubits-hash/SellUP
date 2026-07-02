@@ -266,7 +266,8 @@ describe('completeContactWithApollo', () => {
 
   it('sin identidad mínima → skipped sin llamar a Apollo', async () => {
     let called = false;
-    const base = contact({ firstName: null, lastName: null, email: null, linkedinUrl: null });
+    // sourceContactId debe ser null: con 17A.8D, Apollo person ID es identidad fuerte.
+    const base = contact({ firstName: null, lastName: null, email: null, linkedinUrl: null, sourceContactId: null });
     const res = await completeContactWithApollo(
       { candidate: base, companyName: '', companyDomain: null, relevanceStatus: 'high_relevance' },
       {

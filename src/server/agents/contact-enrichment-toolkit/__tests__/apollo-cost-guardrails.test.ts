@@ -333,7 +333,8 @@ describe('completeContactWithApollo — créditos phone-aware', () => {
 
   it('no llama a Apollo si falta identidad mínima', async () => {
     let called = false;
-    const base = contact({ firstName: null, lastName: null, email: null, linkedinUrl: null });
+    // sourceContactId null: con 17A.8D, Apollo person ID es identidad fuerte y habilitaría el match.
+    const base = contact({ firstName: null, lastName: null, email: null, linkedinUrl: null, sourceContactId: null });
     const res = await completeContactWithApollo(
       { candidate: base, companyName: '', companyDomain: null, relevanceStatus: 'high_relevance' },
       {
@@ -346,6 +347,35 @@ describe('completeContactWithApollo — créditos phone-aware', () => {
     assert.equal(res.status, 'skipped');
     assert.equal(res.reason, 'insufficient_input_for_match');
     assert.equal(called, false);
+  });
+
+  // Test 4 — Phone reveal automático sigue desactivado
+  it('phone reveal desactivado: completion de phone no suma créditos phone cuando PHONE_COMPLETION_ENABLED=false', async () => {
+    // Incluso si el match devuelve un número de teléfono, calculateActualCompletionCredits
+    // con phoneEnabled=false lo trata como cost 0 → total mínimo 1 (costo de la llamada).
+    // Esto verifica que PHONE_COMPLETION_ENABLED=false realmente protege contra costo phone.
+    const actual = calculateActualCompletionCredits(['phone'], false);
+    // Con phoneEnabled=false, phone no suma → mínimo 1 (costo base de la llamada).
+    assert.equal(actual, 1, 'phone reveal desactivado: creditsUsed debe ser 1, no 8');
+    // No 8 (COMPLETION_CREDIT_PHONE).
+    assert.notEqual(actual, COMPLETION_CREDIT_PHONE);
+  });
+
+  // Test 5 — estimated_completion_phone_credits siempre queda 0
+  it('estimateCompletionCredits con phoneEnabled=false → contribución phone = 0', () => {
+    // La función estima exactamente 1 crédito por candidato (solo email reveal),
+    // y 0 de phone — confirma que estimated_completion_phone_credits = 0 efectivamente.
+    const estimated = estimateCompletionCredits(3, false);
+    // 3 candidatos × 1 (email) + 0 (phone) = 3
+    assert.equal(estimated, 3);
+    // No 3 × 9 = 27 que sería con phone habilitado.
+    assert.notEqual(estimated, 27);
+    // Contribución phone explícita: total sin phone − candidatos = 0 por candidato de phone.
+    const withPhone = estimateCompletionCredits(3, true);    // 3 × 9 = 27
+    const phoneContribution = withPhone - estimated;          // 27 - 3 = 24 (= 3 × 8)
+    const perCandidatePhone = phoneContribution / 3;         // 8
+    // Con phone desactivado, esa contribución no existe.
+    assert.equal(estimated, withPhone - perCandidatePhone * 3, 'solo email contribute sin phone');
   });
 
   it('no toca HubSpot en ningún path', async () => {

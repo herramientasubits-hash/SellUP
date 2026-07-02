@@ -136,7 +136,8 @@
     "refresh:rd:source-coverage-summary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/rd/refresh-rd-source-coverage-summary.ts",
     "test:rd:1a3-coverage-summary": "node --import tsx --test src/server/services/__tests__/rd-1a3-coverage-summary.test.ts",
     "test:contacts:account-picker": "node --import tsx --test src/components/contacts/__tests__/account-picker-label.test.ts",
-    "test:rd:2f-dgcp-coverage-card": "node --import tsx --test src/components/source-catalog/__tests__/rd-dgcp-coverage-card.test.ts"
+    "test:rd:2f-dgcp-coverage-card": "node --import tsx --test src/components/source-catalog/__tests__/rd-dgcp-coverage-card.test.ts",
+    "test:agent2a:completion": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/contact-completion-adapter.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/apollo-cost-guardrails.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/apollo-person-match-payload.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

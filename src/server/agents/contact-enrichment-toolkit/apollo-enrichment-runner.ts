@@ -42,6 +42,7 @@ import {
   type CompleteContactResult,
   type ClassifiedCandidate,
   type CompletionCostGuardrailResult,
+  type CompletionMatchDiagnostics,
 } from './contact-completion-adapter';
 import {
   evaluateApolloBudgetAlertOnly,
@@ -256,6 +257,21 @@ interface ContactCompletionSummary {
     actual_credits_phone: number;
     actual_credits_total: number;
     blocked_profiles_count: number;
+  };
+  /** Diagnósticos seguros agregados de los intentos people/match (Hito 17A.8D). */
+  completion_diagnostics?: {
+    attempted_profile_count: number;
+    profiles_with_apollo_person_id: number;
+    profiles_with_linkedin_url: number;
+    profiles_with_full_name: number;
+    profiles_with_title: number;
+    responses_with_person_object: number;
+    responses_with_email_field: number;
+    responses_with_linkedin_field: number;
+    responses_with_phone_field: number;
+    responses_with_locked_email_signal: number;
+    phone_completion_enabled: false;
+    skipped_sensitive_values: true;
   };
 }
 
@@ -710,6 +726,21 @@ export async function executeContactEnrichmentApolloRun(
     },
   };
 
+  // Acumulador de diagnósticos seguros (Hito 17A.8D).
+  const diagAcc = {
+    attempted: 0,
+    with_apollo_id: 0,
+    with_linkedin: 0,
+    with_full_name: 0,
+    with_title: 0,
+    resp_person: 0,
+    resp_email: 0,
+    resp_linkedin: 0,
+    resp_phone: 0,
+    resp_locked_email: 0,
+    all: [] as CompletionMatchDiagnostics[],
+  };
+
   if (guardrail.allowed) {
     for (const item of allForCompletion) {
       const res = await completeContact({
@@ -720,6 +751,21 @@ export async function executeContactEnrichmentApolloRun(
       });
       completionByContact.set(item.contact, res);
       if (res.providerUsage?.creditsUsed) completionCredits += res.providerUsage.creditsUsed;
+
+      if (res.matchDiagnostics) {
+        const d = res.matchDiagnostics;
+        diagAcc.attempted += 1;
+        if (d.had_apollo_person_id) diagAcc.with_apollo_id += 1;
+        if (d.had_linkedin_url) diagAcc.with_linkedin += 1;
+        if (d.had_full_name) diagAcc.with_full_name += 1;
+        if (d.had_title) diagAcc.with_title += 1;
+        if (d.response_had_person_object) diagAcc.resp_person += 1;
+        if (d.response_had_email_field) diagAcc.resp_email += 1;
+        if (d.response_had_linkedin_field) diagAcc.resp_linkedin += 1;
+        if (d.response_had_phone_field) diagAcc.resp_phone += 1;
+        if (d.response_had_locked_email_signal) diagAcc.resp_locked_email += 1;
+        diagAcc.all.push(d);
+      }
 
       if (res.status === 'completed') {
         completionSummary.attempted_count += 1;
@@ -741,6 +787,24 @@ export async function executeContactEnrichmentApolloRun(
       } else {
         completionSummary.skipped_count += 1;
       }
+    }
+
+    // Inyectar diagnósticos agregados en el summary (sin valores sensibles).
+    if (diagAcc.attempted > 0) {
+      completionSummary.completion_diagnostics = {
+        attempted_profile_count: diagAcc.attempted,
+        profiles_with_apollo_person_id: diagAcc.with_apollo_id,
+        profiles_with_linkedin_url: diagAcc.with_linkedin,
+        profiles_with_full_name: diagAcc.with_full_name,
+        profiles_with_title: diagAcc.with_title,
+        responses_with_person_object: diagAcc.resp_person,
+        responses_with_email_field: diagAcc.resp_email,
+        responses_with_linkedin_field: diagAcc.resp_linkedin,
+        responses_with_phone_field: diagAcc.resp_phone,
+        responses_with_locked_email_signal: diagAcc.resp_locked_email,
+        phone_completion_enabled: false,
+        skipped_sensitive_values: true,
+      };
     }
   } else {
     // Guardrail bloqueó — todos los seleccionados quedan sin intentar.
