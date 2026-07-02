@@ -199,13 +199,19 @@ describe('Apollo mapping — criterio genérico no genera ruido', () => {
 // ─── F. Metadata L2.7 ─────────────────────────────────────────────────────────
 
 describe('Apollo mapping — metadata L2.7', () => {
-  it('F1. normalized_context_version = "L2.7"', () => {
+  it('F1. normalized_context_version está presente (L2.7 o superior)', () => {
     const { meta } = buildApolloOrganizationsSearchParams(makeInput(), 10);
-    assert.equal(meta.normalized_context_version, 'L2.7');
+    assert.ok(
+      meta.normalized_context_version === 'L2.7' || meta.normalized_context_version === 'L2.10',
+      `normalized_context_version inesperado: ${meta.normalized_context_version}`,
+    );
   });
 
-  it('F2. mapping_version incluye L2.7', () => {
-    assert.ok(APOLLO_QUERY_MAPPING_VERSION.includes('L2.7'), `version: ${APOLLO_QUERY_MAPPING_VERSION}`);
+  it('F2. mapping_version incluye L2 (L2.7 o superior)', () => {
+    assert.ok(
+      APOLLO_QUERY_MAPPING_VERSION.includes('L2.'),
+      `version debe incluir L2.: ${APOLLO_QUERY_MAPPING_VERSION}`,
+    );
   });
 
   it('F3. additional_criteria_tokens presente como array', () => {

@@ -1,5 +1,5 @@
 /**
- * Apollo Organizations Query Mapping (v1.L2.7)
+ * Apollo Organizations Query Mapping (v1.L2.10)
  *
  * Transforma criterios SellUp wizard → parámetros estructurados Apollo Organizations.
  *
@@ -9,14 +9,19 @@
  *   v1.L2.7   — subindustria con prioridad sobre sector padre.
  *               additionalCriteriaTokens del wizard fluyen a q_keywords.
  *               Metadata extendida con campos de diagnóstico L2.7.
+ *   v1.L2.10  — search packs estructurados por wizard intent.
+ *               El pack builder genera N packs; se selecciona el pack por índice.
+ *               Metadata apollo_search_pack con pack_key, intent, selected_reason.
+ *               apollo_keywords_sent refleja los keywords del pack seleccionado.
  *
- * Estrategia de keyword building (L2.7):
- *   1. Subindustria → keywords específicas (SUBINDUSTRY_KEYWORD_MAP). Prioridad máxima.
- *   2. Sector padre → keywords generales (SECTOR_KEYWORD_MAP). Fallback si no hay subindustria.
- *   3. additionalCriteriaTokens → señales del usuario. Se agregan tras las keywords sectoriales,
- *      antes de keywords genéricas del sector.
- *   4. País siempre en organization_locations — nunca en q_keywords.
- *   5. q_organization_name vacío — Apollo lo interpreta como nombre exacto de empresa.
+ * Estrategia de keyword building (L2.10):
+ *   1. buildApolloSearchPacks analiza sector + subindustria + additionalCriteriaTokens.
+ *   2. Genera packs ordenados P0 (más específico) → P2 (más amplio).
+ *   3. buildApolloOrganizationsSearchParams recibe packIndex (default 0 = P0).
+ *   4. El pack seleccionado determina qKeywords → q_keywords Apollo.
+ *   5. Fallback: si no hay packs, usa buildApolloKeywords (L2.7) como antes.
+ *   6. País siempre en organization_locations — nunca en q_keywords.
+ *   7. q_organization_name vacío — Apollo lo interpreta como nombre exacto de empresa.
  *
  * Reglas:
  *   - Puro: sin side effects, sin llamadas externas.
@@ -28,10 +33,16 @@
 
 import type { SearchOrganizationsParams } from '@/server/integrations/apollo-client';
 import type { WebSearchInput } from './types';
+import {
+  buildApolloSearchPacks,
+  selectPacksUpToMaxQueries,
+  type ApolloSearchPack,
+  type ApolloSearchPackBuildResult,
+} from './apollo-search-pack-builder';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
-export const APOLLO_QUERY_MAPPING_VERSION = 'v1.L2.7';
+export const APOLLO_QUERY_MAPPING_VERSION = 'v1.L2.10';
 
 // ─── Subindustria → keywords Apollo ──────────────────────────────────────────
 
@@ -357,6 +368,24 @@ export function buildApolloKeywords(opts: {
 
 // ─── Tipos de output ──────────────────────────────────────────────────────────
 
+/** Metadata del search pack seleccionado — L2.10. */
+export type ApolloSearchPackMeta = {
+  pack_key: string;
+  pack_label: string;
+  intent: string;
+  priority: 'P0' | 'P1' | 'P2';
+  /** Razón por la que se seleccionó este pack (índice, cap, etc.). */
+  selected_reason: string;
+  /** Total de packs disponibles generados por el builder. */
+  available_pack_count: number;
+  /** True si el cap maxQueries=1 forzó la selección del primer pack. */
+  qa_cap_selected_first_pack: boolean;
+  /** Tokens de criterio adicional que influyeron en los keywords de este pack. */
+  criteria_tokens_influencing: string[];
+  /** Estrategia usada por el builder para generar los packs. */
+  build_strategy: string;
+};
+
 /** Metadata sanitizada del mapping — sin secretos ni headers. */
 export type ApolloQueryMappingMeta = {
   mapping_version: string;
@@ -390,7 +419,11 @@ export type ApolloQueryMappingMeta = {
   /** True cuando las keywords genéricas del sector fueron desplazadas al final del array. */
   generic_keywords_deprioritized: boolean;
   /** L2.7: versión del normalizer de contexto aplicado. */
-  normalized_context_version: 'L2.7' | null;
+  normalized_context_version: 'L2.7' | 'L2.10' | null;
+  /** L2.10: metadata del search pack seleccionado. Null si se usó fallback L2.7. */
+  apollo_search_pack: ApolloSearchPackMeta | null;
+  /** L2.10: keywords del pack seleccionado enviadas a Apollo (array, para diagnóstico). */
+  apollo_keywords_sent_array: string[];
 };
 
 export type ApolloSearchParamsWithMeta = {
@@ -403,38 +436,96 @@ export type ApolloSearchParamsWithMeta = {
 /**
  * Construye los parámetros de búsqueda para Apollo Organizations.
  *
- * L2.7: subindustrias y additionalCriteriaTokens fluyen desde WebSearchInput.
- * Ambos campos son opcionales → retrocompatible con callers existentes.
+ * L2.7:  subindustrias y additionalCriteriaTokens fluyen desde WebSearchInput.
+ * L2.10: usa search packs estructurados (buildApolloSearchPacks) para seleccionar
+ *        los keywords más específicos según wizard intent.
+ *        packIndex selecciona qué pack usar (default 0 = P0, el más específico).
+ *        maxQueries se usa solo para calcular qa_cap_selected_first_pack en metadata.
+ *        Si no hay packs disponibles, fallback transparente al builder L2.7.
  *
- * @param input           WebSearchInput con query, country, countryCode, industry,
- *                        y opcionalmente subindustries + additionalCriteriaTokens (L2.7).
+ * @param input            WebSearchInput con query, country, countryCode, industry,
+ *                         subindustries, additionalCriteriaTokens.
  * @param cappedMaxResults Número de resultados ya capado por el guardrail del provider.
+ * @param opts             Opciones L2.10: packIndex (default 0), maxQueries (default 1).
  */
 export function buildApolloOrganizationsSearchParams(
   input: WebSearchInput,
   cappedMaxResults: number,
+  opts?: { packIndex?: number; maxQueries?: number },
 ): ApolloSearchParamsWithMeta {
   const queryWords = input.query?.trim() ?? '';
   const subindustries = input.subindustries ?? [];
   const additionalCriteriaTokens = input.additionalCriteriaTokens ?? [];
+  const packIndex = opts?.packIndex ?? 0;
+  const maxQueries = opts?.maxQueries ?? 1;
 
-  const {
-    keywords,
-    subindustryKeywordsUsed,
-    sectorKeywordsUsed,
-    ignoredAdditionalCriteriaTokens,
-    mergedDuplicateAdditionalCriteriaTokens,
-    usedAdditionalCriteriaTokens,
-    relevanceStrategy,
-  } = buildApolloKeywords({
-    industry: input.industry,
+  // ── L2.10: intentar construir packs ─────────────────────────────────────────
+  const packBuildResult = buildApolloSearchPacks({
+    sector: input.industry,
     subindustries,
     additionalCriteriaTokens,
   });
 
-  // Si no hay keywords desde el mapping, fallback al texto de query
-  let finalKeywords = keywords;
-  let effectiveStrategy = relevanceStrategy;
+  const packSelection = selectPacksUpToMaxQueries(packBuildResult, maxQueries);
+  const selectedPack: ApolloSearchPack | null = packBuildResult.packs[packIndex] ?? null;
+
+  // ── Decidir keywords: pack (L2.10) o fallback keyword builder (L2.7) ────────
+  let finalKeywords: string[];
+  let effectiveStrategy: 'subindustry_specific' | 'sector_specific_keywords' | 'query_fallback';
+  let subindustryKeywordsUsed: string[];
+  let sectorKeywordsUsed: string[];
+  let ignoredAdditionalCriteriaTokens: string[];
+  let mergedDuplicateAdditionalCriteriaTokens: string[];
+  let usedAdditionalCriteriaTokens: string[];
+  let apolloSearchPackMeta: ApolloSearchPackMeta | null = null;
+
+  if (selectedPack) {
+    // Camino L2.10: usar keywords del pack seleccionado
+    finalKeywords = selectedPack.qKeywords;
+    // Mapear buildStrategy → effectiveStrategy para preservar semántica L2.7
+    effectiveStrategy = packBuildResult.buildStrategy === 'subindustry_specific_packs'
+      ? 'subindustry_specific'
+      : 'sector_specific_keywords';
+    subindustryKeywordsUsed = packBuildResult.buildStrategy === 'subindustry_specific_packs'
+      ? finalKeywords
+      : [];
+    sectorKeywordsUsed = packBuildResult.buildStrategy === 'sector_fallback_packs'
+      ? finalKeywords
+      : [];
+    ignoredAdditionalCriteriaTokens = [];
+    mergedDuplicateAdditionalCriteriaTokens = packBuildResult.criteriaTokensMergedDuplicateP0;
+    usedAdditionalCriteriaTokens = packBuildResult.criteriaTokensInfluencingP0;
+
+    apolloSearchPackMeta = {
+      pack_key: selectedPack.packKey,
+      pack_label: selectedPack.packLabel,
+      intent: selectedPack.intent,
+      priority: selectedPack.priority,
+      selected_reason: packIndex === 0
+        ? `first_pack_selected (pack_index=0, priority=${selectedPack.priority})`
+        : `pack_index=${packIndex} requested`,
+      available_pack_count: packBuildResult.availablePackCount,
+      qa_cap_selected_first_pack: packSelection.qaCapSelectedFirstPack,
+      criteria_tokens_influencing: packBuildResult.criteriaTokensInfluencingP0,
+      build_strategy: packBuildResult.buildStrategy,
+    };
+  } else {
+    // Fallback L2.7: usar keyword builder clásico
+    const kwResult = buildApolloKeywords({
+      industry: input.industry,
+      subindustries,
+      additionalCriteriaTokens,
+    });
+    finalKeywords = kwResult.keywords;
+    effectiveStrategy = kwResult.relevanceStrategy;
+    subindustryKeywordsUsed = kwResult.subindustryKeywordsUsed;
+    sectorKeywordsUsed = kwResult.sectorKeywordsUsed;
+    ignoredAdditionalCriteriaTokens = kwResult.ignoredAdditionalCriteriaTokens;
+    mergedDuplicateAdditionalCriteriaTokens = kwResult.mergedDuplicateAdditionalCriteriaTokens;
+    usedAdditionalCriteriaTokens = kwResult.usedAdditionalCriteriaTokens;
+  }
+
+  // Si no hay keywords desde ningún camino, fallback al texto de query
   if (finalKeywords.length === 0 && queryWords) {
     finalKeywords = [queryWords];
     effectiveStrategy = 'query_fallback';
@@ -478,7 +569,9 @@ export function buildApolloOrganizationsSearchParams(
     was_capped: false,
     relevance_strategy: effectiveStrategy,
     generic_keywords_deprioritized: genericKeywordsDeprioritized,
-    normalized_context_version: 'L2.7',
+    normalized_context_version: 'L2.10',
+    apollo_search_pack: apolloSearchPackMeta,
+    apollo_keywords_sent_array: finalKeywords,
   };
 
   return { params, meta };
