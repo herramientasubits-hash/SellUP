@@ -383,3 +383,14 @@ export function classifyNormalizedContact(
 export function isReviewableContact(result: ContactRelevanceResult): boolean {
   return result.shouldInsertForReview;
 }
+
+/**
+ * True si un perfil `insufficient_data` merece intentar completion antes del
+ * descarte definitivo: se detectó relevancia de rol HR/People/Talent/Learning
+ * pero los datos eran insuficientes para inserción directa.
+ *
+ * Estos perfiles pueden volverse accionables vía Apollo people/match.
+ */
+export function isCompletableInsufficientProfile(result: ContactRelevanceResult): boolean {
+  return result.relevanceStatus === 'insufficient_data' && result.matchedCategory !== null;
+}

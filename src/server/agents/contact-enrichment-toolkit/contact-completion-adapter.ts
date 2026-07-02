@@ -452,3 +452,48 @@ export function selectCandidatesForCompletion(
   });
   return sorted.slice(0, Math.max(0, max));
 }
+
+/**
+ * True si el contacto tiene identidad mínima para intentar Apollo people/match:
+ * al menos un nombre parcial (first o last) o un identificador fuerte
+ * (LinkedIn URL o email). La empresa siempre la aporta el runner.
+ */
+export function hasMinimalIdentityForMatch(contact: NormalizedApolloContact): boolean {
+  const hasName = !!(contact.firstName?.trim() || contact.lastName?.trim());
+  const hasStrongId = !!(contact.linkedinUrl?.trim() || contact.email?.trim());
+  return hasName || hasStrongId;
+}
+
+/**
+ * Selecciona perfiles `insufficient_data` prometedores (con señal de rol HR/People)
+ * que pueden intentar completion para convertirse en accionables.
+ *
+ * Solo selecciona si hay cupo dentro del tope MAX_COMPLETION_CANDIDATES.
+ * Prioriza por relevanceScore descendente (perfil con más palabras clave
+ * de rol detectadas primero), luego por cantidad de campos base presentes.
+ *
+ * Hito 17A.8B.
+ */
+export function selectInsufficientsForCompletion(
+  allClassified: ClassifiedCandidate[],
+  alreadySelectedCount: number,
+  max: number = MAX_COMPLETION_CANDIDATES,
+): ClassifiedCandidate[] {
+  const remaining = Math.max(0, max - alreadySelectedCount);
+  if (remaining === 0) return [];
+
+  const eligible = allClassified.filter(
+    (c) =>
+      c.relevance.relevanceStatus === 'insufficient_data' &&
+      c.relevance.matchedCategory !== null &&
+      hasMinimalIdentityForMatch(c.contact),
+  );
+
+  const sorted = [...eligible].sort((a, b) => {
+    const byScore = b.relevance.relevanceScore - a.relevance.relevanceScore;
+    if (byScore !== 0) return byScore;
+    return baseFieldsCount(b.contact) - baseFieldsCount(a.contact);
+  });
+
+  return sorted.slice(0, remaining);
+}

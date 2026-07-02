@@ -33,6 +33,7 @@ import {
   completeContactWithApollo,
   isActionableContactCandidate,
   selectCandidatesForCompletion,
+  selectInsufficientsForCompletion,
   checkCompletionCostGuardrail,
   MAX_COMPLETION_CANDIDATES,
   PHONE_COMPLETION_ENABLED,
@@ -227,11 +228,15 @@ interface RelevanceFilterSummary {
   not_relevant_count: number;
   insufficient_data_count: number;
   top_rejection_reasons: string[];
+  /** Perfiles insufficient_data con señal HR enviados a completion (Hito 17A.8B). */
+  sent_to_completion_from_insufficient_count: number;
 }
 
-/** Resumen del completado selectivo de contactos (Hito 17A.3C/17A.6A). */
+/** Resumen del completado selectivo de contactos (Hito 17A.3C/17A.6A/17A.8B). */
 interface ContactCompletionSummary {
   eligible_count: number;
+  /** Perfiles insufficient_data prometedores que entraron a completion (Hito 17A.8B). */
+  eligible_from_insufficient_data_count: number;
   attempted_count: number;
   completed_count: number;
   skipped_count: number;
@@ -321,6 +326,7 @@ const EMPTY_RELEVANCE_FILTER: RelevanceFilterSummary = {
   not_relevant_count: 0,
   insufficient_data_count: 0,
   top_rejection_reasons: [],
+  sent_to_completion_from_insufficient_count: 0,
 };
 
 type RelevanceCountKey =
@@ -631,7 +637,7 @@ export async function executeContactEnrichmentApolloRun(
     ({ relevance }) => relevance.shouldInsertForReview,
   );
 
-  // 7b. Completado selectivo (Hito 17A.3C / 17A.6A / 17A.6D):
+  // 7b. Completado selectivo (Hito 17A.3C / 17A.6A / 17A.6D / 17A.8B):
   //     - Tope duro de candidatos (MAX_COMPLETION_CANDIDATES = 3).
   //     - Guardrail de búsqueda (17A.6D): si el presupuesto de search fue excedido,
   //       no seguimos a completion para no acumular más créditos.
@@ -639,8 +645,27 @@ export async function executeContactEnrichmentApolloRun(
   //     - Si el estimado supera MAX_COMPLETION_CREDITS_PER_RUN → salta toda la completion.
   //     - Modelo de créditos interno (n8n): email=1, phone=8.
   //     - Los ya accionables se omiten sin consumir créditos.
+  //     - 17A.8B: perfiles insufficient_data con señal HR también entran a completion
+  //       si hay cupo y tienen identidad mínima para people/match.
   const unitCost = await loadApolloUnitCost();
   const selected = selectCandidatesForCompletion(reviewableClassified, MAX_COMPLETION_CANDIDATES);
+
+  // 17A.8B: perfiles insufficient_data prometedores (señal HR + identidad mínima).
+  const allClassifiedAsCandidates: ClassifiedCandidate[] = classified.map((c) => ({
+    contact: c.contact,
+    relevance: c.relevance,
+  }));
+  const selectedInsufficients = selectInsufficientsForCompletion(
+    allClassifiedAsCandidates,
+    selected.length,
+    MAX_COMPLETION_CANDIDATES,
+  );
+
+  // Pool total para completion: revisables primero, luego prometedores insuficientes.
+  const allForCompletion = [...selected, ...selectedInsufficients];
+
+  // Actualizar relevance_filter con los insufficient enviados a completion.
+  relevanceFilter.sent_to_completion_from_insufficient_count = selectedInsufficients.length;
 
   const searchBudgetExceeded = apollo.searchGuardrail?.blocked_by_search_budget ?? false;
 
@@ -651,7 +676,7 @@ export async function executeContactEnrichmentApolloRun(
         maxCredits: MAX_COMPLETION_CREDITS_PER_RUN,
         blockedReason: 'search_budget_exceeded',
       }
-    : checkCompletionCostGuardrail(selected.length, {
+    : checkCompletionCostGuardrail(allForCompletion.length, {
         phoneEnabled: PHONE_COMPLETION_ENABLED,
         maxCreditsPerRun: MAX_COMPLETION_CREDITS_PER_RUN,
       });
@@ -663,6 +688,7 @@ export async function executeContactEnrichmentApolloRun(
 
   const completionSummary: ContactCompletionSummary = {
     eligible_count: selected.length,
+    eligible_from_insufficient_data_count: selectedInsufficients.length,
     attempted_count: 0,
     completed_count: 0,
     skipped_count: 0,
@@ -680,12 +706,12 @@ export async function executeContactEnrichmentApolloRun(
       actual_credits_email: 0,
       actual_credits_phone: 0,
       actual_credits_total: 0,
-      blocked_profiles_count: guardrail.allowed ? 0 : selected.length,
+      blocked_profiles_count: guardrail.allowed ? 0 : allForCompletion.length,
     },
   };
 
   if (guardrail.allowed) {
-    for (const item of selected) {
+    for (const item of allForCompletion) {
       const res = await completeContact({
         candidate: item.contact,
         companyName: run.company_name,
@@ -718,7 +744,7 @@ export async function executeContactEnrichmentApolloRun(
     }
   } else {
     // Guardrail bloqueó — todos los seleccionados quedan sin intentar.
-    completionSummary.skipped_count = selected.length;
+    completionSummary.skipped_count = allForCompletion.length;
   }
 
   completionSummary.cost_guardrail.actual_credits_email = creditsEmail;
@@ -728,11 +754,14 @@ export async function executeContactEnrichmentApolloRun(
   // 7c. Filtro accionable final: cada revisable (completado o no) debe quedar con
   //     nombre + cargo + al menos un canal (email/linkedin/phone). Sin canal → fuera.
   const actionableContacts: NormalizedApolloContact[] = [];
+  let reviewableActionableCount = 0;
+
   for (const item of reviewableClassified) {
     const res = completionByContact.get(item.contact);
     const finalContact = res?.contact ?? item.contact;
     if (!isActionableContactCandidate(finalContact, item.relevance.relevanceStatus)) continue;
 
+    reviewableActionableCount += 1;
     actionableContacts.push({
       ...finalContact,
       enrichmentMetadata: {
@@ -743,9 +772,27 @@ export async function executeContactEnrichmentApolloRun(
       },
     });
   }
+
+  // 17A.8B: perfiles insufficient_data que completion convirtió en accionables.
+  for (const item of selectedInsufficients) {
+    const res = completionByContact.get(item.contact);
+    // Solo pasan si completion los completó Y quedaron con canal accionable.
+    if (!res || res.status !== 'completed' || !res.isActionableAfter) continue;
+
+    actionableContacts.push({
+      ...res.contact,
+      enrichmentMetadata: {
+        ...res.contact.enrichmentMetadata,
+        relevance: relevanceMetadata(item.relevance),
+        apollo_search_attempt: chosenAttempt,
+        completion: buildCompletionMetadata(res, false),
+      },
+    });
+  }
+
   completionSummary.actionable_after_completion_count = actionableContacts.length;
   completionSummary.rejected_missing_actionable_channel_count =
-    reviewableClassified.length - actionableContacts.length;
+    reviewableClassified.length - reviewableActionableCount;
 
   // 8. Deduplicar (solo accionables) contra snapshot + intra-run.
   const dedup = deduplicateContacts(actionableContacts, dedupSnapshot);
