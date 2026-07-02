@@ -599,11 +599,20 @@ function ProviderActivityDrawer({
       icon={<Activity className="h-4 w-4 text-su-brand" />}
       footer={
         <div className="shrink-0 flex items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-7 py-4">
-          <Link href="/settings/budget-credits/rules">
-            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
-              Gestionar reglas
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/settings/budget-credits/rules">
+              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+                Gestionar reglas
+              </Button>
+            </Link>
+            {provider && (
+              <Link href={`/settings/providers/${provider.providerKey}`}>
+                <Button variant="ghost" size="sm" className="text-xs text-su-brand">
+                  Ver página del proveedor →
+                </Button>
+              </Link>
+            )}
+          </div>
           <Button variant="outline" size="sm" onClick={onClose}>
             Cerrar
           </Button>
