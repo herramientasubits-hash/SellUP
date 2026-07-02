@@ -266,9 +266,15 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
       const hasTrackedConsumption = trackedProviders.has(providerKey);
 
       // Provider allowance availability (may go negative — shows overrun, no clamping)
-      const providerCreditsAvailable = monthlyCreditsAllowance !== null
-        ? monthlyCreditsAllowance - consumed.credits
-        : null;
+      // For api_synced without manual override: use the live external balance from the provider.
+      // For manual quota (or api_synced with override): derive from allowance minus SellUp consumption.
+      const isApiSyncedLive =
+        quotaSource === 'api_synced' && !quotaOverrideManual && creditsRemainingExternal !== null;
+      const providerCreditsAvailable = isApiSyncedLive
+        ? creditsRemainingExternal
+        : monthlyCreditsAllowance !== null
+          ? monthlyCreditsAllowance - consumed.credits
+          : null;
       const providerUsdAvailable = monthlyUsdAllowance !== null
         ? monthlyUsdAllowance - consumed.usd
         : null;
