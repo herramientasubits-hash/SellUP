@@ -733,7 +733,7 @@ const COLUMNS = [
   '',
 ];
 
-const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo']);
+const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
 
 export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<AdminProviderBudgetRow | null>(null);

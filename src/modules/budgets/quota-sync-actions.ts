@@ -14,10 +14,11 @@ import { getAdminClient } from './queries';
 import { fetchTavilyQuota } from '@/server/services/tavily-quota-sync';
 import { fetchLushaQuota } from '@/server/services/lusha-quota-sync';
 import { fetchApolloQuota } from '@/server/services/apollo-quota-sync';
+import { fetchAnthropicCost } from '@/server/services/anthropic-quota-sync';
 import type { QuotaSyncObservability } from '@/server/services/tavily-quota-sync';
 
 // Proveedores habilitados para sync manual desde UI
-const SYNCABLE_PROVIDERS = ['tavily', 'lusha', 'apollo'] as const;
+const SYNCABLE_PROVIDERS = ['tavily', 'lusha', 'apollo', 'anthropic'] as const;
 type SyncableProvider = (typeof SYNCABLE_PROVIDERS)[number];
 
 export interface QuotaSyncResult {
@@ -226,6 +227,80 @@ async function syncLusha(
   }, result.obs);
 }
 
+// ── Anthropic sync ────────────────────────────────────────────────────────────
+//
+// Anthropic se mide en USD, no en créditos.
+// Solo actualiza usd_cost_mtd y meta de sync.
+// monthly_credits_allowance y credits_remaining_external no aplican.
+
+async function applyAnthropicSuccessfulSync(
+  admin: ReturnType<typeof getAdminClient>,
+  usdCostMtd: number,
+  obs?: QuotaSyncObservability,
+): Promise<QuotaSyncResult> {
+  const overrideManual = await readQuotaOverrideManual(admin, 'anthropic');
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const baseUpdate: Record<string, any> = {
+    usd_cost_mtd: usdCostMtd,
+    quota_synced_at: new Date().toISOString(),
+    quota_sync_error: null,
+  };
+
+  let skippedAllowance = false;
+  if (overrideManual) {
+    skippedAllowance = true;
+  } else {
+    baseUpdate['quota_source'] = 'api_synced';
+    // monthly_usd_allowance solo se actualiza si el endpoint devuelve un límite explícito.
+    // La API de uso de Anthropic devuelve gasto, no límite — no sobrescribir.
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (admin as any).from('tool_catalog').update(baseUpdate).eq('provider_key', 'anthropic');
+
+  const logRow: Record<string, unknown> = {
+    provider_key: 'anthropic',
+    source: 'api_synced',
+    sync_status: 'success',
+    triggered_by: 'admin',
+    usd_cost_mtd: usdCostMtd,
+    synced_at: new Date().toISOString(),
+    error_message: null,
+  };
+  if (obs) {
+    if (obs.httpStatus !== undefined) logRow['http_status'] = obs.httpStatus;
+    logRow['endpoint'] = obs.endpoint;
+    if (obs.responseShape !== null) logRow['response_shape'] = obs.responseShape;
+    if (obs.rawResponseSanitized !== null) logRow['raw_response_sanitized'] = obs.rawResponseSanitized;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (admin as any).from('tool_quota_sync_logs').insert(logRow);
+
+  return { success: true, skippedAllowance };
+}
+
+async function syncAnthropic(
+  admin: ReturnType<typeof getAdminClient>,
+): Promise<QuotaSyncResult> {
+  let result: Awaited<ReturnType<typeof fetchAnthropicCost>>;
+  try {
+    result = await fetchAnthropicCost();
+  } catch {
+    const errMsg = 'Error inesperado al obtener costo de Anthropic';
+    await applyFailedSync(admin, 'anthropic', errMsg, undefined).catch(() => {});
+    return { success: false, error: errMsg };
+  }
+
+  if (!result.ok) {
+    await applyFailedSync(admin, 'anthropic', result.error, result.obs).catch(() => {});
+    return { success: false, error: result.error };
+  }
+
+  return applyAnthropicSuccessfulSync(admin, result.data.usdCostMtd, result.obs);
+}
+
 // ── Apollo sync ───────────────────────────────────────────────────────────────
 
 async function syncApollo(
@@ -276,6 +351,7 @@ export async function syncProviderQuota(
   if (providerKey === 'tavily') return syncTavily(admin);
   if (providerKey === 'lusha') return syncLusha(admin);
   if (providerKey === 'apollo') return syncApollo(admin);
+  if (providerKey === 'anthropic') return syncAnthropic(admin);
 
   return { success: false, error: 'Proveedor no reconocido.' };
 }
@@ -318,6 +394,7 @@ export async function useApiQuotaAsPrimary(
   if (providerKey === 'tavily') syncResult = await syncTavily(admin);
   else if (providerKey === 'lusha') syncResult = await syncLusha(admin);
   else if (providerKey === 'apollo') syncResult = await syncApollo(admin);
+  else if (providerKey === 'anthropic') syncResult = await syncAnthropic(admin);
   else {
     // Unknown provider — restore override and bail
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

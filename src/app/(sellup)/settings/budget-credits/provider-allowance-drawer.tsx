@@ -10,7 +10,9 @@ import { updateProviderAllowance, useApiQuotaAsPrimary } from '@/modules/budgets
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { toast } from 'sonner';
 
-const SYNCABLE_PROVIDERS = new Set(['tavily', 'lusha']);
+const SYNCABLE_PROVIDERS = new Set(['tavily', 'lusha', 'anthropic']);
+/** Proveedores que se miden principalmente en USD, no en créditos */
+const USD_PRIMARY_PROVIDERS = new Set(['anthropic']);
 
 interface Props {
   provider: AdminProviderBudgetRow | null;
@@ -232,6 +234,18 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
               visualizar el disponible real frente al consumo.
             </p>
           </div>
+
+          {/* Claude USD note — Anthropic se mide en USD, no en créditos */}
+          {provider && USD_PRIMARY_PROVIDERS.has(provider.providerKey) && !isNotApplicable && (
+            <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-4 py-3 space-y-1">
+              <p className="text-xs font-medium text-su-brand">
+                Claude se mide principalmente en USD/tokens, no en créditos.
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                Configura el presupuesto mensual USD. El campo de créditos no aplica para este proveedor.
+              </p>
+            </div>
+          )}
 
           {isNotApplicable ? (
             <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 text-center">
