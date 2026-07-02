@@ -47,7 +47,9 @@ function coerceNumber(v: unknown): number | null {
 
 function extractFromObject(obj: AnyRecord): LushaQuotaData | null {
   // Field name candidates (Lusha API formats observed)
+  // 'remaining', 'used', 'total' cover the usage.credits.* structure from the real API
   const remaining =
+    coerceNumber(obj['remaining']) ??
     coerceNumber(obj['remaining_credits']) ??
     coerceNumber(obj['remainingCredits']) ??
     coerceNumber(obj['credits_remaining']) ??
@@ -55,12 +57,14 @@ function extractFromObject(obj: AnyRecord): LushaQuotaData | null {
     null;
 
   const used =
+    coerceNumber(obj['used']) ??
     coerceNumber(obj['used_credits']) ??
     coerceNumber(obj['usedCredits']) ??
     coerceNumber(obj['credits_used']) ??
     null;
 
   const total =
+    coerceNumber(obj['total']) ??
     coerceNumber(obj['total_credits']) ??
     coerceNumber(obj['totalCredits']) ??
     coerceNumber(obj['plan_credits']) ??
@@ -99,30 +103,46 @@ function extractFromObject(obj: AnyRecord): LushaQuotaData | null {
  * Parsea la respuesta cruda de la API de Lusha.
  * Prueba múltiples formatos posibles de respuesta.
  * Retorna null si no puede extraer el mínimo requerido.
+ *
+ * Regla de éxito mínimo:
+ *   - Se requiere al menos `remaining` (o derivable de total - used).
+ *   - Si solo viene `total` sin `used` ni `remaining` → null (no éxito).
  */
 export function parseLushaUsageResponse(raw: unknown): LushaQuotaData | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as AnyRecord;
 
-  // Formato 1: { data: { ... } }
+  // Formato 1: { usage: { credits: { total, used, remaining } } }  ← API real Lusha
+  if (obj['usage'] && typeof obj['usage'] === 'object') {
+    const usage = obj['usage'] as AnyRecord;
+    if (usage['credits'] && typeof usage['credits'] === 'object') {
+      const result = extractFromObject(usage['credits'] as AnyRecord);
+      if (result) return result;
+    }
+    // Intenta también campos directos en usage
+    const result = extractFromObject(usage);
+    if (result) return result;
+  }
+
+  // Formato 2: { data: { ... } }
   if (obj['data'] && typeof obj['data'] === 'object') {
     const result = extractFromObject(obj['data'] as AnyRecord);
     if (result) return result;
   }
 
-  // Formato 2: { credits: { remaining, used, total } }
+  // Formato 3: { credits: { remaining, used, total } }
   if (obj['credits'] && typeof obj['credits'] === 'object') {
     const result = extractFromObject(obj['credits'] as AnyRecord);
     if (result) return result;
   }
 
-  // Formato 3: { account: { ... } }
+  // Formato 4: { account: { ... } }
   if (obj['account'] && typeof obj['account'] === 'object') {
     const result = extractFromObject(obj['account'] as AnyRecord);
     if (result) return result;
   }
 
-  // Formato 4: campos en raíz
+  // Formato 5: campos en raíz
   const result = extractFromObject(obj);
   if (result) return result;
 
