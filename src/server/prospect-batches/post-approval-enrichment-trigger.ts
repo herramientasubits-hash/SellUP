@@ -139,6 +139,8 @@ export async function triggerPostApprovalEnrichment(
   // (no CO adapter source_keys required — legal_registry, RNC-based).
   // MX is supported: DENUE live API lookup runs in the worker directly via name context
   // (no CO adapter source_keys required — official_business_directory, name-based, no RFC).
+  // CR is supported: cr_sicop local snapshot lookup runs in the worker directly
+  // (no CO adapter source_keys required — procurement_signal, NOT legal/tax validation, cédula jurídica only).
   const candidateCountryCode = typeof candidate.country_code === 'string'
     ? candidate.country_code.toUpperCase()
     : null;
@@ -148,7 +150,8 @@ export async function triggerPostApprovalEnrichment(
     candidateCountryCode === 'PE' ||
     candidateCountryCode === 'CL' ||
     candidateCountryCode === 'DO' ||
-    candidateCountryCode === 'MX';
+    candidateCountryCode === 'MX' ||
+    candidateCountryCode === 'CR';
 
   if (!isSupportedCountry) {
     const skippedMeta: PostApprovalEnrichmentMeta = {

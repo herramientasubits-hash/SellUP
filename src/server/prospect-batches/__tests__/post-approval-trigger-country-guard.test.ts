@@ -1,5 +1,5 @@
 /**
- * Tests — v1.16K-M / Perú.9O / Chile.2 / México.2B Post-approval enrichment trigger country guard
+ * Tests — v1.16K-M / Perú.9O / Chile.2 / México.2B / Centroamérica.4F Post-approval enrichment trigger country guard
  *
  * Verifies that triggerPostApprovalEnrichment:
  * - Returns skipped + country_not_supported for unsupported countries (EC)
@@ -157,6 +157,34 @@ describe('PATCG2 — CO candidates still proceed normally', () => {
     const result = await triggerPostApprovalEnrichment(makeParams('CO', '900123456'));
     assert.ok(Array.isArray(result.meta.source_keys));
     assert.ok(result.meta.source_keys!.every(k => k.startsWith('co_')), 'All source keys should be CO-prefixed');
+  });
+});
+
+describe('PATCG1E — CR candidates queue with SICOP enrichment (Centroamérica.4F)', () => {
+  it('CR with cédula jurídica → triggered=true, status=queued', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CR', '3101123456'));
+    assert.equal(result.triggered, true);
+    assert.equal(result.meta.status, 'queued');
+    assert.equal(result.meta.nit, '3101123456');
+  });
+
+  it('CR with cédula → source_keys empty (cr_sicop runs in worker directly)', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CR', '3101123456'));
+    assert.ok(Array.isArray(result.meta.source_keys));
+    assert.equal(result.meta.source_keys!.length, 0, 'CR source_keys must be empty — cr_sicop step runs in worker directly');
+  });
+
+  it('CR without cédula → triggered=false, status=skipped, reason=missing_tax_id', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CR'));
+    assert.equal(result.triggered, false);
+    assert.equal(result.meta.status, 'skipped');
+    assert.equal(result.meta.reason, 'missing_tax_id');
+  });
+
+  it('CR does not queue CO-specific source keys', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('CR', '3101123456'));
+    const keys = result.meta.source_keys ?? [];
+    assert.ok(!keys.some((k: string) => k.startsWith('co_')), 'CR must not include CO source keys');
   });
 });
 

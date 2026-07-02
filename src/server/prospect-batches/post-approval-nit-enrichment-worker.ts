@@ -39,6 +39,8 @@ import { enrichDominicanCandidateWithDgcp } from './rd-dgcp-post-approval-enrich
 import type { RdDgcpLookupResult } from '../services/rd-dgcp-lookup';
 import { enrichMexicoCandidateWithDenue } from './mx-denue-post-approval-enrichment';
 import type { DenueAdapterFn } from './mx-denue-post-approval-enrichment';
+import { enrichCostaRicaCandidateWithSicop } from './cr-sicop-post-approval-enrichment';
+import type { CrSicopLookupResult } from '../services/cr-sicop-lookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -59,6 +61,8 @@ export interface PostApprovalNitWorkerParams {
   rdDgcpLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgcpLookupResult>;
   /** For testing only — overrides denueEnrichmentAdapter.enrichCandidate for MX enrichment. */
   mxDenueAdapterFnOverride?: DenueAdapterFn;
+  /** For testing only — overrides lookupCostaRicaSicopByCedula for CR enrichment. */
+  crSicopLookupFnOverride?: (input: { cedula: string }) => Promise<CrSicopLookupResult>;
   /** For smoke/testing only — limits processing to a single candidate by id. */
   candidateId?: string;
 }
@@ -973,6 +977,93 @@ async function runRdDgcpEnrichmentForCandidate(
   }
 }
 
+// ── Costa Rica SICOP procurement signal step ─────────────────────────────────
+
+/**
+ * Runs cr_sicop local snapshot lookup for CR candidates and saves
+ * cr_sicop block to candidate and account.
+ * Non-critical: errors are logged and swallowed.
+ * Only called when candidate.country_code === 'CR'.
+ *
+ * Never calls datos.go.cr or Hacienda CR. Query is local source_company_snapshots only.
+ * source_type=procurement_signal, NOT legal/tax validation.
+ */
+async function runCostaRicaSicopEnrichmentForCandidate(
+  candidate: CandidateRow,
+  existingMeta: Record<string, unknown>,
+  supabase: SupabaseClient,
+  lookupFnOverride?: (input: { cedula: string }) => Promise<CrSicopLookupResult>,
+): Promise<void> {
+  try {
+    const sicopResult = await enrichCostaRicaCandidateWithSicop(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        taxId: candidate.tax_identifier,
+        metadata: existingMeta,
+      },
+      lookupFnOverride,
+    );
+
+    if (!sicopResult.enriched || !sicopResult.cr_sicop) return;
+
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            cr_sicop: sicopResult.cr_sicop,
+          },
+        },
+        updated_at: sicopResult.cr_sicop.enriched_at,
+      })
+      .eq('id', candidate.id);
+
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const existingAccountSourceEnrichment =
+        (existingAccountMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: {
+            ...existingAccountMeta,
+            source_enrichment: {
+              ...existingAccountSourceEnrichment,
+              cr_sicop: sicopResult.cr_sicop,
+            },
+          },
+          updated_at: sicopResult.cr_sicop.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] CR SICOP procurement signal non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Single candidate processing ────────────────────────────────────────────────
 
 async function processCandidateNitEnrichment(
@@ -985,6 +1076,7 @@ async function processCandidateNitEnrichment(
   rdLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgiiLookupResult>,
   rdDgcpLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgcpLookupResult>,
   mxDenueAdapterFnOverride?: DenueAdapterFn,
+  crSicopLookupFnOverride?: (input: { cedula: string }) => Promise<CrSicopLookupResult>,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
@@ -1073,6 +1165,18 @@ async function processCandidateNitEnrichment(
     );
   }
 
+  // Centroamérica.4F — Costa Rica cr_sicop local procurement signal — non-blocking, snapshot only
+  // procurement_signal only. Does NOT validate cédula jurídica. Does NOT replace Hacienda CR.
+  // Never calls datos.go.cr. source_type=procurement_signal, NOT legal/tax validation.
+  if ((candidate.country_code ?? '').toUpperCase() === 'CR') {
+    await runCostaRicaSicopEnrichmentForCandidate(
+      candidate,
+      meta,
+      supabase,
+      crSicopLookupFnOverride,
+    );
+  }
+
   try {
     await insertPostApprovalAuditTrail(
       {
@@ -1137,6 +1241,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         params.rdLookupFnOverride,
         params.rdDgcpLookupFnOverride,
         params.mxDenueAdapterFnOverride,
+        params.crSicopLookupFnOverride,
       );
       stats.processed++;
 
