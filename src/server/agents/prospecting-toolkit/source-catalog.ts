@@ -1225,6 +1225,38 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     riskNotes: ['Validar TOS y SLA antes de usar en producción'],
   },
 
+  // ── Costa Rica ──────────────────────────────────────────────────────────────
+  {
+    key: 'cr_sicop',
+    name: 'SICOP Costa Rica (datos.go.cr)',
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'eligible_not_connected',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Piloto snapshot XLSX offline implementado (Centroamérica.4A). No conectado al flujo AI todavía. No es fuente legal ni tributaria — no reemplaza Hacienda CR.',
+    countryCodes: ['CR'],
+    sectors: [],
+    priority: 'P2',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://www.datos.go.cr',
+    automationLevel: 'medium',
+    recommendedUse:
+      'Señal procurement B2G para identificar empresas proveedoras/participantes en compras públicas de Costa Rica. Datasets XLSX publicados en datos.go.cr (portal CKAN oficial). Identifica empresas por cédula jurídica y nombre. Señal comercial de actividad con el Estado costarricense.',
+    limitations: [
+      'No es fuente legal ni tributaria — no valida cédula jurídica',
+      'No reemplaza Hacienda CR (cr_hacienda_contribuyentes)',
+      'Solo empresas que han participado como proveedoras/participantes en compras del Estado costarricense',
+      'Datos vienen de datasets XLSX publicados en datos.go.cr — no API de consulta individual',
+      'No incluye datos de contacto (emails, teléfonos)',
+      'Fuente B2G procurement signal — human_review_required=true antes de prospección',
+    ],
+    riskNotes: [
+      'Datos abiertos oficiales bajo portal datos.go.cr — riesgo legal bajo',
+      'No usable como fuente fiscal — cr_hacienda_contribuyentes queda para P2 posterior',
+    ],
+  },
+
   // ── Globales / Fallback ─────────────────────────────────────────────────────
   {
     key: 'global_opencorporates',

@@ -30,7 +30,7 @@ export type BlockedSourceKey = (typeof BLOCKED_SOURCE_KEYS)[number];
  * Fuentes P1/MVP que están dentro del umbral de filas seguro.
  * Se permiten sin confirmación aunque el umbral general se active.
  */
-export const SAFE_SOURCE_KEYS = ['co_siis', 'cl_chilecompra_ocds', 'co_fedesoft', 'do_dgcp'] as const;
+export const SAFE_SOURCE_KEYS = ['co_siis', 'cl_chilecompra_ocds', 'co_fedesoft', 'do_dgcp', 'cr_sicop'] as const;
 export type SafeSourceKey = (typeof SAFE_SOURCE_KEYS)[number];
 
 /** Máximo de filas permitidas sin confirmación explícita. */
