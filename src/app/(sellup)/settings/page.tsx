@@ -1,7 +1,6 @@
 import Link from 'next/link';
-import { Settings, Link2, Search, Bot, Users, Activity, HardDrive, Database, Layers } from "lucide-react";
+import { Link2, Search, Bot, Users, Activity, HardDrive, Database, Layers } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
 import { isCurrentUserAdmin, getUsersSummary, hasActiveAccess } from "@/modules/access/actions";
 import { getUserDriveConnection } from "@/modules/drive/actions";
@@ -199,19 +198,6 @@ export default async function SettingsPage() {
         )}
       </div>
 
-      <ModulePlaceholder
-        icon={Settings}
-        module="Configuración e Integraciones — Módulo en construcción"
-        description="El módulo de Configuración centralizará los parámetros del sistema, integraciones con herramientas externas y los niveles de automatización de los agentes."
-        features={[
-          { label: "Proveedores de IA y selección de modelos" },
-          { label: "Integración con HubSpot CRM" },
-          { label: "Conexión con proveedor de prospección activo" },
-          { label: "Niveles de automatización por agente" },
-          { label: "Gestión de claves API" },
-          { label: "Parámetros globales del sistema" },
-        ]}
-      />
     </div>
   );
 }
