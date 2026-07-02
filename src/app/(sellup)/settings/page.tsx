@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Settings, Cpu, Link2, Search, Bot, Users, Activity, HardDrive, BarChart2, Database, Coins } from "lucide-react";
+import { Settings, Link2, Search, Bot, Users, Activity, HardDrive, Database, Layers } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
@@ -16,11 +16,11 @@ const CONFIG_SECTIONS = [
     adminOnly: true,
   },
   {
-    title: "Proveedores y tarifas de IA",
-    description: "Proveedores, modelos y tarifas base de inteligencia artificial",
+    title: "Proveedores y consumo",
+    description: "Configura proveedores de IA y herramientas externas, controla presupuestos y monitorea consumo mensual.",
     status: "Funcional",
-    icon: Cpu,
-    href: "/settings/ai",
+    icon: Layers,
+    href: "/settings/providers",
     adminOnly: true,
   },
   {
@@ -56,14 +56,6 @@ const CONFIG_SECTIONS = [
     adminOnly: false,
   },
   {
-    title: "Uso, costos y efectividad",
-    description: "Foundation operativa para monitorear ejecuciones de agentes, llamadas a proveedores y costos estimados por resultado.",
-    status: "Foundation",
-    icon: BarChart2,
-    href: "/settings/usage",
-    adminOnly: true,
-  },
-  {
     title: "Catálogo de fuentes",
     description: "Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp.",
     status: "Funcional",
@@ -71,14 +63,6 @@ const CONFIG_SECTIONS = [
     href: "/settings/source-catalog",
     adminOnly: true,
     badge: "52 fuentes",
-  },
-  {
-    title: "Créditos y presupuestos",
-    description: "Controla el consumo de herramientas con créditos, costos y reglas por proveedor.",
-    status: "Funcional",
-    icon: Coins,
-    href: "/settings/budget-credits",
-    adminOnly: true,
   },
 ];
 
