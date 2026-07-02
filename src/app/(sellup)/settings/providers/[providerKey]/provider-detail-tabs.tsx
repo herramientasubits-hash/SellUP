@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
+import type { AiProviderDetailResult } from '@/modules/ai-config/provider-ai-detail-queries';
 import {
   MEASUREMENT_STATUS_LABEL,
   MEASUREMENT_STATUS_BADGE,
@@ -227,13 +228,8 @@ function TabResumen({ row }: { row: AdminProviderBudgetRow }) {
           )}
           {isIAProvider && !isNotMeasured && (
             <p className="text-[11px] text-muted-foreground/60">
-              Modelos, tarifas y configuración LLM disponibles en{' '}
-              <Link
-                href="/settings/providers?tab=ia"
-                className="text-su-brand hover:underline font-medium"
-              >
-                Configuración IA →
-              </Link>
+              Modelos, tarifas y estado de conexión disponibles en la pestaña{' '}
+              <span className="font-medium text-foreground">Modelos y tarifas</span>.
             </p>
           )}
         </div>
@@ -555,6 +551,223 @@ function TabLogs({
   );
 }
 
+// ─── Tab: Modelos y tarifas ───────────────────────────────────────────────────
+
+const CONNECTION_BADGE: Record<string, { label: string; className: string }> = {
+  connected:      { label: 'Conectado',          className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  not_tested:     { label: 'Sin probar',          className: 'border-border/40 bg-muted/20 text-muted-foreground/70' },
+  not_configured: { label: 'Pendiente conexión',  className: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  error:          { label: 'Error de conexión',   className: 'border-destructive/30 bg-destructive/10 text-destructive' },
+};
+
+const MODEL_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  active:   { label: 'Activo',   className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  inactive: { label: 'Inactivo', className: 'border-border/40 bg-muted/20 text-muted-foreground/60' },
+};
+
+function fmtDateShortLocal(iso: string): string {
+  return new Date(iso).toLocaleDateString('es-CO', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function fmtTokens(n: number | null): string {
+  if (n == null) return '—';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return n.toString();
+}
+
+function fmtPrice(val: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(val);
+}
+
+function ConnectionStatusBadge({ status }: { status: string }) {
+  const badge = CONNECTION_BADGE[status] ?? {
+    label: status,
+    className: 'border-border/40 bg-muted/20 text-muted-foreground/60',
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${badge.className}`}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
+function TabModelosYTarifas({ aiDetail }: { aiDetail: AiProviderDetailResult }) {
+  const { models, isActiveProviderGlobal, activeModelKey, connectionStatus, providerStatus, providerKey } = aiDetail;
+
+  const providerStatusBadge = isActiveProviderGlobal
+    ? { label: 'Activo global', className: 'border-su-brand/30 bg-su-brand-soft text-su-brand' }
+    : { label: 'No activo global', className: 'border-border/40 bg-muted/20 text-muted-foreground/60' };
+
+  const hasModels = models.length > 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Configuración activa */}
+      <SurfaceCard>
+        <div className="p-6 space-y-4">
+          <p className="text-base font-semibold text-foreground">Configuración activa</p>
+          <p className="text-[11px] text-muted-foreground/70">
+            Esta configuración controla qué proveedor/modelo LLM usa SellUp por defecto.
+          </p>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Proveedor global
+              </p>
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${providerStatusBadge.className}`}
+              >
+                {providerStatusBadge.label}
+              </span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Conexión
+              </p>
+              <ConnectionStatusBadge status={connectionStatus} />
+            </div>
+            <StatBlock
+              label="Estado del proveedor"
+              value={providerStatus === 'active' ? 'Activo' : providerStatus === 'inactive' ? 'Inactivo' : providerStatus}
+            />
+          </div>
+
+          {/* Modelo activo global */}
+          <div className="rounded-md border border-border/30 bg-muted/10 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">
+              Modelo activo global
+            </p>
+            {isActiveProviderGlobal && activeModelKey ? (
+              <p className="text-sm font-medium text-foreground font-mono">{activeModelKey}</p>
+            ) : isActiveProviderGlobal ? (
+              <p className="text-sm text-amber-600 dark:text-amber-400">Sin modelo activo configurado para este proveedor.</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Este proveedor no es el modelo activo del sistema.</p>
+            )}
+          </div>
+
+          {/* Anthropic-specific note */}
+          {providerKey === 'anthropic' && (
+            <div className="rounded-md border border-border/30 bg-muted/10 px-3 py-2.5">
+              <p className="text-xs text-muted-foreground">
+                Claude se mide principalmente en USD/tokens. El presupuesto mensual se configura manualmente en SellUp.
+              </p>
+            </div>
+          )}
+
+          {/* Not connected note */}
+          {connectionStatus === 'not_configured' && (
+            <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Proveedor preparado, pendiente de conexión. Configura la API key en Configuración IA.
+              </p>
+            </div>
+          )}
+        </div>
+      </SurfaceCard>
+
+      {/* Tabla de modelos */}
+      <SurfaceCard>
+        <div className="p-6 space-y-4">
+          <p className="text-base font-semibold text-foreground">Modelos disponibles</p>
+          {!hasModels ? (
+            <EmptyState message="No hay modelos configurados para este proveedor." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/40">
+                    <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Modelo</th>
+                    <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Estado</th>
+                    <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Context window</th>
+                    <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Input / 1M tokens</th>
+                    <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Output / 1M tokens</th>
+                    <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Vigente desde</th>
+                    <th className="py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Activo global</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {models.map((model) => {
+                    const statusBadge =
+                      MODEL_STATUS_BADGE[model.status] ??
+                      MODEL_STATUS_BADGE.inactive;
+                    return (
+                      <tr key={model.id} className="hover:bg-muted/10">
+                        <td className="py-2 pr-4">
+                          <span className="font-mono text-foreground">{model.modelKey}</span>
+                          {model.displayName !== model.modelKey && (
+                            <span className="ml-1 text-muted-foreground/60">({model.displayName})</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadge.className}`}
+                          >
+                            {statusBadge.label}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground/70">
+                          {fmtTokens(model.contextWindow)}
+                        </td>
+                        <td className="py-2 pr-4 text-foreground">
+                          {model.latestPricing
+                            ? fmtPrice(model.latestPricing.inputPerMillion, model.latestPricing.currency)
+                            : <span className="text-muted-foreground/50">—</span>}
+                        </td>
+                        <td className="py-2 pr-4 text-foreground">
+                          {model.latestPricing
+                            ? fmtPrice(model.latestPricing.outputPerMillion, model.latestPricing.currency)
+                            : <span className="text-muted-foreground/50">—</span>}
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground/70 whitespace-nowrap">
+                          {model.latestPricing ? fmtDateShortLocal(model.latestPricing.effectiveFrom) : '—'}
+                        </td>
+                        <td className="py-2 text-center">
+                          {model.isActiveGlobalModel ? (
+                            <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2 py-0.5 text-[10px] font-medium text-su-brand">
+                              Activo
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground/40">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Tarifas note + CTA */}
+          <div className="flex items-center justify-between border-t border-border/30 pt-3">
+            <p className="text-[11px] text-muted-foreground/60">
+              Las tarifas se usan para estimar costos de IA y pueden actualizarse desde Configuración IA.
+            </p>
+            <Link href="/settings/providers?tab=ia">
+              <Button variant="ghost" size="sm" className="text-xs text-su-brand hover:text-su-brand">
+                Editar tarifas en Configuración IA →
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </SurfaceCard>
+    </div>
+  );
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 interface Props {
@@ -562,13 +775,19 @@ interface Props {
   activeRules: BudgetRule[];
   usageLogs: ProviderUsageLogRow[];
   syncLogs: ProviderSyncLogRow[];
+  aiDetail?: AiProviderDetailResult | null;
 }
 
-export function ProviderDetailTabs({ row, activeRules, usageLogs, syncLogs }: Props) {
+export function ProviderDetailTabs({ row, activeRules, usageLogs, syncLogs, aiDetail }: Props) {
+  const showAiTab = !!aiDetail;
+
   return (
     <Tabs defaultValue="resumen" className="space-y-6">
       <TabsList className="bg-muted/50">
         <TabsTrigger value="resumen">Resumen</TabsTrigger>
+        {showAiTab && (
+          <TabsTrigger value="modelos">Modelos y tarifas</TabsTrigger>
+        )}
         <TabsTrigger value="presupuesto">Presupuesto y reglas</TabsTrigger>
         <TabsTrigger value="logs">Uso y logs</TabsTrigger>
       </TabsList>
@@ -576,6 +795,12 @@ export function ProviderDetailTabs({ row, activeRules, usageLogs, syncLogs }: Pr
       <TabsContent value="resumen">
         <TabResumen row={row} />
       </TabsContent>
+
+      {showAiTab && (
+        <TabsContent value="modelos">
+          <TabModelosYTarifas aiDetail={aiDetail!} />
+        </TabsContent>
+      )}
 
       <TabsContent value="presupuesto">
         <TabPresupuesto row={row} activeRules={activeRules} />

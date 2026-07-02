@@ -12,6 +12,10 @@ import {
   MEASUREMENT_STATUS_BADGE,
 } from '@/modules/budgets/provider-measurement';
 import { ProviderDetailTabs } from './provider-detail-tabs';
+import {
+  isIaProviderKey,
+  getAiProviderDetail,
+} from '@/modules/ai-config/provider-ai-detail-queries';
 
 interface Props {
   params: Promise<{ providerKey: string }>;
@@ -22,7 +26,10 @@ export default async function ProviderDetailPage({ params }: Props) {
   if (!isAdmin) redirect('/settings');
 
   const { providerKey } = await params;
-  const detail = await getProviderDetail(providerKey);
+  const [detail, aiDetail] = await Promise.all([
+    getProviderDetail(providerKey),
+    isIaProviderKey(providerKey) ? getAiProviderDetail(providerKey) : Promise.resolve(null),
+  ]);
 
   if (!detail) notFound();
 
@@ -65,6 +72,7 @@ export default async function ProviderDetailPage({ params }: Props) {
         activeRules={activeRulesForProvider}
         usageLogs={recentUsageLogs}
         syncLogs={recentSyncLogs}
+        aiDetail={aiDetail}
       />
     </div>
   );
