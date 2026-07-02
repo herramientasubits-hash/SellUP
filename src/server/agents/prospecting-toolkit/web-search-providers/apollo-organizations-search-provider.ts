@@ -551,6 +551,10 @@ export async function runApolloOrganizationsSearch(
       provider_mode: 'real_limited',
       capped: wasCapped,
       usage: usageMeta,
+      // Pre/post gate counts — distinción clave para diagnóstico (v1.16K-AF)
+      apollo_raw_results_count: mapped.length,
+      apollo_post_gate_results_count: filteredMapped.length,
+      apollo_sector_rejected_count: mapped.length - filteredMapped.length,
       apollo_sector_relevance_gate: gateResult.metadata,
     },
   };
