@@ -200,6 +200,41 @@ function tryGetAdminClient(): SupabaseClient | null {
   return createAdminClient(url, key);
 }
 
+// ─── L2.8: Helper: agregar diagnostics Apollo por ronda al batch metadata ────
+
+/**
+ * Agrega los diagnósticos Apollo de todas las rondas para incluir en extraBatchMetadata.
+ * Suma conteos numéricos, preserva la metadata del gate de la primera ronda significativa.
+ * Solo se invoca cuando isApolloProvider=true y hay al menos una ronda ejecutada.
+ */
+function mergeApolloBatchDiagnostics(rounds: Array<Record<string, unknown>>): Record<string, unknown> {
+  let rawResultsCount = 0;
+  let normalizedResultsCount = 0;
+  let postGateCount = 0;
+  let rejectedCount = 0;
+  let gateMeta: unknown = undefined;
+  let diagnostics: unknown = undefined;
+
+  for (const meta of rounds) {
+    rawResultsCount += (typeof meta['apollo_raw_results_count'] === 'number' ? meta['apollo_raw_results_count'] : 0);
+    normalizedResultsCount += (typeof meta['apollo_normalized_results_count'] === 'number' ? meta['apollo_normalized_results_count'] : 0);
+    postGateCount += (typeof meta['apollo_post_gate_results_count'] === 'number' ? meta['apollo_post_gate_results_count'] : 0);
+    rejectedCount += (typeof meta['apollo_sector_rejected_count'] === 'number' ? meta['apollo_sector_rejected_count'] : 0);
+    // Tomar gate y diagnostics de la primera ronda que los tenga
+    if (gateMeta === undefined && meta['apollo_sector_relevance_gate']) gateMeta = meta['apollo_sector_relevance_gate'];
+    if (diagnostics === undefined && meta['apollo_result_diagnostics']) diagnostics = meta['apollo_result_diagnostics'];
+  }
+
+  return {
+    apollo_raw_results_count: rawResultsCount,
+    apollo_normalized_results_count: normalizedResultsCount,
+    apollo_post_gate_results_count: postGateCount,
+    apollo_sector_rejected_count: rejectedCount,
+    ...(gateMeta !== undefined ? { apollo_sector_relevance_gate: gateMeta } : {}),
+    ...(diagnostics !== undefined ? { apollo_result_diagnostics: diagnostics } : {}),
+  };
+}
+
 // ─── estimatePersistableAfterNovelty ─────────────────────────────────────────
 
 /**
@@ -397,6 +432,12 @@ export async function runIncrementalProspectingSearch(
   const isApolloProvider = input.webSearchProvider === 'apollo_organizations';
   const apolloGlobalCap = isApolloProvider ? resolveApolloMaxQueriesPerRun() : Infinity;
   let apolloQueriesExecutedTotal = 0;
+
+  // ─── L2.8: diagnósticos Apollo por ronda ─────────────────────────────────────
+  // Recolecta metadata de trazabilidad del web search output de cada ronda Apollo.
+  // Se propaga a extraBatchMetadata para que el batch sea diagnosticable.
+  // Tavily y mock no se ven afectados.
+  const apolloRoundDiagnostics: Array<Record<string, unknown>> = [];
 
   const allQueryTraceSummaryEntries: Array<{
     query_text: string;
@@ -655,6 +696,15 @@ export async function runIncrementalProspectingSearch(
 
     const rawCount = pipelineOutput.webSearch.resultsCount;
     totalRawEvaluated += rawCount;
+
+    // L2.8: Recolectar diagnostics de Apollo por ronda para propagación al batch.
+    // pipelineOutput.webSearch.metadata contiene apollo_raw_results_count,
+    // apollo_result_diagnostics, apollo_sector_relevance_gate, etc.
+    // rawCount = post-gate count (puede ser 0 aunque Apollo devolvió N orgs).
+    if (isApolloProvider) {
+      const wsMeta = pipelineOutput.webSearch.metadata as Record<string, unknown> | undefined;
+      if (wsMeta && typeof wsMeta === 'object') apolloRoundDiagnostics.push(wsMeta);
+    }
 
     // ── Track actual queries executed (Hito v1.3) ─────────────────────────────
     const executedQueriesThisRound = extractQueriesFromMeta(pipelineOutput.metadata);
@@ -1034,6 +1084,11 @@ export async function runIncrementalProspectingSearch(
           // Hito 16AB.43.29: subindustrias pasadas al writer para el business-fit gate.
           ...(input.subindustries != null && input.subindustries.length > 0
             ? { subindustries: input.subindustries }
+            : {}),
+          // L2.8: Apollo result diagnostics — permite diagnosticar en el batch
+          // por qué apollo_raw_results_count > 0 pero candidatesEvaluated = 0.
+          ...(isApolloProvider && apolloRoundDiagnostics.length > 0
+            ? mergeApolloBatchDiagnostics(apolloRoundDiagnostics)
             : {}),
         },
         existingBatchId: input.existingBatchId ?? null,

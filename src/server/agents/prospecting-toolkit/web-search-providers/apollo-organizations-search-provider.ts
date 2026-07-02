@@ -489,16 +489,19 @@ export async function runApolloOrganizationsSearch(
   // ── Mapping resultados ───────────────────────────────────────────────────────
   const rawOrgs = apolloResult.data ?? [];
   const mapped: WebSearchResult[] = [];
+  // L2.8: track cuántas orgs se perdieron en normalización (sin name o error de mapping)
+  let normalizationDroppedCount = 0;
 
   for (const raw of rawOrgs) {
     const normalized = normalizeApolloOrg(raw);
-    if (!normalized) continue; // descarta orgs sin name
+    if (!normalized) { normalizationDroppedCount++; continue; }
     try {
       mapped.push(mapApolloOrganizationToSearchResult(normalized, mapped.length + 1));
     } catch {
-      // descarta silenciosamente orgs que no se pueden mapear
+      normalizationDroppedCount++;
     }
   }
+  const normalizedResultsCount = mapped.length; // pre-gate count
 
   // ── Sector relevance gate (v1.16K-AD) ────────────────────────────────────────
   // Filtra candidatos sin evidencia sectorial antes de persistir.
@@ -538,6 +541,42 @@ export async function runApolloOrganizationsSearch(
     status: 'real',
   };
 
+  // ── L2.8: diagnóstico detallado de resultados ─────────────────────────────────
+  // Permite trazar exactamente dónde se pierden resultados Apollo entre
+  // la respuesta de la API y el output final hacia incremental-search.
+  const sectorMapped = gateResult.metadata.sector_mapped;
+  const postGateCount = filteredMapped.length;
+  let emptyOutputReason: string | null = null;
+  if (postGateCount === 0) {
+    if (rawOrgs.length === 0) {
+      emptyOutputReason = 'apollo_returned_no_results';
+    } else if (normalizedResultsCount === 0) {
+      emptyOutputReason = 'normalization_dropped_all';
+    } else if (sectorMapped) {
+      emptyOutputReason = 'all_results_rejected_by_sector_gate';
+    } else {
+      emptyOutputReason = 'unknown_empty';
+    }
+  }
+
+  const apolloResultDiagnostics = {
+    raw_results_count: rawOrgs.length,
+    normalized_results_count: normalizedResultsCount,
+    normalization_dropped_count: normalizationDroppedCount,
+    post_sector_gate_results_count: postGateCount,
+    rejected_count: normalizedResultsCount - postGateCount,
+    rejected_by_reason: sectorMapped && normalizedResultsCount > postGateCount
+      ? 'sector_gate_insufficient_sector_evidence'
+      : 'none',
+    rejected_samples: gateResult.metadata.rejected_samples.slice(0, 3).map(s => ({
+      name: s.name,
+      domain: s.domain,
+      reason: s.reason ?? 'insufficient_sector_evidence',
+    })),
+    output_results_count: postGateCount,
+    empty_output_reason: emptyOutputReason,
+  };
+
   return {
     provider: 'apollo_organizations',
     query: input.query,
@@ -552,10 +591,13 @@ export async function runApolloOrganizationsSearch(
       capped: wasCapped,
       usage: usageMeta,
       // Pre/post gate counts — distinción clave para diagnóstico (v1.16K-AF)
-      apollo_raw_results_count: mapped.length,
-      apollo_post_gate_results_count: filteredMapped.length,
-      apollo_sector_rejected_count: mapped.length - filteredMapped.length,
+      apollo_raw_results_count: normalizedResultsCount,
+      apollo_normalized_results_count: normalizedResultsCount,
+      apollo_post_gate_results_count: postGateCount,
+      apollo_sector_rejected_count: normalizedResultsCount - postGateCount,
       apollo_sector_relevance_gate: gateResult.metadata,
+      // L2.8: diagnóstico detallado para trazabilidad en batch metadata
+      apollo_result_diagnostics: apolloResultDiagnostics,
     },
   };
 }

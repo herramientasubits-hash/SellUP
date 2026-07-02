@@ -255,8 +255,12 @@ const MAX_KEYWORDS = 5;
  *   2. Si hay subindustria pero no alcanza MAX_KEYWORDS → completar con sector keywords.
  *   3. Si no hay subindustria → usar solo sector keywords.
  *   4. additionalCriteriaTokens → agregar al final si hay cupo disponible.
+ *      - Si el token ya está cubierto conceptualmente → merged_duplicate (no ignored).
+ *      - Si no hay cupo → ignored (no_room).
  *
  * País nunca entra en este array — va en organization_locations.
+ *
+ * L2.8: Distingue merged_duplicate de ignored para diagnóstico preciso.
  */
 export function buildApolloKeywords(opts: {
   industry: string | null | undefined;
@@ -267,6 +271,10 @@ export function buildApolloKeywords(opts: {
   subindustryKeywordsUsed: string[];
   sectorKeywordsUsed: string[];
   ignoredAdditionalCriteriaTokens: string[];
+  /** L2.8: tokens ya cubiertos conceptualmente por las keywords seleccionadas. */
+  mergedDuplicateAdditionalCriteriaTokens: string[];
+  /** L2.8: tokens del criterio adicional realmente insertados en keywords. */
+  usedAdditionalCriteriaTokens: string[];
   relevanceStrategy: 'subindustry_specific' | 'sector_specific_keywords' | 'query_fallback';
 } {
   const { industry, subindustries, additionalCriteriaTokens } = opts;
@@ -315,19 +323,23 @@ export function buildApolloKeywords(opts: {
   }
 
   // Prioridad 3: additionalCriteriaTokens — solo si hay cupo
+  // L2.8: Distinguir tokens ya cubiertos (merged_duplicate) de tokens sin cupo (ignored).
   const usedTokens: string[] = [];
   const ignoredTokens: string[] = [];
+  const mergedDuplicateTokens: string[] = [];
   for (const token of additionalCriteriaTokens) {
     const normalizedToken = normalizeKey(token);
     const alreadyCovered = keywords.some(k => normalizeKey(k).includes(normalizedToken) || normalizedToken.includes(normalizeKey(k)));
     if (alreadyCovered) {
-      ignoredTokens.push(token);
+      // Token ya cubierto conceptualmente: no agregar, pero NO es "ignored" — es merged.
+      mergedDuplicateTokens.push(token);
       continue;
     }
     if (keywords.length < MAX_KEYWORDS) {
       keywords.push(token);
       usedTokens.push(token);
     } else {
+      // Sin cupo — genuinamente ignorado.
       ignoredTokens.push(token);
     }
   }
@@ -337,6 +349,8 @@ export function buildApolloKeywords(opts: {
     subindustryKeywordsUsed,
     sectorKeywordsUsed,
     ignoredAdditionalCriteriaTokens: ignoredTokens,
+    mergedDuplicateAdditionalCriteriaTokens: mergedDuplicateTokens,
+    usedAdditionalCriteriaTokens: usedTokens,
     relevanceStrategy,
   };
 }
@@ -355,8 +369,14 @@ export type ApolloQueryMappingMeta = {
   subindustry_keywords_used: string[];
   /** L2.7: tokens del criterio adicional del usuario enviados a Apollo. */
   additional_criteria_tokens: string[];
-  /** L2.7: tokens del criterio adicional ignorados (ya cubiertos o sin cupo). */
+  /** L2.7: tokens del criterio adicional ignorados (sin cupo). */
   ignored_additional_criteria_tokens: string[];
+  /** L2.8: tokens del criterio adicional ya cubiertos conceptualmente por las keywords seleccionadas. */
+  additional_criteria_tokens_merged_duplicates: string[];
+  /** L2.8: tokens del criterio adicional realmente insertados en keywords. */
+  additional_criteria_tokens_used: string[];
+  /** L2.8: estrategia de merge de keywords aplicada. */
+  keyword_merge_strategy: 'subindustry_first_with_strong_criteria_replacement';
   /** L2.7: umbral de empleados derivado del systemControls. Null si no aplica. */
   target_employee_threshold: number | null;
   apollo_keywords_sent: string | null;
@@ -403,6 +423,8 @@ export function buildApolloOrganizationsSearchParams(
     subindustryKeywordsUsed,
     sectorKeywordsUsed,
     ignoredAdditionalCriteriaTokens,
+    mergedDuplicateAdditionalCriteriaTokens,
+    usedAdditionalCriteriaTokens,
     relevanceStrategy,
   } = buildApolloKeywords({
     industry: input.industry,
@@ -444,6 +466,9 @@ export function buildApolloOrganizationsSearchParams(
     subindustry_keywords_used: subindustryKeywordsUsed,
     additional_criteria_tokens: additionalCriteriaTokens,
     ignored_additional_criteria_tokens: ignoredAdditionalCriteriaTokens,
+    additional_criteria_tokens_merged_duplicates: mergedDuplicateAdditionalCriteriaTokens,
+    additional_criteria_tokens_used: usedAdditionalCriteriaTokens,
+    keyword_merge_strategy: 'subindustry_first_with_strong_criteria_replacement' as const,
     target_employee_threshold: null, // el provider puede sobreescribir si tiene ICP_SIZE_THRESHOLD
     apollo_keywords_sent: apolloKeywords,
     apollo_location_sent: apolloLocation,
