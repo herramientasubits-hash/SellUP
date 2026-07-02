@@ -10,6 +10,9 @@ import {
   ON_EXCEED_LABEL,
   syncProviderQuota,
 } from '@/modules/budgets';
+import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';
+import type { DataTableBulkAction } from '@/components/data-table/data-table';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import type { BudgetOnExceed } from '@/modules/usage-tracking/types';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -774,7 +777,7 @@ function AllowanceCell({
 
 // ── Main table ─────────────────────────────────────────────────────────────────
 
-const COLUMNS = [
+const TABLE_COLUMNS = [
   'Proveedor',
   'Reglas activas',
   'Consumo del mes',
@@ -784,15 +787,15 @@ const COLUMNS = [
   'Estado',
   'Última evaluación',
   'Acción configurada',
-  '',
 ];
 
 const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
 
 export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [selectedProvider, setSelectedProvider] = useState<AdminProviderBudgetRow | null>(null);
   const [editingProvider, setEditingProvider] = useState<AdminProviderBudgetRow | null>(null);
-  const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
+  const [syncingKeys, setSyncingKeys] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
 
   const resolvedDate = new Date(resolvedAt).toLocaleString('es-CO', {
@@ -800,35 +803,86 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
     timeStyle: 'short',
   });
 
+  const selectedRows = providers.filter((p) => selectedKeys.has(p.providerKey));
+  const allSelected = providers.length > 0 && selectedKeys.size === providers.length;
+  const someSelected = selectedKeys.size > 0 && !allSelected;
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(providers.map((p) => p.providerKey)));
+    }
+  }
+
+  function toggleRow(key: string) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   function handleAllowanceSaved() {
     startTransition(() => {
       window.location.reload();
     });
   }
 
-  function handleSync(providerKey: string) {
-    if (syncingProvider) return;
-    setSyncingProvider(providerKey);
-    startTransition(async () => {
-      try {
-        const result = await syncProviderQuota(providerKey);
+  async function handleSyncRows(rows: AdminProviderBudgetRow[]) {
+    const syncable = rows.filter((r) => SYNC_CAPABLE_PROVIDERS.has(r.providerKey));
+    if (syncable.length === 0) return;
+    setSyncingKeys(new Set(syncable.map((r) => r.providerKey)));
+    try {
+      for (const row of syncable) {
+        const result = await syncProviderQuota(row.providerKey);
         if (result.success) {
           toast.success(
             result.skippedAllowance
-              ? 'Dato externo actualizado (cuota manual preservada)'
-              : 'Cuota sincronizada',
+              ? `${row.displayName ?? row.providerKey}: dato externo actualizado (cuota manual preservada)`
+              : `${row.displayName ?? row.providerKey}: cuota sincronizada`,
           );
-          window.location.reload();
         } else {
-          toast.error(result.error ?? 'No se pudo sincronizar');
+          toast.error(`${row.displayName ?? row.providerKey}: ${result.error ?? 'No se pudo sincronizar'}`);
         }
-      } catch {
-        toast.error('No se pudo sincronizar');
-      } finally {
-        setSyncingProvider(null);
       }
-    });
+      window.location.reload();
+    } catch {
+      toast.error('No se pudo sincronizar');
+    } finally {
+      setSyncingKeys(new Set());
+    }
   }
+
+  const bulkActions: DataTableBulkAction<AdminProviderBudgetRow>[] = [
+    {
+      id: 'ver',
+      label: 'Ver',
+      icon: Activity,
+      disabled: (rows) => rows.length !== 1 || rows[0].measurementStatus === 'not_measured',
+      onClick: (rows) => {
+        if (rows.length === 1) setSelectedProvider(rows[0]);
+      },
+    },
+    {
+      id: 'editar-cuota',
+      label: 'Editar cuota',
+      icon: Settings,
+      disabled: (rows) => rows.length !== 1 || rows[0].measurementStatus === 'not_measured',
+      onClick: (rows) => {
+        if (rows.length === 1) setEditingProvider(rows[0]);
+      },
+    },
+    {
+      id: 'sync',
+      label: syncingKeys.size > 0 ? 'Sincronizando…' : 'Sync',
+      icon: RefreshCw,
+      loading: syncingKeys.size > 0,
+      disabled: (rows) => rows.every((r) => !SYNC_CAPABLE_PROVIDERS.has(r.providerKey)),
+      onClick: (rows) => { void handleSyncRows(rows); },
+    },
+  ];
 
   if (providers.length === 0) {
     return (
@@ -847,7 +901,14 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/40 bg-muted/20">
-                {COLUMNS.map((col) => (
+                <th className="w-10 px-4 py-3">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                    onCheckedChange={toggleAll}
+                    aria-label="Seleccionar todos los proveedores"
+                  />
+                </th>
+                {TABLE_COLUMNS.map((col) => (
                   <th
                     key={col}
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
@@ -863,6 +924,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                 const display = deriveRowDisplay(row, ms);
                 const msBadge = MEASUREMENT_STATUS_BADGE[ms];
                 const isNotMeasured = ms === 'not_measured';
+                const isSelected = selectedKeys.has(row.providerKey);
 
                 const allowanceLabel = isNotMeasured
                   ? 'No aplica'
@@ -875,8 +937,17 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                 return (
                   <tr
                     key={row.providerKey}
-                    className="hover:bg-muted/10 transition-colors"
+                    className={`hover:bg-muted/10 transition-colors ${isSelected ? 'bg-muted/20' : ''}`}
                   >
+                    {/* Checkbox */}
+                    <td className="w-10 px-4 py-3">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleRow(row.providerKey)}
+                        aria-label={`Seleccionar ${row.displayName ?? row.providerKey}`}
+                      />
+                    </td>
+
                     {/* Proveedor */}
                     <td className="px-4 py-3">
                       <div className="space-y-1">
@@ -954,48 +1025,6 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                     <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
                       {display.actionLabel}
                     </td>
-
-                    {/* Acciones */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 gap-1"
-                          onClick={() => display.canViewEvals && setSelectedProvider(row)}
-                          disabled={!display.canViewEvals}
-                          aria-label={`Ver evaluaciones de ${row.displayName ?? row.providerKey}`}
-                        >
-                          <Activity className="h-3 w-3" />
-                          Ver
-                        </Button>
-                        {!isNotMeasured && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
-                            onClick={() => setEditingProvider(row)}
-                            aria-label={`Configurar cuota de ${row.displayName ?? row.providerKey}`}
-                          >
-                            <Settings className="h-3 w-3" />
-                            {allowanceLabel === 'No configurado' ? 'Configurar' : 'Editar cuota'}
-                          </Button>
-                        )}
-                        {SYNC_CAPABLE_PROVIDERS.has(row.providerKey) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 gap-1"
-                            onClick={() => handleSync(row.providerKey)}
-                            disabled={syncingProvider !== null}
-                            aria-label={`Sincronizar cuota de ${row.displayName ?? row.providerKey}`}
-                          >
-                            <RefreshCw className={`h-3 w-3 ${syncingProvider === row.providerKey ? 'animate-spin' : ''}`} />
-                            {syncingProvider === row.providerKey ? 'Sync…' : 'Sync'}
-                          </Button>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
@@ -1007,6 +1036,13 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
           Datos del período mensual actual · Actualizado {resolvedDate}
         </p>
       </div>
+
+      <DataTableBulkActionBar
+        selectedCount={selectedKeys.size}
+        selectedRows={selectedRows}
+        actions={bulkActions}
+        onClear={() => setSelectedKeys(new Set())}
+      />
 
       <ProviderActivityDrawer
         provider={selectedProvider}
