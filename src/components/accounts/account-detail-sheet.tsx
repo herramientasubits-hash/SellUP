@@ -36,6 +36,7 @@ import {
 import type { Contact, ContactsSummary } from '@/modules/contacts/types';
 import { AccountDetailActions } from './account-detail-actions';
 import { AccountEnrichContactsButton } from './account-enrich-contacts-button';
+import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { ContactsTab } from '@/components/contacts/contacts-tab';
 import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
 import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/peru-sunat-legal-validation-block';
@@ -81,6 +82,12 @@ interface AccountDetailSheetProps {
   accountId: string | null;
   open: boolean;
   onClose: () => void;
+  /**
+   * When provided, clicking "Enriquecer contactos" inside the sheet delegates
+   * the open action to the parent instead of opening a nested drawer. The parent
+   * is responsible for closing this sheet before opening the enrichment drawer.
+   */
+  onRequestEnrich?: (company: ContactEnrichmentInitialCompany) => void;
 }
 
 interface SheetData {
@@ -91,7 +98,7 @@ interface SheetData {
   users: InternalUserOption[];
 }
 
-export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSheetProps) {
+export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }: AccountDetailSheetProps) {
   const [data, setData] = React.useState<SheetData | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [contactSheetId, setContactSheetId] = React.useState<string | null>(null);
@@ -161,6 +168,7 @@ export function AccountDetailSheet({ accountId, open, onClose }: AccountDetailSh
                     hubspotCompanyId: data.account.hubspot_company_id,
                   }}
                   disabled={data.account.pipeline_status === 'archived'}
+                  onRequestOpen={onRequestEnrich}
                 />
                 <AccountDetailActions
                   accountId={data.account.id}

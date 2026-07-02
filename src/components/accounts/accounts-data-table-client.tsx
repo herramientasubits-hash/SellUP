@@ -49,6 +49,7 @@ import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
+import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 
 // ── Styles ─────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [archiving, setArchiving] = React.useState(false);
-  const [enrichAccount, setEnrichAccount] = React.useState<Row | null>(null);
+  const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
 
   const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
     userId: '',
@@ -412,7 +413,13 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
             id: 'enrich-contacts',
             label: 'Enriquecer contactos',
             icon: UserSearch,
-            onClick: () => setEnrichAccount(row),
+            onClick: () => setEnrichCompany({
+              name: row.name,
+              domain: row.domain,
+              country: row.country,
+              countryCode: row.country_code,
+              sellupAccountId: row.id,
+            }),
           },
         ];
 
@@ -585,19 +592,18 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           setDetailOpen(false);
           setDetailAccountId(null);
         }}
+        onRequestEnrich={(company) => {
+          setDetailOpen(false);
+          setDetailAccountId(null);
+          setEnrichCompany(company);
+        }}
       />
 
       {/* Contact enrichment sidepanel (Agente 2A) */}
       <ContactEnrichmentDrawer
-        open={!!enrichAccount}
-        onOpenChange={(v) => !v && setEnrichAccount(null)}
-        preloadedCompany={enrichAccount ? {
-          name: enrichAccount.name,
-          domain: enrichAccount.domain,
-          country: enrichAccount.country,
-          countryCode: enrichAccount.country_code,
-          sellupAccountId: enrichAccount.id,
-        } : null}
+        open={!!enrichCompany}
+        onOpenChange={(v) => !v && setEnrichCompany(null)}
+        preloadedCompany={enrichCompany}
       />
     </>
   );
