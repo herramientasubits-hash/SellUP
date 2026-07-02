@@ -165,6 +165,7 @@ export function extractEventDate(row: SicopRawRow): string | null {
     'FECHA_PRESENTACION_RECURSO', 'fecha_presentacion_recurso',
     'FECHA_PUBLICACION', 'fecha_publicacion',
     'FECHA_APERTURA', 'fecha_apertura',
+    'FECHA_PRESENTA_OFERTA', 'fecha_presenta_oferta',
   );
 }
 
@@ -225,12 +226,9 @@ export function parseSicopRows(
       continue;
     }
 
-    // Validar nombre
-    const name = extractProviderName(row);
-    if (!name) {
-      result.skippedNoName++;
-      continue;
-    }
+    // Nombre: intentar extraer; si no existe en el dataset (ej: ofertas_2024 no tiene columna de nombre),
+    // usar placeholder para no descartar la cédula válida. human_review_required=true siempre.
+    const name = extractProviderName(row) ?? `PROVEEDOR_CR_${idResult.normalized}`;
 
     result.providers.push({
       cedula: idResult.normalized,

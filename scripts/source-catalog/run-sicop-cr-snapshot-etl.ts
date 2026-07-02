@@ -119,12 +119,13 @@ function buildSupabaseClient() {
 // ─── XLSX parsing ──────────────────────────────────────────────────────────────
 
 function parseXlsxBuffer(buffer: Buffer): Record<string, unknown>[] {
-  const wb = XLSX.read(buffer, { type: 'buffer', cellText: true, cellDates: false });
+  // dense:true + raw:true evita conversiones de celda costosas en archivos grandes (>10 MB).
+  const wb = XLSX.read(buffer, { type: 'buffer', dense: true, raw: true, cellDates: false });
   const sheetName = wb.SheetNames[0];
   if (!sheetName) throw new Error('XLSX sin hojas');
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`Hoja '${sheetName}' no encontrada`);
-  return XLSX.utils.sheet_to_json(ws, { defval: null, raw: false });
+  return XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
