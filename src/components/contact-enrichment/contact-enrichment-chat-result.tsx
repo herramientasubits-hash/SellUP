@@ -320,6 +320,8 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
     noActionableContactsFound: result.noActionableContactsFound,
     noReviewableContactsFound: result.noReviewableContactsFound,
     searchGuardrail: result.searchGuardrail,
+    completionAttempted: result.completionAttempted,
+    actualCreditsTotal: result.costGuardrail?.actual_credits_total,
   });
 
   const canCreateManual = !!(runId && accountId && onCreateManualContact);

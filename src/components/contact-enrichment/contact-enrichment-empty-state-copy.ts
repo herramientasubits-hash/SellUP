@@ -22,7 +22,10 @@ export function getContactEnrichmentEmptyStateCopy(
     | 'searchGuardrail'
     | 'noActionableContactsFound'
     | 'noReviewableContactsFound'
-  >,
+    | 'completionAttempted'
+  > & {
+    actualCreditsTotal?: number;
+  },
 ): ApolloEmptyStateCopy {
   // Case C — search stopped by budget guardrail
   if (result.searchGuardrail?.blocked_by_search_budget) {
@@ -43,13 +46,20 @@ export function getContactEnrichmentEmptyStateCopy(
 
   // Case B — Apollo returned profiles but all were filtered
   if (result.rawResultsCount > 0 && result.candidatesCreated === 0) {
+    const attempted = result.completionAttempted ?? 0;
+    const credits = result.actualCreditsTotal ?? 0;
+    const hadCompletion = attempted > 0 || credits > 0;
+
+    const notAnError = hadCompletion
+      ? `No fue un error. No se crearon contactos ni candidatos. Se intentó completion en ${attempted} perfil${attempted !== 1 ? 'es' : ''} y se consumieron ${credits} crédito${credits !== 1 ? 's' : ''}, pero Apollo no devolvió canales accionables.`
+      : 'No fue un error. No se crearon contactos ni candidatos, y no se gastaron créditos de completion.';
+
     return {
       case: 'all_filtered',
       headline: 'Perfiles encontrados, pero ninguno pasó los filtros de calidad',
       detail:
         'Apollo devolvió perfiles, pero SellUp los descartó porque no tenían suficiente información accionable (email, LinkedIn o teléfono) o no eran relevantes para venta consultiva B2B.',
-      notAnError:
-        'No fue un error. No se crearon contactos ni candidatos, y no se gastaron créditos de completion.',
+      notAnError,
       tips: [
         'Verifica que el dominio de la empresa esté correcto.',
         'Intenta con el nombre legal o comercial más preciso.',

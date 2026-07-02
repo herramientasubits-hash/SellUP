@@ -17,6 +17,8 @@ const BASE = {
   rawResultsCount: 0,
   rejectedByRelevance: 0,
   candidatesCreated: 0,
+  completionAttempted: 0,
+  actualCreditsTotal: 0,
   noActionableContactsFound: false,
   noReviewableContactsFound: false,
   searchGuardrail: undefined as undefined | {
@@ -85,6 +87,51 @@ describe('getContactEnrichmentEmptyStateCopy', () => {
     it('does not trigger for rawResultsCount = 0 even with candidatesCreated = 0', () => {
       const copy = getContactEnrichmentEmptyStateCopy({ ...BASE });
       assert.notEqual(copy.case, 'all_filtered');
+    });
+
+    it('notAnError says "no se gastaron créditos" when completionAttempted=0 and actualCreditsTotal=0', () => {
+      const copy = getContactEnrichmentEmptyStateCopy({
+        ...BASE,
+        rawResultsCount: 3,
+        candidatesCreated: 0,
+        completionAttempted: 0,
+        actualCreditsTotal: 0,
+      });
+      assert.match(copy.notAnError, /no se gastaron créditos de completion/i);
+    });
+
+    it('notAnError mentions profiles and credits when completionAttempted > 0', () => {
+      const copy = getContactEnrichmentEmptyStateCopy({
+        ...BASE,
+        rawResultsCount: 3,
+        candidatesCreated: 0,
+        completionAttempted: 3,
+        actualCreditsTotal: 0,
+      });
+      assert.match(copy.notAnError, /completion en 3 perfiles/i);
+    });
+
+    it('notAnError mentions credits consumed when actualCreditsTotal > 0', () => {
+      const copy = getContactEnrichmentEmptyStateCopy({
+        ...BASE,
+        rawResultsCount: 3,
+        candidatesCreated: 0,
+        completionAttempted: 3,
+        actualCreditsTotal: 3,
+      });
+      assert.match(copy.notAnError, /3 créditos/i);
+      assert.match(copy.notAnError, /no devolvió canales accionables/i);
+    });
+
+    it('never says "no se gastaron créditos de completion" when actualCreditsTotal > 0', () => {
+      const copy = getContactEnrichmentEmptyStateCopy({
+        ...BASE,
+        rawResultsCount: 3,
+        candidatesCreated: 0,
+        completionAttempted: 3,
+        actualCreditsTotal: 3,
+      });
+      assert.doesNotMatch(copy.notAnError, /no se gastaron créditos de completion/i);
     });
   });
 
