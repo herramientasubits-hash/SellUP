@@ -15,6 +15,8 @@ import { getRdSourceCoverageSummary } from '@/server/services/rd-source-coverage
 import { RdCoverageCard } from '@/components/source-catalog/rd-coverage-card';
 import { getDgcpSourceCoverageSummary } from '@/server/services/rd-dgcp-source-coverage-summary';
 import { RdDgcpCoverageCard } from '@/components/source-catalog/rd-dgcp-coverage-card';
+import { getSicopSourceCoverageSummary } from '@/server/services/cr-sicop-source-coverage-summary';
+import { CrSicopCoverageCard } from '@/components/source-catalog/cr-sicop-coverage-card';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -55,8 +57,9 @@ export default async function SourceDetailPage({ params }: Props) {
   const isSunatPeru = source.key === 'pe_sunat_bulk';
   const isDgiiRd = source.key === 'rd_dgii_bulk';
   const isDgcpRd = source.key === 'do_dgcp';
+  const isCrSicop = source.key === 'cr_sicop';
 
-  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage] = await Promise.all([
+  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
     getSourceConnectionRecord(sourceKey),
     isCurrentUserAdmin(),
@@ -68,6 +71,9 @@ export default async function SourceDetailPage({ params }: Props) {
       : Promise.resolve(null),
     isDgcpRd
       ? getDgcpSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isCrSicop
+      ? getSicopSourceCoverageSummary().catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -298,6 +304,13 @@ export default async function SourceDetailPage({ params }: Props) {
         dgcpCoverage
           ? <RdDgcpCoverageCard summary={dgcpCoverage} />
           : <RdDgcpCoverageCard error />
+      )}
+
+      {/* Cobertura SICOP — solo cr_sicop (señal procurement B2G, muestra piloto) */}
+      {isCrSicop && (
+        sicopCoverage
+          ? <CrSicopCoverageCard summary={sicopCoverage} />
+          : <CrSicopCoverageCard error />
       )}
 
       {/* Prueba de conexión */}
