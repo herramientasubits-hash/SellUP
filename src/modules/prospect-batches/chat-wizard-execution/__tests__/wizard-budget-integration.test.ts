@@ -628,6 +628,96 @@ describe('Guardrail blocking codes — each propagates as ok:false with correct 
   }
 });
 
+// ── v1.16K-AG — Provider-aware budget: Apollo reserves only what it will spend ──
+
+describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', () => {
+  function withApolloProviderEnv(
+    overrides: { queries?: string; results?: string },
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const savedQ = process.env.AGENT1_APOLLO_MAX_QUERIES_PER_RUN;
+    const savedR = process.env.AGENT1_APOLLO_MAX_RESULTS_PER_QUERY;
+
+    if (overrides.queries !== undefined) {
+      process.env.AGENT1_APOLLO_MAX_QUERIES_PER_RUN = overrides.queries;
+    } else {
+      delete process.env.AGENT1_APOLLO_MAX_QUERIES_PER_RUN;
+    }
+
+    if (overrides.results !== undefined) {
+      process.env.AGENT1_APOLLO_MAX_RESULTS_PER_QUERY = overrides.results;
+    } else {
+      delete process.env.AGENT1_APOLLO_MAX_RESULTS_PER_QUERY;
+    }
+
+    return fn().finally(() => {
+      if (savedQ !== undefined) process.env.AGENT1_APOLLO_MAX_QUERIES_PER_RUN = savedQ;
+      else delete process.env.AGENT1_APOLLO_MAX_QUERIES_PER_RUN;
+      if (savedR !== undefined) process.env.AGENT1_APOLLO_MAX_RESULTS_PER_QUERY = savedR;
+      else delete process.env.AGENT1_APOLLO_MAX_RESULTS_PER_QUERY;
+    });
+  }
+
+  function makeApolloDeps(overrides: Partial<WizardExecutionDeps> = {}): TrackedDeps {
+    const pipelineOutput = makePipelineOutput(BATCH_A);
+    return makeDeps({
+      resolveProvider: () => 'apollo_organizations',
+      checkTavilyAvailability: async () => false, // not used when Apollo
+      runApolloPipeline: async () => pipelineOutput,
+      ...overrides,
+    });
+  }
+
+  it('AG-1: Apollo provider → requestedCredits = 3 (1 query × 3 results, defaults)', async () => {
+    await withFlagAsync(true, async () => {
+      await withApolloProviderEnv({}, async () => {
+        const deps = makeApolloDeps();
+        await executeProspectWizardGeneration(VALID_REQUEST, deps);
+        assert.equal(deps.budgetCalls.length, 1);
+        assert.equal(deps.budgetCalls[0]!.requestedCredits, 3);
+      });
+    });
+  });
+
+  it('AG-2: Tavily provider → requestedCredits = 20 (unchanged regression)', async () => {
+    await withFlagAsync(true, async () => {
+      const deps = makeDeps();
+      // Default resolveProvider returns tavily
+      await executeProspectWizardGeneration(VALID_REQUEST, deps);
+      assert.equal(deps.budgetCalls[0]!.requestedCredits, 20);
+    });
+  });
+
+  it('AG-3: Apollo available=12, max=25, estimate=3 → reserveBudget called with 3, not blocked', async () => {
+    await withFlagAsync(true, async () => {
+      await withApolloProviderEnv({}, async () => {
+        let receivedCredits: number | undefined;
+        const deps = makeApolloDeps({
+          reserveBudget: async (input) => {
+            deps.budgetCalls.push(input);
+            receivedCredits = input.requestedCredits;
+            return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 3 };
+          },
+        });
+        const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
+        assert.equal(result.ok, true);
+        assert.equal(receivedCredits, 3);
+      });
+    });
+  });
+
+  it('AG-4: Apollo with env 99/99 → hard caps apply → requestedCredits = 15', async () => {
+    await withFlagAsync(true, async () => {
+      await withApolloProviderEnv({ queries: '99', results: '99' }, async () => {
+        const deps = makeApolloDeps();
+        await executeProspectWizardGeneration(VALID_REQUEST, deps);
+        // Hard cap: queries ≤ 3, results ≤ 5 → 15
+        assert.equal(deps.budgetCalls[0]!.requestedCredits, 15);
+      });
+    });
+  });
+});
+
 // ── §16AB.43.19 — Anti-regression: service_role client, identity, no residuos ─
 
 describe('§16AB.43.19 — Anti-regression: identity, periodStart, no residuos', () => {

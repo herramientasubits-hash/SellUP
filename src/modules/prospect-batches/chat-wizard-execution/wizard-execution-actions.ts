@@ -31,10 +31,10 @@ import {
 import type { BudgetReservationsRpcClient, ReservationLookupClient } from './wizard-budget-reservations';
 import {
   estimateWizardTavilyMaxCredits,
-  estimateWizardAdaptiveMaxCredits,
   getPilotBudgetPeriodStart,
   readWizardConsumedCreditsFromDb,
 } from './wizard-budget-reconciliation';
+import { estimateCreditsForProvider } from './wizard-budget-estimate';
 import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
@@ -255,8 +255,10 @@ export async function executeProspectWizardGeneration(
     }
   }
 
-  // 6. Calculate max credits server-side — client cannot control this value
-  const requestedCredits = estimateWizardAdaptiveMaxCredits(); // = 20 (4 rounds × 5 queries × 1 credit)
+  // 6. Calculate max credits server-side — provider-aware; client cannot control this value.
+  // Apollo: resolvedMaxQueries × resolvedMaxResults × 1 credit/result (default 1×3=3).
+  // Tavily: adaptive pipeline ceiling (4 rounds × 5 queries = 20).
+  const requestedCredits = estimateCreditsForProvider(discoveryProvider);
 
   // 7. Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency all checked by RPC
   const budgetResult = await deps.reserveBudget({
