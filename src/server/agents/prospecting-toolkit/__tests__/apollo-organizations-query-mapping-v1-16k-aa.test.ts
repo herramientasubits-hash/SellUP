@@ -161,10 +161,10 @@ describe('C. getSectorKeywords', () => {
 // ─── D. Metadata sanitizada (sin secretos) ───────────────────────────────────
 
 describe('D. Metadata sanitizada — sin API keys', () => {
-  it('mapping_version es v1.16K-AB (bumped en v1.16K-AB)', () => {
+  it('mapping_version es v1.L2.7 (bumped en L2.7)', () => {
     const { meta } = buildApolloOrganizationsSearchParams(makeInput(), 5);
     assert.equal(meta.mapping_version, APOLLO_QUERY_MAPPING_VERSION);
-    assert.equal(APOLLO_QUERY_MAPPING_VERSION, 'v1.16K-AB');
+    assert.equal(APOLLO_QUERY_MAPPING_VERSION, 'v1.L2.7');
   });
 
   it('meta no contiene api_key, x_api_key, authorization ni token', () => {
