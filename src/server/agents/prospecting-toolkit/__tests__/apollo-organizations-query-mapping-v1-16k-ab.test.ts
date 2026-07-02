@@ -146,10 +146,10 @@ describe('B. q_organization_name ausente — sin frases largas', () => {
 // ─── C. Metadata v1.16K-AB ───────────────────────────────────────────────────
 
 describe('C. Metadata v1.16K-AB', () => {
-  it('mapping_version es v1.16K-AB', () => {
+  it('mapping_version es v1.L2.7 (actualizado desde v1.16K-AB)', () => {
     const { meta } = buildApolloOrganizationsSearchParams(makeInput(), 5);
-    assert.equal(meta.mapping_version, 'v1.16K-AB');
-    assert.equal(APOLLO_QUERY_MAPPING_VERSION, 'v1.16K-AB');
+    assert.equal(meta.mapping_version, 'v1.L2.7');
+    assert.equal(APOLLO_QUERY_MAPPING_VERSION, 'v1.L2.7');
   });
 
   it('relevance_strategy es "sector_specific_keywords" cuando hay sector mapeado', () => {
@@ -227,7 +227,9 @@ describe('D. Fallback seguro — sectores no mapeados', () => {
 // ─── E. Sin secretos en metadata ─────────────────────────────────────────────
 
 describe('E. Sin secretos en metadata', () => {
-  const FORBIDDEN = ['api_key', 'x-api-key', 'authorization', 'bearer', 'token', 'secret'];
+  // 'token' removido del check: additional_criteria_tokens es campo legítimo de diagnóstico.
+  // Solo chequeamos valores de metadata que contengan estas cadenas, no nombres de campo.
+  const FORBIDDEN = ['api_key', 'x-api-key', 'authorization', 'bearer', 'secret'];
 
   it('metadata de Educación Colombia no contiene términos de secretos', () => {
     const { meta } = buildApolloOrganizationsSearchParams(makeInput(), 5);

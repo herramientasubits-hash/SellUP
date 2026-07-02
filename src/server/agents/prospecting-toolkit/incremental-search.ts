@@ -37,6 +37,7 @@ import { createLinkedInUsageLoggerFn } from './tavily-usage-logging';
 import { loadActiveTavilyLinkedInCompanySearchPricing } from '@/modules/usage-tracking/provider-pricing';
 import { isLinkedInCompanySearchEnabled } from '@/lib/feature-flags.server';
 import { resolveApolloMaxQueriesPerRun } from './apollo-cost-guardrails';
+import { parseAdditionalCriteriaTokens } from '@/modules/prospect-batches/chat-wizard-execution/wizard-context-normalizer';
 import { buildNoveltyIndex, evaluateCandidateNovelty } from './novelty-checker';
 import {
   buildCleanMultiQueryDiscoveryQueries,
@@ -633,6 +634,10 @@ export async function runIncrementalProspectingSearch(
       ? { ...input.usageInputContext, roundNumber: round }
       : null;
 
+    // L2.7: tokens del criterio adicional para providers estructurados (Apollo).
+    // Tavily los ignora — sigue usando el texto original del wizard.
+    const additionalCriteriaTokens = parseAdditionalCriteriaTokens(input.additionalCriteria);
+
     const pipelineOutput = await pipelineFn({
       country: input.country,
       countryCode: input.countryCode,
@@ -642,6 +647,10 @@ export async function runIncrementalProspectingSearch(
       targetCount: targetInternal,
       queryOverrides,
       usageContext: roundUsageContext,
+      // L2.7: subindustrias y tokens para Apollo. ProspectingPipelineInput los acepta
+      // como campos opcionales y los propaga a runMultiQueryWebSearch.
+      subindustries: input.subindustries,
+      additionalCriteriaTokens: additionalCriteriaTokens.length > 0 ? additionalCriteriaTokens : undefined,
     });
 
     const rawCount = pipelineOutput.webSearch.resultsCount;

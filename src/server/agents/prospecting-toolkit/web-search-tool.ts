@@ -261,6 +261,9 @@ export async function runMultiQueryWebSearch(
       provider,
       searchDepth,
       intent: 'company_discovery',
+      // L2.7: propagar contexto estructurado al provider (Apollo lo usa; Tavily lo ignora)
+      ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
+      ...(input.additionalCriteriaTokens && input.additionalCriteriaTokens.length > 0 ? { additionalCriteriaTokens: input.additionalCriteriaTokens } : {}),
     };
 
     const dispatchContext: DispatchUsageContext | undefined = usageContext

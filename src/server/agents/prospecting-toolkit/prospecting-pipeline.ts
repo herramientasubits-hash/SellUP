@@ -311,6 +311,9 @@ export async function runProspectingPipeline(
           maxResultsPerQuery: input.maxResultsPerQuery ?? 5,
           queries: queriesForSearch,
           usageContext: input.usageContext ?? null,
+          // L2.7: propagar subindustrias y tokens al provider (Apollo los usa; Tavily los ignora)
+          subindustries: input.subindustries,
+          additionalCriteriaTokens: input.additionalCriteriaTokens,
         });
         const sgMeta = hasQueryOverrides || usesPlannerQueries
           ? { enabled: false, sources_used: [] as string[] }

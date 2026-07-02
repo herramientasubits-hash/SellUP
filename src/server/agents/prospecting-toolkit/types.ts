@@ -195,6 +195,19 @@ export type WebSearchInput = {
   maxResults?: number;
   provider?: WebSearchProviderKey;
   searchDepth?: SearchDepth;
+  /**
+   * Subindustrias canónicas resueltas del catálogo (L2.7).
+   * Usadas por Apollo para priorizar keywords específicas sobre el sector padre.
+   * Tavily no las usa — fluye por el texto original del wizard.
+   */
+  subindustries?: string[];
+  /**
+   * Tokens comerciales extraídos del criterio adicional libre del usuario (L2.7).
+   * Producidos por parseAdditionalCriteriaTokens en wizard-context-normalizer.ts.
+   * Usados por Apollo para enriquecer q_keywords con señales específicas del usuario.
+   * Tavily no los usa — sigue con el texto original.
+   */
+  additionalCriteriaTokens?: string[];
 };
 
 export type WebSearchResult = {
@@ -376,6 +389,10 @@ export type ProspectingPipelineInput = {
   queryOverrides?: string[];
   /** Contexto de uso económico por ronda. Asignado server-side; no proviene del cliente. */
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
+  /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora aquí. */
+  subindustries?: string[];
+  /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
+  additionalCriteriaTokens?: string[];
 };
 
 export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
@@ -568,6 +585,10 @@ export type MultiQuerySearchInput = {
   searchDepth?: SearchDepth;
   /** Contexto de uso económico por ronda. Asignado server-side; no proviene del cliente. */
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
+  /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora. */
+  subindustries?: string[];
+  /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
+  additionalCriteriaTokens?: string[];
 };
 
 export type MultiQueryQueryResult = {
