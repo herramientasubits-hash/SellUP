@@ -1,6 +1,6 @@
 // HubSpot Contacts Reader — Hito 17A.2A
 // Solo lectura. No escribe nada. No expone tokens.
-// Devuelve skipped si HubSpot no está conectado o falta el scope contacts.read.
+// Devuelve skipped si HubSpot no está conectado o faltan scopes de lectura.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { ExistingContactSnapshot, ExistingContactsSourceResult } from '@/modules/contact-enrichment/types';
@@ -11,7 +11,9 @@ const supabaseUrl =
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
+const INTEGRATION_KEY = 'hubspot';
 const CONTACTS_READ_SCOPE = 'crm.objects.contacts.read';
+const COMPANIES_READ_SCOPE = 'crm.objects.companies.read';
 const MAX_CONTACTS = 100;
 
 const CONTACT_PROPERTIES = [
@@ -40,19 +42,106 @@ async function getHubSpotToken(): Promise<string | null> {
   return data as string | null;
 }
 
-async function getHubSpotConnectionMeta(): Promise<{ connected: boolean; scopes: string[] }> {
+// ── Tipos de readiness para snapshot (solo lectura) ───────────
+
+export type HubSpotSnapshotSkipReason =
+  | 'not_connected'
+  | 'credentials_not_stored'
+  | 'no_vault_secret'
+  | 'missing_contacts_read_scope'
+  | 'missing_companies_read_scope';
+
+export interface HubSpotSnapshotReadiness {
+  canRead: boolean;
+  skipReason?: HubSpotSnapshotSkipReason;
+  scopes: string[];
+}
+
+export interface HubSpotConnectionRow {
+  connection_status: string | null;
+  credentials_status: string | null;
+  vault_secret_id: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/**
+ * Lógica pura (sin DB) que evalúa si una conexión HubSpot puede hacer
+ * lectura de contactos (snapshot). Exportada para tests.
+ *
+ * Reglas:
+ *  - connection_status debe ser 'connected'
+ *  - credentials_status debe ser 'stored'
+ *  - vault_secret_id no puede ser null
+ *  - Si hay scopes declarados, deben incluir contacts.read y companies.read
+ *  - Si no hay scopes declarados, se permite (la API responderá 403 si falta)
+ */
+export function evaluateHubSpotSnapshotReadiness(
+  row: HubSpotConnectionRow | null,
+): HubSpotSnapshotReadiness {
+  if (!row || row.connection_status !== 'connected') {
+    return { canRead: false, skipReason: 'not_connected', scopes: [] };
+  }
+  if (row.credentials_status !== 'stored') {
+    return { canRead: false, skipReason: 'credentials_not_stored', scopes: [] };
+  }
+  if (!row.vault_secret_id) {
+    return { canRead: false, skipReason: 'no_vault_secret', scopes: [] };
+  }
+
+  const scopes = Array.isArray(row.metadata?.scopes)
+    ? (row.metadata.scopes as string[])
+    : [];
+
+  if (scopes.length > 0 && !scopes.includes(CONTACTS_READ_SCOPE)) {
+    return { canRead: false, skipReason: 'missing_contacts_read_scope', scopes };
+  }
+  if (scopes.length > 0 && !scopes.includes(COMPANIES_READ_SCOPE)) {
+    return { canRead: false, skipReason: 'missing_companies_read_scope', scopes };
+  }
+
+  return { canRead: true, scopes };
+}
+
+function snapshotSkipReasonText(reason: HubSpotSnapshotSkipReason): string {
+  switch (reason) {
+    case 'not_connected':
+      return 'HubSpot no está conectado';
+    case 'credentials_not_stored':
+      return 'HubSpot conectado sin credenciales almacenadas';
+    case 'no_vault_secret':
+      return 'HubSpot conectado sin credenciales almacenadas en Vault';
+    case 'missing_contacts_read_scope':
+      return `HubSpot conectado sin scope ${CONTACTS_READ_SCOPE}`;
+    case 'missing_companies_read_scope':
+      return `HubSpot conectado sin scope ${COMPANIES_READ_SCOPE}`;
+  }
+}
+
+/**
+ * Dos pasos: resuelve el id de la integración desde external_integrations
+ * (que tiene integration_key), luego busca la conexión en
+ * external_integration_connections por integration_id.
+ *
+ * external_integration_connections NO tiene columna integration_key directa.
+ */
+async function loadHubSpotConnectionRow(): Promise<HubSpotConnectionRow | null> {
   const admin = getAdminSupabase();
-  const { data } = await admin
-    .from('external_integration_connections')
-    .select('connection_status, metadata')
-    .eq('connection_status', 'connected')
+
+  const { data: integration, error: intError } = await admin
+    .from('external_integrations')
+    .select('id')
+    .eq('integration_key', INTEGRATION_KEY)
     .single();
 
-  if (!data) return { connected: false, scopes: [] };
+  if (intError || !integration) return null;
 
-  const meta = data.metadata as Record<string, unknown> | null;
-  const scopes = Array.isArray(meta?.scopes) ? (meta.scopes as string[]) : [];
-  return { connected: true, scopes };
+  const { data: connection } = await admin
+    .from('external_integration_connections')
+    .select('connection_status, credentials_status, vault_secret_id, metadata')
+    .eq('integration_id', integration.id)
+    .maybeSingle();
+
+  return connection as HubSpotConnectionRow | null;
 }
 
 interface HubSpotAssociationResult {
@@ -110,31 +199,22 @@ function normalizeContactSnapshot(obj: HubSpotContactObject): ExistingContactSna
 
 /**
  * Lee contactos asociados a una empresa HubSpot.
- * Requiere scope crm.objects.contacts.read.
- * Devuelve skipped si no hay conexión o falta el scope.
+ * Requiere scope crm.objects.contacts.read y crm.objects.companies.read.
+ * Devuelve skipped con razón específica si la conexión no es usable.
  */
 export async function readHubSpotContactsForCompany(
   hubspotCompanyId: string
 ): Promise<ExistingContactsSourceResult> {
   try {
-    const { connected, scopes } = await getHubSpotConnectionMeta();
+    const connectionRow = await loadHubSpotConnectionRow();
+    const readiness = evaluateHubSpotSnapshotReadiness(connectionRow);
 
-    if (!connected) {
+    if (!readiness.canRead) {
       return {
         status: 'skipped',
         contacts: [],
         count: 0,
-        reason: 'HubSpot no está conectado',
-      };
-    }
-
-    // Si tenemos scopes en metadata y el scope no está → skip sin llamar la API
-    if (scopes.length > 0 && !scopes.includes(CONTACTS_READ_SCOPE)) {
-      return {
-        status: 'skipped',
-        contacts: [],
-        count: 0,
-        reason: `Scope ${CONTACTS_READ_SCOPE} no disponible en la conexión actual`,
+        reason: snapshotSkipReasonText(readiness.skipReason!),
       };
     }
 
