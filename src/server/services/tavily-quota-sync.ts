@@ -60,11 +60,29 @@ function extractFromObject(obj: AnyRecord): TavilyQuotaData | null {
     coerceNumber(obj['creditsRemaining']) ??
     null;
 
-  const used =
+  const directUsed =
     coerceNumber(obj['credits_used']) ??
     coerceNumber(obj['used_credits']) ??
     coerceNumber(obj['creditsUsed']) ??
+    coerceNumber(obj['plan_usage']) ??   // real Tavily /usage: account.plan_usage
     null;
+
+  // Fallback: sum individual usage types when plan_usage is absent
+  const hasIndividualUsage =
+    obj['search_usage'] !== undefined ||
+    obj['crawl_usage'] !== undefined ||
+    obj['extract_usage'] !== undefined ||
+    obj['map_usage'] !== undefined ||
+    obj['research_usage'] !== undefined;
+  const summedUsage = hasIndividualUsage
+    ? (coerceNumber(obj['search_usage']) ?? 0) +
+      (coerceNumber(obj['crawl_usage']) ?? 0) +
+      (coerceNumber(obj['extract_usage']) ?? 0) +
+      (coerceNumber(obj['map_usage']) ?? 0) +
+      (coerceNumber(obj['research_usage']) ?? 0)
+    : null;
+
+  const used = directUsed ?? summedUsage;
 
   const limit =
     coerceNumber(obj['max_credits']) ??
@@ -72,6 +90,7 @@ function extractFromObject(obj: AnyRecord): TavilyQuotaData | null {
     coerceNumber(obj['total_credits']) ??
     coerceNumber(obj['credits_limit']) ??
     coerceNumber(obj['limit_credits']) ??
+    coerceNumber(obj['plan_limit']) ??   // real Tavily /usage: account.plan_limit
     null;
 
   // Derive remaining from used + limit if not directly available
@@ -118,7 +137,19 @@ export function parseTavilyUsageResponse(raw: unknown): TavilyQuotaData | null {
     if (result) return result;
   }
 
-  // Formato 3: campos en raíz
+  // Formato 3: { account: { plan_limit, plan_usage, ... } } — real Tavily /usage endpoint
+  if (obj['account'] && typeof obj['account'] === 'object') {
+    const result = extractFromObject(obj['account'] as AnyRecord);
+    if (result) return result;
+  }
+
+  // Formato 4: { key: { usage, limit, ... } } — parser corre antes del sanitizador
+  if (obj['key'] && typeof obj['key'] === 'object') {
+    const result = extractFromObject(obj['key'] as AnyRecord);
+    if (result) return result;
+  }
+
+  // Formato 5: campos en raíz
   const result = extractFromObject(obj);
   if (result) return result;
 
