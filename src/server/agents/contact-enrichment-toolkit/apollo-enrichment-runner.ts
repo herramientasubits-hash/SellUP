@@ -452,6 +452,35 @@ function buildCompletionMetadata(
   return { status: res.status, reason: res.reason ?? null };
 }
 
+/**
+ * Metadata post-completion que refleja el estado real del candidato después de
+ * people/match. Permite distinguir el estado pre-completion (relevance.status)
+ * del estado final accionable sin perder trazabilidad.
+ *
+ * - is_actionable: true si el candidato tiene al menos un canal después de completion.
+ * - actionable_channels: lista de canales presentes (email/linkedin_url/phone).
+ * - became_reviewable_after_completion: true para perfiles insufficient_data que
+ *   completion convirtió en accionables (17A.8B). false para perfiles que ya eran
+ *   revisables antes de completion.
+ * - pre_completion_status: veredicto de relevancia ANTES de completion para trazabilidad.
+ */
+function buildPostCompletionMetadata(
+  finalContact: NormalizedApolloContact,
+  preCompletionStatus: ContactRelevanceStatus,
+  becameReviewableAfterCompletion: boolean,
+): Record<string, unknown> {
+  const actionableChannels: string[] = [];
+  if (finalContact.email?.trim()) actionableChannels.push('email');
+  if (finalContact.linkedinUrl?.trim()) actionableChannels.push('linkedin_url');
+  if (finalContact.phone?.trim()) actionableChannels.push('phone');
+  return {
+    is_actionable: actionableChannels.length > 0,
+    actionable_channels: actionableChannels,
+    became_reviewable_after_completion: becameReviewableAfterCompletion,
+    pre_completion_status: preCompletionStatus,
+  };
+}
+
 // ── Runner principal ───────────────────────────────────────────
 
 export async function executeContactEnrichmentApolloRun(
@@ -835,6 +864,7 @@ export async function executeContactEnrichmentApolloRun(
         relevance: relevanceMetadata(item.relevance),
         apollo_search_attempt: chosenAttempt,
         completion: buildCompletionMetadata(res, true),
+        post_completion: buildPostCompletionMetadata(finalContact, item.relevance.relevanceStatus, false),
       },
     });
   }
@@ -851,7 +881,11 @@ export async function executeContactEnrichmentApolloRun(
         ...res.contact.enrichmentMetadata,
         relevance: relevanceMetadata(item.relevance),
         apollo_search_attempt: chosenAttempt,
-        completion: buildCompletionMetadata(res, false),
+        // FIX 17A.8E: hadActionableChannel debe ser true porque res.isActionableAfter === true.
+        // Antes hardcodeado en false, lo que era incorrecto para perfiles que completion
+        // convirtió en accionables (e.g., completion agrega linkedin_url).
+        completion: buildCompletionMetadata(res, res.isActionableAfter),
+        post_completion: buildPostCompletionMetadata(res.contact, item.relevance.relevanceStatus, true),
       },
     });
   }
