@@ -397,10 +397,6 @@ function AllowanceSummaryBlock({
     );
   }
 
-  const syncedAtLabel = row.quotaSyncedAt
-    ? new Date(row.quotaSyncedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
-    : null;
-
   return (
     <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
@@ -435,33 +431,57 @@ function AllowanceSummaryBlock({
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Disp. regla SellUp</span>
           <p className="font-medium text-foreground">{ruleAvail}</p>
         </div>
-        <div>
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Fuente de cuota</span>
-          <QuotaSourceBadge source={row.quotaSource} />
-        </div>
-        <div>
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Override manual</span>
-          <p className="font-medium text-foreground">{row.quotaOverrideManual ? 'Sí' : 'No'}</p>
-        </div>
-        {syncedAtLabel && (
-          <div className="col-span-2">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Última sincronización</span>
-            <p className="font-medium text-foreground">{syncedAtLabel}</p>
-          </div>
-        )}
-        {row.creditsRemainingExternal != null && (
-          <div className="col-span-2">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Créditos restantes (API proveedor)</span>
-            <p className="font-medium text-foreground">{row.creditsRemainingExternal.toLocaleString()} cr</p>
-          </div>
-        )}
-        {row.quotaSyncError && (
-          <div className="col-span-2">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Error de sincronización</span>
-            <p className="text-destructive text-xs">{row.quotaSyncError}</p>
-          </div>
-        )}
       </div>
+
+      {/* External quota block — shown when sync data exists or there's a sync error */}
+      {(row.creditsRemainingExternal != null || row.quotaSyncedAt != null || row.quotaSyncError != null) && (
+        <div className="mt-1 rounded-md border border-border/30 bg-muted/5 px-3 py-2.5 space-y-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
+            Cuota externa (API proveedor)
+          </p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            <div>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Fuente principal</span>
+              <div className="mt-0.5"><QuotaSourceBadge source={row.quotaSource} /></div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Override manual</span>
+              <p className="font-medium text-foreground">{row.quotaOverrideManual ? 'Sí' : 'No'}</p>
+            </div>
+            <div className="col-span-2">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Última sincronización API</span>
+              <p className="font-medium text-foreground">
+                {row.quotaSyncedAt
+                  ? new Date(row.quotaSyncedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
+                  : 'Sin sincronización'}
+              </p>
+            </div>
+            {row.creditsRemainingExternal != null && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Créditos externos restantes</span>
+                <p className="font-medium text-foreground">{row.creditsRemainingExternal.toLocaleString()} cr</p>
+              </div>
+            )}
+            {row.usdCostMtd != null && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Costo externo MTD</span>
+                <p className="font-medium text-foreground">${row.usdCostMtd.toFixed(2)}</p>
+              </div>
+            )}
+            {row.quotaSyncError && (
+              <div className="col-span-2">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Error de sync</span>
+                <p className="text-destructive text-xs">{row.quotaSyncError}</p>
+              </div>
+            )}
+          </div>
+          {row.quotaOverrideManual && !row.quotaSyncError && (
+            <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+              La cuota manual no se sobrescribe con la sincronización automática. Los datos externos se muestran como referencia.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -586,17 +606,69 @@ function ProviderActivityDrawer({
 
 // ── Provider allowance cells ──────────────────────────────────────────────────
 
+function ExternalQuotaLine({
+  creditsRemainingExternal,
+  usdCostMtd,
+  quotaSyncedAt,
+  quotaSyncError,
+}: {
+  creditsRemainingExternal: number | null;
+  usdCostMtd: number | null;
+  quotaSyncedAt: string | null;
+  quotaSyncError: string | null;
+}) {
+  if (quotaSyncError) {
+    return (
+      <p className="text-[10px] text-destructive">
+        Sync error: {quotaSyncError.length > 40 ? quotaSyncError.slice(0, 40) + '…' : quotaSyncError}
+      </p>
+    );
+  }
+  if (creditsRemainingExternal == null && !quotaSyncedAt) return null;
+
+  const parts: string[] = [];
+  if (creditsRemainingExternal != null) parts.push(`${creditsRemainingExternal.toLocaleString()} cr`);
+  if (usdCostMtd != null) parts.push(`$${usdCostMtd.toFixed(2)}`);
+
+  const syncLabel = quotaSyncedAt
+    ? new Date(quotaSyncedAt).toLocaleString('es-CO', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  return (
+    <div className="space-y-0">
+      {parts.length > 0 && (
+        <p className="text-[10px] text-muted-foreground/70">
+          API: {parts.join(' · ')}
+        </p>
+      )}
+      {syncLabel && (
+        <p className="text-[10px] text-muted-foreground/50">
+          Sync: {syncLabel}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function AllowanceCell({
   allowance,
   available,
   isNotMeasured,
   quotaSource,
+  creditsRemainingExternal,
+  usdCostMtd,
+  quotaSyncedAt,
+  quotaSyncError,
   onConfigure,
 }: {
   allowance: string;
   available: { label: string; overrun: boolean } | null;
   isNotMeasured: boolean;
   quotaSource: QuotaSource | null;
+  creditsRemainingExternal: number | null;
+  usdCostMtd: number | null;
+  quotaSyncedAt: string | null;
+  quotaSyncError: string | null;
   onConfigure: () => void;
 }) {
   if (isNotMeasured) {
@@ -619,6 +691,10 @@ function AllowanceCell({
       </div>
     );
   }
+
+  // For api_synced without override, the external value IS the main value — no separate line needed
+  const showExternalLine = quotaSource === 'manual' || quotaSyncError != null;
+
   return (
     <div className="space-y-0.5">
       <div className="flex items-center gap-1.5">
@@ -629,6 +705,14 @@ function AllowanceCell({
         <p className={`text-[10px] ${available.overrun ? 'text-destructive font-medium' : 'text-muted-foreground/70'}`}>
           {available.overrun ? '⚠ ' : ''}Disp: {available.label}
         </p>
+      )}
+      {showExternalLine && (
+        <ExternalQuotaLine
+          creditsRemainingExternal={creditsRemainingExternal}
+          usdCostMtd={usdCostMtd}
+          quotaSyncedAt={quotaSyncedAt}
+          quotaSyncError={quotaSyncError}
+        />
       )}
     </div>
   );
@@ -779,6 +863,10 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                         available={availableResult}
                         isNotMeasured={isNotMeasured}
                         quotaSource={row.quotaSource}
+                        creditsRemainingExternal={row.creditsRemainingExternal}
+                        usdCostMtd={row.usdCostMtd}
+                        quotaSyncedAt={row.quotaSyncedAt}
+                        quotaSyncError={row.quotaSyncError}
                         onConfigure={() => setEditingProvider(row)}
                       />
                     </td>

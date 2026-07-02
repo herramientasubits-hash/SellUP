@@ -115,7 +115,7 @@ async function applySuccessfulSync(
     triggered_by: 'admin',
     credits_remaining_external: params.creditsRemaining,
     synced_at: new Date().toISOString(),
-    error_message: skippedAllowance ? 'skipped_allowance_due_manual_override' : null,
+    error_message: null,
   };
   if (usdCostMtd !== null) logRow['usd_cost_mtd'] = usdCostMtd;
   if (periodEnd) logRow['billing_period_end'] = periodEnd;

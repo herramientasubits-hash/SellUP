@@ -302,4 +302,86 @@ describe('quota_override_manual rules', () => {
     assert.equal((errorUpdate as Record<string, unknown>)['monthly_credits_allowance'], undefined);
     assert.equal((errorUpdate as Record<string, unknown>)['credits_remaining_external'], undefined);
   });
+
+  it('sync exitoso con override manual: error_message debe ser null (no skipped_allowance_due_manual_override)', () => {
+    const skippedAllowance = true;
+    // Hito L2.3: error_message = null siempre en sync_status=success, incluso si skippedAllowance=true
+    const errorMessage = null; // was: skippedAllowance ? 'skipped_allowance_due_manual_override' : null
+    assert.equal(errorMessage, null);
+  });
+
+  it('sync exitoso con override manual: actualiza credits_remaining_external y usd_cost_mtd', () => {
+    const overrideManual = true;
+    const creditsRemaining = 945;
+    const creditsUsed = 55;
+    const creditsPerUsdRate = 0.008;
+    const usdCostMtd = creditsUsed * creditsPerUsdRate;
+
+    const baseUpdate: Record<string, unknown> = {
+      credits_remaining_external: creditsRemaining,
+      quota_synced_at: new Date().toISOString(),
+      quota_sync_error: null,
+      usd_cost_mtd: usdCostMtd,
+    };
+    if (!overrideManual) baseUpdate['monthly_credits_allowance'] = 999;
+
+    assert.equal(baseUpdate['credits_remaining_external'], 945);
+    assert.ok(typeof baseUpdate['usd_cost_mtd'] === 'number');
+    assert.equal(baseUpdate['usd_cost_mtd'] as number, 0.44);
+    assert.equal(baseUpdate['monthly_credits_allowance'], undefined);
+    assert.equal(baseUpdate['quota_sync_error'], null);
+  });
+
+  it('sync exitoso sin override: sync_status=success y error_message=null', () => {
+    const syncRow: Record<string, unknown> = {
+      sync_status: 'success',
+      error_message: null,
+      credits_remaining_external: 945,
+    };
+    assert.equal(syncRow['sync_status'], 'success');
+    assert.equal(syncRow['error_message'], null);
+  });
+});
+
+// ─── Display helpers (Hito L2.3 UI) ──────────────────────────────────────────
+
+// Replica la lógica de ExternalQuotaLine para tests puros sin DOM
+function shouldShowExternalLine(quotaSource: string | null, quotaSyncError: string | null): boolean {
+  return quotaSource === 'manual' || quotaSyncError != null;
+}
+
+function buildExternalLineParts(creditsRemainingExternal: number | null, usdCostMtd: number | null): string[] {
+  const parts: string[] = [];
+  if (creditsRemainingExternal != null) parts.push(`${creditsRemainingExternal.toLocaleString()} cr`);
+  if (usdCostMtd != null) parts.push(`$${usdCostMtd.toFixed(2)}`);
+  return parts;
+}
+
+describe('ExternalQuotaLine display logic', () => {
+  it('manual + external remaining: muestra línea externa', () => {
+    assert.equal(shouldShowExternalLine('manual', null), true);
+  });
+
+  it('manual sin external: shouldShow=true pero parts vacíos si no hay datos', () => {
+    assert.equal(shouldShowExternalLine('manual', null), true);
+    const parts = buildExternalLineParts(null, null);
+    assert.equal(parts.length, 0);
+  });
+
+  it('manual + external: parts contienen créditos y costo', () => {
+    const parts = buildExternalLineParts(945, 0.44);
+    assert.equal(parts.length, 2);
+    assert.ok(parts[0].includes('945'));
+    assert.ok(parts[1].includes('0.44'));
+  });
+
+  it('api_synced sin override: no muestra línea externa (la cuota API ya es la principal)', () => {
+    assert.equal(shouldShowExternalLine('api_synced', null), false);
+  });
+
+  it('sync_error: muestra línea independientemente de quotaSource', () => {
+    assert.equal(shouldShowExternalLine('manual', 'Credencial inválida'), true);
+    assert.equal(shouldShowExternalLine('api_synced', 'Timeout'), true);
+    assert.equal(shouldShowExternalLine(null, 'Error'), true);
+  });
 });

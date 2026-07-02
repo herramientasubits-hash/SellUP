@@ -110,6 +110,8 @@ export interface AdminProviderBudgetRow {
   quotaOverrideManual: boolean;
   /** Credits remaining as reported by the provider's API. null if never synced. Hito L2. */
   creditsRemainingExternal: number | null;
+  /** USD cost month-to-date as reported by the provider's API. null if not available. Hito L2.3. */
+  usdCostMtd: number | null;
 }
 
 export interface AdminBudgetSummary {
