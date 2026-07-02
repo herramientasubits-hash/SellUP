@@ -1,8 +1,10 @@
 /**
- * Tests — RepúblicaDominicana.2A.1 — Clasificación visual de fuentes RD pendientes
+ * Tests — RepúblicaDominicana.2A.1 / 2H — Clasificación visual de fuentes RD
  *
  * Verifica que do_camaratic, do_camara_sto_domingo y do_dgcp tienen
  * los campos operativos correctos y no caen en fallback pending_classification.
+ * RD.2H: do_dgcp queda como connected_post_approval (offline_signal) — señal
+ * procurement B2G local, partial_snapshot 2020–2026, no fuente legal/fiscal.
  * Verifica que rd_dgii_bulk, México, Perú y Chile no fueron alterados.
  */
 
@@ -88,7 +90,7 @@ describe('RD.2A.1 — do_camara_sto_domingo', () => {
   });
 });
 
-describe('RD.2A.1 — do_dgcp', () => {
+describe('RD.2H — do_dgcp connected_post_approval', () => {
   it('existe en el catálogo', () => {
     assert.ok(CATALOG_SOURCES.find(s => s.key === 'do_dgcp'));
   });
@@ -100,12 +102,20 @@ describe('RD.2A.1 — do_dgcp', () => {
     assert.notEqual(c.aiFlowStatus, 'pending_classification');
   });
 
-  it('aiFlowStatus es eligible_not_connected', () => {
-    assert.equal(getSource('do_dgcp').aiFlowStatus, 'eligible_not_connected');
+  it('aiFlowStatus es connected_post_approval (RD.2H)', () => {
+    assert.equal(getSource('do_dgcp').aiFlowStatus, 'connected_post_approval');
   });
 
-  it('connectionMode es not_connected (puede mostrar CTA Conectar)', () => {
-    assert.equal(getSource('do_dgcp').connectionMode, 'not_connected');
+  it('ya NO es eligible_not_connected', () => {
+    assert.notEqual(getSource('do_dgcp').aiFlowStatus, 'eligible_not_connected');
+  });
+
+  it('connectionMode es offline_signal (snapshot local, sin credenciales)', () => {
+    assert.equal(getSource('do_dgcp').connectionMode, 'offline_signal');
+  });
+
+  it('connectionMode NO es not_connected — no debe mostrar CTA Conectar', () => {
+    assert.notEqual(getSource('do_dgcp').connectionMode, 'not_connected');
   });
 
   it('tipo es procurement (señal B2G, no legal/tributario)', () => {
@@ -114,6 +124,21 @@ describe('RD.2A.1 — do_dgcp', () => {
 
   it('sellupUse es commercial_signal', () => {
     assert.equal(getSource('do_dgcp').sellupUse, 'commercial_signal');
+  });
+
+  it('nextAction menciona partial_snapshot y no reemplaza DGII', () => {
+    const na = getSource('do_dgcp').nextAction ?? '';
+    assert.ok(na.includes('53.974'), 'nextAction debe mencionar 53.974 proveedores');
+    assert.ok(na.includes('DGII'), 'nextAction debe mencionar DGII');
+    assert.ok(na.length > 0, 'nextAction no debe estar vacío');
+  });
+
+  it('no se presenta como legal_registry', () => {
+    assert.notEqual(getSource('do_dgcp').type, 'legal_registry');
+  });
+
+  it('no se presenta como tax_registry', () => {
+    assert.notEqual(getSource('do_dgcp').type, 'tax_registry');
   });
 });
 

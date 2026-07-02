@@ -204,14 +204,14 @@ describe('DGCP coverage: no invented CIIU', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 12. Source Catalog connection mode remains not_connected
+// 12. Coverage status es partial_snapshot, NO complete_snapshot
 // ---------------------------------------------------------------------------
 
-describe('DGCP coverage: source catalog status', () => {
-  it('pilot load does not imply connected_post_approval', async () => {
-    // The service itself never sets aiFlowStatus or connectionMode —
-    // verifying that coverageStatus is pilot_sample ensures the card
-    // cannot truthfully claim operational connection.
+describe('DGCP coverage: partial_snapshot guardrail', () => {
+  it('partial_snapshot no implica complete_snapshot (cobertura 53.974, no universo completo)', async () => {
+    // El servicio nunca fija aiFlowStatus — la cobertura es partial_snapshot.
+    // do_dgcp ya es connected_post_approval en Source Catalog (RD.2H),
+    // pero la cobertura sigue siendo parcial, no complete_snapshot.
     const result = await getDgcpSourceCoverageSummary();
     assert.notStrictEqual(result.coverageStatus, 'complete_snapshot');
     assert.strictEqual(result.isProcurementSignalOnly, true);

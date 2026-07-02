@@ -957,9 +957,10 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     key: 'do_dgcp',
     name: 'DGCP (Dirección General de Contrataciones Públicas RD)',
     sellupUse: 'commercial_signal',
-    aiFlowStatus: 'eligible_not_connected',
-    connectionMode: 'not_connected',
-    nextAction: 'Señal B2G disponible en portal OCDS DGCP. Requiere validación de endpoint API o descarga antes de conectar.',
+    aiFlowStatus: 'connected_post_approval',
+    connectionMode: 'offline_signal',
+    nextAction:
+      'Conectada como señal procurement B2G local. Snapshot parcial 2020–2026 con 53.974 proveedores cargados. El post-approval puede usar match local por RNC. No es fuente legal ni tributaria; no reemplaza DGII.',
     countryCodes: ['DO'],
     sectors: [],
     priority: 'P2',
@@ -970,8 +971,8 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse: 'Proveedores del Estado dominicano con RNC. Datos desde 2005. Señal de empresa activa con historial contractual B2G en República Dominicana. Portal de datos abiertos OCDS.',
     limitations: [
       'Solo empresas proveedoras del Estado dominicano — no representa el universo empresarial completo de RD',
-      'Portal SPA (React) — extracción requiere inspeccionar API subyacente o usar datos.gob.do',
-      'Volumen moderado — decenas de miles de proveedores registrados, no millones',
+      'Cobertura parcial: snapshot 2020–2026 con 53.974 proveedores (partial_snapshot, no complete_snapshot)',
+      'No es fuente legal ni tributaria — no valida RNC, no reemplaza DGII',
     ],
     riskNotes: [
       'Miembro Open Contracting Partnership (OCDS) — datos bajo estándares abiertos, riesgo legal bajo',
