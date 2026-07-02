@@ -517,3 +517,124 @@ describe('executeContactEnrichmentApolloRun — 17A.8B', () => {
     assert.equal(relevanceFilter.insufficient_data_count, 1);
   });
 });
+
+// ── Tests: 17A.8C — Trazabilidad créditos completion/person_match ─
+
+describe('17A.8C — actual_credits_total refleja créditos reales de person_match', () => {
+  /** person_match devuelve persona pero sin campos nuevos (como Siesa). */
+  function makeMatchNoNewFields(): ApolloEnrichmentRunnerDeps['completeContact'] {
+    return async (input) => ({
+      status: 'completed',
+      contact: input.candidate,
+      completedFields: [],
+      wasActionableBefore: false,
+      isActionableAfter: false,
+      providerUsage: { provider: 'apollo', operation: 'person_match', creditsUsed: 1 },
+    });
+  }
+
+  it('3 person_match con completedFields vacíos → actual_credits_total = 3', async () => {
+    // Simula el caso Siesa: 3 perfiles insufficient_data con señal HR,
+    // Apollo retorna persona pero sin email/linkedin/phone nuevos.
+    const people = [
+      personIncomplete('p1', 'HR Manager'),
+      personIncomplete('p2', 'People Manager'),
+      personIncomplete('p3', 'HR Business Partner'),
+    ];
+    const { deps, lastSummary } = makeHarness(
+      makeApolloResult(people),
+      makeMatchNoNewFields(),
+    );
+
+    await executeContactEnrichmentApolloRun('run-8b', undefined, deps);
+
+    const summary = lastSummary();
+    const completion = (summary.apollo_enrichment as Record<string, unknown>)
+      ?.contact_completion as Record<string, unknown>;
+    const guardrail = completion?.cost_guardrail as Record<string, unknown>;
+
+    assert.ok(guardrail, 'cost_guardrail debe existir en contact_completion');
+    assert.equal(guardrail.actual_credits_total, 3, 'actual_credits_total debe ser 3 (1 por person_match)');
+    assert.equal(guardrail.actual_credits_phone, 0, 'actual_credits_phone debe ser 0');
+    assert.equal(guardrail.actual_credits_email, 3, 'actual_credits_email = total - phone = 3');
+  });
+
+  it('actual_credits_phone = 0 cuando phone completion está desactivado', async () => {
+    const { deps, lastSummary } = makeHarness(
+      makeApolloResult([personIncomplete('p1', 'HR Manager')]),
+      makeMatchNoNewFields(),
+    );
+
+    await executeContactEnrichmentApolloRun('run-8b', undefined, deps);
+
+    const summary = lastSummary();
+    const completion = (summary.apollo_enrichment as Record<string, unknown>)
+      ?.contact_completion as Record<string, unknown>;
+    const guardrail = completion?.cost_guardrail as Record<string, unknown>;
+
+    assert.equal(guardrail.phone_completion_enabled, false);
+    assert.equal(guardrail.actual_credits_phone, 0);
+  });
+
+  it('person_match consume créditos pero no produce canal accionable → no crea candidato, sí registra créditos', async () => {
+    const { deps, written, lastSummary } = makeHarness(
+      makeApolloResult([personIncomplete('p1', 'HR Manager')]),
+      makeMatchNoNewFields(),
+    );
+
+    const result = await executeContactEnrichmentApolloRun('run-8b', undefined, deps);
+
+    assert.equal(result.candidatesCreated, 0, 'no debe crear candidato sin canal accionable');
+    assert.equal(written.flat().length, 0);
+
+    const summary = lastSummary();
+    const completion = (summary.apollo_enrichment as Record<string, unknown>)
+      ?.contact_completion as Record<string, unknown>;
+    const guardrail = completion?.cost_guardrail as Record<string, unknown>;
+    assert.ok(
+      (guardrail.actual_credits_total as number) > 0,
+      'se deben registrar créditos aunque no se cree candidato',
+    );
+  });
+
+  it('logUsage de person_match incluye metadata de completion', async () => {
+    const logs: Parameters<typeof import('@/modules/usage-tracking/logging').logProviderUsage>[0][] = [];
+    const { deps } = makeHarness(
+      makeApolloResult([personIncomplete('p1', 'HR Manager')]),
+      makeMatchNoNewFields(),
+      { logUsage: async (entry) => { logs.push(entry); return true; } },
+    );
+
+    await executeContactEnrichmentApolloRun('run-8b', undefined, deps);
+
+    const matchLog = logs.find((l) => l.operation_key === 'person_match');
+    assert.ok(matchLog, 'debe existir un log con operation_key = person_match');
+
+    const meta = matchLog.metadata as Record<string, unknown>;
+    assert.ok('company_name' in meta, 'metadata debe incluir company_name');
+    assert.ok('attempted_count' in meta, 'metadata debe incluir attempted_count');
+    assert.ok('completed_fields_count' in meta, 'metadata debe incluir completed_fields_count');
+    assert.ok('actual_completion_credits_total' in meta, 'metadata debe incluir actual_completion_credits_total');
+    assert.ok('actual_completion_credits_phone' in meta, 'metadata debe incluir actual_completion_credits_phone');
+    assert.ok('phone_completion_enabled' in meta, 'metadata debe incluir phone_completion_enabled');
+    assert.equal(meta.source, 'contact_enrichment_completion');
+    assert.equal(meta.phone_completion_enabled, false);
+  });
+
+  it('si attempted_count = 0, actual_credits_total = 0 (no se llamó a person_match)', async () => {
+    // Todos los perfiles son accionables de por sí → se saltan, 0 intentos
+    const { deps, lastSummary } = makeHarness(
+      makeApolloResult([]),
+    );
+
+    await executeContactEnrichmentApolloRun('run-8b', undefined, deps);
+
+    const summary = lastSummary();
+    const completion = (summary.apollo_enrichment as Record<string, unknown>)
+      ?.contact_completion as Record<string, unknown>;
+    const guardrail = completion?.cost_guardrail as Record<string, unknown>;
+
+    assert.equal(guardrail.attempted_count ?? 0, 0);
+    assert.equal(guardrail.actual_credits_total, 0);
+  });
+});

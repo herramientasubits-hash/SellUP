@@ -747,9 +747,11 @@ export async function executeContactEnrichmentApolloRun(
     completionSummary.skipped_count = allForCompletion.length;
   }
 
-  completionSummary.cost_guardrail.actual_credits_email = creditsEmail;
+  // All non-phone completion credits are attributed to email/basic data lookup
+  // because person_match always costs 1 credit per call regardless of what fields it returns.
+  completionSummary.cost_guardrail.actual_credits_email = completionCredits - creditsPhone;
   completionSummary.cost_guardrail.actual_credits_phone = creditsPhone;
-  completionSummary.cost_guardrail.actual_credits_total = creditsEmail + creditsPhone;
+  completionSummary.cost_guardrail.actual_credits_total = completionCredits;
 
   // 7c. Filtro accionable final: cada revisable (completado o no) debe quedar con
   //     nombre + cargo + al menos un canal (email/linkedin/phone). Sin canal → fuera.
@@ -908,7 +910,7 @@ export async function executeContactEnrichmentApolloRun(
     },
   });
 
-  if (completionCredits > 0) {
+  if (completionSummary.attempted_count > 0) {
     await logUsage({
       agent_run_id: run.agent_run_id ?? undefined,
       agent_run_step_id: step?.id,
@@ -923,10 +925,13 @@ export async function executeContactEnrichmentApolloRun(
       metadata: {
         company_name: run.company_name,
         company_domain: run.company_domain,
-        eligible_count: completionSummary.eligible_count,
         attempted_count: completionSummary.attempted_count,
         completed_count: completionSummary.completed_count,
-        failed_count: completionSummary.failed_count,
+        completed_fields_count: completionSummary.completed_fields_count,
+        actual_completion_credits_total: completionCredits,
+        actual_completion_credits_phone: creditsPhone,
+        phone_completion_enabled: PHONE_COMPLETION_ENABLED,
+        source: 'contact_enrichment_completion',
         pricing_source: 'provider_pricing_config',
         pricing_basis: 'per_result_as_credit',
         unit_cost_usd: unitCost,

@@ -460,7 +460,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
           <p className="text-[11px] font-medium text-muted-foreground">Créditos de completion</p>
           <dl className="space-y-1 text-xs">
             <div className="flex justify-between">
-              <dt className="text-muted-foreground">Email</dt>
+              <dt className="text-muted-foreground">Email/básico</dt>
               <dd className="font-medium text-foreground">
                 {result.costGuardrail.actual_credits_email}
               </dd>
@@ -482,7 +482,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
             <div className="flex justify-between border-t border-border/50 pt-1">
               <dt className="text-muted-foreground">Total</dt>
               <dd className="font-semibold text-foreground">
-                {result.costGuardrail.actual_credits_total === 0
+                {result.costGuardrail.actual_credits_total === 0 && result.completionAttempted === 0
                   ? 'sin créditos de completion'
                   : `${result.costGuardrail.actual_credits_total} créditos`}
               </dd>
@@ -492,6 +492,13 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
             <p className="text-[11px] text-amber-600">
               Guardrail activado — algunos perfiles no se completaron para no superar el límite de{' '}
               {result.costGuardrail.max_credits_per_run} créditos.
+            </p>
+          )}
+          {result.completionAttempted > 0 && result.actionableContactsCount === 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              Se intentó completar datos en {result.completionAttempted} perfil
+              {result.completionAttempted !== 1 ? 'es' : ''}, pero Apollo no devolvió canales
+              accionables.
             </p>
           )}
         </div>
