@@ -13,6 +13,7 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAdminClient } from './queries';
 import { fetchTavilyQuota } from '@/server/services/tavily-quota-sync';
 import { fetchLushaQuota } from '@/server/services/lusha-quota-sync';
+import type { QuotaSyncObservability } from '@/server/services/tavily-quota-sync';
 
 // Proveedores habilitados para sync manual desde UI
 const SYNCABLE_PROVIDERS = ['tavily', 'lusha'] as const;
@@ -67,6 +68,7 @@ async function applySuccessfulSync(
     billingPeriodEnd: string | null;
     creditsPerUsdRate: number | null;
   },
+  obs?: QuotaSyncObservability,
 ): Promise<QuotaSyncResult> {
   const overrideManual = await readQuotaOverrideManual(admin, providerKey);
   const periodEnd = safeDateString(params.billingPeriodEnd);
@@ -109,6 +111,7 @@ async function applySuccessfulSync(
   const logRow: Record<string, unknown> = {
     provider_key: providerKey,
     source: 'api_synced',
+    sync_status: 'success',
     triggered_by: 'admin',
     credits_remaining_external: params.creditsRemaining,
     synced_at: new Date().toISOString(),
@@ -117,6 +120,12 @@ async function applySuccessfulSync(
   if (usdCostMtd !== null) logRow['usd_cost_mtd'] = usdCostMtd;
   if (periodEnd) logRow['billing_period_end'] = periodEnd;
   if (params.creditsPerUsdRate !== null) logRow['credits_per_usd_rate'] = params.creditsPerUsdRate;
+  if (obs) {
+    if (obs.httpStatus !== undefined) logRow['http_status'] = obs.httpStatus;
+    logRow['endpoint'] = obs.endpoint;
+    if (obs.responseShape !== null) logRow['response_shape'] = obs.responseShape;
+    if (obs.rawResponseSanitized !== null) logRow['raw_response_sanitized'] = obs.rawResponseSanitized;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (admin as any).from('tool_quota_sync_logs').insert(logRow);
@@ -128,6 +137,7 @@ async function applyFailedSync(
   admin: ReturnType<typeof getAdminClient>,
   providerKey: string,
   errorMessage: string,
+  obs?: QuotaSyncObservability,
 ): Promise<void> {
   const overrideManual = await readQuotaOverrideManual(admin, providerKey);
 
@@ -145,14 +155,23 @@ async function applyFailedSync(
     .update(update)
     .eq('provider_key', providerKey);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (admin as any).from('tool_quota_sync_logs').insert({
+  const logRow: Record<string, unknown> = {
     provider_key: providerKey,
     source: 'sync_error',
+    sync_status: 'error',
     triggered_by: 'admin',
     error_message: errorMessage,
     synced_at: new Date().toISOString(),
-  });
+  };
+  if (obs) {
+    if (obs.httpStatus !== undefined) logRow['http_status'] = obs.httpStatus;
+    logRow['endpoint'] = obs.endpoint;
+    if (obs.responseShape !== null) logRow['response_shape'] = obs.responseShape;
+    if (obs.rawResponseSanitized !== null) logRow['raw_response_sanitized'] = obs.rawResponseSanitized;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (admin as any).from('tool_quota_sync_logs').insert(logRow);
 }
 
 // ── Tavily sync ───────────────────────────────────────────────────────────────
@@ -163,7 +182,7 @@ async function syncTavily(
   const result = await fetchTavilyQuota();
 
   if (!result.ok) {
-    await applyFailedSync(admin, 'tavily', result.error);
+    await applyFailedSync(admin, 'tavily', result.error, result.obs);
     return { success: false, error: result.error };
   }
 
@@ -173,7 +192,7 @@ async function syncTavily(
     planLimitCredits: result.data.planLimitCredits,
     billingPeriodEnd: result.data.billingPeriodEnd,
     creditsPerUsdRate: 0.008, // Tavily: 1 cr = $0.008
-  });
+  }, result.obs);
 }
 
 // ── Lusha sync ────────────────────────────────────────────────────────────────
@@ -184,7 +203,7 @@ async function syncLusha(
   const result = await fetchLushaQuota();
 
   if (!result.ok) {
-    await applyFailedSync(admin, 'lusha', result.error);
+    await applyFailedSync(admin, 'lusha', result.error, result.obs);
     return { success: false, error: result.error };
   }
 
@@ -194,7 +213,7 @@ async function syncLusha(
     planLimitCredits: result.data.totalCredits,
     billingPeriodEnd: result.data.renewalDate,
     creditsPerUsdRate: null, // Lusha no expone costo unitario por crédito
-  });
+  }, result.obs);
 }
 
 // ── Public action ─────────────────────────────────────────────────────────────

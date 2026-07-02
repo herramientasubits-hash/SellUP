@@ -12,6 +12,7 @@
  */
 
 import { getTavilyApiKey } from '@/server/services/tavily-connection';
+import { sanitizeQuotaSyncResponse, getResponseShape, sanitizeEndpointUrl } from '@/server/services/quota-sync-sanitizer';
 
 const TAVILY_USAGE_ENDPOINT = 'https://api.tavily.com/usage';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -26,9 +27,17 @@ export interface TavilyQuotaData {
   billingPeriodEnd: string | null;
 }
 
+/** Campos de observabilidad incluidos en el resultado para logging seguro */
+export interface QuotaSyncObservability {
+  httpStatus?: number;
+  endpoint: string;
+  responseShape: unknown;
+  rawResponseSanitized: unknown;
+}
+
 export type TavilyQuotaSyncResult =
-  | { ok: true; data: TavilyQuotaData }
-  | { ok: false; error: string };
+  | { ok: true; data: TavilyQuotaData; obs: QuotaSyncObservability }
+  | { ok: false; error: string; obs?: QuotaSyncObservability };
 
 // ── Parser defensivo ───────────────────────────────────────────────────────────
 
@@ -132,6 +141,8 @@ export async function fetchTavilyQuota(): Promise<TavilyQuotaSyncResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+  const endpoint = sanitizeEndpointUrl(TAVILY_USAGE_ENDPOINT);
+
   try {
     const response = await fetch(TAVILY_USAGE_ENDPOINT, {
       method: 'GET',
@@ -144,26 +155,36 @@ export async function fetchTavilyQuota(): Promise<TavilyQuotaSyncResult> {
 
     clearTimeout(timeoutId);
 
+    const httpStatus = response.status;
+
     if (response.status === 401 || response.status === 403) {
-      return { ok: false, error: `Proveedor respondió ${response.status}` };
+      return { ok: false, error: `Proveedor respondió ${response.status}`, obs: { httpStatus, endpoint, responseShape: null, rawResponseSanitized: null } };
     }
 
     if (response.status === 429) {
-      return { ok: false, error: 'Proveedor respondió 429' };
+      return { ok: false, error: 'Proveedor respondió 429', obs: { httpStatus, endpoint, responseShape: null, rawResponseSanitized: null } };
     }
 
     if (!response.ok) {
-      return { ok: false, error: `Proveedor respondió ${response.status}` };
+      const rawError = await response.json().catch(() => null);
+      return { ok: false, error: `Proveedor respondió ${response.status}`, obs: { httpStatus, endpoint, responseShape: getResponseShape(rawError), rawResponseSanitized: sanitizeQuotaSyncResponse(rawError) } };
     }
 
     const raw = await response.json().catch(() => null);
     const parsed = parseTavilyUsageResponse(raw);
 
+    const obs: QuotaSyncObservability = {
+      httpStatus,
+      endpoint,
+      responseShape: getResponseShape(raw),
+      rawResponseSanitized: sanitizeQuotaSyncResponse(raw),
+    };
+
     if (!parsed) {
-      return { ok: false, error: 'Respuesta sin campos de cuota reconocibles' };
+      return { ok: false, error: 'Respuesta sin campos de cuota reconocibles', obs };
     }
 
-    return { ok: true, data: parsed };
+    return { ok: true, data: parsed, obs };
   } catch (err: unknown) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {

@@ -12,6 +12,8 @@
  */
 
 import { getLushaApiKey } from '@/server/services/lusha-connection';
+import { sanitizeQuotaSyncResponse, getResponseShape, sanitizeEndpointUrl } from '@/server/services/quota-sync-sanitizer';
+import type { QuotaSyncObservability } from '@/server/services/tavily-quota-sync';
 
 const LUSHA_USAGE_ENDPOINT = 'https://api.lusha.com/account/usage';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -27,8 +29,8 @@ export interface LushaQuotaData {
 }
 
 export type LushaQuotaSyncResult =
-  | { ok: true; data: LushaQuotaData }
-  | { ok: false; error: string };
+  | { ok: true; data: LushaQuotaData; obs: QuotaSyncObservability }
+  | { ok: false; error: string; obs?: QuotaSyncObservability };
 
 // ── Parser defensivo ───────────────────────────────────────────────────────────
 
@@ -143,6 +145,8 @@ export async function fetchLushaQuota(): Promise<LushaQuotaSyncResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+  const endpoint = sanitizeEndpointUrl(LUSHA_USAGE_ENDPOINT);
+
   try {
     const response = await fetch(LUSHA_USAGE_ENDPOINT, {
       method: 'GET',
@@ -155,30 +159,40 @@ export async function fetchLushaQuota(): Promise<LushaQuotaSyncResult> {
 
     clearTimeout(timeoutId);
 
+    const httpStatus = response.status;
+
     if (response.status === 400 || response.status === 401) {
-      return { ok: false, error: `Proveedor respondió ${response.status}` };
+      return { ok: false, error: `Proveedor respondió ${response.status}`, obs: { httpStatus, endpoint, responseShape: null, rawResponseSanitized: null } };
     }
 
     if (response.status === 403) {
-      return { ok: false, error: 'Proveedor respondió 403' };
+      return { ok: false, error: 'Proveedor respondió 403', obs: { httpStatus, endpoint, responseShape: null, rawResponseSanitized: null } };
     }
 
     if (response.status === 429) {
-      return { ok: false, error: 'Proveedor respondió 429' };
+      return { ok: false, error: 'Proveedor respondió 429', obs: { httpStatus, endpoint, responseShape: null, rawResponseSanitized: null } };
     }
 
     if (!response.ok) {
-      return { ok: false, error: `Proveedor respondió ${response.status}` };
+      const rawError = await response.json().catch(() => null);
+      return { ok: false, error: `Proveedor respondió ${response.status}`, obs: { httpStatus, endpoint, responseShape: getResponseShape(rawError), rawResponseSanitized: sanitizeQuotaSyncResponse(rawError) } };
     }
 
     const raw = await response.json().catch(() => null);
     const parsed = parseLushaUsageResponse(raw);
 
+    const obs: QuotaSyncObservability = {
+      httpStatus,
+      endpoint,
+      responseShape: getResponseShape(raw),
+      rawResponseSanitized: sanitizeQuotaSyncResponse(raw),
+    };
+
     if (!parsed) {
-      return { ok: false, error: 'Respuesta sin campos de cuota reconocibles' };
+      return { ok: false, error: 'Respuesta sin campos de cuota reconocibles', obs };
     }
 
-    return { ok: true, data: parsed };
+    return { ok: true, data: parsed, obs };
   } catch (err: unknown) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
