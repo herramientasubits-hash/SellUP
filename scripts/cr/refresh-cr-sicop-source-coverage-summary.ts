@@ -22,7 +22,8 @@ loadEnvConfig(process.cwd());
 import { createClient } from '@supabase/supabase-js';
 
 // ---------------------------------------------------------------------------
-// Known values — Centroamérica.4B pilot load (2026-07-02)
+// Known values — Centroamérica.4E operational load (2026-07-02)
+// 565.864 filas procesadas → 4.998 proveedores únicos upserted
 // ---------------------------------------------------------------------------
 
 const KNOWN_VALUES = {
@@ -30,34 +31,37 @@ const KNOWN_VALUES = {
   country_code: 'CR',
   coverage_kind: 'procurement_signal_snapshot',
   entity_label: 'proveedores SICOP CR',
-  // pilot_sample: 160 proveedores from 1.000-row sample of 565.864-row dataset
-  coverage_status: 'pilot_sample',
-  loaded_rows: 160,
+  // partial_snapshot: dataset Ofertas 2024 completo; no incluye todos los años ni todos los datasets SICOP
+  coverage_status: 'partial_snapshot',
+  loaded_rows: 4998,
   audited_total_rows: 0,
   audited_active_habido_rows: 0,
   active_habido_rows: 0,
   active_no_habido_rows: 0,
   inactive_habido_rows: 0,
   inactive_no_habido_rows: 0,
-  out_of_scope_entities: 0,
+  out_of_scope_entities: 50875,
   next_recommended_offset: 0,
-  refresh_source: 'cr_4c_pilot_load',
+  refresh_source: 'cr_4e_operational_load',
   coverage_breakdown: {
     source_type: 'procurement_signal',
-    load_type: 'pilot_sample',
+    load_type: 'operational_partial',
     dataset: 'ofertas_2024',
     years_loaded: [2024],
-    processed_rows: 1000,
     source_file_rows: 565_864,
-    loaded_rows: 160,
-    valid_identifiers: 906,
-    skipped_non_company: 94,
+    processed_rows: 565_864,
+    loaded_rows: 4998,
+    valid_identifiers: 514989,
+    skipped_non_company: 50875,
+    skipped_invalid_identifier: 0,
+    skipped_no_identifier: 0,
     limitations: [
-      'Carga piloto controlada, no universo completo SICOP',
-      'Solo muestra de 1.000 filas del dataset Ofertas 2024',
+      'Carga amplia del dataset Ofertas 2024, no universo completo SICOP',
+      'No incluye todos los datasets SICOP ni todos los años',
       'SICOP es señal procurement B2G, no fuente legal ni tributaria',
       'No valida cédula jurídica ni reemplaza Hacienda CR',
       'CIIU no disponible en SICOP — no se inventa',
+      'Nombres de proveedores no disponibles en dataset Ofertas 2024 (solo cédula)',
     ],
   },
   coverage_notes: {
@@ -69,7 +73,7 @@ const KNOWN_VALUES = {
     ai_flow_status: 'eligible_not_connected',
     validates_cedula_juridica: false,
     replaces_hacienda_cr: false,
-    snapshot_source: 'cr_4b_pilot_xlsx_load',
+    snapshot_source: 'cr_4e_operational_xlsx_load',
   },
 } as const;
 
@@ -147,7 +151,7 @@ async function main(): Promise<void> {
     },
   };
 
-  console.log('Mode: pilot load (Centroamérica.4B — 160 proveedores SICOP CR)');
+  console.log('Mode: operational load (Centroamérica.4E — 4998 proveedores SICOP CR, ofertas_2024 completo)');
   console.log('');
   await upsertSummary(admin, payload);
 

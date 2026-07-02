@@ -17,14 +17,19 @@
  *   --dataset=<key>         Dataset SICOP a procesar (default: recursos)
  *                           Valores: recursos, aclaraciones, ofertas_2024, ofertas_2023, ofertas_2022
  *   --limit-rows=<N>        Máximo de filas a procesar del XLSX (default: 500)
+ *                           Usar 0 para procesar todas las filas del archivo.
  *   --max-providers=<N>     Máximo de proveedores únicos a construir (default: 100)
+ *                           Usar 0 para todos los proveedores únicos.
  *   --apply                 Ejecuta upsert real en Supabase (default: dry-run)
+ *   --confirm-large-apply   Habilita apply masivo sin límite de filas/proveedores.
+ *                           Requerido si --limit-rows > 2000 o --max-providers > 500.
+ *                           Solo para cargas operativas amplias controladas (ej: Centroamérica.4E).
  *   --local-file=<path>     Usar XLSX local en lugar de descargar (testing offline)
  *
  * Guardrails de apply:
- *   - limit-rows > 2000 → bloqueado
- *   - max-providers > 500 → bloqueado
- *   - source_key != cr_sicop → bloqueado
+ *   - limit-rows > 2000 sin --confirm-large-apply → bloqueado
+ *   - max-providers > 500 sin --confirm-large-apply → bloqueado
+ *   - source_key != cr_sicop → siempre bloqueado
  *   - No toca accounts, prospect_candidates
  *   - No toca source_coverage_summaries en este hito
  *   - No llama Tavily, LLM, ni otras fuentes
@@ -65,6 +70,7 @@ type EtlArgs = {
   limitRows: number;
   maxProviders: number;
   apply: boolean;
+  confirmLargeApply: boolean;
   localFile: string | null;
 };
 
@@ -74,6 +80,7 @@ function parseArgs(): EtlArgs {
   let limitRows = 500;
   let maxProviders = 100;
   let apply = false;
+  let confirmLargeApply = false;
   let localFile: string | null = null;
 
   for (const arg of argv) {
@@ -81,24 +88,37 @@ function parseArgs(): EtlArgs {
     else if (arg.startsWith('--limit-rows=')) limitRows = parseInt(arg.slice('--limit-rows='.length), 10);
     else if (arg.startsWith('--max-providers=')) maxProviders = parseInt(arg.slice('--max-providers='.length), 10);
     else if (arg === '--apply') apply = true;
+    else if (arg === '--confirm-large-apply') confirmLargeApply = true;
     else if (arg.startsWith('--local-file=')) localFile = arg.slice('--local-file='.length);
   }
 
-  return { dataset, limitRows, maxProviders, apply, localFile };
+  // 0 = sin límite (procesa todo el archivo)
+  if (limitRows === 0) limitRows = Number.MAX_SAFE_INTEGER;
+  if (maxProviders === 0) maxProviders = Number.MAX_SAFE_INTEGER;
+
+  return { dataset, limitRows, maxProviders, apply, confirmLargeApply, localFile };
 }
 
 // ─── Guardrails de apply ───────────────────────────────────────────────────────
 
 function assertApplyGuardrails(args: EtlArgs): void {
-  if (args.limitRows > 2_000) {
+  if (args.limitRows > 2_000 && !args.confirmLargeApply) {
     console.error(`[guardrail] BLOQUEADO: --limit-rows=${args.limitRows} supera el máximo permitido de 2000 para apply.`);
+    console.error(`            Para carga operativa amplia, añade --confirm-large-apply (Centroamérica.4E).`);
     process.exit(1);
   }
-  if (args.maxProviders > 500) {
+  if (args.maxProviders > 500 && !args.confirmLargeApply) {
     console.error(`[guardrail] BLOQUEADO: --max-providers=${args.maxProviders} supera el máximo permitido de 500 para apply.`);
+    console.error(`            Para carga operativa amplia, añade --confirm-large-apply (Centroamérica.4E).`);
     process.exit(1);
   }
-  // Invariante: solo escribimos cr_sicop
+  if (args.confirmLargeApply) {
+    console.log('[guardrail] ⚠️  --confirm-large-apply activo: carga operativa amplia habilitada.');
+    console.log('            Solo escribe en source_company_snapshots con source_key=cr_sicop.');
+    console.log('            No toca accounts, prospect_candidates, source_coverage_summaries.');
+    console.log('            No llama Tavily, LLM, Hacienda CR, ni otras fuentes.\n');
+  }
+  // Invariante: solo escribimos cr_sicop — siempre obligatorio
   if (SICOP_SOURCE_KEY !== 'cr_sicop') {
     console.error(`[guardrail] BLOQUEADO: SICOP_SOURCE_KEY inesperado: ${SICOP_SOURCE_KEY}`);
     process.exit(1);
