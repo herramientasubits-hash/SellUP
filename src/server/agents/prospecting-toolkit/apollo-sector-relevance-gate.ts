@@ -1,5 +1,5 @@
 /**
- * Apollo Sector Relevance Gate (v1.16K-AD)
+ * Apollo Sector Relevance Gate (v1.L2.12-A)
  *
  * Compuerta de relevancia sectorial para resultados Apollo Organizations.
  * Se aplica después del mapping y antes de la escritura/persistencia.
@@ -9,6 +9,13 @@
  *   sectoriales como Educación porque "learning management system" puede
  *   aparecer en cualquier gran corporación. Sin filtro post-API, esos
  *   resultados fluyen al writer y consumen créditos sin valor.
+ *
+ * Extensión L2.12-A — Subindustria como gate de precisión:
+ *   El parámetro `subindustry` (opcional) permite usar señales más estrictas
+ *   cuando la búsqueda tiene una subindustria con mapping propio.
+ *   Ejemplo: sector='Educación' + subindustry='formación corporativa' → gate
+ *   rechaza universidades genéricas y solo pasa LMS vendors / corporate training.
+ *   Sin `subindustry`, o si la subindustria no tiene mapping, aplica señales de sector.
  *
  * Solución:
  *   - Evaluar señales textuales en campos disponibles del candidato mapeado
@@ -29,7 +36,7 @@ import type { WebSearchResult } from './types';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
-export const APOLLO_SECTOR_GATE_VERSION = 'v1.16K-AD';
+export const APOLLO_SECTOR_GATE_VERSION = 'v1.L2.12-A';
 
 // ─── Términos de sector ───────────────────────────────────────────────────────
 
@@ -39,6 +46,10 @@ export const APOLLO_SECTOR_GATE_VERSION = 'v1.16K-AD';
  * Si cualquiera de estas señales aparece en los campos del candidato → pasa el gate.
  */
 const SECTOR_SIGNAL_TERMS: Record<string, string[]> = {
+  /**
+   * Señales amplias de educación — cualquier tipo de empresa educativa pasa.
+   * Usar cuando sector='Educación' sin subindustria específica.
+   */
   educacion: [
     // Español
     'universidad',
@@ -74,6 +85,45 @@ const SECTOR_SIGNAL_TERMS: Record<string, string[]> = {
     'edtech',
     'ed-tech',
   ],
+  /**
+   * Señales estrictas de formación corporativa — solo pasan LMS vendors,
+   * corporate training providers y edtech de capacitación empresarial.
+   *
+   * Deliberadamente excluye: 'education', 'university', 'college', 'school',
+   * 'learning' genérico, 'formacion' genérico — para rechazar universidades
+   * tradicionales (Politécnico, UNAL, etc.) que no son el ICP de SellUp.
+   *
+   * Usar cuando subindustry='formación corporativa' (o variantes normalizadas).
+   */
+  'formacion corporativa': [
+    // Señales de plataforma / producto
+    'lms',
+    'learning management system',
+    'learning management',
+    'e-learning platform',
+    'online learning platform',
+    'training platform',
+    'learning platform',
+    'elearning platform',
+    // Señales de servicio corporativo
+    'corporate training',
+    'corporate learning',
+    'workforce training',
+    'workforce development',
+    'employee training',
+    'capacitacion empresarial',
+    'capacitacion corporativa',
+    'formacion corporativa',
+    'educacion corporativa',
+    'training provider',
+    'corporate education',
+    // Señales de categoría edtech / B2B learning
+    'edtech',
+    'ed-tech',
+    'online learning',
+    'e-learning',
+    'blended learning',
+  ],
 };
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -94,6 +144,13 @@ export type ApolloSectorRelevanceGateMeta = {
   /** El sector fue reconocido y tiene mapping de señales. */
   sector_mapped: boolean;
   sector: string | null;
+  /** Subindustria recibida (L2.12-A). Null si no se proporcionó. */
+  subindustry: string | null;
+  /**
+   * True cuando se usaron las señales de subindustria en lugar de las de sector.
+   * Indica que el gate es más estricto de lo que sería con sector solo.
+   */
+  subindustry_signal_used: boolean;
   strategy: 'sector_evidence_required' | 'passthrough';
   checked_count: number;
   passed_count: number;
@@ -204,15 +261,29 @@ const MAX_SAMPLES = 5;
 /**
  * Aplica el gate de relevancia sectorial a los resultados Apollo.
  *
- * @param results   Resultados ya mapeados por el provider Apollo.
- * @param sector    Sector de la búsqueda (del wizard SellUp), ej. "Educación".
- * @param provider  Provider que generó los resultados. Gate solo actúa para 'apollo_organizations'.
+ * @param results      Resultados ya mapeados por el provider Apollo.
+ * @param sector       Sector de la búsqueda (del wizard SellUp), ej. "Educación".
+ * @param provider     Provider que generó los resultados. Gate solo actúa para 'apollo_organizations'.
+ * @param subindustry  (L2.12-A) Subindustria opcional. Cuando tiene mapping propio usa señales
+ *                     más estrictas en lugar de las del sector padre. Ejemplo: 'formación corporativa'
+ *                     rechaza universidades y solo pasa LMS vendors / corporate training providers.
  */
 export function applyApolloSectorRelevanceGate(
   results: WebSearchResult[],
   sector: string | null | undefined,
   provider: string | null | undefined,
+  subindustry?: string | null,
 ): ApolloSectorGateResult {
+  // Resolver señales: subindustria primero (más específica), sector como fallback.
+  const subindustrySignals = subindustry ? getSectorSignals(subindustry) : null;
+  const sectorSignals = getSectorSignals(sector);
+  const subindustrySignalUsed = !!(subindustrySignals);
+
+  const baseMeta = {
+    subindustry: subindustry ?? null,
+    subindustry_signal_used: subindustrySignalUsed,
+  };
+
   // Gate solo aplica para apollo_organizations
   if (provider !== 'apollo_organizations') {
     return {
@@ -222,6 +293,7 @@ export function applyApolloSectorRelevanceGate(
         enabled: false,
         sector_mapped: false,
         sector: sector ?? null,
+        ...baseMeta,
         strategy: 'passthrough',
         checked_count: 0,
         passed_count: results.length,
@@ -233,9 +305,9 @@ export function applyApolloSectorRelevanceGate(
     };
   }
 
-  const signals = getSectorSignals(sector);
+  const signals = subindustrySignals ?? sectorSignals;
 
-  // Sector sin mapping → passthrough sin bloquear
+  // Sin mapping (ni sector ni subindustria) → passthrough sin bloquear
   if (!signals) {
     return {
       passed: results,
@@ -244,6 +316,7 @@ export function applyApolloSectorRelevanceGate(
         enabled: false,
         sector_mapped: false,
         sector: sector ?? null,
+        ...baseMeta,
         strategy: 'passthrough',
         checked_count: 0,
         passed_count: results.length,
@@ -255,7 +328,7 @@ export function applyApolloSectorRelevanceGate(
     };
   }
 
-  // Sector mapeado → evaluar evidencia
+  // Sector (o subindustria) mapeado → evaluar evidencia
   const passed: WebSearchResult[] = [];
   const rejected: WebSearchResult[] = [];
   const rejectedSamples: ApolloSectorGateSample[] = [];
@@ -272,7 +345,6 @@ export function applyApolloSectorRelevanceGate(
         passedSamples.push({ name, domain, matched_terms: matchedTerms });
       }
     } else {
-      // Enriquecer resultado con skip reason para diagnóstico downstream
       const enrichedResult: WebSearchResult = {
         ...result,
         metadata: {
@@ -299,6 +371,7 @@ export function applyApolloSectorRelevanceGate(
       enabled: true,
       sector_mapped: true,
       sector: sector ?? null,
+      ...baseMeta,
       strategy: 'sector_evidence_required',
       checked_count: results.length,
       passed_count: passed.length,
