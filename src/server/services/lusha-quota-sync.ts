@@ -136,7 +136,14 @@ export function parseLushaUsageResponse(raw: unknown): LushaQuotaData | null {
  * Seguro: nunca expone la API key en errores ni logs.
  */
 export async function fetchLushaQuota(): Promise<LushaQuotaSyncResult> {
-  const apiKey = await getLushaApiKey();
+  // Wrap key retrieval separately so any credential/vault error is a safe return,
+  // not an unhandled exception that escapes to the caller without being logged.
+  let apiKey: string | null;
+  try {
+    apiKey = await getLushaApiKey();
+  } catch {
+    return { ok: false, error: 'Credencial no configurada' };
+  }
 
   if (!apiKey) {
     return { ok: false, error: 'Credencial no configurada' };

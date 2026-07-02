@@ -200,10 +200,19 @@ async function syncTavily(
 async function syncLusha(
   admin: ReturnType<typeof getAdminClient>,
 ): Promise<QuotaSyncResult> {
-  const result = await fetchLushaQuota();
+  let result: Awaited<ReturnType<typeof fetchLushaQuota>>;
+  try {
+    result = await fetchLushaQuota();
+  } catch {
+    // fetchLushaQuota should never throw (returns error objects), but if it does
+    // we must still write a log — otherwise the attempt is invisible.
+    const errMsg = 'Error inesperado al obtener cuota de Lusha';
+    await applyFailedSync(admin, 'lusha', errMsg, undefined).catch(() => {});
+    return { success: false, error: errMsg };
+  }
 
   if (!result.ok) {
-    await applyFailedSync(admin, 'lusha', result.error, result.obs);
+    await applyFailedSync(admin, 'lusha', result.error, result.obs).catch(() => {});
     return { success: false, error: result.error };
   }
 
