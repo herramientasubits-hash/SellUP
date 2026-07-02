@@ -501,7 +501,10 @@ function TabLogs({
                     <tr className="border-b border-border/40">
                       <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Fecha</th>
                       <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Estado</th>
-                      <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Créditos devueltos</th>
+                      <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Fuente</th>
+                      <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">HTTP</th>
+                      <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Créditos externos</th>
+                      <th className="py-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Costo MTD</th>
                       <th className="py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Error</th>
                     </tr>
                   </thead>
@@ -514,18 +517,27 @@ function TabLogs({
                         <td className="py-2 pr-4">
                           <span
                             className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                              log.status === 'success'
+                              log.syncStatus === 'success'
                                 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                                 : 'border-destructive/30 bg-destructive/10 text-destructive'
                             }`}
                           >
-                            {log.status ?? '—'}
+                            {log.syncStatus ?? '—'}
                           </span>
                         </td>
+                        <td className="py-2 pr-4 text-muted-foreground/70">
+                          {log.source ?? '—'}
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground/70">
+                          {log.httpStatus ?? '—'}
+                        </td>
                         <td className="py-2 pr-4 text-foreground">
-                          {log.creditsReturned != null
-                            ? `${log.creditsReturned.toLocaleString()} cr`
+                          {log.creditsRemainingExternal != null
+                            ? `${log.creditsRemainingExternal.toLocaleString()} cr`
                             : '—'}
+                        </td>
+                        <td className="py-2 pr-4 text-foreground">
+                          {log.usdCostMtd != null ? `$${log.usdCostMtd.toFixed(2)}` : '—'}
                         </td>
                         <td className="py-2 text-destructive text-[10px] max-w-[200px] truncate">
                           {log.errorMessage ?? '—'}

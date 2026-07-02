@@ -31,8 +31,11 @@ export interface ProviderUsageLogRow {
 export interface ProviderSyncLogRow {
   id: string;
   providerKey: string;
-  status: string | null;
-  creditsReturned: number | null;
+  syncStatus: string | null;
+  source: string | null;
+  httpStatus: number | null;
+  creditsRemainingExternal: number | null;
+  usdCostMtd: number | null;
   errorMessage: string | null;
   syncedAt: string;
 }
@@ -136,7 +139,7 @@ async function getRecentSyncLogs(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (admin as any)
       .from('tool_quota_sync_logs')
-      .select('id, provider_key, status, credits_returned, error_message, synced_at')
+      .select('id, provider_key, sync_status, source, http_status, credits_remaining_external, usd_cost_mtd, error_message, synced_at')
       .eq('provider_key', providerKey)
       .order('synced_at', { ascending: false })
       .limit(limit);
@@ -147,8 +150,11 @@ async function getRecentSyncLogs(
     return (data as any[]).map((r) => ({
       id: r.id as string,
       providerKey: r.provider_key as string,
-      status: (r.status as string | null) ?? null,
-      creditsReturned: r.credits_returned != null ? Number(r.credits_returned) : null,
+      syncStatus: (r.sync_status as string | null) ?? null,
+      source: (r.source as string | null) ?? null,
+      httpStatus: r.http_status != null ? Number(r.http_status) : null,
+      creditsRemainingExternal: r.credits_remaining_external != null ? Number(r.credits_remaining_external) : null,
+      usdCostMtd: r.usd_cost_mtd != null ? Number(r.usd_cost_mtd) : null,
       errorMessage: (r.error_message as string | null) ?? null,
       syncedAt: r.synced_at as string,
     }));
