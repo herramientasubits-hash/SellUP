@@ -29,6 +29,7 @@ import {
   type ContactRelevanceResult,
   type ContactRelevanceStatus,
 } from './contact-relevance-classifier';
+import { checkCompanyConsistency } from './company-consistency-checker';
 import {
   completeContactWithApollo,
   isActionableContactCandidate,
@@ -857,6 +858,10 @@ export async function executeContactEnrichmentApolloRun(
     if (!isActionableContactCandidate(finalContact, item.relevance.relevanceStatus)) continue;
 
     reviewableActionableCount += 1;
+    const org = finalContact.enrichmentMetadata?.organization as
+      | { name?: string | null; website_url?: string | null }
+      | null
+      | undefined;
     actionableContacts.push({
       ...finalContact,
       enrichmentMetadata: {
@@ -865,6 +870,13 @@ export async function executeContactEnrichmentApolloRun(
         apollo_search_attempt: chosenAttempt,
         completion: buildCompletionMetadata(res, true),
         post_completion: buildPostCompletionMetadata(finalContact, item.relevance.relevanceStatus, false),
+        company_consistency: checkCompanyConsistency({
+          email: finalContact.email,
+          apolloOrganizationName: org?.name ?? null,
+          apolloOrganizationWebsiteUrl: org?.website_url ?? null,
+          companyDomain: run.company_domain,
+          companyName: run.company_name,
+        }),
       },
     });
   }
@@ -875,6 +887,10 @@ export async function executeContactEnrichmentApolloRun(
     // Solo pasan si completion los completó Y quedaron con canal accionable.
     if (!res || res.status !== 'completed' || !res.isActionableAfter) continue;
 
+    const org2 = res.contact.enrichmentMetadata?.organization as
+      | { name?: string | null; website_url?: string | null }
+      | null
+      | undefined;
     actionableContacts.push({
       ...res.contact,
       enrichmentMetadata: {
@@ -886,6 +902,13 @@ export async function executeContactEnrichmentApolloRun(
         // convirtió en accionables (e.g., completion agrega linkedin_url).
         completion: buildCompletionMetadata(res, res.isActionableAfter),
         post_completion: buildPostCompletionMetadata(res.contact, item.relevance.relevanceStatus, true),
+        company_consistency: checkCompanyConsistency({
+          email: res.contact.email,
+          apolloOrganizationName: org2?.name ?? null,
+          apolloOrganizationWebsiteUrl: org2?.website_url ?? null,
+          companyDomain: run.company_domain,
+          companyName: run.company_name,
+        }),
       },
     });
   }

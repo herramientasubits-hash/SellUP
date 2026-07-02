@@ -164,9 +164,29 @@ export interface ContactCandidateRelevanceMetadata {
   rejection_reasons?: string[];
 }
 
+// ── Company consistency metadata (Hito 17A.9G) ──────────────────
+
+export type CompanyConsistencyStatus =
+  | 'match'
+  | 'possible_mismatch'
+  | 'possible_related_domain'
+  | 'unknown';
+
+export interface ContactCandidateCompanyConsistency {
+  status: CompanyConsistencyStatus;
+  email_domain: string | null;
+  expected_domain: string | null;
+  organization_name: string | null;
+  organization_domain: string | null;
+  signals: string[];
+  review_required: boolean;
+  explanation: string;
+}
+
 export interface ContactCandidateEnrichmentMetadata {
   relevance?: ContactCandidateRelevanceMetadata;
   apollo_search_attempt?: string | null;
+  company_consistency?: ContactCandidateCompanyConsistency | null;
   [key: string]: unknown;
 }
 

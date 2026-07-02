@@ -245,6 +245,7 @@ export function buildContactTraceMetadata(candidate: CandidateRecord): Record<st
     relevance: (meta.relevance as unknown) ?? null,
     completion: (meta.completion ?? meta.contact_completion ?? null) as unknown,
     post_completion: (meta.post_completion ?? null) as unknown,
+    company_consistency: (meta.company_consistency ?? null) as unknown,
   };
 }
 

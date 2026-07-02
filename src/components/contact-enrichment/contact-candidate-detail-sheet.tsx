@@ -23,6 +23,7 @@ import {
   X,
   Loader2,
   Ban,
+  AlertTriangle,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +47,7 @@ import type {
   ContactRelevanceStatus,
   ContactDuplicateStatus,
   ContactSource,
+  ContactCandidateCompanyConsistency,
 } from '@/modules/contact-enrichment/types';
 
 // Motivos de rechazo sugeridos (Hito 17A.4B). "Otro" habilita un comentario
@@ -245,6 +247,14 @@ export function ContactCandidateDetailSheet({
   const confidenceLabel = toPercent(candidate?.confidence);
   const apolloAttempt = candidate?.enrichment_metadata?.apollo_search_attempt ?? null;
   const matchedKeywords = relevance?.matched_keywords?.filter(Boolean) ?? [];
+  const companyConsistency =
+    (candidate?.enrichment_metadata?.company_consistency as
+      | ContactCandidateCompanyConsistency
+      | null
+      | undefined) ?? null;
+  const showConsistencyWarning =
+    companyConsistency?.status === 'possible_mismatch' ||
+    companyConsistency?.status === 'possible_related_domain';
 
   return (
     <DrawerShell
@@ -482,6 +492,32 @@ export function ContactCandidateDetailSheet({
               )}
             </dl>
           </SurfaceCard>
+
+          {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
+          {showConsistencyWarning && companyConsistency && (
+            <div className="rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-foreground">
+                    {companyConsistency.status === 'possible_related_domain'
+                      ? 'Posible empresa relacionada'
+                      : 'Revisar pertenencia a empresa'}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {companyConsistency.explanation}
+                  </p>
+                  {companyConsistency.email_domain &&
+                    companyConsistency.expected_domain &&
+                    companyConsistency.email_domain !== companyConsistency.expected_domain && (
+                      <p className="text-[11px] text-muted-foreground/70 tabular-nums">
+                        Correo: @{companyConsistency.email_domain} · Empresa: {companyConsistency.expected_domain}
+                      </p>
+                    )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 4. Trazabilidad */}
           <SurfaceCard>
