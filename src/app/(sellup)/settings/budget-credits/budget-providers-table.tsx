@@ -23,6 +23,13 @@ import {
   MEASUREMENT_STATUS_BADGE,
   type MeasurementStatus,
 } from '@/modules/budgets/provider-measurement';
+import {
+  getProviderOperationalType,
+  getProviderOperationalContext,
+  getProviderConfigSummary,
+  OPERATIONAL_TYPE_LABEL,
+  OPERATIONAL_TYPE_BADGE,
+} from '@/modules/budgets/provider-operational-type';
 import { ProviderAllowanceDrawer } from './provider-allowance-drawer';
 
 interface Props {
@@ -528,9 +535,17 @@ function DrawerStatusHeader({
       ? 'Global'
       : 'Específicas (por alcance)';
 
+  const opType = getProviderOperationalType(row.providerKey);
+
   return (
     <div className="mb-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1">Tipo</p>
+          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${OPERATIONAL_TYPE_BADGE[opType]}`}>
+            {OPERATIONAL_TYPE_LABEL[opType]}
+          </span>
+        </div>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1">Estado de medición</p>
           <span
@@ -579,8 +594,8 @@ function ProviderActivityDrawer({
       open={open}
       onOpenChange={(v) => { if (!v) onClose(); }}
       size="lg"
-      title={provider?.displayName ?? provider?.providerKey ?? 'Proveedor'}
-      description="Últimas evaluaciones de presupuesto registradas para este proveedor."
+      title={`Detalle del proveedor${provider?.displayName ? ` — ${provider.displayName}` : ''}`}
+      description="Tipo, estado, cuota/presupuesto, consumo del mes y últimas evaluaciones."
       icon={<Activity className="h-4 w-4 text-su-brand" />}
       footer={
         <div className="shrink-0 flex items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-7 py-4">
@@ -779,6 +794,7 @@ function AllowanceCell({
 
 const TABLE_COLUMNS = [
   'Proveedor',
+  'Tipo',
   'Reglas activas',
   'Consumo del mes',
   'Créditos proveedor',
@@ -786,7 +802,7 @@ const TABLE_COLUMNS = [
   'Disp. regla',
   'Estado',
   'Última evaluación',
-  'Acción configurada',
+  'Configuración',
 ];
 
 const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
@@ -858,7 +874,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
   const bulkActions: DataTableBulkAction<AdminProviderBudgetRow>[] = [
     {
       id: 'ver',
-      label: 'Ver',
+      label: 'Ver proveedor',
       icon: Activity,
       disabled: (rows) => rows.length !== 1 || rows[0].measurementStatus === 'not_measured',
       onClick: (rows) => {
@@ -954,6 +970,9 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                         <span className="font-medium text-foreground whitespace-nowrap">
                           {row.displayName ?? row.providerKey}
                         </span>
+                        <p className="text-[10px] text-muted-foreground/60 leading-tight">
+                          {getProviderOperationalContext(row.providerKey)}
+                        </p>
                         <div>
                           <span
                             className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}
@@ -965,6 +984,18 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                           </span>
                         </div>
                       </div>
+                    </td>
+
+                    {/* Tipo */}
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const opType = getProviderOperationalType(row.providerKey);
+                        return (
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${OPERATIONAL_TYPE_BADGE[opType]}`}>
+                            {OPERATIONAL_TYPE_LABEL[opType]}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Reglas activas */}
@@ -1021,9 +1052,12 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                       )}
                     </td>
 
-                    {/* Acción configurada */}
+                    {/* Configuración */}
                     <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
-                      {display.actionLabel}
+                      {isNotMeasured
+                        ? <span className="text-muted-foreground/40">No aplica</span>
+                        : getProviderConfigSummary(row.providerKey)
+                      }
                     </td>
                   </tr>
                 );
