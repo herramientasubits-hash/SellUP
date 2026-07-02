@@ -135,7 +135,8 @@
     "test:budgets": "node --import tsx --test src/modules/budgets/__tests__/periods.test.ts src/modules/budgets/__tests__/budget-resolution-pure.test.ts src/modules/budgets/__tests__/provider-allowance-calc.test.ts",
     "refresh:rd:source-coverage-summary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/rd/refresh-rd-source-coverage-summary.ts",
     "test:rd:1a3-coverage-summary": "node --import tsx --test src/server/services/__tests__/rd-1a3-coverage-summary.test.ts",
-    "test:contacts:account-picker": "node --import tsx --test src/components/contacts/__tests__/account-picker-label.test.ts"
+    "test:contacts:account-picker": "node --import tsx --test src/components/contacts/__tests__/account-picker-label.test.ts",
+    "test:rd:2f-dgcp-coverage-card": "node --import tsx --test src/components/source-catalog/__tests__/rd-dgcp-coverage-card.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

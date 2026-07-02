@@ -13,6 +13,8 @@ import { getPeruSourceCoverageSummary } from '@/server/services/peru-source-cove
 import { PeruCoverageCard } from '@/components/source-catalog/peru-coverage-card';
 import { getRdSourceCoverageSummary } from '@/server/services/rd-source-coverage-summary';
 import { RdCoverageCard } from '@/components/source-catalog/rd-coverage-card';
+import { getDgcpSourceCoverageSummary } from '@/server/services/rd-dgcp-source-coverage-summary';
+import { RdDgcpCoverageCard } from '@/components/source-catalog/rd-dgcp-coverage-card';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -52,8 +54,9 @@ export default async function SourceDetailPage({ params }: Props) {
 
   const isSunatPeru = source.key === 'pe_sunat_bulk';
   const isDgiiRd = source.key === 'rd_dgii_bulk';
+  const isDgcpRd = source.key === 'do_dgcp';
 
-  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage] = await Promise.all([
+  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
     getSourceConnectionRecord(sourceKey),
     isCurrentUserAdmin(),
@@ -62,6 +65,9 @@ export default async function SourceDetailPage({ params }: Props) {
       : Promise.resolve(null),
     isDgiiRd
       ? getRdSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isDgcpRd
+      ? getDgcpSourceCoverageSummary().catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -285,6 +291,13 @@ export default async function SourceDetailPage({ params }: Props) {
         rdCoverage
           ? <RdCoverageCard summary={rdCoverage} />
           : <RdCoverageCard error />
+      )}
+
+      {/* Cobertura DGCP — solo do_dgcp (señal procurement B2G, muestra piloto) */}
+      {isDgcpRd && (
+        dgcpCoverage
+          ? <RdDgcpCoverageCard summary={dgcpCoverage} />
+          : <RdDgcpCoverageCard error />
       )}
 
       {/* Prueba de conexión */}
