@@ -244,12 +244,15 @@ export async function runMultiQueryWebSearch(
   const allRaw: MultiQuerySearchResultEntry[] = [];
   const dispatch = usageDeps?.dispatchQuery ?? dispatchToProvider;
 
-  // Acumuladores para metadata de Apollo sector relevance gate (v1.16K-AF)
+  // Acumuladores para metadata de Apollo sector relevance gate (v1.16K-AF, L2.9)
   // Solo aplica cuando provider = apollo_organizations.
   let apolloAggRawCount = 0;
+  let apolloAggNormalizedCount = 0;
   let apolloAggPostGateCount = 0;
   let apolloAggRejectedCount = 0;
   const apolloGateMetaList: unknown[] = [];
+  // L2.9: lista de diagnostics detallados por query para incluir en baseMetadata
+  const apolloDiagnosticsList: unknown[] = [];
 
   for (const query of queries) {
     const searchInput: WebSearchInput = {
@@ -271,7 +274,7 @@ export async function runMultiQueryWebSearch(
       : undefined;
     const raw = await dispatch(provider, searchInput, maxResultsPerQuery, dispatchContext);
 
-    // Recolectar metadata de Apollo sector gate por query (v1.16K-AF)
+    // Recolectar metadata de Apollo sector gate por query (v1.16K-AF, L2.9)
     if (provider === 'apollo_organizations') {
       const rawMeta = raw.metadata as Record<string, unknown> | undefined;
       const providerRaw =
@@ -279,10 +282,19 @@ export async function runMultiQueryWebSearch(
           ? (rawMeta['apollo_raw_results_count'] as number)
           : raw.results.length;
       apolloAggRawCount += providerRaw;
+      // L2.9: acumular normalized count desde provider (pre-gate)
+      const providerNormalized =
+        typeof rawMeta?.['apollo_normalized_results_count'] === 'number'
+          ? (rawMeta['apollo_normalized_results_count'] as number)
+          : providerRaw;
+      apolloAggNormalizedCount += providerNormalized;
       apolloAggPostGateCount += raw.results.length;
       apolloAggRejectedCount += providerRaw - raw.results.length;
       const gateMeta = rawMeta?.['apollo_sector_relevance_gate'];
       if (gateMeta !== undefined) apolloGateMetaList.push(gateMeta);
+      // L2.9: preservar diagnostics detallados del provider para propagación al batch
+      const diagFromQuery = rawMeta?.['apollo_result_diagnostics'];
+      if (diagFromQuery !== undefined) apolloDiagnosticsList.push(diagFromQuery);
     }
 
     const validRaw = raw.results.filter((r) => {
@@ -352,8 +364,9 @@ export async function runMultiQueryWebSearch(
       apollo_queries_executed_total: queries.length,
       apollo_queries_skipped_by_global_cap: apolloQueriesSkippedByCap,
       apollo_cap_scope: 'per_invocation',
-      // Trazabilidad pre/post gate (v1.16K-AF): distingue "Apollo devolvió X" de "llegaron al pipeline Y"
+      // Trazabilidad pre/post gate (v1.16K-AF, L2.9): distingue "Apollo devolvió X" de "llegaron al pipeline Y"
       apollo_raw_results_count: apolloAggRawCount,
+      apollo_normalized_results_count: apolloAggNormalizedCount,
       apollo_post_gate_results_count: apolloAggPostGateCount,
       apollo_sector_rejected_count: apolloAggRejectedCount,
       // Gate metadata agregado — si 1 query: usa directamente; si N queries: array de metas
@@ -361,6 +374,12 @@ export async function runMultiQueryWebSearch(
         ? { apollo_sector_relevance_gate: apolloGateMetaList[0] }
         : apolloGateMetaList.length > 1
         ? { apollo_sector_relevance_gate: apolloGateMetaList }
+        : {}),
+      // L2.9: diagnostics detallados — si 1 query: usa directamente; si N: array de diagnostics
+      ...(apolloDiagnosticsList.length === 1
+        ? { apollo_result_diagnostics: apolloDiagnosticsList[0] }
+        : apolloDiagnosticsList.length > 1
+        ? { apollo_result_diagnostics: apolloDiagnosticsList }
         : {}),
     } : {}),
   };

@@ -515,35 +515,9 @@ export async function runApolloOrganizationsSearch(
   const creditsUsed = Math.min(mapped.length, MAX_APOLLO_ORGANIZATIONS_CREDITS);
   const estimatedCostUsd = creditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
 
-  // ── Usage logging ─────────────────────────────────────────────────────────────
-  await logFn({
-    usage_key: usageKey,
-    provider_key: 'apollo',
-    operation_key: 'organizations_search',
-    batch_id: usageContext?.batchId ?? undefined,
-    agent_run_id: usageContext?.agentRunId ?? undefined,
-    credits_used: creditsUsed,
-    results_returned: mapped.length,
-    estimated_cost_usd: estimatedCostUsd,
-    status: 'success',
-    error_code: undefined,
-    error_message: undefined,
-    duration_ms: Date.now() - startMs,
-    triggered_by: usageContext?.triggeredByUserId ?? undefined,
-    metadata: buildUsageMetadata(input, cap, wasCapped, mapped.length, false, 'real', apolloParamsSanitized),
-  });
-
-  const usageMeta: ApolloOrganizationsUsageMetadata = {
-    operation_key: 'organizations_search',
-    provider_key: 'apollo',
-    credits_used: creditsUsed,
-    estimated_cost_usd: estimatedCostUsd,
-    status: 'real',
-  };
-
-  // ── L2.8: diagnóstico detallado de resultados ─────────────────────────────────
-  // Permite trazar exactamente dónde se pierden resultados Apollo entre
-  // la respuesta de la API y el output final hacia incremental-search.
+  // ── L2.9: diagnóstico detallado construido ANTES del log para incluirlo ───────
+  // Construir aquí (no después del log) para que provider_usage_logs.metadata
+  // incluya apollo_result_diagnostics en la misma llamada a logFn.
   const sectorMapped = gateResult.metadata.sector_mapped;
   const postGateCount = filteredMapped.length;
   let emptyOutputReason: string | null = null;
@@ -577,6 +551,35 @@ export async function runApolloOrganizationsSearch(
     empty_output_reason: emptyOutputReason,
   };
 
+  // ── Usage logging ─────────────────────────────────────────────────────────────
+  await logFn({
+    usage_key: usageKey,
+    provider_key: 'apollo',
+    operation_key: 'organizations_search',
+    batch_id: usageContext?.batchId ?? undefined,
+    agent_run_id: usageContext?.agentRunId ?? undefined,
+    credits_used: creditsUsed,
+    results_returned: rawOrgs.length,
+    estimated_cost_usd: estimatedCostUsd,
+    status: 'success',
+    error_code: undefined,
+    error_message: undefined,
+    duration_ms: Date.now() - startMs,
+    triggered_by: usageContext?.triggeredByUserId ?? undefined,
+    metadata: {
+      ...buildUsageMetadata(input, cap, wasCapped, rawOrgs.length, false, 'real', apolloParamsSanitized),
+      apollo_result_diagnostics: apolloResultDiagnostics,
+    },
+  });
+
+  const usageMeta: ApolloOrganizationsUsageMetadata = {
+    operation_key: 'organizations_search',
+    provider_key: 'apollo',
+    credits_used: creditsUsed,
+    estimated_cost_usd: estimatedCostUsd,
+    status: 'real',
+  };
+
   return {
     provider: 'apollo_organizations',
     query: input.query,
@@ -590,8 +593,9 @@ export async function runApolloOrganizationsSearch(
       provider_mode: 'real_limited',
       capped: wasCapped,
       usage: usageMeta,
-      // Pre/post gate counts — distinción clave para diagnóstico (v1.16K-AF)
-      apollo_raw_results_count: normalizedResultsCount,
+      // Pre/post gate counts — distinción clave para diagnóstico (v1.16K-AF, fixed L2.9)
+      // apollo_raw_results_count = orgs desde Apollo API (pre-normalization)
+      apollo_raw_results_count: rawOrgs.length,
       apollo_normalized_results_count: normalizedResultsCount,
       apollo_post_gate_results_count: postGateCount,
       apollo_sector_rejected_count: normalizedResultsCount - postGateCount,

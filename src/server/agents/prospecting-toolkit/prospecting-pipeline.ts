@@ -357,6 +357,10 @@ export async function runProspectingPipeline(
           skipReason: null,
           estimatedCostUsd: null as null,
           metadata: {
+            // L2.9: spread full multi-query metadata so Apollo diagnostics
+            // (apollo_raw_results_count, apollo_result_diagnostics, etc.) flow
+            // through to incremental-search.ts → mergeApolloBatchDiagnostics.
+            ...mq.metadata,
             raw_results_count: mq.rawResultsCount,
             deduped_results_count: mq.dedupedResultsCount,
             filtered_out_count: mq.filteredOutCount,

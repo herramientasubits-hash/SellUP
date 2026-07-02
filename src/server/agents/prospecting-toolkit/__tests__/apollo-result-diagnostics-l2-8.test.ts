@@ -242,6 +242,160 @@ describe('B. Apollo raw 3, normalization drops 2 (sin nombre), gate pasa 1', () 
   });
 });
 
+// ─── L2.9: Propagation real — runMultiQueryWebSearch incluye diagnostics ──────
+
+// Mock Apollo provider output para L2.9-A — sin sinon, usando dispatchQuery injection
+const MOCK_APOLLO_DISPATCH_ALL_REJECTED = async (): Promise<import('../types').WebSearchOutput> => ({
+  provider: 'apollo_organizations',
+  query: 'test',
+  results: [],
+  resultsCount: 0,
+  skipped: false,
+  skipReason: null,
+  estimatedCostUsd: 0.026,
+  metadata: {
+    apollo_raw_results_count: 3,
+    apollo_normalized_results_count: 3,
+    apollo_post_gate_results_count: 0,
+    apollo_sector_rejected_count: 3,
+    apollo_result_diagnostics: {
+      raw_results_count: 3,
+      normalized_results_count: 3,
+      normalization_dropped_count: 0,
+      post_sector_gate_results_count: 0,
+      rejected_count: 3,
+      rejected_by_reason: 'sector_gate_insufficient_sector_evidence',
+      rejected_samples: [],
+      output_results_count: 0,
+      empty_output_reason: 'all_results_rejected_by_sector_gate',
+    },
+  },
+});
+
+describe('L2.9-A. runMultiQueryWebSearch propaga apollo_result_diagnostics', () => {
+  it('L2.9-A1: apollo_result_diagnostics presente en metadata de multi-query (gate rechaza todo)', async () => {
+    const { runMultiQueryWebSearch } = await import('../web-search-tool');
+    const out = await runMultiQueryWebSearch(
+      {
+        queries: ['empresa educacion colombia'],
+        provider: 'apollo_organizations',
+        industry: 'Educación',
+        country: 'Colombia',
+        countryCode: 'CO',
+        maxResultsPerQuery: 3,
+      },
+      {
+        loadPricing: async () => null,
+        logUsage: async () => ({ kind: 'logged' as const }),
+        dispatchQuery: MOCK_APOLLO_DISPATCH_ALL_REJECTED,
+      },
+    );
+    const meta = out.metadata as Record<string, unknown>;
+    assert.ok('apollo_result_diagnostics' in meta, 'apollo_result_diagnostics debe estar en metadata de multi-query');
+    const diag = meta['apollo_result_diagnostics'] as Record<string, unknown>;
+    assert.equal(diag['raw_results_count'], 3, 'raw_results_count debe ser 3');
+    assert.equal(diag['empty_output_reason'], 'all_results_rejected_by_sector_gate');
+  });
+
+  it('L2.9-A2: apollo_raw_results_count y apollo_normalized_results_count en metadata de multi-query', async () => {
+    const { runMultiQueryWebSearch } = await import('../web-search-tool');
+    const out = await runMultiQueryWebSearch(
+      {
+        queries: ['test'],
+        provider: 'apollo_organizations',
+        industry: 'Educación',
+        country: 'Colombia',
+        countryCode: 'CO',
+        maxResultsPerQuery: 3,
+      },
+      {
+        loadPricing: async () => null,
+        logUsage: async () => ({ kind: 'logged' as const }),
+        dispatchQuery: MOCK_APOLLO_DISPATCH_ALL_REJECTED,
+      },
+    );
+    const meta = out.metadata as Record<string, unknown>;
+    assert.equal(meta['apollo_raw_results_count'], 3, 'apollo_raw_results_count debe ser 3');
+    assert.equal(meta['apollo_normalized_results_count'], 3, 'apollo_normalized_results_count debe ser 3');
+  });
+});
+
+describe('L2.9-B. provider apollo_raw_results_count usa rawOrgs.length, no normalizedResultsCount', () => {
+  it('L2.9-B1: cuando normalization drops 2, apollo_raw_results_count = 3 (no 1)', async () => {
+    // Usar fixtures ya definidos arriba: ORG_NO_NAME × 2, ORG_EDTECH × 1
+    const deps: ApolloOrgsSearchDeps = {
+      searchOrgs: async () => ({
+        success: true,
+        data: [ORG_NO_NAME, ORG_NO_NAME, toApolloOrg(ORG_EDTECH)],
+      }),
+      logUsage: noop,
+    };
+    process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
+    try {
+      const out = await runApolloOrganizationsSearch(BASE_INPUT, 3, undefined, deps);
+      const meta = out.metadata as Record<string, unknown>;
+      // apollo_raw_results_count debe ser 3 (total desde Apollo), no 1 (normalizedResultsCount)
+      assert.equal(meta['apollo_raw_results_count'], 3, `apollo_raw_results_count debe ser 3 (total API), no ${meta['apollo_raw_results_count']}`);
+      assert.equal(meta['apollo_normalized_results_count'], 1, 'apollo_normalized_results_count debe ser 1 (post-normalization)');
+    } finally {
+      delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+    }
+  });
+});
+
+describe('L2.9-C. usage log incluye apollo_result_diagnostics', () => {
+  it('L2.9-C1: logUsage recibe metadata con apollo_result_diagnostics', async () => {
+    let capturedMetadata: Record<string, unknown> | undefined;
+    const capturingLog = async (args: { metadata?: Record<string, unknown> }) => {
+      capturedMetadata = args.metadata;
+      return { kind: 'ok' as const };
+    };
+    const deps: ApolloOrgsSearchDeps = {
+      searchOrgs: async () => ({
+        success: true,
+        data: [ORG_CITIGROUP, ORG_HUAWEI, ORG_PWC].map(toApolloOrg),
+      }),
+      logUsage: capturingLog as unknown as typeof import('../apollo-organizations-usage-logging').realLogApolloOrgsUsage,
+    };
+    process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
+    try {
+      await runApolloOrganizationsSearch(BASE_INPUT, 3, undefined, deps);
+      assert.ok(capturedMetadata, 'logUsage debe haber sido llamado');
+      assert.ok(
+        'apollo_result_diagnostics' in capturedMetadata!,
+        'usage log metadata debe incluir apollo_result_diagnostics',
+      );
+      const diag = capturedMetadata!['apollo_result_diagnostics'] as Record<string, unknown>;
+      assert.equal(diag['raw_results_count'], 3, 'raw_results_count en usage log debe ser 3');
+    } finally {
+      delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+    }
+  });
+
+  it('L2.9-C2: results_returned en usage log = rawOrgs.length (no post-normalization)', async () => {
+    let capturedResultsReturned: number | undefined;
+    const capturingLog = async (args: { results_returned?: number }) => {
+      capturedResultsReturned = args.results_returned;
+      return { kind: 'ok' as const };
+    };
+    const deps: ApolloOrgsSearchDeps = {
+      searchOrgs: async () => ({
+        success: true,
+        data: [ORG_NO_NAME as unknown as ApolloOrganization, ORG_NO_NAME as unknown as ApolloOrganization, toApolloOrg(ORG_EDTECH)],
+      }),
+      logUsage: capturingLog as unknown as typeof import('../apollo-organizations-usage-logging').realLogApolloOrgsUsage,
+    };
+    process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
+    try {
+      await runApolloOrganizationsSearch(BASE_INPUT, 3, undefined, deps);
+      // results_returned debe ser 3 (rawOrgs.length), no 1 (normalizedResultsCount)
+      assert.equal(capturedResultsReturned, 3, `results_returned en log debe ser 3 (raw), fue ${capturedResultsReturned}`);
+    } finally {
+      delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+    }
+  });
+});
+
 // ─── C. mergeApolloBatchDiagnostics — conteos por rondas ─────────────────────
 
 describe('C. Merge de Apollo diagnostics por rondas', () => {
