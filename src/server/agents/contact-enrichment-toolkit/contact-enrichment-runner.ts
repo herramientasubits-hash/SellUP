@@ -20,6 +20,47 @@ export interface StartEnrichmentRunInput {
   triggeredBy: string;
 }
 
+// ── Supersede lifecycle (Hito 17A.9E) ────────────────────────────────────────
+
+export interface SupersededRunRow {
+  id: string;
+  summary: Record<string, unknown>;
+}
+
+export interface SupersedeRunsDeps {
+  loadReadyToEnrichRuns: (accountId: string) => Promise<SupersededRunRow[]>;
+  markSuperseded: (id: string, patchSummary: Record<string, unknown>) => Promise<void>;
+  backfillSupersededByRunId: (accountId: string, newRunId: string) => Promise<void>;
+}
+
+/**
+ * Marca como 'superseded' todos los runs en ready_to_enrich de la misma cuenta,
+ * luego rellena superseded_by_run_id con el ID del nuevo run.
+ * No-op si accountId es null (empresa manual sin cuenta SellUp).
+ */
+export async function supersedePreviousReadyRuns(
+  accountId: string | null,
+  newRunId: string,
+  deps: SupersedeRunsDeps,
+): Promise<void> {
+  if (!accountId) return;
+
+  const previousRuns = await deps.loadReadyToEnrichRuns(accountId);
+  if (previousRuns.length === 0) return;
+
+  const supersededAt = new Date().toISOString();
+  for (const prev of previousRuns) {
+    await deps.markSuperseded(prev.id, {
+      ...prev.summary,
+      superseded_at: supersededAt,
+      superseded_reason: 'new_ready_to_enrich_run_created',
+      original_status: 'ready_to_enrich',
+    });
+  }
+
+  await deps.backfillSupersededByRunId(accountId, newRunId);
+}
+
 /**
  * Crea un agent_run y un contact_enrichment_run, lee los contactos existentes
  * en SellUp y HubSpot, guarda el snapshot en summary y deja el run en ready_to_enrich.
@@ -74,7 +115,11 @@ export async function startContactEnrichmentRun(
     });
   }
 
-  // 3. Crear contact_enrichment_run (summary inicial)
+  // 3. Supersede runs ready_to_enrich anteriores de la misma cuenta (Hito 17A.9E)
+  // supersedePreviousReadyRuns es no-op si accountId es null (empresa manual).
+  const accountIdForSupersede = confirmedCompany.sellupAccountId ?? null;
+
+  // 4. Crear contact_enrichment_run (summary inicial)
   const { data: enrichmentRun, error: enrichmentError } = await admin
     .from('contact_enrichment_runs')
     .insert({
@@ -103,7 +148,46 @@ export async function startContactEnrichmentRun(
     );
   }
 
-  // 4. Step: read_existing_contacts
+  // 4b. Supersede previous ready_to_enrich runs and backfill superseded_by_run_id
+  await supersedePreviousReadyRuns(accountIdForSupersede, enrichmentRun.id, {
+    loadReadyToEnrichRuns: async (accId) => {
+      const { data } = await admin
+        .from('contact_enrichment_runs')
+        .select('id, summary')
+        .eq('account_id', accId)
+        .eq('status', 'ready_to_enrich')
+        .neq('id', enrichmentRun.id);
+      return (data ?? []).map((r) => ({
+        id: r.id as string,
+        summary: (r.summary && typeof r.summary === 'object' ? r.summary : {}) as Record<string, unknown>,
+      }));
+    },
+    markSuperseded: async (id, patchSummary) => {
+      await admin
+        .from('contact_enrichment_runs')
+        .update({ status: 'superseded', summary: patchSummary })
+        .eq('id', id);
+    },
+    backfillSupersededByRunId: async (accId, newRunId) => {
+      const { data: supersededRuns } = await admin
+        .from('contact_enrichment_runs')
+        .select('id, summary')
+        .eq('account_id', accId)
+        .eq('status', 'superseded')
+        .neq('id', newRunId);
+      for (const sr of supersededRuns ?? []) {
+        const s = (sr.summary && typeof sr.summary === 'object' ? sr.summary : {}) as Record<string, unknown>;
+        if (!('superseded_by_run_id' in s)) {
+          await admin
+            .from('contact_enrichment_runs')
+            .update({ summary: { ...s, superseded_by_run_id: newRunId } })
+            .eq('id', sr.id);
+        }
+      }
+    },
+  });
+
+  // 5. Step: read_existing_contacts
   const snapshotStep = await createAgentRunStep({
     agent_run_id: agentRun.id,
     step_key: 'read_existing_contacts',

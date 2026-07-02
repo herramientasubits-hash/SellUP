@@ -8,7 +8,8 @@ export type ContactEnrichmentRunStatus =
   | 'enriching'
   | 'ready_for_review'
   | 'completed'
-  | 'failed';
+  | 'failed'
+  | 'superseded';
 
 export type ContactCandidateStatus =
   | 'pending_review'
