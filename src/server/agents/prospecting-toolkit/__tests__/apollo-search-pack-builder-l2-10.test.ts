@@ -241,13 +241,13 @@ describe('D. Apollo params metadata — apollo_search_pack', () => {
     assert.ok(meta.apollo_keywords_sent_array.length > 0, 'debe tener al menos 1 keyword');
   });
 
-  it('D5. mapping_version es v1.L2.10', () => {
+  it('D5. mapping_version es v1.L2.11-A (L2.11)', () => {
     const { meta } = buildApolloOrganizationsSearchParams(
       makeInput({ subindustries: ['Formación Corporativa'], additionalCriteriaTokens: [] }),
       3,
     );
     assert.equal(meta.mapping_version, APOLLO_QUERY_MAPPING_VERSION);
-    assert.ok(meta.mapping_version.includes('L2.10'), `versión esperada L2.10, obtenida: ${meta.mapping_version}`);
+    assert.ok(meta.mapping_version.includes('L2.11'), `versión esperada L2.11, obtenida: ${meta.mapping_version}`);
   });
 
   it('D6. qa_cap_selected_first_pack=true cuando maxQueries default (1)', () => {

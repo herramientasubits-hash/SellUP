@@ -55,28 +55,33 @@ describe('Apollo mapping — subindustria', () => {
     assert.ok(kws.some(k => k.toLowerCase().includes('learning management system')), `keywords: ${JSON.stringify(kws)}`);
   });
 
-  it('C3. subindustria tiene prioridad sobre sector padre en q_keywords', () => {
+  it('C3. subindustria tiene prioridad sobre sector padre en q_organization_keyword_tags', () => {
     const { params, meta } = buildApolloOrganizationsSearchParams(
       makeInput({ subindustries: ['Formación Corporativa'], additionalCriteriaTokens: [] }),
       10,
     );
-    assert.ok(params.q_keywords, 'q_keywords debe estar presente');
+    // L2.11: se usa q_organization_keyword_tags (array), no q_keywords
+    assert.ok(params.q_organization_keyword_tags && params.q_organization_keyword_tags.length > 0, 'q_organization_keyword_tags debe estar presente');
+    assert.ok(!('q_keywords' in params), 'q_keywords NO debe estar en el payload (L2.11)');
+    const tags = params.q_organization_keyword_tags!;
     assert.ok(
-      params.q_keywords!.toLowerCase().includes('corporate training') ||
-      params.q_keywords!.toLowerCase().includes('formacion'),
-      `q_keywords no incluye términos de subindustria: ${params.q_keywords}`,
+      tags.some(t => t.toLowerCase().includes('corporate training') || t.toLowerCase().includes('formacion')),
+      `tags no incluyen términos de subindustria: ${JSON.stringify(tags)}`,
     );
     assert.equal(meta.relevance_strategy, 'subindustry_specific');
   });
 
-  it('C4. subindustria LMS → keywords de LMS, no "education" genérico como primer término', () => {
+  it('C4. subindustria LMS → tags de LMS, no "education" genérico como primer tag', () => {
     const { params } = buildApolloOrganizationsSearchParams(
       makeInput({ subindustries: ['LMS'], additionalCriteriaTokens: [] }),
       10,
     );
-    const kws = params.q_keywords ?? '';
-    assert.ok(!kws.startsWith('education'), `primer término no debe ser "education" genérico: ${kws}`);
-    assert.ok(kws.toLowerCase().includes('lms') || kws.toLowerCase().includes('learning management'), `LMS keywords esperadas: ${kws}`);
+    const tags = params.q_organization_keyword_tags ?? [];
+    assert.ok(!tags[0]?.startsWith('education'), `primer tag no debe ser "education" genérico: ${tags[0]}`);
+    assert.ok(
+      tags.some(t => t.toLowerCase().includes('lms') || t.toLowerCase().includes('learning management')),
+      `LMS tags esperados: ${JSON.stringify(tags)}`,
+    );
   });
 
   it('C5. subindustryKeywordsUsed presente en metadata', () => {
@@ -97,7 +102,7 @@ describe('Apollo mapping — subindustria', () => {
 // ─── D. Apollo mapping usa additionalCriteriaTokens ─────────────────────────
 
 describe('Apollo mapping — additionalCriteriaTokens', () => {
-  it('D1. tokens ["ventas", "pymes", "b2b"] aparecen en q_keywords si hay cupo', () => {
+  it('D1. tokens ["ventas", "pymes", "b2b"] aparecen en q_organization_keyword_tags si hay cupo', () => {
     const { params } = buildApolloOrganizationsSearchParams(
       makeInput({
         industry: 'Servicios',  // sector sin mapping → query_fallback, deja cupo
@@ -106,10 +111,10 @@ describe('Apollo mapping — additionalCriteriaTokens', () => {
       }),
       10,
     );
-    const kws = params.q_keywords ?? '';
-    // Al menos uno de los tokens debe aparecer en q_keywords
-    const hasAtLeastOne = ['ventas', 'pymes', 'b2b'].some(t => kws.includes(t));
-    assert.ok(hasAtLeastOne, `ningún token apareció en q_keywords: ${kws}`);
+    const tags = params.q_organization_keyword_tags ?? [];
+    // Al menos uno de los tokens debe aparecer en q_organization_keyword_tags
+    const hasAtLeastOne = ['ventas', 'pymes', 'b2b'].some(t => tags.includes(t));
+    assert.ok(hasAtLeastOne, `ningún token apareció en q_organization_keyword_tags: ${JSON.stringify(tags)}`);
   });
 
   it('D2. tokens no desplazan keywords sectoriales críticas cuando sector tiene mapping', () => {
@@ -176,9 +181,9 @@ describe('Apollo mapping — criterio genérico no genera ruido', () => {
       makeInput({ additionalCriteriaTokens: [] }),
       10,
     );
-    const kws = params.q_keywords ?? '';
-    assert.ok(!kws.includes('empresas'), '"empresas" no debe aparecer como keyword Apollo');
-    assert.ok(!kws.includes('grandes'), '"grandes" no debe aparecer');
+    const tags = params.q_organization_keyword_tags ?? [];
+    assert.ok(!tags.some(t => t.includes('empresas')), '"empresas" no debe aparecer como tag Apollo');
+    assert.ok(!tags.some(t => t.includes('grandes')), '"grandes" no debe aparecer');
   });
 
   it('E3. q_organization_name nunca se usa', () => {
@@ -189,10 +194,11 @@ describe('Apollo mapping — criterio genérico no genera ruido', () => {
     assert.ok(!('q_organization_name' in params), 'q_organization_name no debe aparecer');
   });
 
-  it('E4. país siempre en organization_locations, nunca en q_keywords', () => {
+  it('E4. país siempre en organization_locations, nunca en q_organization_keyword_tags', () => {
     const { params } = buildApolloOrganizationsSearchParams(makeInput(), 10);
     assert.ok(params.organization_locations?.includes('Colombia'));
-    assert.ok(!(params.q_keywords ?? '').toLowerCase().includes('colombia'));
+    const tags = params.q_organization_keyword_tags ?? [];
+    assert.ok(!tags.some(t => t.toLowerCase().includes('colombia')), 'Colombia no debe estar en keyword tags');
   });
 });
 
@@ -202,7 +208,9 @@ describe('Apollo mapping — metadata L2.7', () => {
   it('F1. normalized_context_version está presente (L2.7 o superior)', () => {
     const { meta } = buildApolloOrganizationsSearchParams(makeInput(), 10);
     assert.ok(
-      meta.normalized_context_version === 'L2.7' || meta.normalized_context_version === 'L2.10',
+      meta.normalized_context_version === 'L2.7' ||
+      meta.normalized_context_version === 'L2.10' ||
+      meta.normalized_context_version === 'L2.11',
       `normalized_context_version inesperado: ${meta.normalized_context_version}`,
     );
   });
@@ -245,7 +253,7 @@ describe('Apollo mapping — metadata L2.7', () => {
 // ─── I. Retrocompatibilidad con callers sin L2.7 ─────────────────────────────
 
 describe('Apollo mapping — retrocompatibilidad', () => {
-  it('I1. input sin subindustries ni additionalCriteriaTokens funciona igual que antes', () => {
+  it('I1. input sin subindustries ni additionalCriteriaTokens — usa q_organization_keyword_tags', () => {
     const input: WebSearchInput = {
       query: 'sector educativo Colombia',
       country: 'Colombia',
@@ -254,7 +262,12 @@ describe('Apollo mapping — retrocompatibilidad', () => {
       maxResults: 10,
     };
     const { params, meta } = buildApolloOrganizationsSearchParams(input, 10);
-    assert.ok(params.q_keywords, 'q_keywords debe estar presente');
+    // L2.11: q_organization_keyword_tags reemplaza q_keywords
+    assert.ok(
+      params.q_organization_keyword_tags && params.q_organization_keyword_tags.length > 0,
+      'q_organization_keyword_tags debe estar presente',
+    );
+    assert.ok(!('q_keywords' in params), 'q_keywords NO debe estar en el payload (L2.11)');
     assert.equal(meta.relevance_strategy, 'sector_specific_keywords');
     assert.deepEqual(meta.additional_criteria_tokens, []);
     assert.deepEqual(meta.subindustry_keywords_used, []);

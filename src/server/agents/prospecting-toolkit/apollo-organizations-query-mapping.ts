@@ -1,32 +1,39 @@
 /**
- * Apollo Organizations Query Mapping (v1.L2.10)
+ * Apollo Organizations Query Mapping (v1.L2.11-A)
  *
  * Transforma criterios SellUp wizard → parámetros estructurados Apollo Organizations.
  *
  * Historial de correcciones:
- *   v1.16K-AA — usar q_keywords (no q_organization_name) para texto libre.
- *   v1.16K-AB — reordenar keywords educación: señales específicas primero.
- *   v1.L2.7   — subindustria con prioridad sobre sector padre.
+ *   v1.16K-AA  — usar q_keywords (no q_organization_name) para texto libre.
+ *   v1.16K-AB  — reordenar keywords educación: señales específicas primero.
+ *   v1.L2.7    — subindustria con prioridad sobre sector padre.
  *               additionalCriteriaTokens del wizard fluyen a q_keywords.
  *               Metadata extendida con campos de diagnóstico L2.7.
- *   v1.L2.10  — search packs estructurados por wizard intent.
+ *   v1.L2.10   — search packs estructurados por wizard intent.
  *               El pack builder genera N packs; se selecciona el pack por índice.
  *               Metadata apollo_search_pack con pack_key, intent, selected_reason.
  *               apollo_keywords_sent refleja los keywords del pack seleccionado.
+ *   v1.L2.11-A — CORRECCIÓN RAÍZ: Apollo ignora silenciosamente q_keywords en
+ *               /mixed_companies/search. El campo documentado es q_organization_keyword_tags[].
+ *               Se envía el array de tags en lugar de la string q_keywords.
+ *               Agregado mapEmployeeThresholdToApolloRanges + organization_num_employees_ranges.
+ *               Metadata extendida: apollo_keyword_filter_field, apollo_keyword_tags_sent,
+ *               deprecated_q_keywords_sent, apollo_employee_ranges_sent,
+ *               employee_range_filter_enabled, employee_threshold_source.
  *
- * Estrategia de keyword building (L2.10):
+ * Estrategia de keyword building (L2.11-A):
  *   1. buildApolloSearchPacks analiza sector + subindustria + additionalCriteriaTokens.
  *   2. Genera packs ordenados P0 (más específico) → P2 (más amplio).
  *   3. buildApolloOrganizationsSearchParams recibe packIndex (default 0 = P0).
- *   4. El pack seleccionado determina qKeywords → q_keywords Apollo.
+ *   4. El pack seleccionado determina qKeywords → q_organization_keyword_tags[] Apollo.
  *   5. Fallback: si no hay packs, usa buildApolloKeywords (L2.7) como antes.
- *   6. País siempre en organization_locations — nunca en q_keywords.
+ *   6. País siempre en organization_locations — nunca en tags.
  *   7. q_organization_name vacío — Apollo lo interpreta como nombre exacto de empresa.
+ *   8. organization_num_employees_ranges: solo si targetEmployeeThreshold está en input.
  *
  * Reglas:
  *   - Puro: sin side effects, sin llamadas externas.
- *   - No modifica apollo-client.ts ni SearchOrganizationsParams.
- *   - Solo usa campos que SearchOrganizationsParams ya soporta.
+ *   - No modifica apollo-client.ts más allá de los campos ya declarados.
  *   - No guarda API keys ni headers en metadata.
  *   - Tavily no importa este módulo.
  */
@@ -42,7 +49,7 @@ import {
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
-export const APOLLO_QUERY_MAPPING_VERSION = 'v1.L2.10';
+export const APOLLO_QUERY_MAPPING_VERSION = 'v1.L2.11-A';
 
 // ─── Subindustria → keywords Apollo ──────────────────────────────────────────
 
@@ -408,6 +415,7 @@ export type ApolloQueryMappingMeta = {
   keyword_merge_strategy: 'subindustry_first_with_strong_criteria_replacement';
   /** L2.7: umbral de empleados derivado del systemControls. Null si no aplica. */
   target_employee_threshold: number | null;
+  /** Backward-compat: join de tags enviados (string). Para diagnóstico. */
   apollo_keywords_sent: string | null;
   apollo_location_sent: string | null;
   q_organization_name_sent: string | null;
@@ -418,18 +426,63 @@ export type ApolloQueryMappingMeta = {
   relevance_strategy: 'subindustry_specific' | 'sector_specific_keywords' | 'query_fallback';
   /** True cuando las keywords genéricas del sector fueron desplazadas al final del array. */
   generic_keywords_deprioritized: boolean;
-  /** L2.7: versión del normalizer de contexto aplicado. */
-  normalized_context_version: 'L2.7' | 'L2.10' | null;
+  /** L2.7/L2.10/L2.11: versión del normalizer de contexto aplicado. */
+  normalized_context_version: 'L2.7' | 'L2.10' | 'L2.11' | null;
   /** L2.10: metadata del search pack seleccionado. Null si se usó fallback L2.7. */
   apollo_search_pack: ApolloSearchPackMeta | null;
-  /** L2.10: keywords del pack seleccionado enviadas a Apollo (array, para diagnóstico). */
+  /** L2.10/L2.11: keywords del pack seleccionado enviadas a Apollo (array, para diagnóstico). */
   apollo_keywords_sent_array: string[];
+  /** L2.11: campo Apollo usado para keywords. Siempre "q_organization_keyword_tags". */
+  apollo_keyword_filter_field: 'q_organization_keyword_tags';
+  /** L2.11: tags enviados como q_organization_keyword_tags (igual a apollo_keywords_sent_array). */
+  apollo_keyword_tags_sent: string[];
+  /** L2.11: confirma que q_keywords obsoleto NO se envía. */
+  deprecated_q_keywords_sent: false;
+  /** L2.11: rangos de empleados enviados a Apollo. Vacío si no hay threshold. */
+  apollo_employee_ranges_sent: string[];
+  /** L2.11: true si se envió organization_num_employees_ranges. */
+  employee_range_filter_enabled: boolean;
+  /** L2.11: fuente del threshold de empleados. Null si no aplica. */
+  employee_threshold_source: 'input.targetEmployeeThreshold' | null;
 };
 
 export type ApolloSearchParamsWithMeta = {
   params: SearchOrganizationsParams;
   meta: ApolloQueryMappingMeta;
 };
+
+// ─── Employee range mapping (L2.11) ──────────────────────────────────────────
+
+/**
+ * Rangos de empleados soportados por Apollo Organization Search.
+ * Orden ascendente — se envían desde el umbral en adelante.
+ */
+const APOLLO_EMPLOYEE_RANGES: string[] = [
+  '200,500',
+  '500,1000',
+  '1000,5000',
+  '5000,10000',
+  '10000,20000',
+  '20000,50000',
+  '50000,1000000',
+];
+
+/**
+ * Convierte un umbral mínimo de empleados en los rangos Apollo correspondientes.
+ *
+ * threshold=200  → ["200,500","500,1000","1000,5000","5000,10000","10000,20000","20000,50000","50000,1000000"]
+ * threshold=500  → ["500,1000","1000,5000","5000,10000","10000,20000","20000,50000","50000,1000000"]
+ * threshold=null → []
+ *
+ * Puro: sin side effects.
+ */
+export function mapEmployeeThresholdToApolloRanges(threshold: number | null | undefined): string[] {
+  if (threshold == null) return [];
+  return APOLLO_EMPLOYEE_RANGES.filter(range => {
+    const rangeStart = parseInt(range.split(',')[0], 10);
+    return rangeStart >= threshold;
+  });
+}
 
 // ─── Helper principal ─────────────────────────────────────────────────────────
 
@@ -531,18 +584,26 @@ export function buildApolloOrganizationsSearchParams(
     effectiveStrategy = 'query_fallback';
   }
 
-  const apolloKeywords = finalKeywords.join(' ').trim() || null;
+  // L2.11: usar tags array; apollo_keywords_sent como string para backward compat
+  const apolloKeywordTagsSent = finalKeywords;
+  const apolloKeywordsSentStr = finalKeywords.join(' ').trim() || null;
   const apolloLocation = input.country?.trim() ?? null;
+
+  // L2.11: employee ranges desde targetEmployeeThreshold
+  const employeeThreshold = input.targetEmployeeThreshold ?? null;
+  const employeeRangesSent = mapEmployeeThresholdToApolloRanges(employeeThreshold);
+  const employeeRangeFilterEnabled = employeeRangesSent.length > 0;
 
   const sectorKeywordsAll = getSectorKeywords(input.industry);
   const genericKeywordsDeprioritized =
     sectorKeywordsAll.length > MAX_KEYWORDS && effectiveStrategy !== 'query_fallback';
 
   const params: SearchOrganizationsParams = {
-    // q_keywords: búsqueda libre en descripción/keywords (correcto)
+    // L2.11: q_organization_keyword_tags reemplaza q_keywords (que Apollo ignoraba silenciosamente)
     // q_organization_name: NO usar — requiere nombre exacto de empresa
-    ...(apolloKeywords ? { q_keywords: apolloKeywords } : {}),
+    ...(apolloKeywordTagsSent.length > 0 ? { q_organization_keyword_tags: apolloKeywordTagsSent } : {}),
     ...(apolloLocation ? { organization_locations: [apolloLocation] } : {}),
+    ...(employeeRangeFilterEnabled ? { organization_num_employees_ranges: employeeRangesSent } : {}),
     per_page: cappedMaxResults,
     page: 1,
   };
@@ -560,8 +621,8 @@ export function buildApolloOrganizationsSearchParams(
     additional_criteria_tokens_merged_duplicates: mergedDuplicateAdditionalCriteriaTokens,
     additional_criteria_tokens_used: usedAdditionalCriteriaTokens,
     keyword_merge_strategy: 'subindustry_first_with_strong_criteria_replacement' as const,
-    target_employee_threshold: null, // el provider puede sobreescribir si tiene ICP_SIZE_THRESHOLD
-    apollo_keywords_sent: apolloKeywords,
+    target_employee_threshold: employeeThreshold,
+    apollo_keywords_sent: apolloKeywordsSentStr,
     apollo_location_sent: apolloLocation,
     q_organization_name_sent: null,
     requested_max_results: cappedMaxResults,
@@ -569,9 +630,15 @@ export function buildApolloOrganizationsSearchParams(
     was_capped: false,
     relevance_strategy: effectiveStrategy,
     generic_keywords_deprioritized: genericKeywordsDeprioritized,
-    normalized_context_version: 'L2.10',
+    normalized_context_version: 'L2.11',
     apollo_search_pack: apolloSearchPackMeta,
     apollo_keywords_sent_array: finalKeywords,
+    apollo_keyword_filter_field: 'q_organization_keyword_tags',
+    apollo_keyword_tags_sent: apolloKeywordTagsSent,
+    deprecated_q_keywords_sent: false,
+    apollo_employee_ranges_sent: employeeRangesSent,
+    employee_range_filter_enabled: employeeRangeFilterEnabled,
+    employee_threshold_source: employeeThreshold != null ? 'input.targetEmployeeThreshold' : null,
   };
 
   return { params, meta };

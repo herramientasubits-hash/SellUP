@@ -82,7 +82,18 @@ export interface ApolloPerson {
 export interface SearchOrganizationsParams {
   q_organization_name?: string;
   q_organization_domains?: string[];
+  /**
+   * @deprecated Para Organization Search usar q_organization_keyword_tags (L2.11).
+   * Apollo ignora silenciosamente q_keywords en /mixed_companies/search.
+   * Mantener en la interfaz para compatibilidad con otros endpoints si aplica.
+   */
   q_keywords?: string;
+  /**
+   * L2.11: Parámetro documentado de Apollo para filtrar empresas por etiquetas de keywords.
+   * Reemplaza q_keywords en Organization Search (/mixed_companies/search).
+   * Apollo indexa las keywords de empresa bajo este campo, no bajo q_keywords.
+   */
+  q_organization_keyword_tags?: string[];
   organization_industry_tag_ids?: string[];
   organization_num_employees_ranges?: string[];
   organization_locations?: string[];

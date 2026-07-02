@@ -204,10 +204,17 @@ export type WebSearchInput = {
   /**
    * Tokens comerciales extraídos del criterio adicional libre del usuario (L2.7).
    * Producidos por parseAdditionalCriteriaTokens en wizard-context-normalizer.ts.
-   * Usados por Apollo para enriquecer q_keywords con señales específicas del usuario.
+   * Usados por Apollo para enriquecer q_organization_keyword_tags con señales del usuario.
    * Tavily no los usa — sigue con el texto original.
    */
   additionalCriteriaTokens?: string[];
+  /**
+   * L2.11: Umbral mínimo de empleados derivado del ICP del wizard.
+   * Cuando está presente, Apollo Organization Search incluye organization_num_employees_ranges
+   * con todos los rangos desde este umbral en adelante.
+   * Null/undefined → no se envía filtro de tamaño.
+   */
+  targetEmployeeThreshold?: number | null;
 };
 
 export type WebSearchResult = {
