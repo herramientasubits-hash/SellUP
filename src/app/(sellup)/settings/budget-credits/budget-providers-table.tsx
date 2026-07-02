@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { Activity, RefreshCw, Settings } from 'lucide-react';
-import type { AdminProviderBudgetRow, BudgetCheckLogEntry, QuotaSource } from '@/modules/budgets';
+import type { AdminProviderBudgetRow, BudgetCheckLogEntry } from '@/modules/budgets';
 import {
   parseBudgetCheck,
   SCOPE_LABEL,
@@ -27,18 +27,31 @@ interface Props {
   resolvedAt: string;
 }
 
-// ── Quota source badge ────────────────────────────────────────────────────────
+// ── Quota display state ───────────────────────────────────────────────────────
+// Presentation-only layer that separates "sync_error + no allowance" (action needed)
+// from "sync_error + allowance configured" (informational, working with manual override).
 
-const QUOTA_SOURCE_BADGE: Record<QuotaSource | 'none', { label: string; className: string }> = {
-  manual:     { label: 'Manual',      className: 'border-su-brand/30 bg-su-brand-soft text-su-brand' },
-  api_synced: { label: 'API synced',  className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  sync_error: { label: 'Sync error',  className: 'border-destructive/30 bg-destructive/10 text-destructive' },
-  none:       { label: 'No config.',  className: 'border-border/30 bg-muted/20 text-muted-foreground/60' },
+type QuotaDisplayState = 'api_synced' | 'manual' | 'manual_required' | 'sync_error_partial' | 'none';
+
+function deriveQuotaDisplayState(row: AdminProviderBudgetRow): QuotaDisplayState {
+  const hasAllowance =
+    row.providerMonthlyCreditsAllowance != null || row.providerMonthlyUsdAllowance != null;
+  if (row.quotaSource === 'api_synced') return 'api_synced';
+  if (row.quotaSource === 'manual') return 'manual';
+  if (row.quotaSource === 'sync_error') return hasAllowance ? 'sync_error_partial' : 'manual_required';
+  return 'none';
+}
+
+const QUOTA_DISPLAY_BADGE: Record<QuotaDisplayState, { label: string; className: string }> = {
+  api_synced:          { label: 'API synced',          className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  manual:              { label: 'Manual',              className: 'border-su-brand/30 bg-su-brand-soft text-su-brand' },
+  manual_required:     { label: 'Manual requerido',    className: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  sync_error_partial:  { label: 'Sync no disponible',  className: 'border-border/40 bg-muted/20 text-muted-foreground/70' },
+  none:                { label: 'No config.',          className: 'border-border/30 bg-muted/20 text-muted-foreground/60' },
 };
 
-function QuotaSourceBadge({ source }: { source: QuotaSource | null }) {
-  const key = source ?? 'none';
-  const badge = QUOTA_SOURCE_BADGE[key];
+function QuotaDisplayBadge({ state }: { state: QuotaDisplayState }) {
+  const badge = QUOTA_DISPLAY_BADGE[state];
   return (
     <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${badge.className}`}>
       {badge.label}
@@ -442,7 +455,7 @@ function AllowanceSummaryBlock({
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
             <div>
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Fuente principal</span>
-              <div className="mt-0.5"><QuotaSourceBadge source={row.quotaSource} /></div>
+              <div className="mt-0.5"><QuotaDisplayBadge state={deriveQuotaDisplayState(row)} /></div>
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Override manual</span>
@@ -470,8 +483,17 @@ function AllowanceSummaryBlock({
             )}
             {row.quotaSyncError && (
               <div className="col-span-2">
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Error de sync</span>
-                <p className="text-destructive text-xs">{row.quotaSyncError}</p>
+                {deriveQuotaDisplayState(row) === 'manual_required' ? (
+                  <>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Sync API no disponible</span>
+                    <p className="text-amber-600 dark:text-amber-400 text-xs">{row.quotaSyncError}</p>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Error de sync</span>
+                    <p className="text-destructive text-xs">{row.quotaSyncError}</p>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -611,16 +633,21 @@ function ExternalQuotaLine({
   usdCostMtd,
   quotaSyncedAt,
   quotaSyncError,
+  displayState,
 }: {
   creditsRemainingExternal: number | null;
   usdCostMtd: number | null;
   quotaSyncedAt: string | null;
   quotaSyncError: string | null;
+  displayState: QuotaDisplayState;
 }) {
+  // manual_required: error is surfaced in the side panel; table shows actionable CTA instead
+  if (displayState === 'manual_required') return null;
+
   if (quotaSyncError) {
     return (
-      <p className="text-[10px] text-destructive">
-        Sync error: {quotaSyncError.length > 40 ? quotaSyncError.slice(0, 40) + '…' : quotaSyncError}
+      <p className="text-[10px] text-muted-foreground/60">
+        Sync API no disponible
       </p>
     );
   }
@@ -654,7 +681,8 @@ function AllowanceCell({
   allowance,
   available,
   isNotMeasured,
-  quotaSource,
+  displayState,
+  providerKey,
   creditsRemainingExternal,
   usdCostMtd,
   quotaSyncedAt,
@@ -664,7 +692,8 @@ function AllowanceCell({
   allowance: string;
   available: { label: string; overrun: boolean } | null;
   isNotMeasured: boolean;
-  quotaSource: QuotaSource | null;
+  displayState: QuotaDisplayState;
+  providerKey: string;
   creditsRemainingExternal: number | null;
   usdCostMtd: number | null;
   quotaSyncedAt: string | null;
@@ -674,12 +703,36 @@ function AllowanceCell({
   if (isNotMeasured) {
     return <span className="text-xs text-muted-foreground/40">No aplica</span>;
   }
+
+  if (displayState === 'manual_required') {
+    const actionLabel =
+      providerKey === 'anthropic'
+        ? 'Presupuesto USD manual requerido'
+        : 'Cuota manual requerida';
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{actionLabel}</p>
+          <QuotaDisplayBadge state={displayState} />
+        </div>
+        <p className="text-[10px] text-muted-foreground/60">Sync API no disponible con la credencial actual</p>
+        <button
+          type="button"
+          onClick={onConfigure}
+          className="text-[10px] text-su-brand hover:underline font-medium"
+        >
+          Configurar →
+        </button>
+      </div>
+    );
+  }
+
   if (allowance === 'No configurado') {
     return (
       <div className="space-y-1">
         <div className="flex items-center gap-1.5">
           <p className="text-xs text-muted-foreground/60">No configurado</p>
-          <QuotaSourceBadge source={quotaSource} />
+          <QuotaDisplayBadge state={displayState} />
         </div>
         <button
           type="button"
@@ -692,14 +745,14 @@ function AllowanceCell({
     );
   }
 
-  // For api_synced without override, the external value IS the main value — no separate line needed
-  const showExternalLine = quotaSource === 'manual' || quotaSyncError != null;
+  // For api_synced the external value IS the main value — no separate line needed
+  const showExternalLine = displayState === 'manual' || displayState === 'sync_error_partial';
 
   return (
     <div className="space-y-0.5">
       <div className="flex items-center gap-1.5">
         <p className="text-xs text-foreground">{allowance}</p>
-        <QuotaSourceBadge source={quotaSource} />
+        <QuotaDisplayBadge state={displayState} />
       </div>
       {available && (
         <p className={`text-[10px] ${available.overrun ? 'text-destructive font-medium' : 'text-muted-foreground/70'}`}>
@@ -712,6 +765,7 @@ function AllowanceCell({
           usdCostMtd={usdCostMtd}
           quotaSyncedAt={quotaSyncedAt}
           quotaSyncError={quotaSyncError}
+          displayState={displayState}
         />
       )}
     </div>
@@ -862,7 +916,8 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
                         allowance={allowanceLabel}
                         available={availableResult}
                         isNotMeasured={isNotMeasured}
-                        quotaSource={row.quotaSource}
+                        displayState={deriveQuotaDisplayState(row)}
+                        providerKey={row.providerKey}
                         creditsRemainingExternal={row.creditsRemainingExternal}
                         usdCostMtd={row.usdCostMtd}
                         quotaSyncedAt={row.quotaSyncedAt}
