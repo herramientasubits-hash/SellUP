@@ -7,6 +7,8 @@ import { SurfaceCard } from '@/components/shared/surface-card';
 import { BudgetSummaryCards } from '../budget-credits/budget-summary-cards';
 import { BudgetProvidersTable } from '../budget-credits/budget-providers-table';
 import { BudgetRulesTabbedSection } from '../budget-credits/rules/budget-rules-client';
+import { ProvidersTabs } from './providers-tabs';
+import { AiSettingsSection } from '../ai/ai-settings-section';
 
 export default async function ProvidersConsumptionPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -26,19 +28,31 @@ export default async function ProvidersConsumptionPage() {
         backHref="/settings"
       />
 
-      <BudgetSummaryCards providers={summary.providers} />
-
-      <SurfaceCard>
-        <div className="p-1">
-          <BudgetProvidersTable providers={summary.providers} resolvedAt={summary.resolvedAt} />
-        </div>
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <div className="p-6">
-          <BudgetRulesTabbedSection rules={rules} options={options} />
-        </div>
-      </SurfaceCard>
+      <ProvidersTabs
+        consumoContent={
+          <div className="space-y-8">
+            <BudgetSummaryCards providers={summary.providers} />
+            <SurfaceCard>
+              <div className="p-1">
+                <BudgetProvidersTable providers={summary.providers} resolvedAt={summary.resolvedAt} />
+              </div>
+            </SurfaceCard>
+            <SurfaceCard>
+              <div className="p-6">
+                <BudgetRulesTabbedSection rules={rules} options={options} />
+              </div>
+            </SurfaceCard>
+          </div>
+        }
+        iaContent={
+          <div className="space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Administra proveedores LLM, modelos activos y tarifas por millón de tokens.
+            </p>
+            <AiSettingsSection />
+          </div>
+        }
+      />
     </div>
   );
 }
