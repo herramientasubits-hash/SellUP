@@ -460,3 +460,291 @@ describe('buildContactInsertPayload — normalización 17A.5A', () => {
     assert.equal(candidate.status, 'pending_review');
   });
 });
+
+// ── Hito 17A.9B.1: cobertura ampliada ───────────────────────────
+
+// ── runApproveCandidate — payload completo ───────────────────────
+
+describe('runApproveCandidate — payload de contacto completo', () => {
+  it('incluye source_enrichment_run_id en metadata del contacto', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () => makeCandidate({ enrichment_run_id: 'run-42' }),
+    });
+    await runApproveCandidate('cand-1', deps);
+    const meta = calls.inserted[0].metadata;
+    assert.equal(meta.source_enrichment_run_id, 'run-42');
+  });
+
+  it('incluye completion en metadata cuando el candidato lo tiene', async () => {
+    const completion = { had_actionable_channel: true, channels: ['email'] };
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () =>
+        makeCandidate({ enrichment_metadata: { completion } }),
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.deepEqual(calls.inserted[0].metadata.completion, completion);
+  });
+
+  it('completion es null cuando el candidato no lo trae', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () => makeCandidate({ enrichment_metadata: {} }),
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.equal(calls.inserted[0].metadata.completion, null);
+  });
+
+  it('preserva post_completion completo en metadata del contacto', async () => {
+    const post_completion = {
+      is_actionable: true,
+      actionable_channels: ['linkedin'],
+      became_reviewable_after_completion: true,
+      pre_completion_status: 'insufficient_data',
+    };
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () =>
+        makeCandidate({ enrichment_metadata: { post_completion } }),
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.deepEqual(calls.inserted[0].metadata.post_completion, post_completion);
+  });
+
+  it('post_completion es null cuando el candidato no lo trae', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () => makeCandidate({ enrichment_metadata: {} }),
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.equal(calls.inserted[0].metadata.post_completion, null);
+  });
+
+  it('incluye source = apollo en el contacto creado', async () => {
+    const { deps, calls } = makeApproveDeps();
+    await runApproveCandidate('cand-1', deps);
+    assert.equal(calls.inserted[0].source, 'apollo');
+  });
+});
+
+// ── runApproveCandidate — guardas de estado ──────────────────────
+
+describe('runApproveCandidate — guardas de estado', () => {
+  it('falla si el candidato ya está discarded', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () => makeCandidate({ status: 'discarded' }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, false);
+    assert.equal(calls.inserted.length, 0);
+  });
+
+  it('falla si el candidato ya está duplicate', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () => makeCandidate({ status: 'duplicate' }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, false);
+    assert.equal(calls.inserted.length, 0);
+  });
+
+  it('falla si candidateId es vacío', async () => {
+    const { deps, calls } = makeApproveDeps();
+    const result = await runApproveCandidate('', deps);
+    assert.equal(result.ok, false);
+    assert.equal(calls.inserted.length, 0);
+  });
+
+  it('falla si candidateId es solo espacios', async () => {
+    const { deps, calls } = makeApproveDeps();
+    const result = await runApproveCandidate('   ', deps);
+    assert.equal(result.ok, false);
+    assert.equal(calls.inserted.length, 0);
+  });
+});
+
+// ── runApproveCandidate — deduplicación por nombre ───────────────
+
+describe('runApproveCandidate — possible_duplicate por nombre', () => {
+  it('marca possible_duplicate si coincide solo por nombre (sin email ni linkedin)', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () =>
+        makeCandidate({ email: null, linkedin_url: null, full_name: 'Ana López' }),
+      loadExistingContacts: async () => [
+        { id: 'dup-name', email: null, linkedin_url: null, full_name: 'Ana López' },
+      ],
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.duplicate, true);
+    assert.equal(calls.inserted.length, 0);
+    assert.equal(calls.updated[0].patch.status, 'duplicate');
+    assert.equal(calls.updated[0].patch.duplicate_status, 'possible_duplicate');
+    assert.equal(calls.updated[0].patch.matched_contacts_id, 'dup-name');
+  });
+
+  it('NO activa fallback por nombre si el candidato tiene email (aunque no haga match)', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () =>
+        makeCandidate({ email: 'unico@corp.com', linkedin_url: null, full_name: 'Ana López' }),
+      loadExistingContacts: async () => [
+        { id: 'dup-name', email: null, linkedin_url: null, full_name: 'Ana López' },
+      ],
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true); // nombre no activa si hay email
+    assert.equal(calls.inserted.length, 1);
+  });
+});
+
+// ── runApproveCandidate — sin HubSpot ───────────────────────────
+
+describe('runApproveCandidate — sin dependencia HubSpot', () => {
+  it('ApproveDeps no expone ninguna dependencia de HubSpot', () => {
+    const { deps } = makeApproveDeps();
+    const depKeys = Object.keys(deps);
+    assert.ok(
+      !depKeys.some((k) => k.toLowerCase().includes('hubspot')),
+      `Se encontró una dep HubSpot inesperada: ${depKeys.join(', ')}`,
+    );
+  });
+
+  it('aprobar un candidato no llama a logAudit con parámetros HubSpot', async () => {
+    const auditEntries: { contactId: string; accountId: string; actorUserId: string | null }[] =
+      [];
+    const { deps } = makeApproveDeps({
+      logAudit: async (entry) => {
+        auditEntries.push(entry);
+      },
+    });
+    await runApproveCandidate('cand-1', deps);
+    // El único audit registrado es el de trazabilidad, sin campos HubSpot.
+    assert.equal(auditEntries.length, 1);
+    const [entry] = auditEntries;
+    assert.ok(!Object.keys(entry).some((k) => k.toLowerCase().includes('hubspot')));
+  });
+});
+
+// ── runDiscardCandidate — cobertura ampliada ─────────────────────
+
+describe('runDiscardCandidate — cobertura ampliada', () => {
+  function makeDiscardDeps2(overrides: Partial<DiscardDeps> = {}): {
+    deps: DiscardDeps;
+    updated: { id: string; patch: CandidateReviewPatch }[];
+  } {
+    const updated: { id: string; patch: CandidateReviewPatch }[] = [];
+    const deps: DiscardDeps = {
+      actorId: 'user-1',
+      nowIso: '2026-06-29T12:00:00.000Z',
+      loadCandidate: async () => makeCandidate(),
+      updateCandidate: async (id, patch) => {
+        updated.push({ id, patch });
+        return {};
+      },
+      ...overrides,
+    };
+    return { deps, updated };
+  }
+
+  it('guarda reviewed_at en metadata.review', async () => {
+    const { deps, updated } = makeDiscardDeps2();
+    await runDiscardCandidate('cand-1', 'Motivo X', deps);
+    const review = (
+      updated[0].patch.enrichment_metadata as { review: Record<string, unknown> }
+    ).review;
+    assert.equal(review.reviewed_at, '2026-06-29T12:00:00.000Z');
+  });
+
+  it('DiscardDeps no incluye insertContact (no puede crear contacto)', () => {
+    const { deps } = makeDiscardDeps2();
+    const depKeys = Object.keys(deps);
+    assert.ok(
+      !depKeys.some((k) => k.toLowerCase().includes('insert')),
+      `Se encontró dep de inserción inesperada: ${depKeys.join(', ')}`,
+    );
+  });
+
+  it('falla si el candidato ya está approved', async () => {
+    const { deps, updated } = makeDiscardDeps2({
+      loadCandidate: async () => makeCandidate({ status: 'approved' }),
+    });
+    const result = await runDiscardCandidate('cand-1', 'Motivo', deps);
+    assert.equal(result.ok, false);
+    assert.equal(updated.length, 0);
+  });
+
+  it('falla si el candidato ya está duplicate', async () => {
+    const { deps, updated } = makeDiscardDeps2({
+      loadCandidate: async () => makeCandidate({ status: 'duplicate' }),
+    });
+    const result = await runDiscardCandidate('cand-1', 'Motivo', deps);
+    assert.equal(result.ok, false);
+    assert.equal(updated.length, 0);
+  });
+
+  it('falla si candidateId es vacío', async () => {
+    const { deps, updated } = makeDiscardDeps2();
+    const result = await runDiscardCandidate('', 'Motivo', deps);
+    assert.equal(result.ok, false);
+    assert.equal(updated.length, 0);
+  });
+
+  it('reporta error suave si updateCandidate falla', async () => {
+    const { deps } = makeDiscardDeps2({
+      updateCandidate: async () => ({ error: 'db boom' }),
+    });
+    const result = await runDiscardCandidate('cand-1', 'X', deps);
+    assert.equal(result.ok, false);
+  });
+
+  it('usa motivo null como "Otro"', async () => {
+    const { deps, updated } = makeDiscardDeps2();
+    await runDiscardCandidate('cand-1', null, deps);
+    assert.equal(updated[0].patch.review_notes, 'Otro');
+  });
+});
+
+// ── REGRESIÓN 17A.8E — post_completion conservado en aprobación ──
+
+describe('REGRESIÓN 17A.8E — contacto approved conserva post_completion', () => {
+  it('candidato insufficient_data + completion → linkedin; al aprobar, metadata refleja is_actionable=true', async () => {
+    const post_completion = {
+      is_actionable: true,
+      actionable_channels: ['linkedin'],
+      became_reviewable_after_completion: true,
+      pre_completion_status: 'insufficient_data',
+    };
+    const completion = { had_actionable_channel: true, channels: ['linkedin'] };
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          email: null,
+          linkedin_url: 'https://linkedin.com/in/testcandidate',
+          enrichment_metadata: {
+            relevance: { status: 'insufficient_data', score: 0 },
+            completion,
+            post_completion,
+          },
+        }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true);
+
+    const meta = calls.inserted[0].metadata;
+
+    // post_completion completo
+    assert.deepEqual(meta.post_completion, post_completion);
+    const pc = meta.post_completion as typeof post_completion;
+    assert.equal(pc.is_actionable, true);
+    assert.deepEqual(pc.actionable_channels, ['linkedin']);
+    assert.equal(pc.became_reviewable_after_completion, true);
+    assert.equal(pc.pre_completion_status, 'insufficient_data');
+
+    // completion también presente
+    assert.deepEqual(meta.completion, completion);
+  });
+
+  it('contacto aprobado tiene source_candidate_id correcto', async () => {
+    const { deps, calls } = makeApproveDeps({
+      loadCandidate: async () => makeCandidate({ id: 'cand-regr-1' }),
+    });
+    await runApproveCandidate('cand-regr-1', deps);
+    assert.equal(calls.inserted[0].metadata.source_candidate_id, 'cand-regr-1');
+  });
+});
