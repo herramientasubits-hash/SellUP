@@ -4,6 +4,7 @@
 // budgets — server actions for budget rules CRUD (Hito D)
 // ============================================================
 
+import { revalidatePath } from 'next/cache';
 import { isCurrentUserAdmin, getCurrentUser } from '@/modules/access/actions';
 import { getAdminClient } from './queries';
 import type { BudgetOnExceed, BudgetPeriodType, BudgetScopeType } from '@/modules/usage-tracking/types';
@@ -124,6 +125,8 @@ export async function createBudgetRule(input: CreateBudgetRuleInput): Promise<Ac
     return { success: false, error: 'Error al crear la regla.' };
   }
 
+  revalidatePath('/settings/providers', 'layout');
+
   return { success: true };
 }
 
@@ -161,6 +164,8 @@ export async function updateBudgetRule(input: UpdateBudgetRuleInput): Promise<Ac
     return { success: false, error: 'Error al actualizar la regla.' };
   }
 
+  revalidatePath('/settings/providers', 'layout');
+
   return { success: true };
 }
 
@@ -186,6 +191,8 @@ export async function toggleBudgetRuleStatus(
     return { success: false, error: 'Error al actualizar estado.' };
   }
 
+  revalidatePath('/settings/providers', 'layout');
+
   return { success: true };
 }
 
@@ -208,6 +215,8 @@ export async function archiveBudgetRule(id: string): Promise<ActionResult> {
     console.error('[archiveBudgetRule]', error);
     return { success: false, error: 'Error al archivar la regla.' };
   }
+
+  revalidatePath('/settings/providers', 'layout');
 
   return { success: true };
 }

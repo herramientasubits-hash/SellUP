@@ -630,9 +630,9 @@ function TabPresupuesto({
         </div>
       </SurfaceCard>
 
-      {/* Reglas de presupuesto */}
+      {/* Reglas de presupuesto — solo activas en el detalle operativo */}
       <ProviderRulesSection
-        rules={allRules}
+        rules={allRules.filter((r) => r.is_active)}
         options={options}
         providerKey={row.providerKey}
         isNotMeasured={isNotMeasured}
