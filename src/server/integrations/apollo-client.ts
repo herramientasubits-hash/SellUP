@@ -52,6 +52,21 @@ export interface ApolloOrganization {
   /** SEO-optimized description — supplements short_description for sector signal. May be absent on older plan responses. */
   seo_description?: string | null;
   keywords: string[];
+  /**
+   * L2.14: Alternative multi-value industry array — Apollo may return this instead of
+   * or alongside the scalar `industry` field depending on plan/endpoint version.
+   */
+  industries?: string[] | null;
+  /**
+   * L2.14: Alternative keyword array name observed in some Apollo plan responses.
+   * Redundant with `keywords` on most plans; capture both to avoid evidence loss.
+   */
+  organization_keywords?: string[] | null;
+  /**
+   * L2.14: Full-length description — longer than short_description, may be absent on
+   * basic plan responses. Provides richer sector signal than the 200-char short form.
+   */
+  description?: string | null;
 }
 
 export interface ApolloPerson {

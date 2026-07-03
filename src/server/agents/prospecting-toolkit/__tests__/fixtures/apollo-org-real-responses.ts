@@ -295,6 +295,96 @@ export const FIXTURE_INDUSTRY_ONLY: ApolloOrganization = {
   keywords: [],
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// L2.14 Fixtures — para audit de evidencia raw y buyer exclusion
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Terpel — empresa petrolera colombiana (buyer corporativo, NO vendor LMS).
+ * QA L2.13: Apollo devolvió Terpel como resultado para búsqueda LMS.
+ * Simulación: si Apollo devolviera employee_training keywords sin señal de producto,
+ * el gate debe rechazarlo con buyer_or_non_vendor_signal.
+ */
+export const FIXTURE_TERPEL: ApolloOrganization = {
+  id: 'apollo-org-terpel',
+  name: 'Terpel',
+  website_url: 'https://www.terpel.com',
+  primary_domain: 'terpel.com',
+  linkedin_url: 'https://www.linkedin.com/company/terpel',
+  industry: 'oil & energy',
+  industry_tag_ids: ['5567cd4773696439b10b0010'],
+  employee_count: 4500,
+  estimated_num_employees: 4500,
+  city: 'Bogotá',
+  country: 'Colombia',
+  phone: null,
+  annual_revenue: null,
+  technologies: ['sap', 'oracle'],
+  short_description: 'Terpel es una empresa colombiana de distribución de combustibles y energía.',
+  seo_description: 'Terpel distribuye combustibles, lubricantes y productos energéticos en Colombia y Latinoamérica.',
+  keywords: ['employee training', 'workforce training', 'oil', 'energy', 'fuel'],
+};
+
+/**
+ * EAFIT bare — universidad colombiana tal como Apollo la devolvió en el QA L2.13.
+ * Campos críticos vacíos: industry=null, keywords=[], short_description=null.
+ * Representa el caso en que Apollo no enriquece campos de la organización.
+ */
+export const FIXTURE_EAFIT_BARE: ApolloOrganization = {
+  id: 'apollo-org-eafit-bare',
+  name: 'Universidad EAFIT',
+  website_url: 'https://eafit.edu.co',
+  primary_domain: 'eafit.edu.co',
+  linkedin_url: null,
+  industry: null,
+  industry_tag_ids: [],
+  employee_count: null,
+  estimated_num_employees: null,
+  city: 'Medellín',
+  country: 'Colombia',
+  phone: null,
+  annual_revenue: null,
+  technologies: [],
+  short_description: null,
+  seo_description: null,
+  keywords: [],
+};
+
+/**
+ * Platzi bare — edtech tal como Apollo la devolvió en el QA L2.13.
+ * Sin industry, sin keywords, sin description — Apollo no devolvió evidencia.
+ * Con el gate estricto debe ser rechazado (no hay evidencia sectorial).
+ */
+export const FIXTURE_PLATZI_BARE: ApolloOrganization = {
+  id: 'apollo-org-platzi-bare',
+  name: 'Platzi',
+  website_url: 'https://platzi.com',
+  primary_domain: 'platzi.com',
+  linkedin_url: null,
+  industry: null,
+  industry_tag_ids: [],
+  employee_count: null,
+  estimated_num_employees: null,
+  city: null,
+  country: 'Colombia',
+  phone: null,
+  annual_revenue: null,
+  technologies: [],
+  short_description: null,
+  seo_description: null,
+  keywords: [],
+};
+
+/**
+ * Platzi with evidence — con apollo_profile completo (edtech, e-learning, lms).
+ * Representa el caso ideal donde Apollo sí devuelve campos enriquecidos.
+ * Debe pasar el gate estricto formacion_corporativa.
+ */
+export const FIXTURE_PLATZI_WITH_EVIDENCE: ApolloOrganization = {
+  ...FIXTURE_PLATZI,
+  id: 'apollo-org-platzi-with-evidence',
+};
+
 /** Empresa con employee_count grande (>1000) y keywords corporativas. */
 export const FIXTURE_LARGE_WITH_KEYWORDS: ApolloOrganization = {
   id: 'apollo-org-large-corp',

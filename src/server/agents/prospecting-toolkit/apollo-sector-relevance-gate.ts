@@ -36,9 +36,47 @@ import type { WebSearchResult } from './types';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
-export const APOLLO_SECTOR_GATE_VERSION = 'v1.L2.13-A';
+export const APOLLO_SECTOR_GATE_VERSION = 'v1.L2.14-A';
 
 // ─── Términos de sector ───────────────────────────────────────────────────────
+
+/**
+ * L2.14: Industrias que indican claramente un COMPRADOR (buyer), no un vendedor.
+ * Cuando la industria Apollo es buyer y los únicos matches son señales genéricas
+ * de training interno (sin señales de producto/plataforma), rechazar con
+ * reason='buyer_or_non_vendor_signal'.
+ *
+ * Aplica solo al gate 'formacion corporativa' (subindustria estricta).
+ */
+const BUYER_INDUSTRY_EXCLUSION: string[] = [
+  'oil', 'energy', 'petroleum', 'mining', 'gas',
+  'banking', 'financial services', 'insurance', 'investment banking',
+  'retail', 'consumer goods', 'food', 'beverage', 'tobacco',
+  'automotive', 'manufacturing', 'construction', 'real estate',
+  'telecommunications', 'utilities', 'transportation', 'logistics',
+  'health care', 'healthcare', 'hospital', 'pharmaceutical',
+  'government', 'military', 'defense',
+];
+
+/**
+ * L2.14: Señales de PRODUCTO / PLATAFORMA que solo aplican a vendors LMS / edtech.
+ * Un buyer puede tener 'employee training' pero no tendrá 'lms' o 'training platform'
+ * como señal primaria de su industria.
+ * Si el candidato tiene al menos una vendor_product_signal → no es buyer.
+ */
+const VENDOR_PRODUCT_SIGNALS: string[] = [
+  'lms',
+  'learning management system',
+  'learning management',
+  'e-learning platform',
+  'elearning platform',
+  'training platform',
+  'learning platform',
+  'online learning platform',
+  'edtech',
+  'ed-tech',
+  'training provider',
+];
 
 /**
  * Señales sectoriales por sector normalizado.
@@ -235,15 +273,36 @@ function extractCandidateText(result: WebSearchResult): string {
     const metaDesc = meta['short_description'];
     if (typeof metaDesc === 'string' && metaDesc) parts.push(metaDesc);
 
-    // apollo_profile enriquecido (v1.16K-AE): fuente más completa
+    // apollo_profile enriquecido — fuente más completa (v1.16K-AE, extended L2.14)
     const apolloProfile = meta['apollo_profile'] as Record<string, unknown> | undefined;
     if (apolloProfile) {
+      // industry escalar
+      const profileIndustry = apolloProfile['industry'];
+      if (typeof profileIndustry === 'string' && profileIndustry) parts.push(profileIndustry);
+      // L2.14: industries array alternativo
+      const profileIndustries = apolloProfile['industries'];
+      if (Array.isArray(profileIndustries)) {
+        for (const i of profileIndustries) { if (typeof i === 'string' && i) parts.push(i); }
+      }
+      // keywords array
       const profileKeywords = apolloProfile['keywords'];
       if (Array.isArray(profileKeywords)) {
         for (const k of profileKeywords) { if (typeof k === 'string' && k) parts.push(k); }
       }
+      // L2.14: organization_keywords array alternativo
+      const profileOrgKeywords = apolloProfile['organization_keywords'];
+      if (Array.isArray(profileOrgKeywords)) {
+        for (const k of profileOrgKeywords) { if (typeof k === 'string' && k) parts.push(k); }
+      }
+      // short_description
       const profileDesc = apolloProfile['short_description'];
       if (typeof profileDesc === 'string' && profileDesc) parts.push(profileDesc);
+      // L2.14: seo_description
+      const profileSeoDesc = apolloProfile['seo_description'];
+      if (typeof profileSeoDesc === 'string' && profileSeoDesc) parts.push(profileSeoDesc);
+      // L2.14: description (full)
+      const profileFullDesc = apolloProfile['description'];
+      if (typeof profileFullDesc === 'string' && profileFullDesc) parts.push(profileFullDesc);
     }
   }
 
@@ -305,14 +364,48 @@ function extractCandidateDiagnostics(result: WebSearchResult): {
     }
     const apolloProfile = meta['apollo_profile'] as Record<string, unknown> | undefined;
     if (apolloProfile) {
+      // industry escalar desde apollo_profile
+      const profileIndustry = apolloProfile['industry'];
+      if (typeof profileIndustry === 'string' && profileIndustry && !apolloIndustry) {
+        evidenceFieldsPresent.push('apollo_profile.industry');
+        apolloIndustry = profileIndustry;
+      }
+      // L2.14: industries array
+      const profileIndustries = apolloProfile['industries'];
+      if (Array.isArray(profileIndustries) && profileIndustries.length > 0) {
+        evidenceFieldsPresent.push('apollo_profile.industries');
+        if (!apolloIndustry) {
+          apolloIndustry = (profileIndustries as unknown[]).find((i): i is string => typeof i === 'string') ?? null;
+        }
+      }
+      // keywords array
       const profileKws = apolloProfile['keywords'];
       if (Array.isArray(profileKws) && profileKws.length > 0 && !evidenceFieldsPresent.includes('keywords')) {
         evidenceFieldsPresent.push('apollo_profile.keywords');
         apolloKeywordsSample = (profileKws as unknown[]).filter((k): k is string => typeof k === 'string').slice(0, 5);
       }
+      // L2.14: organization_keywords array
+      const profileOrgKws = apolloProfile['organization_keywords'];
+      if (Array.isArray(profileOrgKws) && profileOrgKws.length > 0 && apolloKeywordsSample.length === 0) {
+        evidenceFieldsPresent.push('apollo_profile.organization_keywords');
+        apolloKeywordsSample = (profileOrgKws as unknown[]).filter((k): k is string => typeof k === 'string').slice(0, 5);
+      }
+      // short_description
       const profileDesc = apolloProfile['short_description'];
       if (typeof profileDesc === 'string' && profileDesc && !descriptionPresent) {
         evidenceFieldsPresent.push('apollo_profile.short_description');
+        descriptionPresent = true;
+      }
+      // L2.14: seo_description
+      const profileSeoDesc = apolloProfile['seo_description'];
+      if (typeof profileSeoDesc === 'string' && profileSeoDesc && !descriptionPresent) {
+        evidenceFieldsPresent.push('apollo_profile.seo_description');
+        descriptionPresent = true;
+      }
+      // L2.14: description full
+      const profileFullDesc = apolloProfile['description'];
+      if (typeof profileFullDesc === 'string' && profileFullDesc && !descriptionPresent) {
+        evidenceFieldsPresent.push('apollo_profile.description');
         descriptionPresent = true;
       }
     }
@@ -401,12 +494,31 @@ export function applyApolloSectorRelevanceGate(
   const rejectedSamples: ApolloSectorGateSample[] = [];
   const passedSamples: ApolloSectorGateSample[] = [];
 
+  // L2.14: buyer exclusion activa solo para gate estricto de subindustria
+  const buyerExclusionActive = subindustrySignalUsed;
+
   for (const result of results) {
     const text = extractCandidateText(result);
     const matchedTerms = findMatchedTerms(text, signals);
     const diag = extractCandidateDiagnostics(result);
 
-    if (matchedTerms.length > 0) {
+    // L2.14: buyer exclusion — rechaza empresas cuya industria es claramente compradora
+    // cuando el único match son señales genéricas de training interno (sin señales de producto).
+    let buyerRejected = false;
+    let buyerRejectionReason: string | undefined;
+    if (buyerExclusionActive && matchedTerms.length > 0 && diag.apolloIndustry) {
+      const industryLower = diag.apolloIndustry.toLowerCase();
+      const isBuyerIndustry = BUYER_INDUSTRY_EXCLUSION.some(b => industryLower.includes(b));
+      if (isBuyerIndustry) {
+        const hasVendorProductSignal = VENDOR_PRODUCT_SIGNALS.some(s => text.includes(s.toLowerCase()));
+        if (!hasVendorProductSignal) {
+          buyerRejected = true;
+          buyerRejectionReason = 'buyer_or_non_vendor_signal';
+        }
+      }
+    }
+
+    if (matchedTerms.length > 0 && !buyerRejected) {
       passed.push(result);
       if (passedSamples.length < MAX_SAMPLES) {
         passedSamples.push({
@@ -424,11 +536,14 @@ export function applyApolloSectorRelevanceGate(
         });
       }
     } else {
+      const rejectReason = buyerRejected
+        ? (buyerRejectionReason ?? 'buyer_or_non_vendor_signal')
+        : 'insufficient_sector_evidence';
       const enrichedResult: WebSearchResult = {
         ...result,
         metadata: {
           ...(result.metadata as Record<string, unknown>),
-          final_skip_reason: 'apollo_sector_relevance:insufficient_sector_evidence',
+          final_skip_reason: `apollo_sector_relevance:${rejectReason}`,
         },
       };
       rejected.push(enrichedResult);
@@ -436,8 +551,8 @@ export function applyApolloSectorRelevanceGate(
         rejectedSamples.push({
           name: diag.name,
           domain: diag.domain,
-          matched_terms: [],
-          reason: 'insufficient_sector_evidence',
+          matched_terms: buyerRejected ? matchedTerms : [],
+          reason: rejectReason,
           evidence_fields_present: diag.evidenceFieldsPresent,
           apollo_keywords_sample: diag.apolloKeywordsSample,
           description_present: diag.descriptionPresent,

@@ -584,15 +584,19 @@ describe('E. No secrets en metadata Apollo diagnostics', () => {
       const meta = out.metadata as Record<string, unknown>;
       const diag = meta['apollo_result_diagnostics'] as Record<string, unknown>;
       const samples = diag['rejected_samples'] as Array<Record<string, unknown>>;
+      const PII_FIELDS = ['email', 'phone', 'mobile', 'person_name', 'contact_email', 'first_name', 'last_name'];
       for (const s of samples) {
         const keys = Object.keys(s);
-        // Solo campos permitidos
         for (const k of keys) {
           assert.ok(
-            ['name', 'domain', 'reason', 'matched_terms'].includes(k),
-            `sample contiene campo no permitido: ${k}`,
+            !PII_FIELDS.includes(k),
+            `sample contiene campo PII no permitido: ${k}`,
           );
         }
+        // name and domain must always be present
+        assert.ok('name' in s, 'sample debe contener name');
+        assert.ok('domain' in s, 'sample debe contener domain');
+        assert.ok('reason' in s, 'sample debe contener reason');
       }
     } finally {
       delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;

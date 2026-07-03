@@ -45,7 +45,7 @@ import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate'
 
 // ─── Versión de mapping de perfil ────────────────────────────────────────────
 
-export const APOLLO_PROFILE_MAPPING_VERSION = 'v1.16K-AE';
+export const APOLLO_PROFILE_MAPPING_VERSION = 'v1.L2.14';
 
 /** Umbral ICP de tamaño (empleados). Sincronizado con icp-size-gate.ts DEFAULT_THRESHOLD. */
 export const ICP_SIZE_THRESHOLD = 200;
@@ -60,11 +60,19 @@ export type ApolloOrganizationInput = {
   primary_domain?: string | null;
   linkedin_url?: string | null;
   industry?: string | null;
+  /** L2.14: Array alternativo de industrias que Apollo puede devolver en lugar de o junto a `industry`. */
+  industries?: string[] | null;
   estimated_num_employees?: number | null;
   city?: string | null;
   country?: string | null;
   short_description?: string | null;
+  /** L2.14: SEO description — fallback cuando short_description es null. */
+  seo_description?: string | null;
+  /** L2.14: Full description — más larga que short_description. */
+  description?: string | null;
   keywords?: string[];
+  /** L2.14: Array alternativo de keywords que Apollo usa en algunas respuestas de plan. */
+  organization_keywords?: string[] | null;
 };
 
 /** Perfil Apollo sanitizado — sin secretos, sin PII personal. */
@@ -74,15 +82,39 @@ export type ApolloProfileMetadata = {
   primary_domain: string | null;
   linkedin_url: string | null;
   industry: string | null;
+  /** L2.14: Array alternativo de industrias (max 10 elementos). */
+  industries: string[];
   keywords: string[];
+  /** L2.14: Array alternativo de keywords de organización (max 10 elementos). */
+  organization_keywords: string[];
   estimated_num_employees: number | null;
   employee_count_source: 'estimated_num_employees' | 'employee_count' | 'none';
   city: string | null;
   country: string | null;
   short_description: string | null;
+  /** L2.14: SEO description — max 300 chars. */
+  seo_description: string | null;
+  /** L2.14: Full description — max 300 chars. */
+  description: string | null;
   /** Nombres de campos no vacíos presentes en la respuesta Apollo — útil para debug. */
   raw_fields_present: string[];
   mapping_version: string;
+};
+
+/** Sample sanitizado de raw Apollo para diagnóstico en usage logs — sin PII, sin datos sensibles. */
+export type ApolloRawResultSample = {
+  name: string;
+  domain: string | null;
+  raw_keys_present: string[];
+  evidence_fields_present: string[];
+  industry: string | null;
+  industries_sample: string[];
+  keywords_sample: string[];
+  organization_keywords_sample: string[];
+  has_description: boolean;
+  has_short_description: boolean;
+  employee_count: number | null;
+  description_sample: string | null;
 };
 
 export type SizeEvidenceStatus = 'passes' | 'below_threshold' | 'unknown';
@@ -160,13 +192,17 @@ export function mapApolloOrganizationToSearchResult(
   const url = website ?? `https://apollo.io/companies/${org.id}`;
 
   // Snippet enriquecido — incluye description y keywords para el sector gate.
+  // L2.14: También incluye industries, organization_keywords y description cuando están disponibles.
   const snippetParts: string[] = [`Empresa: ${org.name}`];
   if (org.industry) snippetParts.push(`Industria: ${org.industry}`);
+  if (org.industries?.length) snippetParts.push(`Industrias: ${org.industries.slice(0, 3).join(', ')}`);
   if (org.estimated_num_employees) snippetParts.push(`Empleados: ${org.estimated_num_employees}`);
   if (org.city) snippetParts.push(`Ciudad: ${org.city}`);
   if (org.country) snippetParts.push(`País: ${org.country}`);
-  if (org.short_description) snippetParts.push(org.short_description.slice(0, 200));
-  if (org.keywords?.length) snippetParts.push(`Keywords: ${org.keywords.slice(0, 5).join(', ')}`);
+  const descText = org.short_description ?? org.seo_description ?? org.description ?? null;
+  if (descText) snippetParts.push(descText.slice(0, 200));
+  const allKeywords = [...(org.keywords ?? []), ...(org.organization_keywords ?? [])];
+  if (allKeywords.length) snippetParts.push(`Keywords: ${allKeywords.slice(0, 8).join(', ')}`);
   snippetParts.push('[Fuente: Apollo Organizations]');
 
   // ── Size evidence ────────────────────────────────────────────────────────────
@@ -193,16 +229,21 @@ export function mapApolloOrganizationToSearchResult(
   };
 
   // ── Apollo profile sanitizado (sin secretos, sin PII personal) ────────────
+  // L2.14: Captura campos adicionales para audit de evidencia raw.
   const rawFieldsPresent: string[] = [];
   if (org.website_url) rawFieldsPresent.push('website_url');
   if (org.primary_domain) rawFieldsPresent.push('primary_domain');
   if (org.linkedin_url) rawFieldsPresent.push('linkedin_url');
   if (org.industry) rawFieldsPresent.push('industry');
+  if (org.industries?.length) rawFieldsPresent.push('industries');
   if (org.keywords?.length) rawFieldsPresent.push('keywords');
+  if (org.organization_keywords?.length) rawFieldsPresent.push('organization_keywords');
   if (employeeCount !== null) rawFieldsPresent.push('estimated_num_employees');
   if (org.city) rawFieldsPresent.push('city');
   if (org.country) rawFieldsPresent.push('country');
   if (org.short_description) rawFieldsPresent.push('short_description');
+  if (org.seo_description) rawFieldsPresent.push('seo_description');
+  if (org.description) rawFieldsPresent.push('description');
 
   const apolloProfile: ApolloProfileMetadata = {
     organization_id: org.id,
@@ -210,12 +251,16 @@ export function mapApolloOrganizationToSearchResult(
     primary_domain: domain,
     linkedin_url: org.linkedin_url ?? null,
     industry: org.industry ?? null,
-    keywords: org.keywords ?? [],
+    industries: (org.industries ?? []).slice(0, 10),
+    keywords: (org.keywords ?? []).slice(0, 10),
+    organization_keywords: (org.organization_keywords ?? []).slice(0, 10),
     estimated_num_employees: employeeCount,
     employee_count_source: employeeCount !== null ? 'estimated_num_employees' : 'none',
     city: org.city ?? null,
     country: org.country ?? null,
-    short_description: org.short_description ?? null,
+    short_description: org.short_description ? org.short_description.slice(0, 300) : null,
+    seo_description: org.seo_description ? org.seo_description.slice(0, 300) : null,
+    description: org.description ? org.description.slice(0, 300) : null,
     raw_fields_present: rawFieldsPresent,
     mapping_version: APOLLO_PROFILE_MAPPING_VERSION,
   };
@@ -275,11 +320,73 @@ function normalizeApolloOrg(org: ApolloOrganization): ApolloOrganizationInput | 
     primary_domain: org.primary_domain ?? extractDomain(org.website_url),
     linkedin_url: org.linkedin_url,
     industry: org.industry,
+    industries: org.industries ?? [],
     estimated_num_employees: org.estimated_num_employees ?? org.employee_count,
     city: org.city,
     country: org.country,
-    short_description: org.short_description ?? org.seo_description,
+    // L2.14: preservar short_description, seo_description y description por separado
+    // (no colapsar en uno: el gate los consume individualmente para evidencia sectorial)
+    short_description: org.short_description ?? null,
+    seo_description: org.seo_description ?? null,
+    description: org.description ?? null,
     keywords: org.keywords ?? [],
+    organization_keywords: org.organization_keywords ?? [],
+  };
+}
+
+// ─── L2.14: Safe raw sample builder ──────────────────────────────────────────
+
+/**
+ * Construye un sample diagnóstico seguro de un ApolloOrganization raw.
+ * Sin PII (sin emails, teléfonos, personas). Sin datos sensibles.
+ * Captura exactamente qué campos devolvió Apollo para audit de evidencia.
+ */
+export function buildApolloRawResultSample(org: ApolloOrganization): ApolloRawResultSample {
+  const rawKeysPresent: string[] = [];
+  if (org.name) rawKeysPresent.push('name');
+  if (org.website_url) rawKeysPresent.push('website_url');
+  if (org.primary_domain) rawKeysPresent.push('primary_domain');
+  if (org.industry) rawKeysPresent.push('industry');
+  if (org.industries?.length) rawKeysPresent.push('industries');
+  if (org.employee_count != null) rawKeysPresent.push('employee_count');
+  if (org.estimated_num_employees != null) rawKeysPresent.push('estimated_num_employees');
+  if (org.keywords?.length) rawKeysPresent.push('keywords');
+  if (org.organization_keywords?.length) rawKeysPresent.push('organization_keywords');
+  if (org.short_description) rawKeysPresent.push('short_description');
+  if (org.seo_description) rawKeysPresent.push('seo_description');
+  if (org.description) rawKeysPresent.push('description');
+  if (org.linkedin_url) rawKeysPresent.push('linkedin_url');
+  if (org.city) rawKeysPresent.push('city');
+  if (org.country) rawKeysPresent.push('country');
+  if (org.technologies?.length) rawKeysPresent.push('technologies');
+
+  const evidenceFieldsPresent: string[] = [];
+  if (org.industry) evidenceFieldsPresent.push('industry');
+  if (org.industries?.length) evidenceFieldsPresent.push('industries');
+  if (org.keywords?.length) evidenceFieldsPresent.push('keywords');
+  if (org.organization_keywords?.length) evidenceFieldsPresent.push('organization_keywords');
+  if (org.short_description) evidenceFieldsPresent.push('short_description');
+  if (org.seo_description) evidenceFieldsPresent.push('seo_description');
+  if (org.description) evidenceFieldsPresent.push('description');
+  if (org.estimated_num_employees != null || org.employee_count != null) {
+    evidenceFieldsPresent.push('employee_count');
+  }
+
+  const descText = org.short_description ?? org.seo_description ?? org.description ?? null;
+
+  return {
+    name: org.name ?? 'unknown',
+    domain: org.primary_domain ?? extractDomain(org.website_url),
+    raw_keys_present: rawKeysPresent,
+    evidence_fields_present: evidenceFieldsPresent,
+    industry: org.industry ?? null,
+    industries_sample: (org.industries ?? []).slice(0, 5),
+    keywords_sample: (org.keywords ?? []).slice(0, 5),
+    organization_keywords_sample: (org.organization_keywords ?? []).slice(0, 5),
+    has_description: !!(org.short_description ?? org.seo_description ?? org.description),
+    has_short_description: !!org.short_description,
+    employee_count: org.estimated_num_employees ?? org.employee_count ?? null,
+    description_sample: descText ? descText.slice(0, 150) : null,
   };
 }
 
@@ -491,8 +598,11 @@ export async function runApolloOrganizationsSearch(
   const mapped: WebSearchResult[] = [];
   // L2.8: track cuántas orgs se perdieron en normalización (sin name o error de mapping)
   let normalizationDroppedCount = 0;
+  // L2.14: hasta 3 samples del raw Apollo para audit de evidencia en usage logs
+  const rawResultSamples: ApolloRawResultSample[] = [];
 
   for (const raw of rawOrgs) {
+    if (rawResultSamples.length < 3) rawResultSamples.push(buildApolloRawResultSample(raw));
     const normalized = normalizeApolloOrg(raw);
     if (!normalized) { normalizationDroppedCount++; continue; }
     try {
@@ -549,9 +659,17 @@ export async function runApolloOrganizationsSearch(
       name: s.name,
       domain: s.domain,
       reason: s.reason ?? 'insufficient_sector_evidence',
+      evidence_fields_present: s.evidence_fields_present ?? [],
+      apollo_keywords_sample: s.apollo_keywords_sample ?? [],
+      description_present: s.description_present ?? false,
+      apollo_industry: s.apollo_industry ?? null,
+      apollo_employee_count: s.apollo_employee_count ?? null,
+      provider_evidence_used: s.provider_evidence_used ?? [],
     })),
     output_results_count: postGateCount,
     empty_output_reason: emptyOutputReason,
+    // L2.14: samples del raw Apollo para ver exactamente qué campos devolvió la API
+    apollo_raw_result_samples_sanitized: rawResultSamples,
   };
 
   // ── Usage logging ─────────────────────────────────────────────────────────────
@@ -605,6 +723,8 @@ export async function runApolloOrganizationsSearch(
       apollo_sector_relevance_gate: gateResult.metadata,
       // L2.8: diagnóstico detallado para trazabilidad en batch metadata
       apollo_result_diagnostics: apolloResultDiagnostics,
+      // L2.14: samples raw de Apollo — para ver exactamente qué campos devolvió la API
+      apollo_raw_result_samples_sanitized: rawResultSamples,
     },
   };
 }

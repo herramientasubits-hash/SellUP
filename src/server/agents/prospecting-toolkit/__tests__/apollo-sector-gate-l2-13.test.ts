@@ -389,8 +389,8 @@ describe('J. Regression L2.11-A — q_keywords no enviado', () => {
 // ─── K. Regression L2.12 lab ─────────────────────────────────────────────────
 
 describe('K. Regression L2.12 lab — versiones actualizadas', () => {
-  it('K1. APOLLO_SECTOR_GATE_VERSION es v1.L2.13-A', () => {
-    assert.equal(APOLLO_SECTOR_GATE_VERSION, 'v1.L2.13-A');
+  it('K1. APOLLO_SECTOR_GATE_VERSION es v1.L2.14-A (bumped por L2.14)', () => {
+    assert.equal(APOLLO_SECTOR_GATE_VERSION, 'v1.L2.14-A');
   });
 
   it('K2. APOLLO_QUERY_MAPPING_VERSION es v1.L2.13', () => {
