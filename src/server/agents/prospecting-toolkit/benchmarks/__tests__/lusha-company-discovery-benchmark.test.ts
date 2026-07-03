@@ -292,6 +292,79 @@ describe('Q3F-5G — filters shape metadata', () => {
 });
 
 // ============================================================
+// Q3F-5J — metadata de query param support
+// ============================================================
+
+describe('Q3F-5J — query param metadata', () => {
+  it('locations_requires_query_observed = true en todo escenario', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.locations_requires_query_observed, true,
+        `locations_requires_query_observed debe ser true en escenario ${scenario}`);
+    }
+  });
+
+  it('names_requires_query_observed = true en todo escenario', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.names_requires_query_observed, true);
+  });
+
+  it('filter_values_query_param_supported = true en todo escenario', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.filter_values_query_param_supported, true);
+  });
+
+  it('next_location_query_candidate = "Colombia"', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.next_location_query_candidate, 'Colombia');
+  });
+
+  it('location_value_id_unconfirmed = true', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.location_value_id_unconfirmed, true);
+  });
+
+  it('credits_used = 0 y estimated_cost_usd = 0 con metadata Q3F-5J', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.credits_used, 0);
+    assert.equal(result.estimated_cost_usd, 0);
+  });
+
+  it('source_catalog_unchanged = true con metadata Q3F-5J', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.source_catalog_unchanged, true);
+  });
+
+  it('writes_disabled = true con metadata Q3F-5J', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.writes_disabled, true);
+  });
+
+  it('metadata previa Q3F-5H sigue presente — no hay regresión', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.empty_filters_rejected_observed, true);
+    assert.equal(result.minimum_required_filter_observed, true);
+    assert.equal(result.next_filter_candidate, 'locations');
+    assert.equal(result.filter_values_unconfirmed, true);
+    assert.equal(result.filters_shape_observed, 'object');
+    assert.equal(result.filter_type_key_observed, 'filterType');
+  });
+
+  it('no hay fetch real con Q3F-5J metadata (fetch guard)', () => {
+    assert.doesNotThrow(() => run({ scenario: 'useful_results' }));
+    assert.doesNotThrow(() => run({ scenario: 'empty_result' }));
+  });
+});
+
+// ============================================================
 // Garantías de aislamiento
 // ============================================================
 

@@ -1254,18 +1254,44 @@ export async function getLushaCompanyProspectingFilters(input: {
   }
 }
 
+/**
+ * filterTypes que requieren query string — observado en Q3F-5I.
+ * GET /v3/companies/prospecting/filters/locations sin query → HTTP 400
+ *   { "name": "BadRequest", "message": "\"query\" parameter is required for filterType \"locations\"." }
+ * Los valores reales para estos filterTypes no están confirmados hasta una llamada real posterior (Q3F-5K).
+ */
+const FILTER_TYPES_REQUIRING_QUERY = new Set(['locations', 'names']);
+
 export async function getLushaCompanyProspectingFilterValues(input: {
   apiKey: string;
   timeoutMs: number;
   filterType: string;
+  /** Required for filterTypes: locations, names (observed Q3F-5I). Optional for sizes, revenues, sics, etc. */
+  query?: string;
 }): Promise<LushaCompanyProspectingFiltersResult> {
+  // Guardrail local: bloquear antes de fetch si filterType requiere query y no se proveyó
+  if (FILTER_TYPES_REQUIRING_QUERY.has(input.filterType) && !input.query?.trim()) {
+    return {
+      ok: false,
+      status: 'provider_error',
+      errorMessage: `Lusha filter values for ${input.filterType} require query. Observed in Q3F-5I: HTTP 400 "query parameter is required for filterType \\"${input.filterType}\\""`,
+    };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
     const encodedType = encodeURIComponent(input.filterType);
+    const qs = new URLSearchParams();
+    if (input.query?.trim()) {
+      qs.set('query', input.query.trim());
+    }
+    const qsStr = qs.toString();
+    const url = `${LUSHA_BASE_URL}/v3/companies/prospecting/filters/${encodedType}${qsStr ? `?${qsStr}` : ''}`;
+
     const response = await fetch(
-      `${LUSHA_BASE_URL}/v3/companies/prospecting/filters/${encodedType}`,
+      url,
       {
         method: 'GET',
         headers: { 'api_key': input.apiKey.trim() },

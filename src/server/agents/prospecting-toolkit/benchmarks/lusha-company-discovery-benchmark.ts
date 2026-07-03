@@ -99,10 +99,20 @@ export interface LushaCompanyDiscoveryBenchmarkResult {
   empty_filters_rejected_observed: true;
   /** Q3F-5H: La API exige al menos un filterType con valores. */
   minimum_required_filter_observed: true;
-  /** filterType candidato observado en Q3F-5F. Valores exactos sin confirmar (pendiente Q3F-5I). */
+  /** filterType candidato observado en Q3F-5F. Valores exactos sin confirmar (pendiente Q3F-5K). */
   next_filter_candidate: 'locations';
   /** Los valores válidos para next_filter_candidate no han sido confirmados en live test. */
   filter_values_unconfirmed: true;
+  /** Q3F-5I: GET /filters/locations sin query → HTTP 400. locations requiere query string. */
+  locations_requires_query_observed: true;
+  /** Q3F-5I: Observado en shape GET /filters: names.requiresQuery=true. Mismo patrón que locations. */
+  names_requires_query_observed: true;
+  /** Q3F-5J: El client soporta ?query=... en getLushaCompanyProspectingFilterValues. */
+  filter_values_query_param_supported: true;
+  /** Candidato de query para el próximo live test (Q3F-5K). */
+  next_location_query_candidate: 'Colombia';
+  /** El id de location para "Colombia" no ha sido confirmado en live test. */
+  location_value_id_unconfirmed: true;
 
   // Resultado del escenario
   scenario: LushaCompanyDiscoveryBenchmarkScenario;
@@ -161,6 +171,11 @@ export function runLushaCompanyDiscoveryBenchmarkDryRun(
     minimum_required_filter_observed: true as const,
     next_filter_candidate: 'locations' as const,
     filter_values_unconfirmed: true as const,
+    locations_requires_query_observed: true as const,
+    names_requires_query_observed: true as const,
+    filter_values_query_param_supported: true as const,
+    next_location_query_candidate: 'Colombia' as const,
+    location_value_id_unconfirmed: true as const,
   };
 
   const safeInput: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'> = {
@@ -357,6 +372,11 @@ type BaseMetadata = {
   minimum_required_filter_observed: true;
   next_filter_candidate: 'locations';
   filter_values_unconfirmed: true;
+  locations_requires_query_observed: true;
+  names_requires_query_observed: true;
+  filter_values_query_param_supported: true;
+  next_location_query_candidate: 'Colombia';
+  location_value_id_unconfirmed: true;
 };
 
 function buildBase(meta: BaseMetadata): BaseMetadata {
