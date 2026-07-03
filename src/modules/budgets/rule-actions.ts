@@ -103,11 +103,55 @@ export async function createBudgetRule(input: CreateBudgetRuleInput): Promise<Ac
   }
 
   const currentUser = await getCurrentUser();
+  const scopeId = input.scopeType === 'global' ? null : input.scopeId;
+
+  // Check for existing rule (active or archived) with same provider/scope
+  let existingQuery = admin
+    .from('budget_rules')
+    .select('id, is_active')
+    .eq('provider_key', input.providerKey)
+    .eq('scope_type', input.scopeType);
+
+  if (scopeId === null) {
+    existingQuery = existingQuery.is('scope_id', null);
+  } else {
+    existingQuery = existingQuery.eq('scope_id', scopeId);
+  }
+
+  const { data: existing } = await existingQuery.maybeSingle();
+
+  if (existing) {
+    if (existing.is_active) {
+      return { success: false, error: 'Ya existe una regla activa para este proveedor y alcance.' };
+    }
+
+    // Reactivate archived rule with updated values
+    const { error: reactivateError } = await admin
+      .from('budget_rules')
+      .update({
+        period_type: input.periodType,
+        limit_credits: input.limitCredits ?? null,
+        limit_usd: input.limitUsd ?? null,
+        on_exceed: input.onExceed,
+        notes: input.notes ?? null,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id);
+
+    if (reactivateError) {
+      console.error('[createBudgetRule] reactivate', reactivateError);
+      return { success: false, error: 'Error al reactivar la regla.' };
+    }
+
+    revalidatePath('/settings/providers', 'layout');
+    return { success: true };
+  }
 
   const { error } = await admin.from('budget_rules').insert({
     provider_key: input.providerKey,
     scope_type: input.scopeType,
-    scope_id: input.scopeType === 'global' ? null : input.scopeId,
+    scope_id: scopeId,
     period_type: input.periodType,
     limit_credits: input.limitCredits ?? null,
     limit_usd: input.limitUsd ?? null,
@@ -119,7 +163,7 @@ export async function createBudgetRule(input: CreateBudgetRuleInput): Promise<Ac
 
   if (error) {
     if (error.code === '23505') {
-      return { success: false, error: 'Ya existe una regla para este proveedor y alcance.' };
+      return { success: false, error: 'Ya existe una regla activa para este proveedor y alcance.' };
     }
     console.error('[createBudgetRule]', error);
     return { success: false, error: 'Error al crear la regla.' };
