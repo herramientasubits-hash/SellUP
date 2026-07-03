@@ -181,23 +181,31 @@ function printReport(report: EtlReport, isDryRun: boolean): void {
 async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPanamaSnapshotRows>): Promise<number> {
   if (snapshots.length === 0) return 0;
 
+  // source_year is required by the unique constraint; use current year for pilot load
+  const sourceYear = new Date().getFullYear();
+
   const rows = snapshots.map((s) => ({
     source_key: s.source_key,
     country_code: s.country_code,
+    source_year: sourceYear,
     tax_id: s.tax_id,
     normalized_tax_id: s.normalized_tax_id,
     legal_name: s.legal_name,
-    status: s.status,
-    source_url: s.source_url,
+    sector: null,
+    city: null,
+    department: null,
+    region: null,
+    priority_score: 0,
+    signals: { source_url: s.source_url },
+    financials: {},
     raw_data: s.raw_data,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    imported_at: new Date().toISOString(),
   }));
 
   const { error, count } = await admin
     .from('source_company_snapshots')
     .upsert(rows, {
-      onConflict: 'source_key,normalized_tax_id',
+      onConflict: 'source_key,country_code,source_year,normalized_tax_id',
       ignoreDuplicates: false,
       count: 'exact',
     });
