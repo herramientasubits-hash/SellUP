@@ -217,6 +217,8 @@ export interface CandidateRecord {
   company_name: string | null;
   /** Dominio de empresa del run (para dedup por dominio). */
   company_domain: string | null;
+  /** Código ISO-2 del país resuelto en el run (MX, CO, CL…). Puede ser null. */
+  country_code: string | null;
 }
 
 export interface ContactInsertPayload {
@@ -387,13 +389,20 @@ export interface ApproveDeps {
     company_name: string | null;
     company_domain: string | null;
     run_id: string | null;
-  }) => Promise<{ accountId: string; outcome: string } | { error: string }>;
+    country_code: string | null;
+  }) => Promise<{ accountId: string; outcome: string; countryCodeApplied: string | null; countryResolutionSource: string } | { error: string }>;
   /**
    * Actualiza contact_enrichment_runs con el account_id recién resuelto/creado
    * y registra metadata de trazabilidad. Se llama solo cuando se resuelve una
    * cuenta nueva para un candidato HubSpot-only.
    */
-  updateRunAccountId?: (runId: string, accountId: string, outcome: string) => Promise<void>;
+  updateRunAccountId?: (
+    runId: string,
+    accountId: string,
+    outcome: string,
+    countryCodeApplied: string | null,
+    countryResolutionSource: string,
+  ) => Promise<void>;
 }
 
 export interface DiscardDeps {
@@ -434,12 +443,19 @@ export async function runApproveCandidate(
       company_name: candidate.company_name,
       company_domain: candidate.company_domain,
       run_id: candidate.enrichment_run_id,
+      country_code: candidate.country_code,
     });
     if ('error' in resolved) return { ok: false, error: resolved.error };
     accountId = resolved.accountId;
     resolvedAccountOutcome = resolved.outcome;
     if (candidate.enrichment_run_id && deps.updateRunAccountId) {
-      await deps.updateRunAccountId(candidate.enrichment_run_id, accountId, resolved.outcome);
+      await deps.updateRunAccountId(
+        candidate.enrichment_run_id,
+        accountId,
+        resolved.outcome,
+        resolved.countryCodeApplied,
+        resolved.countryResolutionSource,
+      );
     }
   }
 

@@ -49,6 +49,7 @@ function makeCandidate(overrides: Partial<CandidateRecord> = {}): CandidateRecor
     hubspot_company_id: null,
     company_name: null,
     company_domain: null,
+    country_code: null,
     ...overrides,
   };
 }
@@ -712,14 +713,16 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
       inserted: ContactInsertPayload[];
       updated: { id: string; patch: CandidateReviewPatch }[];
       resolved: number;
-      runUpdated: { runId: string; accountId: string; outcome: string }[];
+      runUpdated: { runId: string; accountId: string; outcome: string; countryCodeApplied: string | null; countryResolutionSource: string }[];
+      accountCountryUpdated: { accountId: string; countryCode: string }[];
     };
   } {
     const calls = {
       inserted: [] as ContactInsertPayload[],
       updated: [] as { id: string; patch: CandidateReviewPatch }[],
       resolved: 0,
-      runUpdated: [] as { runId: string; accountId: string; outcome: string }[],
+      runUpdated: [] as { runId: string; accountId: string; outcome: string; countryCodeApplied: string | null; countryResolutionSource: string }[],
+      accountCountryUpdated: [] as { accountId: string; countryCode: string }[],
     };
     const deps: ApproveDeps = {
       actorId: 'user-1',
@@ -731,6 +734,7 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
           company_name: 'ACRIP Colombia',
           company_domain: 'acrip.org',
           enrichment_run_id: 'run-hs-1',
+          country_code: null,
         }),
       loadExistingContacts: async () => [],
       insertContact: async (payload) => {
@@ -743,10 +747,10 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
       },
       resolveOrCreateAccount: async () => {
         calls.resolved += 1;
-        return { accountId: 'acc-hs-new', outcome: 'created' };
+        return { accountId: 'acc-hs-new', outcome: 'created', countryCodeApplied: null, countryResolutionSource: 'unknown' };
       },
-      updateRunAccountId: async (runId, accountId, outcome) => {
-        calls.runUpdated.push({ runId, accountId, outcome });
+      updateRunAccountId: async (runId, accountId, outcome, countryCodeApplied, countryResolutionSource) => {
+        calls.runUpdated.push({ runId, accountId, outcome, countryCodeApplied, countryResolutionSource });
       },
       ...overrides,
     };
@@ -892,7 +896,220 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
 
     assert.deepEqual(calls.inserted[0].metadata.company_consistency, company_consistency);
   });
-});
+
+  // ── Hito 17A.9H.2 — country_code al aprobar HubSpot-only ────────
+
+  describe('country_code (17A.9H.2)', () => {
+  it('pasa country_code MX a resolveOrCreateAccount cuando el candidato lo trae', async () => {
+    const receivedArgs: unknown[] = [];
+    const { deps } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-mx',
+          company_name: 'Administrategia',
+          company_domain: 'administrategia.com',
+          enrichment_run_id: 'run-mx-1',
+          country_code: 'MX',
+        }),
+      resolveOrCreateAccount: async (args) => {
+        receivedArgs.push(args);
+        return { accountId: 'acc-mx', outcome: 'created', countryCodeApplied: 'MX', countryResolutionSource: 'contact_enrichment_run' };
+      },
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true);
+    assert.equal(receivedArgs.length, 1);
+    assert.equal((receivedArgs[0] as { country_code: string }).country_code, 'MX');
+  });
+
+  it('pasa country_code CO cuando el candidato es de Colombia', async () => {
+    const receivedArgs: unknown[] = [];
+    const { deps } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-co',
+          company_name: 'ACRIP Colombia',
+          company_domain: 'acrip.org',
+          enrichment_run_id: 'run-co-1',
+          country_code: 'CO',
+        }),
+      resolveOrCreateAccount: async (args) => {
+        receivedArgs.push(args);
+        return { accountId: 'acc-co', outcome: 'created', countryCodeApplied: 'CO', countryResolutionSource: 'contact_enrichment_run' };
+      },
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.equal((receivedArgs[0] as { country_code: string }).country_code, 'CO');
+  });
+
+  it('pasa country_code CL cuando el candidato es de Chile', async () => {
+    const receivedArgs: unknown[] = [];
+    const { deps } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-cl',
+          company_name: 'Empresa Chile',
+          company_domain: 'empresa.cl',
+          enrichment_run_id: 'run-cl-1',
+          country_code: 'CL',
+        }),
+      resolveOrCreateAccount: async (args) => {
+        receivedArgs.push(args);
+        return { accountId: 'acc-cl', outcome: 'created', countryCodeApplied: 'CL', countryResolutionSource: 'contact_enrichment_run' };
+      },
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.equal((receivedArgs[0] as { country_code: string }).country_code, 'CL');
+  });
+
+  it('pasa country_code null cuando el candidato no trae país — no falla', async () => {
+    const receivedArgs: unknown[] = [];
+    const { deps } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-nulo',
+          company_name: 'Sin País SA',
+          company_domain: 'sinpais.com',
+          enrichment_run_id: 'run-nulo-1',
+          country_code: null,
+        }),
+      resolveOrCreateAccount: async (args) => {
+        receivedArgs.push(args);
+        return { accountId: 'acc-nulo', outcome: 'created', countryCodeApplied: null, countryResolutionSource: 'unknown' };
+      },
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true);
+    assert.equal((receivedArgs[0] as { country_code: string | null }).country_code, null);
+  });
+
+  it('llama updateRunAccountId con countryCodeApplied y countryResolutionSource', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-mx',
+          company_name: 'Administrategia',
+          company_domain: 'administrategia.com',
+          enrichment_run_id: 'run-mx-2',
+          country_code: 'MX',
+        }),
+      resolveOrCreateAccount: async () => ({
+        accountId: 'acc-mx-2',
+        outcome: 'created',
+        countryCodeApplied: 'MX',
+        countryResolutionSource: 'contact_enrichment_run',
+      }),
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.equal(calls.runUpdated.length, 1);
+    assert.equal(calls.runUpdated[0].countryCodeApplied, 'MX');
+    assert.equal(calls.runUpdated[0].countryResolutionSource, 'contact_enrichment_run');
+  });
+
+  it('updateRunAccountId recibe countryCodeApplied null cuando no hay país', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      resolveOrCreateAccount: async () => ({
+        accountId: 'acc-hs-new',
+        outcome: 'created',
+        countryCodeApplied: null,
+        countryResolutionSource: 'unknown',
+      }),
+    });
+    await runApproveCandidate('cand-1', deps);
+    assert.equal(calls.runUpdated[0].countryCodeApplied, null);
+    assert.equal(calls.runUpdated[0].countryResolutionSource, 'unknown');
+  });
+
+  it('cuenta existente por hubspot_company_id recibe countryCodeApplied de resolveOrCreateAccount', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-existing',
+          company_name: 'Empresa Existente',
+          company_domain: 'existente.com',
+          enrichment_run_id: 'run-existing',
+          country_code: 'CO',
+        }),
+      resolveOrCreateAccount: async () => ({
+        accountId: 'acc-existing',
+        outcome: 'existing_by_hubspot',
+        countryCodeApplied: 'CO',
+        countryResolutionSource: 'contact_enrichment_run',
+      }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true);
+    assert.equal(calls.runUpdated[0].countryCodeApplied, 'CO');
+    assert.equal(calls.runUpdated[0].countryResolutionSource, 'contact_enrichment_run');
+  });
+
+  it('cuenta existente por dominio recibe countryCodeApplied de resolveOrCreateAccount', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-domain',
+          company_name: 'Empresa Dominio',
+          company_domain: 'dominio.com',
+          enrichment_run_id: 'run-domain',
+          country_code: 'MX',
+        }),
+      resolveOrCreateAccount: async () => ({
+        accountId: 'acc-domain',
+        outcome: 'existing_by_domain_linked',
+        countryCodeApplied: 'MX',
+        countryResolutionSource: 'contact_enrichment_run',
+      }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true);
+    assert.equal(calls.runUpdated[0].countryCodeApplied, 'MX');
+  });
+
+  it('candidato con account_id existente no llama resolveOrCreateAccount (sin país en resolución)', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({ account_id: 'acc-preexisting', country_code: 'MX' }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true);
+    assert.equal(calls.resolved, 0);
+    assert.equal(calls.runUpdated.length, 0); // no se llama updateRunAccountId
+    assert.equal(calls.inserted[0].account_id, 'acc-preexisting');
+  });
+
+  it('no llama a ningún helper HubSpot durante aprobación con country_code', async () => {
+    const { deps } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-mx',
+          company_name: 'Empresa MX',
+          company_domain: 'empresamx.com',
+          enrichment_run_id: 'run-mx-3',
+          country_code: 'MX',
+        }),
+      resolveOrCreateAccount: async () => ({
+        accountId: 'acc-mx-3',
+        outcome: 'created',
+        countryCodeApplied: 'MX',
+        countryResolutionSource: 'contact_enrichment_run',
+      }),
+    });
+    const depKeys = Object.keys(deps);
+    const hubspotKeys = depKeys.filter((k) => k.toLowerCase().includes('hubspot'));
+    assert.equal(hubspotKeys.length, 0, `Deps HubSpot inesperadas: ${hubspotKeys.join(', ')}`);
+    const result = await runApproveCandidate('cand-1', deps);
+    assert.equal(result.ok, true);
+  });
+  }); // describe country_code (17A.9H.2)
+}); // describe runApproveCandidate — HubSpot-only (17A.9H)
 
 // ── REGRESIÓN 17A.8E — post_completion conservado en aprobación ──
 

@@ -14,6 +14,8 @@ export interface HubSpotAccountResolutionInput {
   company_name: string | null;
   company_domain: string | null;
   run_id: string | null;
+  /** Código ISO-2 del país (MX, CO, CL…) resuelto desde el run. */
+  country_code: string | null;
 }
 
 export interface HubSpotAccountResolutionDeps {
@@ -28,10 +30,23 @@ export interface HubSpotAccountResolutionDeps {
     website: string | null;
     hubspot_company_id: string;
     run_id: string | null;
+    country_code: string | null;
   }) => Promise<{ id: string } | { error: string }>;
   /** Vincula un hubspot_company_id a una cuenta existente. */
   linkHubspotId: (accountId: string, hubspotId: string) => Promise<void>;
+  /**
+   * Actualiza country_code de una cuenta existente solo si está vacío.
+   * La implementación debe usar `WHERE country_code IS NULL` para no sobrescribir.
+   */
+  updateAccountCountryCode?: (accountId: string, countryCode: string) => Promise<void>;
 }
+
+export type AccountResolutionSuccess = {
+  accountId: string;
+  outcome: AccountResolutionOutcome;
+  countryCodeApplied: string | null;
+  countryResolutionSource: 'contact_enrichment_run' | 'unknown';
+};
 
 /** Normaliza un dominio crudamente extraído de la BD (elimina protocolo/www). */
 export function normalizeAccountDomain(raw: string): string | null {
@@ -53,18 +68,32 @@ export function normalizeAccountDomain(raw: string): string | null {
  *  2. Cuenta existente por dominio normalizado (vincula hubspot_company_id si falta).
  *  3. Crea cuenta SellUp mínima con source=hubspot + metadata de trazabilidad.
  *
+ * En todos los casos intenta preservar country_code cuando está disponible en el run.
+ * Si la cuenta existente ya tiene country_code, no lo sobrescribe (la dep usa WHERE IS NULL).
+ *
  * Devuelve `{ error }` si la creación falla o faltan datos mínimos.
  */
 export async function resolveOrCreateAccountForHubSpotCandidate(
   input: HubSpotAccountResolutionInput,
   deps: HubSpotAccountResolutionDeps,
-): Promise<{ accountId: string; outcome: AccountResolutionOutcome } | { error: string }> {
-  const { hubspot_company_id, company_name, company_domain, run_id } = input;
+): Promise<AccountResolutionSuccess | { error: string }> {
+  const { hubspot_company_id, company_name, company_domain, run_id, country_code } = input;
+
+  const countrySource: AccountResolutionSuccess['countryResolutionSource'] =
+    country_code ? 'contact_enrichment_run' : 'unknown';
 
   // 1. Buscar por hubspot_company_id exacto.
   const byHubspot = await deps.findByHubspotId(hubspot_company_id);
   if (byHubspot) {
-    return { accountId: byHubspot.id, outcome: 'existing_by_hubspot' };
+    if (country_code && deps.updateAccountCountryCode) {
+      await deps.updateAccountCountryCode(byHubspot.id, country_code);
+    }
+    return {
+      accountId: byHubspot.id,
+      outcome: 'existing_by_hubspot',
+      countryCodeApplied: country_code,
+      countryResolutionSource: countrySource,
+    };
   }
 
   // 2. Buscar por dominio normalizado.
@@ -74,9 +103,19 @@ export async function resolveOrCreateAccountForHubSpotCandidate(
     if (byDomain) {
       if (!byDomain.hubspot_company_id) {
         await deps.linkHubspotId(byDomain.id, hubspot_company_id);
-        return { accountId: byDomain.id, outcome: 'existing_by_domain_linked' };
       }
-      return { accountId: byDomain.id, outcome: 'existing_by_domain' };
+      if (country_code && deps.updateAccountCountryCode) {
+        await deps.updateAccountCountryCode(byDomain.id, country_code);
+      }
+      const outcome = byDomain.hubspot_company_id
+        ? 'existing_by_domain'
+        : 'existing_by_domain_linked';
+      return {
+        accountId: byDomain.id,
+        outcome,
+        countryCodeApplied: country_code,
+        countryResolutionSource: countrySource,
+      };
     }
   }
 
@@ -92,8 +131,14 @@ export async function resolveOrCreateAccountForHubSpotCandidate(
     website,
     hubspot_company_id,
     run_id,
+    country_code,
   });
 
   if ('error' in created) return { error: created.error };
-  return { accountId: created.id, outcome: 'created' };
+  return {
+    accountId: created.id,
+    outcome: 'created',
+    countryCodeApplied: country_code,
+    countryResolutionSource: countrySource,
+  };
 }

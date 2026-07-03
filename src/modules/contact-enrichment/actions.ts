@@ -416,11 +416,11 @@ function getServiceRoleClient() {
 
 /** Columnas necesarias para mapear candidato → contacto (más que la proyección
  *  de revisión: incluye seniority/department/first_name/last_name y datos de empresa
- *  del run para resolución de cuenta HubSpot-only — Hito 17A.9H). */
+ *  del run para resolución de cuenta HubSpot-only — Hito 17A.9H/17A.9H.2). */
 const CANDIDATE_REVIEW_SELECT =
   `id, status, full_name, first_name, last_name, title, seniority, department,
    email, phone, linkedin_url, source, enrichment_metadata, enrichment_run_id,
-   run:contact_enrichment_runs ( account_id, hubspot_company_id, company_name, company_domain )`;
+   run:contact_enrichment_runs ( account_id, hubspot_company_id, company_name, company_domain, company_country_code )`;
 
 function mapCandidateRecord(row: unknown): CandidateRecord {
   const r = row as Record<string, unknown>;
@@ -431,6 +431,7 @@ function mapCandidateRecord(row: unknown): CandidateRecord {
         hubspot_company_id: string | null;
         company_name: string | null;
         company_domain: string | null;
+        company_country_code: string | null;
       }
     | null
     | undefined;
@@ -454,6 +455,7 @@ function mapCandidateRecord(row: unknown): CandidateRecord {
     hubspot_company_id: run?.hubspot_company_id ?? null,
     company_name: run?.company_name ?? null,
     company_domain: run?.company_domain ?? null,
+    country_code: run?.company_country_code ?? null,
   };
 }
 
@@ -567,6 +569,7 @@ export async function approveContactCandidate(
                 domain: input.domain,
                 website: input.website,
                 hubspot_company_id: input.hubspot_company_id,
+                country_code: input.country_code ?? null,
                 source: 'hubspot',
                 pipeline_status: 'new',
                 metadata: {
@@ -574,6 +577,11 @@ export async function approveContactCandidate(
                   source_hubspot_company_id: input.hubspot_company_id,
                   source_contact_enrichment_run_id: input.run_id ?? null,
                   created_from_candidate_approval: true,
+                  country_resolution: {
+                    source: input.country_code ? 'contact_enrichment_run' : 'unknown',
+                    resolved_country_code: input.country_code ?? null,
+                    applied_on_candidate_approval: true,
+                  },
                 },
                 created_by: internalUserId,
                 updated_by: internalUserId,
@@ -589,9 +597,16 @@ export async function approveContactCandidate(
               .update({ hubspot_company_id: hubspotId, updated_by: internalUserId })
               .eq('id', accountId);
           },
+          updateAccountCountryCode: async (accountId, countryCode) => {
+            await admin
+              .from('accounts')
+              .update({ country_code: countryCode, updated_by: internalUserId })
+              .eq('id', accountId)
+              .is('country_code', null);
+          },
         });
       },
-      updateRunAccountId: async (runId, accountId, outcome) => {
+      updateRunAccountId: async (runId, accountId, outcome, countryCodeApplied, countryResolutionSource) => {
         const { data: runRow } = await admin
           .from('contact_enrichment_runs')
           .select('summary')
@@ -606,7 +621,12 @@ export async function approveContactCandidate(
               ...currentSummary,
               account_created_on_candidate_approval: outcome === 'created',
               account_linked_on_candidate_approval: outcome !== 'created',
-              approval_account_resolution: { outcome, resolved_account_id: accountId },
+              approval_account_resolution: {
+                outcome,
+                resolved_account_id: accountId,
+                country_code_applied: countryCodeApplied ?? null,
+                country_resolution_source: countryResolutionSource ?? 'unknown',
+              },
             },
           })
           .eq('id', runId);
