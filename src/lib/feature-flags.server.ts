@@ -137,7 +137,9 @@ export const LUSHA_CONTACT_ENRICHMENT_FLAG = 'ENABLE_LUSHA_CONTACT_ENRICHMENT';
  * Returns true when ENABLE_LUSHA_CONTACT_ENRICHMENT is "true".
  *
  * Default: false. Lusha is a secondary/challenger provider behind this flag.
- * Apollo remains the primary provider and must not be affected by this flag.
+ * Apollo People Search remains the primary contact enrichment provider and must
+ * not be affected by this flag. (Unrelated to Apollo Organizations company
+ * discovery, which is a separate pipeline — see APOLLO_COMPANY_SEARCH_FLAG.)
  * Do not enable until the live integration (17B.4) is validated.
  */
 export function isLushaContactEnrichmentEnabled(): boolean {

@@ -24,6 +24,7 @@ import {
 import { resolveApolloMaxEnrichmentsPerRun } from '@/lib/feature-flags.server';
 import {
   resolveWizardDiscoveryProviderVerbose,
+  APOLLO_ORGANIZATION_ROLES,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -130,5 +131,17 @@ describe('agent1-apollo-config: resolveWizardDiscoveryProviderVerbose', () => {
         assert.strictEqual(result.reason, 'apollo_both_gates_on');
       }
     );
+  });
+});
+
+// ─── Tests: APOLLO_ORGANIZATION_ROLES — decisión estratégica Q3F-3 ────────────
+
+describe('agent1-apollo-config: APOLLO_ORGANIZATION_ROLES', () => {
+  it('search role is discovery_fallback_experimental', () => {
+    assert.strictEqual(APOLLO_ORGANIZATION_ROLES.search, 'discovery_fallback_experimental');
+  });
+
+  it('enrichment role is enrichment', () => {
+    assert.strictEqual(APOLLO_ORGANIZATION_ROLES.enrichment, 'enrichment');
   });
 });

@@ -276,7 +276,7 @@ export function ApolloProviderCard({ connection: initialConnection, description 
             <Search className="h-4 w-4" />
           </div>
           <span className="text-xs text-muted-foreground">
-            Prospección y enriquecimiento
+            Enriquecimiento empresarial · discovery experimental
           </span>
         </div>
 
@@ -371,8 +371,9 @@ export function ApolloProviderCard({ connection: initialConnection, description 
               {dialogMode === 'connect' ? 'Conectar Apollo.io' : 'Actualizar API Key'}
             </DialogTitle>
             <DialogDescription>
-              La API Key se almacenará de forma segura y permitirá que SellUp use Apollo
-              para futuros flujos de prospección y enriquecimiento.
+              La API Key se almacenará de forma segura. Apollo complementa datos de empresas
+              ya identificadas y opera como fallback experimental de discovery; no es el motor
+              principal recomendado para lotes masivos.
             </DialogDescription>
           </DialogHeader>
 

@@ -11,10 +11,33 @@
  * Tavily es y seguirá siendo el default. Apollo solo se activa con AMBAS env vars
  * configuradas explícitamente server-side. No hay selector en UI.
  *
- * Hito v1.16K-Y.
+ * Decisión estratégica Q3F-3:
+ *   Apollo Organizations NO es el discovery principal recomendado para lotes masivos.
+ *   Roles asignados:
+ *     - organization_search_role = "discovery_fallback_experimental"
+ *       (disponible solo con doble gate explícito; no recomendado como default masivo)
+ *     - organization_enrichment_role = "enrichment"
+ *       (validado técnicamente; complementa datos de empresas ya identificadas)
+ *
+ * Hito v1.16K-Y / Q3F-3.
  */
 
 export type WizardDiscoveryProviderKey = 'tavily' | 'apollo_organizations';
+
+/**
+ * Roles de Apollo Organizations dentro del Agente 1 (Q3F-3).
+ * Expuesto para diagnósticos, tests y documentación interna.
+ * No modifica el flujo de ejecución.
+ */
+export const APOLLO_ORGANIZATION_ROLES = {
+  /** Discovery disponible solo con doble gate explícito; no recomendado como default masivo. */
+  search: 'discovery_fallback_experimental',
+  /** Validado técnicamente; complementa datos de empresas ya identificadas con dominio/identidad. */
+  enrichment: 'enrichment',
+} as const;
+
+export type ApolloOrganizationSearchRole = typeof APOLLO_ORGANIZATION_ROLES.search;
+export type ApolloOrganizationEnrichmentRole = typeof APOLLO_ORGANIZATION_ROLES.enrichment;
 
 export type WizardDiscoveryProviderResolution =
   | { provider: 'tavily'; reason: 'default' | 'explicit_tavily' | 'apollo_flag_off' }

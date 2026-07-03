@@ -19,7 +19,10 @@ import {
   resolveApolloMaxQueriesPerRun,
   resolveApolloMaxResultsPerQuery,
 } from '@/server/agents/prospecting-toolkit/apollo-cost-guardrails';
-import { resolveWizardDiscoveryProviderVerbose } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
+import {
+  resolveWizardDiscoveryProviderVerbose,
+  APOLLO_ORGANIZATION_ROLES,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 
 export async function GET() {
@@ -55,6 +58,10 @@ export async function GET() {
     apollo_max_results_per_query_resolved: resolveApolloMaxResultsPerQuery(),
     apollo_max_enrichments_per_run_resolved: resolveApolloMaxEnrichmentsPerRun(),
     has_apollo_api_key: apolloKeyPresent,
+    // Decisión estratégica Q3F-3: roles de Apollo Organizations en Agente 1.
+    apollo_organization_search_role: APOLLO_ORGANIZATION_ROLES.search,
+    apollo_organization_enrichment_role: APOLLO_ORGANIZATION_ROLES.enrichment,
+    apollo_discovery_default_recommended: false,
     vercel_commit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
   });
 }
