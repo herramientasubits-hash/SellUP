@@ -4,7 +4,7 @@
  * Verifica que la entrada pa_panamacompra_convenio esté correctamente
  * registrada con todos los guardrails semánticos obligatorios.
  *
- * Hito: Centroamérica.5B
+ * Hito: Centroamérica.5G (actualización desde 5B)
  */
 
 import assert from 'node:assert/strict';
@@ -21,7 +21,7 @@ const peSupat = CATALOG_SOURCES.find((s) => s.key === 'pe_sunat_bulk');
 const clChile = CATALOG_SOURCES.find((s) => s.key === 'cl_chilecompra_ocds');
 const coSiis = CATALOG_SOURCES.find((s) => s.key === 'co_siis');
 
-describe('pa_panamacompra_convenio en Source Catalog — Centroamérica.5B', () => {
+describe('pa_panamacompra_convenio en Source Catalog — Centroamérica.5G', () => {
 
   // Caso 1: existe
   it('existe en CATALOG_SOURCES', () => {
@@ -43,19 +43,29 @@ describe('pa_panamacompra_convenio en Source Catalog — Centroamérica.5B', () 
     assert.equal(paConvenio?.sellupUse, 'commercial_signal');
   });
 
-  // Caso 5: aiFlowStatus eligible_not_connected
-  it('aiFlowStatus = eligible_not_connected', () => {
-    assert.equal(paConvenio?.aiFlowStatus, 'eligible_not_connected');
+  // Caso 5: aiFlowStatus connected_post_approval (5G — ya no eligible_not_connected)
+  it('aiFlowStatus = connected_post_approval', () => {
+    assert.equal(paConvenio?.aiFlowStatus, 'connected_post_approval');
   });
 
-  // Caso 6: connectionMode not_connected
-  it('connectionMode = not_connected', () => {
-    assert.equal(paConvenio?.connectionMode, 'not_connected');
+  // Caso 5b: ya no es eligible_not_connected
+  it('aiFlowStatus ya no es eligible_not_connected', () => {
+    assert.notEqual(paConvenio?.aiFlowStatus, 'eligible_not_connected');
   });
 
-  // Caso 7: operationalStatus pending_validation
-  it('operationalStatus = pending_validation', () => {
-    assert.equal(paConvenio?.operationalStatus, 'pending_validation');
+  // Caso 6: connectionMode offline_signal (5G — ya no not_connected)
+  it('connectionMode = offline_signal', () => {
+    assert.equal(paConvenio?.connectionMode, 'offline_signal');
+  });
+
+  // Caso 6b: ya no es not_connected
+  it('connectionMode ya no es not_connected', () => {
+    assert.notEqual(paConvenio?.connectionMode, 'not_connected');
+  });
+
+  // Caso 7: operationalStatus operational_verified
+  it('operationalStatus = operational_verified', () => {
+    assert.equal(paConvenio?.operationalStatus, 'operational_verified');
   });
 
   // Caso 7b: no se presenta como fuente legal_registry
@@ -140,6 +150,64 @@ describe('pa_panamacompra_convenio en Source Catalog — Centroamérica.5B', () 
     assert.ok(hasSentinel, 'riskNotes no tiene guardrail de endpoints restringidos');
   });
 
+  // ── Nuevos tests 5G: CTA y semántica de conexión ────────────────────────────
+
+  // nextAction no contiene "Conectar" como CTA directo (usa Ver detalle)
+  it('nextAction no implica que aún falta conectar', () => {
+    assert.ok(
+      !paConvenio?.nextAction?.toLowerCase().includes('pendiente de validación'),
+      'nextAction sigue indicando pendiente — debe reflejar estado conectado',
+    );
+  });
+
+  it('nextAction menciona 447 proveedores', () => {
+    assert.ok(
+      paConvenio?.nextAction?.includes('447'),
+      'nextAction no menciona 447 proveedores cargados',
+    );
+  });
+
+  it('nextAction menciona señal procurement B2G local', () => {
+    assert.ok(
+      paConvenio?.nextAction?.toLowerCase().includes('procurement b2g'),
+      'nextAction no menciona señal procurement B2G',
+    );
+  });
+
+  it('nextAction menciona post-approval con match local por RUC', () => {
+    assert.ok(
+      paConvenio?.nextAction?.toLowerCase().includes('ruc'),
+      'nextAction no menciona match por RUC',
+    );
+  });
+
+  it('nextAction no presenta como complete_snapshot', () => {
+    assert.ok(
+      !paConvenio?.nextAction?.toLowerCase().includes('complete_snapshot'),
+      'nextAction usa complete_snapshot — debe ser partial_snapshot',
+    );
+  });
+
+  it('nextAction no presenta como fuente legal', () => {
+    const text = paConvenio?.nextAction?.toLowerCase() ?? '';
+    assert.ok(!text.includes('fuente legal') || text.includes('no es fuente legal'), 'nextAction no aclara que no es fuente legal');
+  });
+
+  it('nextAction menciona que no reemplaza DGI Panamá', () => {
+    assert.ok(
+      paConvenio?.nextAction?.toLowerCase().includes('dgi'),
+      'nextAction no menciona DGI Panamá',
+    );
+  });
+
+  it('nextAction menciona que no reemplaza Registro Público', () => {
+    assert.ok(
+      paConvenio?.nextAction?.toLowerCase().includes('registro público') ||
+      paConvenio?.nextAction?.toLowerCase().includes('registro publico'),
+      'nextAction no menciona Registro Público',
+    );
+  });
+
   // ── Guardrail: otras regiones no cambian ─────────────────────────────────────
 
   it('CR cr_sicop sigue en CATALOG_SOURCES', () => {
@@ -164,5 +232,13 @@ describe('pa_panamacompra_convenio en Source Catalog — Centroamérica.5B', () 
 
   it('CO co_siis sigue en CATALOG_SOURCES', () => {
     assert.ok(coSiis, 'co_siis no encontrado');
+  });
+
+  it('CR cr_sicop mantiene aiFlowStatus connected_post_approval', () => {
+    assert.equal(crSicop?.aiFlowStatus, 'connected_post_approval');
+  });
+
+  it('RD do_dgcp no cambia aiFlowStatus', () => {
+    assert.ok(rdDgcp?.aiFlowStatus !== undefined);
   });
 });
