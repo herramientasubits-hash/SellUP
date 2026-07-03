@@ -1292,6 +1292,42 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
 
+  // ── El Salvador ──────────────────────────────────────────────────────────────
+  {
+    key: 'sv_comprasal',
+    name: 'COMPRASAL El Salvador',
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'eligible_not_connected',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Pendiente de validación. COMPRASAL expone adjudicaciones públicas vía API REST pública (no requiere credenciales). No expone NIT/NRC en endpoints públicos; por eso no permite post-approval automático por identificador. Solo señal débil por nombre con revisión humana. No es fuente legal ni tributaria; no reemplaza Ministerio de Hacienda ni CNR / Registro de Comercio.',
+    countryCodes: ['SV'],
+    sectors: [],
+    priority: 'P2',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://www.comprasal.gob.sv',
+    automationLevel: 'medium',
+    recommendedUse:
+      'Señal procurement B2G para identificar proveedores adjudicados en compras públicas de El Salvador. API REST pública (https://www.comprasal.gob.sv/api/v1/publico/). Entrega proveedor, nombre comercial, institución, monto, fecha y código de proceso. No valida identidad fiscal; usar como señal débil con revisión humana. No requiere credenciales. requiresSnapshot=true, canRunLive=true.',
+    limitations: [
+      'No es fuente legal — no valida identidad fiscal',
+      'No es fuente tributaria — no reemplaza Ministerio de Hacienda El Salvador',
+      'No reemplaza CNR / Registro de Comercio de El Salvador',
+      'No expone NIT ni NRC del proveedor en endpoints públicos',
+      'No permite post-approval automático por identificador fiscal',
+      'Solo señal débil por nombre — matching_mode = name_only_review_required',
+      'Cubre adjudicaciones públicas disponibles en COMPRASAL, no el universo privado',
+      'Fuente B2G procurement signal — human_review_required=true antes de prospección',
+    ],
+    riskNotes: [
+      'API pública sin credenciales — riesgo de rate limiting o cambio de API sin aviso',
+      'No usar como fuente legal, fiscal ni de validación de identidad',
+      'No usar para post-approval automático — sin NIT/NRC públicos',
+      'No llamar /api/v1/procesos ni endpoints autenticados de personas',
+    ],
+  },
+
   // ── Globales / Fallback ─────────────────────────────────────────────────────
   {
     key: 'global_opencorporates',
