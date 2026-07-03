@@ -93,10 +93,16 @@ export interface LushaCompanyDiscoveryBenchmarkResult {
    * Enviar array produce HTTP 400: "filters must be an object".
    */
   filters_shape_observed: 'object';
-  /** El body mínimo válido usa filters: {} — candidato para próximo smoke test. */
-  filters_empty_object_smoke_candidate: true;
   /** Clave observada en cada entrada de GET /v3/companies/prospecting/filters. */
   filter_type_key_observed: 'filterType';
+  /** Q3F-5H: filters:{} produce HTTP 400 "filters.Company filters cannot be empty". */
+  empty_filters_rejected_observed: true;
+  /** Q3F-5H: La API exige al menos un filterType con valores. */
+  minimum_required_filter_observed: true;
+  /** filterType candidato observado en Q3F-5F. Valores exactos sin confirmar (pendiente Q3F-5I). */
+  next_filter_candidate: 'locations';
+  /** Los valores válidos para next_filter_candidate no han sido confirmados en live test. */
+  filter_values_unconfirmed: true;
 
   // Resultado del escenario
   scenario: LushaCompanyDiscoveryBenchmarkScenario;
@@ -150,8 +156,11 @@ export function runLushaCompanyDiscoveryBenchmarkDryRun(
     estimated_cost_usd: 0 as const,
     smoke_test_minimum_page_size_observed: 10 as const,
     filters_shape_observed: 'object' as const,
-    filters_empty_object_smoke_candidate: true as const,
     filter_type_key_observed: 'filterType' as const,
+    empty_filters_rejected_observed: true as const,
+    minimum_required_filter_observed: true as const,
+    next_filter_candidate: 'locations' as const,
+    filter_values_unconfirmed: true as const,
   };
 
   const safeInput: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'> = {
@@ -343,8 +352,11 @@ type BaseMetadata = {
   estimated_cost_usd: 0;
   smoke_test_minimum_page_size_observed: 10;
   filters_shape_observed: 'object';
-  filters_empty_object_smoke_candidate: true;
   filter_type_key_observed: 'filterType';
+  empty_filters_rejected_observed: true;
+  minimum_required_filter_observed: true;
+  next_filter_candidate: 'locations';
+  filter_values_unconfirmed: true;
 };
 
 function buildBase(meta: BaseMetadata): BaseMetadata {

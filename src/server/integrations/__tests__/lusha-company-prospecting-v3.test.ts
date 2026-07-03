@@ -84,10 +84,11 @@ describe('searchLushaCompaniesV3 — endpoint', () => {
   it('construye URL POST /v3/companies/prospecting', async () => {
     resetMock({ ok: true, status: 200, body: { results: [], total: 0 } });
 
+    // locations valor no confirmado en live — Q3F-5I lo validará
     await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 1, size: 10 } },
+      request: { filters: { locations: ['Colombia'] }, pagination: { page: 1, size: 10 } },
     });
 
     assert.equal(fetchCalls.length, 1);
@@ -101,7 +102,7 @@ describe('searchLushaCompaniesV3 — endpoint', () => {
     await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.ok(!fetchCalls[0].url.includes('/prospecting/search/companies'),
@@ -114,7 +115,7 @@ describe('searchLushaCompaniesV3 — endpoint', () => {
     await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 2, size: 25 } },
+      request: { filters: { locations: ['Colombia'] }, pagination: { page: 2, size: 25 } },
     });
 
     const body = fetchCalls[0].body as Record<string, unknown>;
@@ -127,13 +128,13 @@ describe('searchLushaCompaniesV3 — endpoint', () => {
   it('envía api_key en headers (no en body)', async () => {
     // La función interceptada registra el header via init.headers
     // Verificamos que el body NO contiene la api_key
-    // size >= 10 requerido por smoke test Q3F-5E
+    // size >= 10 requerido por smoke test Q3F-5E; filters no vacío requerido por Q3F-5H
     resetMock({ ok: true, status: 200, body: { results: [] } });
 
     await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 1, size: 10 } },
+      request: { filters: { locations: ['Colombia'] }, pagination: { page: 1, size: 10 } },
     });
 
     const body = fetchCalls[0].body as Record<string, unknown>;
@@ -162,7 +163,7 @@ describe('searchLushaCompaniesV3 — respuesta exitosa', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.equal(result.ok, true);
@@ -181,7 +182,7 @@ describe('searchLushaCompaniesV3 — respuesta exitosa', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.equal(result.ok, true);
@@ -195,7 +196,7 @@ describe('searchLushaCompaniesV3 — respuesta exitosa', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.ok(result.rawShape !== undefined);
@@ -213,7 +214,7 @@ describe('searchLushaCompaniesV3 — error mapping', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.equal(result.ok, false);
@@ -228,7 +229,7 @@ describe('searchLushaCompaniesV3 — error mapping', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.equal(result.ok, false);
@@ -242,7 +243,7 @@ describe('searchLushaCompaniesV3 — error mapping', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.equal(result.ok, false);
@@ -255,7 +256,7 @@ describe('searchLushaCompaniesV3 — error mapping', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     assert.equal(result.ok, false);
@@ -376,18 +377,19 @@ describe('getLushaCompanyProspectingFilterValues — endpoint', () => {
 // ============================================================
 
 describe('Q3F-5G — filters shape correction', () => {
-  it('envía filters: {} cuando no se pasan filtros en el request', async () => {
+  it('Q3F-5H: filters:{} es bloqueado localmente sin fetch (HTTP 400 observado en smoke test)', async () => {
     resetMock({ ok: true, status: 200, body: { results: [] } });
 
-    await searchLushaCompaniesV3({
+    const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 1, size: 10 } },
+      request: { pagination: { page: 1, size: 10 } }, // sin filters → {} implícito
     });
 
-    const body = fetchCalls[0].body as Record<string, unknown>;
-    assert.ok('filters' in body, 'body debe contener la clave filters');
-    assert.deepEqual(body['filters'], {}, 'filters debe ser objeto vacío cuando no se proporcionan filtros');
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'provider_error');
+    assert.equal(fetchCalls.length, 0, 'No debe hacer llamada HTTP cuando filters está vacío');
+    assert.ok(result.errorMessage?.includes('at least one filter'), 'errorMessage debe mencionar filtro requerido');
   });
 
   it('acepta filters como objeto { sizes: ["51-200"] }', async () => {
@@ -414,7 +416,7 @@ describe('Q3F-5G — filters shape correction', () => {
     await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 1, size: 10 } },
+      request: { filters: { sizes: ['51-200'] }, pagination: { page: 1, size: 10 } },
     });
 
     const body = fetchCalls[0].body as Record<string, unknown>;
@@ -488,7 +490,7 @@ describe('isolation guarantees — Q3F-5D', () => {
   it('no hay llamadas a Apollo en ninguna función V3 de company', async () => {
     resetMock({ ok: true, status: 200, body: { results: [] } });
 
-    await searchLushaCompaniesV3({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, request: {} });
+    await searchLushaCompaniesV3({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, request: { filters: { locations: ['Colombia'] } } });
     await getLushaCompanyProspectingFilters({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS });
     await getLushaCompanyProspectingFilterValues({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, filterType: 'country' });
 
@@ -500,7 +502,7 @@ describe('isolation guarantees — Q3F-5D', () => {
   it('todas las URLs son api.lusha.com', async () => {
     resetMock({ ok: true, status: 200, body: { results: [] } });
 
-    await searchLushaCompaniesV3({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, request: {} });
+    await searchLushaCompaniesV3({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, request: { filters: { locations: ['Colombia'] } } });
     await getLushaCompanyProspectingFilters({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS });
     await getLushaCompanyProspectingFilterValues({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, filterType: 'industry' });
 
@@ -512,7 +514,7 @@ describe('isolation guarantees — Q3F-5D', () => {
   it('resultsReturned es siempre 0 en respuesta de error', async () => {
     for (const status of [401, 402, 403, 429, 500]) {
       resetMock({ ok: false, status, body: 'error' });
-      const result = await searchLushaCompaniesV3({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, request: {} });
+      const result = await searchLushaCompaniesV3({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, request: { filters: { locations: ['Colombia'] } } });
       assert.equal(result.resultsReturned, 0, `resultsReturned debe ser 0 para HTTP ${status}`);
     }
   });
@@ -551,16 +553,16 @@ describe('Q3F-5E.1 — smoke test findings', () => {
     assert.equal(fetchCalls.length, 0, 'No debe hacer llamada HTTP para size = 9');
   });
 
-  it('pagination.size = 10 es válido y pasa al API', async () => {
+  it('pagination.size = 10 con filters no vacío es válido y pasa al API', async () => {
     resetMock({ ok: true, status: 200, body: { results: [] } });
 
     await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 1, size: 10 } },
+      request: { filters: { locations: ['Colombia'] }, pagination: { page: 1, size: 10 } },
     });
 
-    assert.equal(fetchCalls.length, 1, 'Debe hacer llamada HTTP para size = 10');
+    assert.equal(fetchCalls.length, 1, 'Debe hacer llamada HTTP para size = 10 y filters no vacío');
   });
 
   it('filters con shape { availableFilters: [...] } se parsea en availableFilters', async () => {
@@ -607,7 +609,7 @@ describe('Q3F-5E.1 — smoke test findings', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 1, size: 10 } },
+      request: { filters: { locations: ['Colombia'] }, pagination: { page: 1, size: 10 } },
     });
 
     global.fetch = savedFetch;
@@ -615,7 +617,7 @@ describe('Q3F-5E.1 — smoke test findings', () => {
     assert.equal(result.requestId, null);
   });
 
-  it('rate limit headers null no rompen la respuesta de searchLushaCompaniesV3', async () => {
+  it('rate limit headers null no rompen la respuesta de searchLushaCompaniesV3 (con filters válido)', async () => {
     fetchCalls = [];
     const savedFetch = global.fetch;
     global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -633,7 +635,7 @@ describe('Q3F-5E.1 — smoke test findings', () => {
     const result = await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: {},
+      request: { filters: { locations: ['Colombia'] } },
     });
 
     global.fetch = savedFetch;
@@ -641,5 +643,89 @@ describe('Q3F-5E.1 — smoke test findings', () => {
     assert.equal(result.rateLimit?.limit, null);
     assert.equal(result.rateLimit?.remaining, null);
     assert.equal(result.rateLimit?.reset, null);
+  });
+});
+
+// ============================================================
+// Q3F-5H — filters vacío rechazado por la API
+// Observado en smoke test real: POST con filters:{} → HTTP 400
+// "filters.Company filters cannot be empty"
+// ============================================================
+
+describe('Q3F-5H — empty filters rejected', () => {
+  it('filters undefined es bloqueado localmente sin fetch', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: {},
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'provider_error');
+    assert.equal(fetchCalls.length, 0, 'No debe hacer llamada HTTP con filters undefined');
+    assert.ok(result.errorMessage?.includes('at least one filter'));
+  });
+
+  it('filters: {} es bloqueado localmente sin fetch', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: {} },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'provider_error');
+    assert.equal(fetchCalls.length, 0, 'No debe hacer llamada HTTP con filters: {}');
+    assert.ok(result.errorMessage?.includes('at least one filter'));
+  });
+
+  it('errorMessage menciona "filters.Company filters cannot be empty"', async () => {
+    resetMock({ ok: true, status: 200, body: {} });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: {} },
+    });
+
+    assert.ok(result.errorMessage !== undefined);
+    assert.ok(
+      result.errorMessage.includes('at least one filter') || result.errorMessage.includes('cannot be empty'),
+      `errorMessage debe describir el error de filtro vacío. Got: ${result.errorMessage}`
+    );
+  });
+
+  it('filters con locations permite request (valor no confirmado — pendiente Q3F-5I)', async () => {
+    // NOTA: "Colombia" es un valor de locations no confirmado en live test.
+    // Q3F-5I deberá confirmar los valores válidos antes del próximo POST real.
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: { locations: ['Colombia'] }, pagination: { page: 1, size: 10 } },
+    });
+
+    assert.equal(fetchCalls.length, 1, 'Debe hacer llamada HTTP con filters no vacío');
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'no_results');
+  });
+
+  it('size < 10 sigue bloqueado incluso con filters válido', async () => {
+    resetMock({ ok: true, status: 200, body: {} });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: { locations: ['Colombia'] }, pagination: { page: 1, size: 5 } },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(fetchCalls.length, 0, 'No debe hacer llamada HTTP para size < 10');
+    assert.ok(result.errorMessage?.includes('10'));
   });
 });

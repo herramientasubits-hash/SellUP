@@ -253,9 +253,24 @@ describe('Q3F-5G — filters shape metadata', () => {
     assert.equal(result.filter_type_key_observed, 'filterType');
   });
 
-  it('filters_empty_object_smoke_candidate = true en todo escenario', () => {
+  it('empty_filters_rejected_observed = true en todo escenario (Q3F-5H)', () => {
     const result = run({ scenario: 'useful_results' });
-    assert.equal(result.filters_empty_object_smoke_candidate, true);
+    assert.equal(result.empty_filters_rejected_observed, true);
+  });
+
+  it('minimum_required_filter_observed = true en todo escenario (Q3F-5H)', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.minimum_required_filter_observed, true);
+  });
+
+  it('next_filter_candidate = "locations" (candidato observado en Q3F-5F, valores sin confirmar)', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.next_filter_candidate, 'locations');
+  });
+
+  it('filter_values_unconfirmed = true (valores de locations no validados en live test)', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.filter_values_unconfirmed, true);
   });
 
   it('dry_run = true y credits_used = 0 y estimated_cost_usd = 0', () => {

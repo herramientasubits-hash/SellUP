@@ -956,7 +956,10 @@ export type LushaCompanyProspectingV3Request = {
    * Q3F-5F confirmó que filters DEBE ser un objeto Record<filterType, values[]>.
    * Enviar filters como array produce HTTP 400:
    *   { "name": "BadRequest", "message": "filters must be an object", "code": 400 }
-   * El body mínimo válido es: { "filters": {}, "pagination": { "page": 1, "size": 10 } }
+   * Q3F-5H confirmó que filters: {} también produce HTTP 400:
+   *   { "name": "BadRequest", "message": "filters.Company filters cannot be empty", "code": 400 }
+   * Se requiere al menos un filterType. Candidato observado en Q3F-5F: "locations".
+   * Los valores exactos de cada filterType aún no están confirmados en live test (pendiente Q3F-5I).
    * Las claves son los filterType observados: names, sizes, revenues, locations, sics, etc.
    */
   filters?: Record<string, unknown[]>;
@@ -1022,13 +1025,25 @@ export async function searchLushaCompaniesV3(input: {
     };
   }
 
+  // Q3F-5H: filters:{} rechazado — HTTP 400 "filters.Company filters cannot be empty"
+  // filters undefined o {} se bloquea localmente antes de llamar a la API.
+  const filters = input.request.filters;
+  if (filters === undefined || Object.keys(filters).length === 0) {
+    return {
+      ok: false,
+      status: 'provider_error',
+      resultsReturned: 0,
+      errorMessage: 'Lusha company prospecting requires at least one filter. filters: {} is rejected by Lusha V3 API (HTTP 400: "filters.Company filters cannot be empty").',
+    };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
-    // filters siempre como objeto (Q3F-5G): array produce HTTP 400
+    // filters siempre como objeto no vacío (Q3F-5G+Q3F-5H): array y {} producen HTTP 400
     const requestBody: Record<string, unknown> = {
-      filters: input.request.filters ?? {},
+      filters,  // validated non-empty above (Q3F-5H)
     };
     if (input.request.pagination !== undefined) {
       requestBody['pagination'] = input.request.pagination;
