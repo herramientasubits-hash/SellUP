@@ -353,6 +353,7 @@ describe('17A.8E — candidate-review-core hereda post_completion al construir c
       hubspot_company_id: null,
       company_name: null,
       company_domain: null,
+      country_code: null,
       enrichment_metadata: {
         relevance: {
           status: 'insufficient_data',
@@ -409,6 +410,7 @@ describe('17A.8E — candidate-review-core hereda post_completion al construir c
       hubspot_company_id: null,
       company_name: null,
       company_domain: null,
+      country_code: null,
       enrichment_metadata: {
         // Sin post_completion (candidato insertado antes del hito 17A.8E)
         completion: {
@@ -447,6 +449,7 @@ describe('17A.8E — buildContactInsertPayload incluye post_completion en metada
       hubspot_company_id: null,
       company_name: null,
       company_domain: null,
+      country_code: null,
       enrichment_metadata: {
         relevance: { status: 'insufficient_data' },
         completion: {

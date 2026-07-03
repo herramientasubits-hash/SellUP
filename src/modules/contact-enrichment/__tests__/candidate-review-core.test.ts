@@ -786,7 +786,7 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
 
   it('usa cuenta existente por hubspot_company_id (no crea duplicado)', async () => {
     const { deps, calls } = makeHubSpotDeps({
-      resolveOrCreateAccount: async () => ({ accountId: 'acc-existing', outcome: 'existing_by_hubspot' }),
+      resolveOrCreateAccount: async () => ({ accountId: 'acc-existing', outcome: 'existing_by_hubspot', countryCodeApplied: null, countryResolutionSource: 'none' }),
     });
     const result = await runApproveCandidate('cand-1', deps);
 
@@ -797,7 +797,7 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
 
   it('usa cuenta existente por dominio vinculando hubspot_company_id', async () => {
     const { deps, calls } = makeHubSpotDeps({
-      resolveOrCreateAccount: async () => ({ accountId: 'acc-domain', outcome: 'existing_by_domain_linked' }),
+      resolveOrCreateAccount: async () => ({ accountId: 'acc-domain', outcome: 'existing_by_domain_linked', countryCodeApplied: null, countryResolutionSource: 'none' }),
     });
     const result = await runApproveCandidate('cand-1', deps);
 
