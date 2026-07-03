@@ -86,6 +86,8 @@ export interface LushaCompanyDiscoveryBenchmarkResult {
   source_catalog_unchanged: true;
   credits_used: 0;
   estimated_cost_usd: 0;
+  /** Mínimo de pagination.size observado en smoke test real Q3F-5E. */
+  smoke_test_minimum_page_size_observed: 10;
 
   // Resultado del escenario
   scenario: LushaCompanyDiscoveryBenchmarkScenario;
@@ -137,6 +139,7 @@ export function runLushaCompanyDiscoveryBenchmarkDryRun(
     source_catalog_unchanged: true as const,
     credits_used: 0 as const,
     estimated_cost_usd: 0 as const,
+    smoke_test_minimum_page_size_observed: 10 as const,
   };
 
   const safeInput: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'> = {
@@ -326,6 +329,7 @@ type BaseMetadata = {
   source_catalog_unchanged: true;
   credits_used: 0;
   estimated_cost_usd: 0;
+  smoke_test_minimum_page_size_observed: 10;
 };
 
 function buildBase(meta: BaseMetadata): BaseMetadata {

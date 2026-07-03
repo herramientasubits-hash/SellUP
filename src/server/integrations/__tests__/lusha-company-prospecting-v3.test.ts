@@ -127,12 +127,13 @@ describe('searchLushaCompaniesV3 — endpoint', () => {
   it('envía api_key en headers (no en body)', async () => {
     // La función interceptada registra el header via init.headers
     // Verificamos que el body NO contiene la api_key
+    // size >= 10 requerido por smoke test Q3F-5E
     resetMock({ ok: true, status: 200, body: { results: [] } });
 
     await searchLushaCompaniesV3({
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
-      request: { pagination: { page: 1, size: 5 } },
+      request: { pagination: { page: 1, size: 10 } },
     });
 
     const body = fetchCalls[0].body as Record<string, unknown>;
@@ -405,5 +406,131 @@ describe('isolation guarantees — Q3F-5D', () => {
       const result = await searchLushaCompaniesV3({ apiKey: FAKE_API_KEY, timeoutMs: TIMEOUT_MS, request: {} });
       assert.equal(result.resultsReturned, 0, `resultsReturned debe ser 0 para HTTP ${status}`);
     }
+  });
+});
+
+// ============================================================
+// Hallazgos reales Q3F-5E smoke test
+// ============================================================
+
+describe('Q3F-5E.1 — smoke test findings', () => {
+  it('pagination.size < 10 es bloqueado localmente sin llamada HTTP', async () => {
+    resetMock({ ok: true, status: 200, body: {} });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { pagination: { page: 1, size: 1 } },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'provider_error');
+    assert.equal(fetchCalls.length, 0, 'No debe hacer llamada HTTP para size < 10');
+    assert.ok(result.errorMessage?.includes('10'), 'errorMessage debe mencionar el mínimo 10');
+  });
+
+  it('pagination.size = 9 es bloqueado localmente', async () => {
+    resetMock({ ok: true, status: 200, body: {} });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { pagination: { page: 1, size: 9 } },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(fetchCalls.length, 0, 'No debe hacer llamada HTTP para size = 9');
+  });
+
+  it('pagination.size = 10 es válido y pasa al API', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { pagination: { page: 1, size: 10 } },
+    });
+
+    assert.equal(fetchCalls.length, 1, 'Debe hacer llamada HTTP para size = 10');
+  });
+
+  it('filters con shape { availableFilters: [...] } se parsea en availableFilters', async () => {
+    const filterData = { availableFilters: ['country', 'industry', 'employeeCount'] };
+    resetMock({ ok: true, status: 200, body: filterData });
+
+    const result = await getLushaCompanyProspectingFilters({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.availableFilters, filterData.availableFilters);
+    assert.deepEqual(result.rawFilters, filterData);
+  });
+
+  it('filters con shape sin availableFilters deja availableFilters=undefined (defensivo)', async () => {
+    resetMock({ ok: true, status: 200, body: { filters: ['country'] } });
+
+    const result = await getLushaCompanyProspectingFilters({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.availableFilters, undefined);
+  });
+
+  it('requestId null no rompe la respuesta de searchLushaCompaniesV3', async () => {
+    fetchCalls = [];
+    const savedFetch = global.fetch;
+    global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      fetchCalls.push({ url, method: init?.method ?? 'GET' });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (_name: string) => null },
+        json: async () => ({ results: [], total: 0 }),
+        text: async () => '',
+      } as unknown as Response;
+    };
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { pagination: { page: 1, size: 10 } },
+    });
+
+    global.fetch = savedFetch;
+    assert.equal(result.ok, true);
+    assert.equal(result.requestId, null);
+  });
+
+  it('rate limit headers null no rompen la respuesta de searchLushaCompaniesV3', async () => {
+    fetchCalls = [];
+    const savedFetch = global.fetch;
+    global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      fetchCalls.push({ url, method: init?.method ?? 'GET' });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (_name: string) => null },
+        json: async () => ({ results: [], total: 0 }),
+        text: async () => '',
+      } as unknown as Response;
+    };
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: {},
+    });
+
+    global.fetch = savedFetch;
+    assert.equal(result.ok, true);
+    assert.equal(result.rateLimit?.limit, null);
+    assert.equal(result.rateLimit?.remaining, null);
+    assert.equal(result.rateLimit?.reset, null);
   });
 });

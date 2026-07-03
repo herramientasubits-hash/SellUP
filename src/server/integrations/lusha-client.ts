@@ -574,6 +574,8 @@ export type LushaContactEnrichResult = {
     companyDomain?: string | null;
     linkedinUrl?: string | null;
     availableFields?: unknown;
+    /** For DB storage only. NEVER log or expose in reports. */
+    internalEmail?: string | null;
   }>;
   errorMessage?: string;
 };
@@ -806,7 +808,22 @@ export async function enrichLushaContactsV3(input: {
     }
 
     const sanitizedResults = contacts.map((c) => {
-      const { hasEmail, emailType, emailDomain } = extractEmailInfoFromLushaEmails(c['emails']);
+      const emails = Array.isArray(c['emails']) ? (c['emails'] as unknown[]) : [];
+      const { hasEmail, emailType, emailDomain } = extractEmailInfoFromLushaEmails(emails);
+
+      // Extract actual email for DB storage only — NEVER log or print
+      let internalEmail: string | null = null;
+      if (emails.length > 0) {
+        const first = emails[0];
+        if (first && typeof first === 'object') {
+          const entry = first as Record<string, unknown>;
+          const emailStr =
+            (typeof entry['email'] === 'string' && entry['email'].trim()) ? entry['email'].trim()
+            : (typeof entry['emailAddress'] === 'string' && entry['emailAddress'].trim()) ? entry['emailAddress'].trim()
+            : null;
+          internalEmail = emailStr;
+        }
+      }
 
       // Company may be nested object or string
       const companyVal = c['company'];
@@ -831,6 +848,7 @@ export async function enrichLushaContactsV3(input: {
         companyDomain: companyDomain ?? null,
         linkedinUrl: extractLushaLinkedinUrl(c),
         availableFields: c['has'] ?? undefined,
+        internalEmail,
       };
     });
 
@@ -932,6 +950,11 @@ export type LushaCompanyProspectingV3Request = {
   filters?: LushaCompanyProspectingV3Filter[];
   pagination?: {
     page: number;
+    /**
+     * Mínimo observado en smoke test real Q3F-5E: 10.
+     * La API rechaza con HTTP 400 ("pagination.size must not be less than 10")
+     * cualquier valor menor. El client bloquea size < 10 localmente.
+     */
     size: number;
   };
   // signals puede generar cargos adicionales — omitir por defecto
@@ -976,6 +999,17 @@ export async function searchLushaCompaniesV3(input: {
   timeoutMs: number;
   request: LushaCompanyProspectingV3Request;
 }): Promise<LushaCompanyProspectingV3Result> {
+  // smoke_test_minimum_page_size_observed=10 (Q3F-5E)
+  // Lusha V3 API rechaza HTTP 400 con "pagination.size must not be less than 10"
+  if (input.request.pagination !== undefined && input.request.pagination.size < 10) {
+    return {
+      ok: false,
+      status: 'provider_error',
+      resultsReturned: 0,
+      errorMessage: `pagination.size must not be less than 10 (got ${input.request.pagination.size}). Lusha V3 API rejects values below 10.`,
+    };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
@@ -1105,8 +1139,14 @@ export type LushaCompanyProspectingFiltersResult = {
     | 'provider_timeout';
   httpStatus?: number;
   requestId?: string | null;
-  // Raw response — shape not confirmed until smoke test
+  // Raw full response body
   rawFilters?: unknown;
+  /**
+   * Parsed from real response shape confirmed in Q3F-5E smoke test:
+   * { availableFilters: [...] }
+   * Undefined if the key is absent or not an array (defensive).
+   */
+  availableFilters?: unknown[];
   errorMessage?: string;
 };
 
@@ -1143,12 +1183,23 @@ export async function getLushaCompanyProspectingFilters(input: {
     }
 
     const rawFilters = await response.json().catch(() => undefined) as unknown;
+    // Real shape confirmed Q3F-5E: { availableFilters: [...] }
+    const availableFilters =
+      rawFilters !== null &&
+      rawFilters !== undefined &&
+      typeof rawFilters === 'object' &&
+      !Array.isArray(rawFilters) &&
+      Array.isArray((rawFilters as Record<string, unknown>)['availableFilters'])
+        ? (rawFilters as Record<string, unknown>)['availableFilters'] as unknown[]
+        : undefined;
+
     return {
       ok: true,
       status: 'success',
       httpStatus: response.status,
       requestId: headerRequestId,
       rawFilters,
+      availableFilters,
     };
   } catch (err: unknown) {
     clearTimeout(timer);

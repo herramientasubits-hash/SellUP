@@ -257,4 +257,20 @@ describe('isolation guarantees', () => {
     const result = run({ scenario: 'useful_results' });
     assert.equal(result.benchmark, true);
   });
+
+  it('smoke_test_minimum_page_size_observed = 10 en todo escenario (Q3F-5E.1)', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.smoke_test_minimum_page_size_observed, 10,
+        `smoke_test_minimum_page_size_observed debe ser 10 en escenario ${scenario}`);
+    }
+  });
 });
