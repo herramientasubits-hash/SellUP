@@ -526,6 +526,199 @@ export async function getLushaAccountUsage(input: {
 }
 
 // ============================================================
+// Contact Enrich V3 — Agente 2A · 17B.4E
+// POST https://api.lusha.com/v3/contacts/enrich
+//
+// REVEAL EMAIL CONTROLADO. Solo emails. Nunca phones.
+// reveal: ["emails"] es obligatorio y nunca puede estar vacío.
+// No crea candidatos. No inserta provider_usage_logs.
+// No usa search-and-enrich. El ID viene del search previo (17B.4D).
+// ============================================================
+
+export type LushaContactEnrichRequest = {
+  contacts: Array<{ id: string }>;
+  reveal: Array<'emails'>;
+};
+
+export type LushaContactEnrichResult = {
+  ok: boolean;
+  status:
+    | 'success'
+    | 'no_results'
+    | 'provider_auth_error'
+    | 'insufficient_credits'
+    | 'feature_unavailable'
+    | 'rate_limited'
+    | 'compliance_blocked'
+    | 'provider_error'
+    | 'provider_timeout';
+  httpStatus?: number;
+  requestId?: string | null;
+  rateLimit?: Record<string, string | null>;
+  resultsReturned: number;
+  creditsCharged?: number | null;
+  rawShape?: Record<string, unknown>;
+  sanitizedResults?: Array<{
+    id: string | null;
+    hasEmail: boolean;
+    emailType?: string | null;
+    emailDomain?: string | null;
+    hasPhone: false;
+    firstName?: string | null;
+    lastName?: string | null;
+    fullName?: string | null;
+    title?: string | null;
+    companyName?: string | null;
+    companyDomain?: string | null;
+    linkedinUrl?: string | null;
+    availableFields?: unknown;
+  }>;
+  errorMessage?: string;
+};
+
+function extractEmailDomain(email: string | null | undefined): string | null {
+  if (!email || typeof email !== 'string') return null;
+  const at = email.indexOf('@');
+  if (at < 0) return null;
+  return email.slice(at + 1).toLowerCase() || null;
+}
+
+export async function enrichLushaContactsV3(input: {
+  apiKey: string;
+  timeoutMs: number;
+  contacts: Array<{ id: string }>;
+  reveal: Array<'emails'>;
+}): Promise<LushaContactEnrichResult> {
+  // Guardrails — rechazar antes de llamar API
+  if (input.reveal.length === 0) {
+    return { ok: false, status: 'provider_error', resultsReturned: 0, errorMessage: 'reveal must not be empty' };
+  }
+  if ((input.reveal as string[]).includes('phones')) {
+    return { ok: false, status: 'provider_error', resultsReturned: 0, errorMessage: 'reveal must not include phones' };
+  }
+  if (input.contacts.length !== 1) {
+    return { ok: false, status: 'provider_error', resultsReturned: 0, errorMessage: 'exactly 1 contact required for this operation' };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    const body: LushaContactEnrichRequest = {
+      contacts: input.contacts,
+      reveal: input.reveal,
+    };
+
+    const response = await fetch(`${LUSHA_BASE_URL}/v3/contacts/enrich`, {
+      method: 'POST',
+      headers: {
+        'api_key': input.apiKey.trim(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    const rateLimit: Record<string, string | null> = {
+      limit: response.headers.get('x-ratelimit-limit'),
+      remaining: response.headers.get('x-ratelimit-remaining'),
+      reset: response.headers.get('x-ratelimit-reset'),
+    };
+    const headerRequestId = response.headers.get('x-request-id');
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      return {
+        ok: false,
+        status: mapLushaHttpError(response.status),
+        httpStatus: response.status,
+        resultsReturned: 0,
+        rateLimit,
+        requestId: headerRequestId,
+        errorMessage: errorBody.slice(0, 300) || undefined,
+      };
+    }
+
+    const raw = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+    const contacts = Array.isArray(raw['results'])
+      ? (raw['results'] as Record<string, unknown>[])
+      : Array.isArray(raw['contacts'])
+        ? (raw['contacts'] as Record<string, unknown>[])
+        : Array.isArray(raw['data'])
+          ? (raw['data'] as Record<string, unknown>[])
+          : [];
+
+    const requestId =
+      typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
+
+    if (contacts.length === 0) {
+      return {
+        ok: true,
+        status: 'no_results',
+        httpStatus: response.status,
+        resultsReturned: 0,
+        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+        rawShape: buildRawShape(raw),
+        rateLimit,
+        requestId,
+      };
+    }
+
+    const sanitizedResults = contacts.map((c) => {
+      // Extract email info without exposing the full address
+      const emailsRaw = Array.isArray(c['emails']) ? (c['emails'] as Record<string, unknown>[]) : [];
+      const firstEmail = emailsRaw[0];
+      const emailStr = typeof firstEmail?.['email'] === 'string' ? firstEmail['email'] : null;
+      const hasEmail = emailsRaw.length > 0 && emailStr !== null;
+      const emailType = typeof firstEmail?.['emailType'] === 'string' ? firstEmail['emailType'] : null;
+      const emailDomain = extractEmailDomain(emailStr);
+
+      return {
+        id: typeof c['id'] === 'string' ? c['id'] : null,
+        hasEmail,
+        emailType: emailType ?? null,
+        emailDomain,
+        hasPhone: false as const, // Phone reveal disabled; never expose phones
+        firstName: pickString(c, ['firstName', 'first_name']) ?? null,
+        lastName: pickString(c, ['lastName', 'last_name']) ?? null,
+        fullName: pickString(c, ['fullName', 'name', 'full_name']) ?? null,
+        title: pickString(c, ['title', 'jobTitle', 'job_title']) ?? null,
+        companyName: pickString(c, ['companyName', 'company_name', 'company']) ?? null,
+        companyDomain: pickString(c, ['companyDomain', 'company_domain', 'domain']) ?? null,
+        linkedinUrl: pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ?? null,
+        availableFields: c['has'] ?? undefined,
+      };
+    });
+
+    return {
+      ok: true,
+      status: 'success',
+      httpStatus: response.status,
+      resultsReturned: sanitizedResults.length,
+      creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+      rawShape: buildRawShape(raw),
+      sanitizedResults,
+      rateLimit,
+      requestId,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      status: isTimeout ? 'provider_timeout' : 'provider_error',
+      resultsReturned: 0,
+      errorMessage: isTimeout
+        ? 'Request timed out'
+        : err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+// ============================================================
 // Búsqueda de empresas (Prospecting API)
 // POST https://api.lusha.com/prospecting/search/companies
 //
