@@ -231,4 +231,109 @@ describe('searchLushaContactsV3', () => {
     assert.equal(result.status, 'no_results');
     assert.equal(result.resultsReturned, 0);
   });
+
+  // --- Tests específicos para linkedinUrl (17B.4D) ---
+
+  it('acepta linkedinUrl como único identificador y lo envía en el payload', async () => {
+    let capturedBody: Record<string, unknown> = {};
+    mockFetch(async (_url, opts) => {
+      capturedBody = JSON.parse(opts?.body as string ?? '{}') as Record<string, unknown>;
+      return makeResponse(200, { results: [] });
+    });
+
+    await searchLushaContactsV3({
+      apiKey: FAKE_KEY,
+      timeoutMs: 5000,
+      contacts: [{ linkedinUrl: 'http://www.linkedin.com/in/patriciavalenciahernandez', companyDomain: 'siesa.com' }],
+    });
+
+    const contacts = capturedBody['contacts'] as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(contacts), 'El body debe tener contacts array');
+    assert.equal(contacts[0]['linkedinUrl'], 'http://www.linkedin.com/in/patriciavalenciahernandez');
+    assert.equal(contacts[0]['companyDomain'], 'siesa.com');
+  });
+
+  it('no incluye reveal ni phones cuando se usa linkedinUrl', async () => {
+    let capturedBody: Record<string, unknown> = {};
+    mockFetch(async (_url, opts) => {
+      capturedBody = JSON.parse(opts?.body as string ?? '{}') as Record<string, unknown>;
+      return makeResponse(200, { results: [] });
+    });
+
+    await searchLushaContactsV3({
+      apiKey: FAKE_KEY,
+      timeoutMs: 5000,
+      contacts: [{ linkedinUrl: 'http://www.linkedin.com/in/patriciavalenciahernandez', companyDomain: 'siesa.com' }],
+    });
+
+    const bodyStr = JSON.stringify(capturedBody);
+    assert.ok(!('reveal' in capturedBody), 'No debe haber campo reveal');
+    assert.ok(!bodyStr.includes('"phone"'), 'No debe haber campo phone');
+    assert.ok(!bodyStr.includes('"phones"'), 'No debe haber campo phones');
+  });
+
+  it('retorna status=success cuando Lusha encuentra contacto por linkedinUrl (results key)', async () => {
+    mockFetch(async () =>
+      makeResponse(200, {
+        results: [{
+          id: 'lp-001',
+          fullName: 'Patricia Valencia Hernandez',
+          title: 'HR Director',
+          companyName: 'Siesa',
+          companyDomain: 'siesa.com',
+          linkedinUrl: 'http://www.linkedin.com/in/patriciavalenciahernandez',
+          has: { email: true, phone: true },
+          canReveal: { email: true, phone: false },
+        }],
+        creditsCharged: 1,
+        requestId: 'req-linkedin-001',
+      })
+    );
+
+    const result = await searchLushaContactsV3({
+      apiKey: FAKE_KEY,
+      timeoutMs: 5000,
+      contacts: [{ linkedinUrl: 'http://www.linkedin.com/in/patriciavalenciahernandez', companyDomain: 'siesa.com' }],
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'success');
+    assert.equal(result.resultsReturned, 1);
+    assert.equal(result.requestId, 'req-linkedin-001');
+    const contact = result.sanitizedResults?.[0];
+    assert.ok(contact);
+    assert.equal(contact.fullName, 'Patricia Valencia Hernandez');
+    assert.equal(contact.linkedinUrl, 'http://www.linkedin.com/in/patriciavalenciahernandez');
+    const serialized = JSON.stringify(contact);
+    assert.ok(!serialized.includes('@'), 'No debe haber emails en sanitizedResults');
+  });
+
+  it('retorna status=no_results cuando Lusha no encuentra por linkedinUrl', async () => {
+    mockFetch(async () =>
+      makeResponse(200, { results: [], creditsCharged: null })
+    );
+
+    const result = await searchLushaContactsV3({
+      apiKey: FAKE_KEY,
+      timeoutMs: 5000,
+      contacts: [{ linkedinUrl: 'http://www.linkedin.com/in/patriciavalenciahernandez', companyDomain: 'siesa.com' }],
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'no_results');
+    assert.equal(result.resultsReturned, 0);
+  });
+
+  it('retorna provider_error con mensaje sanitizado en 400 schema error', async () => {
+    mockFetch(async () =>
+      makeResponse(400, JSON.stringify({ error: 'contacts.0.property fullName should not exist' }))
+    );
+
+    const result = await searchLushaContactsV3(MINIMAL_INPUT);
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'provider_error');
+    assert.equal(result.httpStatus, 400);
+    assert.ok(result.errorMessage, 'Debe haber errorMessage');
+    assert.ok(!result.errorMessage?.includes(FAKE_KEY), 'El errorMessage no debe exponer la API key');
+  });
 });
