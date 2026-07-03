@@ -350,6 +350,9 @@ describe('17A.8E — candidate-review-core hereda post_completion al construir c
       source: 'apollo',
       enrichment_run_id: 'run-1',
       account_id: 'acc-1',
+      hubspot_company_id: null,
+      company_name: null,
+      company_domain: null,
       enrichment_metadata: {
         relevance: {
           status: 'insufficient_data',
@@ -403,6 +406,9 @@ describe('17A.8E — candidate-review-core hereda post_completion al construir c
       source: 'apollo',
       enrichment_run_id: 'run-old',
       account_id: 'acc-1',
+      hubspot_company_id: null,
+      company_name: null,
+      company_domain: null,
       enrichment_metadata: {
         // Sin post_completion (candidato insertado antes del hito 17A.8E)
         completion: {
@@ -438,6 +444,9 @@ describe('17A.8E — buildContactInsertPayload incluye post_completion en metada
       source: 'apollo',
       enrichment_run_id: 'run-siesa',
       account_id: 'acc-siesa',
+      hubspot_company_id: null,
+      company_name: null,
+      company_domain: null,
       enrichment_metadata: {
         relevance: { status: 'insufficient_data' },
         completion: {

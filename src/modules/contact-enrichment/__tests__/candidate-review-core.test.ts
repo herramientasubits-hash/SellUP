@@ -46,6 +46,9 @@ function makeCandidate(overrides: Partial<CandidateRecord> = {}): CandidateRecor
     enrichment_metadata: { relevance: { status: 'high_relevance', score: 0.9 } },
     enrichment_run_id: 'run-1',
     account_id: 'acc-1',
+    hubspot_company_id: null,
+    company_name: null,
+    company_domain: null,
     ...overrides,
   };
 }
@@ -697,6 +700,197 @@ describe('runDiscardCandidate — cobertura ampliada', () => {
     const { deps, updated } = makeDiscardDeps2();
     await runDiscardCandidate('cand-1', null, deps);
     assert.equal(updated[0].patch.review_notes, 'Otro');
+  });
+});
+
+// ── Hito 17A.9H — aprobación HubSpot-only ───────────────────────
+
+describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
+  function makeHubSpotDeps(overrides: Partial<ApproveDeps> = {}): {
+    deps: ApproveDeps;
+    calls: {
+      inserted: ContactInsertPayload[];
+      updated: { id: string; patch: CandidateReviewPatch }[];
+      resolved: number;
+      runUpdated: { runId: string; accountId: string; outcome: string }[];
+    };
+  } {
+    const calls = {
+      inserted: [] as ContactInsertPayload[],
+      updated: [] as { id: string; patch: CandidateReviewPatch }[],
+      resolved: 0,
+      runUpdated: [] as { runId: string; accountId: string; outcome: string }[],
+    };
+    const deps: ApproveDeps = {
+      actorId: 'user-1',
+      nowIso: '2026-07-02T10:00:00.000Z',
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-123',
+          company_name: 'ACRIP Colombia',
+          company_domain: 'acrip.org',
+          enrichment_run_id: 'run-hs-1',
+        }),
+      loadExistingContacts: async () => [],
+      insertContact: async (payload) => {
+        calls.inserted.push(payload);
+        return { id: 'contact-hs-new' };
+      },
+      updateCandidate: async (id, patch) => {
+        calls.updated.push({ id, patch });
+        return {};
+      },
+      resolveOrCreateAccount: async () => {
+        calls.resolved += 1;
+        return { accountId: 'acc-hs-new', outcome: 'created' };
+      },
+      updateRunAccountId: async (runId, accountId, outcome) => {
+        calls.runUpdated.push({ runId, accountId, outcome });
+      },
+      ...overrides,
+    };
+    return { deps, calls };
+  }
+
+  it('aprueba candidato HubSpot-only creando cuenta nueva', async () => {
+    const { deps, calls } = makeHubSpotDeps();
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.resolved, 1);
+    assert.equal(calls.inserted.length, 1);
+    assert.equal(calls.inserted[0].account_id, 'acc-hs-new');
+    assert.equal(calls.updated.length, 1);
+    assert.equal(calls.updated[0].patch.status, 'approved');
+    assert.equal(calls.updated[0].patch.matched_contacts_id, 'contact-hs-new');
+    if (result.ok) {
+      assert.equal(result.contactId, 'contact-hs-new');
+      assert.ok(result.message.includes('Cuenta creada'));
+    }
+  });
+
+  it('llama updateRunAccountId con runId, accountId y outcome', async () => {
+    const { deps, calls } = makeHubSpotDeps();
+    await runApproveCandidate('cand-1', deps);
+
+    assert.equal(calls.runUpdated.length, 1);
+    assert.equal(calls.runUpdated[0].runId, 'run-hs-1');
+    assert.equal(calls.runUpdated[0].accountId, 'acc-hs-new');
+    assert.equal(calls.runUpdated[0].outcome, 'created');
+  });
+
+  it('usa cuenta existente por hubspot_company_id (no crea duplicado)', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      resolveOrCreateAccount: async () => ({ accountId: 'acc-existing', outcome: 'existing_by_hubspot' }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.inserted[0].account_id, 'acc-existing');
+    if (result.ok) assert.ok(result.message.includes('existente'));
+  });
+
+  it('usa cuenta existente por dominio vinculando hubspot_company_id', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      resolveOrCreateAccount: async () => ({ accountId: 'acc-domain', outcome: 'existing_by_domain_linked' }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.inserted[0].account_id, 'acc-domain');
+    if (result.ok) assert.ok(result.message.includes('existente'));
+  });
+
+  it('bloquea si account_id null y hubspot_company_id null', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({ account_id: null, hubspot_company_id: null }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, false);
+    assert.equal(calls.resolved, 0);
+    assert.equal(calls.inserted.length, 0);
+  });
+
+  it('bloquea si account_id null y hubspot_company_id existe pero sin dep resolveOrCreateAccount', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      resolveOrCreateAccount: undefined,
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, false);
+    assert.equal(calls.inserted.length, 0);
+  });
+
+  it('no crea contacto si resolveOrCreateAccount devuelve error', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      resolveOrCreateAccount: async () => ({ error: 'No se puede crear cuenta sin nombre' }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, false);
+    assert.equal(calls.inserted.length, 0);
+    assert.equal(calls.updated.length, 0);
+  });
+
+  it('no llama updateRunAccountId si enrichment_run_id es null', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-456',
+          enrichment_run_id: null,
+        }),
+    });
+    await runApproveCandidate('cand-1', deps);
+
+    assert.equal(calls.runUpdated.length, 0);
+  });
+
+  it('candidato con account_id existente no llama resolveOrCreateAccount', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () => makeCandidate({ account_id: 'acc-preexisting' }),
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.resolved, 0);
+    assert.equal(calls.runUpdated.length, 0);
+    assert.equal(calls.inserted[0].account_id, 'acc-preexisting');
+  });
+
+  it('dedup se ejecuta contra los contactos de la cuenta resuelta', async () => {
+    const { deps, calls } = makeHubSpotDeps({
+      loadExistingContacts: async (accountId) => {
+        // Solo devuelve duplicado si se consulta con la cuenta resuelta.
+        if (accountId === 'acc-hs-new') {
+          return [{ id: 'dup-hs', email: 'ana@corp.com', linkedin_url: null, full_name: 'Ana López' }];
+        }
+        return [];
+      },
+    });
+    const result = await runApproveCandidate('cand-1', deps);
+
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.duplicate, true);
+    assert.equal(calls.inserted.length, 0);
+  });
+
+  it('metadata del contacto preserva company_consistency', async () => {
+    const company_consistency = { status: 'match', email_domain: 'acrip.org', expected_domain: 'acrip.org', signals: [], review_required: false, explanation: 'ok', organization_name: null, organization_domain: null };
+    const { deps, calls } = makeHubSpotDeps({
+      loadCandidate: async () =>
+        makeCandidate({
+          account_id: null,
+          hubspot_company_id: 'hs-123',
+          enrichment_metadata: { company_consistency },
+        }),
+    });
+    await runApproveCandidate('cand-1', deps);
+
+    assert.deepEqual(calls.inserted[0].metadata.company_consistency, company_consistency);
   });
 });
 

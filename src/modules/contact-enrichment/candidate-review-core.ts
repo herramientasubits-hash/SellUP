@@ -211,6 +211,12 @@ export interface CandidateRecord {
   enrichment_run_id: string | null;
   /** account_id resuelto desde el run que originó al candidato. */
   account_id: string | null;
+  /** HubSpot company id del run. Presente en candidatos HubSpot-only. */
+  hubspot_company_id: string | null;
+  /** Nombre de empresa del run (para crear cuenta si no existe). */
+  company_name: string | null;
+  /** Dominio de empresa del run (para dedup por dominio). */
+  company_domain: string | null;
 }
 
 export interface ContactInsertPayload {
@@ -332,7 +338,7 @@ export interface CandidateReviewPatch {
 // ── Resultados ──────────────────────────────────────────────────
 
 export type ApproveResult =
-  | { ok: true; contactId: string; message: string }
+  | { ok: true; contactId: string; message: string; accountCreated?: boolean }
   | { ok: false; error: string; duplicate?: boolean; contactId?: string };
 
 export type DiscardResult = { ok: true; message: string } | { ok: false; error: string };
@@ -342,12 +348,14 @@ const MSG = {
   notFound: 'El candidato no existe o ya fue revisado.',
   notPending: 'El candidato ya fue revisado.',
   noAccount:
-    'No se puede aprobar este candidato porque no está asociado a una cuenta SellUp.',
+    'No se puede aprobar este candidato porque no está asociado a una cuenta SellUp ni vinculado a HubSpot.',
   duplicate: 'Este candidato parece estar duplicado con un contacto existente.',
   createFailed: 'No fue posible crear el contacto oficial.',
   approveFailed: 'No fue posible aprobar el candidato.',
   discardFailed: 'No fue posible rechazar el candidato.',
   approved: 'Contacto aprobado y creado en SellUp.',
+  approvedNewAccount: 'Cuenta creada en SellUp y contacto aprobado.',
+  approvedLinkedAccount: 'Contacto aprobado y asociado a la cuenta existente.',
   discarded: 'Candidato rechazado.',
 } as const;
 
@@ -369,6 +377,23 @@ export interface ApproveDeps {
   ) => Promise<{ id: string } | { error: string }>;
   updateCandidate: (id: string, patch: CandidateReviewPatch) => Promise<{ error?: string }>;
   logAudit?: (entry: AuditEntry) => Promise<void>;
+  /**
+   * Resuelve o crea una cuenta SellUp para candidatos HubSpot-only
+   * (cuando run.account_id es null pero hubspot_company_id existe).
+   * Si no se provee y account_id es null, la aprobación se bloquea.
+   */
+  resolveOrCreateAccount?: (args: {
+    hubspot_company_id: string;
+    company_name: string | null;
+    company_domain: string | null;
+    run_id: string | null;
+  }) => Promise<{ accountId: string; outcome: string } | { error: string }>;
+  /**
+   * Actualiza contact_enrichment_runs con el account_id recién resuelto/creado
+   * y registra metadata de trazabilidad. Se llama solo cuando se resuelve una
+   * cuenta nueva para un candidato HubSpot-only.
+   */
+  updateRunAccountId?: (runId: string, accountId: string, outcome: string) => Promise<void>;
 }
 
 export interface DiscardDeps {
@@ -395,9 +420,28 @@ export async function runApproveCandidate(
   const candidate = await deps.loadCandidate(candidateId.trim());
   if (!candidate) return { ok: false, error: MSG.notFound };
   if (candidate.status !== 'pending_review') return { ok: false, error: MSG.notPending };
-  if (!candidate.account_id) return { ok: false, error: MSG.noAccount };
 
-  const accountId = candidate.account_id;
+  // Resolver cuenta SellUp: usa la existente o crea/vincula una para candidatos HubSpot-only.
+  let accountId = candidate.account_id;
+  let resolvedAccountOutcome: string | null = null;
+
+  if (!accountId) {
+    if (!candidate.hubspot_company_id || !deps.resolveOrCreateAccount) {
+      return { ok: false, error: MSG.noAccount };
+    }
+    const resolved = await deps.resolveOrCreateAccount({
+      hubspot_company_id: candidate.hubspot_company_id,
+      company_name: candidate.company_name,
+      company_domain: candidate.company_domain,
+      run_id: candidate.enrichment_run_id,
+    });
+    if ('error' in resolved) return { ok: false, error: resolved.error };
+    accountId = resolved.accountId;
+    resolvedAccountOutcome = resolved.outcome;
+    if (candidate.enrichment_run_id && deps.updateRunAccountId) {
+      await deps.updateRunAccountId(candidate.enrichment_run_id, accountId, resolved.outcome);
+    }
+  }
 
   // Deduplicación contra los contactos existentes de la cuenta.
   const existing = await deps.loadExistingContacts(accountId);
@@ -461,7 +505,11 @@ export async function runApproveCandidate(
 
   await deps.logAudit?.({ contactId, accountId, actorUserId: deps.actorId });
 
-  return { ok: true, contactId, message: MSG.approved };
+  let message: string = MSG.approved;
+  if (resolvedAccountOutcome === 'created') message = MSG.approvedNewAccount;
+  else if (resolvedAccountOutcome !== null) message = MSG.approvedLinkedAccount;
+
+  return { ok: true, contactId, message };
 }
 
 // ── Orquestación: rechazar ──────────────────────────────────────

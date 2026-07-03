@@ -15,6 +15,7 @@ import {
   type ContactInsertPayload,
   type ExistingContactForDedup,
 } from './candidate-review-core';
+import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import type {
   Agent2AInput,
   CompanyResolutionResult,
@@ -414,17 +415,23 @@ function getServiceRoleClient() {
 }
 
 /** Columnas necesarias para mapear candidato → contacto (más que la proyección
- *  de revisión: incluye seniority/department/first_name/last_name). */
+ *  de revisión: incluye seniority/department/first_name/last_name y datos de empresa
+ *  del run para resolución de cuenta HubSpot-only — Hito 17A.9H). */
 const CANDIDATE_REVIEW_SELECT =
   `id, status, full_name, first_name, last_name, title, seniority, department,
    email, phone, linkedin_url, source, enrichment_metadata, enrichment_run_id,
-   run:contact_enrichment_runs ( account_id )`;
+   run:contact_enrichment_runs ( account_id, hubspot_company_id, company_name, company_domain )`;
 
 function mapCandidateRecord(row: unknown): CandidateRecord {
   const r = row as Record<string, unknown>;
   const runRaw = r.run;
   const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { account_id: string | null }
+    | {
+        account_id: string | null;
+        hubspot_company_id: string | null;
+        company_name: string | null;
+        company_domain: string | null;
+      }
     | null
     | undefined;
   return {
@@ -444,6 +451,9 @@ function mapCandidateRecord(row: unknown): CandidateRecord {
       (r.enrichment_metadata as Record<string, unknown>) ?? {},
     enrichment_run_id: (r.enrichment_run_id as string | null) ?? null,
     account_id: run?.account_id ?? null,
+    hubspot_company_id: run?.hubspot_company_id ?? null,
+    company_name: run?.company_name ?? null,
+    company_domain: run?.company_domain ?? null,
   };
 }
 
@@ -518,6 +528,88 @@ export async function approveContactCandidate(
           actionType: 'contact_created',
           details: { source: 'contact_enrichment_candidate', candidate_id: candidateId },
         });
+      },
+      resolveOrCreateAccount: async (args) => {
+        return resolveOrCreateAccountForHubSpotCandidate(args, {
+          findByHubspotId: async (hid) => {
+            const { data } = await admin
+              .from('accounts')
+              .select('id')
+              .eq('hubspot_company_id', hid)
+              .is('archived_at', null)
+              .maybeSingle();
+            return data ? { id: data.id as string } : null;
+          },
+          findByDomain: async (domain) => {
+            const { data } = await admin
+              .from('accounts')
+              .select('id, hubspot_company_id')
+              .eq('domain', domain)
+              .is('archived_at', null)
+              .maybeSingle();
+            return data
+              ? { id: data.id as string, hubspot_company_id: (data.hubspot_company_id as string | null) ?? null }
+              : null;
+          },
+          createAccount: async (input) => {
+            const normalizedName = input.name
+              .toLowerCase()
+              .normalize('NFD')
+              .replace(/\p{Diacritic}/gu, '')
+              .replace(/[^a-z0-9\s]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            const { data, error } = await admin
+              .from('accounts')
+              .insert({
+                name: input.name,
+                normalized_name: normalizedName,
+                domain: input.domain,
+                website: input.website,
+                hubspot_company_id: input.hubspot_company_id,
+                source: 'hubspot',
+                pipeline_status: 'new',
+                metadata: {
+                  created_from: 'contact_enrichment_approval',
+                  source_hubspot_company_id: input.hubspot_company_id,
+                  source_contact_enrichment_run_id: input.run_id ?? null,
+                  created_from_candidate_approval: true,
+                },
+                created_by: internalUserId,
+                updated_by: internalUserId,
+              })
+              .select('id')
+              .single();
+            if (error) return { error: error.message };
+            return { id: data.id as string };
+          },
+          linkHubspotId: async (accountId, hubspotId) => {
+            await admin
+              .from('accounts')
+              .update({ hubspot_company_id: hubspotId, updated_by: internalUserId })
+              .eq('id', accountId);
+          },
+        });
+      },
+      updateRunAccountId: async (runId, accountId, outcome) => {
+        const { data: runRow } = await admin
+          .from('contact_enrichment_runs')
+          .select('summary')
+          .eq('id', runId)
+          .single();
+        const currentSummary = (runRow?.summary as Record<string, unknown>) ?? {};
+        await admin
+          .from('contact_enrichment_runs')
+          .update({
+            account_id: accountId,
+            summary: {
+              ...currentSummary,
+              account_created_on_candidate_approval: outcome === 'created',
+              account_linked_on_candidate_approval: outcome !== 'created',
+              approval_account_resolution: { outcome, resolved_account_id: accountId },
+            },
+          })
+          .eq('id', runId);
       },
     });
 
