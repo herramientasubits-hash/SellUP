@@ -18,6 +18,7 @@ import {
   createBulkContactEnrichmentRunAction,
 } from '@/modules/contact-enrichment/actions';
 import type { BulkEnrichmentEligibilityResult, BulkEnrichmentSkipReason } from '@/modules/contact-enrichment/bulk-enrichment-types';
+import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -122,11 +123,11 @@ export function BulkContactEnrichmentDialog({
       const execBody = await execRes.json().catch(() => ({}));
 
       const runSummary: BulkRunSummary = {
-        processed: execBody?.summary?.total_processed ?? createRes.eligibility?.eligible.length ?? 0,
+        processed: execBody?.totalProcessed ?? execBody?.summary?.total_processed ?? createRes.eligibility?.eligible.length ?? 0,
         with_candidates: execBody?.summary?.accounts_with_candidates ?? 0,
         without_candidates: execBody?.summary?.accounts_without_candidates ?? 0,
-        failed: execBody?.summary?.accounts_failed ?? 0,
-        candidates_created: execBody?.summary?.total_candidates_created ?? 0,
+        failed: execBody?.totalFailed ?? execBody?.summary?.accounts_failed ?? 0,
+        candidates_created: execBody?.totalCandidatesCreated ?? execBody?.summary?.total_candidates_created ?? 0,
       };
 
       setSummary(runSummary);
@@ -145,7 +146,8 @@ export function BulkContactEnrichmentDialog({
   }, [state, onOpenChange]);
 
   const isLoading = state === 'checking_eligibility' || state === 'creating_bulk_run' || state === 'executing';
-  const noEligible = eligibility && eligibility.eligible.length === 0;
+  const tooManyAccounts = selectedAccounts.length > CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS;
+  const noEligible = !tooManyAccounts && eligibility && eligibility.eligible.length === 0;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -159,8 +161,16 @@ export function BulkContactEnrichmentDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* Too many accounts guard */}
+          {tooManyAccounts && (
+            <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              Selecciona máximo {CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS} cuentas para enriquecer contactos en lote.
+            </div>
+          )}
+
           {/* Loading state */}
-          {state === 'checking_eligibility' && (
+          {!tooManyAccounts && state === 'checking_eligibility' && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Verificando elegibilidad…
@@ -168,7 +178,7 @@ export function BulkContactEnrichmentDialog({
           )}
 
           {/* Creating / executing states */}
-          {(state === 'creating_bulk_run' || state === 'executing') && (
+          {!tooManyAccounts && (state === 'creating_bulk_run' || state === 'executing') && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {state === 'creating_bulk_run'
@@ -296,7 +306,7 @@ export function BulkContactEnrichmentDialog({
               <Button
                 size="sm"
                 onClick={handleConfirm}
-                disabled={isLoading || state === 'error' || !!noEligible}
+                disabled={isLoading || state === 'error' || !!noEligible || tooManyAccounts}
               >
                 {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
                 Confirmar enriquecimiento

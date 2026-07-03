@@ -297,6 +297,8 @@ export async function executeBulkContactEnrichmentRun(
   }
 
   const summaryFinal: Record<string, unknown> = {
+    total_processed: totalProcessed,
+    total_candidates_created: totalCandidatesCreated,
     total_accounts_eligible: eligibleAccountIds.length,
     accounts_with_candidates: accountResults.filter((r) => r.status === 'succeeded').length,
     accounts_without_candidates: accountsWithoutCandidates,
