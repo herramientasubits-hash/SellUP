@@ -51,9 +51,10 @@ export interface PaPanamaCompraConvenioCoverageSummary {
   loadedRows: number;
   /**
    * Coverage status. Never 'complete_snapshot'.
-   * 'pilot_sample' = small controlled pilot of Convenio Marco providers.
+   * 'pilot_sample'    = small controlled pilot (5C).
+   * 'partial_snapshot' = operational broad load (5E).
    */
-  coverageStatus: 'pilot_sample';
+  coverageStatus: 'pilot_sample' | 'partial_snapshot';
   coverageKind: typeof PA_COVERAGE_KIND;
   coverageSource: PaCoverageSource;
   coverageSourceReason?: PaCoverageSourceReason;
@@ -90,11 +91,12 @@ function buildSummary(
   coverageSourceReason?: PaCoverageSourceReason,
   refreshSource?: string,
   breakdown?: PaPanamaCompraCoverageBreakdown,
+  coverageStatus: 'pilot_sample' | 'partial_snapshot' = 'pilot_sample',
 ): PaPanamaCompraConvenioCoverageSummary {
   return {
     sourceKey: PA_SOURCE_KEY,
     loadedRows,
-    coverageStatus: 'pilot_sample',
+    coverageStatus,
     coverageKind: PA_COVERAGE_KIND,
     coverageSource,
     ...(coverageSourceReason ? { coverageSourceReason } : {}),
@@ -166,12 +168,14 @@ export async function getPaPanamaCompraConvenioCoverageSummary(): Promise<PaPana
       }
 
       const row = data as SummaryRow;
+      const dbStatus = row.coverage_status === 'partial_snapshot' ? 'partial_snapshot' : 'pilot_sample';
       return buildSummary(
         row.loaded_rows ?? PA_AUDITED_LOADED_ROWS,
         'live_database',
         undefined,
         row.refresh_source ?? undefined,
         extractBreakdown(row.coverage_breakdown),
+        dbStatus,
       );
     } catch {
       clearTimeout(timeout);

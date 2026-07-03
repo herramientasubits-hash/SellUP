@@ -87,9 +87,9 @@ describe('validateArgs — guardrails piloto', () => {
     }
   });
 
-  // Test 2
-  it('blocks limit-convenios > 5', () => {
-    const result = validateArgs(parseArgs(['--limit-convenios=6']));
+  // Test 2 — pilot limits are enforced only when --apply is present (dry-run may use any limit for preview)
+  it('blocks --apply with limit-convenios > 5', () => {
+    const result = validateArgs(parseArgs(['--limit-convenios=6', '--apply', '--confirm-pilot-apply']));
     assert.equal(result.ok, false);
     if (!result.ok) {
       assert.ok(result.reason.includes('5'), `Expected reason to mention limit 5, got: ${result.reason}`);
@@ -97,8 +97,8 @@ describe('validateArgs — guardrails piloto', () => {
   });
 
   // Test 3
-  it('blocks limit-providers > 50', () => {
-    const result = validateArgs(parseArgs(['--limit-providers=51']));
+  it('blocks --apply with limit-providers > 50', () => {
+    const result = validateArgs(parseArgs(['--limit-providers=51', '--apply', '--confirm-pilot-apply']));
     assert.equal(result.ok, false);
     if (!result.ok) {
       assert.ok(result.reason.includes('50'), `Expected reason to mention limit 50, got: ${result.reason}`);

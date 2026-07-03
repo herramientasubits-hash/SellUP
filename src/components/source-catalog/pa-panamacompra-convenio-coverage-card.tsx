@@ -43,7 +43,8 @@ export function formatPaLoadedRows(count: number): string {
   return `${count.toLocaleString('es-PA')} proveedores`;
 }
 
-export function formatPaCoverageStatus(status: 'pilot_sample'): string {
+export function formatPaCoverageStatus(status: 'pilot_sample' | 'partial_snapshot'): string {
+  if (status === 'partial_snapshot') return 'Snapshot parcial operativo (partial_snapshot)';
   return 'Muestra piloto (pilot_sample)';
 }
 
@@ -139,7 +140,7 @@ export function PaPanamaCompraConvenioCoverageCard({
       </div>
 
       <dl className="divide-y divide-border/20">
-        <SectionTitle>Carga piloto</SectionTitle>
+        <SectionTitle>{summary.coverageStatus === 'partial_snapshot' ? 'Carga operativa' : 'Carga piloto'}</SectionTitle>
 
         <FieldRow
           label="Proveedores cargados"
@@ -168,7 +169,7 @@ export function PaPanamaCompraConvenioCoverageCard({
           />
         )}
 
-        <SectionTitle>Breakdown piloto</SectionTitle>
+        <SectionTitle>{summary.coverageStatus === 'partial_snapshot' ? 'Breakdown operativo' : 'Breakdown piloto'}</SectionTitle>
 
         <FieldRow label="Convenios leídos" value={conveniosRead} />
         <FieldRow label="Proveedores encontrados" value={providersFound} />
@@ -216,9 +217,12 @@ export function PaPanamaCompraConvenioCoverageCard({
           Estado operativo
         </p>
         <p className="text-xs text-muted-foreground">
-          Muestra piloto disponible. No existe post-approval Panamá activo. La fuente permanece en{' '}
-          <span className="font-medium">eligible_not_connected</span> hasta que se operativice el
-          flujo de enriquecimiento local.
+          {summary.coverageStatus === 'partial_snapshot'
+            ? 'Snapshot operativo parcial cargado. No existe post-approval Panamá activo. La fuente permanece en '
+            : 'Muestra piloto disponible. No existe post-approval Panamá activo. La fuente permanece en '}
+          <span className="font-medium">eligible_not_connected</span>{' '}
+          hasta que se operativice el flujo de enriquecimiento local.
+          {' '}No es fuente legal. No es fuente tributaria. No valida RUC. No reemplaza DGI Panamá. No reemplaza Registro Público.
         </p>
       </div>
 

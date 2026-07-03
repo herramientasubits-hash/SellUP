@@ -45,12 +45,15 @@ describe('PA coverage: source_key', () => {
   });
 });
 
-// ─── 2. coverage_status = pilot_sample (NEVER complete_snapshot) ──────────────
+// ─── 2. coverage_status — pilot_sample o partial_snapshot (NEVER complete_snapshot) ─
 
 describe('PA coverage: coverage_status', () => {
-  it('is pilot_sample', async () => {
+  it('is pilot_sample or partial_snapshot (5C or 5E)', async () => {
     const result = await getPaPanamaCompraConvenioCoverageSummary();
-    assert.equal(result.coverageStatus, 'pilot_sample');
+    assert.ok(
+      result.coverageStatus === 'pilot_sample' || result.coverageStatus === 'partial_snapshot',
+      `coverageStatus must be pilot_sample or partial_snapshot, got: ${result.coverageStatus}`,
+    );
   });
 
   it('is NOT complete_snapshot', async () => {
@@ -130,10 +133,14 @@ describe('PA coverage: fallback behavior', () => {
     );
   });
 
-  it('audited_fallback preserves pilot_sample semantics', async () => {
+  it('fallback preserves invariant semantics (pilot_sample or partial_snapshot, never complete_snapshot)', async () => {
     // Regardless of coverageSource, semantics must always hold
     const result = await getPaPanamaCompraConvenioCoverageSummary();
-    assert.equal(result.coverageStatus, 'pilot_sample');
+    assert.ok(
+      result.coverageStatus === 'pilot_sample' || result.coverageStatus === 'partial_snapshot',
+      `coverageStatus must be pilot_sample or partial_snapshot, got: ${result.coverageStatus}`,
+    );
+    assert.notEqual(result.coverageStatus, 'complete_snapshot');
     assert.equal(result.coverageKind, 'procurement_signal_snapshot');
     assert.equal(result.isFiscalSource, false);
     assert.equal(result.replacesDgiPanama, false);

@@ -10,12 +10,12 @@
  *   - Does not change aiFlowStatus or connectionMode in source_catalog
  *   - Does not validate RUC Panamá
  *   - Does not replace DGI Panamá or Registro Público
- *   - coverage_status = pilot_sample (NOT complete_snapshot)
+ *   - coverage_status = partial_snapshot (NOT complete_snapshot) — updated in 5E
  *
  * Run:
  *   npx tsx scripts/pa/refresh-pa-panamacompra-convenio-source-coverage-summary.ts
  *
- * Hito: Centroamérica.5C
+ * Hito: Centroamérica.5C (piloto) / 5E (operativo amplio)
  */
 
 import { loadEnvConfig } from '@next/env';
@@ -27,12 +27,12 @@ import { createClient } from '@supabase/supabase-js';
 
 const SOURCE_KEY = 'pa_panamacompra_convenio' as const;
 const COUNTRY_CODE = 'PA' as const;
-const REFRESH_SOURCE = 'pa_5c_pilot_load' as const;
+const REFRESH_SOURCE = 'pa_5e_operational_load' as const;
 
 // ─── Coverage breakdown ────────────────────────────────────────────────────────
 
 const COVERAGE_LIMITATIONS = [
-  'Muestra piloto de proveedores de Convenio Marco solamente',
+  'Snapshot operativo parcial de proveedores de Convenio Marco',
   'No cubre adjudicaciones generales de PanamaCompra',
   'No cubre todos los proveedores del Estado panameño',
   'No es fuente legal ni tributaria para Panamá',
@@ -44,16 +44,30 @@ const COVERAGE_LIMITATIONS = [
 // ─── Upsert ───────────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function upsertSummary(admin: any, loadedRows: number): Promise<void> {
+async function upsertSummary(
+  admin: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  loadedRows: number,
+  etlStats?: {
+    conveniosAvailable?: number;
+    conveniosRead?: number;
+    providersFound?: number;
+    uniqueProviders?: number;
+    providersWithRuc?: number;
+    providersWithoutRuc?: number;
+    snapshotsBuilt?: number;
+  },
+): Promise<void> {
   const coverageBreakdown = {
     source_type: 'procurement_signal',
     coverage_scope: 'convenio_marco',
-    load_type: 'pilot_sample',
-    convenios_read: 3,
-    providers_found: loadedRows,
-    unique_providers: loadedRows,
-    providers_with_ruc: null,
-    snapshots_built: loadedRows,
+    load_type: 'operational_partial',
+    convenios_available: etlStats?.conveniosAvailable ?? null,
+    convenios_read: etlStats?.conveniosRead ?? null,
+    providers_found: etlStats?.providersFound ?? loadedRows,
+    unique_providers: etlStats?.uniqueProviders ?? loadedRows,
+    providers_with_ruc: etlStats?.providersWithRuc ?? null,
+    providers_without_ruc: etlStats?.providersWithoutRuc ?? null,
+    snapshots_built: etlStats?.snapshotsBuilt ?? loadedRows,
     loaded_rows: loadedRows,
     limitations: [...COVERAGE_LIMITATIONS],
   };
@@ -68,14 +82,14 @@ async function upsertSummary(admin: any, loadedRows: number): Promise<void> {
     validates_ruc_panama: false,
     replaces_dgi_panama: false,
     replaces_registro_publico: false,
-    snapshot_source: 'pa_5c_pilot_load',
+    snapshot_source: 'pa_5e_operational_load',
   };
 
   const row = {
     source_key: SOURCE_KEY,
     country_code: COUNTRY_CODE,
     coverage_kind: 'procurement_signal_snapshot',
-    coverage_status: 'pilot_sample',
+    coverage_status: 'partial_snapshot',
     loaded_rows: loadedRows,
     audited_total_rows: 0,
     audited_active_habido_rows: 0,
@@ -120,7 +134,7 @@ async function main(): Promise<void> {
 
   console.log('Guardrails activos:');
   console.log('  ✓ No escribe en accounts ni prospect_candidates');
-  console.log('  ✓ coverage_status = pilot_sample (≠ complete_snapshot)');
+  console.log('  ✓ coverage_status = partial_snapshot (≠ complete_snapshot)');
   console.log('  ✓ No llama panamacompra.gob.pa, DGI, Registro Público, Tavily, LLM');
   console.log('  ✓ No valida RUC Panamá');
   console.log('  ✓ No reemplaza DGI Panamá ni Registro Público');
@@ -151,7 +165,7 @@ async function main(): Promise<void> {
   console.log('Upserted source_coverage_summaries:');
   console.log(`  source_key:      ${SOURCE_KEY}`);
   console.log(`  country_code:    ${COUNTRY_CODE}`);
-  console.log(`  coverage_status: pilot_sample  ← NOT complete_snapshot`);
+  console.log(`  coverage_status: partial_snapshot  ← NOT complete_snapshot`);
   console.log(`  coverage_kind:   procurement_signal_snapshot`);
   console.log(`  loaded_rows:     ${loadedRows}`);
   console.log(`  refresh_source:  ${REFRESH_SOURCE}`);

@@ -1,20 +1,23 @@
 /**
- * PanamaCompra Panamá — ETL Convenio Marco (Centroamérica.5C)
+ * PanamaCompra Panamá — ETL Convenio Marco (Centroamérica.5C / 5E)
  *
  * Consulta la API ASMX de PanamaCompra para obtener convenios marco y sus
  * proveedores, normaliza RUCs, construye snapshots y — con confirmación explícita —
  * los escribe en source_company_snapshots.
  *
  * Flags:
- *   --limit-convenios=<N>     Máximo de convenios a consultar (default: 3, max piloto: 5)
- *   --limit-providers=<N>     Máximo de proveedores únicos a enriquecer (default: 20, max piloto: 50)
- *   --dry-run                 Modo seco — no escribe en Supabase (default si no se pasa --apply)
- *   --apply                   Habilita escritura (requiere --confirm-pilot-apply)
- *   --confirm-pilot-apply     Confirmación explícita de apply piloto
+ *   --limit-convenios=<N>          Máximo de convenios a consultar (default: 3; 0 = sin límite)
+ *   --limit-providers=<N>          Máximo de proveedores únicos a enriquecer (default: 20; 0 = sin límite)
+ *   --dry-run                      Modo seco — no escribe en Supabase (default si no se pasa --apply)
+ *   --apply                        Habilita escritura (requiere confirmación explícita)
+ *   --confirm-pilot-apply          Confirmación para carga piloto (límites ≤ 5 convenios / ≤ 50 proveedores)
+ *   --confirm-operational-apply    Confirmación para carga operativa amplia (0 = sin límite)
  *
  * Guardrails:
- *   - --apply sin --confirm-pilot-apply → error inmediato.
- *   - limit-convenios > 5 o limit-providers > 50 → bloqueado en este hito.
+ *   - --apply sin ninguna confirmación → error inmediato.
+ *   - --confirm-pilot-apply con límites operativos (0) → error.
+ *   - --confirm-pilot-apply con limit-convenios > 5 o limit-providers > 50 → error.
+ *   - --confirm-operational-apply permite carga amplia (0 = sin límite).
  *   - No toca accounts, prospect_candidates.
  *   - No usa searchOrderList, ListarActosParametros.
  *   - No usa credenciales, Tavily, LLM.
@@ -28,7 +31,7 @@
  *   No valida RUC. No reemplaza DGI Panamá. No reemplaza Registro Público.
  *   Cubre solo proveedores de Convenio Marco.
  *
- * Hito: Centroamérica.5C
+ * Hito: Centroamérica.5C (piloto) / 5E (operativo amplio)
  */
 
 import { loadEnvConfig } from '@next/env';
@@ -64,6 +67,7 @@ type EtlArgs = {
   limitProviders: number;
   apply: boolean;
   confirmPilotApply: boolean;
+  confirmOperationalApply: boolean;
 };
 
 export function parseArgs(argv: string[] = process.argv.slice(2)): EtlArgs {
@@ -71,6 +75,7 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): EtlArgs {
   let limitProviders = 20;
   let apply = false;
   let confirmPilotApply = false;
+  let confirmOperationalApply = false;
 
   for (const arg of argv) {
     if (arg.startsWith('--limit-convenios=')) {
@@ -83,46 +88,73 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): EtlArgs {
       // dry-run is the default when --apply is absent; explicit flag is a no-op
     } else if (arg === '--confirm-pilot-apply') {
       confirmPilotApply = true;
+    } else if (arg === '--confirm-operational-apply') {
+      confirmOperationalApply = true;
     }
   }
 
-  return { limitConvenios, limitProviders, apply, confirmPilotApply };
+  return { limitConvenios, limitProviders, apply, confirmPilotApply, confirmOperationalApply };
 }
 
 // ─── Validación de args ────────────────────────────────────────────────────────
 
 export type ArgsValidation = { ok: true } | { ok: false; reason: string };
 
+/** 0 means "no limit" — operational mode. */
+function isOperationalLimit(n: number): boolean {
+  return n === 0;
+}
+
 export function validateArgs(args: EtlArgs): ArgsValidation {
-  if (args.apply && !args.confirmPilotApply) {
+  const hasAnyConfirmation = args.confirmPilotApply || args.confirmOperationalApply;
+
+  if (args.apply && !hasAnyConfirmation) {
     return {
       ok: false,
       reason:
-        'ERROR: --apply requiere --confirm-pilot-apply para proteger contra writes accidentales.\n' +
-        'Uso correcto:\n' +
-        '  npx tsx ... --apply --confirm-pilot-apply\n',
+        'ERROR: --apply requiere --confirm-pilot-apply o --confirm-operational-apply.\n' +
+        'Carga piloto:     npx tsx ... --apply --confirm-pilot-apply\n' +
+        'Carga operativa:  npx tsx ... --limit-convenios=0 --limit-providers=0 --apply --confirm-operational-apply\n',
     };
   }
 
-  if (args.limitConvenios > PILOT_MAX_CONVENIOS) {
-    return {
-      ok: false,
-      reason:
-        `ERROR: --limit-convenios=${args.limitConvenios} supera el límite piloto de ${PILOT_MAX_CONVENIOS}.\n` +
-        'Centroamérica.5C es carga piloto controlada. No se permiten cargas amplias en este hito.\n',
-    };
-  }
+  // When applying without operational confirmation, enforce pilot limits.
+  // Dry-run (no --apply) may use any limits freely for preview purposes.
+  if (args.apply && !args.confirmOperationalApply) {
+    if (isOperationalLimit(args.limitConvenios) || isOperationalLimit(args.limitProviders)) {
+      return {
+        ok: false,
+        reason:
+          'ERROR: --confirm-pilot-apply no permite carga amplia (0 = sin límite).\n' +
+          'Para carga operativa amplia use --confirm-operational-apply en lugar de --confirm-pilot-apply.\n',
+      };
+    }
 
-  if (args.limitProviders > PILOT_MAX_PROVIDERS) {
-    return {
-      ok: false,
-      reason:
-        `ERROR: --limit-providers=${args.limitProviders} supera el límite piloto de ${PILOT_MAX_PROVIDERS}.\n` +
-        'Centroamérica.5C es carga piloto controlada. No se permiten cargas amplias en este hito.\n',
-    };
+    if (args.limitConvenios > PILOT_MAX_CONVENIOS) {
+      return {
+        ok: false,
+        reason:
+          `ERROR: --limit-convenios=${args.limitConvenios} supera el límite piloto de ${PILOT_MAX_CONVENIOS}.\n` +
+          'Use --confirm-operational-apply para cargas amplias.\n',
+      };
+    }
+
+    if (args.limitProviders > PILOT_MAX_PROVIDERS) {
+      return {
+        ok: false,
+        reason:
+          `ERROR: --limit-providers=${args.limitProviders} supera el límite piloto de ${PILOT_MAX_PROVIDERS}.\n` +
+          'Use --confirm-operational-apply para cargas amplias.\n',
+      };
+    }
   }
 
   return { ok: true };
+}
+
+/** Returns true when running in operational (unlimited) mode. */
+export function isOperationalMode(args: EtlArgs): boolean {
+  return args.confirmOperationalApply && (isOperationalLimit(args.limitConvenios) || isOperationalLimit(args.limitProviders));
 }
 
 // ─── Reporte ───────────────────────────────────────────────────────────────────
@@ -140,8 +172,8 @@ export type EtlReport = {
   writes: number;
 };
 
-function printReport(report: EtlReport, isDryRun: boolean): void {
-  const mode = isDryRun ? 'DRY-RUN' : 'APPLY PILOTO';
+function printReport(report: EtlReport, isDryRun: boolean, operational: boolean): void {
+  const mode = isDryRun ? 'DRY-RUN' : operational ? 'APPLY OPERATIVO' : 'APPLY PILOTO';
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
   console.log(`  PanamaCompra Convenio Marco — ${mode}`);
@@ -166,7 +198,12 @@ function printReport(report: EtlReport, isDryRun: boolean): void {
   }
   if (isDryRun) {
     console.log('  [DRY-RUN] No se escribió nada en Supabase.');
-    console.log('  [DRY-RUN] Pasar --apply --confirm-pilot-apply para escribir.');
+    console.log('  [DRY-RUN] Piloto:     --apply --confirm-pilot-apply');
+    console.log('  [DRY-RUN] Operativo:  --limit-convenios=0 --limit-providers=0 --apply --confirm-operational-apply');
+  } else if (operational) {
+    console.log(`  [APPLY OPERATIVO] ${report.writes} filas escritas en source_company_snapshots.`);
+    console.log('  [APPLY OPERATIVO] Ejecutar refresh de coverage summary: pa_5e_operational_load');
+    console.log('  [APPLY OPERATIVO] coverage_status objetivo: partial_snapshot');
   } else {
     console.log(`  [APPLY PILOTO] ${report.writes} filas escritas en source_company_snapshots.`);
     console.log('  [APPLY PILOTO] coverage_status se actualizará con el script de coverage summary.');
@@ -184,7 +221,7 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
   // source_year is required by the unique constraint; use current year for pilot load
   const sourceYear = new Date().getFullYear();
 
-  const rows = snapshots.map((s) => ({
+  const allRows = snapshots.map((s) => ({
     source_key: s.source_key,
     country_code: s.country_code,
     source_year: sourceYear,
@@ -201,6 +238,18 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
     raw_data: s.raw_data,
     imported_at: new Date().toISOString(),
   }));
+
+  // Second-pass dedup: the DB unique constraint is (source_key,country_code,source_year,normalized_tax_id).
+  // The provider deduplicator uses companyId/providerId as keys, so two providers with different IDs
+  // but the same normalized_tax_id can still appear as separate entries. Eliminate those here so
+  // the upsert batch never has two rows targeting the same conflict key.
+  const seenKeys = new Set<string>();
+  const rows = allRows.filter((r) => {
+    const k = `${r.source_key}|${r.country_code}|${sourceYear}|${r.normalized_tax_id ?? r.tax_id ?? r.legal_name}`;
+    if (seenKeys.has(k)) return false;
+    seenKeys.add(k);
+    return true;
+  });
 
   const { error, count } = await admin
     .from('source_company_snapshots')
@@ -235,11 +284,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`[PanamaCompra ETL 5C] Modo: ${isDryRun ? 'DRY-RUN' : 'APPLY PILOTO'}`);
-  console.log(`[PanamaCompra ETL 5C] limit-convenios=${args.limitConvenios} limit-providers=${args.limitProviders}`);
-  console.log('[PanamaCompra ETL 5C] GUARDRAIL: No es fuente legal ni tributaria.');
-  console.log('[PanamaCompra ETL 5C] GUARDRAIL: No reemplaza DGI Panamá ni Registro Público.');
-  console.log('[PanamaCompra ETL 5C] GUARDRAIL: Cubre solo proveedores de Convenio Marco.');
+  const operational = isOperationalMode(args);
+  const modeLabel = isDryRun ? 'DRY-RUN' : operational ? 'APPLY OPERATIVO (5E)' : 'APPLY PILOTO (5C)';
+
+  console.log(`[PanamaCompra ETL] Modo: ${modeLabel}`);
+  console.log(`[PanamaCompra ETL] limit-convenios=${args.limitConvenios === 0 ? 'sin límite' : args.limitConvenios} limit-providers=${args.limitProviders === 0 ? 'sin límite' : args.limitProviders}`);
+  console.log('[PanamaCompra ETL] GUARDRAIL: No es fuente legal ni tributaria.');
+  console.log('[PanamaCompra ETL] GUARDRAIL: No reemplaza DGI Panamá ni Registro Público.');
+  console.log('[PanamaCompra ETL] GUARDRAIL: Cubre solo proveedores de Convenio Marco.');
   console.log('');
 
   // Supabase solo en apply
@@ -253,8 +305,12 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     admin = createClient(url, key);
-    console.log('[PanamaCompra ETL 5C] APPLY PILOTO confirmado. Guardando en source_company_snapshots únicamente.');
-    console.log('[PanamaCompra ETL 5C] No toca accounts, prospect_candidates, source_catalog.');
+    if (operational) {
+      console.log('[PanamaCompra ETL] APPLY OPERATIVO confirmado (5E). Guardando en source_company_snapshots únicamente.');
+    } else {
+      console.log('[PanamaCompra ETL] APPLY PILOTO confirmado (5C). Guardando en source_company_snapshots únicamente.');
+    }
+    console.log('[PanamaCompra ETL] No toca accounts, prospect_candidates, source_catalog.');
     console.log('');
   }
 
@@ -277,11 +333,14 @@ async function main(): Promise<void> {
   if (!conveniosResult.ok) {
     console.error(`[PanamaCompra ETL] Error al listar convenios: ${conveniosResult.error}`);
     report.errores.push(`listaConvenio: ${conveniosResult.error}`);
-    printReport(report, isDryRun);
+    printReport(report, isDryRun, operational);
     process.exit(1);
   }
 
-  const convenios = conveniosResult.convenios.slice(0, args.limitConvenios);
+  // 0 = sin límite (modo operativo)
+  const convenios = args.limitConvenios === 0
+    ? conveniosResult.convenios
+    : conveniosResult.convenios.slice(0, args.limitConvenios);
   report.conveniosLeidos = convenios.length;
   console.log(`  → ${conveniosResult.convenios.length} convenios disponibles, procesando ${convenios.length}`);
 
@@ -323,7 +382,8 @@ async function main(): Promise<void> {
   // ── Paso 4: Enriquecer con ObtenerInfoProveedor ───────────────────────────
   console.log('[4/4] Enriqueciendo proveedores con ObtenerInfoProveedor...');
   const enrichedEntries: PanamaProviderEntry[] = [];
-  const toEnrich = dedupedEntries.slice(0, args.limitProviders);
+  // 0 = sin límite (modo operativo)
+  const toEnrich = args.limitProviders === 0 ? dedupedEntries : dedupedEntries.slice(0, args.limitProviders);
 
   for (const entry of toEnrich) {
     const pid = entry.provider.companyId ?? entry.provider.providerId;
@@ -379,16 +439,17 @@ async function main(): Promise<void> {
     console.log(`  coverage_scope:    ${first.raw_data.coverage_scope}`);
   }
 
-  // ── Apply piloto ──────────────────────────────────────────────────────────
+  // ── Apply ─────────────────────────────────────────────────────────────────
   if (!isDryRun && admin) {
+    const applyLabel = operational ? 'APPLY OPERATIVO' : 'APPLY PILOTO';
     console.log('');
-    console.log(`[APPLY PILOTO] Upserting ${snapshots.length} snapshots en source_company_snapshots...`);
+    console.log(`[${applyLabel}] Upserting ${snapshots.length} snapshots en source_company_snapshots...`);
     try {
       report.writes = await upsertSnapshots(admin, snapshots);
-      console.log(`[APPLY PILOTO] ✓ ${report.writes} filas escritas.`);
+      console.log(`[${applyLabel}] ✓ ${report.writes} filas escritas.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[APPLY PILOTO] ERROR en upsert: ${msg}`);
+      console.error(`[${applyLabel}] ERROR en upsert: ${msg}`);
       report.errores.push(`upsert: ${msg}`);
     }
 
@@ -398,10 +459,10 @@ async function main(): Promise<void> {
       .select('id', { count: 'exact', head: true })
       .eq('source_key', PANAMACOMPRA_SOURCE_KEY);
 
-    console.log(`[APPLY PILOTO] Filas totales en DB para ${PANAMACOMPRA_SOURCE_KEY}: ${dbCount ?? 'N/A'}`);
+    console.log(`[${applyLabel}] Filas totales en DB para ${PANAMACOMPRA_SOURCE_KEY}: ${dbCount ?? 'N/A'}`);
   }
 
-  printReport(report, isDryRun);
+  printReport(report, isDryRun, operational);
 
   if (report.errores.length > 0) {
     console.warn(`[PanamaCompra ETL] Completado con ${report.errores.length} error(es).`);
