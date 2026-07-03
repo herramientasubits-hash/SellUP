@@ -12,14 +12,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
   checkBulkEnrichmentEligibilityAction,
   createBulkContactEnrichmentRunAction,
 } from '@/modules/contact-enrichment/actions';
 import type { BulkEnrichmentEligibilityResult, BulkEnrichmentSkipReason } from '@/modules/contact-enrichment/bulk-enrichment-types';
-import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -87,6 +85,8 @@ export function BulkContactEnrichmentDialog({
   React.useEffect(() => {
     if (!open) return;
 
+    // Reset dialog state when it opens — standard pattern for controlled dialogs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState('checking_eligibility');
     setEligibility(null);
     setEligibilityError(null);
