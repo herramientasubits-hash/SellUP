@@ -5,8 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart2, BrainCircuit } from 'lucide-react';
 
-const VALID_TABS = ['consumo', 'ia'] as const;
-type ProvidersTab = (typeof VALID_TABS)[number];
+type ProvidersTab = 'consumo' | 'ia';
 
 function resolveTab(raw: string | null): ProvidersTab {
   if (raw === 'ia') return 'ia';

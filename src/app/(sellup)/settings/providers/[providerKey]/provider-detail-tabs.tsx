@@ -18,7 +18,6 @@ import {
   getProviderOperationalContext,
   getProviderConfigSummary,
   OPERATIONAL_TYPE_LABEL,
-  OPERATIONAL_TYPE_BADGE,
 } from '@/modules/budgets/provider-operational-type';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { toggleBudgetRuleStatus, archiveBudgetRule } from '@/modules/budgets/rule-actions';
