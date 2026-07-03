@@ -600,7 +600,7 @@ function ProviderActivityDrawer({
       footer={
         <div className="shrink-0 flex items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-7 py-4">
           <div className="flex items-center gap-2">
-            <Link href="/settings/budget-credits/rules">
+            <Link href="/settings/providers?tab=consumo">
               <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
                 Gestionar reglas
               </Button>

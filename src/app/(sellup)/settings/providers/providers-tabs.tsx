@@ -1,17 +1,47 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart2, BrainCircuit } from 'lucide-react';
+
+const VALID_TABS = ['consumo', 'ia'] as const;
+type ProvidersTab = (typeof VALID_TABS)[number];
+
+function resolveTab(raw: string | null): ProvidersTab {
+  if (raw === 'ia') return 'ia';
+  return 'consumo';
+}
 
 interface ProvidersTabsProps {
   consumoContent: React.ReactNode;
   iaContent: React.ReactNode;
+  defaultTab?: string | null;
 }
 
-export function ProvidersTabs({ consumoContent, iaContent }: ProvidersTabsProps) {
+export function ProvidersTabs({ consumoContent, iaContent, defaultTab }: ProvidersTabsProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = resolveTab(searchParams.get('tab') ?? defaultTab ?? null);
+
+  const handleTabChange = useCallback(
+    (value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === 'consumo') {
+        params.delete('tab');
+      } else {
+        params.set('tab', value);
+      }
+      const query = params.toString();
+      router.replace(query ? `/settings/providers?${query}` : '/settings/providers', {
+        scroll: false,
+      });
+    },
+    [router, searchParams],
+  );
+
   return (
-    <Tabs defaultValue="consumo" className="space-y-6">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
       <TabsList className="bg-muted/50">
         <TabsTrigger value="consumo" className="gap-2">
           <BarChart2 className="h-4 w-4" />
@@ -23,13 +53,9 @@ export function ProvidersTabs({ consumoContent, iaContent }: ProvidersTabsProps)
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="consumo">
-        {consumoContent}
-      </TabsContent>
+      <TabsContent value="consumo">{consumoContent}</TabsContent>
 
-      <TabsContent value="ia">
-        {iaContent}
-      </TabsContent>
+      <TabsContent value="ia">{iaContent}</TabsContent>
     </Tabs>
   );
 }

@@ -893,11 +893,11 @@ export function BudgetRulesClient({ rules, options }: Props) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link
-            href="/settings/budget-credits"
+            href="/settings/providers?tab=consumo"
             className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <ChevronLeft className="h-3 w-3" />
-            Créditos y presupuestos
+            Proveedores y consumo
           </Link>
           <h1 className="text-xl font-semibold text-foreground">Reglas de presupuesto</h1>
           <p className="mt-1 text-sm text-muted-foreground">

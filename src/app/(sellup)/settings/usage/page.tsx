@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { Bot, Plug, Star, Info, FlaskConical, DollarSign, Zap, CheckCircle2, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
+import { LegacyCompatBanner } from '../legacy-compat-banner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
@@ -300,6 +301,11 @@ export default async function UsagePage() {
 
   return (
     <div className="space-y-8">
+      <LegacyCompatBanner
+        message="Esta vista sigue disponible como base interna. La lectura operativa principal de proveedores y consumo vive en Proveedores y consumo."
+        ctaLabel="Ir a Proveedores y consumo"
+        ctaHref="/settings/providers?tab=consumo"
+      />
       <PageHeader
         title="Uso, costos y efectividad"
         description="Foundation operativa para monitorear ejecuciones de agentes, llamadas a proveedores y calidad de resultados."

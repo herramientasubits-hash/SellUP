@@ -10,9 +10,16 @@ import { BudgetRulesTabbedSection } from '../budget-credits/rules/budget-rules-c
 import { ProvidersTabs } from './providers-tabs';
 import { AiSettingsSection } from '../ai/ai-settings-section';
 
-export default async function ProvidersConsumptionPage() {
+interface PageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function ProvidersConsumptionPage({ searchParams }: PageProps) {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
+
+  const resolved = await searchParams;
+  const defaultTab = typeof resolved.tab === 'string' ? resolved.tab : null;
 
   const [summary, rules, options] = await Promise.all([
     getAdminBudgetSummary(),
@@ -24,11 +31,12 @@ export default async function ProvidersConsumptionPage() {
     <div className="space-y-8 px-8 py-6">
       <PageHeader
         title="Proveedores y consumo"
-        description="Configura proveedores de IA y herramientas externas, controla presupuestos, reglas y monitorea consumo mensual."
+        description="Administra proveedores, cuotas, presupuestos, reglas, modelos de IA y trazabilidad de consumo desde un solo lugar."
         backHref="/settings"
       />
 
       <ProvidersTabs
+        defaultTab={defaultTab}
         consumoContent={
           <div className="space-y-8">
             <BudgetSummaryCards providers={summary.providers} />
@@ -47,7 +55,7 @@ export default async function ProvidersConsumptionPage() {
         iaContent={
           <div className="space-y-6">
             <p className="text-sm text-muted-foreground">
-              Administra proveedores LLM, modelos activos y tarifas por millón de tokens.
+              Administra proveedores LLM, modelos activos, tarifas por millón de tokens y configuración de conexión.
             </p>
             <AiSettingsSection />
           </div>
