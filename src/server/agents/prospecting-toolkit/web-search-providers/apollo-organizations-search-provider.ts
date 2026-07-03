@@ -503,10 +503,13 @@ export async function runApolloOrganizationsSearch(
   }
   const normalizedResultsCount = mapped.length; // pre-gate count
 
-  // ── Sector relevance gate (v1.16K-AD) ────────────────────────────────────────
+  // ── Sector relevance gate (v1.16K-AD, L2.13) ─────────────────────────────────
   // Filtra candidatos sin evidencia sectorial antes de persistir.
   // Gate solo actúa para apollo_organizations; Tavily no afectado.
-  const gateResult = applyApolloSectorRelevanceGate(mapped, input.industry, 'apollo_organizations');
+  // L2.13: pasar subindustria primaria para activar señales estrictas de subindustria
+  // (ej. 'formacion corporativa' rechaza universidades, solo pasa LMS/corporate training).
+  const primarySubindustry = input.subindustries?.[0] ?? null;
+  const gateResult = applyApolloSectorRelevanceGate(mapped, input.industry, 'apollo_organizations', primarySubindustry);
   const filteredMapped = gateResult.passed;
 
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────

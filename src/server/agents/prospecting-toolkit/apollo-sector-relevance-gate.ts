@@ -36,7 +36,7 @@ import type { WebSearchResult } from './types';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
-export const APOLLO_SECTOR_GATE_VERSION = 'v1.L2.12-A';
+export const APOLLO_SECTOR_GATE_VERSION = 'v1.L2.13-A';
 
 // ─── Términos de sector ───────────────────────────────────────────────────────
 
@@ -134,6 +134,18 @@ export type ApolloSectorGateSample = {
   domain: string | null;
   matched_terms: string[];
   reason?: string;
+  /** L2.13: campos Apollo presentes en el resultado (sin emails/teléfonos/personas). */
+  evidence_fields_present?: string[];
+  /** L2.13: si Apollo trajo keywords propias de la organización. */
+  apollo_keywords_sample?: string[];
+  /** L2.13: si Apollo trajo short_description. */
+  description_present?: boolean;
+  /** L2.13: industria que Apollo reporta para esta organización. */
+  apollo_industry?: string | null;
+  /** L2.13: cantidad de empleados que Apollo reporta. */
+  apollo_employee_count?: number | null;
+  /** L2.13: campos que el gate usó como evidencia (subset de evidence_fields_present). */
+  provider_evidence_used?: string[];
 };
 
 /** Metadata del gate — segura para logs (sin API keys, headers ni tokens). */
@@ -246,12 +258,67 @@ function findMatchedTerms(text: string, signals: string[]): string[] {
   return signals.filter(term => text.includes(term.toLowerCase()));
 }
 
-/** Extrae nombre y dominio del candidato para los samples de metadata. */
-function extractNameAndDomain(result: WebSearchResult): { name: string; domain: string | null } {
+/** Extrae nombre, dominio y evidencia del candidato para los samples de metadata. */
+function extractCandidateDiagnostics(result: WebSearchResult): {
+  name: string;
+  domain: string | null;
+  evidenceFieldsPresent: string[];
+  apolloKeywordsSample: string[];
+  descriptionPresent: boolean;
+  apolloIndustry: string | null;
+  apolloEmployeeCount: number | null;
+} {
   const name = result.title ?? 'unknown';
   const meta = result.metadata as Record<string, unknown> | undefined;
-  const domain = (typeof meta?.['domain'] === 'string' ? meta['domain'] : null);
-  return { name, domain };
+  const domain = typeof meta?.['domain'] === 'string' ? meta['domain'] : null;
+
+  const evidenceFieldsPresent: string[] = [];
+  if (result.title) evidenceFieldsPresent.push('title');
+  if (result.snippet) evidenceFieldsPresent.push('snippet');
+  if (domain) evidenceFieldsPresent.push('domain');
+
+  let apolloIndustry: string | null = null;
+  let apolloEmployeeCount: number | null = null;
+  let apolloKeywordsSample: string[] = [];
+  let descriptionPresent = false;
+
+  if (meta) {
+    const industry = meta['industry'];
+    if (typeof industry === 'string' && industry) {
+      evidenceFieldsPresent.push('industry');
+      apolloIndustry = industry;
+    }
+    const empCount = meta['employee_count'];
+    if (typeof empCount === 'number') {
+      evidenceFieldsPresent.push('employee_count');
+      apolloEmployeeCount = empCount;
+    }
+    const kws = meta['keywords'];
+    if (Array.isArray(kws) && kws.length > 0) {
+      evidenceFieldsPresent.push('keywords');
+      apolloKeywordsSample = (kws as unknown[]).filter((k): k is string => typeof k === 'string').slice(0, 5);
+    }
+    const desc = meta['short_description'];
+    if (typeof desc === 'string' && desc) {
+      evidenceFieldsPresent.push('short_description');
+      descriptionPresent = true;
+    }
+    const apolloProfile = meta['apollo_profile'] as Record<string, unknown> | undefined;
+    if (apolloProfile) {
+      const profileKws = apolloProfile['keywords'];
+      if (Array.isArray(profileKws) && profileKws.length > 0 && !evidenceFieldsPresent.includes('keywords')) {
+        evidenceFieldsPresent.push('apollo_profile.keywords');
+        apolloKeywordsSample = (profileKws as unknown[]).filter((k): k is string => typeof k === 'string').slice(0, 5);
+      }
+      const profileDesc = apolloProfile['short_description'];
+      if (typeof profileDesc === 'string' && profileDesc && !descriptionPresent) {
+        evidenceFieldsPresent.push('apollo_profile.short_description');
+        descriptionPresent = true;
+      }
+    }
+  }
+
+  return { name, domain, evidenceFieldsPresent, apolloKeywordsSample, descriptionPresent, apolloIndustry, apolloEmployeeCount };
 }
 
 // ─── Gate principal ───────────────────────────────────────────────────────────
@@ -337,12 +404,24 @@ export function applyApolloSectorRelevanceGate(
   for (const result of results) {
     const text = extractCandidateText(result);
     const matchedTerms = findMatchedTerms(text, signals);
-    const { name, domain } = extractNameAndDomain(result);
+    const diag = extractCandidateDiagnostics(result);
 
     if (matchedTerms.length > 0) {
       passed.push(result);
       if (passedSamples.length < MAX_SAMPLES) {
-        passedSamples.push({ name, domain, matched_terms: matchedTerms });
+        passedSamples.push({
+          name: diag.name,
+          domain: diag.domain,
+          matched_terms: matchedTerms,
+          evidence_fields_present: diag.evidenceFieldsPresent,
+          apollo_keywords_sample: diag.apolloKeywordsSample,
+          description_present: diag.descriptionPresent,
+          apollo_industry: diag.apolloIndustry,
+          apollo_employee_count: diag.apolloEmployeeCount,
+          provider_evidence_used: matchedTerms.flatMap(t =>
+            diag.evidenceFieldsPresent.filter(f => text.includes(t.toLowerCase()) && (f === 'industry' || f === 'keywords' || f === 'short_description' || f === 'snippet' || f.startsWith('apollo_profile'))),
+          ).filter((v, i, a) => a.indexOf(v) === i),
+        });
       }
     } else {
       const enrichedResult: WebSearchResult = {
@@ -355,10 +434,16 @@ export function applyApolloSectorRelevanceGate(
       rejected.push(enrichedResult);
       if (rejectedSamples.length < MAX_SAMPLES) {
         rejectedSamples.push({
-          name,
-          domain,
+          name: diag.name,
+          domain: diag.domain,
           matched_terms: [],
           reason: 'insufficient_sector_evidence',
+          evidence_fields_present: diag.evidenceFieldsPresent,
+          apollo_keywords_sample: diag.apolloKeywordsSample,
+          description_present: diag.descriptionPresent,
+          apollo_industry: diag.apolloIndustry,
+          apollo_employee_count: diag.apolloEmployeeCount,
+          provider_evidence_used: [],
         });
       }
     }

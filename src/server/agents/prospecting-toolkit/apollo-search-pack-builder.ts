@@ -113,9 +113,28 @@ function hasSignal(tokens: string[], signals: string[]): boolean {
 // El builder los reordena y enriquece según los additionalCriteriaTokens.
 
 // P0 por default: corporate_training_providers (keywords L2.7-compatibles: "corporate training", "formacion").
-// lms_vendors es P1 por default pero se bootsea a P0 cuando criteria contiene señales LMS
-// (ver lógica de boost en buildApolloSearchPacks).
+// variant_a_current_tags se bootsea a P0 cuando criteria contiene señales LMS + subindustria=formacion_corporativa (L2.13).
+// lms_vendors se bootsea a P0 cuando criteria contiene señales LMS en otros contextos.
 const EDUCATION_PACKS_BASE: ApolloSearchPack[] = [
+  {
+    // L2.13 — Variant A: combinación optimal corporate training + LMS para subindustria formacion_corporativa.
+    // Evita "sales training" (demasiado específico) y "training platform" (demasiado genérico).
+    // Boosteado a P0 cuando criteria tiene señales LMS y subindustria es formacion_corporativa.
+    packKey: 'variant_a_current_tags',
+    packLabel: 'Corporate Training + LMS Provider Tags (Variant A)',
+    intent: 'B2B corporate training and LMS providers — formación corporativa domain',
+    priority: 'P1',
+    qKeywords: [
+      'corporate training',
+      'corporate learning',
+      'lms',
+      'learning management system',
+      'workforce training',
+    ],
+    excludedGenericTerms: ['education', 'university', 'school', 'higher education'],
+    expectedSectorSignals: ['corporate training', 'corporate learning', 'lms', 'workforce training'],
+    notes: 'Variant A — L2.13. Boosteado a P0 para formacion_corporativa + LMS criteria.',
+  },
   {
     packKey: 'corporate_training_providers',
     packLabel: 'Corporate Training Providers',
@@ -176,6 +195,14 @@ const PACK_BOOST_SIGNALS: Array<{
   signals: string[];
   boostPackKey: string;
 }> = [
+  // L2.13 — Variant A: LMS criteria en dominio education_corporate → variant_a_current_tags.
+  // Debe ir PRIMERO — primer match gana, así overridea el boost genérico a lms_vendors.
+  // Solo tiene efecto si variant_a_current_tags existe en el base packs del dominio activo.
+  {
+    signals: ['lms', 'plataforma', 'plataformas', 'learning management', 'sistema de gestion'],
+    boostPackKey: 'variant_a_current_tags',
+  },
+  // Fallback para dominios donde variant_a_current_tags no existe (ej. lms_platform domain).
   {
     signals: ['lms', 'plataforma', 'plataformas', 'learning management', 'sistema de gestion'],
     boostPackKey: 'lms_vendors',

@@ -115,10 +115,10 @@ describe('B. Metadata L2.11 — campo correcto y deprecated flag', () => {
     assert.deepEqual(meta.apollo_keyword_tags_sent, meta.apollo_keywords_sent_array);
   });
 
-  it('B5. mapping_version = v1.L2.11-A', () => {
+  it('B5. mapping_version = v1.L2.13 (actualizado en L2.13)', () => {
     const { meta } = buildApolloOrganizationsSearchParams(makeInput(), 5);
     assert.equal(meta.mapping_version, APOLLO_QUERY_MAPPING_VERSION);
-    assert.ok(meta.mapping_version.includes('L2.11'), `versión esperada L2.11: ${meta.mapping_version}`);
+    assert.ok(meta.mapping_version.includes('L2.13'), `versión esperada L2.13: ${meta.mapping_version}`);
   });
 
   it('B6. normalized_context_version = L2.11', () => {
@@ -268,10 +268,12 @@ describe('E. Tags LMS no contienen términos genéricos', () => {
 // ─── F. Search pack metadata intacta ─────────────────────────────────────────
 
 describe('F. Search pack metadata backward compat', () => {
-  it('F1. apollo_search_pack.pack_key = lms_vendors cuando criteria tiene LMS signals', () => {
+  it('F1. apollo_search_pack.pack_key = variant_a_current_tags cuando criteria tiene LMS signals (L2.13)', () => {
+    // L2.13: el boost LMS ahora selecciona variant_a_current_tags en lugar de lms_vendors
+    // para el dominio education_corporate (formacion_corporativa).
     const { meta } = buildApolloOrganizationsSearchParams(makeInput(), 5);
     assert.ok(meta.apollo_search_pack, 'apollo_search_pack debe estar presente');
-    assert.equal(meta.apollo_search_pack!.pack_key, 'lms_vendors');
+    assert.equal(meta.apollo_search_pack!.pack_key, 'variant_a_current_tags');
   });
 
   it('F2. apollo_keywords_sent sigue siendo string (backward compat)', () => {

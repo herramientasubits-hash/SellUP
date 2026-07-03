@@ -49,7 +49,7 @@ import {
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
-export const APOLLO_QUERY_MAPPING_VERSION = 'v1.L2.11-A';
+export const APOLLO_QUERY_MAPPING_VERSION = 'v1.L2.13';
 
 // ─── Subindustria → keywords Apollo ──────────────────────────────────────────
 
@@ -438,6 +438,12 @@ export type ApolloQueryMappingMeta = {
   apollo_keyword_tags_sent: string[];
   /** L2.11: confirma que q_keywords obsoleto NO se envía. */
   deprecated_q_keywords_sent: false;
+  /** L2.13: ID de experimento activo. Null si no hay experimento activo. */
+  apollo_experiment_id: string | null;
+  /** L2.13: Variante de experimento seleccionada. Null si no hay experimento. */
+  apollo_experiment_variant: string | null;
+  /** L2.13: Etiqueta legible del experimento. Null si no hay experimento. */
+  apollo_experiment_label: string | null;
   /** L2.11: rangos de empleados enviados a Apollo. Vacío si no hay threshold. */
   apollo_employee_ranges_sent: string[];
   /** L2.11: true si se envió organization_num_employees_ranges. */
@@ -636,6 +642,9 @@ export function buildApolloOrganizationsSearchParams(
     apollo_keyword_filter_field: 'q_organization_keyword_tags',
     apollo_keyword_tags_sent: apolloKeywordTagsSent,
     deprecated_q_keywords_sent: false,
+    apollo_experiment_id: selectedPack?.packKey === 'variant_a_current_tags' ? 'variant_a_current_tags' : null,
+    apollo_experiment_variant: selectedPack?.packKey === 'variant_a_current_tags' ? 'variant_a_current_tags' : null,
+    apollo_experiment_label: selectedPack?.packKey === 'variant_a_current_tags' ? 'Corporate training + LMS provider tags' : null,
     apollo_employee_ranges_sent: employeeRangesSent,
     employee_range_filter_enabled: employeeRangeFilterEnabled,
     employee_threshold_source: employeeThreshold != null ? 'input.targetEmployeeThreshold' : null,

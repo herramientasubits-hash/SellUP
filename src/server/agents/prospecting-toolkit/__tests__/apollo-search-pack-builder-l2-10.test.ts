@@ -63,8 +63,9 @@ describe('A. Pack builder — Educación / Formación Corporativa', () => {
     assert.ok(result.packs.length >= 2, `se esperaban ≥2 packs, se obtuvieron ${result.packs.length}`);
   });
 
-  it('A2. primer pack (posición 0) tiene señal LMS cuando criteria incluye "lms"', () => {
-    // Con QA_CRITERIA_TOKENS que incluye 'lms', el boost eleva lms_vendors a posición 0
+  it('A2. primer pack (posición 0) tiene señal LMS cuando criteria incluye "lms" (L2.13: variant_a)', () => {
+    // L2.13: Con QA_CRITERIA_TOKENS que incluye 'lms', el boost eleva variant_a_current_tags a P0.
+    // variant_a_current_tags tiene "lms" + "corporate training" + "workforce training".
     const result = buildApolloSearchPacks({
       sector: 'Educación',
       subindustries: ['Formación Corporativa'],
@@ -76,10 +77,12 @@ describe('A. Pack builder — Educación / Formación Corporativa', () => {
       k.toLowerCase().includes('lms') || k.toLowerCase().includes('learning management'),
     );
     assert.ok(hasLmsSignal, `primer pack debe tener señal LMS. Keywords: ${JSON.stringify(firstPack.qKeywords)}`);
-    assert.equal(result.boostedPackKey, 'lms_vendors', 'boostedPackKey debe indicar el pack elevado');
+    assert.equal(result.boostedPackKey, 'variant_a_current_tags', 'L2.13: boostedPackKey debe ser variant_a_current_tags');
   });
 
-  it('A3. P0 incluye sales training o señal capacitación comercial', () => {
+  it('A3. P0 incluye señales corporate training (L2.13: variant_a reemplaza sales training)', () => {
+    // L2.13: Variant A usa "corporate training" + "workforce training" en lugar de "sales training".
+    // El pack variant_a_current_tags es el P0 cuando criteria tiene señales LMS.
     const result = buildApolloSearchPacks({
       sector: 'Educación',
       subindustries: ['Formación Corporativa'],
@@ -87,12 +90,13 @@ describe('A. Pack builder — Educación / Formación Corporativa', () => {
     });
     const p0 = result.packs[0];
     assert.ok(p0, 'debe haber un pack P0');
-    const hasSalesSignal = p0.qKeywords.some(k =>
-      k.toLowerCase().includes('sales training') ||
-      k.toLowerCase().includes('capacitac') ||
-      k.toLowerCase().includes('comercial'),
+    const hasCorporateSignal = p0.qKeywords.some(k =>
+      k.toLowerCase().includes('corporate training') ||
+      k.toLowerCase().includes('corporate learning') ||
+      k.toLowerCase().includes('workforce training') ||
+      k.toLowerCase().includes('lms'),
     );
-    assert.ok(hasSalesSignal, `P0 debe tener señal sales/comercial. Keywords: ${JSON.stringify(p0.qKeywords)}`);
+    assert.ok(hasCorporateSignal, `P0 debe tener señal corporate/LMS (Variant A). Keywords: ${JSON.stringify(p0.qKeywords)}`);
   });
 
   it('A4. builderVersion está presente', () => {
@@ -149,8 +153,8 @@ describe('B. Pack selection — cap maxQueries=1', () => {
     assert.ok(selection.qaCapSelectedFirstPack, 'qa_cap_selected_first_pack debe ser true');
   });
 
-  it('B3. pack seleccionado con cap=1 es lms_vendors cuando criteria tiene señal LMS', () => {
-    // El boost eleva lms_vendors a posición 0; con cap=1 es el único seleccionado
+  it('B3. pack seleccionado con cap=1 es variant_a_current_tags cuando criteria tiene señal LMS (L2.13)', () => {
+    // L2.13: El boost eleva variant_a_current_tags a posición 0; con cap=1 es el único seleccionado.
     const buildResult = buildApolloSearchPacks({
       sector: 'Educación',
       subindustries: ['Formación Corporativa'],
@@ -159,6 +163,7 @@ describe('B. Pack selection — cap maxQueries=1', () => {
     const selection = selectPacksUpToMaxQueries(buildResult, 1);
     const selected = selection.selectedPacks[0];
     assert.ok(selected, 'debe haber un pack seleccionado');
+    assert.equal(selected.packKey, 'variant_a_current_tags', 'L2.13: pack seleccionado debe ser variant_a_current_tags');
     const hasLmsSignal = selected.qKeywords.some(k =>
       k.toLowerCase().includes('lms') || k.toLowerCase().includes('learning management'),
     );
@@ -241,13 +246,13 @@ describe('D. Apollo params metadata — apollo_search_pack', () => {
     assert.ok(meta.apollo_keywords_sent_array.length > 0, 'debe tener al menos 1 keyword');
   });
 
-  it('D5. mapping_version es v1.L2.11-A (L2.11)', () => {
+  it('D5. mapping_version es v1.L2.13 (actualizado en L2.13)', () => {
     const { meta } = buildApolloOrganizationsSearchParams(
       makeInput({ subindustries: ['Formación Corporativa'], additionalCriteriaTokens: [] }),
       3,
     );
     assert.equal(meta.mapping_version, APOLLO_QUERY_MAPPING_VERSION);
-    assert.ok(meta.mapping_version.includes('L2.11'), `versión esperada L2.11, obtenida: ${meta.mapping_version}`);
+    assert.ok(meta.mapping_version.includes('L2.13'), `versión esperada L2.13, obtenida: ${meta.mapping_version}`);
   });
 
   it('D6. qa_cap_selected_first_pack=true cuando maxQueries default (1)', () => {
@@ -286,16 +291,21 @@ describe('E. Criteria tokens influyen en P0', () => {
     assert.ok(hasSalesSignal, `keywords P0 deben reflejar criterio comercial. Keywords: ${JSON.stringify(p0?.qKeywords)}`);
   });
 
-  it('E3. criteria tokens son procesados (influencing o mergedDuplicate)', () => {
-    // Con QA_CRITERIA_TOKENS la LMS pack ya tiene keywords cubiertas (5/5) →
-    // tokens van a mergedDuplicateP0 en lugar de influencingP0. Ambos son válidos.
+  it('E3. criteria tokens — Variant A pack ya encoda combinación óptima (L2.13)', () => {
+    // L2.13: Con variant_a_current_tags como P0, el pack ya contiene "corporate training",
+    // "lms", "workforce training" — la combinación óptima está built-in en el pack.
+    // Los criteria tokens no necesitan inyectar keywords adicionales porque el pack
+    // ya los cubre conceptualmente. El pack builder retorna el pack correcto sin injection extra.
     const result = buildApolloSearchPacks({
       sector: 'Educación',
       subindustries: ['Formación Corporativa'],
       additionalCriteriaTokens: QA_CRITERIA_TOKENS,
     });
-    const total = result.criteriaTokensInfluencingP0.length + result.criteriaTokensMergedDuplicateP0.length;
-    assert.ok(total > 0, `criteria tokens deben ser procesados (influencing=${result.criteriaTokensInfluencingP0.length}, merged=${result.criteriaTokensMergedDuplicateP0.length})`);
+    // El P0 debe ser variant_a_current_tags con las keywords correctas
+    const p0 = result.packs[0];
+    assert.equal(p0?.packKey, 'variant_a_current_tags', 'P0 debe ser variant_a_current_tags');
+    assert.ok(p0?.qKeywords.some(k => k.includes('lms')), 'P0 debe tener lms');
+    assert.ok(p0?.qKeywords.some(k => k.includes('corporate training')), 'P0 debe tener corporate training');
   });
 
   it('E4. sin criteria tokens — criteriaTokensInfluencingP0 vacío', () => {
