@@ -50,7 +50,8 @@ function filterTab(sources: Row[], tab: TabId): Row[] {
               s.aiFlowStatus === 'eligible_not_connected' ||
               s.aiFlowStatus === 'partial_pending_data' ||
               s.aiFlowStatus === 'source_guided' ||
-              s.aiFlowStatus === 'pending_classification'
+              s.aiFlowStatus === 'pending_classification' ||
+              s.aiFlowStatus === 'signal_connected_read_only'
             )
         );
       }
