@@ -50,7 +50,7 @@ import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
-import { BulkContactEnrichmentDialog } from '@/components/contact-enrichment/bulk-contact-enrichment-dialog';
+import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bulk-contact-enrichment-drawer';
 import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
 
 // ── Styles ─────────────────────────────────────────────────────
@@ -415,7 +415,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           },
           {
             id: 'enrich-contacts',
-            label: 'Enriquecer contactos',
+            label: 'Buscar contactos para esta cuenta',
             icon: UserSearch,
             onClick: () => setEnrichCompany({
               name: row.name,
@@ -509,13 +509,23 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
       },
       {
         id: 'bulk-enrich-contacts',
-        label: `Enriquecer contactos (máx. ${CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS})`,
+        label: 'Buscar contactos en lote',
         icon: UserSearch,
-        disabled: (rows) => rows.length === 0 || rows.length > CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS,
+        disabled: (rows) => rows.length === 0,
         onClick: (rows) => {
-          if (rows.length > CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS) {
+          if (rows.length === 1) {
+            // Single selection: open individual enrichment drawer
+            const row = rows[0];
+            setEnrichCompany({
+              name: row.name,
+              domain: row.domain,
+              country: row.country,
+              countryCode: row.country_code,
+              sellupAccountId: row.id,
+            });
             return;
           }
+          // Multiple selection: open bulk drawer
           setBulkEnrichAccounts(rows);
           setBulkEnrichOpen(true);
         },
@@ -623,8 +633,8 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         preloadedCompany={enrichCompany}
       />
 
-      {/* Bulk enrichment dialog (Agente 2A · 17A.10D) */}
-      <BulkContactEnrichmentDialog
+      {/* Bulk enrichment drawer (Agente 2A · 17A.10G) */}
+      <BulkContactEnrichmentDrawer
         open={bulkEnrichOpen}
         onOpenChange={setBulkEnrichOpen}
         selectedAccounts={bulkEnrichAccounts.map((r) => ({
