@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, ExternalLink } from 'lucide-react';
+import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, ExternalLink, Eye, X } from 'lucide-react';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { syncProviderQuota } from '@/modules/budgets';
 import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';
@@ -85,6 +85,72 @@ function deriveConsumed(row: AdminProviderBudgetRow, ms: MeasurementStatus): str
   return raw === '—' ? '0 cr' : raw;
 }
 
+// ── Selection review panel ────────────────────────────────────────────────────
+
+function SelectionReviewPanel({
+  rows,
+  onClose,
+}: {
+  rows: AdminProviderBudgetRow[];
+  onClose: () => void;
+}) {
+  const totalCredits = rows.reduce((s, r) => s + (r.consumedCredits ?? 0), 0);
+  const totalUsd = rows.reduce((s, r) => s + (r.consumedUsd ?? 0), 0);
+  const hasTotal = totalCredits > 0 || totalUsd > 0;
+
+  return (
+    <div className="rounded-lg border border-su-brand/20 bg-muted/10 animate-su-fade-in">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30">
+        <p className="text-xs font-medium text-foreground">
+          {rows.length} proveedor{rows.length !== 1 ? 'es' : ''} seleccionado{rows.length !== 1 ? 's' : ''}
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-muted/60 transition-colors"
+          aria-label="Cerrar revisión"
+        >
+          <X className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+      </div>
+      <div className="p-4 space-y-1.5">
+        {rows.map((row) => {
+          const ms = row.measurementStatus;
+          const opType = getProviderOperationalType(row.providerKey);
+          const msBadge = MEASUREMENT_STATUS_BADGE[ms];
+          const opBadge = OPERATIONAL_TYPE_BADGE[opType];
+          const consumed = deriveConsumed(row, ms);
+          return (
+            <div key={row.providerKey} className="flex items-center gap-3 py-1.5 border-b border-border/20 last:border-0">
+              <span className="text-xs font-medium text-foreground min-w-0 truncate shrink-0" style={{ maxWidth: '10rem' }}>
+                {row.displayName ?? row.providerKey}
+              </span>
+              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${opBadge}`}>
+                {OPERATIONAL_TYPE_LABEL[opType]}
+              </span>
+              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${msBadge.className}`}>
+                {MEASUREMENT_STATUS_LABEL[ms]}
+              </span>
+              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground whitespace-nowrap">
+                {consumed}
+              </span>
+            </div>
+          );
+        })}
+        {hasTotal && (
+          <div className="flex items-center justify-between pt-1 text-xs font-medium">
+            <span className="text-muted-foreground/70">Total consumo del mes</span>
+            <span>{formatAmount(totalCredits, totalUsd)}</span>
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground/60 leading-relaxed pt-1">
+          Las acciones masivas se conectarán progresivamente. Por ahora puedes revisar la selección y abrir proveedores individuales.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Main table ─────────────────────────────────────────────────────────────────
 
 const LIGHT_TABLE_COLUMNS = ['Proveedor', 'Tipo', 'Estado', 'Consumo del mes', 'Alerta', 'Última sync', 'Acciones'];
@@ -93,6 +159,7 @@ const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic'
 
 export function BudgetProvidersTable({ providers, resolvedAt, allRules = [] }: Props) {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [sidepanelProvider, setSidepanelProvider] = useState<AdminProviderBudgetRow | null>(null);
   const [sidepanelTab, setSidepanelTab] = useState<SidepanelInitialTab>('resumen');
   const [editingProvider, setEditingProvider] = useState<AdminProviderBudgetRow | null>(null);
@@ -156,6 +223,12 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [] }: P
   }
 
   const bulkActions: DataTableBulkAction<AdminProviderBudgetRow>[] = [
+    {
+      id: 'revisar',
+      label: 'Revisar selección',
+      icon: Eye,
+      onClick: () => { setReviewOpen((v) => !v); },
+    },
     {
       id: 'ver',
       label: 'Ver proveedor',
@@ -315,6 +388,10 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [] }: P
                             <ScrollText className="mr-2 h-3.5 w-3.5" />
                             Ver logs
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openSidepanel(row, 'configuracion')}>
+                            <Settings className="mr-2 h-3.5 w-3.5" />
+                            Ver configuración
+                          </DropdownMenuItem>
                           {row.measurementStatus !== 'not_measured' && (
                             <>
                               <DropdownMenuSeparator />
@@ -339,6 +416,10 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [] }: P
           </table>
         </div>
 
+        {reviewOpen && selectedRows.length > 0 && (
+          <SelectionReviewPanel rows={selectedRows} onClose={() => setReviewOpen(false)} />
+        )}
+
         <p className="px-1 text-[11px] text-muted-foreground/50">
           Datos del período mensual actual · Actualizado {resolvedDate}
         </p>
@@ -348,7 +429,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [] }: P
         selectedCount={selectedKeys.size}
         selectedRows={selectedRows}
         actions={bulkActions}
-        onClear={() => setSelectedKeys(new Set())}
+        onClear={() => { setSelectedKeys(new Set()); setReviewOpen(false); }}
       />
 
       <ProviderDetailSidepanel
