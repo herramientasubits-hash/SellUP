@@ -176,6 +176,15 @@ export interface ExecuteControlledLushaEnrichInput {
   reveal: Array<'emails'>;
   /** Optional: expected account_id for safety validation */
   expectedAccountId?: string;
+  /**
+   * LinkedIn URL used as the search identifier to find this contact.
+   * When provided, this takes priority over the LinkedIn returned by Lusha enrich.
+   * The Lusha-returned LinkedIn is preserved in metadata.linkedin_url for traceability.
+   * Phone reveal is intentionally disabled in Lusha v1. Do not request, persist, or expose
+   * phones in contact enrichment. Future phone reveal must be an explicit user action
+   * with cost confirmation.
+   */
+  inputLinkedinUrl?: string | null;
 }
 
 /**
@@ -494,14 +503,39 @@ export async function executeControlledLushaContactEnrichRun(
   const actualEmail = contactWithEmail.internalEmail ?? null;
 
   const emailDomain = contact.emailDomain ?? null;
-  const linkedinUrl = contact.linkedinUrl ?? null;
+
+  // LinkedIn priority: input identifier > Lusha enrich response
+  // If a LinkedIn URL was used to identify this contact in the Search phase,
+  // it is more reliable than the one returned by Lusha enrich (which may differ).
+  const lushaLinkedinUrl = contact.linkedinUrl ?? null;
+  const normalizedInput = input.inputLinkedinUrl?.trim() || null;
+
+  let candidateLinkedinUrl: string | null;
+  let linkedinSource: string | null;
+  let linkedinConflict: boolean;
+
+  if (normalizedInput) {
+    candidateLinkedinUrl = normalizedInput;
+    linkedinSource = 'input_search_identifier';
+    linkedinConflict =
+      lushaLinkedinUrl !== null &&
+      linkedinKey(lushaLinkedinUrl) !== linkedinKey(normalizedInput);
+  } else if (lushaLinkedinUrl) {
+    candidateLinkedinUrl = lushaLinkedinUrl;
+    linkedinSource = 'lusha_enrich';
+    linkedinConflict = false;
+  } else {
+    candidateLinkedinUrl = null;
+    linkedinSource = null;
+    linkedinConflict = false;
+  }
 
   // 13. Dedup check
   const isExactDuplicate = await checkExactDuplicate(
     admin,
     run.account_id,
     actualEmail,
-    linkedinUrl,
+    candidateLinkedinUrl,
   );
 
   const duplicateStatus = isExactDuplicate ? 'exact_duplicate' : 'no_match';
@@ -550,6 +584,15 @@ export async function executeControlledLushaContactEnrichRun(
     email_type: contact.emailType ?? null,
     email_domain: emailDomain,
     phone_reveal_enabled: false,
+    // Phone reveal is intentionally disabled in Lusha v1.
+    // Do not request, persist, or expose phones in contact enrichment.
+    // Future phone reveal must be an explicit user action with cost confirmation.
+    phone_policy: 'disabled_in_v1_explicit_future_action_required',
+    input_linkedin_url: normalizedInput,
+    lusha_linkedin_url: lushaLinkedinUrl,
+    linkedin_source: linkedinSource,
+    linkedin_conflict: linkedinConflict,
+    linkedin_validation_status: 'not_validated',
     company_consistency: {
       status: consistency.status,
       signals: consistency.signals,
@@ -564,7 +607,7 @@ export async function executeControlledLushaContactEnrichRun(
         creditsDelta !== null ? 'usage_delta' :
         'unknown',
     },
-    hito: '17B.4G',
+    hito: '17B.4H',
   };
 
   const candidateRow = {
@@ -576,7 +619,7 @@ export async function executeControlledLushaContactEnrichRun(
     seniority: null,
     department: null,
     country: run.company_country_code ?? null,
-    linkedin_url: linkedinUrl,
+    linkedin_url: candidateLinkedinUrl,
     email: actualEmail,
     phone: null, // Phone reveal disabled. Never change this.
     source: 'lusha' as const,
