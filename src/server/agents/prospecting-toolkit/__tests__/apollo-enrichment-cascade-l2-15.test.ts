@@ -414,8 +414,7 @@ describe('L2.15-H: Cascade metadata structure', () => {
     assert.ok('enriched_domains_sample' in meta);
     assert.ok('skipped_reasons' in meta);
     assert.ok('entries' in meta);
-    // Pricing warning should be true (no pricing configured yet)
-    assert.equal(meta.pricing_missing_warning, true);
+    // pricing_missing_warning moved to provider_usage_logs metadata (migration 079)
   });
 
   it('enriched domain appears in enriched_domains_sample', async () => {

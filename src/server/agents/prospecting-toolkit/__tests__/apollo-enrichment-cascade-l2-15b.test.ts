@@ -216,7 +216,7 @@ describe('L2.15-B-C: Cascade ON, domain present → organization_enrichment log 
 
     const meta = enrichLog.metadata as Record<string, unknown>;
     assert.ok(typeof meta['domain'] === 'string', 'metadata.domain must be present');
-    assert.ok(meta['pricing_missing_warning'] === true, 'pricing_missing_warning must be true');
+    assert.equal(meta['pricing_missing_warning'], false, 'pricing_missing_warning must be false (migration 079 configured)');
     assert.ok(Array.isArray(meta['fields_added']), 'fields_added must be array');
   });
 
@@ -368,6 +368,124 @@ describe('L2.15-B-F: apollo_enrichment_cascade persisted in DB log metadata', ()
     assert.ok('failed_count' in cascadeMeta);
     assert.ok('max_enrichments' in cascadeMeta);
     assert.ok('entries' in cascadeMeta);
+  });
+});
+
+// ─── G+. Pricing correctness — credits_used=1, estimated_cost_usd=0.00875 ─────
+
+describe('L2.15-B-G-pricing: organization_enrichment logs correct pricing (migration 079)', () => {
+  before(() => {
+    process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
+    process.env.ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE = 'true';
+    process.env.AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN = '3';
+  });
+  after(() => {
+    delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+    delete process.env.ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE;
+    delete process.env.AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN;
+  });
+
+  it('success enrichment → credits_used=1, estimated_cost_usd=0.00875, pricing_missing_warning=false', async () => {
+    const { logs, logFn } = makeLogCapture();
+    const deps: ApolloOrgsSearchDeps = {
+      searchOrgs: makeSearchSuccess([ORG_GENERIC]),
+      logUsage: logFn,
+      enrichOrg: makeEnrichSuccess(ORG_LMS),
+    };
+
+    await runApolloOrganizationsSearch(
+      { query: 'test', industry: 'Educación' },
+      3,
+      { batchId: 'pricing-test-001' },
+      deps,
+    );
+
+    const enrichLogs = logs.filter(l => l.operation_key === 'organization_enrichment');
+    assert.equal(enrichLogs.length, 1, 'Exactly 1 enrichment log');
+    const log = enrichLogs[0]!;
+    assert.equal(log.credits_used, 1, 'credits_used must be 1 for a real enrichment call');
+    assert.equal(log.estimated_cost_usd, 0.00875, 'estimated_cost_usd must be 0.00875 (migration 079)');
+    assert.equal(
+      (log.metadata as Record<string, unknown>)['pricing_missing_warning'],
+      false,
+      'pricing_missing_warning must be false when pricing is configured',
+    );
+  });
+
+  it('failed enrichment (success=false) → credits_used=1, estimated_cost_usd=0.00875 (API call was made)', async () => {
+    const { logs, logFn } = makeLogCapture();
+    const deps: ApolloOrgsSearchDeps = {
+      searchOrgs: makeSearchSuccess([ORG_GENERIC]),
+      logUsage: logFn,
+      enrichOrg: makeEnrichFailure('Organization not found'),
+    };
+
+    await runApolloOrganizationsSearch(
+      { query: 'test', industry: 'Educación' },
+      3,
+      { batchId: 'pricing-test-002' },
+      deps,
+    );
+
+    const enrichLogs = logs.filter(l => l.operation_key === 'organization_enrichment');
+    assert.equal(enrichLogs.length, 1, 'Failed enrichment still generates a log (real API call was made)');
+    const log = enrichLogs[0]!;
+    assert.equal(log.credits_used, 1, 'credits_used=1 even on failure (Apollo charges the call)');
+    assert.equal(log.estimated_cost_usd, 0.00875, 'estimated_cost_usd=0.00875 even on failure');
+    assert.equal(log.status, 'error');
+  });
+
+  it('missing_domain skip → no enrichment log, no credits', async () => {
+    const { logs, logFn } = makeLogCapture();
+    const noDomainOrg: ApolloOrganization = {
+      id: 'no-domain-pricing',
+      name: 'Sin Dominio Pricing Test S.A.S',
+      website_url: null,
+      primary_domain: null,
+      linkedin_url: null,
+      industry: null,
+      industry_tag_ids: [],
+      employee_count: null,
+      estimated_num_employees: 300,
+      city: null,
+      country: 'Colombia',
+      phone: null,
+      annual_revenue: null,
+      technologies: [],
+      short_description: null,
+      seo_description: null,
+      keywords: [],
+    };
+    const deps: ApolloOrgsSearchDeps = {
+      searchOrgs: makeSearchSuccess([noDomainOrg]),
+      logUsage: logFn,
+      enrichOrg: makeEnrichSuccess(ORG_LMS),
+    };
+
+    await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
+
+    const enrichLogs = logs.filter(l => l.operation_key === 'organization_enrichment');
+    assert.equal(enrichLogs.length, 0, 'missing_domain skip must not generate enrichment log');
+  });
+
+  it('cap_reached skip → no extra enrichment log beyond cap', async () => {
+    const { logs, logFn } = makeLogCapture();
+    process.env.AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN = '1';
+    const orgs = [
+      makeOrg({ id: 'org-cap-1', name: 'Cap Org One', primary_domain: 'caporg1.com' }),
+      makeOrg({ id: 'org-cap-2', name: 'Cap Org Two', primary_domain: 'caporg2.com' }),
+    ];
+    const deps: ApolloOrgsSearchDeps = {
+      searchOrgs: makeSearchSuccess(orgs),
+      logUsage: logFn,
+      enrichOrg: makeEnrichSuccess(ORG_LMS),
+    };
+
+    await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 5, undefined, deps);
+
+    const enrichLogs = logs.filter(l => l.operation_key === 'organization_enrichment');
+    assert.equal(enrichLogs.length, 1, 'cap_reached: only 1 enrichment log (cap=1), no log for skipped org');
+    process.env.AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN = '3';
   });
 });
 

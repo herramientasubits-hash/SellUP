@@ -732,7 +732,7 @@ export async function runApolloOrganizationsSearch(
   // ── Usage logging: organization_enrichment (one log per real API call) ────────
   // Emite un log separado por cada enrichment real intentado (success o failure).
   // Skips por missing_domain o cap_reached no generan log (sin llamada real).
-  // TODO: pricing organization_enrichment no configurado → estimated_cost_usd=0
+  // Pricing: 0.00875 USD/crédito — mismo contrato Apollo que organizations_search (migration 079).
   for (const entry of enrichmentCascadeMeta.entries) {
     const wasRealCall = entry.enriched || entry.skip_reason === 'enrichment_failed';
     if (!wasRealCall) continue;
@@ -748,9 +748,9 @@ export async function runApolloOrganizationsSearch(
       operation_key: 'organization_enrichment',
       batch_id: usageContext?.batchId ?? undefined,
       agent_run_id: usageContext?.agentRunId ?? undefined,
-      credits_used: 0,
+      credits_used: 1,
       results_returned: entry.enriched ? 1 : 0,
-      estimated_cost_usd: 0,
+      estimated_cost_usd: APOLLO_ORGANIZATIONS_UNIT_COST_USD,
       status: enrichStatus,
       error_code: entry.enriched ? undefined : 'enrichment_failed',
       error_message: entry.error ? entry.error.slice(0, 200) : undefined,
@@ -760,8 +760,7 @@ export async function runApolloOrganizationsSearch(
         domain: entry.domain,
         fields_added: entry.fields_added ?? [],
         cascade_version: enrichmentCascadeMeta.cascade_version,
-        // TODO: add pricing for organization_enrichment to provider_pricing_config
-        pricing_missing_warning: true,
+        pricing_missing_warning: false,
       },
     });
   }

@@ -104,8 +104,6 @@ export type ApolloEnrichmentCascadeMeta = {
   enriched_domains_sample: string[];
   skipped_reasons: Record<EnrichmentSkipReason, number>;
   entries: EnrichmentEntryMeta[];
-  /** True si operation_key='organization_enrichment' no tiene pricing configurado. */
-  pricing_missing_warning?: boolean;
 };
 
 // ─── Deps inyectables (para tests) ───────────────────────────────────────────
@@ -358,8 +356,6 @@ export async function runApolloOrganizationEnrichmentCascade(
     enriched_domains_sample: enrichedDomainsSample,
     skipped_reasons: skippedReasons,
     entries,
-    // Pricing warning: we don't have pricing configured yet for organization_enrichment
-    pricing_missing_warning: true,
   };
 
   return { results: updatedResults, meta };
