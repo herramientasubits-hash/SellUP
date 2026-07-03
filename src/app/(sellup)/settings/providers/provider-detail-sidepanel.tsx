@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { ExternalLink, Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText, ChevronDown, Cpu, Zap, Database, Bot } from 'lucide-react';
+import { Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText, ChevronDown, Cpu, Zap, Database, Bot } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
@@ -895,16 +894,8 @@ export function ProviderDetailSidepanel({
       description={provider ? getProviderOperationalContext(provider.providerKey) : ''}
       icon={<Activity className="h-4 w-4 text-su-brand" />}
       footer={
-        <div className="shrink-0 flex items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-6 py-3">
-          {provider && (
-            <Link href={`/settings/providers/${provider.providerKey}`}>
-              <Button variant="ghost" size="sm" className="text-xs text-su-brand gap-1.5">
-                Abrir página completa
-                <ExternalLink className="h-3 w-3" />
-              </Button>
-            </Link>
-          )}
-          <Button variant="outline" size="sm" onClick={onClose} className="ml-auto">
+        <div className="shrink-0 flex items-center justify-end border-t border-border/50 bg-muted/20 px-6 py-3">
+          <Button variant="outline" size="sm" onClick={onClose}>
             Cerrar
           </Button>
         </div>
