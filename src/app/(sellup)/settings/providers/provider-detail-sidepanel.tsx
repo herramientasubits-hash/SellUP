@@ -225,18 +225,20 @@ function TabConfiguracion({
           </SectionCard>
           <div className="space-y-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
-            <Link href="/settings/providers?tab=ia">
-              <Button variant="outline" size="sm" className="w-full text-xs justify-between">
-                Gestionar modelos y tarifas
-                <ExternalLink className="h-3 w-3 opacity-50" />
-              </Button>
-            </Link>
-            <Link href={`/settings/providers/${row.providerKey}?tab=modelos`}>
-              <Button variant="outline" size="sm" className="w-full text-xs justify-between">
-                Ver modelos activos de este proveedor
-                <ExternalLink className="h-3 w-3 opacity-50" />
-              </Button>
-            </Link>
+            <div className="flex flex-col items-start gap-2">
+              <Link href="/settings/providers?tab=ia">
+                <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                  Gestionar modelos y tarifas
+                  <ExternalLink className="h-3 w-3 opacity-50" />
+                </Button>
+              </Link>
+              <Link href={`/settings/providers/${row.providerKey}?tab=modelos`}>
+                <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                  Ver modelos activos de este proveedor
+                  <ExternalLink className="h-3 w-3 opacity-50" />
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       ) : (
@@ -262,7 +264,7 @@ function TabConfiguracion({
             <Button
               variant="outline"
               size="sm"
-              className="w-full text-xs justify-between"
+              className="text-xs gap-1.5"
               onClick={onConfigureAllowance}
             >
               Configurar cuota / presupuesto
@@ -414,21 +416,23 @@ function TabPresupuesto({
 
         <div className="space-y-2">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full text-xs justify-between"
-            onClick={onConfigureAllowance}
-          >
-            Configurar cuota / presupuesto
-            <Settings className="h-3 w-3 opacity-50" />
-          </Button>
-          <Link href={`/settings/providers/${row.providerKey}?tab=presupuesto`}>
-            <Button variant="outline" size="sm" className="w-full text-xs justify-between">
-              Ver presupuesto completo y reglas
-              <ExternalLink className="h-3 w-3 opacity-50" />
+          <div className="flex flex-col items-start gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs gap-1.5"
+              onClick={onConfigureAllowance}
+            >
+              Configurar cuota / presupuesto
+              <Settings className="h-3 w-3 opacity-50" />
             </Button>
-          </Link>
+            <Link href={`/settings/providers/${row.providerKey}?tab=presupuesto`}>
+              <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                Ver presupuesto completo y reglas
+                <ExternalLink className="h-3 w-3 opacity-50" />
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -510,43 +514,60 @@ function TabLogs({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStat
   const syncedAt = row.quotaSyncedAt ? formatDateShort(row.quotaSyncedAt) : null;
   const syncError = row.quotaSyncError;
 
+  const syncStatusLabel = syncError ? 'Error de sync' : syncedAt ? 'OK' : 'Sin sync';
+  const syncStatusClass = syncError
+    ? 'text-destructive'
+    : syncedAt
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-muted-foreground/60';
+
   return (
     <div className="space-y-4">
-      {/* Sync info */}
-      <SectionCard>
-        <InfoRow
-          label="Estado sync"
-          value={
-            syncError
-              ? <span className="text-destructive text-xs">Error de sync</span>
-              : syncedAt
-                ? <span className="text-emerald-600 dark:text-emerald-400 text-xs">OK — {syncedAt}</span>
-                : <span className="text-muted-foreground/60 text-xs">Sin sync</span>
-          }
-        />
-        {syncedAt && !syncError && (
-          <InfoRow label="Última sync exitosa" value={<span className="text-muted-foreground">{syncedAt}</span>} />
-        )}
-      </SectionCard>
+      {/* 3 status cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1.5">Estado de sync</p>
+          <p className={`text-xs font-medium ${syncStatusClass}`}>{syncStatusLabel}</p>
+        </div>
+        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1.5">Última sync</p>
+          <p className="text-xs font-medium text-foreground">{syncedAt ?? 'Sin registro'}</p>
+        </div>
+        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1.5">Evaluaciones recientes</p>
+          <p className="text-xs font-medium text-foreground">{logs.length}</p>
+        </div>
+      </div>
 
-      {/* Recent evals */}
-      {ms === 'not_measured' ? (
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            Este proveedor no genera evaluaciones de presupuesto en SellUp.
-          </p>
-        </div>
-      ) : logs.length === 0 ? (
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 text-center">
-          <p className="text-sm text-muted-foreground">No hay evaluaciones recientes.</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
-            Los logs aparecen después de la primera ejecución.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Evaluaciones recientes</p>
-          {logs.slice(0, 5).map((log) => {
+      {/* Informational card */}
+      <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-4 py-3">
+        <p className="text-xs font-medium text-foreground mb-2">Qué verás en logs</p>
+        <ul className="space-y-1 text-[11px] text-muted-foreground/70 leading-relaxed">
+          <li>· Sincronizaciones con la API del proveedor</li>
+          <li>· Errores de evaluación y enforcement</li>
+          <li>· Evaluaciones recientes de presupuesto</li>
+          <li>· Cambios operativos relevantes</li>
+        </ul>
+      </div>
+
+      {/* Events section */}
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Eventos recientes</p>
+        {ms === 'not_measured' ? (
+          <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+            <p className="text-xs text-muted-foreground">
+              Este proveedor no genera evaluaciones de presupuesto en SellUp.
+            </p>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+            <p className="text-xs font-medium text-foreground mb-1">No hay logs recientes para este proveedor.</p>
+            <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
+              Los eventos aparecerán después de sincronizaciones o ejecuciones asociadas.
+            </p>
+          </div>
+        ) : (
+          logs.slice(0, 5).map((log) => {
             const parsed = parseBudgetCheck(log.budgetCheck);
             const outcomeBadge = parsed
               ? (OUTCOME_BADGE[parsed.outcome] ?? OUTCOME_BADGE['unknown'])
@@ -573,16 +594,19 @@ function TabLogs({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStat
                 </div>
               </div>
             );
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
 
-      <Link href={`/settings/providers/${row.providerKey}?tab=logs`}>
-        <Button variant="outline" size="sm" className="w-full text-xs justify-between">
-          Abrir logs completos
-          <ExternalLink className="h-3 w-3 opacity-50" />
-        </Button>
-      </Link>
+      {/* CTA — natural width, aligned right */}
+      <div className="flex justify-end pt-1">
+        <Link href={`/settings/providers/${row.providerKey}?tab=logs`}>
+          <Button variant="outline" size="sm" className="text-xs gap-1.5">
+            Abrir logs completos
+            <ExternalLink className="h-3 w-3 opacity-50" />
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }
