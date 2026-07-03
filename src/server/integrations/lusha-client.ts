@@ -921,7 +921,7 @@ export async function searchLushaCompanies(
 }
 
 // ============================================================
-// Company Prospecting V3 — Q3F-5D
+// Company Prospecting V3 — Q3F-5D / Q3F-5G
 // POST https://api.lusha.com/v3/companies/prospecting
 //
 // ENDPOINT OFICIAL DOCUMENTADO EN LUSHA API V3 (2026-07).
@@ -931,23 +931,35 @@ export async function searchLushaCompanies(
 // ESTADO: EXPERIMENTAL — NO CONECTADO A PRODUCCIÓN.
 // No llamar desde wizard, source-catalog ni Agente 1.
 // No activa ningún provider. No escribe en DB.
-// El schema exacto del body no está confirmado en prueba real;
-// se usan tipos conservadores hasta smoke test controlado.
 //
 // Errors:
+//   400 = body malformado (p.ej. filters como array en lugar de objeto)
 //   402 = créditos insuficientes / pago requerido
 //   403 = cuenta inactiva o feature no disponible en el plan
 // ============================================================
 
-export type LushaCompanyProspectingV3Filter = {
-  // field y values son opacos hasta confirmar documentación de filtros
-  // via GET /v3/companies/prospecting/filters
-  field: string;
-  values: unknown[];
+/**
+ * Shape real observado en GET /v3/companies/prospecting/filters — Q3F-5F.
+ * El filterType es la clave a usar en el objeto filters del POST.
+ * Ejemplos confirmados: names, sizes, revenues, locations, sics (y 9 más).
+ * requiresQuery indica si el valor del filtro requiere un query string.
+ * Se preservan campos adicionales defensivamente.
+ */
+export type LushaCompanyProspectingFilterEntry = {
+  filterType: string;
+  requiresQuery: boolean;
+  [key: string]: unknown;
 };
 
 export type LushaCompanyProspectingV3Request = {
-  filters?: LushaCompanyProspectingV3Filter[];
+  /**
+   * Q3F-5F confirmó que filters DEBE ser un objeto Record<filterType, values[]>.
+   * Enviar filters como array produce HTTP 400:
+   *   { "name": "BadRequest", "message": "filters must be an object", "code": 400 }
+   * El body mínimo válido es: { "filters": {}, "pagination": { "page": 1, "size": 10 } }
+   * Las claves son los filterType observados: names, sizes, revenues, locations, sics, etc.
+   */
+  filters?: Record<string, unknown[]>;
   pagination?: {
     page: number;
     /**
@@ -1014,13 +1026,24 @@ export async function searchLushaCompaniesV3(input: {
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
+    // filters siempre como objeto (Q3F-5G): array produce HTTP 400
+    const requestBody: Record<string, unknown> = {
+      filters: input.request.filters ?? {},
+    };
+    if (input.request.pagination !== undefined) {
+      requestBody['pagination'] = input.request.pagination;
+    }
+    if (input.request.signals !== undefined) {
+      requestBody['signals'] = input.request.signals;
+    }
+
     const response = await fetch(`${LUSHA_BASE_URL}/v3/companies/prospecting`, {
       method: 'POST',
       headers: {
         'api_key': input.apiKey.trim(),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(input.request),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 
@@ -1183,15 +1206,19 @@ export async function getLushaCompanyProspectingFilters(input: {
     }
 
     const rawFilters = await response.json().catch(() => undefined) as unknown;
-    // Real shape confirmed Q3F-5E: { availableFilters: [...] }
-    const availableFilters =
+    // Q3F-5F confirmó shape real: array directo de { filterType, requiresQuery }
+    // También se soporta defensivamente { availableFilters: [...] } por compatibilidad.
+    let availableFilters: unknown[] | undefined;
+    if (Array.isArray(rawFilters)) {
+      availableFilters = rawFilters as LushaCompanyProspectingFilterEntry[];
+    } else if (
       rawFilters !== null &&
       rawFilters !== undefined &&
       typeof rawFilters === 'object' &&
-      !Array.isArray(rawFilters) &&
       Array.isArray((rawFilters as Record<string, unknown>)['availableFilters'])
-        ? (rawFilters as Record<string, unknown>)['availableFilters'] as unknown[]
-        : undefined;
+    ) {
+      availableFilters = (rawFilters as Record<string, unknown>)['availableFilters'] as unknown[];
+    }
 
     return {
       ok: true,

@@ -88,6 +88,15 @@ export interface LushaCompanyDiscoveryBenchmarkResult {
   estimated_cost_usd: 0;
   /** Mínimo de pagination.size observado en smoke test real Q3F-5E. */
   smoke_test_minimum_page_size_observed: 10;
+  /**
+   * Q3F-5F confirmó que filters debe ser objeto, no array.
+   * Enviar array produce HTTP 400: "filters must be an object".
+   */
+  filters_shape_observed: 'object';
+  /** El body mínimo válido usa filters: {} — candidato para próximo smoke test. */
+  filters_empty_object_smoke_candidate: true;
+  /** Clave observada en cada entrada de GET /v3/companies/prospecting/filters. */
+  filter_type_key_observed: 'filterType';
 
   // Resultado del escenario
   scenario: LushaCompanyDiscoveryBenchmarkScenario;
@@ -140,6 +149,9 @@ export function runLushaCompanyDiscoveryBenchmarkDryRun(
     credits_used: 0 as const,
     estimated_cost_usd: 0 as const,
     smoke_test_minimum_page_size_observed: 10 as const,
+    filters_shape_observed: 'object' as const,
+    filters_empty_object_smoke_candidate: true as const,
+    filter_type_key_observed: 'filterType' as const,
   };
 
   const safeInput: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'> = {
@@ -330,6 +342,9 @@ type BaseMetadata = {
   credits_used: 0;
   estimated_cost_usd: 0;
   smoke_test_minimum_page_size_observed: 10;
+  filters_shape_observed: 'object';
+  filters_empty_object_smoke_candidate: true;
+  filter_type_key_observed: 'filterType';
 };
 
 function buildBase(meta: BaseMetadata): BaseMetadata {

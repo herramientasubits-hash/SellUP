@@ -228,6 +228,55 @@ describe('scenario: invalid_filter', () => {
 });
 
 // ============================================================
+// Q3F-5G — Metadata de shape de filters
+// ============================================================
+
+describe('Q3F-5G — filters shape metadata', () => {
+  it('filters_shape_observed = "object" en todo escenario', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.filters_shape_observed, 'object',
+        `filters_shape_observed debe ser "object" en escenario ${scenario}`);
+    }
+  });
+
+  it('filter_type_key_observed = "filterType" en todo escenario', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.filter_type_key_observed, 'filterType');
+  });
+
+  it('filters_empty_object_smoke_candidate = true en todo escenario', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.filters_empty_object_smoke_candidate, true);
+  });
+
+  it('dry_run = true y credits_used = 0 y estimated_cost_usd = 0', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.dry_run, true);
+    assert.equal(result.credits_used, 0);
+    assert.equal(result.estimated_cost_usd, 0);
+  });
+
+  it('source_catalog_unchanged = true confirma que no se modificó source-catalog', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.source_catalog_unchanged, true);
+  });
+
+  it('writes_disabled = true confirma que no hay DB writes', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.writes_disabled, true);
+  });
+});
+
+// ============================================================
 // Garantías de aislamiento
 // ============================================================
 

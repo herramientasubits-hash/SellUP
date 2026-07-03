@@ -372,6 +372,115 @@ describe('getLushaCompanyProspectingFilterValues — endpoint', () => {
 });
 
 // ============================================================
+// Q3F-5G — Corrección de shape de filters
+// ============================================================
+
+describe('Q3F-5G — filters shape correction', () => {
+  it('envía filters: {} cuando no se pasan filtros en el request', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { pagination: { page: 1, size: 10 } },
+    });
+
+    const body = fetchCalls[0].body as Record<string, unknown>;
+    assert.ok('filters' in body, 'body debe contener la clave filters');
+    assert.deepEqual(body['filters'], {}, 'filters debe ser objeto vacío cuando no se proporcionan filtros');
+  });
+
+  it('acepta filters como objeto { sizes: ["51-200"] }', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: {
+        filters: { sizes: ['51-200'] },
+        pagination: { page: 1, size: 10 },
+      },
+    });
+
+    const body = fetchCalls[0].body as Record<string, unknown>;
+    const filters = body['filters'] as Record<string, unknown>;
+    assert.ok(typeof filters === 'object' && !Array.isArray(filters), 'filters debe ser objeto');
+    assert.deepEqual(filters['sizes'], ['51-200']);
+  });
+
+  it('NO envía filters como array', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { pagination: { page: 1, size: 10 } },
+    });
+
+    const body = fetchCalls[0].body as Record<string, unknown>;
+    assert.ok(!Array.isArray(body['filters']), 'filters NO debe ser array — array produce HTTP 400 en Lusha V3');
+  });
+
+  it('filters con múltiples claves se envían correctamente como objeto', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: {
+        filters: { sizes: ['51-200'], locations: ['Colombia'] },
+        pagination: { page: 1, size: 10 },
+      },
+    });
+
+    const body = fetchCalls[0].body as Record<string, unknown>;
+    const filters = body['filters'] as Record<string, unknown>;
+    assert.ok(!Array.isArray(filters));
+    assert.deepEqual(filters['sizes'], ['51-200']);
+    assert.deepEqual(filters['locations'], ['Colombia']);
+  });
+
+  it('getLushaCompanyProspectingFilters parsea array directo con filterType/requiresQuery (shape Q3F-5F)', async () => {
+    const filterData = [
+      { filterType: 'names', requiresQuery: true },
+      { filterType: 'sizes', requiresQuery: false },
+      { filterType: 'revenues', requiresQuery: false },
+      { filterType: 'locations', requiresQuery: true },
+      { filterType: 'sics', requiresQuery: false },
+    ];
+    resetMock({ ok: true, status: 200, body: filterData });
+
+    const result = await getLushaCompanyProspectingFilters({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+    });
+
+    assert.equal(result.ok, true);
+    assert.ok(Array.isArray(result.availableFilters), 'availableFilters debe ser array para shape Q3F-5F');
+    assert.equal(result.availableFilters?.length, 5);
+    const first = result.availableFilters?.[0] as Record<string, unknown>;
+    assert.equal(first['filterType'], 'names');
+    assert.equal(first['requiresQuery'], true);
+    const second = result.availableFilters?.[1] as Record<string, unknown>;
+    assert.equal(second['filterType'], 'sizes');
+    assert.equal(second['requiresQuery'], false);
+  });
+
+  it('getLushaCompanyProspectingFilters sigue soportando { availableFilters: [...] } (compatibilidad)', async () => {
+    const filterData = { availableFilters: ['country', 'industry'] };
+    resetMock({ ok: true, status: 200, body: filterData });
+
+    const result = await getLushaCompanyProspectingFilters({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.availableFilters, filterData.availableFilters);
+  });
+});
+
+// ============================================================
 // Garantías de aislamiento (Q3F-5D)
 // ============================================================
 
