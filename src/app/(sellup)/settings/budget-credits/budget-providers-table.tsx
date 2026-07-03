@@ -30,10 +30,12 @@ import {
   ProviderDetailSidepanel,
   type SidepanelInitialTab,
 } from '../providers/provider-detail-sidepanel';
+import type { BudgetRuleRow } from '@/modules/budgets/rule-queries';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
   resolvedAt: string;
+  allRules?: BudgetRuleRow[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -89,7 +91,7 @@ const LIGHT_TABLE_COLUMNS = ['Proveedor', 'Tipo', 'Estado', 'Consumo del mes', '
 
 const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
 
-export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
+export function BudgetProvidersTable({ providers, resolvedAt, allRules = [] }: Props) {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [sidepanelProvider, setSidepanelProvider] = useState<AdminProviderBudgetRow | null>(null);
   const [sidepanelTab, setSidepanelTab] = useState<SidepanelInitialTab>('resumen');
@@ -355,6 +357,7 @@ export function BudgetProvidersTable({ providers, resolvedAt }: Props) {
         initialTab={sidepanelTab}
         onClose={() => setSidepanelProvider(null)}
         onConfigureAllowance={(row) => { setSidepanelProvider(null); setEditingProvider(row); }}
+        allRules={allRules}
       />
 
       <ProviderAllowanceDrawer

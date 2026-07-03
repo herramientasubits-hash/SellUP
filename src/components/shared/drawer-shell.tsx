@@ -34,7 +34,7 @@ export interface DrawerShellProps {
   /** Side from which the drawer appears */
   side?: 'left' | 'right' | 'top' | 'bottom';
   /** Enterprise size variants */
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'workspace';
   /** Custom classes for the sheet content */
   className?: string;
   /** Whether to show the close button (default: true) */
@@ -51,24 +51,28 @@ const sideSizeClasses = {
     md: 'sm:!max-w-md w-full',  // 448px
     lg: 'sm:!max-w-lg w-full',  // 512px
     xl: 'sm:!max-w-xl w-full',  // 576px
+    workspace: 'sm:!w-[90vw] sm:!max-w-none w-full',  // ~90% viewport
   },
   left: {
     sm: 'sm:!max-w-sm w-full',
     md: 'sm:!max-w-md w-full',
     lg: 'sm:!max-w-lg w-full',
     xl: 'sm:!max-w-xl w-full',
+    workspace: 'sm:!w-[90vw] sm:!max-w-none w-full',
   },
   top: {
     sm: 'h-[30vh]',
     md: 'h-[50vh]',
     lg: 'h-[70vh]',
     xl: 'h-[90vh]',
+    workspace: 'h-[90vh]',
   },
   bottom: {
     sm: 'h-[30vh]',
     md: 'h-[50vh]',
     lg: 'h-[70vh]',
     xl: 'h-[90vh]',
+    workspace: 'h-[90vh]',
   },
 };
 

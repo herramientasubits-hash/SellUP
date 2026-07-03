@@ -6,6 +6,8 @@ import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
+import type { BudgetRuleRow } from '@/modules/budgets/rule-queries';
+import type { BudgetScopeType, BudgetPeriodType, BudgetOnExceed } from '@/modules/usage-tracking/types';
 import {
   MEASUREMENT_STATUS_LABEL,
   MEASUREMENT_STATUS_BADGE,
@@ -19,6 +21,35 @@ import {
   OPERATIONAL_TYPE_BADGE,
 } from '@/modules/budgets/provider-operational-type';
 import { parseBudgetCheck, SCOPE_LABEL } from '@/modules/budgets';
+
+// ── Rule display constants ────────────────────────────────────────────────────
+
+const PERIOD_LABELS: Record<BudgetPeriodType, string> = {
+  monthly: 'Mensual',
+  quarterly: 'Trimestral',
+  annual: 'Anual',
+  custom: 'Personalizado',
+};
+
+const ON_EXCEED_LABELS: Record<BudgetOnExceed, string> = {
+  alert: 'Alertar',
+  block: 'Bloquear',
+  require_approval: 'Req. aprobación',
+};
+
+const SCOPE_SECTION_LABEL: Record<BudgetScopeType, string> = {
+  global: 'Globales',
+  role: 'Por rol',
+  group: 'Por grupo',
+  user: 'Por usuario',
+};
+
+function formatLimit(credits: number | null, usd: number | null): string {
+  const parts: string[] = [];
+  if (credits != null && credits > 0) parts.push(`${credits.toLocaleString()} cr`);
+  if (usd != null && usd > 0) parts.push(`$${usd.toFixed(2)}`);
+  return parts.join(' · ') || '—';
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -281,20 +312,59 @@ function TabConsumo({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementS
   );
 }
 
+// ── Rules scope list ──────────────────────────────────────────────────────────
+
+function RulesScopeList({ rules }: { rules: BudgetRuleRow[] }) {
+  if (rules.length === 0) {
+    return (
+      <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-5 text-center mt-2">
+        <p className="text-xs text-muted-foreground">
+          Este proveedor aún no tiene reglas configuradas para este alcance.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 mt-2">
+      {rules.map((rule) => (
+        <div key={rule.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-xs font-medium text-foreground">{rule.scopeLabel}</span>
+            <span className="text-[10px] text-muted-foreground/60">{PERIOD_LABELS[rule.period_type]}</span>
+          </div>
+          <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70">
+            <span>{formatLimit(rule.limit_credits, rule.limit_usd)}</span>
+            <span className="ml-auto">{ON_EXCEED_LABELS[rule.on_exceed]}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Tab: Presupuesto y reglas ─────────────────────────────────────────────────
+
+const RULE_SCOPES: BudgetScopeType[] = ['global', 'role', 'group', 'user'];
 
 function TabPresupuesto({
   row,
   onConfigureAllowance,
+  providerRules,
 }: {
   row: AdminProviderBudgetRow;
   onConfigureAllowance: () => void;
+  providerRules: BudgetRuleRow[];
 }) {
   const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
   const allowance = formatAllowance(
     row.providerMonthlyCreditsAllowance,
     row.providerMonthlyUsdAllowance,
   );
+
+  const rulesByScope = Object.fromEntries(
+    RULE_SCOPES.map((s) => [s, providerRules.filter((r) => r.scope_type === s && r.is_active)]),
+  ) as Record<BudgetScopeType, BudgetRuleRow[]>;
 
   return (
     <div className="space-y-4">
@@ -318,6 +388,25 @@ function TabPresupuesto({
           </>
         )}
       </SectionCard>
+
+      {/* Reglas segmentadas por alcance */}
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Reglas de presupuesto</p>
+        <Tabs defaultValue="global">
+          <TabsList className="w-full grid grid-cols-4 h-auto">
+            {RULE_SCOPES.map((s) => (
+              <TabsTrigger key={s} value={s} className="text-[10px] py-1.5">
+                {SCOPE_SECTION_LABEL[s]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {RULE_SCOPES.map((s) => (
+            <TabsContent key={s} value={s}>
+              <RulesScopeList rules={rulesByScope[s]} />
+            </TabsContent>
+          ))}
+        </Tabs>
+      </div>
 
       <div className="space-y-2">
         <Button
@@ -463,6 +552,7 @@ interface ProviderDetailSidepanelProps {
   initialTab?: SidepanelInitialTab;
   onClose: () => void;
   onConfigureAllowance: (row: AdminProviderBudgetRow) => void;
+  allRules?: BudgetRuleRow[];
 }
 
 export function ProviderDetailSidepanel({
@@ -471,10 +561,14 @@ export function ProviderDetailSidepanel({
   initialTab = 'resumen',
   onClose,
   onConfigureAllowance,
+  allRules = [],
 }: ProviderDetailSidepanelProps) {
   const ms: MeasurementStatus = provider?.measurementStatus ?? 'prepared';
   const opType = provider ? getProviderOperationalType(provider.providerKey) : null;
   const msBadge = MEASUREMENT_STATUS_BADGE[ms];
+  const providerRules = provider
+    ? allRules.filter((r) => r.provider_key === provider.providerKey)
+    : [];
 
   const hasAttention = provider && (
     (provider.quotaSource === 'sync_error' && !provider.providerMonthlyCreditsAllowance && !provider.providerMonthlyUsdAllowance) ||
@@ -486,7 +580,7 @@ export function ProviderDetailSidepanel({
     <DrawerShell
       open={open}
       onOpenChange={(v) => { if (!v) onClose(); }}
-      size="lg"
+      size="workspace"
       title={
         <div className="flex items-center gap-2 flex-wrap">
           <span>{provider?.displayName ?? provider?.providerKey ?? 'Proveedor'}</span>
@@ -574,6 +668,7 @@ export function ProviderDetailSidepanel({
             <TabPresupuesto
               row={provider}
               onConfigureAllowance={() => { onClose(); onConfigureAllowance(provider); }}
+              providerRules={providerRules}
             />
           </TabsContent>
 

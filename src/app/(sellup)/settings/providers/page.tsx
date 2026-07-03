@@ -1,12 +1,11 @@
 import { redirect } from 'next/navigation';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAdminBudgetSummary } from '@/modules/budgets';
-import { getBudgetRulesForAdmin, getBudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
+import { getBudgetRulesForAdmin } from '@/modules/budgets/rule-queries';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { BudgetSummaryCards } from '../budget-credits/budget-summary-cards';
 import { BudgetProvidersTable } from '../budget-credits/budget-providers-table';
-import { BudgetRulesTabbedSection } from '../budget-credits/rules/budget-rules-client';
 import { ProvidersTabs } from './providers-tabs';
 import { AiSettingsSection } from '../ai/ai-settings-section';
 
@@ -21,10 +20,9 @@ export default async function ProvidersConsumptionPage({ searchParams }: PagePro
   const resolved = await searchParams;
   const defaultTab = typeof resolved.tab === 'string' ? resolved.tab : null;
 
-  const [summary, rules, options] = await Promise.all([
+  const [summary, rules] = await Promise.all([
     getAdminBudgetSummary(),
     getBudgetRulesForAdmin(),
-    getBudgetRuleFormOptions(),
   ]);
 
   return (
@@ -42,12 +40,11 @@ export default async function ProvidersConsumptionPage({ searchParams }: PagePro
             <BudgetSummaryCards providers={summary.providers} />
             <SurfaceCard>
               <div className="p-1">
-                <BudgetProvidersTable providers={summary.providers} resolvedAt={summary.resolvedAt} />
-              </div>
-            </SurfaceCard>
-            <SurfaceCard>
-              <div className="p-6">
-                <BudgetRulesTabbedSection rules={rules} options={options} />
+                <BudgetProvidersTable
+                  providers={summary.providers}
+                  resolvedAt={summary.resolvedAt}
+                  allRules={rules}
+                />
               </div>
             </SurfaceCard>
           </div>
