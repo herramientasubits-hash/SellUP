@@ -19,6 +19,8 @@ import { getSicopSourceCoverageSummary } from '@/server/services/cr-sicop-source
 import { CrSicopCoverageCard } from '@/components/source-catalog/cr-sicop-coverage-card';
 import { getPaPanamaCompraConvenioCoverageSummary } from '@/server/services/pa-panamacompra-convenio-source-coverage-summary';
 import { PaPanamaCompraConvenioCoverageCard } from '@/components/source-catalog/pa-panamacompra-convenio-coverage-card';
+import { getSvComprasalSignalsSummary } from '@/server/services/sv-comprasal-signals-summary';
+import { SvComprasalSignalsCard } from '@/components/source-catalog/sv-comprasal-signals-card';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -61,8 +63,9 @@ export default async function SourceDetailPage({ params }: Props) {
   const isDgcpRd = source.key === 'do_dgcp';
   const isCrSicop = source.key === 'cr_sicop';
   const isPaConvenio = source.key === 'pa_panamacompra_convenio';
+  const isSvComprasal = source.key === 'sv_comprasal';
 
-  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage] = await Promise.all([
+  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage, svComprasalSignals] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
     getSourceConnectionRecord(sourceKey),
     isCurrentUserAdmin(),
@@ -80,6 +83,9 @@ export default async function SourceDetailPage({ params }: Props) {
       : Promise.resolve(null),
     isPaConvenio
       ? getPaPanamaCompraConvenioCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isSvComprasal
+      ? getSvComprasalSignalsSummary().catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -324,6 +330,13 @@ export default async function SourceDetailPage({ params }: Props) {
         paConvenioCoverage
           ? <PaPanamaCompraConvenioCoverageCard summary={paConvenioCoverage} />
           : <PaPanamaCompraConvenioCoverageCard error />
+      )}
+
+      {/* Señales COMPRASAL El Salvador — solo sv_comprasal (señal débil weak_name_only, sin post-approval, sin matching automático) */}
+      {isSvComprasal && (
+        svComprasalSignals
+          ? <SvComprasalSignalsCard summary={svComprasalSignals} />
+          : <SvComprasalSignalsCard error />
       )}
 
       {/* Prueba de conexión */}
