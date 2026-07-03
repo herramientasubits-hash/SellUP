@@ -188,6 +188,39 @@ describe('PATCG1E — CR candidates queue with SICOP enrichment (Centroamérica.
   });
 });
 
+describe('PATCG1F — PA candidates queue with PanamaCompra Convenio Marco enrichment (Centroamérica.5F)', () => {
+  it('PA with RUC → triggered=true, status=queued', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PA', '8-123-456789'));
+    assert.equal(result.triggered, true);
+    assert.equal(result.meta.status, 'queued');
+    assert.equal(result.meta.nit, '8-123-456789');
+  });
+
+  it('PA with RUC → source_keys empty (pa_panamacompra_convenio runs in worker directly)', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PA', '8-123-456789'));
+    assert.ok(Array.isArray(result.meta.source_keys));
+    assert.equal(result.meta.source_keys!.length, 0, 'PA source_keys must be empty — pa_panamacompra_convenio step runs in worker directly');
+  });
+
+  it('PA without RUC → triggered=false, status=skipped, reason=missing_tax_id', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PA'));
+    assert.equal(result.triggered, false);
+    assert.equal(result.meta.status, 'skipped');
+    assert.equal(result.meta.reason, 'missing_tax_id');
+  });
+
+  it('PA does not queue CO-specific source keys', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PA', '8-123-456789'));
+    const keys = result.meta.source_keys ?? [];
+    assert.ok(!keys.some((k: string) => k.startsWith('co_')), 'PA must not include CO source keys');
+  });
+
+  it('PA country is supported (does not return country_not_supported)', async () => {
+    const result = await triggerPostApprovalEnrichment(makeParams('PA', '8-123-456789'));
+    assert.notEqual(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
+  });
+});
+
 describe('PATCG3 — helper function integrity', () => {
   it('extractNitFromCandidate finds tax_identifier field', () => {
     const nit = extractNitFromCandidate({ tax_identifier: '900123456' });

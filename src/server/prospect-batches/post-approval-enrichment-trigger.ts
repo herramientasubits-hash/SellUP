@@ -141,6 +141,9 @@ export async function triggerPostApprovalEnrichment(
   // (no CO adapter source_keys required — official_business_directory, name-based, no RFC).
   // CR is supported: cr_sicop local snapshot lookup runs in the worker directly
   // (no CO adapter source_keys required — procurement_signal, NOT legal/tax validation, cédula jurídica only).
+  // PA is supported: pa_panamacompra_convenio local snapshot lookup runs in the worker directly
+  // (no CO adapter source_keys required — procurement_signal, NOT legal/tax validation, RUC only).
+  // PA does NOT replace DGI Panamá nor Registro Público. Coverage = Convenio Marco only.
   const candidateCountryCode = typeof candidate.country_code === 'string'
     ? candidate.country_code.toUpperCase()
     : null;
@@ -151,7 +154,8 @@ export async function triggerPostApprovalEnrichment(
     candidateCountryCode === 'CL' ||
     candidateCountryCode === 'DO' ||
     candidateCountryCode === 'MX' ||
-    candidateCountryCode === 'CR';
+    candidateCountryCode === 'CR' ||
+    candidateCountryCode === 'PA';
 
   if (!isSupportedCountry) {
     const skippedMeta: PostApprovalEnrichmentMeta = {

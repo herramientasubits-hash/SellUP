@@ -41,6 +41,8 @@ import { enrichMexicoCandidateWithDenue } from './mx-denue-post-approval-enrichm
 import type { DenueAdapterFn } from './mx-denue-post-approval-enrichment';
 import { enrichCostaRicaCandidateWithSicop } from './cr-sicop-post-approval-enrichment';
 import type { CrSicopLookupResult } from '../services/cr-sicop-lookup';
+import { runPanamaCompraConvenioEnrichmentForCandidate } from './pa-panamacompra-convenio-post-approval-enrichment';
+import type { PaPanamaCompraLookupResult } from '../services/pa-panamacompra-convenio-lookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,8 @@ export interface PostApprovalNitWorkerParams {
   mxDenueAdapterFnOverride?: DenueAdapterFn;
   /** For testing only — overrides lookupCostaRicaSicopByCedula for CR enrichment. */
   crSicopLookupFnOverride?: (input: { cedula: string }) => Promise<CrSicopLookupResult>;
+  /** For testing only — overrides lookupPanamaCompraConvenioByRuc for PA enrichment. */
+  paPanamaCompraLookupFnOverride?: (input: { ruc: string }) => Promise<PaPanamaCompraLookupResult>;
   /** For smoke/testing only — limits processing to a single candidate by id. */
   candidateId?: string;
 }
@@ -977,6 +981,94 @@ async function runRdDgcpEnrichmentForCandidate(
   }
 }
 
+// ── Panamá PanamaCompra Convenio Marco procurement signal step ───────────────
+
+/**
+ * Runs pa_panamacompra_convenio local snapshot lookup for PA candidates and saves
+ * pa_panamacompra_convenio block to candidate and account.
+ * Non-critical: errors are logged and swallowed.
+ * Only called when candidate.country_code === 'PA'.
+ *
+ * Never calls PanamaCompra API, DGI Panamá, or Registro Público.
+ * Query is local source_company_snapshots only.
+ * source_type=procurement_signal / coverage_scope=convenio_marco, NOT legal/tax validation.
+ */
+async function runPanamaCompraConvenioEnrichmentStep(
+  candidate: CandidateRow,
+  existingMeta: Record<string, unknown>,
+  supabase: SupabaseClient,
+  lookupFnOverride?: (input: { ruc: string }) => Promise<PaPanamaCompraLookupResult>,
+): Promise<void> {
+  try {
+    const paResult = await runPanamaCompraConvenioEnrichmentForCandidate(
+      {
+        candidateId: candidate.id,
+        countryCode: candidate.country_code ?? '',
+        taxId: candidate.tax_identifier,
+        metadata: existingMeta,
+      },
+      lookupFnOverride,
+    );
+
+    if (!paResult.enriched || !paResult.pa_panamacompra_convenio) return;
+
+    const { data: current } = await supabase
+      .from('prospect_candidates')
+      .select('metadata')
+      .eq('id', candidate.id)
+      .single();
+
+    const currentMeta = (current?.metadata as Record<string, unknown>) ?? {};
+    const currentSourceEnrichment =
+      (currentMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+    await supabase
+      .from('prospect_candidates')
+      .update({
+        metadata: {
+          ...currentMeta,
+          source_enrichment: {
+            ...currentSourceEnrichment,
+            pa_panamacompra_convenio: paResult.pa_panamacompra_convenio,
+          },
+        },
+        updated_at: paResult.pa_panamacompra_convenio.enriched_at,
+      })
+      .eq('id', candidate.id);
+
+    if (candidate.converted_account_id) {
+      const { data: accountRow } = await supabase
+        .from('accounts')
+        .select('metadata')
+        .eq('id', candidate.converted_account_id)
+        .single();
+
+      const existingAccountMeta = (accountRow?.metadata as Record<string, unknown>) ?? {};
+      const existingAccountSourceEnrichment =
+        (existingAccountMeta.source_enrichment as Record<string, unknown>) ?? {};
+
+      await supabase
+        .from('accounts')
+        .update({
+          metadata: {
+            ...existingAccountMeta,
+            source_enrichment: {
+              ...existingAccountSourceEnrichment,
+              pa_panamacompra_convenio: paResult.pa_panamacompra_convenio,
+            },
+          },
+          updated_at: paResult.pa_panamacompra_convenio.enriched_at,
+        })
+        .eq('id', candidate.converted_account_id);
+    }
+  } catch (err) {
+    console.warn(
+      `[PostApprovalNitWorker] PA PanamaCompra Convenio Marco procurement signal non-critical error for ${candidate.id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Costa Rica SICOP procurement signal step ─────────────────────────────────
 
 /**
@@ -1077,6 +1169,7 @@ async function processCandidateNitEnrichment(
   rdDgcpLookupFnOverride?: (input: { rnc: string }) => Promise<RdDgcpLookupResult>,
   mxDenueAdapterFnOverride?: DenueAdapterFn,
   crSicopLookupFnOverride?: (input: { cedula: string }) => Promise<CrSicopLookupResult>,
+  paPanamaCompraLookupFnOverride?: (input: { ruc: string }) => Promise<PaPanamaCompraLookupResult>,
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
@@ -1177,6 +1270,18 @@ async function processCandidateNitEnrichment(
     );
   }
 
+  // Centroamérica.5F — Panamá pa_panamacompra_convenio local procurement signal — non-blocking, snapshot only
+  // procurement_signal / convenio_marco only. Does NOT validate RUC. Does NOT replace DGI Panamá.
+  // Never calls PanamaCompra API. source_type=procurement_signal, NOT legal/tax validation.
+  if ((candidate.country_code ?? '').toUpperCase() === 'PA') {
+    await runPanamaCompraConvenioEnrichmentStep(
+      candidate,
+      meta,
+      supabase,
+      paPanamaCompraLookupFnOverride,
+    );
+  }
+
   try {
     await insertPostApprovalAuditTrail(
       {
@@ -1242,6 +1347,7 @@ export async function runPostApprovalNitEnrichmentWorker(
         params.rdDgcpLookupFnOverride,
         params.mxDenueAdapterFnOverride,
         params.crSicopLookupFnOverride,
+        params.paPanamaCompraLookupFnOverride,
       );
       stats.processed++;
 
