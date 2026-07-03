@@ -706,7 +706,7 @@ export async function runApolloOrganizationsSearch(
     apollo_raw_result_samples_sanitized: rawResultSamples,
   };
 
-  // ── Usage logging ─────────────────────────────────────────────────────────────
+  // ── Usage logging: organizations_search ──────────────────────────────────────
   await logFn({
     usage_key: usageKey,
     provider_key: 'apollo',
@@ -724,8 +724,47 @@ export async function runApolloOrganizationsSearch(
     metadata: {
       ...buildUsageMetadata(input, cap, wasCapped, rawOrgs.length, false, 'real', apolloParamsSanitized),
       apollo_result_diagnostics: apolloResultDiagnostics,
+      // L2.15: cascade meta — visible en DB para auditoría
+      apollo_enrichment_cascade: enrichmentCascadeMeta,
     },
   });
+
+  // ── Usage logging: organization_enrichment (one log per real API call) ────────
+  // Emite un log separado por cada enrichment real intentado (success o failure).
+  // Skips por missing_domain o cap_reached no generan log (sin llamada real).
+  // TODO: pricing organization_enrichment no configurado → estimated_cost_usd=0
+  for (const entry of enrichmentCascadeMeta.entries) {
+    const wasRealCall = entry.enriched || entry.skip_reason === 'enrichment_failed';
+    if (!wasRealCall) continue;
+
+    const enrichStatus = entry.enriched ? 'success' : 'error';
+    const enrichUsageKey = usageContext?.batchId
+      ? `organization_enrichment:${usageContext.batchId}:${entry.domain ?? 'unknown'}`
+      : `organization_enrichment:no_batch:${entry.domain ?? 'unknown'}:${startMs}`;
+
+    await logFn({
+      usage_key: enrichUsageKey,
+      provider_key: 'apollo',
+      operation_key: 'organization_enrichment',
+      batch_id: usageContext?.batchId ?? undefined,
+      agent_run_id: usageContext?.agentRunId ?? undefined,
+      credits_used: 0,
+      results_returned: entry.enriched ? 1 : 0,
+      estimated_cost_usd: 0,
+      status: enrichStatus,
+      error_code: entry.enriched ? undefined : 'enrichment_failed',
+      error_message: entry.error ? entry.error.slice(0, 200) : undefined,
+      duration_ms: undefined,
+      triggered_by: usageContext?.triggeredByUserId ?? undefined,
+      metadata: {
+        domain: entry.domain,
+        fields_added: entry.fields_added ?? [],
+        cascade_version: enrichmentCascadeMeta.cascade_version,
+        // TODO: add pricing for organization_enrichment to provider_pricing_config
+        pricing_missing_warning: true,
+      },
+    });
+  }
 
   const usageMeta: ApolloOrganizationsUsageMetadata = {
     operation_key: 'organizations_search',
