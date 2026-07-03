@@ -295,7 +295,9 @@ export function ContactCandidateDetailSheet({
               <p className="flex-1 text-[11px] text-muted-foreground/70">
                 {candidate.account_id
                   ? 'Al aprobar se creará un contacto oficial en SellUp.'
-                  : 'Sin cuenta SellUp asociada: no se puede aprobar.'}
+                  : candidate.hubspot_company_id
+                    ? 'Al aprobar, SellUp creará o vinculará la cuenta automáticamente.'
+                    : 'Sin cuenta SellUp asociada: no se puede aprobar.'}
               </p>
               <div className="flex shrink-0 items-center gap-2">
                 <Button
@@ -311,7 +313,7 @@ export function ContactCandidateDetailSheet({
                 <Button
                   type="button"
                   size="sm"
-                  disabled={busy || !candidate.account_id}
+                  disabled={busy || (!candidate.account_id && !candidate.hubspot_company_id)}
                   onClick={handleApprove}
                 >
                   {approving ? (
@@ -589,17 +591,32 @@ export function ContactCandidateDetailSheet({
                 )}
               </div>
             </SurfaceCard>
+          ) : !candidate.account_id && candidate.hubspot_company_id ? (
+            <div className="rounded-xl border border-dashed border-su-brand/30 bg-su-brand-soft/40 px-4 py-3">
+              <div className="flex items-start gap-2.5">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-foreground">
+                    Empresa vinculada vía HubSpot
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Al aprobar, SellUp creará o vinculará la cuenta automáticamente y asociará
+                    este contacto. No se realizarán acciones hasta hacer clic en Aprobar.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : !candidate.account_id ? (
             <div className="rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-3">
               <div className="flex items-start gap-2.5">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-foreground">
-                    Este candidato no está asociado a una cuenta SellUp.
+                    Sin cuenta SellUp asociada
                   </p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Para aprobarlo y crear un contacto oficial debe existir una cuenta. Puedes
-                    rechazarlo indicando un motivo.
+                    No se puede aprobar porque la empresa no existe en SellUp ni está vinculada a
+                    HubSpot. Puedes rechazarlo indicando un motivo.
                   </p>
                 </div>
               </div>
