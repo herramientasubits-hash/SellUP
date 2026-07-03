@@ -18,6 +18,7 @@ export interface StartEnrichmentRunInput {
   confirmedCompany: CompanyCandidate;
   originalInput: Agent2AInput;
   triggeredBy: string;
+  bulkRunId?: string | null;
 }
 
 // ── Supersede lifecycle (Hito 17A.9E) ────────────────────────────────────────
@@ -69,7 +70,7 @@ export async function supersedePreviousReadyRuns(
 export async function startContactEnrichmentRun(
   input: StartEnrichmentRunInput
 ): Promise<ContactEnrichmentRunResult> {
-  const { confirmedCompany, originalInput, triggeredBy } = input;
+  const { confirmedCompany, originalInput, triggeredBy, bulkRunId } = input;
   const admin = getAdminClient();
 
   // 1. Crear agent_run
@@ -138,6 +139,7 @@ export async function startContactEnrichmentRun(
         note: 'Hito 17A.2A — leyendo contactos existentes...',
       },
       estimated_cost_usd: 0,
+      bulk_run_id: bulkRunId ?? null,
     })
     .select('id')
     .single();

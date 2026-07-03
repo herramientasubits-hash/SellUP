@@ -640,6 +640,153 @@ export async function approveContactCandidate(
   }
 }
 
+// ── Bulk Enrichment Actions (Hito 17A.10C) ───────────────────────────────────
+
+import { checkBulkContactEnrichmentEligibility } from './bulk-enrichment-eligibility';
+import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from './bulk-enrichment-types';
+import type { BulkEnrichmentEligibilityResult } from './bulk-enrichment-types';
+
+export interface CheckBulkEnrichmentEligibilityActionResult {
+  success: boolean;
+  data?: BulkEnrichmentEligibilityResult;
+  error?: string;
+}
+
+/**
+ * Verifica elegibilidad para enriquecimiento bulk. Solo lectura — sin DB writes ni Apollo.
+ */
+export async function checkBulkEnrichmentEligibilityAction(
+  accountIds: string[],
+): Promise<CheckBulkEnrichmentEligibilityActionResult> {
+  try {
+    await requireActiveUserForEnrichment();
+
+    if (!Array.isArray(accountIds) || accountIds.length === 0) {
+      throw new Error('Se requiere al menos una cuenta');
+    }
+    if (accountIds.length > CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS) {
+      throw new Error(
+        `Máximo ${CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS} cuentas por bulk run`,
+      );
+    }
+
+    const uniqueIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
+    const result = await checkBulkContactEnrichmentEligibility(uniqueIds);
+    return { success: true, data: result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error verificando elegibilidad';
+    return { success: false, error: message };
+  }
+}
+
+export interface CreateBulkContactEnrichmentRunActionResult {
+  success: boolean;
+  bulkRunId?: string;
+  status?: string;
+  eligibility?: BulkEnrichmentEligibilityResult;
+  executeUrl?: string;
+  error?: string;
+}
+
+/**
+ * Crea el registro bulk_run con elegibilidad calculada.
+ * No ejecuta Apollo — retorna executeUrl para llamar la route POST.
+ */
+export async function createBulkContactEnrichmentRunAction(
+  accountIds: string[],
+): Promise<CreateBulkContactEnrichmentRunActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+
+    if (!Array.isArray(accountIds) || accountIds.length === 0) {
+      throw new Error('Se requiere al menos una cuenta');
+    }
+    if (accountIds.length > CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS) {
+      throw new Error(
+        `Máximo ${CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS} cuentas por bulk run`,
+      );
+    }
+
+    const uniqueIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
+    const eligibility = await checkBulkContactEnrichmentEligibility(uniqueIds);
+
+    const admin = getServiceRoleClient();
+
+    // Sin elegibles → crear bulk failed, no ejecutar
+    if (eligibility.eligible.length === 0) {
+      const { data: failedRun, error: insertError } = await admin
+        .from('contact_enrichment_bulk_runs')
+        .insert({
+          triggered_by: internalUserId,
+          status: 'failed',
+          selected_account_ids: uniqueIds,
+          eligible_account_ids: [],
+          skipped_accounts: eligibility.skipped,
+          total_selected: eligibility.selectedCount,
+          total_eligible: 0,
+          total_skipped: eligibility.skipped.length,
+          estimated_apollo_credits: 0,
+          summary: { error: 'Sin cuentas elegibles para enriquecimiento bulk' },
+          metadata: { hito: '17A.10C', source: 'bulk_enrichment_action' },
+        })
+        .select('id')
+        .single();
+
+      if (insertError || !failedRun) {
+        throw new Error(`No se pudo crear bulk run fallido: ${insertError?.message}`);
+      }
+
+      return {
+        success: false,
+        bulkRunId: failedRun.id as string,
+        status: 'failed',
+        eligibility,
+        error: 'Sin cuentas elegibles para enriquecimiento bulk',
+      };
+    }
+
+    const eligibleIds = eligibility.eligible.map((e) => e.accountId);
+
+    const { data: bulkRun, error: insertError } = await admin
+      .from('contact_enrichment_bulk_runs')
+      .insert({
+        triggered_by: internalUserId,
+        status: 'created',
+        selected_account_ids: uniqueIds,
+        eligible_account_ids: eligibleIds,
+        skipped_accounts: eligibility.skipped,
+        total_selected: eligibility.selectedCount,
+        total_eligible: eligibility.eligible.length,
+        total_skipped: eligibility.skipped.length,
+        estimated_apollo_credits: eligibility.estimatedApolloCredits,
+        summary: {
+          created_by_action: 'createBulkContactEnrichmentRunAction',
+          eligible_account_names: eligibility.eligible.map((e) => e.name),
+        },
+        metadata: { hito: '17A.10C', source: 'bulk_enrichment_action' },
+      })
+      .select('id')
+      .single();
+
+    if (insertError || !bulkRun) {
+      throw new Error(`No se pudo crear bulk run: ${insertError?.message}`);
+    }
+
+    const bulkRunId = bulkRun.id as string;
+
+    return {
+      success: true,
+      bulkRunId,
+      status: 'created',
+      eligibility,
+      executeUrl: `/api/contact-enrichment/bulk-runs/${bulkRunId}/execute`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error creando bulk run';
+    return { success: false, error: message };
+  }
+}
+
 /**
  * Rechaza un candidato: lo marca `discarded` y guarda el motivo. No crea contacto.
  */
