@@ -23,6 +23,7 @@ import {
   extractLushaBilling,
 } from '@/server/integrations/lusha-client';
 import { normalizeDomain } from './company-consistency-checker';
+import { normalizeLushaPersonName } from './lusha-people-adapter';
 import {
   createAgentRunStep,
   finishAgentRunStep,
@@ -185,6 +186,12 @@ export interface ExecuteControlledLushaEnrichInput {
    * with cost confirmation.
    */
   inputLinkedinUrl?: string | null;
+  /**
+   * Full name used as the search identifier to find this contact.
+   * When provided, takes priority over the name returned by Lusha enrich.
+   * The Lusha-returned name is preserved in metadata for traceability.
+   */
+  inputFullName?: string | null;
 }
 
 /**
@@ -421,11 +428,27 @@ export async function executeControlledLushaContactEnrichRun(
   const creditsUsed = enrichResult.creditsCharged ?? billingCredits ?? creditsDelta ?? null;
 
   // 12. Build candidate from sanitized result
-  // Re-extract full name from raw — sanitizedResults has top-level fields
-  const fullName =
+  // Name priority: inputFullName (search identifier) > firstName+lastName > fullName.
+  // normalizeLushaPersonName fixes Unicode combining chars and bad capitalization.
+  const lushaRawName =
     [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() ||
     contact.fullName ||
     null;
+  const normalizedLushaName = normalizeLushaPersonName(lushaRawName);
+  const normalizedInputName = normalizeLushaPersonName(input.inputFullName ?? null);
+
+  let fullName: string | null;
+  let nameSource: string;
+  if (normalizedInputName) {
+    fullName = normalizedInputName;
+    nameSource = 'input_search_identifier';
+  } else if (normalizedLushaName) {
+    fullName = normalizedLushaName;
+    nameSource = 'lusha_enrich_normalized';
+  } else {
+    fullName = null;
+    nameSource = 'none';
+  }
 
   if (!fullName) {
     if (enrichStep) {
@@ -588,6 +611,12 @@ export async function executeControlledLushaContactEnrichRun(
     // Do not request, persist, or expose phones in contact enrichment.
     // Future phone reveal must be an explicit user action with cost confirmation.
     phone_policy: 'disabled_in_v1_explicit_future_action_required',
+    lusha_full_name: lushaRawName,
+    normalized_full_name: fullName,
+    name_source: nameSource,
+    name_normalization_status: fullName ? 'normalized' : 'missing',
+    name_normalization_hito: '17B.4J',
+    ...(normalizedInputName ? { input_full_name: normalizedInputName } : {}),
     input_linkedin_url: normalizedInput,
     lusha_linkedin_url: lushaLinkedinUrl,
     linkedin_source: linkedinSource,

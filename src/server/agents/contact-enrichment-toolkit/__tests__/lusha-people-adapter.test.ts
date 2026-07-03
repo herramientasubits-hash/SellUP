@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   normalizeLushaDecisionMaker,
   buildLushaUsageMetadata,
+  normalizeLushaPersonName,
 } from '../lusha-people-adapter';
 import type { LushaRawDecisionMaker } from '../lusha-types';
 
@@ -19,6 +20,63 @@ const CTX = {
   companyDomain: 'acme.com',
   countryCode: 'CO',
 };
+
+// ── normalizeLushaPersonName ────────────────────────────────────────────────
+
+describe('normalizeLushaPersonName', () => {
+  it('normaliza Unicode combinado y capitalización rara', () => {
+    assert.equal(normalizeLushaPersonName('Patricia HernáNdez'), 'Patricia Hernández');
+  });
+
+  it('normaliza todo mayúsculas', () => {
+    assert.equal(normalizeLushaPersonName('PATRICIA HERNÁNDEZ'), 'Patricia Hernández');
+  });
+
+  it('normaliza todo minúsculas', () => {
+    assert.equal(normalizeLushaPersonName('patricia valencia hernandez'), 'Patricia Valencia Hernandez');
+  });
+
+  it('colapsa espacios múltiples', () => {
+    assert.equal(normalizeLushaPersonName(' Patricia   Valencia   Hernández '), 'Patricia Valencia Hernández');
+  });
+
+  it('preserva conectores en minúsculas', () => {
+    assert.equal(normalizeLushaPersonName('MARÍA DEL PILAR DE LA CRUZ'), 'María del Pilar de la Cruz');
+  });
+
+  it('no inventa acentos ausentes', () => {
+    assert.equal(normalizeLushaPersonName('patricia valencia hernandez'), 'Patricia Valencia Hernandez');
+  });
+
+  it('retorna null para null', () => {
+    assert.equal(normalizeLushaPersonName(null), null);
+  });
+
+  it('retorna null para undefined', () => {
+    assert.equal(normalizeLushaPersonName(undefined), null);
+  });
+
+  it('retorna null para cadena vacía', () => {
+    assert.equal(normalizeLushaPersonName(''), null);
+  });
+
+  it('retorna null para cadena solo espacios', () => {
+    assert.equal(normalizeLushaPersonName('   '), null);
+  });
+
+  it('mantiene el primer token en mayúscula aunque sea conector', () => {
+    assert.equal(normalizeLushaPersonName('DE LA ROSA'), 'De la Rosa');
+  });
+
+  it('normaliza NFC: combining characters quedan compuestos', () => {
+    // 'á' = a + combining acute = á descompuesto
+    const input = 'Patrı́cia Hernández';
+    const result = normalizeLushaPersonName(input);
+    assert.ok(result !== null);
+    // Resultado debe estar en NFC (todos los acentos compuestos)
+    assert.equal(result, result!.normalize('NFC'));
+  });
+});
 
 // ── normalizeLushaDecisionMaker ─────────────────────────────────────────────
 

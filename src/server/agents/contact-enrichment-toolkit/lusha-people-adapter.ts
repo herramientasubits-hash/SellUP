@@ -1,5 +1,5 @@
 /**
- * Lusha People Adapter — Agente 2A · Hito 17B.3
+ * Lusha People Adapter — Agente 2A · Hito 17B.3 / 17B.4J
  *
  * Funciones puras para normalizar respuestas mock/reales de Lusha.
  * Sin llamadas a la API. Phone siempre null.
@@ -13,13 +13,42 @@ import type {
   LushaUsageMetadataInput,
 } from './lusha-types';
 
+// Conectores que van en minúsculas salvo que sean el primer token del nombre.
+const LOWERCASE_CONNECTORS = new Set([
+  'de', 'del', 'la', 'las', 'los', 'y', 'e', 'el',
+  'di', 'da', 'dos', 'das', 'von', 'van', 'der',
+]);
+
+/**
+ * Normaliza un nombre completo devuelto por Lusha:
+ * - null/vacío → null
+ * - Normalización Unicode NFC (resuelve combining characters)
+ * - Colapsa espacios múltiples
+ * - Capitalización título por token (preserva acentos existentes)
+ * - Conectores comunes en minúsculas (de, del, la, las…)
+ * - NO inventa acentos ausentes ("hernandez" ≠ "hernández")
+ */
+export function normalizeLushaPersonName(input: string | null | undefined): string | null {
+  if (input == null) return null;
+  const nfc = input.normalize('NFC').trim();
+  if (!nfc) return null;
+  const collapsed = nfc.replace(/\s+/g, ' ');
+  const tokens = collapsed.split(' ');
+  const result = tokens.map((token, i) => {
+    if (!token) return token;
+    const lower = token.toLowerCase();
+    if (i > 0 && LOWERCASE_CONNECTORS.has(lower)) return lower;
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  });
+  return result.join(' ') || null;
+}
+
 function buildFullName(raw: LushaRawDecisionMaker): string | null {
-  if (raw.fullName?.trim()) return raw.fullName.trim();
-  if (raw.name?.trim()) return raw.name.trim();
   const first = raw.firstName?.trim() ?? '';
   const last = raw.lastName?.trim() ?? '';
-  const combined = `${first} ${last}`.trim();
-  return combined || null;
+  const fromParts = `${first} ${last}`.trim();
+  const raw_name = fromParts || raw.fullName?.trim() || raw.name?.trim() || null;
+  return normalizeLushaPersonName(raw_name);
 }
 
 function normalizeLinkedinUrl(url: string | null | undefined): string | null {
