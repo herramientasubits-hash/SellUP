@@ -14,6 +14,7 @@ import {
 import { getLushaApiKey, hasLushaApiKey } from '@/server/services/lusha-connection';
 import {
   enrichLushaContactsV3,
+  searchLushaContactsV3,
   getLushaAccountUsage,
   extractLushaJobTitle,
   extractLushaCompanyName,
@@ -22,6 +23,10 @@ import {
   extractEmailInfoFromLushaEmails,
   extractLushaBilling,
 } from '@/server/integrations/lusha-client';
+import {
+  resolveLushaMaxCandidatesPerRun,
+  resolveLushaSearchTimeoutMs,
+} from '@/lib/feature-flags.server';
 import { normalizeDomain } from './company-consistency-checker';
 import { normalizeLushaPersonName } from './lusha-people-adapter';
 import {
@@ -49,6 +54,8 @@ export type LushaRunnerResult = {
   runId: string;
   candidateId?: string;
   candidatesCreated: number;
+  duplicatesSkipped?: number;
+  rawResultsCount?: number;
   creditsUsed: number | null;
   emailDomain?: string | null;
   message: string;
@@ -767,27 +774,36 @@ export async function executeControlledLushaContactEnrichRun(
   };
 }
 
-/**
- * Skeleton compatibility alias — preserved for callers from 17B.3.
- * Not used in live flows yet.
- */
 export type { LushaRunnerResult as LushaRunnerResultCompat };
 
+/**
+ * Ejecuta búsqueda+enriquecimiento Lusha para un run en ready_to_enrich.
+ * Busca contactos en la empresa (por nombre/dominio), enriquece con email,
+ * deduplica y crea candidatos pending_review.
+ *
+ * Paridad con Apollo: mismo flujo run/candidato/revisión/aprobación.
+ * NO crea contactos finales. NO toca HubSpot. NO revela teléfonos.
+ * Gated por ENABLE_LUSHA_CONTACT_ENRICHMENT.
+ */
 export async function executeContactEnrichmentLushaRun(
   runId: string,
   triggeredBy: string,
 ): Promise<LushaRunnerResult> {
+  // 1. Feature flag
   if (!isLushaContactEnrichmentEnabled()) {
     return {
       ok: false,
       status: 'disabled',
       runId,
       candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
       creditsUsed: null,
       message: 'Lusha contact enrichment is disabled (ENABLE_LUSHA_CONTACT_ENRICHMENT=false).',
     };
   }
 
+  // 2. API key
   const hasKey = await hasLushaApiKey().catch(() => false);
   if (!hasKey) {
     return {
@@ -795,17 +811,372 @@ export async function executeContactEnrichmentLushaRun(
       status: 'missing_api_key',
       runId,
       candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
       creditsUsed: null,
-      message: 'LUSHA_API_KEY is not configured. Store the key via the settings panel.',
+      message: 'LUSHA_API_KEY is not configured.',
     };
   }
 
+  const apiKey = await getLushaApiKey();
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 'missing_api_key',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: 'LUSHA_API_KEY could not be retrieved.',
+    };
+  }
+
+  const admin = getAdminClient();
+  const timeoutMs = resolveLushaSearchTimeoutMs();
+  const maxCandidates = resolveLushaMaxCandidatesPerRun();
+
+  // 3. Load run
+  const { data: run, error: runError } = await admin
+    .from('contact_enrichment_runs')
+    .select('id, status, account_id, company_name, company_domain, company_country_code, agent_run_id')
+    .eq('id', runId)
+    .single();
+
+  if (runError || !run) {
+    return {
+      ok: false,
+      status: 'not_found',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: `Run not found: ${runError?.message ?? 'unknown'}`,
+    };
+  }
+
+  // 4. Validate run status
+  if (run.status !== 'ready_to_enrich') {
+    return {
+      ok: false,
+      status: 'invalid_run_status',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: `Run status is '${run.status}', expected 'ready_to_enrich'.`,
+    };
+  }
+
+  // 5. Validate account (not archived)
+  if (!run.account_id) {
+    return {
+      ok: false,
+      status: 'invalid_account',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: 'Run has no account_id.',
+    };
+  }
+
+  const { data: account, error: accountError } = await admin
+    .from('accounts')
+    .select('id, archived_at')
+    .eq('id', run.account_id)
+    .single();
+
+  if (accountError || !account) {
+    return {
+      ok: false,
+      status: 'invalid_account',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: `Account not found: ${accountError?.message ?? 'unknown'}`,
+    };
+  }
+
+  if (account.archived_at) {
+    return {
+      ok: false,
+      status: 'invalid_account',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: `Account ${run.account_id} is archived. Cannot enrich for archived accounts.`,
+    };
+  }
+
+  // 6. Update run → enriching
+  await admin
+    .from('contact_enrichment_runs')
+    .update({ status: 'enriching' })
+    .eq('id', runId);
+
+  const agentRunId = typeof run.agent_run_id === 'string' ? run.agent_run_id : undefined;
+  const companyName = typeof run.company_name === 'string' ? run.company_name : null;
+  const companyDomain = typeof run.company_domain === 'string' ? run.company_domain : null;
+
+  // 7. Search Lusha for contacts at this company
+  const searchStep = agentRunId
+    ? await createAgentRunStep({
+        agent_run_id: agentRunId,
+        step_key: 'lusha_contact_search',
+        step_name: 'Lusha Contact Search V3 (company)',
+        metadata: {
+          companyName,
+          companyDomain,
+          hito: '17B.4K',
+        },
+      })
+    : null;
+
+  const searchResult = await searchLushaContactsV3({
+    apiKey,
+    timeoutMs,
+    contacts: [
+      {
+        ...(companyName ? { companyName } : {}),
+        ...(companyDomain ? { companyDomain } : {}),
+      },
+    ],
+  });
+
+  if (searchStep) {
+    await finishAgentRunStep(searchStep.id, {
+      status: searchResult.ok ? 'success' : 'error',
+      results_returned: searchResult.resultsReturned ?? 0,
+      metadata: {
+        searchStatus: searchResult.status,
+        resultsReturned: searchResult.resultsReturned,
+        hito: '17B.4K',
+      },
+    });
+  }
+
+  const rawResultsCount = searchResult.resultsReturned ?? 0;
+
+  if (!searchResult.ok || !searchResult.sanitizedResults?.length) {
+    await admin
+      .from('contact_enrichment_runs')
+      .update({
+        status: 'ready_for_review',
+        providers_used: ['lusha'],
+        summary: {
+          totalCandidates: 0,
+          candidates_created: 0,
+          raw_results: rawResultsCount,
+          search_status: searchResult.status,
+          hito: '17B.4K',
+        },
+      })
+      .eq('id', runId);
+
+    return {
+      ok: true,
+      status: 'no_reviewable_candidate',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount,
+      creditsUsed: null,
+      message: `Lusha search returned no results: ${searchResult.status}`,
+    };
+  }
+
+  // 8. Enrich up to maxCandidates results
+  const candidates = searchResult.sanitizedResults.filter((c) => c.id).slice(0, maxCandidates);
+  let candidatesCreated = 0;
+  let duplicatesSkipped = 0;
+  let totalCreditsUsed: number | null = null;
+  const enrichStep = agentRunId
+    ? await createAgentRunStep({
+        agent_run_id: agentRunId,
+        step_key: 'lusha_contact_enrich_batch',
+        step_name: 'Lusha Contact Enrich V3 batch (company)',
+        metadata: {
+          candidatesToEnrich: candidates.length,
+          reveal: ['emails'],
+          phone_reveal_enabled: false,
+          hito: '17B.4K',
+        },
+      })
+    : null;
+
+  for (const candidate of candidates) {
+    if (!candidate.id) continue;
+
+    const enrichResult = await enrichLushaContactsV3({
+      apiKey,
+      timeoutMs,
+      contacts: [{ id: candidate.id }],
+      reveal: ['emails'],
+    });
+
+    if (!enrichResult.ok || !enrichResult.sanitizedResults?.length) continue;
+
+    const contact = enrichResult.sanitizedResults[0];
+    const contactWithEmail = contact as typeof contact & { internalEmail?: string | null };
+    const actualEmail = contactWithEmail.internalEmail ?? null;
+    const emailDomain = contact.emailDomain ?? null;
+
+    // Accumulate credits
+    const { creditsCharged: billingCredits } = extractLushaBilling(
+      (enrichResult as unknown as Record<string, unknown>)['billing'],
+    );
+    const stepCredits = enrichResult.creditsCharged ?? billingCredits ?? null;
+    if (stepCredits !== null) {
+      totalCreditsUsed = (totalCreditsUsed ?? 0) + stepCredits;
+    }
+
+    // Name normalization
+    const lushaRawName =
+      [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() ||
+      contact.fullName || null;
+    const normalizedName = normalizeLushaPersonName(lushaRawName);
+    if (!normalizedName) continue;
+
+    // LinkedIn priority: search result > enrich result
+    const searchLinkedin = candidate.linkedinUrl ?? null;
+    const enrichLinkedin = contact.linkedinUrl ?? null;
+    const candidateLinkedinUrl = searchLinkedin || enrichLinkedin || null;
+    const linkedinSource = searchLinkedin ? 'lusha_search' : enrichLinkedin ? 'lusha_enrich' : null;
+
+    // Dedup check
+    const isDuplicate = await checkExactDuplicate(admin, run.account_id, actualEmail, candidateLinkedinUrl);
+    if (isDuplicate) {
+      duplicatesSkipped += 1;
+      continue;
+    }
+
+    const consistency = checkLushaCompanyConsistency(emailDomain, companyDomain);
+
+    const enrichmentMetadata: Record<string, unknown> = {
+      provider: 'lusha',
+      lusha_id: candidate.id,
+      source_endpoint: 'contacts_enrich',
+      reveal: ['emails'],
+      email_type: contact.emailType ?? null,
+      email_domain: emailDomain,
+      phone_reveal_enabled: false,
+      phone_policy: 'disabled_in_v1_explicit_future_action_required',
+      lusha_full_name: lushaRawName,
+      normalized_full_name: normalizedName,
+      name_source: 'lusha_enrich_normalized',
+      name_normalization_status: 'normalized',
+      name_normalization_hito: '17B.4K',
+      input_linkedin_url: searchLinkedin,
+      lusha_linkedin_url: enrichLinkedin,
+      linkedin_source: linkedinSource,
+      linkedin_conflict: searchLinkedin && enrichLinkedin
+        ? linkedinKey(searchLinkedin) !== linkedinKey(enrichLinkedin)
+        : false,
+      company_consistency: {
+        status: consistency.status,
+        signals: consistency.signals,
+        expected_domain: companyDomain,
+        email_domain: emailDomain,
+      },
+      billing: { credits_charged: stepCredits, credits_source: 'billing' },
+      hito: '17B.4K',
+    };
+
+    const { error: insertError } = await admin
+      .from('contact_enrichment_candidates')
+      .insert({
+        enrichment_run_id: runId,
+        first_name: contact.firstName ?? null,
+        last_name: contact.lastName ?? null,
+        full_name: normalizedName,
+        title: contact.title ?? null,
+        seniority: null,
+        department: null,
+        country: run.company_country_code ?? null,
+        linkedin_url: candidateLinkedinUrl,
+        email: actualEmail,
+        phone: null,
+        source: 'lusha' as const,
+        source_contact_id: candidate.id,
+        confidence: 0.9,
+        status: 'pending_review' as const,
+        duplicate_status: 'no_match',
+        enrichment_metadata: enrichmentMetadata,
+      });
+
+    if (!insertError) {
+      candidatesCreated += 1;
+    }
+  }
+
+  // 9. Log usage
+  await logProviderUsage({
+    agent_run_id: agentRunId,
+    agent_run_step_id: enrichStep?.id,
+    provider_key: 'lusha',
+    operation_key: 'lusha_contact_enrich',
+    credits_used: totalCreditsUsed ?? undefined,
+    results_returned: candidatesCreated,
+    estimated_cost_usd: 0,
+    status: candidatesCreated > 0 ? 'success' : 'error',
+    triggered_by: triggeredBy,
+    metadata: {
+      endpoint: 'contacts_enrich',
+      reveal: ['emails'],
+      phone_reveal_enabled: false,
+      raw_results: rawResultsCount,
+      candidates_created: candidatesCreated,
+      duplicates_skipped: duplicatesSkipped,
+      hito: '17B.4K',
+    },
+  });
+
+  if (enrichStep) {
+    await finishAgentRunStep(enrichStep.id, {
+      status: candidatesCreated > 0 ? 'success' : 'success',
+      results_returned: candidatesCreated,
+      metadata: {
+        candidates_created: candidatesCreated,
+        duplicates_skipped: duplicatesSkipped,
+        credits_used: totalCreditsUsed,
+        hito: '17B.4K',
+      },
+    });
+  }
+
+  // 10. Update run → ready_for_review
+  await admin
+    .from('contact_enrichment_runs')
+    .update({
+      status: 'ready_for_review',
+      providers_used: ['lusha'],
+      summary: {
+        totalCandidates: candidatesCreated,
+        candidates_created: candidatesCreated,
+        duplicates_skipped: duplicatesSkipped,
+        raw_results: rawResultsCount,
+        credits_used: totalCreditsUsed,
+        hito: '17B.4K',
+      },
+    })
+    .eq('id', runId);
+
   return {
-    ok: false,
-    status: 'not_implemented' as LushaRunnerStatus,
+    ok: candidatesCreated > 0,
+    status: candidatesCreated > 0 ? 'success' : 'no_reviewable_candidate',
     runId,
-    candidatesCreated: 0,
-    creditsUsed: null,
-    message: 'Use executeControlledLushaContactEnrichRun for live enrichment.',
+    candidatesCreated,
+    duplicatesSkipped,
+    rawResultsCount,
+    creditsUsed: totalCreditsUsed,
+    message: `Lusha company run: ${candidatesCreated} candidate(s) created, ${duplicatesSkipped} duplicate(s) skipped.`,
   };
 }

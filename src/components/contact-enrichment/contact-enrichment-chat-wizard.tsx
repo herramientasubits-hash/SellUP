@@ -15,6 +15,8 @@ import {
   resolveContactEnrichmentCompanyAction,
   startContactEnrichmentRunAction,
   runContactEnrichmentApolloAction,
+  runContactEnrichmentLushaAction,
+  isLushaEnabledAction,
 } from '@/modules/contact-enrichment/actions';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
@@ -27,6 +29,7 @@ import {
 import type {
   ContactEnrichmentChatStep,
   ContactEnrichmentInitialCompany,
+  ContactEnrichmentProvider,
 } from './contact-enrichment-chat-types';
 import { SourceBadge, CompanyChip, RunResultSnapshot, ApolloPreflightCard } from './contact-enrichment-chat-result';
 import type { ManualContactContext } from './contact-enrichment-chat-types';
@@ -49,6 +52,8 @@ function composerPlaceholder(step: ContactEnrichmentChatStep): string {
       return 'Creando run…';
     case 'searching_apollo':
       return 'Buscando en Apollo…';
+    case 'searching_lusha':
+      return 'Buscando en Lusha…';
     case 'done':
       return 'Enriquecimiento preparado';
     case 'error':
@@ -62,6 +67,7 @@ function typingLabelForStep(step: ContactEnrichmentChatStep): string {
   if (step === 'resolving') return 'Buscando en SellUp y HubSpot…';
   if (step === 'creating_run') return 'Creando run y revisando contactos existentes…';
   if (step === 'searching_apollo') return 'Buscando perfiles relevantes en Apollo…';
+  if (step === 'searching_lusha') return 'Buscando perfiles en Lusha…';
   return 'escribiendo';
 }
 
@@ -83,14 +89,19 @@ export function ContactEnrichmentChatWizard({
   );
 
   const [composerText, setComposerText] = React.useState('');
+  const [lushaEnabled, setLushaEnabled] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
+  React.useEffect(() => {
+    isLushaEnabledAction().then(setLushaEnabled).catch(() => setLushaEnabled(false));
+  }, []);
 
   const { visibleCount, isRevealing } = useProgressiveReveal(state.messages.length);
   const isLoadingStep =
     state.step === 'resolving' ||
     state.step === 'creating_run' ||
-    state.step === 'searching_apollo';
+    state.step === 'searching_apollo' ||
+    state.step === 'searching_lusha';
   const isTyping = isRevealing || isLoadingStep;
   const showActiveRegion = !isTyping;
 
@@ -201,6 +212,35 @@ export function ContactEnrichmentChatWizard({
     dispatch({ type: 'APOLLO_SUCCEEDED', result: uiResult });
   }
 
+  async function handleSearchLusha() {
+    const runId = state.runResult?.runId;
+    if (!runId || state.step !== 'done') return;
+    dispatch({ type: 'LUSHA_START' });
+
+    const result = await runContactEnrichmentLushaAction(runId);
+
+    const uiResult = {
+      status: result.status ?? 'error',
+      candidatesCreated: result.candidatesCreated ?? 0,
+      duplicatesSkipped: result.duplicatesSkipped ?? 0,
+      rawResultsCount: result.rawResultsCount ?? 0,
+      creditsUsed: result.creditsUsed ?? null,
+      providerStatus: result.providerStatus ?? 'error',
+      noReviewableContactsFound: result.noReviewableContactsFound ?? true,
+      error: result.error,
+    } as const;
+
+    if (!result.success || result.providerStatus !== 'success') {
+      dispatch({ type: 'LUSHA_FAILED', result: uiResult });
+      return;
+    }
+    dispatch({ type: 'LUSHA_SUCCEEDED', result: uiResult });
+  }
+
+  function handleProviderChange(provider: ContactEnrichmentProvider) {
+    dispatch({ type: 'SELECT_PROVIDER', provider });
+  }
+
   function handleReset() {
     setComposerText('');
     dispatch({ type: 'RESET' });
@@ -290,12 +330,23 @@ export function ContactEnrichmentChatWizard({
                       : undefined
                   }
                 />
-                {!state.apolloResult && (
+                {!state.apolloResult && !state.lushaResult && (
                   <>
                     <ApolloPreflightCard />
-                    <Button onClick={handleSearchApollo} className="w-full">
+                    {lushaEnabled && (
+                      <ProviderSelector
+                        selected={state.selectedProvider}
+                        onChange={handleProviderChange}
+                      />
+                    )}
+                    <Button
+                      onClick={state.selectedProvider === 'lusha' ? handleSearchLusha : handleSearchApollo}
+                      className="w-full"
+                    >
                       <Sparkles className="mr-2 h-4 w-4" aria-hidden />
-                      Buscar contactos con control de créditos
+                      {state.selectedProvider === 'lusha'
+                        ? 'Buscar contactos con Lusha'
+                        : 'Buscar contactos con control de créditos'}
                     </Button>
                   </>
                 )}
@@ -366,6 +417,59 @@ function SecondaryReset({ onReset, label }: { onReset: () => void; label: string
     <Button variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground">
       {label}
     </Button>
+  );
+}
+
+// ── Provider selector (17B.4K) ───────────────────────────────────────────────
+
+function ProviderSelector({
+  selected,
+  onChange,
+}: {
+  selected: ContactEnrichmentProvider;
+  onChange: (p: ContactEnrichmentProvider) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+        Proveedor de enriquecimiento
+      </p>
+      <div className="space-y-2">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-muted/40 transition-colors">
+          <input
+            type="radio"
+            name="enrichment-provider"
+            value="apollo"
+            checked={selected === 'apollo'}
+            onChange={() => onChange('apollo')}
+            className="mt-0.5 accent-su-brand"
+          />
+          <div>
+            <p className="text-sm font-medium">Apollo</p>
+            <p className="text-xs text-muted-foreground">
+              Recomendado · proveedor principal para búsqueda y enriquecimiento de contactos.
+            </p>
+          </div>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-muted/40 transition-colors">
+          <input
+            type="radio"
+            name="enrichment-provider"
+            value="lusha"
+            checked={selected === 'lusha'}
+            onChange={() => onChange('lusha')}
+            className="mt-0.5 accent-su-brand"
+          />
+          <div>
+            <p className="text-sm font-medium">Lusha</p>
+            <p className="text-xs text-muted-foreground">
+              Proveedor alternativo en validación. Revela email corporativo cuando está disponible.
+              Teléfono deshabilitado en esta fase.
+            </p>
+          </div>
+        </label>
+      </div>
+    </div>
   );
 }
 

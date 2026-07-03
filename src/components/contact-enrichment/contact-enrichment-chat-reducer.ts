@@ -56,6 +56,20 @@ const APOLLO_NOT_CONNECTED =
 const APOLLO_SKIPPED =
   'No tengo datos suficientes (dominio o nombre) para buscar en Apollo de forma segura. No se crearon candidatos.';
 
+const LUSHA_SEARCHING = 'Voy a buscar perfiles en Lusha…';
+
+const LUSHA_DONE_WITH_CANDIDATES =
+  'Encontré candidato(s) en Lusha con email corporativo. Quedaron listos para revisión. No creé contactos finales: requieren tu aprobación.';
+
+const LUSHA_DONE_NO_CANDIDATES =
+  'Lusha no encontró contactos disponibles para esta empresa o el resultado ya existe como contacto.';
+
+const LUSHA_NOT_CONNECTED =
+  'Lusha no está disponible o no tiene credenciales configuradas.\nNo se crearon candidatos.';
+
+const LUSHA_DISABLED =
+  'Lusha no está habilitado en este entorno. Usa Apollo para continuar.';
+
 // ── Message minting helper ─────────────────────────────────────────────────────
 
 type DraftMessage = { role: AgentChatRole; content: string; tone?: AgentChatTone };
@@ -142,7 +156,9 @@ export function createInitialContactEnrichmentChatState(
     selectedCandidate: null,
     skippedHubSpot: false,
     runResult: null,
+    selectedProvider: 'apollo',
     apolloResult: null,
+    lushaResult: null,
     errorMessage: null,
   };
 
@@ -163,6 +179,8 @@ export function createInitialContactEnrichmentChatState(
       selectedCandidate: preloaded,
       candidates: [preloaded],
       query: initialCompany.name,
+      selectedProvider: 'apollo',
+      lushaResult: null,
       ...appendMessages(base, [{ role: 'assistant', content: PRELOADED_INTRO }]),
     };
   }
@@ -362,6 +380,50 @@ export function contactEnrichmentChatReducer(
         ...state,
         step: 'done',
         apolloResult: action.result,
+        ...appendMessages(state, [{ role: 'system', content: reason, tone: 'warning' }]),
+      };
+    }
+
+    case 'SELECT_PROVIDER': {
+      if (state.step !== 'done') return state;
+      return { ...state, selectedProvider: action.provider };
+    }
+
+    case 'LUSHA_START': {
+      if (state.step !== 'done') return state;
+      return {
+        ...state,
+        step: 'searching_lusha',
+        errorMessage: null,
+        ...appendMessages(state, [
+          { role: 'user', content: 'Buscar contactos con Lusha' },
+          { role: 'assistant', content: LUSHA_SEARCHING },
+        ]),
+      };
+    }
+
+    case 'LUSHA_SUCCEEDED': {
+      const created = action.result.candidatesCreated;
+      const content = created > 0 ? LUSHA_DONE_WITH_CANDIDATES : LUSHA_DONE_NO_CANDIDATES;
+      return {
+        ...state,
+        step: 'done',
+        lushaResult: action.result,
+        ...appendMessages(state, [{ role: 'assistant', content }]),
+      };
+    }
+
+    case 'LUSHA_FAILED': {
+      const reason =
+        action.result.status === 'disabled' || action.result.status === 'missing_api_key'
+          ? action.result.status === 'disabled'
+            ? LUSHA_DISABLED
+            : LUSHA_NOT_CONNECTED
+          : LUSHA_NOT_CONNECTED;
+      return {
+        ...state,
+        step: 'done',
+        lushaResult: action.result,
         ...appendMessages(state, [{ role: 'system', content: reason, tone: 'warning' }]),
       };
     }

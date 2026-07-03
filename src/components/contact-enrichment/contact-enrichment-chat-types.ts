@@ -5,6 +5,10 @@
 import type { AgentChatMessage } from '@/components/agent-chat';
 import type { CompanyCandidate, ContactEnrichmentRunResult } from '@/modules/contact-enrichment/types';
 
+// ── Provider selection (17B.4K) ───────────────────────────────────────────────
+
+export type ContactEnrichmentProvider = 'apollo' | 'lusha';
+
 // ── Conversational steps ──────────────────────────────────────────────────────
 
 export type ContactEnrichmentChatStep =
@@ -16,7 +20,21 @@ export type ContactEnrichmentChatStep =
   | 'creating_run' // creating the run + reading existing contacts
   | 'done' // run created — snapshot shown
   | 'searching_apollo' // querying Apollo for real candidates (Hito 17A.3A)
+  | 'searching_lusha' // querying Lusha for contacts (17B.4K)
   | 'error'; // controlled error
+
+// ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────
+
+export interface LushaEnrichmentUiResult {
+  status: 'ready_for_review' | 'completed' | 'no_reviewable_candidate' | 'disabled' | 'missing_api_key' | 'not_found' | 'invalid_account' | 'invalid_run_status' | 'provider_error' | 'error';
+  candidatesCreated: number;
+  duplicatesSkipped: number;
+  rawResultsCount: number;
+  creditsUsed: number | null;
+  providerStatus: 'success' | 'skipped' | 'error';
+  noReviewableContactsFound: boolean;
+  error?: string;
+}
 
 // ── Apollo enrichment result (Hito 17A.3A) ─────────────────────────────────────
 
@@ -79,8 +97,12 @@ export interface ContactEnrichmentChatState {
   selectedCandidate: CompanyCandidate | null;
   skippedHubSpot: boolean;
   runResult: ContactEnrichmentRunResult | null;
+  /** Selected provider for enrichment. Apollo is default. (17B.4K) */
+  selectedProvider: ContactEnrichmentProvider;
   /** Apollo candidate-sourcing result (Hito 17A.3A). Null until Apollo runs. */
   apolloResult: ApolloEnrichmentUiResult | null;
+  /** Lusha candidate-sourcing result (17B.4K). Null until Lusha runs. */
+  lushaResult: LushaEnrichmentUiResult | null;
   errorMessage: string | null;
 }
 
@@ -98,9 +120,13 @@ export type ContactEnrichmentChatAction =
   | { type: 'CONFIRM' }
   | { type: 'RUN_SUCCEEDED'; result: ContactEnrichmentRunResult }
   | { type: 'RUN_FAILED'; message: string }
+  | { type: 'SELECT_PROVIDER'; provider: ContactEnrichmentProvider }
   | { type: 'APOLLO_START' }
   | { type: 'APOLLO_SUCCEEDED'; result: ApolloEnrichmentUiResult }
   | { type: 'APOLLO_FAILED'; result: ApolloEnrichmentUiResult }
+  | { type: 'LUSHA_START' }
+  | { type: 'LUSHA_SUCCEEDED'; result: LushaEnrichmentUiResult }
+  | { type: 'LUSHA_FAILED'; result: LushaEnrichmentUiResult }
   | { type: 'RESET' };
 
 // ── Manual contact context (Hito 17A.7C.2) ────────────────────────────────────

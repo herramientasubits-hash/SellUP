@@ -918,17 +918,71 @@ export async function getBulkContactEnrichmentRunStatusAction(
   }
 }
 
-// ── Lusha Action (Agente 2A · 17B.3) ─────────────────────────────────────────
-// Skeleton apagado por feature flag. No conectado a UI. No ejecutar en QA live.
+// ── Lusha Action (17B.4K) ─────────────────────────────────────────────────────
+// Proveedor controlado detrás de ENABLE_LUSHA_CONTACT_ENRICHMENT.
+// No crea contactos finales. No toca HubSpot. No revela teléfonos.
+// Requiere revisión humana antes de crear contacto oficial.
+
+export interface RunLushaActionResult {
+  success: boolean;
+  status?: 'ready_for_review' | 'completed' | 'no_reviewable_candidate' | 'disabled' | 'missing_api_key' | 'not_found' | 'invalid_account' | 'invalid_run_status' | 'provider_error' | 'error';
+  candidatesCreated?: number;
+  duplicatesSkipped?: number;
+  rawResultsCount?: number;
+  creditsUsed?: number | null;
+  providerStatus?: 'success' | 'skipped' | 'error';
+  noReviewableContactsFound?: boolean;
+  error?: string;
+}
 
 /**
- * Server action para el runner de Lusha.
- * En 17B.3 el runner siempre retorna disabled/missing_api_key/not_implemented.
- * No crea candidatos. No modifica runs. No llama API de Lusha.
+ * Ejecuta Lusha para un run en ready_to_enrich: busca personas en la empresa,
+ * normaliza, deduplica y crea candidatos en staging.
+ * NO crea contactos finales ni escribe en HubSpot. Requiere revisión humana.
+ * Gated por ENABLE_LUSHA_CONTACT_ENRICHMENT.
  */
-export async function runContactEnrichmentLushaAction(runId: string) {
-  const { internalUserId } = await requireActiveUserForEnrichment();
-  return executeContactEnrichmentLushaRun(runId, internalUserId);
+export async function runContactEnrichmentLushaAction(
+  runId: unknown,
+): Promise<RunLushaActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+
+    if (typeof runId !== 'string' || !runId.trim()) {
+      throw new Error('runId inválido');
+    }
+
+    const result = await executeContactEnrichmentLushaRun(runId.trim(), internalUserId);
+
+    const providerStatus: 'success' | 'skipped' | 'error' =
+      result.ok ? 'success'
+        : result.status === 'disabled' || result.status === 'missing_api_key' ? 'skipped'
+          : 'error';
+
+    return {
+      success: result.ok,
+      status: result.status as RunLushaActionResult['status'],
+      candidatesCreated: result.candidatesCreated,
+      duplicatesSkipped: result.duplicatesSkipped ?? 0,
+      rawResultsCount: result.rawResultsCount ?? 0,
+      creditsUsed: result.creditsUsed,
+      providerStatus,
+      noReviewableContactsFound: result.candidatesCreated === 0,
+      error: result.ok ? undefined : result.message,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error ejecutando Lusha';
+    return { success: false, status: 'error', providerStatus: 'error', error: message };
+  }
+}
+
+// ── Lusha feature flag check (17B.4K) ────────────────────────────────────────
+
+/**
+ * Returns whether the Lusha contact enrichment feature is enabled.
+ * Safe to call from client components via server action.
+ */
+export async function isLushaEnabledAction(): Promise<boolean> {
+  return isLushaContactEnrichmentEnabled();
 }
 
 // ── Lusha Account Usage Health Check (Agente 2A · 17B.4A) ────────────────────
