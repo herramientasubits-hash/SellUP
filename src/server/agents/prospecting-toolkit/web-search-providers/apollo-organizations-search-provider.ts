@@ -26,11 +26,23 @@
  */
 
 import type { WebSearchInput, WebSearchOutput, WebSearchResult } from '../types';
-import { isApolloCompanySearchEnabled } from '@/lib/feature-flags.server';
+import {
+  isApolloCompanySearchEnabled,
+  isApolloOrganizationEnrichmentCascadeEnabled,
+  resolveApolloMaxEnrichmentsPerRun,
+} from '@/lib/feature-flags.server';
 import {
   searchApolloOrganizations,
+  enrichApolloOrganization,
   type ApolloOrganization,
+  type EnrichOrganizationParams,
+  type ApolloEnrichResult,
 } from '@/server/integrations/apollo-client';
+import {
+  runApolloOrganizationEnrichmentCascade,
+  buildDisabledCascadeMeta,
+  type ApolloEnrichmentCascadeMeta,
+} from '../apollo-organization-enrichment-cascade';
 import {
   buildApolloOrgsUsageKey,
   realLogApolloOrgsUsage,
@@ -420,6 +432,8 @@ const DRY_RUN_FIXTURE_ORGS: ApolloOrganizationInput[] = [
 export type ApolloOrgsSearchDeps = {
   searchOrgs?: typeof searchApolloOrganizations;
   logUsage?: typeof realLogApolloOrgsUsage;
+  /** L2.15: injectable enrichment fn — for tests only, never call real in production without flag. */
+  enrichOrg?: (params: EnrichOrganizationParams) => Promise<ApolloEnrichResult<ApolloOrganization>>;
 };
 
 // ─── Provider público ─────────────────────────────────────────────────────────
@@ -613,13 +627,33 @@ export async function runApolloOrganizationsSearch(
   }
   const normalizedResultsCount = mapped.length; // pre-gate count
 
+  // ── L2.15: Apollo Organization Enrichment cascade ────────────────────────────
+  // ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE=false (default) → skip, results intactos.
+  // ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE=true → enriquecer hasta max cap antes del gate.
+  // Enriquece metadata.apollo_profile para que el sector gate tenga más evidencia.
+  let enrichedMapped: WebSearchResult[] = mapped;
+  let enrichmentCascadeMeta: ApolloEnrichmentCascadeMeta;
+  if (isApolloOrganizationEnrichmentCascadeEnabled()) {
+    const maxEnrichments = resolveApolloMaxEnrichmentsPerRun();
+    const cascadeResult = await runApolloOrganizationEnrichmentCascade(
+      mapped,
+      maxEnrichments,
+      { enrichOrg: deps?.enrichOrg ?? enrichApolloOrganization },
+    );
+    enrichedMapped = cascadeResult.results;
+    enrichmentCascadeMeta = cascadeResult.meta;
+  } else {
+    enrichmentCascadeMeta = buildDisabledCascadeMeta();
+  }
+
   // ── Sector relevance gate (v1.16K-AD, L2.13) ─────────────────────────────────
   // Filtra candidatos sin evidencia sectorial antes de persistir.
   // Gate solo actúa para apollo_organizations; Tavily no afectado.
   // L2.13: pasar subindustria primaria para activar señales estrictas de subindustria
   // (ej. 'formacion corporativa' rechaza universidades, solo pasa LMS/corporate training).
+  // L2.15: gate recibe enrichedMapped (con apollo_profile más completo si cascade activo).
   const primarySubindustry = input.subindustries?.[0] ?? null;
-  const gateResult = applyApolloSectorRelevanceGate(mapped, input.industry, 'apollo_organizations', primarySubindustry);
+  const gateResult = applyApolloSectorRelevanceGate(enrichedMapped, input.industry, 'apollo_organizations', primarySubindustry);
   const filteredMapped = gateResult.passed;
 
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────
@@ -725,6 +759,8 @@ export async function runApolloOrganizationsSearch(
       apollo_result_diagnostics: apolloResultDiagnostics,
       // L2.14: samples raw de Apollo — para ver exactamente qué campos devolvió la API
       apollo_raw_result_samples_sanitized: rawResultSamples,
+      // L2.15: metadata del enrichment cascade (enabled=false cuando flag OFF)
+      apollo_enrichment_cascade: enrichmentCascadeMeta,
     },
   };
 }

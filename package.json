@@ -88,6 +88,7 @@
     "test:search-quality-v1-16-k-h": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-k-h.test.ts",
     "test:search-quality-v1-16-k-k": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16k-k.test.ts",
     "test:search-quality-v1-16-k-r-b": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/search-quality-v1-16-k-r-b.test.ts",
+    "test:apollo-enrichment-cascade-l2-15": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/apollo-enrichment-cascade-l2-15.test.ts",
     "agent1:smoke:employee-size-resolver-write": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/smoke-employee-size-resolver-write.ts",
     "agent1:smoke:linkedin-recall-canary": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/agent1/run-linkedin-recall-canary.ts",
     "agent1:dry-run:source-guided": "NODE_ENV=development node --import tsx scripts/agent1/dry-run-source-guided-investigation.ts",

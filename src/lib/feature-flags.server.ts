@@ -87,3 +87,41 @@ export function isApolloCompanySearchEnabled(): boolean {
     process.env[APOLLO_COMPANY_SEARCH_FLAG]?.trim().toLowerCase() === 'true'
   );
 }
+
+/** Flag name constant for Apollo Organization Enrichment cascade in Agent 1 (L2.15). */
+export const APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG =
+  'ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE';
+
+/**
+ * Returns true when ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE is "true".
+ *
+ * Default: false. When disabled, Organization Search results flow directly to the
+ * sector gate without enrichment — behavior is identical to L2.14.
+ * When enabled, each search result with a resolvable domain is enriched via
+ * Apollo's /organizations/enrich endpoint before the sector gate, giving the gate
+ * richer signals (industry, keywords, descriptions, employee count).
+ *
+ * Hard cap: at most AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN enrichments per run
+ * (env var, default 1, max 3). Must not be enabled until the enrichment pricing
+ * entry (operation_key='organization_enrichment') is confirmed in production.
+ */
+export function isApolloOrganizationEnrichmentCascadeEnabled(): boolean {
+  return (
+    process.env[APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG]
+      ?.trim()
+      .toLowerCase() === 'true'
+  );
+}
+
+/**
+ * Returns the max enrichments per run for the Organization Enrichment cascade.
+ * Reads AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN; clamps to [1, 3].
+ * Default: 1.
+ */
+export function resolveApolloMaxEnrichmentsPerRun(): number {
+  const raw = process.env['AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN'];
+  if (!raw) return 1;
+  const parsed = parseInt(raw.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, 3); // hard cap 3
+}
