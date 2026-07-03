@@ -11,8 +11,9 @@
 
 import { getAdminBudgetSummary } from './budget-resolution';
 import { getAdminClient } from './queries';
+import { getBudgetRulesForProvider, getBudgetRuleFormOptions } from './rule-queries';
 import type { AdminProviderBudgetRow } from './types';
-import type { BudgetRule } from '@/modules/usage-tracking/types';
+import type { BudgetRuleRow, BudgetRuleFormOptions } from './rule-queries';
 
 // ─── Recent usage log row ─────────────────────────────────────────────────────
 
@@ -42,9 +43,12 @@ export interface ProviderSyncLogRow {
 
 // ─── Provider detail result ───────────────────────────────────────────────────
 
+export type { BudgetRuleRow, BudgetRuleFormOptions };
+
 export interface ProviderDetailResult {
   row: AdminProviderBudgetRow;
-  activeRulesForProvider: BudgetRule[];
+  allRulesForProvider: BudgetRuleRow[];
+  formOptions: BudgetRuleFormOptions;
   recentUsageLogs: ProviderUsageLogRow[];
   recentSyncLogs: ProviderSyncLogRow[];
 }
@@ -62,9 +66,10 @@ export async function getProviderDetail(
 ): Promise<ProviderDetailResult | null> {
   const normalizedKey = providerKey.toLowerCase();
 
-  const [summary, rulesResult, usageResult, syncResult] = await Promise.all([
+  const [summary, allRules, options, usageResult, syncResult] = await Promise.all([
     getAdminBudgetSummary(),
-    getActiveRulesForSingleProvider(normalizedKey),
+    getBudgetRulesForProvider(normalizedKey),
+    getBudgetRuleFormOptions(),
     getRecentUsageLogs(normalizedKey, 20),
     getRecentSyncLogs(normalizedKey, 10),
   ]);
@@ -74,30 +79,14 @@ export async function getProviderDetail(
 
   return {
     row,
-    activeRulesForProvider: rulesResult,
+    allRulesForProvider: allRules,
+    formOptions: options,
     recentUsageLogs: usageResult,
     recentSyncLogs: syncResult,
   };
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
-
-async function getActiveRulesForSingleProvider(providerKey: string): Promise<BudgetRule[]> {
-  try {
-    const admin = getAdminClient();
-    const { data, error } = await admin
-      .from('budget_rules')
-      .select('*')
-      .eq('provider_key', providerKey)
-      .eq('is_active', true)
-      .order('scope_type');
-
-    if (error || !data) return [];
-    return data as BudgetRule[];
-  } catch {
-    return [];
-  }
-}
 
 async function getRecentUsageLogs(
   providerKey: string,

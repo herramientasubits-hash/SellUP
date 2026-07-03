@@ -109,6 +109,63 @@ export async function getBudgetRulesForAdmin(): Promise<BudgetRuleRow[]> {
   }));
 }
 
+// ─── getBudgetRulesForProvider ────────────────────────────────────────────────
+
+/**
+ * Returns ALL budget rules (active + inactive) for a single provider, with
+ * scope labels resolved. Used by the provider detail page for in-place CRUD.
+ */
+export async function getBudgetRulesForProvider(providerKey: string): Promise<BudgetRuleRow[]> {
+  const admin = getAdminClient();
+
+  const [rulesResult, toolResult, rolesResult, groupsResult, usersResult] = await Promise.all([
+    admin
+      .from('budget_rules')
+      .select('*')
+      .eq('provider_key', providerKey)
+      .order('created_at', { ascending: false }),
+    admin
+      .from('tool_catalog')
+      .select('display_name')
+      .eq('provider_key', providerKey)
+      .maybeSingle(),
+    admin.from('roles').select('key, name'),
+    admin.from('organization_groups').select('id, name, parent_group_id'),
+    admin
+      .from('internal_users')
+      .select('id, full_name, email')
+      .eq('access_status', 'approved'),
+  ]);
+
+  const rules = (rulesResult.data ?? []) as BudgetRule[];
+  const providerDisplayName = (toolResult.data?.display_name as string | null) ?? providerKey;
+
+  const roleMap = new Map(
+    (rolesResult.data ?? []).map((r) => [r.key as string, r.name as string]),
+  );
+  const groupMap = new Map(
+    (groupsResult.data ?? []).map((g) => [g.id as string, g.name as string]),
+  );
+  const userMap = new Map(
+    (usersResult.data ?? []).map((u) => [
+      u.id as string,
+      u.full_name
+        ? `${u.full_name as string} · ${u.email as string}`
+        : (u.email as string),
+    ]),
+  );
+
+  return rules.map((rule) => ({
+    ...rule,
+    providerDisplayName,
+    scopeLabel: resolveScopeLabel(rule.scope_type as BudgetScopeType, rule.scope_id, {
+      roleMap,
+      groupMap,
+      userMap,
+    }),
+  }));
+}
+
 // ─── getBudgetRuleFormOptions ─────────────────────────────────────────────────
 
 export async function getBudgetRuleFormOptions(): Promise<BudgetRuleFormOptions> {

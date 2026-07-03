@@ -33,12 +33,13 @@ export default async function ProviderDetailPage({ params }: Props) {
 
   if (!detail) notFound();
 
-  const { row, activeRulesForProvider, recentUsageLogs, recentSyncLogs } = detail;
+  const { row, allRulesForProvider, formOptions, recentUsageLogs, recentSyncLogs } = detail;
   const opType = getProviderOperationalType(row.providerKey);
   const ms = row.measurementStatus;
   const msBadge = MEASUREMENT_STATUS_BADGE[ms];
 
   const displayName = row.displayName ?? row.providerKey;
+  const activeRuleCount = allRulesForProvider.filter((r) => r.is_active).length;
 
   return (
     <div className="space-y-6 px-8 py-6">
@@ -60,16 +61,17 @@ export default async function ProviderDetailPage({ params }: Props) {
         >
           {MEASUREMENT_STATUS_LABEL[ms]}
         </span>
-        {activeRulesForProvider.length > 0 && (
+        {activeRuleCount > 0 && (
           <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {activeRulesForProvider.length} regla{activeRulesForProvider.length !== 1 ? 's' : ''} activa{activeRulesForProvider.length !== 1 ? 's' : ''}
+            {activeRuleCount} regla{activeRuleCount !== 1 ? 's' : ''} activa{activeRuleCount !== 1 ? 's' : ''}
           </span>
         )}
       </div>
 
       <ProviderDetailTabs
         row={row}
-        activeRules={activeRulesForProvider}
+        allRules={allRulesForProvider}
+        options={formOptions}
         usageLogs={recentUsageLogs}
         syncLogs={recentSyncLogs}
         aiDetail={aiDetail}

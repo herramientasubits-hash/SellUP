@@ -1,6 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
+import { Plus, Pencil, Power, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -18,11 +20,14 @@ import {
   OPERATIONAL_TYPE_BADGE,
 } from '@/modules/budgets/provider-operational-type';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
-import type { BudgetRule } from '@/modules/usage-tracking/types';
+import { toggleBudgetRuleStatus, archiveBudgetRule } from '@/modules/budgets/rule-actions';
+import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/provider-detail-queries';
 import type {
   ProviderUsageLogRow,
   ProviderSyncLogRow,
 } from '@/modules/budgets/provider-detail-queries';
+import { ProviderAllowanceDrawer } from '@/app/(sellup)/settings/budget-credits/provider-allowance-drawer';
+import { CreateDrawer, EditDrawer } from '@/app/(sellup)/settings/budget-credits/rules/budget-rules-client';
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
 
@@ -267,28 +272,267 @@ function TabResumen({ row }: { row: AdminProviderBudgetRow }) {
 
 // ─── Tab: Presupuesto y reglas ─────────────────────────────────────────────────
 
-const SCOPE_LABELS: Record<string, string> = {
-  global: 'Global',
-  user: 'Usuario',
-  group: 'Grupo',
-  role: 'Rol',
-};
-
 const ON_EXCEED_LABELS: Record<string, string> = {
   alert: 'Alertar',
   block: 'Bloquear',
   require_approval: 'Requiere aprobación',
 };
 
+const PERIOD_LABELS: Record<string, string> = {
+  monthly: 'Mensual',
+  quarterly: 'Trimestral',
+  annual: 'Anual',
+  custom: 'Personalizado',
+};
+
+function formatLimit(credits: number | null, usd: number | null): string {
+  const parts: string[] = [];
+  if (credits != null && credits > 0) parts.push(`${credits.toLocaleString()} cr`);
+  if (usd != null && usd > 0) parts.push(`$${usd.toFixed(2)}`);
+  return parts.join(' · ') || '—';
+}
+
+function getQuotaButtonLabel(providerKey: string, row: AdminProviderBudgetRow): string | null {
+  if (row.measurementStatus === 'not_measured') return null;
+  const hasAllowance =
+    row.providerMonthlyCreditsAllowance != null || row.providerMonthlyUsdAllowance != null;
+  switch (providerKey) {
+    case 'tavily':
+    case 'lusha':
+      return 'Editar cuota';
+    case 'apollo':
+      return hasAllowance ? 'Editar cuota manual' : 'Configurar cuota manual';
+    case 'anthropic':
+      return hasAllowance ? 'Editar presupuesto USD' : 'Configurar presupuesto USD';
+    case 'openai':
+    case 'gemini':
+      return 'Configurar presupuesto';
+    default:
+      return hasAllowance ? 'Editar cuota' : 'Configurar cuota';
+  }
+}
+
+// ─── Provider rules section ───────────────────────────────────────────────────
+
+function ProviderRulesSection({
+  rules,
+  options,
+  providerKey,
+  isNotMeasured,
+}: {
+  rules: BudgetRuleRow[];
+  options: BudgetRuleFormOptions;
+  providerKey: string;
+  isNotMeasured: boolean;
+}) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [editRule, setEditRule] = useState<BudgetRuleRow | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState<BudgetRuleRow | null>(null);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState<string | null>(null);
+
+  async function handleToggle(rule: BudgetRuleRow) {
+    setToggling(rule.id);
+    await toggleBudgetRuleStatus(rule.id, !rule.is_active);
+    setToggling(null);
+    window.location.reload();
+  }
+
+  async function handleArchive(rule: BudgetRuleRow) {
+    setArchiving(rule.id);
+    await archiveBudgetRule(rule.id);
+    setArchiving(null);
+    setConfirmArchive(null);
+    window.location.reload();
+  }
+
+  if (isNotMeasured) {
+    return (
+      <SurfaceCard>
+        <div className="p-6">
+          <p className="text-base font-semibold text-foreground mb-2">Reglas de presupuesto</p>
+          <p className="text-sm text-muted-foreground">
+            Las reglas no aplican para este proveedor en esta fase.
+          </p>
+        </div>
+      </SurfaceCard>
+    );
+  }
+
+  return (
+    <>
+      <SurfaceCard>
+        <div className="p-6 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-base font-semibold text-foreground">Reglas de presupuesto</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Estas reglas aplican a este proveedor. Aún no bloquean ejecuciones salvo que la regla lo indique en fases futuras.
+              </p>
+            </div>
+            <Button size="sm" className="gap-1.5 shrink-0" onClick={() => setShowCreate(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Crear regla
+            </Button>
+          </div>
+
+          {rules.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border/50 py-10 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">
+                No hay reglas configuradas para este proveedor.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => setShowCreate(true)}>
+                Crear primera regla
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border/40">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/20">
+                    {['Alcance', 'Límite', 'Período', 'Si excede', 'Estado', 'Acciones'].map((col) => (
+                      <th key={col} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {rules.map((rule) => (
+                    <tr key={rule.id} className="hover:bg-muted/10 transition-colors">
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {rule.scopeLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-foreground text-xs">
+                        {formatLimit(rule.limit_credits, rule.limit_usd)}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
+                        {PERIOD_LABELS[rule.period_type] ?? rule.period_type}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
+                        {ON_EXCEED_LABELS[rule.on_exceed] ?? rule.on_exceed}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                            rule.is_active
+                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                              : 'border-border/40 bg-muted/30 text-muted-foreground'
+                          }`}
+                        >
+                          {rule.is_active ? 'Activa' : 'Inactiva'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs gap-1"
+                            onClick={() => setEditRule(rule)}
+                          >
+                            <Pencil className="h-3 w-3" />
+                            Editar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs gap-1"
+                            disabled={toggling === rule.id}
+                            onClick={() => handleToggle(rule)}
+                          >
+                            <Power className="h-3 w-3" />
+                            {rule.is_active ? 'Desactivar' : 'Activar'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs gap-1 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                            disabled={archiving === rule.id}
+                            onClick={() => setConfirmArchive(rule)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Eliminar
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </SurfaceCard>
+
+      {/* Archive confirmation */}
+      {confirmArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setConfirmArchive(null)}
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border/60 bg-card shadow-lg p-6 space-y-4 mx-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold text-foreground">¿Eliminar esta regla?</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                La regla ({confirmArchive.scopeLabel}) dejará de aplicarse.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmArchive(null)}
+                disabled={archiving === confirmArchive.id}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={archiving === confirmArchive.id}
+                onClick={() => handleArchive(confirmArchive)}
+              >
+                {archiving === confirmArchive.id ? 'Eliminando...' : 'Eliminar regla'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <CreateDrawer
+        options={options}
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        defaultProviderKey={providerKey}
+      />
+      <EditDrawer
+        rule={editRule}
+        open={!!editRule}
+        onOpenChange={(v) => { if (!v) setEditRule(null); }}
+      />
+    </>
+  );
+}
+
+// ─── TabPresupuesto ────────────────────────────────────────────────────────────
+
 function TabPresupuesto({
   row,
-  activeRules,
+  allRules,
+  options,
 }: {
   row: AdminProviderBudgetRow;
-  activeRules: BudgetRule[];
+  allRules: BudgetRuleRow[];
+  options: BudgetRuleFormOptions;
 }) {
+  const [allowanceOpen, setAllowanceOpen] = useState(false);
   const quotaState = deriveQuotaDisplayState(row);
   const isNotMeasured = row.measurementStatus === 'not_measured';
+  const quotaButtonLabel = getQuotaButtonLabel(row.providerKey, row);
 
   return (
     <div className="space-y-4">
@@ -351,68 +595,37 @@ function TabPresupuesto({
                   <p className="text-xs text-amber-600 dark:text-amber-400">{row.quotaSyncError}</p>
                 </div>
               )}
-              <div className="pt-1">
-                <Link href="/settings/providers">
-                  <Button variant="outline" size="sm" className="text-xs">
-                    Configurar cuota en tabla →
+              {quotaButtonLabel && (
+                <div className="pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => setAllowanceOpen(true)}
+                  >
+                    {quotaButtonLabel}
                   </Button>
-                </Link>
-              </div>
+                </div>
+              )}
             </>
           )}
         </div>
       </SurfaceCard>
 
-      {/* Reglas activas */}
-      <SurfaceCard>
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-base font-semibold text-foreground">
-              Reglas activas
-              {activeRules.length > 0 && (
-                <span className="ml-2 text-[10px] font-medium rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-muted-foreground">
-                  {activeRules.length}
-                </span>
-              )}
-            </p>
-            <Link href="/settings/budget-credits/rules">
-              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
-                Gestionar reglas →
-              </Button>
-            </Link>
-          </div>
+      {/* Reglas de presupuesto */}
+      <ProviderRulesSection
+        rules={allRules}
+        options={options}
+        providerKey={row.providerKey}
+        isNotMeasured={isNotMeasured}
+      />
 
-          {activeRules.length === 0 ? (
-            <EmptyState message="No hay reglas configuradas para este proveedor." />
-          ) : (
-            <div className="space-y-2">
-              {activeRules.map((rule) => (
-                <div
-                  key={rule.id}
-                  className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4 text-xs"
-                >
-                  <StatBlock
-                    label="Alcance"
-                    value={SCOPE_LABELS[rule.scope_type] ?? rule.scope_type}
-                  />
-                  <StatBlock
-                    label="Período"
-                    value={rule.period_type === 'monthly' ? 'Mensual' : rule.period_type}
-                  />
-                  <StatBlock
-                    label="Límite"
-                    value={fmt(rule.limit_credits, rule.limit_usd)}
-                  />
-                  <StatBlock
-                    label="Si excede"
-                    value={ON_EXCEED_LABELS[rule.on_exceed] ?? rule.on_exceed}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </SurfaceCard>
+      <ProviderAllowanceDrawer
+        provider={row}
+        open={allowanceOpen}
+        onClose={() => setAllowanceOpen(false)}
+        onSaved={() => window.location.reload()}
+      />
     </div>
   );
 }
@@ -772,13 +985,14 @@ function TabModelosYTarifas({ aiDetail }: { aiDetail: AiProviderDetailResult }) 
 
 interface Props {
   row: AdminProviderBudgetRow;
-  activeRules: BudgetRule[];
+  allRules: BudgetRuleRow[];
+  options: BudgetRuleFormOptions;
   usageLogs: ProviderUsageLogRow[];
   syncLogs: ProviderSyncLogRow[];
   aiDetail?: AiProviderDetailResult | null;
 }
 
-export function ProviderDetailTabs({ row, activeRules, usageLogs, syncLogs, aiDetail }: Props) {
+export function ProviderDetailTabs({ row, allRules, options, usageLogs, syncLogs, aiDetail }: Props) {
   const showAiTab = !!aiDetail;
 
   return (
@@ -803,7 +1017,7 @@ export function ProviderDetailTabs({ row, activeRules, usageLogs, syncLogs, aiDe
       )}
 
       <TabsContent value="presupuesto">
-        <TabPresupuesto row={row} activeRules={activeRules} />
+        <TabPresupuesto row={row} allRules={allRules} options={options} />
       </TabsContent>
 
       <TabsContent value="logs">

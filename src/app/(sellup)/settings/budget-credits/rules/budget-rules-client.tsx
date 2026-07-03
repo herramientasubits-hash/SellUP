@@ -89,16 +89,23 @@ const DEFAULT_FORM: FormState = {
 
 // ─── Create drawer ────────────────────────────────────────────────────────────
 
-function CreateDrawer({
+export function CreateDrawer({
   options,
   open,
   onOpenChange,
+  defaultProviderKey,
 }: {
   options: BudgetRuleFormOptions;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  defaultProviderKey?: string;
 }) {
-  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+  const makeInitial = (): FormState => ({
+    ...DEFAULT_FORM,
+    providerKey: defaultProviderKey ?? '',
+  });
+
+  const [form, setForm] = useState<FormState>(makeInitial);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,7 +118,7 @@ function CreateDrawer({
   }
 
   function reset() {
-    setForm(DEFAULT_FORM);
+    setForm(makeInitial());
     setError(null);
   }
 
@@ -179,18 +186,24 @@ function CreateDrawer({
         {/* Proveedor */}
         <FieldWrapper>
           <Label>Proveedor <span className="text-destructive">*</span></Label>
-          <Select value={form.providerKey || undefined} onValueChange={(v) => set('providerKey', v ?? '')}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Seleccionar proveedor" />
-            </SelectTrigger>
-            <SelectContent>
-              {options.providers.map((p) => (
-                <SelectItem key={p.providerKey} value={p.providerKey}>
-                  {p.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {defaultProviderKey ? (
+            <div className="flex h-9 w-full items-center rounded-md border border-border/60 bg-muted/30 px-3 text-sm text-muted-foreground">
+              {options.providers.find((p) => p.providerKey === defaultProviderKey)?.displayName ?? defaultProviderKey}
+            </div>
+          ) : (
+            <Select value={form.providerKey || undefined} onValueChange={(v) => set('providerKey', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar proveedor" />
+              </SelectTrigger>
+              <SelectContent>
+                {options.providers.map((p) => (
+                  <SelectItem key={p.providerKey} value={p.providerKey}>
+                    {p.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </FieldWrapper>
 
         {/* Alcance */}
@@ -353,7 +366,7 @@ function CreateDrawer({
 
 // ─── Edit drawer ──────────────────────────────────────────────────────────────
 
-function EditDrawer({
+export function EditDrawer({
   rule,
   open,
   onOpenChange,
