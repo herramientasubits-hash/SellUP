@@ -136,39 +136,47 @@ function TabResumen({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementS
 
   return (
     <div className="space-y-4">
-      <SectionCard>
-        <InfoRow
-          label="Tipo"
-          value={
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
-              {OPERATIONAL_TYPE_LABEL[opType]}
-            </span>
-          }
-        />
-        <InfoRow
-          label="Estado"
-          value={
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
-              {MEASUREMENT_STATUS_LABEL[ms]}
-            </span>
-          }
-        />
-        <InfoRow
-          label="Contexto"
-          value={<span className="text-muted-foreground">{getProviderOperationalContext(row.providerKey)}</span>}
-        />
-        {syncedAt && (
-          <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />
-        )}
-      </SectionCard>
+      <div className="grid md:grid-cols-2 gap-4">
+        <SectionCard>
+          <InfoRow
+            label="Tipo"
+            value={
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
+                {OPERATIONAL_TYPE_LABEL[opType]}
+              </span>
+            }
+          />
+          <InfoRow
+            label="Estado"
+            value={
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
+                {MEASUREMENT_STATUS_LABEL[ms]}
+              </span>
+            }
+          />
+          <InfoRow
+            label="Contexto"
+            value={<span className="text-muted-foreground">{getProviderOperationalContext(row.providerKey)}</span>}
+          />
+          {syncedAt && (
+            <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />
+          )}
+        </SectionCard>
 
-      <SectionCard>
-        <InfoRow label="Consumo del mes" value={consumed} />
-        <InfoRow label="Cuota configurada" value={allowance} />
-        {row.activeRules > 0 && (
-          <InfoRow label="Reglas activas" value={`${row.activeRules} regla${row.activeRules !== 1 ? 's' : ''}`} />
-        )}
-      </SectionCard>
+        <SectionCard>
+          <InfoRow label="Consumo del mes" value={consumed} />
+          <InfoRow label="Cuota configurada" value={allowance} />
+          {row.activeRules > 0 && (
+            <InfoRow label="Reglas activas" value={`${row.activeRules} regla${row.activeRules !== 1 ? 's' : ''}`} />
+          )}
+          {row.providerCreditsAvailable != null && (
+            <InfoRow
+              label="Disponible (API)"
+              value={formatAmount(row.providerCreditsAvailable, row.providerUsdAvailable)}
+            />
+          )}
+        </SectionCard>
+      </div>
 
       {hasAttention && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
@@ -209,13 +217,14 @@ function TabConfiguracion({
   return (
     <div className="space-y-4">
       {isIa ? (
-        <>
+        <div className="grid md:grid-cols-2 gap-4">
           <SectionCard>
             <InfoRow label="Tipo" value="LLM (modelo de lenguaje)" />
             <InfoRow label="Estado de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
             <InfoRow label="Cuota configurada" value={allowance} />
           </SectionCard>
           <div className="space-y-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
             <Link href="/settings/providers?tab=ia">
               <Button variant="outline" size="sm" className="w-full text-xs justify-between">
                 Gestionar modelos y tarifas
@@ -229,9 +238,9 @@ function TabConfiguracion({
               </Button>
             </Link>
           </div>
-        </>
+        </div>
       ) : (
-        <>
+        <div className="grid md:grid-cols-2 gap-4">
           <SectionCard>
             <InfoRow label="Modo de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
             <InfoRow label="Cuota configurada" value={allowance} />
@@ -248,16 +257,19 @@ function TabConfiguracion({
               />
             )}
           </SectionCard>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full text-xs justify-between"
-            onClick={onConfigureAllowance}
-          >
-            Configurar cuota / presupuesto
-            <Settings className="h-3 w-3 opacity-50" />
-          </Button>
-        </>
+          <div className="space-y-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs justify-between"
+              onClick={onConfigureAllowance}
+            >
+              Configurar cuota / presupuesto
+              <Settings className="h-3 w-3 opacity-50" />
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -278,32 +290,41 @@ function TabConsumo({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementS
 
   return (
     <div className="space-y-4">
-      <SectionCard>
-        <InfoRow label="Consumo del mes" value={consumed} />
-        <InfoRow label="Límite de regla" value={ruleLimit} />
-        {hasGlobalRule && (
-          <InfoRow
-            label="Disponible por regla"
-            value={formatAmount(row.remainingCredits, row.remainingUsd)}
-          />
-        )}
-        {row.quotaSyncedAt && (
-          <InfoRow
-            label="Cuota disponible (API)"
-            value={formatAmount(row.providerCreditsAvailable, row.providerUsdAvailable)}
-          />
-        )}
-      </SectionCard>
+      <div className="grid md:grid-cols-2 gap-4">
+        <SectionCard>
+          <InfoRow label="Consumo del mes" value={consumed} />
+          <InfoRow label="Límite de regla" value={ruleLimit} />
+          {hasGlobalRule && (
+            <InfoRow
+              label="Disponible por regla"
+              value={formatAmount(row.remainingCredits, row.remainingUsd)}
+            />
+          )}
+          {row.quotaSyncedAt && (
+            <InfoRow
+              label="Cuota disponible (API)"
+              value={formatAmount(row.providerCreditsAvailable, row.providerUsdAvailable)}
+            />
+          )}
+        </SectionCard>
 
-      {ms !== 'active' && (
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            {ms === 'not_measured'
-              ? 'Este proveedor no genera consumo medido en SellUp.'
-              : 'Aún no hay consumo registrado. Los datos aparecerán después de la primera ejecución.'}
-          </p>
-        </div>
-      )}
+        {ms !== 'active' ? (
+          <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground text-center">
+              {ms === 'not_measured'
+                ? 'Este proveedor no genera consumo medido en SellUp.'
+                : 'Aún no hay consumo registrado. Los datos aparecerán después de la primera ejecución.'}
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-3">Estado de medición</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {MEASUREMENT_STATUS_DESCRIPTION[ms]}
+            </p>
+          </div>
+        )}
+      </div>
 
       <ProgressiveNote>
         Los filtros avanzados por rol, grupo, usuario, agente y cuenta se incorporarán progresivamente.
@@ -368,28 +389,50 @@ function TabPresupuesto({
 
   return (
     <div className="space-y-4">
-      <SectionCard>
-        <InfoRow label="Cuota contratada" value={allowance} />
-        <InfoRow label="Reglas activas" value={row.activeRules > 0 ? `${row.activeRules}` : 'Sin reglas'} />
-        {hasGlobalRule && (
-          <>
-            <InfoRow label="Límite global" value={formatAmount(row.globalLimitCredits, row.globalLimitUsd)} />
-            <InfoRow label="Disponible (regla)" value={formatAmount(row.remainingCredits, row.remainingUsd)} />
-            {row.onExceed && (
-              <InfoRow
-                label="Acción al exceder"
-                value={
-                  <span className="text-muted-foreground capitalize">
-                    {row.onExceed === 'alert' ? 'Alertar' : row.onExceed === 'block' ? 'Bloquear' : 'Requiere aprobación'}
-                  </span>
-                }
-              />
-            )}
-          </>
-        )}
-      </SectionCard>
+      {/* Resumen superior en 2 columnas */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <SectionCard>
+          <InfoRow label="Cuota contratada" value={allowance} />
+          <InfoRow label="Reglas activas" value={row.activeRules > 0 ? `${row.activeRules}` : 'Sin reglas'} />
+          {hasGlobalRule && (
+            <>
+              <InfoRow label="Límite global" value={formatAmount(row.globalLimitCredits, row.globalLimitUsd)} />
+              <InfoRow label="Disponible (regla)" value={formatAmount(row.remainingCredits, row.remainingUsd)} />
+              {row.onExceed && (
+                <InfoRow
+                  label="Acción al exceder"
+                  value={
+                    <span className="text-muted-foreground capitalize">
+                      {row.onExceed === 'alert' ? 'Alertar' : row.onExceed === 'block' ? 'Bloquear' : 'Requiere aprobación'}
+                    </span>
+                  }
+                />
+              )}
+            </>
+          )}
+        </SectionCard>
 
-      {/* Reglas segmentadas por alcance */}
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-xs justify-between"
+            onClick={onConfigureAllowance}
+          >
+            Configurar cuota / presupuesto
+            <Settings className="h-3 w-3 opacity-50" />
+          </Button>
+          <Link href={`/settings/providers/${row.providerKey}?tab=presupuesto`}>
+            <Button variant="outline" size="sm" className="w-full text-xs justify-between">
+              Ver presupuesto completo y reglas
+              <ExternalLink className="h-3 w-3 opacity-50" />
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Reglas segmentadas por alcance — full width */}
       <div className="space-y-2">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Reglas de presupuesto</p>
         <Tabs defaultValue="global">
@@ -407,24 +450,6 @@ function TabPresupuesto({
           ))}
         </Tabs>
       </div>
-
-      <div className="space-y-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full text-xs justify-between"
-          onClick={onConfigureAllowance}
-        >
-          Configurar cuota / presupuesto
-          <Settings className="h-3 w-3 opacity-50" />
-        </Button>
-        <Link href={`/settings/providers/${row.providerKey}?tab=presupuesto`}>
-          <Button variant="outline" size="sm" className="w-full text-xs justify-between">
-            Ver presupuesto completo y reglas
-            <ExternalLink className="h-3 w-3 opacity-50" />
-          </Button>
-        </Link>
-      </div>
     </div>
   );
 }
@@ -432,18 +457,38 @@ function TabPresupuesto({
 // ── Tab: Efectividad ──────────────────────────────────────────────────────────
 
 function TabEfectividad() {
+  const metrics = [
+    {
+      label: 'Calidad de resultados',
+      description: 'Tasa de resultados útiles vs totales por agente.',
+    },
+    {
+      label: 'Costo vs utilidad',
+      description: 'Relación entre créditos consumidos y valor operativo generado.',
+    },
+    {
+      label: 'Errores por agente',
+      description: 'Frecuencia y tipo de errores segmentados por agente y operación.',
+    },
+    {
+      label: 'Disponibilidad del proveedor',
+      description: 'Uptime y latencia promedio en el periodo medido.',
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-border/30 bg-muted/10 px-6 py-10 text-center">
-        <TrendingUp className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
-        <p className="text-sm font-medium text-muted-foreground">Métricas de efectividad</p>
-        <p className="text-[11px] text-muted-foreground/60 mt-2 leading-relaxed max-w-xs mx-auto">
-          Este tab cruzará costo, calidad de resultados, errores y utilidad por agente cuando haya
-          suficiente data acumulada.
-        </p>
+      <div className="grid md:grid-cols-2 gap-3">
+        {metrics.map((m) => (
+          <div key={m.label} className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+            <p className="text-xs font-medium text-foreground mb-1">{m.label}</p>
+            <p className="text-[11px] text-muted-foreground/60 leading-relaxed">{m.description}</p>
+            <p className="text-[10px] text-muted-foreground/40 mt-2 italic">Sin datos suficientes</p>
+          </div>
+        ))}
       </div>
       <ProgressiveNote>
-        Efectividad se incorporará progresivamente una vez que haya datos históricos suficientes por proveedor.
+        Efectividad cruzará costo, calidad, errores y utilidad una vez que haya ejecuciones históricas suficientes registradas para este proveedor.
       </ProgressiveNote>
     </div>
   );
@@ -619,21 +664,19 @@ export function ProviderDetailSidepanel({
     >
       {provider && (
         <Tabs defaultValue={initialTab} key={`${provider.providerKey}-${initialTab}`}>
-          <TabsList className="w-full grid grid-cols-3 mb-4 h-auto">
+          <TabsList className="w-full grid grid-cols-6 mb-5 h-auto">
             <TabsTrigger value="resumen" className="text-[11px] gap-1 py-1.5">
               <Activity className="h-3 w-3" />
               Resumen
             </TabsTrigger>
             <TabsTrigger value="configuracion" className="text-[11px] gap-1 py-1.5">
               <Settings className="h-3 w-3" />
-              Configuración
+              Config.
             </TabsTrigger>
             <TabsTrigger value="consumo" className="text-[11px] gap-1 py-1.5">
               <BarChart2 className="h-3 w-3" />
               Consumo
             </TabsTrigger>
-          </TabsList>
-          <TabsList className="w-full grid grid-cols-3 mb-5 h-auto">
             <TabsTrigger value="presupuesto" className="text-[11px] gap-1 py-1.5">
               <DollarSign className="h-3 w-3" />
               Presupuesto

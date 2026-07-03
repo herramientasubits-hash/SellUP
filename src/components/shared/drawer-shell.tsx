@@ -51,14 +51,14 @@ const sideSizeClasses = {
     md: 'sm:!max-w-md w-full',  // 448px
     lg: 'sm:!max-w-lg w-full',  // 512px
     xl: 'sm:!max-w-xl w-full',  // 576px
-    workspace: 'sm:!w-[90vw] sm:!max-w-none w-full',  // ~90% viewport
+    workspace: 'sm:!w-[90vw] sm:!max-w-[90vw] w-full max-w-[100vw] overflow-x-hidden',  // ~90% viewport
   },
   left: {
     sm: 'sm:!max-w-sm w-full',
     md: 'sm:!max-w-md w-full',
     lg: 'sm:!max-w-lg w-full',
     xl: 'sm:!max-w-xl w-full',
-    workspace: 'sm:!w-[90vw] sm:!max-w-none w-full',
+    workspace: 'sm:!w-[90vw] sm:!max-w-[90vw] w-full max-w-[100vw] overflow-x-hidden',
   },
   top: {
     sm: 'h-[30vh]',
@@ -127,7 +127,7 @@ export function DrawerShell({
         {/* Scrollable body content */}
         <div className={cn(
           'relative flex-1 min-h-0 flex flex-col',
-          scrollable ? 'overflow-y-auto px-7 py-6 bg-background' : 'overflow-hidden'
+          scrollable ? 'overflow-y-auto overflow-x-hidden px-7 py-6 bg-background' : 'overflow-hidden'
         )}>
           {loading ? (
             <div className="flex flex-col gap-4 animate-su-fade-in">
