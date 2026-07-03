@@ -38,6 +38,7 @@ type DrawerState =
   | 'creating_bulk_run'
   | 'executing'
   | 'completed'
+  | 'completed_with_errors'
   | 'error';
 
 type BulkRunSummary = {
@@ -130,28 +131,34 @@ export function BulkContactEnrichmentDrawer({
       const execRes = await fetch(createRes.executeUrl, { method: 'POST' });
       const execBody = await execRes.json().catch(() => ({}));
 
-      const runSummary: BulkRunSummary = {
-        processed:
-          execBody?.totalProcessed ??
-          execBody?.summary?.total_processed ??
-          createRes.eligibility?.eligible.length ??
-          0,
-        with_candidates: execBody?.summary?.accounts_with_candidates ?? 0,
-        without_candidates: execBody?.summary?.accounts_without_candidates ?? 0,
-        failed: execBody?.totalFailed ?? execBody?.summary?.accounts_failed ?? 0,
-        candidates_created:
-          execBody?.totalCandidatesCreated ??
-          execBody?.summary?.total_candidates_created ??
-          0,
-      };
+      // HTTP-level error (auth, server crash, etc.) — not a business-logic failure
+      if (!execRes.ok) {
+        const msg =
+          (execBody as Record<string, unknown>)?.error as string | undefined;
+        setExecutionError(
+          msg ?? 'No pudimos ejecutar el enriquecimiento en lote. Intenta nuevamente.',
+        );
+        setState('error');
+        return;
+      }
+
+      const { status, summary: runSummary } = normalizeBulkExecutionSummary(execBody);
 
       setSummary(runSummary);
-      setState('completed');
       router.refresh();
       onCompleted?.();
+
+      if (status === 'failed') {
+        setExecutionError('No se pudo completar el enriquecimiento en lote.');
+        setState('error');
+      } else if (status === 'completed_with_errors') {
+        setState('completed_with_errors');
+      } else {
+        setState('completed');
+      }
     } catch {
       setExecutionError(
-        'El lote terminó con errores. Revisa el resumen para ver qué cuentas se procesaron.',
+        'No pudimos ejecutar el enriquecimiento en lote. Intenta nuevamente.',
       );
       setState('error');
     }
@@ -162,17 +169,19 @@ export function BulkContactEnrichmentDrawer({
     state === 'creating_bulk_run' ||
     state === 'executing';
 
+  const isDone = state === 'completed' || state === 'completed_with_errors';
+
   const noEligible = !tooManyAccounts && eligibility && eligibility.eligible.length === 0;
   const canConfirm =
     !isLoading &&
     state !== 'error' &&
     !noEligible &&
     !tooManyAccounts &&
-    state !== 'completed';
+    !isDone;
 
   const footer = (
     <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-      {state === 'completed' ? (
+      {isDone ? (
         <>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cerrar
@@ -321,12 +330,18 @@ export function BulkContactEnrichmentDrawer({
             </div>
 
             {eligibility.estimatedApolloCredits > 0 && (
-              <p className="text-xs text-muted-foreground text-center">
-                Créditos Apollo estimados:{' '}
-                <span className="font-medium text-foreground">
-                  {eligibility.estimatedApolloCredits}
-                </span>
-              </p>
+              <div className="space-y-1 text-center">
+                <p className="text-xs text-muted-foreground">
+                  Cuentas elegibles para búsqueda Apollo:{' '}
+                  <span className="font-medium text-foreground">
+                    {eligibility.estimatedApolloCredits}
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Apollo puede consumir créditos adicionales según búsqueda y completions.
+                  No se revelarán teléfonos automáticamente.
+                </p>
+              </div>
             )}
 
             {noEligible && (
@@ -348,7 +363,7 @@ export function BulkContactEnrichmentDrawer({
         )}
 
         {/* Disclaimer */}
-        {!tooManyAccounts && state !== 'error' && (
+        {!tooManyAccounts && state !== 'error' && !isDone && (
           <div className="rounded-md bg-muted/60 px-3 py-2.5">
             <p className="text-xs text-muted-foreground">
               Este proceso{' '}
@@ -363,14 +378,27 @@ export function BulkContactEnrichmentDrawer({
         )}
 
         {/* Completed summary */}
-        {state === 'completed' && summary && (
+        {isDone && summary && (
           <>
             <Separator />
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 className="h-4 w-4" />
-                Lote finalizado
-              </div>
+              {state === 'completed_with_errors' ? (
+                <div className="flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="h-4 w-4" />
+                  El lote terminó con algunos errores. Revisa el resumen.
+                </div>
+              ) : summary.candidates_created > 0 ? (
+                <div className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Listo. Se crearon {summary.candidates_created} candidato
+                  {summary.candidates_created !== 1 ? 's' : ''} para revisión.
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  <CheckCircle2 className="h-4 w-4" />
+                  El lote terminó sin candidatos nuevos para revisar.
+                </div>
+              )}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-2">
                 <SummaryRow label="Cuentas procesadas" value={summary.processed} />
                 <SummaryRow label="Con candidatos" value={summary.with_candidates} />
@@ -398,6 +426,43 @@ export function BulkContactEnrichmentDrawer({
       </div>
     </DrawerShell>
   );
+}
+
+// ── Normalizer ─────────────────────────────────────────────────
+
+export function normalizeBulkExecutionSummary(body: unknown): {
+  status: string;
+  summary: BulkRunSummary;
+} {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const s = ((b.summary ?? {}) as Record<string, unknown>);
+
+  const status =
+    typeof b.status === 'string' ? b.status : 'completed';
+
+  return {
+    status,
+    summary: {
+      processed:
+        (b.totalProcessed as number | undefined) ??
+        (s.total_processed as number | undefined) ??
+        0,
+      with_candidates:
+        (b.totalSucceeded as number | undefined) ??
+        (s.accounts_with_candidates as number | undefined) ??
+        0,
+      without_candidates:
+        (s.accounts_without_candidates as number | undefined) ?? 0,
+      failed:
+        (b.totalFailed as number | undefined) ??
+        (s.accounts_failed as number | undefined) ??
+        0,
+      candidates_created:
+        (b.totalCandidatesCreated as number | undefined) ??
+        (s.total_candidates_created as number | undefined) ??
+        0,
+    },
+  };
 }
 
 // ── Small helpers ──────────────────────────────────────────────
