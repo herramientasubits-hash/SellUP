@@ -283,6 +283,9 @@ export function buildContactInsertPayload(args: {
   if (linkedinUrl !== null) normalizedFields.push('linkedin_url');
   if (phone !== null) normalizedFields.push('phone');
 
+  const titleNormalization =
+    (candidate.enrichment_metadata?.apollo_title_normalization as Record<string, unknown> | null | undefined) ?? null;
+
   return {
     account_id: accountId,
     first_name: firstName,
@@ -299,6 +302,7 @@ export function buildContactInsertPayload(args: {
     metadata: {
       ...buildContactTraceMetadata(candidate),
       normalization: { status: 'normalized', fields: normalizedFields },
+      ...(titleNormalization ? { apollo_title_normalization: titleNormalization } : {}),
     },
     created_by: internalUserId,
     updated_by: internalUserId,

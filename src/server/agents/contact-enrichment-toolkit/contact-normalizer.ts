@@ -4,6 +4,58 @@
 
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
 
+// ── Normalización de cargo Apollo ─────────────────────────────────
+// Apollo a veces devuelve en el campo title una mezcla de cargo real,
+// headline de LinkedIn y especialidades, separados por |, ·, —, etc.
+// Extraemos el primer segmento como cargo limpio y preservamos el raw.
+
+const TITLE_SEPARATORS = [' | ', '|', ' · ', '•', ' — ', ' – ', ' - '] as const;
+const MIN_SEGMENT_LENGTH = 3;
+
+export interface ApolloJobTitleNormalization {
+  rawTitle: string | null;
+  normalizedTitle: string | null;
+  changed: boolean;
+  strategy: 'empty' | 'unchanged' | 'split_by_separator' | 'fallback_original';
+  separator?: string;
+}
+
+export function normalizeApolloJobTitle(raw: string | null | undefined): ApolloJobTitleNormalization {
+  if (!raw || typeof raw !== 'string') {
+    return { rawTitle: null, normalizedTitle: null, changed: false, strategy: 'empty' };
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { rawTitle: null, normalizedTitle: null, changed: false, strategy: 'empty' };
+  }
+
+  for (const sep of TITLE_SEPARATORS) {
+    if (trimmed.includes(sep)) {
+      const first = trimmed.split(sep)[0].trim();
+      if (first.length >= MIN_SEGMENT_LENGTH) {
+        return {
+          rawTitle: trimmed,
+          normalizedTitle: first,
+          changed: first !== trimmed,
+          strategy: 'split_by_separator',
+          separator: sep,
+        };
+      }
+      // Primer segmento demasiado corto → fallback al raw.
+      return {
+        rawTitle: trimmed,
+        normalizedTitle: trimmed,
+        changed: false,
+        strategy: 'fallback_original',
+        separator: sep,
+      };
+    }
+  }
+
+  return { rawTitle: trimmed, normalizedTitle: trimmed, changed: false, strategy: 'unchanged' };
+}
+
 // ── Contacto normalizado ──────────────────────────────────────
 
 export interface NormalizedApolloContact {
@@ -131,7 +183,8 @@ export function normalizeApolloPerson(
 
   const email = normalizeEmail(person.email);
   const linkedinUrl = normalizeLinkedin(person.linkedin_url);
-  const title = cleanString(person.title);
+  const titleNorm = normalizeApolloJobTitle(person.title);
+  const title = titleNorm.normalizedTitle;
   const seniority = normalizeSeniority(person.seniority);
   const department = pickDepartment(person);
   const country = cleanString(person.country);
@@ -173,6 +226,13 @@ export function normalizeApolloPerson(
             website_url: person.organization.website_url,
           }
         : null,
+      apollo_title_normalization: {
+        raw_title: titleNorm.rawTitle,
+        normalized_title: titleNorm.normalizedTitle,
+        changed: titleNorm.changed,
+        strategy: titleNorm.strategy,
+        ...(titleNorm.separator !== undefined ? { separator: titleNorm.separator } : {}),
+      },
     },
   };
 }

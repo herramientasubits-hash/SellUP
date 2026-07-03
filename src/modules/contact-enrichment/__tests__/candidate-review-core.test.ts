@@ -1111,6 +1111,74 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
   }); // describe country_code (17A.9H.2)
 }); // describe runApproveCandidate — HubSpot-only (17A.9H)
 
+// ── Hito 17A.9I — apollo_title_normalization propagada al contacto ──
+
+describe('buildContactInsertPayload — apollo_title_normalization (17A.9I)', () => {
+  it('propaga apollo_title_normalization del candidato al metadata del contacto', () => {
+    const norm = {
+      raw_title: 'Key Account Manager (KAM) | Estrategia B2B',
+      normalized_title: 'Key Account Manager (KAM)',
+      changed: true,
+      strategy: 'split_by_separator',
+      separator: ' | ',
+    };
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({
+        title: 'Key Account Manager (KAM)',
+        enrichment_metadata: { apollo_title_normalization: norm },
+      }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.job_title, 'Key Account Manager (KAM)');
+    assert.deepEqual(payload.metadata.apollo_title_normalization, norm);
+  });
+
+  it('no incluye apollo_title_normalization en metadata si el candidato no lo trae', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ enrichment_metadata: { relevance: { score: 0.9 } } }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.metadata.apollo_title_normalization, undefined);
+  });
+
+  it('no altera relevance, completion, post_completion ni company_consistency al propagar normalization', () => {
+    const relevance = { status: 'high_relevance', score: 0.9 };
+    const completion = { had_actionable_channel: true, channels: ['email'] };
+    const post_completion = { is_actionable: true, actionable_channels: ['email'] };
+    const company_consistency = { status: 'match' };
+    const norm = {
+      raw_title: 'CEO | Fundador',
+      normalized_title: 'CEO',
+      changed: true,
+      strategy: 'split_by_separator',
+    };
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({
+        enrichment_metadata: { relevance, completion, post_completion, company_consistency, apollo_title_normalization: norm },
+      }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.deepEqual(payload.metadata.relevance, relevance);
+    assert.deepEqual(payload.metadata.completion, completion);
+    assert.deepEqual(payload.metadata.post_completion, post_completion);
+    assert.deepEqual(payload.metadata.company_consistency, company_consistency);
+    assert.deepEqual(payload.metadata.apollo_title_normalization, norm);
+  });
+
+  it('candidato con title null no rompe buildContactInsertPayload', () => {
+    const payload = buildContactInsertPayload({
+      candidate: makeCandidate({ title: null, enrichment_metadata: {} }),
+      accountId: 'acc-1',
+      internalUserId: 'user-1',
+    });
+    assert.equal(payload.job_title, null);
+    assert.equal(payload.metadata.apollo_title_normalization, undefined);
+  });
+});
+
 // ── REGRESIÓN 17A.8E — post_completion conservado en aprobación ──
 
 describe('REGRESIÓN 17A.8E — contacto approved conserva post_completion', () => {

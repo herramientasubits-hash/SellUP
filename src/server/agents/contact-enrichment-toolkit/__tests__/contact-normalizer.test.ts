@@ -12,6 +12,7 @@ import {
   normalizeApolloPerson,
   normalizeApolloPeople,
   normalizeSeniority,
+  normalizeApolloJobTitle,
 } from '../contact-normalizer';
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
 
@@ -76,6 +77,117 @@ describe('normalizeApolloPerson', () => {
     const { normalized, droppedNoName } = normalizeApolloPeople(people);
     assert.equal(normalized.length, 2);
     assert.equal(droppedNoName, 1);
+  });
+});
+
+// ── Hito 17A.9I — normalizeApolloJobTitle ───────────────────────
+
+describe('normalizeApolloJobTitle', () => {
+  it('título sin separador queda igual (unchanged)', () => {
+    const r = normalizeApolloJobTitle('Human Resources Manager');
+    assert.equal(r.normalizedTitle, 'Human Resources Manager');
+    assert.equal(r.changed, false);
+    assert.equal(r.strategy, 'unchanged');
+    assert.equal(r.rawTitle, 'Human Resources Manager');
+  });
+
+  it('título con pipe extrae el primer segmento', () => {
+    const r = normalizeApolloJobTitle(
+      'Key Account Manager (KAM) | Estrategia Comercial B2B | Gestión Humana & Desarrollo Corporativo',
+    );
+    assert.equal(r.normalizedTitle, 'Key Account Manager (KAM)');
+    assert.equal(r.changed, true);
+    assert.equal(r.strategy, 'split_by_separator');
+    assert.equal(r.separator, ' | ');
+    assert.ok(r.rawTitle!.includes('Estrategia Comercial'));
+  });
+
+  it('título con bullet (•) extrae el primer segmento', () => {
+    const r = normalizeApolloJobTitle('HR Manager • People Operations');
+    assert.equal(r.normalizedTitle, 'HR Manager');
+    assert.equal(r.changed, true);
+    assert.equal(r.strategy, 'split_by_separator');
+  });
+
+  it('título con guion separado (" - ") extrae el primer segmento', () => {
+    const r = normalizeApolloJobTitle('HR Manager - People Operations');
+    assert.equal(r.normalizedTitle, 'HR Manager');
+    assert.equal(r.changed, true);
+    assert.equal(r.strategy, 'split_by_separator');
+    assert.equal(r.separator, ' - ');
+  });
+
+  it('guion interno (Co-Founder) no se rompe', () => {
+    const r = normalizeApolloJobTitle('Co-Founder');
+    assert.equal(r.normalizedTitle, 'Co-Founder');
+    assert.equal(r.changed, false);
+    assert.equal(r.strategy, 'unchanged');
+  });
+
+  it('title null devuelve strategy empty y normalizedTitle null', () => {
+    const r = normalizeApolloJobTitle(null);
+    assert.equal(r.normalizedTitle, null);
+    assert.equal(r.changed, false);
+    assert.equal(r.strategy, 'empty');
+    assert.equal(r.rawTitle, null);
+  });
+
+  it('title vacío devuelve strategy empty', () => {
+    const r = normalizeApolloJobTitle('   ');
+    assert.equal(r.normalizedTitle, null);
+    assert.equal(r.strategy, 'empty');
+  });
+
+  it('fallback si el primer segmento es muy corto', () => {
+    // Separador encontrado pero primer segmento < MIN_SEGMENT_LENGTH
+    const r = normalizeApolloJobTitle('HR | Manager completo');
+    // "HR" tiene 2 chars < 3 → fallback
+    assert.equal(r.strategy, 'fallback_original');
+    assert.equal(r.normalizedTitle, 'HR | Manager completo');
+    assert.equal(r.changed, false);
+  });
+
+  it('preserva el raw_title completo incluso cuando changed=true', () => {
+    const raw = 'CEO · Startup · Innovación';
+    const r = normalizeApolloJobTitle(raw);
+    assert.equal(r.rawTitle, raw);
+    assert.equal(r.normalizedTitle, 'CEO');
+  });
+});
+
+// ── Hito 17A.9I — normalizeApolloPerson guarda apollo_title_normalization ──
+
+describe('normalizeApolloPerson — apollo_title_normalization en enrichmentMetadata', () => {
+  it('guarda apollo_title_normalization cuando el título tiene separador', () => {
+    const result = normalizeApolloPerson(
+      makePerson({ title: 'Key Account Manager (KAM) | Estrategia B2B' }),
+    );
+    assert.ok(result);
+    assert.equal(result!.title, 'Key Account Manager (KAM)');
+    const norm = result!.enrichmentMetadata.apollo_title_normalization as Record<string, unknown>;
+    assert.ok(norm);
+    assert.equal(norm.changed, true);
+    assert.equal(norm.strategy, 'split_by_separator');
+    assert.ok((norm.raw_title as string).includes('Estrategia B2B'));
+    assert.equal(norm.normalized_title, 'Key Account Manager (KAM)');
+  });
+
+  it('guarda apollo_title_normalization con changed=false cuando el título está limpio', () => {
+    const result = normalizeApolloPerson(makePerson({ title: 'Head of People' }));
+    assert.ok(result);
+    assert.equal(result!.title, 'Head of People');
+    const norm = result!.enrichmentMetadata.apollo_title_normalization as Record<string, unknown>;
+    assert.equal(norm.changed, false);
+    assert.equal(norm.strategy, 'unchanged');
+  });
+
+  it('guarda apollo_title_normalization con strategy=empty cuando title es null', () => {
+    const result = normalizeApolloPerson(makePerson({ title: undefined }));
+    assert.ok(result);
+    assert.equal(result!.title, null);
+    const norm = result!.enrichmentMetadata.apollo_title_normalization as Record<string, unknown>;
+    assert.equal(norm.strategy, 'empty');
+    assert.equal(norm.normalized_title, null);
   });
 });
 
