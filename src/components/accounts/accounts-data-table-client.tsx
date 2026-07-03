@@ -50,6 +50,8 @@ import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
+import { BulkContactEnrichmentDialog } from '@/components/contact-enrichment/bulk-contact-enrichment-dialog';
+import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
 
 // ── Styles ─────────────────────────────────────────────────────
 
@@ -127,6 +129,8 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [archiving, setArchiving] = React.useState(false);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
+  const [bulkEnrichOpen, setBulkEnrichOpen] = React.useState(false);
+  const [bulkEnrichAccounts, setBulkEnrichAccounts] = React.useState<Row[]>([]);
 
   const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
     userId: '',
@@ -503,6 +507,19 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           });
         },
       },
+      {
+        id: 'bulk-enrich-contacts',
+        label: `Enriquecer contactos (máx. ${CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS})`,
+        icon: UserSearch,
+        disabled: (rows) => rows.length === 0 || rows.length > CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS,
+        onClick: (rows) => {
+          if (rows.length > CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS) {
+            return;
+          }
+          setBulkEnrichAccounts(rows);
+          setBulkEnrichOpen(true);
+        },
+      },
     ],
     [openDetail],
   );
@@ -604,6 +621,19 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         open={!!enrichCompany}
         onOpenChange={(v) => !v && setEnrichCompany(null)}
         preloadedCompany={enrichCompany}
+      />
+
+      {/* Bulk enrichment dialog (Agente 2A · 17A.10D) */}
+      <BulkContactEnrichmentDialog
+        open={bulkEnrichOpen}
+        onOpenChange={setBulkEnrichOpen}
+        selectedAccounts={bulkEnrichAccounts.map((r) => ({
+          id: r.id,
+          name: r.name,
+          domain: r.domain,
+          country_code: r.country_code,
+        }))}
+        onCompleted={() => setBulkEnrichAccounts([])}
       />
     </>
   );
