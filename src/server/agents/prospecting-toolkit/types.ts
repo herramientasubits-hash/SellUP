@@ -92,6 +92,7 @@ export type AiFlowStatus =
   | 'partial_pending_data'
   | 'source_guided'
   | 'manual_only'
+  | 'signal_connected_read_only'
   | 'paused'
   | 'not_applicable'
   | 'pending_classification';
@@ -102,6 +103,7 @@ export type ConnectionMode =
   | 'source_guided_query'
   | 'offline_signal'
   | 'credential_configured'
+  | 'read_only_signal'
   | 'not_connected'
   | 'not_applicable';
 

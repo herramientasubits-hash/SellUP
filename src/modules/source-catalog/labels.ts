@@ -183,6 +183,7 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   partial_pending_data: 'Parcial / pendiente datos',
   source_guided: 'Source-guided',
   manual_only: 'Solo manual',
+  signal_connected_read_only: 'Señal conectada',
   paused: 'Pausada',
   not_applicable: 'No aplica',
   pending_classification: 'Pendiente clasificación',
@@ -202,6 +203,8 @@ export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
       return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
     case 'manual_only':
       return 'border-border/40 bg-muted/30 text-muted-foreground';
+    case 'signal_connected_read_only':
+      return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
     case 'paused':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'not_applicable':
@@ -219,6 +222,7 @@ export const CONNECTION_MODE_LABELS: Record<ConnectionMode, string> = {
   source_guided_query: 'Source-guided query',
   offline_signal: 'Sin credenciales requeridas',
   credential_configured: 'Credencial configurada',
+  read_only_signal: 'Read-only',
   not_connected: 'No conectada',
   not_applicable: 'No aplica',
 };
@@ -235,6 +239,8 @@ export function connectionModeBadgeClass(mode: ConnectionMode): string {
       return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
     case 'credential_configured':
       return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+    case 'read_only_signal':
+      return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
     case 'not_connected':
       return 'border-border/40 bg-muted/30 text-muted-foreground';
     case 'not_applicable':

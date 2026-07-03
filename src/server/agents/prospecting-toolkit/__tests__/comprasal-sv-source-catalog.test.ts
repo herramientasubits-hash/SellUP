@@ -38,16 +38,16 @@ describe('sv_comprasal en Source Catalog — Centroamérica.7C', () => {
     assert.equal(svComprasal?.sellupUse, 'commercial_signal');
   });
 
-  it('aiFlowStatus = eligible_not_connected', () => {
-    assert.equal(svComprasal?.aiFlowStatus, 'eligible_not_connected');
+  it('aiFlowStatus = signal_connected_read_only (señal B2G persistida, sin post-approval)', () => {
+    assert.equal(svComprasal?.aiFlowStatus, 'signal_connected_read_only');
   });
 
-  it('connectionMode = not_connected', () => {
-    assert.equal(svComprasal?.connectionMode, 'not_connected');
+  it('connectionMode = read_only_signal (no flujo automático)', () => {
+    assert.equal(svComprasal?.connectionMode, 'read_only_signal');
   });
 
-  it('operationalStatus = pending_validation', () => {
-    assert.equal(svComprasal?.operationalStatus, 'pending_validation');
+  it('operationalStatus = manual_signal_only (señales persistidas, revisión humana)', () => {
+    assert.equal(svComprasal?.operationalStatus, 'manual_signal_only');
   });
 
   it('type no es legal_registry', () => {

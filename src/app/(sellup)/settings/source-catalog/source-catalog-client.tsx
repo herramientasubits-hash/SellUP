@@ -58,6 +58,7 @@ function filterTab(sources: Row[], tab: TabId): Row[] {
         if (s.sellupUse === 'technical_container') return false;
         return (
           s.aiFlowStatus === 'manual_only' ||
+          s.aiFlowStatus === 'signal_connected_read_only' ||
           s.sellupUse === 'manual_reference' ||
           s.sellupUse === 'contextual_signal' ||
           (s.sellupUse === 'commercial_signal' && s.connectionMode === 'not_connected')
@@ -363,6 +364,18 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           <DataTableColumnHeader column={column} title="Acción" />
         ),
         cell: ({ row }) => {
+          if (row.original.connectionMode === 'read_only_signal') {
+            return (
+              <button
+                type="button"
+                onClick={() => openDetail(row.original)}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+              >
+                Ver señales
+                <ArrowRight className="h-3 w-3" />
+              </button>
+            );
+          }
           if (row.original.connectionMode === 'not_connected') {
             return (
               <button
