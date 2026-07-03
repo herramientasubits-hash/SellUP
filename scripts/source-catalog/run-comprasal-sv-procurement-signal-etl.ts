@@ -6,15 +6,16 @@
  *   --pages=N                              páginas a leer (default 2)
  *   --per-page=N                           adjudicaciones por página (default 20, max 200)
  *   --year=YYYY                            año fuente (default año actual)
- *   --dry-run                              modo dry-run (default y obligatorio en 7E.2A)
- *   --apply --confirm-source-company-signals-write  bloqueado hasta hito 7E.2B
+ *   --dry-run                              modo dry-run (default seguro)
+ *   --apply --confirm-source-company-signals-write  escribe en source_company_signals
  *
- * No escribe en Supabase en este hito. No toca source_company_snapshots.
+ * Solo escribe en source_company_signals. No toca source_company_snapshots.
  * No toca accounts ni prospect_candidates.
  *
- * Hito: Centroamérica.7E.2A (actualizado desde 7C)
+ * Hito: Centroamérica.7E.2B
  */
 
+import { createClient } from '@supabase/supabase-js';
 import { fetchAllAdjudicaciones } from '../../src/server/source-catalog/connectors/comprasal-sv/comprasal-sv-client';
 import { normalizeAdjudicacion } from '../../src/server/source-catalog/connectors/comprasal-sv/comprasal-sv-normalizer';
 import {
@@ -37,25 +38,16 @@ const hasDryRun = process.argv.includes('--dry-run');
 const hasApply = process.argv.includes('--apply');
 const hasConfirm = process.argv.includes('--confirm-source-company-signals-write');
 
-if (hasApply) {
-  if (!hasConfirm) {
-    console.error('');
-    console.error('❌  --apply requiere confirmación explícita.');
-    console.error('   Debes pasar también: --confirm-source-company-signals-write');
-    console.error('   NOTA: apply está bloqueado hasta hito 7E.2B. No ejecutar en 7E.2A.');
-    console.error('');
-    process.exit(1);
-  }
-  // Bloqueado hasta 7E.2B — incluso con confirmación, este hito no ejecuta apply
+if (hasApply && !hasConfirm) {
   console.error('');
-  console.error('❌  --apply está bloqueado en hito 7E.2A.');
-  console.error('   Ejecutar apply solo en hito 7E.2B o posterior.');
+  console.error('❌  --apply requiere confirmación explícita.');
+  console.error('   Debes pasar también: --confirm-source-company-signals-write');
   console.error('');
   process.exit(1);
 }
 
-// dry-run es el default seguro; si no se pasa --dry-run ni --apply, se ejecuta en dry-run
-const isDryRun = !hasApply || hasDryRun;
+// dry-run es el default seguro; apply solo si se pasaron ambos flags
+const isDryRun = !(hasApply && hasConfirm) || hasDryRun;
 
 const MAX_PAGES = parseArg('pages', 2);
 const PER_PAGE = Math.min(parseArg('per-page', 20), 200);
@@ -110,11 +102,21 @@ async function main() {
     adapterSkipped.forEach((s) => console.log(`    - ${s.reason}`));
   }
 
-  // Fase 3: writer dry-run (nunca escribe en 7E.2A)
+  // Fase 3: writer — dry-run por default; apply solo con flags explícitos
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!isDryRun && (!supabaseUrl || !supabaseKey)) {
+    console.error('❌  NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridos para --apply.');
+    process.exit(1);
+  }
+  const supabaseClient = isDryRun
+    ? ({} as Parameters<typeof upsertSourceCompanySignals>[0]['supabase'])
+    : createClient(supabaseUrl!, supabaseKey!);
+
   const writerResult = await upsertSourceCompanySignals({
-    supabase: {} as Parameters<typeof upsertSourceCompanySignals>[0]['supabase'],
+    supabase: supabaseClient,
     signals: adapted,
-    dryRun: true,
+    dryRun: isDryRun,
   });
 
   console.log('');
@@ -154,7 +156,11 @@ async function main() {
   }
 
   console.log('');
-  console.log('✅  ETL completado. Writes = 0. Supabase no tocado.');
+  if (isDryRun) {
+    console.log('✅  ETL completado. Writes = 0. Supabase no tocado.');
+  } else {
+    console.log(`✅  ETL completado. Filas upserted: ${writerResult.insertedOrUpdated}. Solo source_company_signals.`);
+  }
   console.log('');
 }
 
