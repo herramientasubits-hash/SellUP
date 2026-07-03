@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useTransition } from 'react';
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
   ChevronDown, Cpu, Zap, Database, Bot, Plus, Pencil, Power, Trash2,
-  Loader2,
+  Loader2, Lock,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -34,9 +34,19 @@ import {
 } from '@/app/(sellup)/settings/budget-credits/rules/budget-rules-client';
 import {
   loadProviderDetailForPanel,
+  loadAiProviderConnectionForPanel,
+  testAiProviderConnectionForPanel,
+  updateAiProviderCredentialForPanel,
+  disconnectAiProviderForPanel,
+  loadProspectingProviderConnectionForPanel,
+  testProspectingProviderConnectionForPanel,
+  updateProspectingProviderCredentialForPanel,
+  disconnectProspectingProviderForPanel,
   type SidepanelDetailData,
   type ProviderUsageLogRow,
   type ProviderSyncLogRow,
+  type AiConnectionPanelState,
+  type ProspectingConnectionPanelState,
 } from './provider-detail-actions';
 
 // ── Rule display constants ────────────────────────────────────────────────────
@@ -495,110 +505,229 @@ function ConfigAccordion({ label, children }: { label: string; children: React.R
   );
 }
 
+// ── Tab: Configuración — estado de conexión helpers ──────────────────────────
+
+const CONNECTION_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  connected:      { label: 'Conectado',      cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  not_tested:     { label: 'Sin probar',     cls: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  not_configured: { label: 'No configurado', cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' },
+  error:          { label: 'Error',          cls: 'border-destructive/30 bg-destructive/10 text-destructive' },
+  disconnected:   { label: 'Desconectado',   cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' },
+};
+
+function ConnectionStatusBadge({ status }: { status: string }) {
+  const cfg = CONNECTION_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } | null }) {
+  if (!feedback) return null;
+  return (
+    <p className={`text-xs mt-2 px-1 ${feedback.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+      {feedback.msg}
+    </p>
+  );
+}
+
 // ── Tab: Configuración IA ─────────────────────────────────────────────────────
 
 function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
-  const msBadge = MEASUREMENT_STATUS_BADGE[ms];
+  const [connState, setConnState] = useState<AiConnectionPanelState | null>(null);
+  const [loadingConn, setLoadingConn] = useState(true);
+  const [isPending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
   const opType = getProviderOperationalType(row.providerKey);
   const opBadge = OPERATIONAL_TYPE_BADGE[opType];
 
-  const syncedAt = row.quotaSyncedAt
-    ? formatDateShort(row.quotaSyncedAt)
-    : row.latestBudgetCheckLog?.createdAt
-      ? formatDateShort(row.latestBudgetCheckLog.createdAt)
-      : null;
+  const loadConn = useCallback(async () => {
+    setLoadingConn(true);
+    const s = await loadAiProviderConnectionForPanel(row.providerKey);
+    setConnState(s);
+    setLoadingConn(false);
+  }, [row.providerKey]);
 
-  const allowance = formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
+  useEffect(() => { void loadConn(); }, [loadConn]);
 
+  const handleTest = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await testAiProviderConnectionForPanel(row.providerKey);
+      setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Conexión verificada' : 'Error al probar') });
+      void loadConn();
+    });
+  };
+
+  const handleSaveKey = () => {
+    const trimmed = apiKeyInput.trim();
+    if (!trimmed) return;
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await updateAiProviderCredentialForPanel(row.providerKey, trimmed);
+      setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Credencial guardada' : 'Error al guardar') });
+      setApiKeyInput('');
+      if (r.ok) setShowKeyForm(false);
+      void loadConn();
+    });
+  };
+
+  const handleDisconnect = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await disconnectAiProviderForPanel(row.providerKey);
+      setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Desconectado' : 'Error al desconectar') });
+      setShowDisconnectConfirm(false);
+      void loadConn();
+    });
+  };
+
+  const measurementUnit = row.providerMonthlyCreditsAllowance != null ? 'Créditos'
+    : row.providerMonthlyUsdAllowance != null ? 'USD'
+    : 'No definida';
   const quotaSourceLabel =
     row.quotaSource === 'api_synced' ? 'API del proveedor'
     : row.quotaSource === 'manual' ? 'Configuración manual'
     : row.quotaSource === 'sync_error' ? 'Error de sincronización'
     : 'No configurada';
 
-  const measurementUnit = row.providerMonthlyCreditsAllowance != null ? 'Créditos' : row.providerMonthlyUsdAllowance != null ? 'USD' : 'No definida';
-
   return (
     <div className="space-y-5">
+      {/* Conexión */}
       <div>
-        <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Estado del proveedor" />
-        <SectionCard>
-          <InfoRow
-            label="Tipo operativo"
-            value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
-                {OPERATIONAL_TYPE_LABEL[opType]} · LLM
-              </span>
-            }
-          />
-          <InfoRow
-            label="Estado de medición"
-            value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
-                {MEASUREMENT_STATUS_LABEL[ms]}
-              </span>
-            }
-          />
-          <InfoRow label="Descripción" value={<span className="text-muted-foreground">{MEASUREMENT_STATUS_DESCRIPTION[ms]}</span>} />
-          {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
-          {row.quotaSyncError && (
-            <InfoRow label="Error de sync" value={<span className="text-destructive text-[10px]">{row.quotaSyncError}</span>} />
-          )}
-        </SectionCard>
+        <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Conexión" />
+        {loadingConn ? (
+          <LoadingPlaceholder label="Cargando estado de conexión..." />
+        ) : (
+          <div className="space-y-2">
+            <SectionCard>
+              <InfoRow
+                label="Estado"
+                value={<ConnectionStatusBadge status={connState?.connectionStatus ?? 'not_configured'} />}
+              />
+              <InfoRow
+                label="Credencial"
+                value={
+                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Lock className="h-3 w-3 shrink-0" />
+                    {connState?.hasCredential ? 'Credencial almacenada' : 'Sin credencial'}
+                  </span>
+                }
+              />
+              {connState?.lastTestedAt && (
+                <InfoRow label="Última prueba" value={<span className="text-muted-foreground">{formatDateShort(connState.lastTestedAt)}</span>} />
+              )}
+              {connState?.lastConnectionError && (
+                <InfoRow label="Error" value={<span className="text-destructive text-[10px] leading-relaxed">{connState.lastConnectionError}</span>} />
+              )}
+            </SectionCard>
+
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={isPending || !connState?.hasCredential} onClick={handleTest} className="h-7 text-xs">
+                {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
+                Probar conexión
+              </Button>
+              <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowKeyForm((v) => !v); setShowDisconnectConfirm(false); }} className="h-7 text-xs">
+                <Lock className="h-3 w-3 mr-1" />
+                Actualizar API key
+              </Button>
+              {connState?.hasCredential && (
+                <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowDisconnectConfirm((v) => !v); setShowKeyForm(false); }} className="h-7 text-xs text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60">
+                  <Power className="h-3 w-3 mr-1" />
+                  Desconectar
+                </Button>
+              )}
+            </div>
+
+            {showKeyForm && (
+              <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-2">
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium">Nueva API key</p>
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="sk-••••••••"
+                  className="w-full rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
+                  autoComplete="new-password"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={isPending || !apiKeyInput.trim()} onClick={handleSaveKey} className="h-7 text-xs">
+                    {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                    Guardar API key
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setShowKeyForm(false); setApiKeyInput(''); }} className="h-7 text-xs">
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {showDisconnectConfirm && (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 space-y-2">
+                <p className="text-xs text-foreground">¿Confirmar desconexión del proveedor?</p>
+                <p className="text-[10px] text-muted-foreground/70">Se eliminarán las credenciales. Esta acción no se puede deshacer.</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="destructive" disabled={isPending} onClick={handleDisconnect} className="h-7 text-xs">
+                    {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                    Confirmar desconexión
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowDisconnectConfirm(false)} className="h-7 text-xs">
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <InlineFeedback feedback={feedback} />
+          </div>
+        )}
       </div>
 
+      {/* Modelos y tarifas */}
       <div>
         <SectionHeader icon={<Cpu className="h-3.5 w-3.5" />} label="Modelos y tarifas" />
         <div className="space-y-2">
           <SectionCard>
-            <InfoRow label="Cuota configurada" value={allowance} />
-            <InfoRow label="Fuente de cuota" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
-            {row.quotaOverrideManual && (
-              <InfoRow label="Override manual" value={<span className="text-amber-600 dark:text-amber-400 text-[10px]">Activo — sync API no sobreescribe</span>} />
-            )}
-            {row.creditsRemainingExternal != null && (
-              <InfoRow label="Disponible (API)" value={`${row.creditsRemainingExternal.toLocaleString()} cr`} />
-            )}
-            {row.usdCostMtd != null && (
-              <InfoRow label="Costo MTD (API)" value={`$${row.usdCostMtd.toFixed(4)}`} />
-            )}
+            <InfoRow label="Proveedor" value={<span className="text-muted-foreground capitalize">{row.providerKey}</span>} />
+            <InfoRow label="Tipo operativo" value={
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
+                {OPERATIONAL_TYPE_LABEL[opType]} · LLM
+              </span>
+            } />
+            <InfoRow label="Modelo activo" value={
+              <span className="text-muted-foreground/60 text-[10px]">Pendiente de conectar en este workspace</span>
+            } />
           </SectionCard>
-          <ConfigAccordion label="Gestión de modelos">
+          <ConfigAccordion label="Gestionar modelos y tarifas">
             <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">
-              La edición de modelos activos, tarifas por token y configuración de conexión
-              se conectará progresivamente dentro de este workspace del proveedor.
+              La gestión detallada de modelos, tarifas y precios se conectará progresivamente dentro del workspace del proveedor.
             </p>
           </ConfigAccordion>
         </div>
       </div>
 
+      {/* Medición y consumo */}
       <div>
         <SectionHeader icon={<Database className="h-3.5 w-3.5" />} label="Medición y consumo" />
         <SectionCard>
           <InfoRow label="Modo de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
-          <InfoRow label="Unidad de medición" value={<span className="text-muted-foreground">{measurementUnit}</span>} />
-          <InfoRow label="Fuente de medición" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
-          <ReadOnlyToggle
-            label="Participa en reportes de consumo"
-            checked={ms === 'active'}
-            note="Activo cuando hay registros de uso medidos"
-          />
+          <InfoRow label="Unidad" value={<span className="text-muted-foreground">{measurementUnit}</span>} />
+          <InfoRow label="Fuente" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
+          <ReadOnlyToggle label="Participa en reportes de consumo" checked={ms === 'active'} note="Activo cuando hay registros de uso medidos" />
         </SectionCard>
       </div>
 
+      {/* Uso operativo */}
       <div>
-        <SectionHeader icon={<Bot className="h-3.5 w-3.5" />} label="Automatización / uso operativo" />
+        <SectionHeader icon={<Bot className="h-3.5 w-3.5" />} label="Uso operativo" />
         <SectionCard>
-          <ReadOnlyToggle
-            label="Habilitado para agentes"
-            checked={ms === 'active' || ms === 'connected'}
-            note="Pendiente de configurar por agente"
-          />
-          <ReadOnlyToggle
-            label="Solo lectura operativa"
-            checked={ms === 'prepared' || ms === 'not_measured'}
-            note="Sin ejecuciones registradas en SellUp"
-          />
+          <ReadOnlyToggle label="Habilitado para agentes" checked={ms === 'active' || ms === 'connected'} note="Pendiente de configurar por agente" />
         </SectionCard>
         <p className="text-[10px] text-muted-foreground/40 mt-2 px-1 leading-relaxed">
           La configuración por agente se conectará progresivamente dentro de este workspace.
@@ -617,10 +746,96 @@ const OPERATIONAL_USE_MAP: Record<string, string> = {
   samu_ia: 'Post-reunión — no medido directamente desde SellUp',
 };
 
+const MODULES_MAP: Record<string, string> = {
+  tavily: 'Agente 1, Prospección',
+  lusha:  'Agente 2A, Enriquecimiento',
+  apollo: 'Agente 1, Agente 2A, Enriquecimiento',
+};
+
+const API_KEY_NOTES: Record<string, { where: string; tips: string }> = {
+  apollo: {
+    where: 'En app.apollo.io → Settings → Integrations → API Keys.',
+    tips:  'Se requiere plan Professional o superior para acceso a People Search.',
+  },
+  lusha: {
+    where: 'En dashboard.lusha.com → Integrations → API.',
+    tips:  'Asegúrate de activar los permisos de Person Enrichment.',
+  },
+  tavily: {
+    where: 'En app.tavily.com → API Keys.',
+    tips:  'Cada test de conexión consume 1 crédito de Tavily.',
+  },
+};
+
 function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
+  const [connState, setConnState] = useState<ProspectingConnectionPanelState | null>(null);
+  const [loadingConn, setLoadingConn] = useState(true);
+  const [isPending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
   const msBadge = MEASUREMENT_STATUS_BADGE[ms];
   const opType = getProviderOperationalType(row.providerKey);
   const opBadge = OPERATIONAL_TYPE_BADGE[opType];
+  const pkey = row.providerKey.toLowerCase();
+
+  const loadConn = useCallback(async () => {
+    setLoadingConn(true);
+    const s = await loadProspectingProviderConnectionForPanel(pkey);
+    setConnState(s);
+    setLoadingConn(false);
+  }, [pkey]);
+
+  useEffect(() => { void loadConn(); }, [loadConn]);
+
+  const handleTest = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await testProspectingProviderConnectionForPanel(pkey);
+      setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Conexión verificada' : 'Error al probar') });
+      void loadConn();
+    });
+  };
+
+  const handleSaveKey = () => {
+    const trimmed = apiKeyInput.trim();
+    if (!trimmed) return;
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await updateProspectingProviderCredentialForPanel(pkey, trimmed);
+      setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Credencial guardada' : 'Error al guardar') });
+      setApiKeyInput('');
+      if (r.ok) setShowKeyForm(false);
+      void loadConn();
+    });
+  };
+
+  const handleDisconnect = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await disconnectProspectingProviderForPanel(pkey);
+      setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Desconectado' : 'Error al desconectar') });
+      setShowDisconnectConfirm(false);
+      void loadConn();
+    });
+  };
+
+  const supported = connState?.supported !== false;
+  const hasCredential = connState?.credentialsStatus === 'stored';
+
+  const allowance = formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
+  const consumed = ms === 'active' ? formatAmount(row.consumedCredits, row.consumedUsd) || '0 cr' : '—';
+  const quotaSourceLabel =
+    row.quotaSource === 'api_synced' ? 'API del proveedor'
+    : row.quotaSource === 'manual' ? 'Configuración manual'
+    : row.quotaSource === 'sync_error' ? 'Error de sincronización'
+    : 'No configurada';
+
+  const operationalUse = OPERATIONAL_USE_MAP[pkey] ?? 'Uso operativo pendiente de documentar';
+  const modules = MODULES_MAP[pkey] ?? 'Pendiente de mapear';
+  const apiNotes = API_KEY_NOTES[pkey];
 
   const syncedAt = row.quotaSyncedAt
     ? formatDateShort(row.quotaSyncedAt)
@@ -628,89 +843,158 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
       ? formatDateShort(row.latestBudgetCheckLog.createdAt)
       : null;
 
-  const allowance = formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
-  const consumed = ms === 'active'
-    ? formatAmount(row.consumedCredits, row.consumedUsd) || '0 cr'
-    : '—';
-
-  const quotaSourceLabel =
-    row.quotaSource === 'api_synced' ? 'API del proveedor'
-    : row.quotaSource === 'manual' ? 'Configuración manual'
-    : row.quotaSource === 'sync_error' ? 'Error de sincronización'
-    : 'No configurada';
-
-  const measurementUnit = row.providerMonthlyCreditsAllowance != null ? 'Créditos'
-    : row.providerMonthlyUsdAllowance != null ? 'USD'
-    : 'No definida';
-
-  const operationalUse = OPERATIONAL_USE_MAP[row.providerKey.toLowerCase()]
-    ?? 'Uso operativo pendiente de documentar';
-
   return (
     <div className="space-y-5">
+      {/* Conexión */}
       <div>
-        <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Estado del proveedor" />
-        <SectionCard>
-          <InfoRow
-            label="Tipo operativo"
-            value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
-                {OPERATIONAL_TYPE_LABEL[opType]}
-              </span>
-            }
-          />
-          <InfoRow
-            label="Estado de medición"
-            value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
-                {MEASUREMENT_STATUS_LABEL[ms]}
-              </span>
-            }
-          />
-          <InfoRow label="Descripción" value={<span className="text-muted-foreground">{MEASUREMENT_STATUS_DESCRIPTION[ms]}</span>} />
-          {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
-          {row.quotaSyncError && (
-            <InfoRow label="Error de sync" value={<span className="text-destructive text-[10px]">{row.quotaSyncError}</span>} />
-          )}
-        </SectionCard>
+        <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Conexión" />
+        {loadingConn ? (
+          <LoadingPlaceholder label="Cargando estado de conexión..." />
+        ) : !supported ? (
+          <ProgressiveNote>
+            Configuración progresiva — este proveedor estará disponible en una próxima versión del workspace.
+          </ProgressiveNote>
+        ) : (
+          <div className="space-y-2">
+            <SectionCard>
+              <InfoRow
+                label="Estado de conexión"
+                value={<ConnectionStatusBadge status={connState?.connectionStatus ?? 'not_configured'} />}
+              />
+              <InfoRow
+                label="Credencial"
+                value={
+                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Lock className="h-3 w-3 shrink-0" />
+                    {hasCredential ? 'Credencial almacenada' : 'Sin credencial'}
+                  </span>
+                }
+              />
+              {connState?.lastTestedAt && (
+                <InfoRow label="Última prueba" value={<span className="text-muted-foreground">{formatDateShort(connState.lastTestedAt)}</span>} />
+              )}
+              {connState?.lastConnectedAt && (
+                <InfoRow label="Última conexión" value={<span className="text-muted-foreground">{formatDateShort(connState.lastConnectedAt)}</span>} />
+              )}
+              {connState?.lastConnectionError && (
+                <InfoRow label="Error" value={<span className="text-destructive text-[10px] leading-relaxed">{connState.lastConnectionError}</span>} />
+              )}
+            </SectionCard>
+
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={isPending || !hasCredential} onClick={handleTest} className="h-7 text-xs">
+                {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
+                Probar conexión
+              </Button>
+              <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowKeyForm((v) => !v); setShowDisconnectConfirm(false); }} className="h-7 text-xs">
+                <Lock className="h-3 w-3 mr-1" />
+                Actualizar API key
+              </Button>
+              {hasCredential && (
+                <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowDisconnectConfirm((v) => !v); setShowKeyForm(false); }} className="h-7 text-xs text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60">
+                  <Power className="h-3 w-3 mr-1" />
+                  Desconectar
+                </Button>
+              )}
+            </div>
+
+            {showKeyForm && (
+              <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-2">
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium">Nueva API key</p>
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
+                  autoComplete="new-password"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={isPending || !apiKeyInput.trim()} onClick={handleSaveKey} className="h-7 text-xs">
+                    {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                    Guardar API key
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setShowKeyForm(false); setApiKeyInput(''); }} className="h-7 text-xs">
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {showDisconnectConfirm && (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 space-y-2">
+                <p className="text-xs text-foreground">¿Confirmar desconexión?</p>
+                <p className="text-[10px] text-muted-foreground/70">Se eliminarán las credenciales almacenadas.</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="destructive" disabled={isPending} onClick={handleDisconnect} className="h-7 text-xs">
+                    {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                    Confirmar desconexión
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowDisconnectConfirm(false)} className="h-7 text-xs">
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <InlineFeedback feedback={feedback} />
+          </div>
+        )}
       </div>
 
+      {/* Descripción y uso */}
       <div>
-        <SectionHeader icon={<Zap className="h-3.5 w-3.5" />} label="Cuota y medición" />
-        <SectionCard>
-          <InfoRow label="Cuota configurada" value={allowance} />
-          <InfoRow label="Consumo del mes" value={consumed} />
-          <InfoRow label="Fuente de cuota" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
-          <InfoRow label="Unidad de medición" value={<span className="text-muted-foreground">{measurementUnit}</span>} />
-          {row.creditsRemainingExternal != null && (
-            <InfoRow label="Disponible (API)" value={`${row.creditsRemainingExternal.toLocaleString()} cr`} />
-          )}
-          <ReadOnlyToggle
-            label="Participa en reportes de consumo"
-            checked={ms === 'active'}
-            note="Activo cuando hay registros de uso medidos"
-          />
-        </SectionCard>
-      </div>
-
-      <div>
-        <SectionHeader icon={<Bot className="h-3.5 w-3.5" />} label="Uso operativo" />
-        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
+        <SectionHeader icon={<Bot className="h-3.5 w-3.5" />} label="Descripción y uso en SellUp" />
+        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-1">
           <p className="text-xs text-foreground leading-relaxed">{operationalUse}</p>
-          <p className="text-[10px] text-muted-foreground/50 mt-2">
-            Módulos: {opType === 'enriquecimiento' ? 'Enriquecimiento, Agente 2A' : opType === 'busqueda' ? 'Prospección, Agente 1' : 'Pendiente de mapear'}
-          </p>
+          <p className="text-[10px] text-muted-foreground/50">Módulos: {modules}</p>
         </div>
       </div>
 
+      {/* Estado operativo */}
       <div>
-        <SectionHeader icon={<Settings className="h-3.5 w-3.5" />} label="Edición progresiva" />
-        <ConfigAccordion label="Configurar cuota / presupuesto">
-          <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">
-            La edición de esta configuración se conectará progresivamente dentro del workspace del proveedor.
-            Por ahora puedes revisar el estado configurado desde la tab Presupuesto.
-          </p>
-        </ConfigAccordion>
+        <SectionHeader icon={<Zap className="h-3.5 w-3.5" />} label="Estado operativo" />
+        <SectionCard>
+          <InfoRow label="Tipo operativo" value={
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
+              {OPERATIONAL_TYPE_LABEL[opType]}
+            </span>
+          } />
+          <InfoRow label="Estado de medición" value={
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
+              {MEASUREMENT_STATUS_LABEL[ms]}
+            </span>
+          } />
+          <InfoRow label="Consumo del mes" value={consumed} />
+          <InfoRow label="Cuota configurada" value={allowance} />
+          <InfoRow label="Fuente de cuota" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
+          {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
+          {row.quotaSyncError && (
+            <InfoRow label="Error sync" value={<span className="text-destructive text-[10px]">{row.quotaSyncError}</span>} />
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Notas de configuración */}
+      <div>
+        <SectionHeader icon={<Settings className="h-3.5 w-3.5" />} label="Notas de configuración" />
+        <div className="space-y-2">
+          {apiNotes && (
+            <>
+              <ConfigAccordion label="Dónde obtener la API key">
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">{apiNotes.where}</p>
+              </ConfigAccordion>
+              <ConfigAccordion label="Recomendaciones de configuración">
+                <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">{apiNotes.tips}</p>
+              </ConfigAccordion>
+            </>
+          )}
+          <ConfigAccordion label="Configuración avanzada por agente">
+            <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">
+              La configuración avanzada por agente se conectará progresivamente dentro del workspace del proveedor.
+            </p>
+          </ConfigAccordion>
+        </div>
       </div>
     </div>
   );
