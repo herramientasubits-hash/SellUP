@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, Pencil, Power, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -319,31 +320,39 @@ function ProviderRulesSection({
   options,
   providerKey,
   isNotMeasured,
+  onRefresh,
 }: {
   rules: BudgetRuleRow[];
   options: BudgetRuleFormOptions;
   providerKey: string;
   isNotMeasured: boolean;
+  onRefresh: () => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editRule, setEditRule] = useState<BudgetRuleRow | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<BudgetRuleRow | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [archiving, setArchiving] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   async function handleToggle(rule: BudgetRuleRow) {
     setToggling(rule.id);
     await toggleBudgetRuleStatus(rule.id, !rule.is_active);
     setToggling(null);
-    window.location.reload();
+    onRefresh();
   }
 
   async function handleArchive(rule: BudgetRuleRow) {
     setArchiving(rule.id);
-    await archiveBudgetRule(rule.id);
+    setArchiveError(null);
+    const result = await archiveBudgetRule(rule.id);
     setArchiving(null);
+    if (!result.success) {
+      setArchiveError(result.error ?? 'Error al eliminar la regla.');
+      return;
+    }
     setConfirmArchive(null);
-    window.location.reload();
+    onRefresh();
   }
 
   if (isNotMeasured) {
@@ -481,11 +490,16 @@ function ProviderRulesSection({
                 La regla ({confirmArchive.scopeLabel}) dejará de aplicarse.
               </p>
             </div>
+            {archiveError && (
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {archiveError}
+              </div>
+            )}
             <div className="flex items-center justify-end gap-2 pt-1">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setConfirmArchive(null)}
+                onClick={() => { setConfirmArchive(null); setArchiveError(null); }}
                 disabled={archiving === confirmArchive.id}
               >
                 Cancelar
@@ -508,11 +522,13 @@ function ProviderRulesSection({
         open={showCreate}
         onOpenChange={setShowCreate}
         defaultProviderKey={providerKey}
+        onSuccess={onRefresh}
       />
       <EditDrawer
         rule={editRule}
         open={!!editRule}
         onOpenChange={(v) => { if (!v) setEditRule(null); }}
+        onSuccess={onRefresh}
       />
     </>
   );
@@ -524,10 +540,12 @@ function TabPresupuesto({
   row,
   allRules,
   options,
+  onRefresh,
 }: {
   row: AdminProviderBudgetRow;
   allRules: BudgetRuleRow[];
   options: BudgetRuleFormOptions;
+  onRefresh: () => void;
 }) {
   const [allowanceOpen, setAllowanceOpen] = useState(false);
   const quotaState = deriveQuotaDisplayState(row);
@@ -618,13 +636,14 @@ function TabPresupuesto({
         options={options}
         providerKey={row.providerKey}
         isNotMeasured={isNotMeasured}
+        onRefresh={onRefresh}
       />
 
       <ProviderAllowanceDrawer
         provider={row}
         open={allowanceOpen}
         onClose={() => setAllowanceOpen(false)}
-        onSaved={() => window.location.reload()}
+        onSaved={() => { setAllowanceOpen(false); onRefresh(); }}
       />
     </div>
   );
@@ -990,13 +1009,33 @@ interface Props {
   usageLogs: ProviderUsageLogRow[];
   syncLogs: ProviderSyncLogRow[];
   aiDetail?: AiProviderDetailResult | null;
+  initialTab?: string;
 }
 
-export function ProviderDetailTabs({ row, allRules, options, usageLogs, syncLogs, aiDetail }: Props) {
+export function ProviderDetailTabs({ row, allRules, options, usageLogs, syncLogs, aiDetail, initialTab }: Props) {
   const showAiTab = !!aiDetail;
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const VALID_TABS = showAiTab
+    ? ['resumen', 'modelos', 'presupuesto', 'logs']
+    : ['resumen', 'presupuesto', 'logs'];
+  const resolvedInitial = initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'resumen';
+  const [activeTab, setActiveTab] = useState(resolvedInitial);
+
+  function handleTabChange(value: string) {
+    setActiveTab(value);
+    router.replace(`${pathname}?tab=${value}`, { scroll: false });
+  }
+
+  function refreshBudgetTab() {
+    setActiveTab('presupuesto');
+    router.replace(`${pathname}?tab=presupuesto`, { scroll: false });
+    router.refresh();
+  }
 
   return (
-    <Tabs defaultValue="resumen" className="space-y-6">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
       <TabsList className="bg-muted/50">
         <TabsTrigger value="resumen">Resumen</TabsTrigger>
         {showAiTab && (
@@ -1017,7 +1056,7 @@ export function ProviderDetailTabs({ row, allRules, options, usageLogs, syncLogs
       )}
 
       <TabsContent value="presupuesto">
-        <TabPresupuesto row={row} allRules={allRules} options={options} />
+        <TabPresupuesto row={row} allRules={allRules} options={options} onRefresh={refreshBudgetTab} />
       </TabsContent>
 
       <TabsContent value="logs">

@@ -19,13 +19,14 @@ import {
 
 interface Props {
   params: Promise<{ providerKey: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }
 
-export default async function ProviderDetailPage({ params }: Props) {
+export default async function ProviderDetailPage({ params, searchParams }: Props) {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
 
-  const { providerKey } = await params;
+  const [{ providerKey }, { tab }] = await Promise.all([params, searchParams]);
   const [detail, aiDetail] = await Promise.all([
     getProviderDetail(providerKey),
     isIaProviderKey(providerKey) ? getAiProviderDetail(providerKey) : Promise.resolve(null),
@@ -75,6 +76,7 @@ export default async function ProviderDetailPage({ params }: Props) {
         usageLogs={recentUsageLogs}
         syncLogs={recentSyncLogs}
         aiDetail={aiDetail}
+        initialTab={tab}
       />
     </div>
   );

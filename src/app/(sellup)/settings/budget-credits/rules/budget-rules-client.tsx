@@ -94,11 +94,13 @@ export function CreateDrawer({
   open,
   onOpenChange,
   defaultProviderKey,
+  onSuccess,
 }: {
   options: BudgetRuleFormOptions;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   defaultProviderKey?: string;
+  onSuccess?: () => void;
 }) {
   const makeInitial = (): FormState => ({
     ...DEFAULT_FORM,
@@ -144,7 +146,7 @@ export function CreateDrawer({
     }
     reset();
     onOpenChange(false);
-    window.location.reload();
+    if (onSuccess) onSuccess(); else window.location.reload();
   }
 
   const scopeNeedsSelector = form.scopeType !== 'global';
@@ -370,10 +372,12 @@ export function EditDrawer({
   rule,
   open,
   onOpenChange,
+  onSuccess,
 }: {
   rule: BudgetRuleRow | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  onSuccess?: () => void;
 }) {
   const [limitCredits, setLimitCredits] = useState('');
   const [limitUsd, setLimitUsd] = useState('');
@@ -414,7 +418,7 @@ export function EditDrawer({
       return;
     }
     onOpenChange(false);
-    window.location.reload();
+    if (onSuccess) onSuccess(); else window.location.reload();
   }
 
   const canSubmit = (!!limitCredits || !!limitUsd) && !loading;
