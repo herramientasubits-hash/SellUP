@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import { startContactEnrichmentRun } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-runner';
 import { executeContactEnrichmentApolloRun } from '@/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner';
+import { executeContactEnrichmentLushaRun } from '@/server/agents/contact-enrichment-toolkit/lusha-enrichment-runner';
 import { logContactAudit } from '@/modules/contacts/actions';
 import {
   runApproveCandidate,
@@ -912,4 +913,17 @@ export async function getBulkContactEnrichmentRunStatusAction(
   } catch {
     return { ok: false, error: 'unknown' };
   }
+}
+
+// ── Lusha Action (Agente 2A · 17B.3) ─────────────────────────────────────────
+// Skeleton apagado por feature flag. No conectado a UI. No ejecutar en QA live.
+
+/**
+ * Server action para el runner de Lusha.
+ * En 17B.3 el runner siempre retorna disabled/missing_api_key/not_implemented.
+ * No crea candidatos. No modifica runs. No llama API de Lusha.
+ */
+export async function runContactEnrichmentLushaAction(runId: string) {
+  const { internalUserId } = await requireActiveUserForEnrichment();
+  return executeContactEnrichmentLushaRun(runId, internalUserId);
 }

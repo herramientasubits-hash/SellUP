@@ -125,3 +125,55 @@ export function resolveApolloMaxEnrichmentsPerRun(): number {
   if (!Number.isFinite(parsed) || parsed < 1) return 1;
   return Math.min(parsed, 3); // hard cap 3
 }
+
+// ============================================================
+// Lusha Contact Enrichment (Agente 2A · 17B)
+// ============================================================
+
+/** Flag name constant for the Lusha contact enrichment provider. */
+export const LUSHA_CONTACT_ENRICHMENT_FLAG = 'ENABLE_LUSHA_CONTACT_ENRICHMENT';
+
+/**
+ * Returns true when ENABLE_LUSHA_CONTACT_ENRICHMENT is "true".
+ *
+ * Default: false. Lusha is a secondary/challenger provider behind this flag.
+ * Apollo remains the primary provider and must not be affected by this flag.
+ * Do not enable until the live integration (17B.4) is validated.
+ */
+export function isLushaContactEnrichmentEnabled(): boolean {
+  return (
+    process.env[LUSHA_CONTACT_ENRICHMENT_FLAG]?.trim().toLowerCase() === 'true'
+  );
+}
+
+/**
+ * Returns the max candidates per Lusha run.
+ * Reads LUSHA_MAX_CANDIDATES_PER_RUN; clamps to [1, 10]. Default: 5.
+ */
+export function resolveLushaMaxCandidatesPerRun(): number {
+  const raw = process.env['LUSHA_MAX_CANDIDATES_PER_RUN'];
+  if (!raw) return 5;
+  const parsed = parseInt(raw.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 5;
+  return Math.min(parsed, 10);
+}
+
+/**
+ * Returns the Lusha API timeout in ms.
+ * Reads LUSHA_SEARCH_TIMEOUT_MS; clamps to [5000, 60000]. Default: 20000.
+ */
+export function resolveLushaSearchTimeoutMs(): number {
+  const raw = process.env['LUSHA_SEARCH_TIMEOUT_MS'];
+  if (!raw) return 20_000;
+  const parsed = parseInt(raw.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 5_000) return 20_000;
+  return Math.min(parsed, 60_000);
+}
+
+/**
+ * Phone reveal is intentionally disabled for all Lusha calls in v1.
+ * This function always returns false and must never be changed to read an env var.
+ */
+export function isLushaPhoneRevealEnabled(): false {
+  return false;
+}

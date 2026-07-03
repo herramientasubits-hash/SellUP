@@ -23,6 +23,28 @@ import { getLushaApiKey } from '@/server/services/lusha-connection';
 const LUSHA_BASE_URL = 'https://api.lusha.com';
 
 // ============================================================
+// Error codes — mapeados desde HTTP status de Lusha
+// ============================================================
+
+export type LushaApiErrorCode =
+  | 'provider_auth_error'
+  | 'insufficient_credits'
+  | 'feature_unavailable'
+  | 'rate_limited'
+  | 'compliance_blocked'
+  | 'provider_error'
+  | 'provider_timeout';
+
+export function mapLushaHttpError(status: number): LushaApiErrorCode {
+  if (status === 401) return 'provider_auth_error';
+  if (status === 402) return 'insufficient_credits';
+  if (status === 403) return 'feature_unavailable';
+  if (status === 429) return 'rate_limited';
+  if (status === 451) return 'compliance_blocked';
+  return 'provider_error';
+}
+
+// ============================================================
 // Tipos base
 // ============================================================
 
