@@ -17,6 +17,8 @@ import { getDgcpSourceCoverageSummary } from '@/server/services/rd-dgcp-source-c
 import { RdDgcpCoverageCard } from '@/components/source-catalog/rd-dgcp-coverage-card';
 import { getSicopSourceCoverageSummary } from '@/server/services/cr-sicop-source-coverage-summary';
 import { CrSicopCoverageCard } from '@/components/source-catalog/cr-sicop-coverage-card';
+import { getPaPanamaCompraConvenioCoverageSummary } from '@/server/services/pa-panamacompra-convenio-source-coverage-summary';
+import { PaPanamaCompraConvenioCoverageCard } from '@/components/source-catalog/pa-panamacompra-convenio-coverage-card';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -58,8 +60,9 @@ export default async function SourceDetailPage({ params }: Props) {
   const isDgiiRd = source.key === 'rd_dgii_bulk';
   const isDgcpRd = source.key === 'do_dgcp';
   const isCrSicop = source.key === 'cr_sicop';
+  const isPaConvenio = source.key === 'pa_panamacompra_convenio';
 
-  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage] = await Promise.all([
+  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
     getSourceConnectionRecord(sourceKey),
     isCurrentUserAdmin(),
@@ -74,6 +77,9 @@ export default async function SourceDetailPage({ params }: Props) {
       : Promise.resolve(null),
     isCrSicop
       ? getSicopSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isPaConvenio
+      ? getPaPanamaCompraConvenioCoverageSummary().catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -311,6 +317,13 @@ export default async function SourceDetailPage({ params }: Props) {
         sicopCoverage
           ? <CrSicopCoverageCard summary={sicopCoverage} />
           : <CrSicopCoverageCard error />
+      )}
+
+      {/* Cobertura PanamaCompra Convenio Marco — solo pa_panamacompra_convenio (señal procurement B2G, muestra piloto) */}
+      {isPaConvenio && (
+        paConvenioCoverage
+          ? <PaPanamaCompraConvenioCoverageCard summary={paConvenioCoverage} />
+          : <PaPanamaCompraConvenioCoverageCard error />
       )}
 
       {/* Prueba de conexión */}

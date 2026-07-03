@@ -36,6 +36,16 @@ export const PA_AUDITED_LOADED_ROWS = 0;
 export type PaCoverageSource = 'live_database' | 'audited_fallback';
 export type PaCoverageSourceReason = 'missing_env' | 'query_failed' | 'unknown';
 
+export interface PaPanamaCompraCoverageBreakdown {
+  coverage_scope?: string;
+  convenios_read?: number | null;
+  providers_found?: number | null;
+  unique_providers?: number | null;
+  providers_with_ruc?: number | null;
+  snapshots_built?: number | null;
+  limitations?: string[];
+}
+
 export interface PaPanamaCompraConvenioCoverageSummary {
   sourceKey: typeof PA_SOURCE_KEY;
   loadedRows: number;
@@ -47,6 +57,8 @@ export interface PaPanamaCompraConvenioCoverageSummary {
   coverageKind: typeof PA_COVERAGE_KIND;
   coverageSource: PaCoverageSource;
   coverageSourceReason?: PaCoverageSourceReason;
+  refreshSource?: string;
+  breakdown?: PaPanamaCompraCoverageBreakdown;
   /** PanamaCompra Convenio Marco is procurement signal only. */
   isProcurementSignalOnly: true;
   /** NOT a fiscal source — does not validate RUC. */
@@ -66,6 +78,8 @@ interface SummaryRow {
   loaded_rows: number;
   coverage_status: string;
   coverage_kind: string | null;
+  refresh_source: string | null;
+  coverage_breakdown: Record<string, unknown> | null;
 }
 
 // ─── Build helper ──────────────────────────────────────────────────────────────
@@ -74,6 +88,8 @@ function buildSummary(
   loadedRows: number,
   coverageSource: PaCoverageSource,
   coverageSourceReason?: PaCoverageSourceReason,
+  refreshSource?: string,
+  breakdown?: PaPanamaCompraCoverageBreakdown,
 ): PaPanamaCompraConvenioCoverageSummary {
   return {
     sourceKey: PA_SOURCE_KEY,
@@ -82,11 +98,26 @@ function buildSummary(
     coverageKind: PA_COVERAGE_KIND,
     coverageSource,
     ...(coverageSourceReason ? { coverageSourceReason } : {}),
+    ...(refreshSource ? { refreshSource } : {}),
+    ...(breakdown ? { breakdown } : {}),
     isProcurementSignalOnly: true,
     isFiscalSource: false,
     replacesDgiPanama: false,
     replacesRegistroPublico: false,
     coverageScope: 'convenio_marco',
+  };
+}
+
+function extractBreakdown(raw: Record<string, unknown> | null): PaPanamaCompraCoverageBreakdown | undefined {
+  if (!raw) return undefined;
+  return {
+    coverage_scope: typeof raw.coverage_scope === 'string' ? raw.coverage_scope : undefined,
+    convenios_read: typeof raw.convenios_read === 'number' ? raw.convenios_read : null,
+    providers_found: typeof raw.providers_found === 'number' ? raw.providers_found : null,
+    unique_providers: typeof raw.unique_providers === 'number' ? raw.unique_providers : null,
+    providers_with_ruc: typeof raw.providers_with_ruc === 'number' ? raw.providers_with_ruc : null,
+    snapshots_built: typeof raw.snapshots_built === 'number' ? raw.snapshots_built : null,
+    limitations: Array.isArray(raw.limitations) ? (raw.limitations as string[]) : undefined,
   };
 }
 
@@ -118,7 +149,7 @@ export async function getPaPanamaCompraConvenioCoverageSummary(): Promise<PaPana
     try {
       const { data, error } = await client
         .from('source_coverage_summaries')
-        .select('source_key, loaded_rows, coverage_status, coverage_kind')
+        .select('source_key, loaded_rows, coverage_status, coverage_kind, refresh_source, coverage_breakdown')
         .eq('source_key', PA_SOURCE_KEY)
         .abortSignal(controller.signal)
         .maybeSingle();
@@ -135,7 +166,13 @@ export async function getPaPanamaCompraConvenioCoverageSummary(): Promise<PaPana
       }
 
       const row = data as SummaryRow;
-      return buildSummary(row.loaded_rows ?? PA_AUDITED_LOADED_ROWS, 'live_database');
+      return buildSummary(
+        row.loaded_rows ?? PA_AUDITED_LOADED_ROWS,
+        'live_database',
+        undefined,
+        row.refresh_source ?? undefined,
+        extractBreakdown(row.coverage_breakdown),
+      );
     } catch {
       clearTimeout(timeout);
       if (attempt < MAX_RETRIES) continue;
