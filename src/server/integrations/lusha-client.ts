@@ -266,6 +266,183 @@ export async function searchLushaPeople(
 }
 
 // ============================================================
+// Contact Search V3 — Agente 2A · 17B.4C
+// POST https://api.lusha.com/v3/contacts/search
+//
+// BÚSQUEDA PREVIEW SIN REVEAL. No devuelve emails ni teléfonos.
+// No crea candidatos. No inserta provider_usage_logs.
+// No usar enrich ni search-and-enrich en este endpoint.
+// ============================================================
+
+export type LushaContactSearchRequest = {
+  contacts: Array<{
+    firstName?: string;
+    lastName?: string;
+    fullName?: string;
+    linkedinUrl?: string;
+    email?: string;
+    companyName?: string;
+    companyDomain?: string;
+  }>;
+  signals?: string[];
+};
+
+export type LushaContactSearchResult = {
+  ok: boolean;
+  status:
+    | 'success'
+    | 'no_results'
+    | 'provider_auth_error'
+    | 'insufficient_credits'
+    | 'feature_unavailable'
+    | 'rate_limited'
+    | 'compliance_blocked'
+    | 'provider_error'
+    | 'provider_timeout';
+  httpStatus?: number;
+  requestId?: string | null;
+  rateLimit?: Record<string, string | null>;
+  resultsReturned: number;
+  creditsCharged?: number | null;
+  rawShape?: Record<string, unknown>;
+  sanitizedResults?: Array<{
+    id: string | null;
+    fullName: string | null;
+    title: string | null;
+    companyName: string | null;
+    companyDomain: string | null;
+    linkedinUrl: string | null;
+    has: unknown;
+    canReveal: unknown;
+  }>;
+  errorMessage?: string;
+};
+
+export async function searchLushaContactsV3(input: {
+  apiKey: string;
+  timeoutMs: number;
+  contacts: Array<{
+    firstName?: string;
+    lastName?: string;
+    fullName?: string;
+    linkedinUrl?: string;
+    email?: string;
+    companyName?: string;
+    companyDomain?: string;
+  }>;
+}): Promise<LushaContactSearchResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    const body: LushaContactSearchRequest = {
+      contacts: input.contacts,
+    };
+
+    const response = await fetch(`${LUSHA_BASE_URL}/v3/contacts/search`, {
+      method: 'POST',
+      headers: {
+        'api_key': input.apiKey.trim(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    const rateLimit: Record<string, string | null> = {
+      limit: response.headers.get('x-ratelimit-limit'),
+      remaining: response.headers.get('x-ratelimit-remaining'),
+      reset: response.headers.get('x-ratelimit-reset'),
+    };
+    const requestId = response.headers.get('x-request-id');
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      return {
+        ok: false,
+        status: mapLushaHttpError(response.status),
+        httpStatus: response.status,
+        resultsReturned: 0,
+        rateLimit,
+        requestId,
+        errorMessage: errorBody.slice(0, 300) || undefined,
+      };
+    }
+
+    const raw = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+    const contacts = Array.isArray(raw['contacts'])
+      ? (raw['contacts'] as Record<string, unknown>[])
+      : Array.isArray(raw['data'])
+        ? (raw['data'] as Record<string, unknown>[])
+        : [];
+
+    if (contacts.length === 0) {
+      return {
+        ok: true,
+        status: 'no_results',
+        httpStatus: response.status,
+        resultsReturned: 0,
+        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+        rawShape: buildRawShape(raw),
+        rateLimit,
+        requestId,
+      };
+    }
+
+    const sanitizedResults = contacts.map((c) => ({
+      id: typeof c['id'] === 'string' ? c['id'] : null,
+      fullName: pickString(c, ['fullName', 'name', 'full_name']) ?? null,
+      title: pickString(c, ['title', 'jobTitle', 'job_title']) ?? null,
+      companyName: pickString(c, ['companyName', 'company_name', 'company']) ?? null,
+      companyDomain: pickString(c, ['companyDomain', 'company_domain', 'domain']) ?? null,
+      linkedinUrl: pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ?? null,
+      has: c['has'] ?? null,
+      canReveal: c['canReveal'] ?? null,
+      // emails and phones deliberately omitted
+    }));
+
+    return {
+      ok: true,
+      status: 'success',
+      httpStatus: response.status,
+      resultsReturned: sanitizedResults.length,
+      creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+      rawShape: buildRawShape(raw),
+      sanitizedResults,
+      rateLimit,
+      requestId,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      status: isTimeout ? 'provider_timeout' : 'provider_error',
+      resultsReturned: 0,
+      errorMessage: isTimeout
+        ? 'Request timed out'
+        : err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const k of keys) {
+    if (typeof obj[k] === 'string' && obj[k]) return obj[k] as string;
+  }
+  return undefined;
+}
+
+function buildRawShape(raw: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.keys(raw).map((k) => [k, typeof raw[k]])
+  );
+}
+
+// ============================================================
 // Account Usage — health check seguro (Agente 2A · 17B.4A)
 // GET https://api.lusha.com/v3/account/usage
 //
