@@ -16,6 +16,7 @@ import { DrawerShell } from '@/components/shared/drawer-shell';
 import {
   checkBulkEnrichmentEligibilityAction,
   createBulkContactEnrichmentRunAction,
+  getBulkContactEnrichmentRunStatusAction,
 } from '@/modules/contact-enrichment/actions';
 import type {
   BulkEnrichmentEligibilityResult,
@@ -37,6 +38,8 @@ type DrawerState =
   | 'ready_to_confirm'
   | 'creating_bulk_run'
   | 'executing'
+  | 'checking_status'
+  | 'execution_unknown'
   | 'completed'
   | 'completed_with_errors'
   | 'error';
@@ -81,6 +84,7 @@ export function BulkContactEnrichmentDrawer({
   const [eligibilityError, setEligibilityError] = React.useState<string | null>(null);
   const [executionError, setExecutionError] = React.useState<string | null>(null);
   const [summary, setSummary] = React.useState<BulkRunSummary | null>(null);
+  const [currentBulkRunId, setCurrentBulkRunId] = React.useState<string | null>(null);
 
   const accountIds = React.useMemo(
     () => selectedAccounts.map((a) => a.id),
@@ -99,6 +103,7 @@ export function BulkContactEnrichmentDrawer({
     setEligibilityError(null);
     setExecutionError(null);
     setSummary(null);
+    setCurrentBulkRunId(null);
 
     if (tooManyAccounts) return;
 
@@ -113,12 +118,51 @@ export function BulkContactEnrichmentDrawer({
     });
   }, [open, accountIds, tooManyAccounts]);
 
+  const applyRunStatus = React.useCallback(
+    (statusRes: Awaited<ReturnType<typeof getBulkContactEnrichmentRunStatusAction>>) => {
+      if (!statusRes.ok) {
+        setState('execution_unknown');
+        return;
+      }
+
+      const { status, totalCandidatesCreated, totalProcessed, totalSucceeded, totalFailed } =
+        statusRes;
+
+      if (status === 'completed' || status === 'completed_with_errors') {
+        setSummary({
+          processed: totalProcessed,
+          with_candidates: totalSucceeded,
+          without_candidates: Math.max(0, totalProcessed - totalSucceeded - totalFailed),
+          failed: totalFailed,
+          candidates_created: totalCandidatesCreated,
+        });
+        router.refresh();
+        onCompleted?.();
+        setState(status === 'completed_with_errors' ? 'completed_with_errors' : 'completed');
+      } else if (status === 'failed') {
+        setExecutionError('No se pudo completar el enriquecimiento en lote.');
+        setState('error');
+      } else {
+        // running | created
+        setState('execution_unknown');
+      }
+    },
+    [router, onCompleted],
+  );
+
+  const handleRefreshStatus = React.useCallback(async () => {
+    if (!currentBulkRunId) return;
+    setState('checking_status');
+    const statusRes = await getBulkContactEnrichmentRunStatusAction(currentBulkRunId);
+    applyRunStatus(statusRes);
+  }, [currentBulkRunId, applyRunStatus]);
+
   const handleConfirm = React.useCallback(async () => {
     setState('creating_bulk_run');
 
     const createRes = await createBulkContactEnrichmentRunAction(accountIds);
 
-    if (!createRes.success || !createRes.executeUrl) {
+    if (!createRes.success || !createRes.executeUrl || !createRes.bulkRunId) {
       setExecutionError(
         createRes.error ?? 'No pudimos iniciar el enriquecimiento en lote. Intenta nuevamente.',
       );
@@ -126,6 +170,7 @@ export function BulkContactEnrichmentDrawer({
       return;
     }
 
+    setCurrentBulkRunId(createRes.bulkRunId);
     setState('executing');
 
     try {
@@ -158,19 +203,22 @@ export function BulkContactEnrichmentDrawer({
         setState('completed');
       }
     } catch {
-      setExecutionError(
-        'No pudimos ejecutar el enriquecimiento en lote. Intenta nuevamente.',
-      );
-      setState('error');
+      // Transport/timeout — check real DB status before showing error
+      setState('checking_status');
+      const statusRes = await getBulkContactEnrichmentRunStatusAction(createRes.bulkRunId);
+      applyRunStatus(statusRes);
     }
-  }, [accountIds, router, onCompleted]);
+  }, [accountIds, router, onCompleted, applyRunStatus]);
 
   const isLoading =
     state === 'checking_eligibility' ||
     state === 'creating_bulk_run' ||
-    state === 'executing';
+    state === 'executing' ||
+    state === 'checking_status';
 
   const isDone = state === 'completed' || state === 'completed_with_errors';
+
+  const isUnknown = state === 'execution_unknown';
 
   const noEligible = !tooManyAccounts && eligibility && eligibility.eligible.length === 0;
   const canConfirm =
@@ -196,6 +244,15 @@ export function BulkContactEnrichmentDrawer({
           >
             <Users className="h-4 w-4" />
             Ver candidatos para revisar
+          </Button>
+        </>
+      ) : isUnknown ? (
+        <>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            Cerrar
+          </Button>
+          <Button size="sm" onClick={handleRefreshStatus} disabled={!currentBulkRunId}>
+            Actualizar estado
           </Button>
         </>
       ) : (
@@ -354,17 +411,31 @@ export function BulkContactEnrichmentDrawer({
         )}
 
         {/* Loading states */}
-        {!tooManyAccounts && (state === 'creating_bulk_run' || state === 'executing') && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {state === 'creating_bulk_run'
-              ? 'Preparando enriquecimiento en lote…'
-              : 'Ejecutando enriquecimiento…'}
+        {!tooManyAccounts &&
+          (state === 'creating_bulk_run' ||
+            state === 'executing' ||
+            state === 'checking_status') && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {state === 'creating_bulk_run'
+                ? 'Preparando enriquecimiento en lote…'
+                : state === 'checking_status'
+                  ? 'No pude confirmar la respuesta en tiempo real. Estoy consultando el estado del lote…'
+                  : 'Ejecutando enriquecimiento…'}
+            </div>
+          )}
+
+        {/* Unknown / in-progress state after recovery */}
+        {!tooManyAccounts && state === 'execution_unknown' && (
+          <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            El lote fue iniciado, pero todavía no tenemos confirmación final. Puedes actualizar el
+            estado en unos segundos.
           </div>
         )}
 
         {/* Disclaimer */}
-        {!tooManyAccounts && state !== 'error' && !isDone && (
+        {!tooManyAccounts && state !== 'error' && !isDone && !isUnknown && (
           <div className="rounded-md bg-muted/60 px-3 py-2.5">
             <p className="text-xs text-muted-foreground">
               Este proceso{' '}

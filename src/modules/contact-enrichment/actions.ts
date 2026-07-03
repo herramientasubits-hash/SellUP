@@ -826,3 +826,90 @@ export async function discardContactCandidate(
     return { ok: false, error: message };
   }
 }
+
+// ── Bulk Run Status (Hito 17A.10K) ────────────────────────────────────────────
+
+export type BulkRunStatus =
+  | 'created'
+  | 'running'
+  | 'completed'
+  | 'completed_with_errors'
+  | 'failed';
+
+export interface GetBulkRunStatusResult {
+  ok: true;
+  bulkRunId: string;
+  status: BulkRunStatus;
+  totalSelected: number;
+  totalEligible: number;
+  totalProcessed: number;
+  totalSucceeded: number;
+  totalFailed: number;
+  totalSkipped: number;
+  totalCandidatesCreated: number;
+  summary: unknown;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface GetBulkRunStatusError {
+  ok: false;
+  error: 'not_found' | 'unauthorized' | 'unknown';
+}
+
+/**
+ * Lee el estado actual de un bulk run. Solo lectura — sin Apollo, sin writes.
+ */
+export async function getBulkContactEnrichmentRunStatusAction(
+  bulkRunId: string,
+): Promise<GetBulkRunStatusResult | GetBulkRunStatusError> {
+  try {
+    await requireActiveUserForEnrichment();
+
+    if (!bulkRunId || typeof bulkRunId !== 'string') {
+      return { ok: false, error: 'not_found' };
+    }
+
+    const admin = getServiceRoleClient();
+    const { data, error } = await admin
+      .from('contact_enrichment_bulk_runs')
+      .select(
+        'id, status, total_selected, total_eligible, total_processed, total_succeeded, total_failed, total_skipped, total_candidates_created, summary, started_at, completed_at',
+      )
+      .eq('id', bulkRunId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return { ok: false, error: 'not_found' };
+    }
+
+    const knownStatuses: BulkRunStatus[] = [
+      'created',
+      'running',
+      'completed',
+      'completed_with_errors',
+      'failed',
+    ];
+    const status: BulkRunStatus = knownStatuses.includes(data.status as BulkRunStatus)
+      ? (data.status as BulkRunStatus)
+      : 'failed';
+
+    return {
+      ok: true,
+      bulkRunId: data.id as string,
+      status,
+      totalSelected: (data.total_selected as number | null) ?? 0,
+      totalEligible: (data.total_eligible as number | null) ?? 0,
+      totalProcessed: (data.total_processed as number | null) ?? 0,
+      totalSucceeded: (data.total_succeeded as number | null) ?? 0,
+      totalFailed: (data.total_failed as number | null) ?? 0,
+      totalSkipped: (data.total_skipped as number | null) ?? 0,
+      totalCandidatesCreated: (data.total_candidates_created as number | null) ?? 0,
+      summary: data.summary,
+      startedAt: (data.started_at as string | null) ?? null,
+      completedAt: (data.completed_at as string | null) ?? null,
+    };
+  } catch {
+    return { ok: false, error: 'unknown' };
+  }
+}

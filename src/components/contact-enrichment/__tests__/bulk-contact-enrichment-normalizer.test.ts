@@ -91,4 +91,48 @@ describe('normalizeBulkExecutionSummary', () => {
     });
     assert.equal(result.summary.processed, 5);
   });
+
+  // 17A.10K — DB row shapes and running/created statuses
+  it('handles status running', () => {
+    assert.equal(normalizeBulkExecutionSummary({ status: 'running' }).status, 'running');
+  });
+
+  it('handles status created', () => {
+    assert.equal(normalizeBulkExecutionSummary({ status: 'created' }).status, 'created');
+  });
+
+  it('DB row completed with total_candidates_created=3 produces success summary', () => {
+    const result = normalizeBulkExecutionSummary({
+      status: 'completed',
+      total_candidates_created: 3,
+      summary: {
+        total_processed: 4,
+        accounts_with_candidates: 3,
+        accounts_without_candidates: 1,
+        accounts_failed: 0,
+        total_candidates_created: 3,
+      },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.summary.candidates_created, 3);
+  });
+
+  it('DB row completed_with_errors is not treated as completed', () => {
+    const result = normalizeBulkExecutionSummary({ status: 'completed_with_errors' });
+    assert.notEqual(result.status, 'completed');
+    assert.equal(result.status, 'completed_with_errors');
+  });
+
+  it('DB row failed maps to failed status', () => {
+    assert.equal(normalizeBulkExecutionSummary({ status: 'failed' }).status, 'failed');
+  });
+
+  it('missing counters all default to 0', () => {
+    const { summary } = normalizeBulkExecutionSummary({ status: 'completed' });
+    assert.equal(summary.processed, 0);
+    assert.equal(summary.with_candidates, 0);
+    assert.equal(summary.without_candidates, 0);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.candidates_created, 0);
+  });
 });
