@@ -723,10 +723,16 @@ export async function enrichLushaContactsV3(input: {
 }
 
 // ============================================================
-// Búsqueda de empresas (Prospecting API)
+// Búsqueda de empresas — LEGACY (Prospecting API sin versión)
 // POST https://api.lusha.com/prospecting/search/companies
 //
-// NOTA: Requiere plan de Prospecting en Lusha. Consume créditos.
+// NOTA: Endpoint legacy. Docs V3 oficiales (2026-07) indican que
+// el endpoint correcto es POST /v3/companies/prospecting.
+// Esta función se conserva por compatibilidad hacia atrás.
+// Para nuevos usos, utilizar searchLushaCompaniesV3.
+//
+// IMPORTANTE: No conectado a ningún flujo productivo.
+// Requiere plan de Prospecting en Lusha. Consume créditos.
 // ============================================================
 
 export async function searchLushaCompanies(
@@ -756,4 +762,316 @@ export async function searchLushaCompanies(
     data: result.data?.companies ?? [],
     total: result.data?.total,
   };
+}
+
+// ============================================================
+// Company Prospecting V3 — Q3F-5D
+// POST https://api.lusha.com/v3/companies/prospecting
+//
+// ENDPOINT OFICIAL DOCUMENTADO EN LUSHA API V3 (2026-07).
+// Requiere plan de Prospecting. Cobra por resultado (api_search).
+// Si se piden signals, puede haber cargos adicionales.
+//
+// ESTADO: EXPERIMENTAL — NO CONECTADO A PRODUCCIÓN.
+// No llamar desde wizard, source-catalog ni Agente 1.
+// No activa ningún provider. No escribe en DB.
+// El schema exacto del body no está confirmado en prueba real;
+// se usan tipos conservadores hasta smoke test controlado.
+//
+// Errors:
+//   402 = créditos insuficientes / pago requerido
+//   403 = cuenta inactiva o feature no disponible en el plan
+// ============================================================
+
+export type LushaCompanyProspectingV3Filter = {
+  // field y values son opacos hasta confirmar documentación de filtros
+  // via GET /v3/companies/prospecting/filters
+  field: string;
+  values: unknown[];
+};
+
+export type LushaCompanyProspectingV3Request = {
+  filters?: LushaCompanyProspectingV3Filter[];
+  pagination?: {
+    page: number;
+    size: number;
+  };
+  // signals puede generar cargos adicionales — omitir por defecto
+  signals?: string[];
+};
+
+export type LushaCompanyProspectingV3Company = {
+  id?: string | null;
+  name?: string | null;
+  domain?: string | null;
+  country?: string | null;
+  industry?: string | null;
+  employeeCount?: number | null;
+  linkedinUrl?: string | null;
+};
+
+export type LushaCompanyProspectingV3Result = {
+  ok: boolean;
+  status:
+    | 'success'
+    | 'no_results'
+    | 'provider_auth_error'
+    | 'insufficient_credits'
+    | 'feature_unavailable'
+    | 'rate_limited'
+    | 'compliance_blocked'
+    | 'provider_error'
+    | 'provider_timeout';
+  httpStatus?: number;
+  requestId?: string | null;
+  rateLimit?: Record<string, string | null>;
+  resultsReturned: number;
+  totalAvailable?: number | null;
+  creditsCharged?: number | null;
+  rawShape?: Record<string, unknown>;
+  results?: LushaCompanyProspectingV3Company[];
+  errorMessage?: string;
+};
+
+export async function searchLushaCompaniesV3(input: {
+  apiKey: string;
+  timeoutMs: number;
+  request: LushaCompanyProspectingV3Request;
+}): Promise<LushaCompanyProspectingV3Result> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    const response = await fetch(`${LUSHA_BASE_URL}/v3/companies/prospecting`, {
+      method: 'POST',
+      headers: {
+        'api_key': input.apiKey.trim(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input.request),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    const rateLimit: Record<string, string | null> = {
+      limit: response.headers.get('x-ratelimit-limit'),
+      remaining: response.headers.get('x-ratelimit-remaining'),
+      reset: response.headers.get('x-ratelimit-reset'),
+    };
+    const headerRequestId = response.headers.get('x-request-id');
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      return {
+        ok: false,
+        status: mapLushaHttpError(response.status),
+        httpStatus: response.status,
+        resultsReturned: 0,
+        rateLimit,
+        requestId: headerRequestId,
+        errorMessage: errorBody.slice(0, 300) || undefined,
+      };
+    }
+
+    const raw = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+    // Response shape not confirmed in live test — try common keys conservatively
+    const items = Array.isArray(raw['results'])
+      ? (raw['results'] as Record<string, unknown>[])
+      : Array.isArray(raw['companies'])
+        ? (raw['companies'] as Record<string, unknown>[])
+        : Array.isArray(raw['data'])
+          ? (raw['data'] as Record<string, unknown>[])
+          : [];
+
+    const requestId =
+      typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
+
+    const totalAvailable =
+      typeof raw['total'] === 'number' ? raw['total']
+      : typeof raw['totalResults'] === 'number' ? raw['totalResults']
+      : null;
+
+    if (items.length === 0) {
+      return {
+        ok: true,
+        status: 'no_results',
+        httpStatus: response.status,
+        resultsReturned: 0,
+        totalAvailable,
+        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+        rawShape: buildRawShape(raw),
+        rateLimit,
+        requestId,
+      };
+    }
+
+    const results: LushaCompanyProspectingV3Company[] = items.map((c) => ({
+      id: typeof c['id'] === 'string' ? c['id'] : null,
+      name: pickString(c, ['name', 'companyName']) ?? null,
+      domain: pickString(c, ['domain', 'website']) ?? null,
+      country: pickString(c, ['country', 'countryCode']) ?? null,
+      industry: pickString(c, ['industry', 'industryName']) ?? null,
+      employeeCount: typeof c['employeeCount'] === 'number' ? c['employeeCount'] : null,
+      linkedinUrl: pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ?? null,
+    }));
+
+    return {
+      ok: true,
+      status: 'success',
+      httpStatus: response.status,
+      resultsReturned: results.length,
+      totalAvailable,
+      creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+      rawShape: buildRawShape(raw),
+      results,
+      rateLimit,
+      requestId,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      status: isTimeout ? 'provider_timeout' : 'provider_error',
+      resultsReturned: 0,
+      errorMessage: isTimeout
+        ? 'Request timed out'
+        : err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+// ============================================================
+// Company Prospecting Filters V3 — Q3F-5D
+// GET https://api.lusha.com/v3/companies/prospecting/filters
+// GET https://api.lusha.com/v3/companies/prospecting/filters/{filterType}
+//
+// Permite descubrir filtros válidos antes de llamar al endpoint
+// de prospecting. No consume créditos de api_search.
+//
+// ESTADO: EXPERIMENTAL — NO CONECTADO A PRODUCCIÓN.
+// ============================================================
+
+export type LushaCompanyProspectingFiltersResult = {
+  ok: boolean;
+  status:
+    | 'success'
+    | 'provider_auth_error'
+    | 'insufficient_credits'
+    | 'feature_unavailable'
+    | 'rate_limited'
+    | 'compliance_blocked'
+    | 'provider_error'
+    | 'provider_timeout';
+  httpStatus?: number;
+  requestId?: string | null;
+  // Raw response — shape not confirmed until smoke test
+  rawFilters?: unknown;
+  errorMessage?: string;
+};
+
+export async function getLushaCompanyProspectingFilters(input: {
+  apiKey: string;
+  timeoutMs: number;
+}): Promise<LushaCompanyProspectingFiltersResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    const response = await fetch(
+      `${LUSHA_BASE_URL}/v3/companies/prospecting/filters`,
+      {
+        method: 'GET',
+        headers: { 'api_key': input.apiKey.trim() },
+        signal: controller.signal,
+      }
+    );
+
+    clearTimeout(timer);
+
+    const headerRequestId = response.headers.get('x-request-id');
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      return {
+        ok: false,
+        status: mapLushaHttpError(response.status),
+        httpStatus: response.status,
+        requestId: headerRequestId,
+        errorMessage: errorBody.slice(0, 300) || undefined,
+      };
+    }
+
+    const rawFilters = await response.json().catch(() => undefined) as unknown;
+    return {
+      ok: true,
+      status: 'success',
+      httpStatus: response.status,
+      requestId: headerRequestId,
+      rawFilters,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      status: isTimeout ? 'provider_timeout' : 'provider_error',
+      errorMessage: isTimeout ? 'Request timed out' : (err instanceof Error ? err.message : 'Unknown error'),
+    };
+  }
+}
+
+export async function getLushaCompanyProspectingFilterValues(input: {
+  apiKey: string;
+  timeoutMs: number;
+  filterType: string;
+}): Promise<LushaCompanyProspectingFiltersResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    const encodedType = encodeURIComponent(input.filterType);
+    const response = await fetch(
+      `${LUSHA_BASE_URL}/v3/companies/prospecting/filters/${encodedType}`,
+      {
+        method: 'GET',
+        headers: { 'api_key': input.apiKey.trim() },
+        signal: controller.signal,
+      }
+    );
+
+    clearTimeout(timer);
+
+    const headerRequestId = response.headers.get('x-request-id');
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      return {
+        ok: false,
+        status: mapLushaHttpError(response.status),
+        httpStatus: response.status,
+        requestId: headerRequestId,
+        errorMessage: errorBody.slice(0, 300) || undefined,
+      };
+    }
+
+    const rawFilters = await response.json().catch(() => undefined) as unknown;
+    return {
+      ok: true,
+      status: 'success',
+      httpStatus: response.status,
+      requestId: headerRequestId,
+      rawFilters,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      status: isTimeout ? 'provider_timeout' : 'provider_error',
+      errorMessage: isTimeout ? 'Request timed out' : (err instanceof Error ? err.message : 'Unknown error'),
+    };
+  }
 }

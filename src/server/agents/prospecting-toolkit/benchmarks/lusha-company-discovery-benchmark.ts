@@ -210,7 +210,7 @@ function handlePlanNotAuthorized(
     scenario: input.scenario,
     input,
     metrics: zeroMetrics('plan_not_authorized'),
-    stop_reason: 'HTTP 402: endpoint /prospecting/search/companies no incluido en el plan de Lusha. Detener evaluación de discovery hasta confirmar contrato.',
+    stop_reason: 'HTTP 402: endpoint /v3/companies/prospecting no incluido en el plan de Lusha (créditos insuficientes o feature no habilitada). Detener evaluación de discovery hasta confirmar contrato.',
   };
 }
 
