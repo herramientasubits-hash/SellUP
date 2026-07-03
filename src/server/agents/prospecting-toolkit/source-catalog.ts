@@ -1257,6 +1257,41 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
 
+  // ── Panamá ──────────────────────────────────────────────────────────────────
+  {
+    key: 'pa_panamacompra_convenio',
+    name: 'PanamaCompra Convenio Marco',
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'eligible_not_connected',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Fuente procurement B2G pendiente de validación. Conector API ASMX implementado (Centroamérica.5B). Ejecutar dry-run controlado y validar cobertura antes de activar post-approval. No es fuente legal ni tributaria; no reemplaza DGI Panamá ni Registro Público.',
+    countryCodes: ['PA'],
+    sectors: [],
+    priority: 'P2',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://www.panamacompra.gob.pa/Inicio/',
+    automationLevel: 'medium',
+    recommendedUse:
+      'Señal procurement B2G para identificar proveedores registrados en convenios marco del Estado panameño. API ASMX pública. Entrega RUC, nombre, contacto, representante y convenios asociados. Cobertura limitada a Convenio Marco.',
+    limitations: [
+      'No es fuente legal — no valida RUC como fuente fiscal oficial',
+      'No es fuente tributaria — no reemplaza DGI Panamá',
+      'No reemplaza Registro Público de Panamá',
+      'Cobertura limitada a proveedores de Convenio Marco — no cubre toda la contratación pública',
+      'No entrega adjudicaciones generales en bulk',
+      'No entrega montos históricos en bulk',
+      'API ASMX con formato form-urlencoded — puede cambiar sin aviso',
+      'Fuente B2G procurement signal — human_review_required=true antes de prospección',
+    ],
+    riskNotes: [
+      'API pública sin credenciales — riesgo de rate limiting o cambio de API sin aviso',
+      'No usar como fuente legal, fiscal ni de validación de identidad',
+      'No usar searchOrderList ni ListarActosParametros (requieren sesión)',
+    ],
+  },
+
   // ── Globales / Fallback ─────────────────────────────────────────────────────
   {
     key: 'global_opencorporates',
