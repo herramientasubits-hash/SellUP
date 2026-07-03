@@ -356,7 +356,7 @@ export async function searchLushaContactsV3(input: {
       remaining: response.headers.get('x-ratelimit-remaining'),
       reset: response.headers.get('x-ratelimit-reset'),
     };
-    const requestId = response.headers.get('x-request-id');
+    const headerRequestId = response.headers.get('x-request-id');
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
@@ -366,18 +366,25 @@ export async function searchLushaContactsV3(input: {
         httpStatus: response.status,
         resultsReturned: 0,
         rateLimit,
-        requestId,
+        requestId: headerRequestId,
         errorMessage: errorBody.slice(0, 300) || undefined,
       };
     }
 
     const raw = await response.json().catch(() => ({})) as Record<string, unknown>;
 
-    const contacts = Array.isArray(raw['contacts'])
-      ? (raw['contacts'] as Record<string, unknown>[])
-      : Array.isArray(raw['data'])
-        ? (raw['data'] as Record<string, unknown>[])
-        : [];
+    // Lusha V3 real response uses "results" key (confirmed 17B.4C live test)
+    const contacts = Array.isArray(raw['results'])
+      ? (raw['results'] as Record<string, unknown>[])
+      : Array.isArray(raw['contacts'])
+        ? (raw['contacts'] as Record<string, unknown>[])
+        : Array.isArray(raw['data'])
+          ? (raw['data'] as Record<string, unknown>[])
+          : [];
+
+    // requestId may come in body (Lusha V3) or header
+    const requestId =
+      typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
 
     if (contacts.length === 0) {
       return {
