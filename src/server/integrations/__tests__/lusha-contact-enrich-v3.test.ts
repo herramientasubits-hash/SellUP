@@ -160,6 +160,9 @@ describe('enrichLushaContactsV3', () => {
     globalThis.fetch = makeMockFetch(200, { results: [], creditsCharged: 0 });
     await enrichLushaContactsV3(DEFAULT_INPUT);
     assert.deepEqual(capturedBody['reveal'], ['emails']);
+    // Body uses "ids" not "contacts" — confirmed live 17B.4E
+    assert.deepEqual(capturedBody['ids'], [CONTACT_ID]);
+    assert.ok(!('contacts' in capturedBody), 'body no debe tener campo "contacts"');
   });
 
   it('test 4: no envía phones en el body', async () => {

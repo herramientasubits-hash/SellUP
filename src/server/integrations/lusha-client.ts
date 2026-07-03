@@ -535,8 +535,9 @@ export async function getLushaAccountUsage(input: {
 // No usa search-and-enrich. El ID viene del search previo (17B.4D).
 // ============================================================
 
+// Note: /v3/contacts/enrich uses "ids" (not "contacts") — confirmed live 17B.4E
 export type LushaContactEnrichRequest = {
-  contacts: Array<{ id: string }>;
+  ids: Array<string>;
   reveal: Array<'emails'>;
 };
 
@@ -599,13 +600,14 @@ export async function enrichLushaContactsV3(input: {
   if (input.contacts.length !== 1) {
     return { ok: false, status: 'provider_error', resultsReturned: 0, errorMessage: 'exactly 1 contact required for this operation' };
   }
+  const ids = input.contacts.map(c => c.id);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
     const body: LushaContactEnrichRequest = {
-      contacts: input.contacts,
+      ids,
       reveal: input.reveal,
     };
 
@@ -673,7 +675,9 @@ export async function enrichLushaContactsV3(input: {
       const firstEmail = emailsRaw[0];
       const emailStr = typeof firstEmail?.['email'] === 'string' ? firstEmail['email'] : null;
       const hasEmail = emailsRaw.length > 0 && emailStr !== null;
-      const emailType = typeof firstEmail?.['emailType'] === 'string' ? firstEmail['emailType'] : null;
+      // Lusha V3 enrich uses "type" (not "emailType") — confirmed live 17B.4E
+      const emailType = (typeof firstEmail?.['type'] === 'string' ? firstEmail['type'] : null)
+        ?? (typeof firstEmail?.['emailType'] === 'string' ? firstEmail['emailType'] : null);
       const emailDomain = extractEmailDomain(emailStr);
 
       return {
