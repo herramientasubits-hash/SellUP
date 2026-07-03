@@ -1,40 +1,40 @@
 /**
- * PanamaCompra Panamá — ETL Dry-run Convenio Marco
+ * PanamaCompra Panamá — ETL Convenio Marco (Centroamérica.5C)
  *
  * Consulta la API ASMX de PanamaCompra para obtener convenios marco y sus
- * proveedores, normaliza RUCs, construye snapshots en memoria.
- *
- * DRY-RUN por defecto. El flag --apply está BLOQUEADO en este hito (5B).
- *
- * Uso:
- *   npx tsx scripts/source-catalog/run-panamacompra-pa-convenio-snapshot-etl.ts \
- *     --limit-convenios=3 --limit-providers=20 --dry-run
+ * proveedores, normaliza RUCs, construye snapshots y — con confirmación explícita —
+ * los escribe en source_company_snapshots.
  *
  * Flags:
- *   --limit-convenios=<N>   Máximo de convenios a consultar (default: 3)
- *   --limit-providers=<N>   Máximo de proveedores únicos a enriquecer (default: 20)
- *   --dry-run               Modo seco (default: true — no escribe en Supabase)
- *   --apply                 BLOQUEADO: Apply is intentionally disabled in Centroamérica.5B.
- *                           Use future hito 5C.
+ *   --limit-convenios=<N>     Máximo de convenios a consultar (default: 3, max piloto: 5)
+ *   --limit-providers=<N>     Máximo de proveedores únicos a enriquecer (default: 20, max piloto: 50)
+ *   --dry-run                 Modo seco — no escribe en Supabase (default si no se pasa --apply)
+ *   --apply                   Habilita escritura (requiere --confirm-pilot-apply)
+ *   --confirm-pilot-apply     Confirmación explícita de apply piloto
  *
  * Guardrails:
- *   - No escribe en Supabase.
- *   - No toca source_company_snapshots, source_coverage_summaries.
+ *   - --apply sin --confirm-pilot-apply → error inmediato.
+ *   - limit-convenios > 5 o limit-providers > 50 → bloqueado en este hito.
  *   - No toca accounts, prospect_candidates.
  *   - No usa searchOrderList, ListarActosParametros.
  *   - No usa credenciales, Tavily, LLM.
- *   - No hace crawling masivo (límites bajos por defecto).
+ *   - No hace crawling masivo.
+ *   - No marca pa_panamacompra_convenio como connected.
+ *   - No usa complete_snapshot.
+ *   - Solo escribe en source_company_snapshots.
  *
  * Semántica:
  *   PanamaCompra Convenio Marco NO es fuente legal ni tributaria.
  *   No valida RUC. No reemplaza DGI Panamá. No reemplaza Registro Público.
+ *   Cubre solo proveedores de Convenio Marco.
  *
- * Hito: Centroamérica.5B
+ * Hito: Centroamérica.5C
  */
 
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
+import { createClient } from '@supabase/supabase-js';
 import {
   listConvenios,
   listProveedoresByConvenio,
@@ -47,47 +47,87 @@ import {
 import {
   deduplicateProviderEntries,
   buildPanamaSnapshotRows,
-  deduplicationKey,
   PANAMACOMPRA_SOURCE_KEY,
 } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanamaProviderEntry } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanaNormalizedProvider } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-normalizer';
+
+// ─── Guardrails piloto ─────────────────────────────────────────────────────────
+
+const PILOT_MAX_CONVENIOS = 5;
+const PILOT_MAX_PROVIDERS = 50;
 
 // ─── Args ──────────────────────────────────────────────────────────────────────
 
 type EtlArgs = {
   limitConvenios: number;
   limitProviders: number;
-  dryRun: boolean;
-  applyBlocked: boolean;
+  apply: boolean;
+  confirmPilotApply: boolean;
 };
 
-function parseArgs(): EtlArgs {
-  const argv = process.argv.slice(2);
+export function parseArgs(argv: string[] = process.argv.slice(2)): EtlArgs {
   let limitConvenios = 3;
   let limitProviders = 20;
-  let dryRun = true;
-  let applyBlocked = false;
+  let apply = false;
+  let confirmPilotApply = false;
 
   for (const arg of argv) {
     if (arg.startsWith('--limit-convenios=')) {
       limitConvenios = parseInt(arg.split('=')[1] ?? '3', 10);
     } else if (arg.startsWith('--limit-providers=')) {
       limitProviders = parseInt(arg.split('=')[1] ?? '20', 10);
-    } else if (arg === '--dry-run') {
-      dryRun = true;
     } else if (arg === '--apply') {
-      // --apply bloqueado en este hito
-      applyBlocked = true;
+      apply = true;
+    } else if (arg === '--dry-run') {
+      // dry-run is the default when --apply is absent; explicit flag is a no-op
+    } else if (arg === '--confirm-pilot-apply') {
+      confirmPilotApply = true;
     }
   }
 
-  return { limitConvenios, limitProviders, dryRun, applyBlocked };
+  return { limitConvenios, limitProviders, apply, confirmPilotApply };
+}
+
+// ─── Validación de args ────────────────────────────────────────────────────────
+
+export type ArgsValidation = { ok: true } | { ok: false; reason: string };
+
+export function validateArgs(args: EtlArgs): ArgsValidation {
+  if (args.apply && !args.confirmPilotApply) {
+    return {
+      ok: false,
+      reason:
+        'ERROR: --apply requiere --confirm-pilot-apply para proteger contra writes accidentales.\n' +
+        'Uso correcto:\n' +
+        '  npx tsx ... --apply --confirm-pilot-apply\n',
+    };
+  }
+
+  if (args.limitConvenios > PILOT_MAX_CONVENIOS) {
+    return {
+      ok: false,
+      reason:
+        `ERROR: --limit-convenios=${args.limitConvenios} supera el límite piloto de ${PILOT_MAX_CONVENIOS}.\n` +
+        'Centroamérica.5C es carga piloto controlada. No se permiten cargas amplias en este hito.\n',
+    };
+  }
+
+  if (args.limitProviders > PILOT_MAX_PROVIDERS) {
+    return {
+      ok: false,
+      reason:
+        `ERROR: --limit-providers=${args.limitProviders} supera el límite piloto de ${PILOT_MAX_PROVIDERS}.\n` +
+        'Centroamérica.5C es carga piloto controlada. No se permiten cargas amplias en este hito.\n',
+    };
+  }
+
+  return { ok: true };
 }
 
 // ─── Reporte ───────────────────────────────────────────────────────────────────
 
-type EtlReport = {
+export type EtlReport = {
   conveniosLeidos: number;
   proveedoresEncontrados: number;
   proveedoresUnicos: number;
@@ -97,13 +137,14 @@ type EtlReport = {
   snapshotsConstruidos: number;
   conveniosAsociados: number;
   errores: string[];
-  writes: 0;
+  writes: number;
 };
 
-function printReport(report: EtlReport, dryRun: boolean): void {
+function printReport(report: EtlReport, isDryRun: boolean): void {
+  const mode = isDryRun ? 'DRY-RUN' : 'APPLY PILOTO';
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log(`  PanamaCompra Convenio Marco — ${dryRun ? 'DRY-RUN' : 'APPLY'}`);
+  console.log(`  PanamaCompra Convenio Marco — ${mode}`);
   console.log(`  source_key: ${PANAMACOMPRA_SOURCE_KEY}`);
   console.log('═══════════════════════════════════════════════════════════');
   console.log(`  Convenios leídos:          ${report.conveniosLeidos}`);
@@ -115,7 +156,7 @@ function printReport(report: EtlReport, dryRun: boolean): void {
   console.log(`  Snapshots construidos:     ${report.snapshotsConstruidos}`);
   console.log(`  Convenios asociados:       ${report.conveniosAsociados}`);
   console.log(`  Errores:                   ${report.errores.length}`);
-  console.log(`  Writes a Supabase:         ${report.writes}`);
+  console.log(`  Writes a source_company_snapshots: ${report.writes}`);
   console.log('───────────────────────────────────────────────────────────');
   if (report.errores.length > 0) {
     console.log('  Errores detalle:');
@@ -123,30 +164,91 @@ function printReport(report: EtlReport, dryRun: boolean): void {
       console.log(`    - ${e}`);
     }
   }
-  if (dryRun) {
+  if (isDryRun) {
     console.log('  [DRY-RUN] No se escribió nada en Supabase.');
-    console.log('  [DRY-RUN] --apply bloqueado en Centroamérica.5B.');
+    console.log('  [DRY-RUN] Pasar --apply --confirm-pilot-apply para escribir.');
+  } else {
+    console.log(`  [APPLY PILOTO] ${report.writes} filas escritas en source_company_snapshots.`);
+    console.log('  [APPLY PILOTO] coverage_status se actualizará con el script de coverage summary.');
   }
   console.log('═══════════════════════════════════════════════════════════');
   console.log('');
+}
+
+// ─── Upsert a Supabase ────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPanamaSnapshotRows>): Promise<number> {
+  if (snapshots.length === 0) return 0;
+
+  const rows = snapshots.map((s) => ({
+    source_key: s.source_key,
+    country_code: s.country_code,
+    tax_id: s.tax_id,
+    normalized_tax_id: s.normalized_tax_id,
+    legal_name: s.legal_name,
+    status: s.status,
+    source_url: s.source_url,
+    raw_data: s.raw_data,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { error, count } = await admin
+    .from('source_company_snapshots')
+    .upsert(rows, {
+      onConflict: 'source_key,normalized_tax_id',
+      ignoreDuplicates: false,
+      count: 'exact',
+    });
+
+  if (error) {
+    const msg =
+      typeof error === 'object' && error !== null && 'message' in error
+        ? (error as { message: string }).message
+        : String(error);
+    throw new Error(`upsert_source_company_snapshots: ${msg}`);
+  }
+
+  return typeof count === 'number' ? count : snapshots.length;
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const args = parseArgs();
+  const isDryRun = !args.apply;
 
-  // Caso 21: --apply bloqueado explícitamente
-  if (args.applyBlocked) {
+  // Validación de flags
+  const validation = validateArgs(args);
+  if (!validation.ok) {
     console.error('');
-    console.error('ERROR: Apply is intentionally disabled in Centroamérica.5B. Use future hito 5C.');
-    console.error('');
+    console.error(validation.reason);
     process.exit(1);
   }
 
-  console.log(`[PanamaCompra ETL] Iniciando dry-run — limit-convenios=${args.limitConvenios} limit-providers=${args.limitProviders}`);
-  console.log('[PanamaCompra ETL] GUARDRAIL: No es fuente legal ni tributaria. No reemplaza DGI ni Registro Público.');
+  console.log(`[PanamaCompra ETL 5C] Modo: ${isDryRun ? 'DRY-RUN' : 'APPLY PILOTO'}`);
+  console.log(`[PanamaCompra ETL 5C] limit-convenios=${args.limitConvenios} limit-providers=${args.limitProviders}`);
+  console.log('[PanamaCompra ETL 5C] GUARDRAIL: No es fuente legal ni tributaria.');
+  console.log('[PanamaCompra ETL 5C] GUARDRAIL: No reemplaza DGI Panamá ni Registro Público.');
+  console.log('[PanamaCompra ETL 5C] GUARDRAIL: Cubre solo proveedores de Convenio Marco.');
   console.log('');
+
+  // Supabase solo en apply
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let admin: any = null;
+  if (!isDryRun) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      console.error('ERROR: Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      process.exit(1);
+    }
+    admin = createClient(url, key);
+    console.log('[PanamaCompra ETL 5C] APPLY PILOTO confirmado. Guardando en source_company_snapshots únicamente.');
+    console.log('[PanamaCompra ETL 5C] No toca accounts, prospect_candidates, source_catalog.');
+    console.log('');
+  }
 
   const report: EtlReport = {
     conveniosLeidos: 0,
@@ -167,7 +269,7 @@ async function main(): Promise<void> {
   if (!conveniosResult.ok) {
     console.error(`[PanamaCompra ETL] Error al listar convenios: ${conveniosResult.error}`);
     report.errores.push(`listaConvenio: ${conveniosResult.error}`);
-    printReport(report, args.dryRun);
+    printReport(report, isDryRun);
     process.exit(1);
   }
 
@@ -216,10 +318,8 @@ async function main(): Promise<void> {
   const toEnrich = dedupedEntries.slice(0, args.limitProviders);
 
   for (const entry of toEnrich) {
-    // ObtenerInfoProveedor espera IdEmpresa como proveedorId
     const pid = entry.provider.companyId ?? entry.provider.providerId;
     if (!pid) {
-      // Sin ID de proveedor — conservar datos del listado tal cual
       enrichedEntries.push(entry);
       continue;
     }
@@ -227,7 +327,6 @@ async function main(): Promise<void> {
     const infoResult = await getProveedorInfo(pid);
     if (!infoResult.ok) {
       report.errores.push(`ObtenerInfoProveedor(${pid}): ${infoResult.error}`);
-      // Conservar datos del listado si el detalle falla
       enrichedEntries.push(entry);
       continue;
     }
@@ -252,7 +351,7 @@ async function main(): Promise<void> {
     report.conveniosAsociados += entry.conveniosParticipados.length;
   }
 
-  // ── Construir snapshots en memoria ────────────────────────────────────────
+  // ── Construir snapshots ────────────────────────────────────────────────────
   const snapshots = buildPanamaSnapshotRows(enrichedEntries);
   report.snapshotsConstruidos = snapshots.length;
 
@@ -268,18 +367,37 @@ async function main(): Promise<void> {
     console.log(`  normalized_tax_id: ${first.normalized_tax_id ?? '(sin RUC)'}`);
     console.log(`  status:            ${first.status}`);
     console.log(`  convenios:         ${first.raw_data.convenios.length}`);
-    console.log(`  human_review:      ${first.raw_data.human_review_required}`);
     console.log(`  source_type:       ${first.raw_data.source_type}`);
     console.log(`  coverage_scope:    ${first.raw_data.coverage_scope}`);
   }
 
-  // ── DRY-RUN: no escribir ──────────────────────────────────────────────────
-  // report.writes permanece en 0 siempre en este hito
+  // ── Apply piloto ──────────────────────────────────────────────────────────
+  if (!isDryRun && admin) {
+    console.log('');
+    console.log(`[APPLY PILOTO] Upserting ${snapshots.length} snapshots en source_company_snapshots...`);
+    try {
+      report.writes = await upsertSnapshots(admin, snapshots);
+      console.log(`[APPLY PILOTO] ✓ ${report.writes} filas escritas.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[APPLY PILOTO] ERROR en upsert: ${msg}`);
+      report.errores.push(`upsert: ${msg}`);
+    }
 
-  printReport(report, args.dryRun);
+    // Verificar count real en DB
+    const { count: dbCount } = await admin
+      .from('source_company_snapshots')
+      .select('id', { count: 'exact', head: true })
+      .eq('source_key', PANAMACOMPRA_SOURCE_KEY);
+
+    console.log(`[APPLY PILOTO] Filas totales en DB para ${PANAMACOMPRA_SOURCE_KEY}: ${dbCount ?? 'N/A'}`);
+  }
+
+  printReport(report, isDryRun);
 
   if (report.errores.length > 0) {
     console.warn(`[PanamaCompra ETL] Completado con ${report.errores.length} error(es).`);
+    process.exit(report.writes > 0 ? 0 : 1);
   } else {
     console.log('[PanamaCompra ETL] Completado sin errores.');
   }
