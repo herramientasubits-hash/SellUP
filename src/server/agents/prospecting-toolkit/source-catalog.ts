@@ -1309,7 +1309,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.comprasal.gob.sv',
     automationLevel: 'medium',
     recommendedUse:
-      'Señal procurement B2G para identificar proveedores adjudicados en compras públicas de El Salvador. API REST pública (https://www.comprasal.gob.sv/api/v1/publico/). Entrega proveedor, nombre comercial, institución, monto, fecha y código de proceso. No valida identidad fiscal; usar como señal débil con revisión humana. No requiere credenciales. requiresSnapshot=true, canRunLive=true.',
+      'Señal procurement B2G para identificar proveedores adjudicados en compras públicas de El Salvador. API REST pública de COMPRASAL. Entrega proveedor, nombre comercial, institución, monto, fecha y código de proceso. No valida identidad fiscal; usar como señal débil con revisión humana antes de asociar a una cuenta.',
     limitations: [
       'No es fuente legal — no valida identidad fiscal',
       'No es fuente tributaria — no reemplaza Ministerio de Hacienda El Salvador',
