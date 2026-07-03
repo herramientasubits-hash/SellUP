@@ -1,7 +1,7 @@
 /**
- * Tests para enrichLushaContactsV3 — 17B.4E
+ * Tests para enrichLushaContactsV3 — 17B.4E + 17B.4F
  *
- * Cubre:
+ * 17B.4E cubre:
  * 1. Usa endpoint exacto /v3/contacts/enrich
  * 2. Usa header api_key
  * 3. Envía reveal: ["emails"]
@@ -18,11 +18,39 @@
  * 14. Mapea 402 → insufficient_credits
  * 15. Mapea 429 → rate_limited
  * 16. Timeout → provider_timeout
+ *
+ * 17B.4F agrega normalización de estructuras anidadas:
+ * 17. Extrae jobTitle.title
+ * 18. Extrae jobTitle.name
+ * 19. Extrae company.name
+ * 20. Extrae company.domain
+ * 21. Extrae socialLinks.linkedin
+ * 22. Extrae socialLinks.linkedinUrl
+ * 23. Extrae LinkedIn desde array { type, url }
+ * 24. Extrae emailDomain desde emails[0].email
+ * 25. Extrae emailType desde emails[0].type
+ * 26. No expone email completo (nested mock)
+ * 27. No expone phone (nested mock)
+ * 28. hasPhone siempre false (nested mock)
+ * 29. Extrae creditsCharged desde billing.creditsCharged
+ * 30. Si billing no tiene credits → creditsCharged null
+ * 31. Compatibilidad con strings planos existentes
+ * 32. Shape vacío no rompe
+ * 33. Mock completo anidado (integración)
+ * 34. results como objeto con contacts (shape alternativo)
  */
 
 import assert from 'node:assert';
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { enrichLushaContactsV3 } from '../lusha-client';
+import {
+  enrichLushaContactsV3,
+  extractLushaJobTitle,
+  extractLushaCompanyName,
+  extractLushaCompanyDomain,
+  extractLushaLinkedinUrl,
+  extractEmailInfoFromLushaEmails,
+  extractLushaBilling,
+} from '../lusha-client';
 
 const FAKE_API_KEY = 'test-api-key-not-real';
 const CONTACT_ID = 'v1.bb35V7Pg17hk79ppMEi1RsXTwucz6TROeg';
@@ -307,5 +335,213 @@ describe('enrichLushaContactsV3', () => {
     const result = await enrichLushaContactsV3({ ...DEFAULT_INPUT, timeoutMs: 50 });
     assert.equal(result.ok, false);
     assert.equal(result.status, 'provider_timeout');
+  });
+
+  // --- 17B.4F: nested structure normalization via enrichLushaContactsV3 ---
+
+  it('test 17: extrae jobTitle.title desde objeto anidado', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, jobTitle: { title: 'HR Business Partner' }, emails: [{ email: 'x@acme.com', type: 'work' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].title, 'HR Business Partner');
+  });
+
+  it('test 18: extrae jobTitle.name desde objeto anidado', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, jobTitle: { name: 'Sales Director' }, emails: [{ email: 'x@acme.com', type: 'work' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].title, 'Sales Director');
+  });
+
+  it('test 19: extrae company.name desde objeto anidado', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, company: { name: 'Siesa', domain: 'siesa.com' }, emails: [{ email: 'x@siesa.com' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].companyName, 'Siesa');
+  });
+
+  it('test 20: extrae company.domain desde objeto anidado', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, company: { name: 'Siesa', domain: 'siesa.com' }, emails: [{ email: 'x@siesa.com' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].companyDomain, 'siesa.com');
+  });
+
+  it('test 21: extrae linkedin desde socialLinks.linkedin', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, socialLinks: { linkedin: 'http://www.linkedin.com/in/patricia' }, emails: [{ email: 'x@acme.com' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].linkedinUrl, 'http://www.linkedin.com/in/patricia');
+  });
+
+  it('test 22: extrae linkedin desde socialLinks.linkedinUrl', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, socialLinks: { linkedinUrl: 'https://linkedin.com/in/john' }, emails: [{ email: 'x@acme.com' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].linkedinUrl, 'https://linkedin.com/in/john');
+  });
+
+  it('test 23: extrae linkedin desde socialLinks array { type, url }', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, socialLinks: [{ type: 'linkedin', url: 'https://linkedin.com/in/maria' }], emails: [{ email: 'x@acme.com' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].linkedinUrl, 'https://linkedin.com/in/maria');
+  });
+
+  it('test 24+25: extrae emailDomain y emailType desde emails[0]', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, emails: [{ email: 'user@corp.com', type: 'work' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].emailDomain, 'corp.com');
+    assert.equal(result.sanitizedResults?.[0].emailType, 'work');
+  });
+
+  it('test 26: no expone email completo en mock anidado', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, emails: [{ email: 'secret@siesa.com', type: 'work' }], jobTitle: { title: 'VP' } }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    const resultStr = JSON.stringify(result);
+    assert.ok(!resultStr.includes('secret@siesa.com'), 'email completo no debe aparecer');
+    assert.ok(!resultStr.includes('secret'), 'local-part no debe aparecer');
+  });
+
+  it('test 27+28: no expone phone y hasPhone siempre false en mock anidado', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{
+        id: CONTACT_ID,
+        emails: [{ email: 'x@acme.com', type: 'work' }],
+        phoneNumbers: [{ number: '+57-no-exponer' }],
+      }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    const sanitized = result.sanitizedResults?.[0];
+    assert.equal(sanitized?.hasPhone, false);
+    const resultStr = JSON.stringify(result);
+    assert.ok(!resultStr.includes('+57-no-exponer'), 'teléfono no debe aparecer');
+  });
+
+  it('test 29: extrae creditsCharged desde billing.creditsCharged', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, emails: [{ email: 'x@acme.com' }] }],
+      billing: { creditsCharged: 1 },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.creditsCharged, 1);
+  });
+
+  it('test 30: billing sin credits → creditsCharged null', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, emails: [{ email: 'x@acme.com' }] }],
+      billing: { someOtherField: 'value' },
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.creditsCharged, null);
+  });
+
+  it('test 31: compatibilidad con strings planos (jobTitle string)', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      results: [{ id: CONTACT_ID, jobTitle: 'CEO', company: 'Acme', companyDomain: 'acme.com', emails: [{ email: 'x@acme.com', type: 'work' }] }],
+      creditsCharged: 2,
+    });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.sanitizedResults?.[0].title, 'CEO');
+    assert.equal(result.creditsCharged, 2);
+  });
+
+  it('test 32: shape vacío no rompe', async () => {
+    globalThis.fetch = makeMockFetch(200, { results: [{}] });
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.ok, true);
+    const s = result.sanitizedResults?.[0];
+    assert.ok(s);
+    assert.equal(s.hasEmail, false);
+    assert.equal(s.hasPhone, false);
+    assert.equal(s.title, null);
+    assert.equal(s.companyName, null);
+    assert.equal(s.linkedinUrl, null);
+  });
+
+  it('test 33: mock completo anidado (integración Patricia Valencia)', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      requestId: 'mock-request-id',
+      results: [
+        {
+          id: 'v1.example',
+          firstName: 'Patricia',
+          lastName: 'HernáNdez',
+          name: 'Patricia Valencia HernáNdez',
+          jobTitle: { title: 'Human Resources Business Partner' },
+          company: { id: 'company-1', name: 'Siesa', domain: 'siesa.com' },
+          socialLinks: { linkedin: 'http://www.linkedin.com/in/patriciavalenciahernandez' },
+          emails: [{ email: 'do-not-expose@siesa.com', type: 'work' }],
+          phoneNumbers: [{ number: '+57-no-exponer' }],
+        },
+      ],
+      billing: { creditsCharged: 1 },
+    });
+
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'success');
+    assert.equal(result.creditsCharged, 1);
+
+    const s = result.sanitizedResults?.[0];
+    assert.ok(s, 'debe haber resultado sanitizado');
+    assert.equal(s.hasEmail, true);
+    assert.equal(s.emailDomain, 'siesa.com');
+    assert.equal(s.emailType, 'work');
+    assert.equal(s.title, 'Human Resources Business Partner');
+    assert.equal(s.companyName, 'Siesa');
+    assert.equal(s.companyDomain, 'siesa.com');
+    assert.equal(s.linkedinUrl, 'http://www.linkedin.com/in/patriciavalenciahernandez');
+    assert.equal(s.hasPhone, false);
+
+    const resultStr = JSON.stringify(result);
+    assert.ok(!resultStr.includes('do-not-expose'), 'email completo no debe aparecer');
+    assert.ok(!resultStr.includes('+57-no-exponer'), 'teléfono no debe aparecer');
+  });
+
+  it('test 34: results como objeto con contacts (shape alternativo)', async () => {
+    globalThis.fetch = makeMockFetch(200, {
+      requestId: 'mock-alt',
+      results: {
+        contacts: [
+          {
+            id: 'v1.alt',
+            firstName: 'Juan',
+            emails: [{ email: 'juan@alt.com', type: 'work' }],
+            jobTitle: { title: 'CTO' },
+            company: { name: 'AltCorp', domain: 'alt.com' },
+          },
+        ],
+      },
+      billing: { creditsCharged: 1 },
+    });
+
+    const result = await enrichLushaContactsV3(DEFAULT_INPUT);
+    assert.equal(result.ok, true);
+    assert.equal(result.resultsReturned, 1);
+    assert.equal(result.sanitizedResults?.[0].title, 'CTO');
+    assert.equal(result.sanitizedResults?.[0].companyName, 'AltCorp');
+    assert.equal(result.sanitizedResults?.[0].emailDomain, 'alt.com');
   });
 });

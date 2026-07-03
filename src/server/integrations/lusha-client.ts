@@ -558,6 +558,7 @@ export type LushaContactEnrichResult = {
   rateLimit?: Record<string, string | null>;
   resultsReturned: number;
   creditsCharged?: number | null;
+  billingShape?: Record<string, string> | null;
   rawShape?: Record<string, unknown>;
   sanitizedResults?: Array<{
     id: string | null;
@@ -582,6 +583,143 @@ function extractEmailDomain(email: string | null | undefined): string | null {
   const at = email.indexOf('@');
   if (at < 0) return null;
   return email.slice(at + 1).toLowerCase() || null;
+}
+
+// ============================================================
+// Helpers puros para estructuras anidadas de Lusha V3 — 17B.4F
+// ============================================================
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readNestedString(obj: unknown, keys: string[]): string | null {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const o = obj as Record<string, unknown>;
+  for (const k of keys) {
+    const v = readString(o[k]);
+    if (v) return v;
+  }
+  return null;
+}
+
+export function extractLushaJobTitle(value: unknown): string | null {
+  const flat = readString(value);
+  if (flat) return flat;
+  return readNestedString(value, ['title', 'name', 'value']);
+}
+
+export function extractLushaCompanyName(value: unknown): string | null {
+  const flat = readString(value);
+  if (flat) return flat;
+  return readNestedString(value, ['name', 'companyName']);
+}
+
+export function extractLushaCompanyDomain(value: unknown): string | null {
+  const flat = readString(value);
+  if (flat) return flat;
+  return readNestedString(value, ['domain', 'companyDomain', 'website']);
+}
+
+export function extractLushaLinkedinUrl(c: Record<string, unknown>): string | null {
+  const direct = pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']);
+  if (direct) return direct;
+
+  const sl = c['socialLinks'];
+  if (sl && typeof sl === 'object' && !Array.isArray(sl)) {
+    const slObj = sl as Record<string, unknown>;
+    const fromObj = pickString(slObj, ['linkedin', 'linkedinUrl', 'linkedin_url']);
+    if (fromObj) return fromObj;
+  }
+
+  if (Array.isArray(sl)) {
+    for (const item of sl as unknown[]) {
+      if (!item || typeof item !== 'object') continue;
+      const entry = item as Record<string, unknown>;
+      const type = readString(entry['type'])?.toLowerCase();
+      if (type === 'linkedin') {
+        const url = readString(entry['url']) ?? readString(entry['value']);
+        if (url) return url;
+      }
+    }
+  }
+
+  return null;
+}
+
+export function extractEmailInfoFromLushaEmails(value: unknown): {
+  hasEmail: boolean;
+  emailType: string | null;
+  emailDomain: string | null;
+} {
+  const emails = Array.isArray(value) ? (value as unknown[]) : [];
+  if (emails.length === 0) return { hasEmail: false, emailType: null, emailDomain: null };
+
+  const first = emails[0];
+  if (!first || typeof first !== 'object') return { hasEmail: false, emailType: null, emailDomain: null };
+
+  const entry = first as Record<string, unknown>;
+  const emailStr = readString(entry['email']) ?? readString(entry['emailAddress']);
+  if (!emailStr) return { hasEmail: false, emailType: null, emailDomain: null };
+
+  const emailType = readString(entry['type']) ?? readString(entry['emailType']);
+  return { hasEmail: true, emailType, emailDomain: extractEmailDomain(emailStr) };
+}
+
+export function extractLushaBilling(value: unknown): {
+  creditsCharged: number | null;
+  billingShape: Record<string, string> | null;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { creditsCharged: null, billingShape: null };
+  }
+
+  const b = value as Record<string, unknown>;
+
+  let charged: number | null = null;
+  if (typeof b['creditsCharged'] === 'number') {
+    charged = b['creditsCharged'];
+  } else if (typeof b['credits'] === 'number') {
+    charged = b['credits'];
+  } else if (b['cost'] && typeof b['cost'] === 'object') {
+    const cost = b['cost'] as Record<string, unknown>;
+    if (typeof cost['credits'] === 'number') charged = cost['credits'];
+  } else if (b['reveals'] && typeof b['reveals'] === 'object') {
+    const rev = b['reveals'] as Record<string, unknown>;
+    if (rev['email'] && typeof rev['email'] === 'object') {
+      const emailRev = rev['email'] as Record<string, unknown>;
+      if (typeof emailRev['credits'] === 'number') charged = emailRev['credits'];
+    }
+  }
+
+  const billingShape = Object.fromEntries(
+    Object.keys(b).map(k => [k, typeof b[k]])
+  ) as Record<string, string>;
+
+  return { creditsCharged: charged, billingShape };
+}
+
+function extractLushaEnrichContacts(raw: Record<string, unknown>): Record<string, unknown>[] {
+  // results as array (live confirmed 17B.4E)
+  if (Array.isArray(raw['results'])) {
+    return raw['results'] as Record<string, unknown>[];
+  }
+  // results as object with contacts key (per spec mock 17B.4F)
+  if (raw['results'] && typeof raw['results'] === 'object') {
+    const resultsObj = raw['results'] as Record<string, unknown>;
+    if (Array.isArray(resultsObj['contacts'])) {
+      return resultsObj['contacts'] as Record<string, unknown>[];
+    }
+  }
+  if (Array.isArray(raw['contacts'])) return raw['contacts'] as Record<string, unknown>[];
+  if (Array.isArray(raw['data'])) return raw['data'] as Record<string, unknown>[];
+  return [];
+}
+
+function extractTopLevelCreditsCharged(raw: Record<string, unknown>): number | null {
+  if (typeof raw['creditsCharged'] === 'number') return raw['creditsCharged'];
+  const { creditsCharged } = extractLushaBilling(raw['billing']);
+  return creditsCharged;
 }
 
 export async function enrichLushaContactsV3(input: {
@@ -645,16 +783,13 @@ export async function enrichLushaContactsV3(input: {
 
     const raw = await response.json().catch(() => ({})) as Record<string, unknown>;
 
-    const contacts = Array.isArray(raw['results'])
-      ? (raw['results'] as Record<string, unknown>[])
-      : Array.isArray(raw['contacts'])
-        ? (raw['contacts'] as Record<string, unknown>[])
-        : Array.isArray(raw['data'])
-          ? (raw['data'] as Record<string, unknown>[])
-          : [];
+    const contacts = extractLushaEnrichContacts(raw);
 
     const requestId =
       typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
+
+    const creditsCharged = extractTopLevelCreditsCharged(raw);
+    const { billingShape } = extractLushaBilling(raw['billing']);
 
     if (contacts.length === 0) {
       return {
@@ -662,7 +797,8 @@ export async function enrichLushaContactsV3(input: {
         status: 'no_results',
         httpStatus: response.status,
         resultsReturned: 0,
-        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+        creditsCharged,
+        billingShape,
         rawShape: buildRawShape(raw),
         rateLimit,
         requestId,
@@ -670,15 +806,16 @@ export async function enrichLushaContactsV3(input: {
     }
 
     const sanitizedResults = contacts.map((c) => {
-      // Extract email info without exposing the full address
-      const emailsRaw = Array.isArray(c['emails']) ? (c['emails'] as Record<string, unknown>[]) : [];
-      const firstEmail = emailsRaw[0];
-      const emailStr = typeof firstEmail?.['email'] === 'string' ? firstEmail['email'] : null;
-      const hasEmail = emailsRaw.length > 0 && emailStr !== null;
-      // Lusha V3 enrich uses "type" (not "emailType") — confirmed live 17B.4E
-      const emailType = (typeof firstEmail?.['type'] === 'string' ? firstEmail['type'] : null)
-        ?? (typeof firstEmail?.['emailType'] === 'string' ? firstEmail['emailType'] : null);
-      const emailDomain = extractEmailDomain(emailStr);
+      const { hasEmail, emailType, emailDomain } = extractEmailInfoFromLushaEmails(c['emails']);
+
+      // Company may be nested object or string
+      const companyVal = c['company'];
+      const companyName =
+        pickString(c, ['companyName', 'company_name']) ??
+        extractLushaCompanyName(companyVal);
+      const companyDomain =
+        pickString(c, ['companyDomain', 'company_domain']) ??
+        extractLushaCompanyDomain(companyVal);
 
       return {
         id: typeof c['id'] === 'string' ? c['id'] : null,
@@ -689,10 +826,10 @@ export async function enrichLushaContactsV3(input: {
         firstName: pickString(c, ['firstName', 'first_name']) ?? null,
         lastName: pickString(c, ['lastName', 'last_name']) ?? null,
         fullName: pickString(c, ['fullName', 'name', 'full_name']) ?? null,
-        title: pickString(c, ['title', 'jobTitle', 'job_title']) ?? null,
-        companyName: pickString(c, ['companyName', 'company_name', 'company']) ?? null,
-        companyDomain: pickString(c, ['companyDomain', 'company_domain', 'domain']) ?? null,
-        linkedinUrl: pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ?? null,
+        title: extractLushaJobTitle(c['jobTitle']) ?? pickString(c, ['title', 'job_title']) ?? null,
+        companyName: companyName ?? null,
+        companyDomain: companyDomain ?? null,
+        linkedinUrl: extractLushaLinkedinUrl(c),
         availableFields: c['has'] ?? undefined,
       };
     });
@@ -702,7 +839,8 @@ export async function enrichLushaContactsV3(input: {
       status: 'success',
       httpStatus: response.status,
       resultsReturned: sanitizedResults.length,
-      creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+      creditsCharged,
+      billingShape,
       rawShape: buildRawShape(raw),
       sanitizedResults,
       rateLimit,
