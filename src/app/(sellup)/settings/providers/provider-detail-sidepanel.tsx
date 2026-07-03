@@ -198,8 +198,9 @@ function TabResumen({
     ? Math.min(100, Math.round((row.consumedCredits / row.providerMonthlyCreditsAllowance) * 100))
     : null;
 
-  // Actividad reciente: últimas 3 operaciones
+  // Actividad reciente: uso logs primero, fallback a budget check logs
   const recentOps = usageLogs.slice(0, 3);
+  const budgetFallback = usageLogs.length === 0 ? (row.recentBudgetCheckLogs ?? []).slice(0, 3) : [];
   const totalOps = usageLogs.length;
   const errorCount = usageLogs.filter(
     (l) => l.status != null && (l.status.toLowerCase().includes('error') || l.status.toLowerCase().includes('fail')),
@@ -214,7 +215,9 @@ function TabResumen({
     ? (latestSyncLog.syncStatus === 'success' ? 'ok' : 'error')
     : row.quotaSyncedAt
       ? (row.quotaSyncError ? 'error' : 'ok')
-      : 'none';
+      : row.quotaSyncError
+        ? 'error'
+        : 'none';
   const syncErrorMsg = latestSyncLog?.errorMessage ?? row.quotaSyncError ?? null;
 
   // Próximas acciones
@@ -309,12 +312,7 @@ function TabResumen({
           <LoadingPlaceholder label="Cargando actividad..." />
         ) : ms === 'not_measured' ? (
           <EmptyBlock message="Este proveedor no genera actividad medida en SellUp." />
-        ) : recentOps.length === 0 ? (
-          <EmptyBlock
-            message="Sin operaciones registradas aún."
-            sub="Los datos aparecen después de la primera ejecución."
-          />
-        ) : (
+        ) : recentOps.length > 0 ? (
           <div className="space-y-1.5">
             {recentOps.map((log) => {
               const isError = log.status != null && (log.status.toLowerCase().includes('error') || log.status.toLowerCase().includes('fail'));
@@ -346,6 +344,39 @@ function TabResumen({
               </p>
             )}
           </div>
+        ) : budgetFallback.length > 0 ? (
+          <div className="space-y-1.5">
+            {budgetFallback.map((log) => {
+              const outcome = parseBudgetCheck(log.budgetCheck)?.outcome;
+              const isError = outcome === 'technical_error' || outcome === 'would_block';
+              return (
+                <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 flex items-center gap-3">
+                  <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-emerald-500'}`} />
+                  <span className="text-xs text-foreground truncate flex-1">
+                    {log.operationKey ?? 'operación general'}
+                  </span>
+                  {log.creditsUsed != null && (
+                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                      {log.creditsUsed.toLocaleString()} cr
+                    </span>
+                  )}
+                  {log.estimatedCostUsd != null && (
+                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                      ${log.estimatedCostUsd.toFixed(4)}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                    {formatDateShort(log.createdAt)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyBlock
+            message="Sin operaciones registradas aún."
+            sub="Los datos aparecen después de la primera ejecución."
+          />
         )}
       </div>
 
@@ -393,13 +424,13 @@ function TabResumen({
       {actions.length > 0 ? (
         <div className="space-y-2">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Acciones sugeridas</p>
-          <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-2">
             {actions.map((action) => (
               <button
                 key={action.tab + action.label}
                 type="button"
                 onClick={() => onNavigate(action.tab)}
-                className={`w-full text-left rounded-lg border px-4 py-2.5 text-xs font-medium transition-colors ${
+                className={`inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                   action.variant === 'warn'
                     ? 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10'
                     : 'border-su-brand/20 bg-su-brand-soft text-su-brand hover:bg-su-brand-soft/80'
