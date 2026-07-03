@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText } from 'lucide-react';
+import { ExternalLink, Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText, ChevronDown } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -106,6 +107,30 @@ function ProgressiveNote({ children }: { children: React.ReactNode }) {
   );
 }
 
+function PendingEditDisclosure({ label }: { label: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-border/40 bg-muted/10">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-foreground hover:bg-muted/20 transition-colors rounded-lg"
+      >
+        <span className="font-medium">{label}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground/60 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="px-4 pb-3 pt-2.5 border-t border-border/30">
+          <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+            La edición de cuota y reglas se conectará directamente en este panel de forma progresiva.
+            Por ahora puedes revisar el estado configurado del proveedor.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tab: Resumen ──────────────────────────────────────────────────────────────
 
 function TabResumen({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
@@ -201,11 +226,9 @@ function TabResumen({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementS
 function TabConfiguracion({
   row,
   ms,
-  onConfigureAllowance,
 }: {
   row: AdminProviderBudgetRow;
   ms: MeasurementStatus;
-  onConfigureAllowance: () => void;
 }) {
   const opType = getProviderOperationalType(row.providerKey);
   const isIa = opType === 'ia';
@@ -217,32 +240,21 @@ function TabConfiguracion({
   return (
     <div className="space-y-4">
       {isIa ? (
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-4">
           <SectionCard>
             <InfoRow label="Tipo" value="LLM (modelo de lenguaje)" />
             <InfoRow label="Estado de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
             <InfoRow label="Cuota configurada" value={allowance} />
           </SectionCard>
           <div className="space-y-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
-            <div className="flex flex-col items-start gap-2">
-              <Link href="/settings/providers?tab=ia">
-                <Button variant="outline" size="sm" className="text-xs gap-1.5">
-                  Gestionar modelos y tarifas
-                  <ExternalLink className="h-3 w-3 opacity-50" />
-                </Button>
-              </Link>
-              <Link href={`/settings/providers/${row.providerKey}?tab=modelos`}>
-                <Button variant="outline" size="sm" className="text-xs gap-1.5">
-                  Ver modelos activos de este proveedor
-                  <ExternalLink className="h-3 w-3 opacity-50" />
-                </Button>
-              </Link>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Modelos y tarifas</p>
+            <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-[11px] text-muted-foreground/70 leading-relaxed">
+              Administra los modelos activos, tarifas y configuración de conexión desde la pestaña <span className="font-medium text-foreground">IA</span> de la vista principal de Proveedores.
             </div>
           </div>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-4">
           <SectionCard>
             <InfoRow label="Modo de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
             <InfoRow label="Cuota configurada" value={allowance} />
@@ -259,18 +271,7 @@ function TabConfiguracion({
               />
             )}
           </SectionCard>
-          <div className="space-y-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs gap-1.5"
-              onClick={onConfigureAllowance}
-            >
-              Configurar cuota / presupuesto
-              <Settings className="h-3 w-3 opacity-50" />
-            </Button>
-          </div>
+          <PendingEditDisclosure label="Configurar cuota / presupuesto" />
         </div>
       )}
     </div>
@@ -372,11 +373,9 @@ const RULE_SCOPES: BudgetScopeType[] = ['global', 'role', 'group', 'user'];
 
 function TabPresupuesto({
   row,
-  onConfigureAllowance,
   providerRules,
 }: {
   row: AdminProviderBudgetRow;
-  onConfigureAllowance: () => void;
   providerRules: BudgetRuleRow[];
 }) {
   const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
@@ -415,24 +414,8 @@ function TabPresupuesto({
         </SectionCard>
 
         <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1 mb-3">Acciones</p>
-          <div className="flex flex-col items-start gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs gap-1.5"
-              onClick={onConfigureAllowance}
-            >
-              Configurar cuota / presupuesto
-              <Settings className="h-3 w-3 opacity-50" />
-            </Button>
-            <Link href={`/settings/providers/${row.providerKey}?tab=presupuesto`}>
-              <Button variant="outline" size="sm" className="text-xs gap-1.5">
-                Ver presupuesto completo y reglas
-                <ExternalLink className="h-3 w-3 opacity-50" />
-              </Button>
-            </Link>
-          </div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Acciones</p>
+          <PendingEditDisclosure label="Configurar cuota / presupuesto" />
         </div>
       </div>
 
@@ -511,6 +494,9 @@ const OUTCOME_BADGE: Record<string, { label: string; className: string }> = {
 
 function TabLogs({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
   const logs = row.recentBudgetCheckLogs ?? [];
+  const [showAll, setShowAll] = useState(false);
+  const INITIAL_COUNT = 5;
+  const visibleLogs = showAll ? logs : logs.slice(0, INITIAL_COUNT);
   const syncedAt = row.quotaSyncedAt ? formatDateShort(row.quotaSyncedAt) : null;
   const syncError = row.quotaSyncError;
 
@@ -567,7 +553,7 @@ function TabLogs({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStat
             </p>
           </div>
         ) : (
-          logs.slice(0, 5).map((log) => {
+          visibleLogs.map((log) => {
             const parsed = parseBudgetCheck(log.budgetCheck);
             const outcomeBadge = parsed
               ? (OUTCOME_BADGE[parsed.outcome] ?? OUTCOME_BADGE['unknown'])
@@ -596,16 +582,17 @@ function TabLogs({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStat
             );
           })
         )}
-      </div>
-
-      {/* CTA — natural width, aligned right */}
-      <div className="flex justify-end pt-1">
-        <Link href={`/settings/providers/${row.providerKey}?tab=logs`}>
-          <Button variant="outline" size="sm" className="text-xs gap-1.5">
-            Abrir logs completos
-            <ExternalLink className="h-3 w-3 opacity-50" />
-          </Button>
-        </Link>
+        {logs.length > INITIAL_COUNT && (
+          <button
+            type="button"
+            onClick={() => setShowAll((v) => !v)}
+            className="w-full text-center text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors py-1.5"
+          >
+            {showAll
+              ? 'Contraer eventos'
+              : `Mostrar ${logs.length - INITIAL_COUNT} evento${logs.length - INITIAL_COUNT !== 1 ? 's' : ''} más`}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -720,11 +707,7 @@ export function ProviderDetailSidepanel({
           </TabsContent>
 
           <TabsContent value="configuracion">
-            <TabConfiguracion
-              row={provider}
-              ms={ms}
-              onConfigureAllowance={() => { onClose(); onConfigureAllowance(provider); }}
-            />
+            <TabConfiguracion row={provider} ms={ms} />
           </TabsContent>
 
           <TabsContent value="consumo">
@@ -732,11 +715,7 @@ export function ProviderDetailSidepanel({
           </TabsContent>
 
           <TabsContent value="presupuesto">
-            <TabPresupuesto
-              row={provider}
-              onConfigureAllowance={() => { onClose(); onConfigureAllowance(provider); }}
-              providerRules={providerRules}
-            />
+            <TabPresupuesto row={provider} providerRules={providerRules} />
           </TabsContent>
 
           <TabsContent value="efectividad">
