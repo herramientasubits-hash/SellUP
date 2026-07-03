@@ -7,6 +7,9 @@ import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enri
 import { startContactEnrichmentRun } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-runner';
 import { executeContactEnrichmentApolloRun } from '@/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner';
 import { executeContactEnrichmentLushaRun } from '@/server/agents/contact-enrichment-toolkit/lusha-enrichment-runner';
+import { getLushaAccountUsage } from '@/server/integrations/lusha-client';
+import { getLushaApiKey } from '@/server/services/lusha-connection';
+import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
 import { logContactAudit } from '@/modules/contacts/actions';
 import {
   runApproveCandidate,
@@ -926,4 +929,39 @@ export async function getBulkContactEnrichmentRunStatusAction(
 export async function runContactEnrichmentLushaAction(runId: string) {
   const { internalUserId } = await requireActiveUserForEnrichment();
   return executeContactEnrichmentLushaRun(runId, internalUserId);
+}
+
+// ── Lusha Account Usage Health Check (Agente 2A · 17B.4A) ────────────────────
+// Diagnóstico seguro de cuenta Lusha. No busca personas. No crea candidatos.
+// No revela emails ni teléfonos. Solo GET /v3/account/usage.
+
+/**
+ * Server action para verificar estado de cuenta Lusha.
+ * Sin crear candidatos, sin buscar personas, sin revelar PII.
+ */
+export async function checkLushaAccountUsageAction() {
+  await requireActiveUserForEnrichment();
+
+  if (!isLushaContactEnrichmentEnabled()) {
+    return {
+      ok: false,
+      status: 'disabled' as const,
+      message: 'Lusha contact enrichment is disabled.',
+    };
+  }
+
+  const apiKey = await getLushaApiKey();
+
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 'missing_api_key' as const,
+      message: 'Lusha API key is not configured.',
+    };
+  }
+
+  return getLushaAccountUsage({
+    apiKey,
+    timeoutMs: resolveLushaSearchTimeoutMs(),
+  });
 }

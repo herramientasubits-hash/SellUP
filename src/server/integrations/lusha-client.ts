@@ -266,6 +266,82 @@ export async function searchLushaPeople(
 }
 
 // ============================================================
+// Account Usage — health check seguro (Agente 2A · 17B.4A)
+// GET https://api.lusha.com/v3/account/usage
+//
+// No consume créditos. No busca personas. No revela emails/teléfonos.
+// Usado exclusivamente para diagnóstico y health check de cuenta.
+// ============================================================
+
+export type LushaAccountUsageResult = {
+  ok: boolean;
+  status: 'success' | 'provider_auth_error' | 'insufficient_credits' | 'feature_unavailable' | 'rate_limited' | 'compliance_blocked' | 'provider_error' | 'provider_timeout';
+  httpStatus?: number;
+  usage?: unknown;
+  billing?: unknown;
+  rateLimit?: Record<string, string | null>;
+  requestId?: string | null;
+  errorMessage?: string;
+};
+
+export async function getLushaAccountUsage(input: {
+  apiKey: string;
+  timeoutMs: number;
+}): Promise<LushaAccountUsageResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    const response = await fetch(`${LUSHA_BASE_URL}/v3/account/usage`, {
+      method: 'GET',
+      headers: { 'api_key': input.apiKey.trim() },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    const rateLimit: Record<string, string | null> = {
+      limit: response.headers.get('x-ratelimit-limit'),
+      remaining: response.headers.get('x-ratelimit-remaining'),
+      reset: response.headers.get('x-ratelimit-reset'),
+    };
+    const requestId = response.headers.get('x-request-id');
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      return {
+        ok: false,
+        status: mapLushaHttpError(response.status),
+        httpStatus: response.status,
+        rateLimit,
+        requestId,
+        errorMessage: errorBody.slice(0, 300) || undefined,
+      };
+    }
+
+    const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+    return {
+      ok: true,
+      status: 'success',
+      httpStatus: response.status,
+      usage: body['usage'] ?? body,
+      billing: body['billing'] ?? undefined,
+      rateLimit,
+      requestId,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      status: isTimeout ? 'provider_timeout' : 'provider_error',
+      errorMessage: isTimeout ? 'Request timed out' : (err instanceof Error ? err.message : 'Unknown error'),
+    };
+  }
+}
+
+// ============================================================
 // Búsqueda de empresas (Prospecting API)
 // POST https://api.lusha.com/prospecting/search/companies
 //
