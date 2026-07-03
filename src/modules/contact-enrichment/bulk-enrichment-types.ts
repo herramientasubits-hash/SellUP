@@ -11,11 +11,12 @@ export type ContactEnrichmentBulkStatus =
   | 'failed';
 
 export type BulkEnrichmentSkipReason =
+  | 'account_archived'
+  | 'missing_country_code'
+  | 'insufficient_company_data'
   | 'enrichment_in_progress'
   | 'already_ready_for_review'
-  | 'pending_candidates_exist'
-  | 'missing_country_code'
-  | 'insufficient_company_data';
+  | 'pending_candidates_exist';
 
 export interface BulkEnrichmentEligibleAccount {
   accountId: string;

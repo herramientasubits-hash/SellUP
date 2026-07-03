@@ -15,6 +15,7 @@ export interface BulkEligibilityAccountInput {
   name: string | null;
   domain?: string | null;
   country_code?: string | null;
+  archived_at?: string | null;
 }
 
 export interface BulkEligibilityInput {
@@ -61,7 +62,10 @@ function getSkipReason(
   account: BulkEligibilityAccountInput,
   input: BulkEligibilityInput,
 ): BulkEnrichmentSkipReason | null {
-  // Prioridad 1: country_code ausente
+  // Prioridad 1: cuenta archivada — nunca elegible
+  if (account.archived_at) return 'account_archived';
+
+  // Prioridad 2: country_code ausente
   if (!account.country_code) return 'missing_country_code';
 
   // Prioridad 2: nombre insuficiente
@@ -96,7 +100,7 @@ export async function checkBulkContactEnrichmentEligibility(
   const [accountsResult, runsResult, candidatesResult] = await Promise.all([
     supabase
       .from('accounts')
-      .select('id, name, domain, country_code')
+      .select('id, name, domain, country_code, archived_at')
       .in('id', uniqueIds),
     supabase
       .from('contact_enrichment_runs')
@@ -137,6 +141,7 @@ export async function checkBulkContactEnrichmentEligibility(
     name: a.name,
     domain: a.domain,
     country_code: a.country_code,
+    archived_at: a.archived_at,
   }));
 
   return evaluateBulkContactEnrichmentEligibility({

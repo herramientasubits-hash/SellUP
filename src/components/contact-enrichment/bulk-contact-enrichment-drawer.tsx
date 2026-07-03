@@ -59,6 +59,7 @@ export type BulkContactEnrichmentDrawerProps = {
 // ── Skip reason labels ─────────────────────────────────────────
 
 const SKIP_REASON_LABELS: Record<BulkEnrichmentSkipReason, string> = {
+  account_archived: 'Cuenta archivada',
   missing_country_code: 'Falta país de la cuenta',
   insufficient_company_data: 'Faltan datos mínimos de empresa',
   enrichment_in_progress: 'Ya tiene un enriquecimiento en proceso',

@@ -197,6 +197,7 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
        pipeline_status, source, created_at, owner_id,
        owner:owner_id ( full_name )`,
     )
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
     .limit(200);
   if (scopeIds) listQuery = listQuery.or(ownerOrClause(scopeIds));

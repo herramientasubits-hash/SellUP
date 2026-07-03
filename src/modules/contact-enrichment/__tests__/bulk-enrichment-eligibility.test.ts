@@ -180,4 +180,39 @@ describe('evaluateBulkContactEnrichmentEligibility', () => {
 
     assert.equal(result.selectedCount, 2);
   });
+
+  // ── account_archived ──────────────────────────────────────────────────────
+
+  it('cuenta archivada se omite con account_archived', () => {
+    const account = makeAccount({ id: 'acc-1', archived_at: '2026-07-01T15:57:18Z' });
+    const result = evaluateBulkContactEnrichmentEligibility(makeInput([account]));
+
+    assert.equal(result.eligible.length, 0);
+    assert.equal(result.skipped.length, 1);
+    assert.equal(result.skipped[0].reason, 'account_archived');
+  });
+
+  it('account_archived tiene prioridad sobre missing_country_code', () => {
+    const account = makeAccount({ id: 'acc-1', archived_at: '2026-07-01T00:00:00Z', country_code: null });
+    const result = evaluateBulkContactEnrichmentEligibility(makeInput([account]));
+
+    assert.equal(result.skipped[0].reason, 'account_archived');
+  });
+
+  it('account_archived tiene prioridad sobre already_ready_for_review', () => {
+    const account = makeAccount({ id: 'acc-1', archived_at: '2026-07-01T00:00:00Z' });
+    const result = evaluateBulkContactEnrichmentEligibility(
+      makeInput([account], { 'acc-1': [{ status: 'ready_for_review' }] }),
+    );
+
+    assert.equal(result.skipped[0].reason, 'account_archived');
+  });
+
+  it('cuenta activa con archived_at null y datos válidos sigue siendo eligible', () => {
+    const account = makeAccount({ id: 'acc-1', archived_at: null });
+    const result = evaluateBulkContactEnrichmentEligibility(makeInput([account]));
+
+    assert.equal(result.eligible.length, 1);
+    assert.equal(result.skipped.length, 0);
+  });
 });
