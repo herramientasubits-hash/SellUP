@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText, ChevronDown } from 'lucide-react';
+import { ExternalLink, Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText, ChevronDown, Cpu, Zap, Database, Bot } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -221,7 +222,283 @@ function TabResumen({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementS
   );
 }
 
-// ── Tab: Configuración ────────────────────────────────────────────────────────
+// ── Tab: Configuración — helpers ──────────────────────────────────────────────
+
+function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      <span className="text-muted-foreground/50">{icon}</span>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">{label}</p>
+    </div>
+  );
+}
+
+function ReadOnlyToggle({ label, checked, note }: { label: string; checked: boolean; note?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2 border-b border-border/30 last:border-0">
+      <div className="min-w-0">
+        <span className="text-xs text-foreground">{label}</span>
+        {note && <p className="text-[10px] text-muted-foreground/50 mt-0.5">{note}</p>}
+      </div>
+      <div className="shrink-0 flex items-center gap-1.5">
+        <span className="text-[10px] text-muted-foreground/40">Solo lectura</span>
+        <Switch checked={checked} disabled className="opacity-50 cursor-not-allowed" />
+      </div>
+    </div>
+  );
+}
+
+function ConfigAccordion({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-border/40 bg-muted/10">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-foreground hover:bg-muted/20 transition-colors rounded-lg"
+      >
+        <span className="font-medium">{label}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground/60 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="px-4 pb-3 pt-1 border-t border-border/30">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Configuración IA ─────────────────────────────────────────────────────
+
+function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
+  const msBadge = MEASUREMENT_STATUS_BADGE[ms];
+  const opType = getProviderOperationalType(row.providerKey);
+  const opBadge = OPERATIONAL_TYPE_BADGE[opType];
+
+  const syncedAt = row.quotaSyncedAt
+    ? formatDateShort(row.quotaSyncedAt)
+    : row.latestBudgetCheckLog?.createdAt
+      ? formatDateShort(row.latestBudgetCheckLog.createdAt)
+      : null;
+
+  const allowance = formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
+
+  const quotaSourceLabel =
+    row.quotaSource === 'api_synced' ? 'API del proveedor'
+    : row.quotaSource === 'manual' ? 'Configuración manual'
+    : row.quotaSource === 'sync_error' ? 'Error de sincronización'
+    : 'No configurada';
+
+  const measurementUnit = row.providerMonthlyCreditsAllowance != null ? 'Créditos' : row.providerMonthlyUsdAllowance != null ? 'USD' : 'No definida';
+
+  return (
+    <div className="space-y-5">
+      {/* 1. Estado del proveedor */}
+      <div>
+        <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Estado del proveedor" />
+        <SectionCard>
+          <InfoRow
+            label="Tipo operativo"
+            value={
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
+                {OPERATIONAL_TYPE_LABEL[opType]} · LLM
+              </span>
+            }
+          />
+          <InfoRow
+            label="Estado de medición"
+            value={
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
+                {MEASUREMENT_STATUS_LABEL[ms]}
+              </span>
+            }
+          />
+          <InfoRow label="Descripción" value={<span className="text-muted-foreground">{MEASUREMENT_STATUS_DESCRIPTION[ms]}</span>} />
+          {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
+          {row.quotaSyncError && (
+            <InfoRow label="Error de sync" value={<span className="text-destructive text-[10px]">{row.quotaSyncError}</span>} />
+          )}
+        </SectionCard>
+      </div>
+
+      {/* 2. Modelos y tarifas */}
+      <div>
+        <SectionHeader icon={<Cpu className="h-3.5 w-3.5" />} label="Modelos y tarifas" />
+        <div className="space-y-2">
+          <SectionCard>
+            <InfoRow label="Cuota configurada" value={allowance} />
+            <InfoRow label="Fuente de cuota" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
+            {row.quotaOverrideManual && (
+              <InfoRow label="Override manual" value={<span className="text-amber-600 dark:text-amber-400 text-[10px]">Activo — sync API no sobreescribe</span>} />
+            )}
+            {row.creditsRemainingExternal != null && (
+              <InfoRow label="Disponible (API)" value={`${row.creditsRemainingExternal.toLocaleString()} cr`} />
+            )}
+            {row.usdCostMtd != null && (
+              <InfoRow label="Costo MTD (API)" value={`$${row.usdCostMtd.toFixed(4)}`} />
+            )}
+          </SectionCard>
+          <ConfigAccordion label="Gestión de modelos">
+            <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">
+              La edición de modelos activos, tarifas por token y configuración de conexión
+              se conectará progresivamente dentro de este workspace del proveedor.
+            </p>
+          </ConfigAccordion>
+        </div>
+      </div>
+
+      {/* 3. Medición y consumo */}
+      <div>
+        <SectionHeader icon={<Database className="h-3.5 w-3.5" />} label="Medición y consumo" />
+        <SectionCard>
+          <InfoRow label="Modo de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
+          <InfoRow label="Unidad de medición" value={<span className="text-muted-foreground">{measurementUnit}</span>} />
+          <InfoRow label="Fuente de medición" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
+          <ReadOnlyToggle
+            label="Participa en reportes de consumo"
+            checked={ms === 'active'}
+            note="Activo cuando hay registros de uso medidos"
+          />
+        </SectionCard>
+      </div>
+
+      {/* 4. Automatización y uso operativo */}
+      <div>
+        <SectionHeader icon={<Bot className="h-3.5 w-3.5" />} label="Automatización / uso operativo" />
+        <SectionCard>
+          <ReadOnlyToggle
+            label="Habilitado para agentes"
+            checked={ms === 'active' || ms === 'connected'}
+            note="Pendiente de configurar por agente"
+          />
+          <ReadOnlyToggle
+            label="Solo lectura operativa"
+            checked={ms === 'prepared' || ms === 'not_measured'}
+            note="Sin ejecuciones registradas en SellUp"
+          />
+        </SectionCard>
+        <p className="text-[10px] text-muted-foreground/40 mt-2 px-1 leading-relaxed">
+          La configuración por agente se conectará progresivamente dentro de este workspace.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Configuración no IA ──────────────────────────────────────────────────
+
+const OPERATIONAL_USE_MAP: Record<string, string> = {
+  tavily:  'Búsqueda web y señales externas en prospección y enriquecimiento',
+  lusha:   'Enriquecimiento de contactos (teléfono, email verificado)',
+  apollo:  'Prospección de cuentas y enriquecimiento de contactos',
+  samu_ia: 'Post-reunión — no medido directamente desde SellUp',
+};
+
+function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
+  const msBadge = MEASUREMENT_STATUS_BADGE[ms];
+  const opType = getProviderOperationalType(row.providerKey);
+  const opBadge = OPERATIONAL_TYPE_BADGE[opType];
+
+  const syncedAt = row.quotaSyncedAt
+    ? formatDateShort(row.quotaSyncedAt)
+    : row.latestBudgetCheckLog?.createdAt
+      ? formatDateShort(row.latestBudgetCheckLog.createdAt)
+      : null;
+
+  const allowance = formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
+  const consumed = ms === 'active'
+    ? formatAmount(row.consumedCredits, row.consumedUsd) || '0 cr'
+    : '—';
+
+  const quotaSourceLabel =
+    row.quotaSource === 'api_synced' ? 'API del proveedor'
+    : row.quotaSource === 'manual' ? 'Configuración manual'
+    : row.quotaSource === 'sync_error' ? 'Error de sincronización'
+    : 'No configurada';
+
+  const measurementUnit = row.providerMonthlyCreditsAllowance != null ? 'Créditos'
+    : row.providerMonthlyUsdAllowance != null ? 'USD'
+    : 'No definida';
+
+  const operationalUse = OPERATIONAL_USE_MAP[row.providerKey.toLowerCase()]
+    ?? 'Uso operativo pendiente de documentar';
+
+  return (
+    <div className="space-y-5">
+      {/* 1. Estado del proveedor */}
+      <div>
+        <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Estado del proveedor" />
+        <SectionCard>
+          <InfoRow
+            label="Tipo operativo"
+            value={
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
+                {OPERATIONAL_TYPE_LABEL[opType]}
+              </span>
+            }
+          />
+          <InfoRow
+            label="Estado de medición"
+            value={
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
+                {MEASUREMENT_STATUS_LABEL[ms]}
+              </span>
+            }
+          />
+          <InfoRow label="Descripción" value={<span className="text-muted-foreground">{MEASUREMENT_STATUS_DESCRIPTION[ms]}</span>} />
+          {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
+          {row.quotaSyncError && (
+            <InfoRow label="Error de sync" value={<span className="text-destructive text-[10px]">{row.quotaSyncError}</span>} />
+          )}
+        </SectionCard>
+      </div>
+
+      {/* 2. Cuota y medición */}
+      <div>
+        <SectionHeader icon={<Zap className="h-3.5 w-3.5" />} label="Cuota y medición" />
+        <SectionCard>
+          <InfoRow label="Cuota configurada" value={allowance} />
+          <InfoRow label="Consumo del mes" value={consumed} />
+          <InfoRow label="Fuente de cuota" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
+          <InfoRow label="Unidad de medición" value={<span className="text-muted-foreground">{measurementUnit}</span>} />
+          {row.creditsRemainingExternal != null && (
+            <InfoRow label="Disponible (API)" value={`${row.creditsRemainingExternal.toLocaleString()} cr`} />
+          )}
+          <ReadOnlyToggle
+            label="Participa en reportes de consumo"
+            checked={ms === 'active'}
+            note="Activo cuando hay registros de uso medidos"
+          />
+        </SectionCard>
+      </div>
+
+      {/* 3. Uso operativo */}
+      <div>
+        <SectionHeader icon={<Bot className="h-3.5 w-3.5" />} label="Uso operativo" />
+        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
+          <p className="text-xs text-foreground leading-relaxed">{operationalUse}</p>
+          <p className="text-[10px] text-muted-foreground/50 mt-2">
+            Módulos: {opType === 'enriquecimiento' ? 'Enriquecimiento, Agente 2A' : opType === 'busqueda' ? 'Prospección, Agente 1' : 'Pendiente de mapear'}
+          </p>
+        </div>
+      </div>
+
+      {/* 4. Edición progresiva */}
+      <div>
+        <SectionHeader icon={<Settings className="h-3.5 w-3.5" />} label="Edición progresiva" />
+        <ConfigAccordion label="Configurar cuota / presupuesto">
+          <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">
+            La edición de esta configuración se conectará progresivamente dentro del workspace del proveedor.
+            Por ahora puedes revisar el estado configurado desde la tab Presupuesto.
+          </p>
+        </ConfigAccordion>
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Configuración (dispatcher) ──────────────────────────────────────────
 
 function TabConfiguracion({
   row,
@@ -232,50 +509,10 @@ function TabConfiguracion({
 }) {
   const opType = getProviderOperationalType(row.providerKey);
   const isIa = opType === 'ia';
-  const allowance = formatAllowance(
-    row.providerMonthlyCreditsAllowance,
-    row.providerMonthlyUsdAllowance,
-  );
 
-  return (
-    <div className="space-y-4">
-      {isIa ? (
-        <div className="space-y-4">
-          <SectionCard>
-            <InfoRow label="Tipo" value="LLM (modelo de lenguaje)" />
-            <InfoRow label="Estado de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
-            <InfoRow label="Cuota configurada" value={allowance} />
-          </SectionCard>
-          <div className="space-y-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Modelos y tarifas</p>
-            <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-[11px] text-muted-foreground/70 leading-relaxed">
-              Administra los modelos activos, tarifas y configuración de conexión desde la pestaña <span className="font-medium text-foreground">IA</span> de la vista principal de Proveedores.
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <SectionCard>
-            <InfoRow label="Modo de medición" value={MEASUREMENT_STATUS_LABEL[ms]} />
-            <InfoRow label="Cuota configurada" value={allowance} />
-            {row.quotaSource && (
-              <InfoRow
-                label="Fuente de cuota"
-                value={
-                  row.quotaSource === 'api_synced'
-                    ? 'API del proveedor'
-                    : row.quotaSource === 'manual'
-                      ? 'Configuración manual'
-                      : 'Error de sincronización'
-                }
-              />
-            )}
-          </SectionCard>
-          <PendingEditDisclosure label="Configurar cuota / presupuesto" />
-        </div>
-      )}
-    </div>
-  );
+  return isIa
+    ? <TabConfiguracionIA row={row} ms={ms} />
+    : <TabConfiguracionNoIA row={row} ms={ms} />;
 }
 
 // ── Tab: Consumo ──────────────────────────────────────────────────────────────
