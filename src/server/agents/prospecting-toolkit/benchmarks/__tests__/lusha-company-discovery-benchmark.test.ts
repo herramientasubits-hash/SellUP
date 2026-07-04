@@ -458,6 +458,113 @@ describe('Q3F-5O — openapi schema metadata', () => {
 });
 
 // ============================================================
+// Q3F-5Q.1 — response real POST observado (metadata)
+// ============================================================
+
+describe('Q3F-5Q.1 — real POST observed metadata', () => {
+  it('real_successful_post_observed = true en todo escenario', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.real_successful_post_observed, true,
+        `real_successful_post_observed debe ser true en escenario ${scenario}`);
+    }
+  });
+
+  it('locations_colombia_post_success_observed = true', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.locations_colombia_post_success_observed, true);
+  });
+
+  it('response_top_level_keys_observed incluye requestId, pagination, results, billing', () => {
+    const result = run({ scenario: 'useful_results' });
+    const keys = result.response_top_level_keys_observed;
+    assert.ok(keys.includes('requestId'), 'debe incluir requestId');
+    assert.ok(keys.includes('pagination'), 'debe incluir pagination');
+    assert.ok(keys.includes('results'), 'debe incluir results');
+    assert.ok(keys.includes('billing'), 'debe incluir billing');
+  });
+
+  it('employee_count_shape_observed = "object_exact_min_max"', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.employee_count_shape_observed, 'object_exact_min_max');
+  });
+
+  it('billing_key_observed = true', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.billing_key_observed, true);
+  });
+
+  it('credits_charged_field_unconfirmed = true', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.credits_charged_field_unconfirmed, true);
+  });
+
+  it('dry_run = true en todo escenario Q3F-5Q.1', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.dry_run, true);
+    }
+  });
+
+  it('writes_disabled = true con metadata Q3F-5Q.1', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.writes_disabled, true);
+  });
+
+  it('source_catalog_unchanged = true con metadata Q3F-5Q.1', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.source_catalog_unchanged, true);
+  });
+
+  it('credits_used = 0 y estimated_cost_usd = 0 con metadata Q3F-5Q.1', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.credits_used, 0);
+    assert.equal(result.estimated_cost_usd, 0);
+  });
+
+  it('metadata Q3F-5O previa sigue presente — no hay regresión', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.official_openapi_schema_confirmed, true);
+    assert.equal(result.filters_nesting_observed, 'filters.companies.include');
+    assert.equal(result.pagination_page_base, 'zero_based');
+    assert.equal(result.options_include_partial_profiles_default, false);
+    assert.equal(result.locations_post_value_shape, 'country_object');
+    assert.equal(result.sizes_post_value_shape, 'numeric_range_object');
+  });
+
+  it('metadata Q3F-5J previa sigue presente — no hay regresión', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.locations_requires_query_observed, true);
+    assert.equal(result.names_requires_query_observed, true);
+    assert.equal(result.filter_values_query_param_supported, true);
+    assert.equal(result.next_location_query_candidate, 'Colombia');
+    assert.equal(result.location_value_id_unconfirmed, true);
+  });
+
+  it('no hay fetch real con metadata Q3F-5Q.1 (fetch guard)', () => {
+    assert.doesNotThrow(() => run({ scenario: 'useful_results' }));
+    assert.doesNotThrow(() => run({ scenario: 'empty_result' }));
+    assert.doesNotThrow(() => run({ scenario: 'provider_error' }));
+  });
+});
+
+// ============================================================
 // Garantías de aislamiento
 // ============================================================
 

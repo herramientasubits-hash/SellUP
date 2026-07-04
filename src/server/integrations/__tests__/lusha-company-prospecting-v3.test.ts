@@ -978,6 +978,289 @@ describe('Q3F-5H — empty filters rejected', () => {
 });
 
 // ============================================================
+// Q3F-5Q.1 — Normalización employeeCount object (shape real observado)
+// ============================================================
+
+describe('Q3F-5Q.1 — employeeCount object normalization', () => {
+  it('employeeCount { exact, min, max } con exact → employeeCount=exact, employeeCountExact=exact', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        requestId: 'req-q3f5q-1',
+        pagination: { page: 0, size: 10, total: 1 },
+        results: [
+          { id: 'c1', name: 'SENA', domain: 'sena.edu.co', country: 'Colombia', industry: 'Education',
+            employeeCount: { exact: 34323, min: 34323, max: 34323 } },
+        ],
+        billing: { creditsCharged: 1 },
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA, pagination: { page: 0, size: 10 } },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'success');
+    assert.equal(result.resultsReturned, 1);
+    const company = result.results?.[0];
+    assert.ok(company !== undefined);
+    assert.equal(company.employeeCount, 34323, 'employeeCount preferido debe ser exact');
+    assert.equal(company.employeeCountExact, 34323);
+    assert.equal(company.employeeCountMin, 34323);
+    assert.equal(company.employeeCountMax, 34323);
+  });
+
+  it('employeeCount { min, max } sin exact → employeeCount=min, exact=null', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        requestId: 'req-q3f5q-2',
+        pagination: { page: 0, size: 10, total: 1 },
+        results: [
+          { id: 'c2', name: 'Davivienda', domain: 'davivienda.com', country: 'Colombia', industry: 'Finance',
+            employeeCount: { min: 51, max: 200 } },
+        ],
+        billing: {},
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA, pagination: { page: 0, size: 10 } },
+    });
+
+    const company = result.results?.[0];
+    assert.ok(company !== undefined);
+    assert.equal(company.employeeCount, 51, 'sin exact, employeeCount debe ser min');
+    assert.equal(company.employeeCountExact, null, 'exact debe ser null cuando no viene');
+    assert.equal(company.employeeCountMin, 51);
+    assert.equal(company.employeeCountMax, 200);
+  });
+
+  it('employeeCount número legacy sigue soportado', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        results: [
+          { id: 'c3', name: 'Empresa Legacy', domain: 'legacy.com', country: 'Colombia', industry: 'Tech',
+            employeeCount: 500 },
+        ],
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA },
+    });
+
+    const company = result.results?.[0];
+    assert.ok(company !== undefined);
+    assert.equal(company.employeeCount, 500, 'número legacy debe preservarse');
+    assert.equal(company.employeeCountExact, 500, 'legacy escalar expuesto también como exact');
+    assert.equal(company.employeeCountMin, null);
+    assert.equal(company.employeeCountMax, null);
+  });
+
+  it('employeeCount ausente no rompe — devuelve nulls', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        results: [
+          { id: 'c4', name: 'Sin EmployeeCount', domain: 'sin-emp.com', country: 'Colombia' },
+        ],
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA },
+    });
+
+    const company = result.results?.[0];
+    assert.ok(company !== undefined);
+    assert.equal(company.employeeCount, null);
+    assert.equal(company.employeeCountExact, null);
+    assert.equal(company.employeeCountMin, null);
+    assert.equal(company.employeeCountMax, null);
+  });
+
+  it('top-level billing presente no rompe — billingPresent=true', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        requestId: 'req-billing-present',
+        pagination: { page: 0, size: 10, total: 1 },
+        results: [
+          { id: 'c5', name: 'Bancolombia', domain: 'bancolombia.com', country: 'Colombia', industry: 'Finance',
+            employeeCount: { exact: 34323, min: 34323, max: 34323 } },
+        ],
+        billing: { creditsCharged: 10, someOtherField: 'x' },
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA, pagination: { page: 0, size: 10 } },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.billingPresent, true, 'billingPresent debe ser true cuando billing existe en response');
+    assert.ok(result.billingShape !== null && result.billingShape !== undefined,
+      'billingShape debe estar presente cuando billing existe');
+  });
+
+  it('creditsCharged extraído de billing cuando no está en top-level', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        results: [
+          { id: 'c6', name: 'Avianca', domain: 'avianca.com', country: 'Colombia', industry: 'Airlines',
+            employeeCount: { exact: 1200, min: 1000, max: 1500 } },
+        ],
+        billing: { creditsCharged: 5 },
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA },
+    });
+
+    assert.equal(result.creditsCharged, 5, 'creditsCharged debe extraerse de billing si no está en top-level');
+  });
+
+  it('creditsCharged ausente en billing y en top-level → null (no se inventa)', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        results: [
+          { id: 'c7', name: 'SURA', domain: 'sura.com', country: 'Colombia' },
+        ],
+        billing: { someOtherBillingField: 'present' },
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA },
+    });
+
+    assert.equal(result.creditsCharged, null, 'creditsCharged debe ser null si no aparece en ningún lugar');
+  });
+
+  it('requestId null en body ni header no rompe', async () => {
+    fetchCalls = [];
+    const savedFetch = global.fetch;
+    global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      fetchCalls.push({ url, method: init?.method ?? 'GET' });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (_: string) => null },
+        json: async () => ({
+          results: [{ id: 'c8', name: 'Ecopetrol', domain: 'ecopetrol.com', country: 'Colombia',
+            employeeCount: { exact: 10000, min: 10000, max: 10000 } }],
+          billing: { creditsCharged: 1 },
+        }),
+        text: async () => '',
+      } as unknown as Response;
+    };
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA, pagination: { page: 0, size: 10 } },
+    });
+
+    global.fetch = savedFetch;
+    assert.equal(result.ok, true);
+    assert.equal(result.requestId, null, 'requestId debe ser null cuando no viene en body ni header');
+    assert.equal(result.results?.[0].employeeCount, 10000);
+  });
+
+  it('pagination top-level en response no rompe', async () => {
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        requestId: 'req-pag',
+        pagination: { page: 0, size: 10, total: 100, totalPages: 10 },
+        results: [
+          { id: 'c9', name: 'Los Andes', domain: 'uniandes.edu.co', country: 'Colombia', industry: 'Education',
+            employeeCount: { exact: 5000, min: 5000, max: 5000 } },
+        ],
+        billing: { creditsCharged: 1 },
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA, pagination: { page: 0, size: 10 } },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.resultsReturned, 1);
+    assert.equal(result.results?.[0].name, 'Los Andes');
+  });
+
+  it('no external fetch real — todas las URLs son api.lusha.com', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+    await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA },
+    });
+    for (const call of fetchCalls) {
+      assert.ok(call.url.startsWith('https://api.lusha.com'), `URL debe ser api.lusha.com. Got: ${call.url}`);
+      assert.ok(!call.url.includes('apollo'), 'No debe llamar a Apollo');
+      assert.ok(!call.url.includes('supabase'), 'No debe llamar a Supabase');
+    }
+  });
+
+  it('no DB writes — función no tiene side effects de escritura', async () => {
+    // Verificación estructural: searchLushaCompaniesV3 solo hace fetch a la API de Lusha
+    resetMock({
+      ok: true,
+      status: 200,
+      body: {
+        results: [{ id: 'c10', name: 'Javeriana', domain: 'javeriana.edu.co', country: 'Colombia',
+          employeeCount: { exact: 8000, min: 8000, max: 8000 } }],
+        billing: { creditsCharged: 1 },
+      },
+    });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: VALID_FILTERS_COLOMBIA, pagination: { page: 0, size: 10 } },
+    });
+
+    // Solo 1 fetch a api.lusha.com — sin writes a Supabase
+    assert.equal(fetchCalls.length, 1);
+    assert.ok(fetchCalls[0].url.includes('api.lusha.com'));
+    assert.equal(result.ok, true);
+  });
+});
+
+// ============================================================
 // Garantías de aislamiento (Q3F-5D / Q3F-5O)
 // ============================================================
 

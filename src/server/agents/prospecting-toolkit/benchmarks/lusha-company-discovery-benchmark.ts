@@ -127,6 +127,20 @@ export interface LushaCompanyDiscoveryBenchmarkResult {
   /** sizes usa rangos numéricos { min, max } en el POST, no strings. */
   sizes_post_value_shape: 'numeric_range_object';
 
+  // ---- Q3F-5Q.1 metadata (response real POST observado 2026-07-03) ----
+  /** Q3F-5Q: POST /v3/companies/prospecting Colombia ejecutó HTTP 200 con 10 empresas reales. */
+  real_successful_post_observed: true;
+  /** Q3F-5Q: El filtro locations:[{country:"Colombia"}] funcionó correctamente en live test. */
+  locations_colombia_post_success_observed: true;
+  /** Q3F-5Q: Top-level keys del response real observadas. */
+  response_top_level_keys_observed: readonly ['requestId', 'pagination', 'results', 'billing'];
+  /** Q3F-5Q: employeeCount viene como objeto {exact,min,max}, no como número escalar. */
+  employee_count_shape_observed: 'object_exact_min_max';
+  /** Q3F-5Q: El response real contiene un campo billing top-level. */
+  billing_key_observed: true;
+  /** Q3F-5Q: El campo creditsCharged dentro de billing no ha sido confirmado con valor específico. */
+  credits_charged_field_unconfirmed: true;
+
   // Resultado del escenario
   scenario: LushaCompanyDiscoveryBenchmarkScenario;
   input: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'>;
@@ -195,6 +209,13 @@ export function runLushaCompanyDiscoveryBenchmarkDryRun(
     options_include_partial_profiles_default: false as const,
     locations_post_value_shape: 'country_object' as const,
     sizes_post_value_shape: 'numeric_range_object' as const,
+    // Q3F-5Q.1 — response real POST observado
+    real_successful_post_observed: true as const,
+    locations_colombia_post_success_observed: true as const,
+    response_top_level_keys_observed: ['requestId', 'pagination', 'results', 'billing'] as const,
+    employee_count_shape_observed: 'object_exact_min_max' as const,
+    billing_key_observed: true as const,
+    credits_charged_field_unconfirmed: true as const,
   };
 
   const safeInput: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'> = {
@@ -402,6 +423,12 @@ type BaseMetadata = {
   options_include_partial_profiles_default: false;
   locations_post_value_shape: 'country_object';
   sizes_post_value_shape: 'numeric_range_object';
+  real_successful_post_observed: true;
+  locations_colombia_post_success_observed: true;
+  response_top_level_keys_observed: readonly ['requestId', 'pagination', 'results', 'billing'];
+  employee_count_shape_observed: 'object_exact_min_max';
+  billing_key_observed: true;
+  credits_charged_field_unconfirmed: true;
 };
 
 function buildBase(meta: BaseMetadata): BaseMetadata {

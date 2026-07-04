@@ -1017,13 +1017,34 @@ export type LushaCompanyProspectingV3Request = {
   signals?: string[];
 };
 
+/**
+ * Shape real observado en POST /v3/companies/prospecting — Q3F-5Q.
+ * employeeCount viene como objeto { exact, min, max }, no como número escalar.
+ * Se soporta también el número escalar por compatibilidad defensiva.
+ */
+export type LushaEmployeeCountObject = {
+  exact?: number;
+  min?: number;
+  max?: number;
+};
+
 export type LushaCompanyProspectingV3Company = {
   id?: string | null;
   name?: string | null;
   domain?: string | null;
   country?: string | null;
   industry?: string | null;
+  /**
+   * Escalar preferido: exact si viene en objeto, o número legacy.
+   * null si employeeCount está ausente o no es parseable.
+   */
   employeeCount?: number | null;
+  /** exact del objeto employeeCount — null si no viene. */
+  employeeCountExact?: number | null;
+  /** min del objeto employeeCount — null si no viene. */
+  employeeCountMin?: number | null;
+  /** max del objeto employeeCount — null si no viene. */
+  employeeCountMax?: number | null;
   linkedinUrl?: string | null;
 };
 
@@ -1045,6 +1066,13 @@ export type LushaCompanyProspectingV3Result = {
   resultsReturned: number;
   totalAvailable?: number | null;
   creditsCharged?: number | null;
+  /**
+   * true si el response real contiene un campo billing top-level — Q3F-5Q.
+   * No se exponen valores sensibles; solo se señala su presencia.
+   */
+  billingPresent?: boolean;
+  /** Tipos de los campos dentro de billing — útil para diagnóstico sin exponer valores. */
+  billingShape?: Record<string, string> | null;
   rawShape?: Record<string, unknown>;
   results?: LushaCompanyProspectingV3Company[];
   errorMessage?: string;
@@ -1071,6 +1099,31 @@ function hasCompanyFilters(filters: LushaCompanyProspectingV3Filters | undefined
   }
   if (exclude?.domains?.length) return true;
   return false;
+}
+
+/**
+ * Normaliza employeeCount desde el shape real observado en Q3F-5Q:
+ *   { exact: number, min: number, max: number }
+ * También soporta el número escalar legacy (defensivo).
+ * Preferred scalar: exact si viene, luego min, luego null.
+ */
+function extractLushaEmployeeCountRaw(value: unknown): {
+  employeeCount: number | null;
+  employeeCountExact: number | null;
+  employeeCountMin: number | null;
+  employeeCountMax: number | null;
+} {
+  if (typeof value === 'number') {
+    return { employeeCount: value, employeeCountExact: value, employeeCountMin: null, employeeCountMax: null };
+  }
+  if (value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const exact = typeof obj['exact'] === 'number' ? obj['exact'] : null;
+    const min = typeof obj['min'] === 'number' ? obj['min'] : null;
+    const max = typeof obj['max'] === 'number' ? obj['max'] : null;
+    return { employeeCount: exact ?? min ?? null, employeeCountExact: exact, employeeCountMin: min, employeeCountMax: max };
+  }
+  return { employeeCount: null, employeeCountExact: null, employeeCountMin: null, employeeCountMax: null };
 }
 
 export async function searchLushaCompaniesV3(input: {
@@ -1174,28 +1227,46 @@ export async function searchLushaCompaniesV3(input: {
       : null;
 
     if (items.length === 0) {
+      const billingRawNoResults = raw['billing'];
+      const billingPresentNoResults = billingRawNoResults !== undefined && billingRawNoResults !== null;
+      const { creditsCharged: billingCreditsNoResults, billingShape: billingShapeNoResults } = extractLushaBilling(billingRawNoResults);
       return {
         ok: true,
         status: 'no_results',
         httpStatus: response.status,
         resultsReturned: 0,
         totalAvailable,
-        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : billingCreditsNoResults,
+        billingPresent: billingPresentNoResults,
+        billingShape: billingShapeNoResults,
         rawShape: buildRawShape(raw),
         rateLimit,
         requestId,
       };
     }
 
-    const results: LushaCompanyProspectingV3Company[] = items.map((c) => ({
-      id: typeof c['id'] === 'string' ? c['id'] : null,
-      name: pickString(c, ['name', 'companyName']) ?? null,
-      domain: pickString(c, ['domain', 'website']) ?? null,
-      country: pickString(c, ['country', 'countryCode']) ?? null,
-      industry: pickString(c, ['industry', 'industryName']) ?? null,
-      employeeCount: typeof c['employeeCount'] === 'number' ? c['employeeCount'] : null,
-      linkedinUrl: pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ?? null,
-    }));
+    const results: LushaCompanyProspectingV3Company[] = items.map((c) => {
+      const empCount = extractLushaEmployeeCountRaw(c['employeeCount']);
+      return {
+        id: typeof c['id'] === 'string' ? c['id'] : null,
+        name: pickString(c, ['name', 'companyName']) ?? null,
+        domain: pickString(c, ['domain', 'website']) ?? null,
+        country: pickString(c, ['country', 'countryCode']) ?? null,
+        industry: pickString(c, ['industry', 'industryName']) ?? null,
+        employeeCount: empCount.employeeCount,
+        employeeCountExact: empCount.employeeCountExact,
+        employeeCountMin: empCount.employeeCountMin,
+        employeeCountMax: empCount.employeeCountMax,
+        linkedinUrl: pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ?? null,
+      };
+    });
+
+    // Q3F-5Q: billing top-level presente en response real — extraer de forma segura
+    const billingRaw = raw['billing'];
+    const billingPresent = billingRaw !== undefined && billingRaw !== null;
+    const { creditsCharged: billingCredits, billingShape } = extractLushaBilling(billingRaw);
+    const creditsCharged =
+      typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : billingCredits;
 
     return {
       ok: true,
@@ -1203,7 +1274,9 @@ export async function searchLushaCompaniesV3(input: {
       httpStatus: response.status,
       resultsReturned: results.length,
       totalAvailable,
-      creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+      creditsCharged,
+      billingPresent,
+      billingShape,
       rawShape: buildRawShape(raw),
       results,
       rateLimit,
