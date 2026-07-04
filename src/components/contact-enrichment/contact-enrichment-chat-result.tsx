@@ -10,7 +10,11 @@ import type {
   CompanyCandidate,
   ContactEnrichmentRunResult,
 } from '@/modules/contact-enrichment/types';
-import type { ApolloEnrichmentUiResult } from './contact-enrichment-chat-types';
+import type {
+  ApolloEnrichmentUiResult,
+  ContactEnrichmentProvider,
+  LushaEnrichmentUiResult,
+} from './contact-enrichment-chat-types';
 import { getContactEnrichmentEmptyStateCopy } from './contact-enrichment-empty-state-copy';
 
 // ── Source badge ────────────────────────────────────────────────────────────
@@ -83,11 +87,15 @@ export function RunResultSnapshot({
   runResult,
   candidate,
   apolloResult,
+  lushaResult,
+  provider,
   onCreateManualContact,
 }: {
   runResult: ContactEnrichmentRunResult;
   candidate: CompanyCandidate | null;
   apolloResult?: ApolloEnrichmentUiResult | null;
+  lushaResult?: LushaEnrichmentUiResult | null;
+  provider?: ContactEnrichmentProvider;
   onCreateManualContact?: () => void;
 }) {
   const accountId = candidate?.sellupAccountId ?? null;
@@ -109,16 +117,32 @@ export function RunResultSnapshot({
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Estado</dt>
           <dd>
-            <Badge
-              variant="outline"
-              className="text-xs text-emerald-600 border-emerald-500/30 bg-emerald-500/10"
-            >
-              {apolloResult?.status === 'ready_for_review'
-                ? 'Listo para revisión'
-                : apolloResult?.status === 'completed'
-                  ? 'Completado'
-                  : 'Listo para enriquecer'}
-            </Badge>
+            {provider === 'lusha' && lushaResult?.status === 'missing_api_key' ? (
+              <Badge
+                variant="outline"
+                className="text-xs text-amber-600 border-amber-500/30 bg-amber-500/10"
+              >
+                Sin credenciales
+              </Badge>
+            ) : provider === 'lusha' && lushaResult?.status === 'disabled' ? (
+              <Badge
+                variant="outline"
+                className="text-xs text-muted-foreground border-border bg-muted/30"
+              >
+                Desactivado
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="text-xs text-emerald-600 border-emerald-500/30 bg-emerald-500/10"
+              >
+                {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review'
+                  ? 'Listo para revisión'
+                  : apolloResult?.status === 'completed' || lushaResult?.status === 'completed'
+                    ? 'Completado'
+                    : 'Listo para enriquecer'}
+              </Badge>
+            )}
           </dd>
         </div>
         {candidate && (
@@ -224,8 +248,9 @@ export function RunResultSnapshot({
         />
       ) : (
         <p className="border-t border-border pt-3 text-xs text-muted-foreground">
-          Apollo buscará perfiles de RR. HH. para crear candidatos revisables. No se crean
-          contactos finales ni se escribe en HubSpot.
+          {provider === 'lusha'
+            ? 'Lusha buscará o enriquecerá perfiles para crear candidatos revisables con email corporativo cuando esté disponible. Teléfono deshabilitado en esta fase. No se crean contactos finales ni se escribe en HubSpot.'
+            : 'Apollo buscará perfiles de RR. HH. para crear candidatos revisables. No se crean contactos finales ni se escribe en HubSpot.'}
         </p>
       )}
     </SurfaceCard>
@@ -234,20 +259,23 @@ export function RunResultSnapshot({
 
 // ── Apollo pre-flight card (Hito 17A.6B) ─────────────────────────────────────
 
-export function ApolloPreflightCard() {
+export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichmentProvider }) {
   const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
+  const isLusha = provider === 'lusha';
   return (
     <SurfaceCard className="space-y-3 p-4">
       <div className="flex items-center gap-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-su-brand-soft">
           <ShieldCheck className="h-3.5 w-3.5 text-su-brand" aria-hidden />
         </div>
-        <p className="text-sm font-semibold text-foreground">Control de créditos Apollo</p>
+        <p className="text-sm font-semibold text-foreground">
+          {isLusha ? 'Control de enriquecimiento Lusha' : 'Control de créditos Apollo'}
+        </p>
       </div>
       <p className="text-xs text-muted-foreground">
-        SellUp buscará contactos con email, teléfono o LinkedIn. Solo intentará completar los
-        perfiles con mayor probabilidad de ser útiles. Para controlar costos, no realizará reveal
-        automático de teléfonos sin confirmación.
+        {isLusha
+          ? 'SellUp buscará o enriquecerá perfiles con Lusha. Solo se busca email corporativo; teléfono deshabilitado en esta fase.'
+          : 'SellUp buscará contactos con email, teléfono o LinkedIn. Solo intentará completar los perfiles con mayor probabilidad de ser útiles. Para controlar costos, no realizará reveal automático de teléfonos sin confirmación.'}
       </p>
       <dl className="space-y-1.5 text-xs">
         <div className="flex justify-between">

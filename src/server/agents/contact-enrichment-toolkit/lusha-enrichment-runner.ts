@@ -11,7 +11,7 @@ import { createClient as createAdminClient, type SupabaseClient } from '@supabas
 import {
   isLushaContactEnrichmentEnabled,
 } from '@/lib/feature-flags.server';
-import { getLushaApiKey, hasLushaApiKey } from '@/server/services/lusha-connection';
+import { getLushaApiKey } from '@/server/services/lusha-connection';
 import {
   enrichLushaContactsV3,
   searchLushaContactsV3,
@@ -224,20 +224,14 @@ export async function executeControlledLushaContactEnrichRun(
     };
   }
 
-  // 2. API key
-  const hasKey = await hasLushaApiKey().catch(() => false);
-  if (!hasKey) {
-    return {
-      ok: false,
-      status: 'missing_api_key',
-      runId,
-      candidatesCreated: 0,
-      creditsUsed: null,
-      message: 'LUSHA_API_KEY is not configured.',
-    };
+  // 2. API key — same pattern as checkLushaAccountUsageAction.
+  // getLushaApiKey can throw when Supabase env vars are missing; treat as missing key.
+  let apiKey: string | null = null;
+  try {
+    apiKey = await getLushaApiKey();
+  } catch {
+    // Supabase client couldn't be initialized — treat as missing key
   }
-
-  const apiKey = await getLushaApiKey();
   if (!apiKey) {
     return {
       ok: false,
@@ -245,7 +239,7 @@ export async function executeControlledLushaContactEnrichRun(
       runId,
       candidatesCreated: 0,
       creditsUsed: null,
-      message: 'LUSHA_API_KEY could not be retrieved.',
+      message: 'Lusha API key not configured (sellup_prospecting_lusha_api_key not found in Vault).',
     };
   }
 
@@ -803,23 +797,29 @@ export async function executeContactEnrichmentLushaRun(
     };
   }
 
-  // 2. API key
-  const hasKey = await hasLushaApiKey().catch(() => false);
-  if (!hasKey) {
-    return {
-      ok: false,
-      status: 'missing_api_key',
-      runId,
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      rawResultsCount: 0,
-      creditsUsed: null,
-      message: 'LUSHA_API_KEY is not configured.',
-    };
+  // 2. API key — same pattern as checkLushaAccountUsageAction (getLushaApiKey directly,
+  // avoids has_vault_secret RPC path that can silently return false).
+  // getLushaApiKey can throw (e.g. enrichment_configuration_unavailable) when Supabase
+  // env vars are missing — treat any throw as missing credentials.
+  let apiKey: string | null = null;
+  try {
+    apiKey = await getLushaApiKey();
+  } catch {
+    // Supabase client couldn't be initialized — treat as missing key
   }
-
-  const apiKey = await getLushaApiKey();
   if (!apiKey) {
+    // Best-effort: mark run as failed so UI doesn't show "Listo para enriquecer"
+    try {
+      const adminForUpdate = getAdminClient();
+      await adminForUpdate
+        .from('contact_enrichment_runs')
+        .update({
+          status: 'failed',
+          summary: { error: 'missing_api_key', hito: '17B.4L' },
+        })
+        .eq('id', runId);
+    } catch { /* no admin client available in this env — skip run update */ }
+
     return {
       ok: false,
       status: 'missing_api_key',
@@ -828,7 +828,7 @@ export async function executeContactEnrichmentLushaRun(
       duplicatesSkipped: 0,
       rawResultsCount: 0,
       creditsUsed: null,
-      message: 'LUSHA_API_KEY could not be retrieved.',
+      message: 'Lusha API key not configured (sellup_prospecting_lusha_api_key not found in Vault).',
     };
   }
 

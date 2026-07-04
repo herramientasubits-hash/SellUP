@@ -318,6 +318,8 @@ export function ContactEnrichmentChatWizard({
                   runResult={state.runResult}
                   candidate={state.selectedCandidate}
                   apolloResult={state.apolloResult}
+                  lushaResult={state.lushaResult}
+                  provider={state.selectedProvider}
                   onCreateManualContact={
                     onCreateManualContact && state.selectedCandidate?.sellupAccountId
                       ? () =>
@@ -332,7 +334,7 @@ export function ContactEnrichmentChatWizard({
                 />
                 {!state.apolloResult && !state.lushaResult && (
                   <>
-                    <ApolloPreflightCard />
+                    <ApolloPreflightCard provider={state.selectedProvider} />
                     {lushaEnabled && (
                       <ProviderSelector
                         selected={state.selectedProvider}
