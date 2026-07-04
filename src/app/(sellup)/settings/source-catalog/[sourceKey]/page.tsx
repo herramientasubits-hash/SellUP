@@ -21,6 +21,7 @@ import { getPaPanamaCompraConvenioCoverageSummary } from '@/server/services/pa-p
 import { PaPanamaCompraConvenioCoverageCard } from '@/components/source-catalog/pa-panamacompra-convenio-coverage-card';
 import { getSvComprasalSignalsSummary } from '@/server/services/sv-comprasal-signals-summary';
 import { SvComprasalSignalsCard } from '@/components/source-catalog/sv-comprasal-signals-card';
+import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -64,6 +65,7 @@ export default async function SourceDetailPage({ params }: Props) {
   const isCrSicop = source.key === 'cr_sicop';
   const isPaConvenio = source.key === 'pa_panamacompra_convenio';
   const isSvComprasal = source.key === 'sv_comprasal';
+  const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
 
   const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage, svComprasalSignals] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
@@ -330,6 +332,11 @@ export default async function SourceDetailPage({ params }: Props) {
         paConvenioCoverage
           ? <PaPanamaCompraConvenioCoverageCard summary={paConvenioCoverage} />
           : <PaPanamaCompraConvenioCoverageCard error />
+      )}
+
+      {/* Honduras OCDS dry-run — solo hn_contrataciones_abiertas (dry-run validado, sin persistencia, sin post-approval) */}
+      {isHnContrataciones && (
+        <HnContratacionesAbiertasCard />
       )}
 
       {/* Señales COMPRASAL El Salvador — solo sv_comprasal (señal débil weak_name_only, sin post-approval, sin matching automático) */}

@@ -1172,6 +1172,41 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse: 'Cámara de comercio regional. Directorio de empresas en capital hondureña.',
     limitations: ['Solo empresas afiliadas CCIT', 'Zona geográfica limitada (Tegucigalpa)'],
   },
+  {
+    key: 'hn_contrataciones_abiertas',
+    name: 'Portal de Contrataciones Abiertas Honduras',
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'dry_run_validated',
+    connectionMode: 'not_persisted',
+    nextAction:
+      'Dry-run 2025 validó 99 RTN únicos en 300 líneas. Siguiente paso: snapshot controlado por año con filtros RTN válido y riesgo persona natural.',
+    countryCodes: ['HN'],
+    sectors: [],
+    priority: 'P2',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://oncae.gob.hn/',
+    automationLevel: 'low',
+    recommendedUse:
+      'Fuente OCDS de contratación pública de Honduras publicada por ONCAE y disponible vía OCP Data Registry. Permite detectar proveedores adjudicados con RTN en datos de contratación pública. El dry-run técnico validó RTN en proveedores, pero la fuente aún no escribe snapshots ni habilita post-approval.',
+    limitations: [
+      'No valida identidad fiscal completa — no reemplaza SAR Honduras.',
+      'No reemplaza Registro Mercantil de Honduras.',
+      'Puede mezclar personas naturales y jurídicas (riesgo: 33 de 194 proveedores en dry-run).',
+      'RTN legacy scheme ignorado (9 registros en dry-run).',
+      'Sin post-approval automático — no escribe en source_company_snapshots.',
+      'Sin matching automático — no crea accounts ni prospect_candidates.',
+      'Cobertura parcial: dry-run sobre 300 de ~miles de líneas anuales.',
+      'Fuente B2G procurement signal — no es fuente de identidad empresarial completa.',
+    ],
+    riskNotes: [
+      'No usar como fuente legal, fiscal ni de validación de identidad.',
+      'No usar para post-approval automático — no hay identificador fiscal completo validado.',
+      'RTN de personas naturales pueden aparecer mezclados con personas jurídicas.',
+      'No activar persistencia sin snapshot controlado y aprobación de scope.',
+      'Fuente pública vía OCP Data Registry — verificar disponibilidad antes de producción.',
+    ],
+  },
 
   // ── Brasil ──────────────────────────────────────────────────────────────────
   {

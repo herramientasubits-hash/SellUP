@@ -93,6 +93,7 @@ export type AiFlowStatus =
   | 'source_guided'
   | 'manual_only'
   | 'signal_connected_read_only'
+  | 'dry_run_validated'
   | 'paused'
   | 'not_applicable'
   | 'pending_classification';
@@ -105,6 +106,7 @@ export type ConnectionMode =
   | 'credential_configured'
   | 'read_only_signal'
   | 'not_connected'
+  | 'not_persisted'
   | 'not_applicable';
 
 export type CatalogSourceOperationalStatus =
