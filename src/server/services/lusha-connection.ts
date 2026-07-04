@@ -100,19 +100,37 @@ export async function hasLushaApiKey(): Promise<boolean> {
  * Recupera la API Key descifrada desde Vault.
  * USO EXCLUSIVO en backend seguro para pruebas de conexión y llamadas a la API.
  * NUNCA retornar al frontend. NUNCA loggear el valor.
+ *
+ * Prioridad de resolución:
+ * 1. Supabase Vault (secret: sellup_prospecting_lusha_api_key)
+ * 2. Env fallback server-side: process.env.LUSHA_API_KEY
+ *
+ * Si ninguna ruta está disponible retorna null — nunca lanza.
  */
 export async function getLushaApiKey(): Promise<string | null> {
-  const admin = getAdminSupabase();
+  // Intentar leer desde Vault; si el cliente admin no se puede construir
+  // (SUPABASE_SERVICE_ROLE_KEY ausente), caer directamente al env fallback.
+  let admin: ReturnType<typeof getAdminSupabase>;
+  try {
+    admin = getAdminSupabase();
+  } catch {
+    // SUPABASE_SERVICE_ROLE_KEY no configurado — usar env fallback
+    return process.env['LUSHA_API_KEY']?.trim() || null;
+  }
 
   try {
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
       p_name: LUSHA_VAULT_SECRET_NAME,
     });
 
-    if (error) return null;
-    return data as string | null;
+    if (error || !data) {
+      // Vault no accesible o secreto ausente — env fallback
+      return process.env['LUSHA_API_KEY']?.trim() || null;
+    }
+    // Retornar Vault value; si está vacío usar env fallback
+    return (data as string)?.trim() || process.env['LUSHA_API_KEY']?.trim() || null;
   } catch {
-    return null;
+    return process.env['LUSHA_API_KEY']?.trim() || null;
   }
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertCircle, Building2, Check, Globe, Lightbulb, MapPin, ShieldCheck, UserPlus } from 'lucide-react';
+import { AlertCircle, Building2, Check, Globe, Lightbulb, MapPin, ShieldCheck, UserPlus, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -104,13 +104,25 @@ export function RunResultSnapshot({
   const sellup = snapshot?.sellup;
   const hubspot = snapshot?.hubspot;
 
+  const lushaCredentialsMissing =
+    provider === 'lusha' &&
+    (lushaResult?.status === 'missing_api_key' || lushaResult?.status === 'disabled');
+
   return (
     <SurfaceCard className="space-y-4 p-6">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
-          <Check className="h-4 w-4 text-emerald-500" aria-hidden />
-        </div>
-        <p className="text-sm font-semibold text-foreground">Run creado</p>
+        {lushaCredentialsMissing ? (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
+            <XCircle className="h-4 w-4 text-amber-500" aria-hidden />
+          </div>
+        ) : (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
+            <Check className="h-4 w-4 text-emerald-500" aria-hidden />
+          </div>
+        )}
+        <p className="text-sm font-semibold text-foreground">
+          {lushaCredentialsMissing ? 'Run no ejecutado' : 'Run creado'}
+        </p>
       </div>
 
       <dl className="space-y-2 text-sm">
@@ -154,7 +166,11 @@ export function RunResultSnapshot({
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Candidatos</dt>
           <dd className="font-medium text-foreground">
-            {apolloResult ? apolloResult.totalCandidates : runResult.candidatesCount}
+            {lushaCredentialsMissing
+              ? (lushaResult?.candidatesCreated ?? 0)
+              : apolloResult
+                ? apolloResult.totalCandidates
+                : runResult.candidatesCount}
           </dd>
         </div>
         <div className="flex justify-between">
@@ -246,6 +262,12 @@ export function RunResultSnapshot({
           companyDomain={candidate?.domain ?? null}
           onCreateManualContact={onCreateManualContact}
         />
+      ) : lushaCredentialsMissing ? (
+        <p className="border-t border-border pt-3 text-xs text-amber-600">
+          {lushaResult?.status === 'missing_api_key'
+            ? 'Lusha no pudo acceder a la credencial configurada en Supabase Vault desde este runtime. No se ejecutó el proveedor y no se crearon candidatos.'
+            : 'Lusha está desactivado en este entorno. No se ejecutó el proveedor y no se crearon candidatos.'}
+        </p>
       ) : (
         <p className="border-t border-border pt-3 text-xs text-muted-foreground">
           {provider === 'lusha'
