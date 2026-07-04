@@ -277,54 +277,91 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
           ? 'SellUp buscará o enriquecerá perfiles con Lusha. Solo se busca email corporativo; teléfono deshabilitado en esta fase.'
           : 'SellUp buscará contactos con email, teléfono o LinkedIn. Solo intentará completar los perfiles con mayor probabilidad de ser útiles. Para controlar costos, no realizará reveal automático de teléfonos sin confirmación.'}
       </p>
-      <dl className="space-y-1.5 text-xs">
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground font-medium">Búsqueda Apollo</dt>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Máximo de intentos</dt>
-          <dd className="font-medium text-foreground">{g.maxSearchAttempts}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
-          <dd className="font-medium text-foreground">{g.maxSearchResultsPerRun}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Créditos estimados máximos de búsqueda</dt>
-          <dd className="font-medium text-foreground">{g.maxEstimatedSearchCreditsPerRun}</dd>
-        </div>
-        <div className="flex justify-between border-t border-border/30 pt-1.5 mt-1">
-          <dt className="text-muted-foreground font-medium">Completion de perfiles</dt>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Máximo de perfiles a completar</dt>
-          <dd className="font-medium text-foreground">{g.maxCompletionCandidates}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Créditos máximos estimados de completion</dt>
-          <dd className="font-medium text-foreground">{g.maxCompletionCreditsPerRun}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Teléfono (de búsqueda)</dt>
-          <dd className="font-medium text-foreground">se conserva si Apollo lo entrega</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
-          <dd className="text-muted-foreground">
-            ~{g.phoneRevealCredits} créditos —{' '}
-            {g.automaticPhoneRevealEnabled ? 'activado' : 'requiere confirmación'}
-          </dd>
-        </div>
-      </dl>
-      <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
-        La búsqueda puede consumir créditos según el plan. SellUp limita resultados e intentos para
-        evitar corridas amplias. Solo se completarán perfiles de alta relevancia (RR. HH., Talento,
-        Aprendizaje, Cultura).
-        <br />
-        <span className="mt-1 inline-block">
-          Nota: para sincronizar con HubSpot, el contacto aprobado deberá tener email.
-        </span>
-      </p>
+      {isLusha ? (
+        <>
+          <dl className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground font-medium">Búsqueda / enriquecimiento Lusha</dt>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Máximo de intentos</dt>
+              <dd className="font-medium text-foreground">3</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
+              <dd className="font-medium text-foreground">15</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Email corporativo</dt>
+              <dd className="font-medium text-foreground">habilitado si está disponible</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Teléfono</dt>
+              <dd className="font-medium text-foreground">deshabilitado en esta fase</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
+              <dd className="font-medium text-foreground">no disponible</dd>
+            </div>
+          </dl>
+          <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+            Lusha puede consumir créditos según disponibilidad del proveedor. SellUp limita
+            resultados e intentos para evitar corridas amplias. Los candidatos quedan en revisión
+            humana; no se crean contactos finales ni se escribe en HubSpot.
+          </p>
+        </>
+      ) : (
+        <>
+          <dl className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground font-medium">Búsqueda Apollo</dt>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Máximo de intentos</dt>
+              <dd className="font-medium text-foreground">{g.maxSearchAttempts}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
+              <dd className="font-medium text-foreground">{g.maxSearchResultsPerRun}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Créditos estimados máximos de búsqueda</dt>
+              <dd className="font-medium text-foreground">{g.maxEstimatedSearchCreditsPerRun}</dd>
+            </div>
+            <div className="flex justify-between border-t border-border/30 pt-1.5 mt-1">
+              <dt className="text-muted-foreground font-medium">Completion de perfiles</dt>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Máximo de perfiles a completar</dt>
+              <dd className="font-medium text-foreground">{g.maxCompletionCandidates}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Créditos máximos estimados de completion</dt>
+              <dd className="font-medium text-foreground">{g.maxCompletionCreditsPerRun}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Teléfono (de búsqueda)</dt>
+              <dd className="font-medium text-foreground">se conserva si Apollo lo entrega</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
+              <dd className="text-muted-foreground">
+                ~{g.phoneRevealCredits} créditos —{' '}
+                {g.automaticPhoneRevealEnabled ? 'activado' : 'requiere confirmación'}
+              </dd>
+            </div>
+          </dl>
+          <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+            La búsqueda puede consumir créditos según el plan. SellUp limita resultados e intentos
+            para evitar corridas amplias. Solo se completarán perfiles de alta relevancia (RR. HH.,
+            Talento, Aprendizaje, Cultura).
+            <br />
+            <span className="mt-1 inline-block">
+              Nota: para sincronizar con HubSpot, el contacto aprobado deberá tener email.
+            </span>
+          </p>
+        </>
+      )}
     </SurfaceCard>
   );
 }
