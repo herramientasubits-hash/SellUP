@@ -113,6 +113,19 @@ export interface LushaCompanyDiscoveryBenchmarkResult {
   next_location_query_candidate: 'Colombia';
   /** El id de location para "Colombia" no ha sido confirmado en live test. */
   location_value_id_unconfirmed: true;
+  // ---- Q3F-5O metadata (schema anidado oficial confirmado Q3F-5N) ----
+  /** Q3F-5N confirmó el schema anidado vía OpenAPI oficial de Lusha V3. */
+  official_openapi_schema_confirmed: true;
+  /** Nesting observado en OpenAPI: locations/sizes van dentro de filters.companies.include. */
+  filters_nesting_observed: 'filters.companies.include';
+  /** pagination.page es base 0 según OpenAPI oficial (no base 1). */
+  pagination_page_base: 'zero_based';
+  /** options.includePartialProfiles=false es el default a enviar siempre. */
+  options_include_partial_profiles_default: false;
+  /** locations usa objeto reducido { country } en el POST, no string ni country_grouping. */
+  locations_post_value_shape: 'country_object';
+  /** sizes usa rangos numéricos { min, max } en el POST, no strings. */
+  sizes_post_value_shape: 'numeric_range_object';
 
   // Resultado del escenario
   scenario: LushaCompanyDiscoveryBenchmarkScenario;
@@ -176,6 +189,12 @@ export function runLushaCompanyDiscoveryBenchmarkDryRun(
     filter_values_query_param_supported: true as const,
     next_location_query_candidate: 'Colombia' as const,
     location_value_id_unconfirmed: true as const,
+    official_openapi_schema_confirmed: true as const,
+    filters_nesting_observed: 'filters.companies.include' as const,
+    pagination_page_base: 'zero_based' as const,
+    options_include_partial_profiles_default: false as const,
+    locations_post_value_shape: 'country_object' as const,
+    sizes_post_value_shape: 'numeric_range_object' as const,
   };
 
   const safeInput: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'> = {
@@ -377,6 +396,12 @@ type BaseMetadata = {
   filter_values_query_param_supported: true;
   next_location_query_candidate: 'Colombia';
   location_value_id_unconfirmed: true;
+  official_openapi_schema_confirmed: true;
+  filters_nesting_observed: 'filters.companies.include';
+  pagination_page_base: 'zero_based';
+  options_include_partial_profiles_default: false;
+  locations_post_value_shape: 'country_object';
+  sizes_post_value_shape: 'numeric_range_object';
 };
 
 function buildBase(meta: BaseMetadata): BaseMetadata {

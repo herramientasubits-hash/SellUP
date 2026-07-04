@@ -951,19 +951,56 @@ export type LushaCompanyProspectingFilterEntry = {
   [key: string]: unknown;
 };
 
+/**
+ * Schema anidado oficial de filters para POST /v3/companies/prospecting.
+ * Confirmado en Q3F-5N via OpenAPI oficial de Lusha V3 (2026-07).
+ *
+ * Nesting observado: filters.companies.include.*
+ * El error anterior era enviar locations/sizes en el nivel raíz de filters.
+ *
+ * locations: usa objeto reducido { country, state?, city? } — no country_grouping ni continent.
+ * sizes: usa rangos numéricos { min, max } — no strings como "51-200".
+ * mainIndustriesIds: requiere IDs numéricos, no labels (pendiente mapping).
+ */
+export type LushaCompanyProspectingV3Filters = {
+  companies?: {
+    include?: {
+      /** Objeto reducido: { country: "Colombia" }. No enviar country_grouping ni continent en POST. */
+      locations?: Array<{ country?: string; state?: string; city?: string }>;
+      /** Rangos numéricos: { min: 51, max: 200 }. No strings. */
+      sizes?: Array<{ min?: number; max?: number }>;
+      revenues?: Array<{ min?: number; max?: number }>;
+      technologies?: string[];
+      technologiesCondition?: 'or' | 'and';
+      /** IDs numéricos requeridos. Mapping desde labels pendiente. */
+      mainIndustriesIds?: number[];
+      intentTopics?: string[];
+      names?: string[];
+      /** Schema exacto no completamente modelado — conservador. */
+      sics?: unknown[];
+      /** Schema exacto no completamente modelado — conservador. */
+      naics?: unknown[];
+    };
+    exclude?: {
+      domains?: string[];
+    };
+  };
+};
+
 export type LushaCompanyProspectingV3Request = {
   /**
-   * Q3F-5F confirmó que filters DEBE ser un objeto Record<filterType, values[]>.
-   * Enviar filters como array produce HTTP 400:
-   *   { "name": "BadRequest", "message": "filters must be an object", "code": 400 }
-   * Q3F-5H confirmó que filters: {} también produce HTTP 400:
-   *   { "name": "BadRequest", "message": "filters.Company filters cannot be empty", "code": 400 }
-   * Se requiere al menos un filterType. Candidato observado en Q3F-5F: "locations".
-   * Los valores exactos de cada filterType aún no están confirmados en live test (pendiente Q3F-5I).
-   * Las claves son los filterType observados: names, sizes, revenues, locations, sics, etc.
+   * Q3F-5N confirmó schema anidado oficial via OpenAPI:
+   *   filters.companies.include.locations, sizes, etc.
+   * Enviar locations/sizes en el nivel raíz de filters era incorrecto.
+   * Q3F-5F confirmó que filters DEBE ser un objeto (no array) — HTTP 400 si array.
+   * Q3F-5H confirmó que filters sin companies.include/exclude válido → HTTP 400.
    */
-  filters?: Record<string, unknown[]>;
+  filters?: LushaCompanyProspectingV3Filters;
   pagination?: {
+    /**
+     * OpenAPI V3 oficial confirma page base 0 (Q3F-5N).
+     * Default: 0. No usar 1 como default.
+     */
     page: number;
     /**
      * Mínimo observado en smoke test real Q3F-5E: 10.
@@ -971,6 +1008,10 @@ export type LushaCompanyProspectingV3Request = {
      * cualquier valor menor. El client bloquea size < 10 localmente.
      */
     size: number;
+  };
+  options?: {
+    /** Default: false. Siempre enviar explícitamente. */
+    includePartialProfiles?: boolean;
   };
   // signals puede generar cargos adicionales — omitir por defecto
   signals?: string[];
@@ -1009,6 +1050,29 @@ export type LushaCompanyProspectingV3Result = {
   errorMessage?: string;
 };
 
+/**
+ * Comprueba si filters contiene al menos un filtro real dentro de companies.include o companies.exclude.
+ * Q3F-5N: el schema anidado exige filters.companies.include.* o filters.companies.exclude.*.
+ * filters:{} o filters.companies:{} o companies sin include/exclude útil → rechazado localmente.
+ */
+function hasCompanyFilters(filters: LushaCompanyProspectingV3Filters | undefined): boolean {
+  if (!filters?.companies) return false;
+  const { include, exclude } = filters.companies;
+  if (include) {
+    if (include.locations?.length) return true;
+    if (include.sizes?.length) return true;
+    if (include.revenues?.length) return true;
+    if (include.technologies?.length) return true;
+    if (include.mainIndustriesIds?.length) return true;
+    if (include.intentTopics?.length) return true;
+    if (include.names?.length) return true;
+    if (include.sics?.length) return true;
+    if (include.naics?.length) return true;
+  }
+  if (exclude?.domains?.length) return true;
+  return false;
+}
+
 export async function searchLushaCompaniesV3(input: {
   apiKey: string;
   timeoutMs: number;
@@ -1025,15 +1089,14 @@ export async function searchLushaCompaniesV3(input: {
     };
   }
 
+  // Q3F-5N: schema anidado oficial — filters debe tener companies.include.* o companies.exclude.*
   // Q3F-5H: filters:{} rechazado — HTTP 400 "filters.Company filters cannot be empty"
-  // filters undefined o {} se bloquea localmente antes de llamar a la API.
-  const filters = input.request.filters;
-  if (filters === undefined || Object.keys(filters).length === 0) {
+  if (!hasCompanyFilters(input.request.filters)) {
     return {
       ok: false,
       status: 'provider_error',
       resultsReturned: 0,
-      errorMessage: 'Lusha company prospecting requires at least one filter. filters: {} is rejected by Lusha V3 API (HTTP 400: "filters.Company filters cannot be empty").',
+      errorMessage: 'Lusha company prospecting requires at least one filter inside filters.companies.include or filters.companies.exclude. filters: {} is rejected by Lusha V3 API (HTTP 400: "filters.Company filters cannot be empty").',
     };
   }
 
@@ -1041,13 +1104,20 @@ export async function searchLushaCompaniesV3(input: {
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
-    // filters siempre como objeto no vacío (Q3F-5G+Q3F-5H): array y {} producen HTTP 400
+    // Q3F-5N: schema anidado oficial — filters.companies.include/exclude (no nivel raíz)
+    // pagination.page base 0 (OpenAPI V3 oficial confirmado Q3F-5N)
+    // options.includePartialProfiles=false por defecto
+    const pag = input.request.pagination;
     const requestBody: Record<string, unknown> = {
-      filters,  // validated non-empty above (Q3F-5H)
+      filters: input.request.filters,
+      pagination: {
+        page: pag?.page ?? 0,
+        size: pag?.size ?? 10,
+      },
+      options: {
+        includePartialProfiles: input.request.options?.includePartialProfiles ?? false,
+      },
     };
-    if (input.request.pagination !== undefined) {
-      requestBody['pagination'] = input.request.pagination;
-    }
     if (input.request.signals !== undefined) {
       requestBody['signals'] = input.request.signals;
     }

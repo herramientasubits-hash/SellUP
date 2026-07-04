@@ -365,6 +365,99 @@ describe('Q3F-5J — query param metadata', () => {
 });
 
 // ============================================================
+// Q3F-5O — Schema anidado oficial (OpenAPI confirmado Q3F-5N)
+// ============================================================
+
+describe('Q3F-5O — openapi schema metadata', () => {
+  it('official_openapi_schema_confirmed = true en todo escenario', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.official_openapi_schema_confirmed, true,
+        `official_openapi_schema_confirmed debe ser true en escenario ${scenario}`);
+    }
+  });
+
+  it('filters_nesting_observed = "filters.companies.include"', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.filters_nesting_observed, 'filters.companies.include');
+  });
+
+  it('pagination_page_base = "zero_based"', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.pagination_page_base, 'zero_based');
+  });
+
+  it('options_include_partial_profiles_default = false', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.options_include_partial_profiles_default, false);
+  });
+
+  it('locations_post_value_shape = "country_object"', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.locations_post_value_shape, 'country_object');
+  });
+
+  it('sizes_post_value_shape = "numeric_range_object"', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.sizes_post_value_shape, 'numeric_range_object');
+  });
+
+  it('dry_run = true en todo escenario Q3F-5O', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.dry_run, true);
+    }
+  });
+
+  it('source_catalog_unchanged = true con metadata Q3F-5O', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.source_catalog_unchanged, true);
+  });
+
+  it('writes_disabled = true con metadata Q3F-5O', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.writes_disabled, true);
+  });
+
+  it('credits_used = 0 y estimated_cost_usd = 0 con metadata Q3F-5O', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.credits_used, 0);
+    assert.equal(result.estimated_cost_usd, 0);
+  });
+
+  it('metadata Q3F-5J previa sigue presente — no hay regresión', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.locations_requires_query_observed, true);
+    assert.equal(result.names_requires_query_observed, true);
+    assert.equal(result.filter_values_query_param_supported, true);
+    assert.equal(result.next_location_query_candidate, 'Colombia');
+    assert.equal(result.location_value_id_unconfirmed, true);
+  });
+
+  it('no hay fetch real con Q3F-5O metadata (fetch guard)', () => {
+    assert.doesNotThrow(() => run({ scenario: 'useful_results' }));
+    assert.doesNotThrow(() => run({ scenario: 'empty_result' }));
+    assert.doesNotThrow(() => run({ scenario: 'provider_error' }));
+  });
+});
+
+// ============================================================
 // Garantías de aislamiento
 // ============================================================
 
