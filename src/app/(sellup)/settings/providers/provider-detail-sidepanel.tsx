@@ -538,6 +538,7 @@ function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } |
 function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
   const [connState, setConnState] = useState<AiConnectionPanelState | null>(null);
   const [loadingConn, setLoadingConn] = useState(true);
+  const [connLoadError, setConnLoadError] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showKeyForm, setShowKeyForm] = useState(false);
@@ -549,9 +550,15 @@ function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Meas
 
   const loadConn = useCallback(async () => {
     setLoadingConn(true);
-    const s = await loadAiProviderConnectionForPanel(row.providerKey);
-    setConnState(s);
-    setLoadingConn(false);
+    setConnLoadError(false);
+    try {
+      const s = await loadAiProviderConnectionForPanel(row.providerKey);
+      setConnState(s);
+    } catch {
+      setConnLoadError(true);
+    } finally {
+      setLoadingConn(false);
+    }
   }, [row.providerKey]);
 
   useEffect(() => { void loadConn(); }, [loadConn]);
@@ -604,6 +611,13 @@ function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Meas
         <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Conexión" />
         {loadingConn ? (
           <LoadingPlaceholder label="Cargando estado de conexión..." />
+        ) : connLoadError ? (
+          <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-4 space-y-2">
+            <p className="text-xs text-muted-foreground">No fue posible cargar el estado de conexión.</p>
+            <Button size="sm" variant="outline" onClick={() => void loadConn()} className="h-7 text-xs">
+              Reintentar
+            </Button>
+          </div>
         ) : (
           <div className="space-y-2">
             <SectionCard>
@@ -770,6 +784,7 @@ const API_KEY_NOTES: Record<string, { where: string; tips: string }> = {
 function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
   const [connState, setConnState] = useState<ProspectingConnectionPanelState | null>(null);
   const [loadingConn, setLoadingConn] = useState(true);
+  const [connLoadError, setConnLoadError] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showKeyForm, setShowKeyForm] = useState(false);
@@ -783,9 +798,15 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
 
   const loadConn = useCallback(async () => {
     setLoadingConn(true);
-    const s = await loadProspectingProviderConnectionForPanel(pkey);
-    setConnState(s);
-    setLoadingConn(false);
+    setConnLoadError(false);
+    try {
+      const s = await loadProspectingProviderConnectionForPanel(pkey);
+      setConnState(s);
+    } catch {
+      setConnLoadError(true);
+    } finally {
+      setLoadingConn(false);
+    }
   }, [pkey]);
 
   useEffect(() => { void loadConn(); }, [loadConn]);
@@ -850,6 +871,13 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
         <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Conexión" />
         {loadingConn ? (
           <LoadingPlaceholder label="Cargando estado de conexión..." />
+        ) : connLoadError ? (
+          <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-4 space-y-2">
+            <p className="text-xs text-muted-foreground">No fue posible cargar el estado de conexión.</p>
+            <Button size="sm" variant="outline" onClick={() => void loadConn()} className="h-7 text-xs">
+              Reintentar
+            </Button>
+          </div>
         ) : !supported ? (
           <ProgressiveNote>
             Configuración progresiva — este proveedor estará disponible en una próxima versión del workspace.
