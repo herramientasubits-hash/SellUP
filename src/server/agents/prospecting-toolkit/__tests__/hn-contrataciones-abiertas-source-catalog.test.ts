@@ -113,4 +113,36 @@ describe('hn_contrataciones_abiertas — Source Catalog entry', () => {
   it('sellupUse = commercial_signal (señal B2G)', () => {
     assert.strictEqual(source?.sellupUse, 'commercial_signal');
   });
+
+  // ── Visibilidad en tabs de Source Catalog ────────────────────────────────
+  // filterTab('operativas') incluye dry_run_validated cuando sellupUse no excluye la fuente.
+  // Estos tests verifican que los campos de la fuente cumplen esa condición.
+
+  it('aparece en tab Operativas IA: aiFlowStatus = dry_run_validated cumple la condición', () => {
+    assert.strictEqual(source?.aiFlowStatus, 'dry_run_validated');
+  });
+
+  it('aparece en tab Operativas IA: sellupUse no es técnico ni manual', () => {
+    const excluded = ['technical_container', 'contextual_signal', 'manual_reference', 'not_for_ai_flow'];
+    assert.ok(
+      !excluded.includes(source?.sellupUse ?? ''),
+      `sellupUse="${source?.sellupUse}" no debe ser uno de los excluidos en Operativas IA`,
+    );
+  });
+
+  it('aparece en tab Todas: fuente existe en el catálogo completo', () => {
+    const { sources: allSources } = getSourceCatalogViewModel();
+    assert.ok(
+      allSources.some((s) => s.key === 'hn_contrataciones_abiertas'),
+      'hn_contrataciones_abiertas debe estar en el catálogo completo',
+    );
+  });
+
+  it('CTA esperado NO es Conectar (connectionMode != not_connected)', () => {
+    assert.notEqual(
+      source?.connectionMode,
+      'not_connected',
+      'connectionMode no debe ser not_connected — CTA debe ser Ver detalle, no Conectar',
+    );
+  });
 });
