@@ -871,9 +871,9 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
         <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Conexión" />
         {loadingConn ? (
           <LoadingPlaceholder label="Cargando estado de conexión..." />
-        ) : connLoadError ? (
+        ) : connLoadError || connState?.loadErrorMsg ? (
           <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-4 space-y-2">
-            <p className="text-xs text-muted-foreground">No fue posible cargar el estado de conexión.</p>
+            <p className="text-xs text-muted-foreground">{connState?.loadErrorMsg ?? 'No fue posible cargar el estado de conexión.'}</p>
             <Button size="sm" variant="outline" onClick={() => void loadConn()} className="h-7 text-xs">
               Reintentar
             </Button>

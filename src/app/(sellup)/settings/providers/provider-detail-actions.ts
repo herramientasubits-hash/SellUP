@@ -1,5 +1,6 @@
 'use server';
 
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { getProviderDetail } from '@/modules/budgets/provider-detail-queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
@@ -10,11 +11,9 @@ import {
   disconnectAiProvider,
 } from '@/modules/ai-config/actions';
 import {
-  getApolloConnection,
   testApolloConnectionAction,
   updateApolloApiKey,
   disconnectApollo,
-  getLushaConnection,
   testLushaConnectionAction,
   updateLushaApiKey,
   disconnectLusha,
@@ -25,6 +24,19 @@ import {
   updateTavilyApiKey,
   disconnectTavily,
 } from '@/modules/integrations/actions';
+import { hasApolloApiKey } from '@/server/services/apollo-connection';
+import { hasLushaApiKey } from '@/server/services/lusha-connection';
+
+const _supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
+const _supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+function getAdminSupabase() {
+  if (!_supabaseServiceKey) {
+    throw new Error('enrichment_configuration_unavailable');
+  }
+  return createAdminClient(_supabaseUrl, _supabaseServiceKey);
+}
 
 export type { ProviderUsageLogRow, ProviderSyncLogRow };
 
@@ -73,6 +85,7 @@ export interface ProspectingConnectionPanelState {
   lastTestedAt: string | null;
   lastConnectedAt: string | null;
   lastConnectionError: string | null;
+  loadErrorMsg?: string;
 }
 
 // ── Wrappers IA ───────────────────────────────────────────────────────────────
@@ -130,45 +143,87 @@ export async function disconnectAiProviderForPanel(
 
 // ── Wrappers Prospección ──────────────────────────────────────────────────────
 
+const _NOT_CONFIGURED: ProspectingConnectionPanelState = {
+  supported: true,
+  credentialsStatus: 'missing',
+  connectionStatus: 'not_configured',
+  lastTestedAt: null,
+  lastConnectedAt: null,
+  lastConnectionError: null,
+};
+
+async function _loadApolloConnectionDirect(): Promise<ProspectingConnectionPanelState> {
+  const admin = getAdminSupabase();
+  const { data: prov } = await admin
+    .from('prospecting_providers')
+    .select('id')
+    .eq('provider_key', 'apollo')
+    .maybeSingle();
+  if (!prov?.id) return _NOT_CONFIGURED;
+
+  const { data: conn } = await admin
+    .from('prospecting_provider_connections')
+    .select('*')
+    .eq('provider_id', prov.id)
+    .maybeSingle();
+  if (!conn) return _NOT_CONFIGURED;
+
+  const hasKey = await hasApolloApiKey();
+  return {
+    supported: true,
+    credentialsStatus: hasKey ? 'stored' : 'missing',
+    connectionStatus: (conn as { connection_status: string }).connection_status,
+    lastTestedAt: (conn as { last_tested_at?: string | null }).last_tested_at ?? null,
+    lastConnectedAt: (conn as { last_connected_at?: string | null }).last_connected_at ?? null,
+    lastConnectionError: (conn as { last_connection_error?: string | null }).last_connection_error ?? null,
+  };
+}
+
+async function _loadLushaConnectionDirect(): Promise<ProspectingConnectionPanelState> {
+  const admin = getAdminSupabase();
+  const { data: prov } = await admin
+    .from('prospecting_providers')
+    .select('id')
+    .eq('provider_key', 'lusha')
+    .maybeSingle();
+  if (!prov?.id) return _NOT_CONFIGURED;
+
+  const { data: conn } = await admin
+    .from('prospecting_provider_connections')
+    .select('*')
+    .eq('provider_id', prov.id)
+    .maybeSingle();
+  if (!conn) return _NOT_CONFIGURED;
+
+  const hasKey = await hasLushaApiKey();
+  return {
+    supported: true,
+    credentialsStatus: hasKey ? 'stored' : 'missing',
+    connectionStatus: (conn as { connection_status: string }).connection_status,
+    lastTestedAt: (conn as { last_tested_at?: string | null }).last_tested_at ?? null,
+    lastConnectedAt: (conn as { last_connected_at?: string | null }).last_connected_at ?? null,
+    lastConnectionError: (conn as { last_connection_error?: string | null }).last_connection_error ?? null,
+  };
+}
+
 export async function loadProspectingProviderConnectionForPanel(
   providerKey: string,
 ): Promise<ProspectingConnectionPanelState> {
+  const knownProviders = ['apollo', 'lusha', 'tavily'];
+  const isKnown = knownProviders.includes(providerKey);
+
   try {
     if (providerKey === 'apollo') {
-      const conn = await getApolloConnection();
-      if (!conn) {
-        return { supported: true, credentialsStatus: 'missing', connectionStatus: 'not_configured', lastTestedAt: null, lastConnectedAt: null, lastConnectionError: null };
-      }
-      return {
-        supported: true,
-        credentialsStatus: conn.credentials_status,
-        connectionStatus: conn.connection_status,
-        lastTestedAt: conn.last_tested_at ?? null,
-        lastConnectedAt: conn.last_connected_at ?? null,
-        lastConnectionError: conn.last_connection_error ?? null,
-      };
+      return await _loadApolloConnectionDirect();
     }
 
     if (providerKey === 'lusha') {
-      const conn = await getLushaConnection();
-      if (!conn) {
-        return { supported: true, credentialsStatus: 'missing', connectionStatus: 'not_configured', lastTestedAt: null, lastConnectedAt: null, lastConnectionError: null };
-      }
-      return {
-        supported: true,
-        credentialsStatus: conn.credentials_status,
-        connectionStatus: conn.connection_status,
-        lastTestedAt: conn.last_tested_at ?? null,
-        lastConnectedAt: conn.last_connected_at ?? null,
-        lastConnectionError: conn.last_connection_error ?? null,
-      };
+      return await _loadLushaConnectionDirect();
     }
 
     if (providerKey === 'tavily') {
       const integration = await getTavilyIntegration();
-      if (!integration?.connection) {
-        return { supported: true, credentialsStatus: 'missing', connectionStatus: 'not_configured', lastTestedAt: null, lastConnectedAt: null, lastConnectionError: null };
-      }
+      if (!integration?.connection) return _NOT_CONFIGURED;
       return {
         supported: true,
         credentialsStatus: integration.connection.credentials_status ?? 'missing',
@@ -181,6 +236,17 @@ export async function loadProspectingProviderConnectionForPanel(
 
     return { supported: false, credentialsStatus: 'missing', connectionStatus: 'not_configured', lastTestedAt: null, lastConnectedAt: null, lastConnectionError: null };
   } catch {
+    if (isKnown) {
+      return {
+        supported: true,
+        credentialsStatus: 'missing',
+        connectionStatus: 'not_configured',
+        lastTestedAt: null,
+        lastConnectedAt: null,
+        lastConnectionError: null,
+        loadErrorMsg: 'No fue posible cargar el estado de conexión.',
+      };
+    }
     return { supported: false, credentialsStatus: 'missing', connectionStatus: 'not_configured', lastTestedAt: null, lastConnectedAt: null, lastConnectionError: null };
   }
 }
