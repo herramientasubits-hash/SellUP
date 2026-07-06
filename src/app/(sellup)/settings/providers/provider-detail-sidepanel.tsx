@@ -47,6 +47,7 @@ import {
   type ProspectingConnectionPanelState,
 } from './provider-detail-actions';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
+import { getProviderOperationLabel } from '@/modules/budgets/operation-labels';
 
 // ── Rule display constants ────────────────────────────────────────────────────
 
@@ -1087,74 +1088,59 @@ function TabConsumo({
       : '—';
 
   const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
-  const ruleLimit = hasGlobalRule
-    ? formatAmount(row.globalLimitCredits, row.globalLimitUsd)
-    : 'Sin regla';
-
-  const totalCreditsUsed = usageLogs.reduce((s, l) => s + (l.creditsUsed ?? 0), 0);
-  const totalCostUsd = usageLogs.reduce((s, l) => s + (l.estimatedCostUsd ?? 0), 0);
   const recentOps = usageLogs.slice(0, 5);
+  const visibleCount = Math.min(5, usageLogs.length);
 
   return (
     <div className="space-y-4">
-      <div className="grid md:grid-cols-2 gap-4">
+      {/* Consumo del mes — KPI canónico */}
+      <SectionCard>
+        <InfoRow label="Consumo del mes" value={consumed} />
+        {row.quotaSyncedAt && (
+          <InfoRow
+            label="Cuota disponible (API)"
+            value={formatAmount(row.providerCreditsAvailable, row.providerUsdAvailable)}
+          />
+        )}
+      </SectionCard>
+
+      {/* Reglas de consumo */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Reglas de consumo</p>
         <SectionCard>
-          <InfoRow label="Consumo del mes" value={consumed} />
-          <InfoRow label="Límite de regla" value={ruleLimit} />
-          {hasGlobalRule && (
-            <InfoRow
-              label="Disponible por regla"
-              value={formatAmount(row.remainingCredits, row.remainingUsd)}
-            />
-          )}
-          {row.quotaSyncedAt && (
-            <InfoRow
-              label="Cuota disponible (API)"
-              value={formatAmount(row.providerCreditsAvailable, row.providerUsdAvailable)}
-            />
+          {hasGlobalRule ? (
+            <>
+              <InfoRow
+                label="Límite global"
+                value={formatAmount(row.globalLimitCredits, row.globalLimitUsd)}
+              />
+              <InfoRow
+                label="Disponible por regla"
+                value={formatAmount(row.remainingCredits, row.remainingUsd)}
+              />
+            </>
+          ) : (
+            <div className="py-1">
+              <p className="text-xs text-foreground">Sin regla global</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                Pueden aplicar reglas por rol, grupo o usuario.
+              </p>
+            </div>
           )}
         </SectionCard>
-
-        {ms !== 'active' ? (
-          <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 flex items-center justify-center">
-            <p className="text-sm text-muted-foreground text-center">
-              {ms === 'not_measured'
-                ? 'Este proveedor no genera consumo medido en SellUp.'
-                : 'Aún no hay consumo registrado. Los datos aparecerán después de la primera ejecución.'}
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-3">Acumulado en logs</p>
-            {loading ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-3 w-3 text-muted-foreground/50 animate-spin" />
-                <span className="text-[11px] text-muted-foreground/60">Cargando...</span>
-              </div>
-            ) : usageLogs.length > 0 ? (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-foreground">
-                  {totalCreditsUsed.toLocaleString()} cr registrados
-                </p>
-                {totalCostUsd > 0 && (
-                  <p className="text-[11px] text-muted-foreground/70">
-                    ${totalCostUsd.toFixed(4)} costo estimado acumulado
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground/50">
-                  {usageLogs.length} operaciones registradas
-                </p>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground/60">Sin logs disponibles aún.</p>
-            )}
-          </div>
-        )}
       </div>
 
+      {/* Operaciones recientes */}
       {ms === 'active' && (
         <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Últimas operaciones</p>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Operaciones recientes</p>
+            {usageLogs.length > 0 && (
+              <p className="text-[10px] text-muted-foreground/50">
+                Últimas {visibleCount} de {usageLogs.length} operaciones cargadas
+              </p>
+            )}
+          </div>
           {loading ? (
             <LoadingPlaceholder label="Cargando operaciones..." />
           ) : recentOps.length === 0 ? (
@@ -1167,7 +1153,7 @@ function TabConsumo({
               {recentOps.map((log) => (
                 <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 flex items-center gap-3">
                   <span className="text-xs text-foreground truncate flex-1">
-                    {log.operationKey ?? 'operación general'}
+                    {getProviderOperationLabel(row.providerKey, log.operationKey ?? '')}
                   </span>
                   {log.creditsUsed != null && (
                     <span className="text-[10px] text-muted-foreground/70 shrink-0">
@@ -1190,7 +1176,7 @@ function TabConsumo({
       )}
 
       <ProgressiveNote>
-        Los filtros avanzados por rol, grupo, usuario, agente y cuenta se incorporarán progresivamente.
+        Los filtros avanzados de consumo se incorporarán progresivamente.
       </ProgressiveNote>
     </div>
   );
