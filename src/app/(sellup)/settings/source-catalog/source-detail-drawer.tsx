@@ -38,6 +38,10 @@ import type {
 } from '@/modules/source-catalog/socrata-batches-queries';
 import type { SourceDetailDrawerData } from '@/modules/source-catalog/actions';
 import { getSourceDetailDrawerDataAction } from '@/modules/source-catalog/actions';
+import {
+  isManualSignalOnly as checkIsManualSignalOnly,
+  shouldSkipGenericConnectionPanels,
+} from '@/modules/source-catalog/connection-panel-guards';
 import { SourceCredentialPanel } from './[sourceKey]/source-credential-panel';
 import { TestConnectionPanel } from './[sourceKey]/test-connection-panel';
 import { ConnectionTestHistory } from './[sourceKey]/connection-test-history';
@@ -46,17 +50,6 @@ import { DenuePreviewBatchPanel } from './[sourceKey]/denue-preview-batch-panel'
 import { ChileResDryRunPanel } from './[sourceKey]/chile-res-dry-run-panel';
 import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
 export type { SocrataPreviewBatchListItem, SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
-
-/**
- * Fuentes sin credencial configurable ni endpoint testeable desde UI.
- * Incluye: dry_run + not_persisted, y snapshot_persisted + read_only_snapshot.
- */
-function shouldSkipConnectionPanels(source: SourceViewModel): boolean {
-  return (
-    (source.aiFlowStatus === 'dry_run_validated' && source.connectionMode === 'not_persisted') ||
-    (source.aiFlowStatus === 'snapshot_persisted' && source.connectionMode === 'read_only_snapshot')
-  );
-}
 
 interface SourceDetailDrawerProps {
   source: SourceViewModel | null;
@@ -112,7 +105,8 @@ export function SourceDetailDrawer({
   const isDenue = source.key === 'mx_denue';
   const isClRes = source.key === 'cl_res';
   const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
-  const skipConnectionPanels = shouldSkipConnectionPanels(source);
+  const isManualSignalOnly = checkIsManualSignalOnly(source);
+  const skipConnectionPanels = shouldSkipGenericConnectionPanels(source);
   const batchesCount = socrataBatches.batches.length;
 
   const infoContent = (
@@ -245,7 +239,14 @@ export function SourceDetailDrawer({
         </div>
       ) : (
         <>
-          {isHnContrataciones ? (
+          {isManualSignalOnly ? (
+            <SurfaceCard>
+              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Estado de integración</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Esta fuente se conserva como referencia manual. No existe una integración automática aprobada para SellUp.
+              </p>
+            </SurfaceCard>
+          ) : isHnContrataciones ? (
             <SurfaceCard>
               <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Acceso técnico</h2>
               <dl className="space-y-3 text-sm">

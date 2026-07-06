@@ -32,6 +32,10 @@ import {
   operationalStatusBadgeClass,
   operationalStatusDotClass,
 } from '@/modules/source-catalog/labels';
+import {
+  isManualSignalOnly as checkIsManualSignalOnly,
+  shouldSkipGenericConnectionPanels,
+} from '@/modules/source-catalog/connection-panel-guards';
 import { CopyKeyButton } from './copy-key-button';
 import { TestConnectionPanel } from './test-connection-panel';
 import { ConnectionTestHistory } from './connection-test-history';
@@ -67,6 +71,8 @@ export default async function SourceDetailPage({ params }: Props) {
   const isPaConvenio = source.key === 'pa_panamacompra_convenio';
   const isSvComprasal = source.key === 'sv_comprasal';
   const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
+  const isManualSignalOnly = checkIsManualSignalOnly(source);
+  const skipConnectionPanels = shouldSkipGenericConnectionPanels(source);
 
   const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage, svComprasalSignals, hnCoverage] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
@@ -239,7 +245,16 @@ export default async function SourceDetailPage({ params }: Props) {
       </div>
 
       {/* Acceso técnico / Credencial */}
-      {isHnContrataciones ? (
+      {isManualSignalOnly ? (
+        <SurfaceCard>
+          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">
+            Estado de integración
+          </h2>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Esta fuente se conserva como referencia manual. No existe una integración automática aprobada para SellUp.
+          </p>
+        </SurfaceCard>
+      ) : isHnContrataciones ? (
         <SurfaceCard>
           <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">
             Acceso técnico
@@ -384,16 +399,16 @@ export default async function SourceDetailPage({ params }: Props) {
           : <SvComprasalSignalsCard error />
       )}
 
-      {/* Prueba de conexión — oculta para fuentes not_persisted sin feed testeable desde UI */}
-      {!isHnContrataciones && (
+      {/* Prueba de conexión — oculta para señales read-only, snapshots, fuentes manuales puras y hn_contrataciones */}
+      {!isHnContrataciones && !skipConnectionPanels && (
         <TestConnectionPanel
           sourceKey={source.key}
           sourceName={source.name}
         />
       )}
 
-      {/* Historial de pruebas — oculto para fuentes not_persisted sin registros de conexión */}
-      {!isHnContrataciones && (
+      {/* Historial de pruebas — oculto para señales read-only, snapshots, fuentes manuales puras y hn_contrataciones */}
+      {!isHnContrataciones && !skipConnectionPanels && (
         <ConnectionTestHistory history={history} />
       )}
 
