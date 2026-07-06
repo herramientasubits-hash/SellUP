@@ -1183,7 +1183,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     countryCodes: ['HN'],
     sectors: [],
     priority: 'P2',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'dry_run_validated',
     type: 'procurement',
     url: 'https://oncae.gob.hn/',
     automationLevel: 'low',

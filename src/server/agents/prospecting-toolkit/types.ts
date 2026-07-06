@@ -113,6 +113,7 @@ export type CatalogSourceOperationalStatus =
   | 'operational_verified'
   | 'connection_required'
   | 'pending_validation'
+  | 'dry_run_validated'
   | 'manual_signal_only'
   | 'validation_only'
   | 'discarded_paid_or_tos'

@@ -12,6 +12,7 @@ export const OPERATIONAL_STATUS_LABELS: Record<CatalogSourceOperationalStatus, s
   operational_verified: 'Verificada',
   connection_required: 'Requiere conexión',
   pending_validation: 'Pendiente validación',
+  dry_run_validated: 'Validación técnica completada',
   manual_signal_only: 'Solo señal manual',
   validation_only: 'Solo validación',
   discarded_paid_or_tos: 'Descartada por costo/TOS',
@@ -118,6 +119,8 @@ export function operationalStatusBadgeClass(status: CatalogSourceOperationalStat
       return 'border-amber-500/30 bg-amber-500/10 text-amber-500';
     case 'pending_validation':
       return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
+    case 'dry_run_validated':
+      return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
     case 'manual_signal_only':
       return 'border-border/40 bg-muted/30 text-muted-foreground';
     case 'validation_only':
@@ -262,6 +265,8 @@ export function operationalStatusDotClass(status: CatalogSourceOperationalStatus
       return 'bg-amber-500';
     case 'pending_validation':
       return 'bg-su-brand';
+    case 'dry_run_validated':
+      return 'bg-violet-500';
     case 'manual_signal_only':
       return 'bg-muted-foreground/25';
     case 'validation_only':

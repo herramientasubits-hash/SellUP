@@ -234,8 +234,42 @@ export default async function SourceDetailPage({ params }: Props) {
         )}
       </div>
 
-      {/* Credencial de API */}
-      {connectionRecord ? (
+      {/* Acceso técnico / Credencial */}
+      {isHnContrataciones ? (
+        <SurfaceCard>
+          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">
+            Acceso técnico
+          </h2>
+          <dl className="space-y-3 text-sm">
+            <div className="flex items-center gap-2">
+              <dt className="text-muted-foreground">Credenciales:</dt>
+              <dd>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                  No requeridas
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                Publisher institucional
+              </dt>
+              <dd className="text-foreground">ONCAE Honduras</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                Feed técnico consumido por SellUp
+              </dt>
+              <dd className="text-foreground">OCP Data Registry · publicación Honduras ONCAE</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                Formato
+              </dt>
+              <dd className="text-foreground">JSONL.gz / OCDS</dd>
+            </div>
+          </dl>
+        </SurfaceCard>
+      ) : connectionRecord ? (
         <SourceCredentialPanel
           sourceKey={source.key}
           record={connectionRecord}
@@ -346,14 +380,18 @@ export default async function SourceDetailPage({ params }: Props) {
           : <SvComprasalSignalsCard error />
       )}
 
-      {/* Prueba de conexión */}
-      <TestConnectionPanel
-        sourceKey={source.key}
-        sourceName={source.name}
-      />
+      {/* Prueba de conexión — oculta para fuentes not_persisted sin feed testeable desde UI */}
+      {!isHnContrataciones && (
+        <TestConnectionPanel
+          sourceKey={source.key}
+          sourceName={source.name}
+        />
+      )}
 
-      {/* Historial de pruebas */}
-      <ConnectionTestHistory history={history} />
+      {/* Historial de pruebas — oculto para fuentes not_persisted sin registros de conexión */}
+      {!isHnContrataciones && (
+        <ConnectionTestHistory history={history} />
+      )}
 
       {/* Lotes Socrata — solo co_rues */}
       {source.key === 'co_rues' && (

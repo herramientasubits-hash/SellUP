@@ -10,6 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
+import { OPERATIONAL_STATUS_LABELS } from '@/modules/source-catalog/labels';
 
 describe('hn_contrataciones_abiertas — Source Catalog entry', () => {
   const { sources } = getSourceCatalogViewModel();
@@ -105,8 +106,9 @@ describe('hn_contrataciones_abiertas — Source Catalog entry', () => {
     );
   });
 
-  it('operationalStatus = pending_validation (no operacional completa)', () => {
-    assert.strictEqual(source?.operationalStatus, 'pending_validation');
+  it('operationalStatus = dry_run_validated (dry-run real completado, sin persistencia)', () => {
+    assert.strictEqual(source?.operationalStatus, 'dry_run_validated');
+    assert.notEqual(source?.operationalStatus, 'pending_validation');
     assert.notEqual(source?.operationalStatus, 'operational_verified');
   });
 
@@ -144,5 +146,63 @@ describe('hn_contrataciones_abiertas — Source Catalog entry', () => {
       'not_connected',
       'connectionMode no debe ser not_connected — CTA debe ser Ver detalle, no Conectar',
     );
+  });
+
+  // ── 8C.2B: estado, credenciales y validación técnica ────────────────────────
+
+  it('label visible NO es "Pendiente validación"', () => {
+    const label = OPERATIONAL_STATUS_LABELS[source?.operationalStatus ?? 'pending_validation'];
+    assert.notEqual(label, 'Pendiente validación', 'El label visible no debe ser "Pendiente validación"');
+  });
+
+  it('label visible es "Validación técnica completada" (dry_run_validated)', () => {
+    const label = OPERATIONAL_STATUS_LABELS[source?.operationalStatus ?? 'pending_validation'];
+    assert.strictEqual(label, 'Validación técnica completada');
+  });
+
+  it('connectionMode = not_persisted implica que no se requieren credenciales de API', () => {
+    assert.strictEqual(source?.connectionMode, 'not_persisted');
+    assert.notEqual(source?.connectionMode, 'credential_configured');
+  });
+
+  it('nextAction menciona OCP Data Registry o feed público', () => {
+    const text = (source?.nextAction ?? '').toLowerCase();
+    // nextAction o recommendedUse debe evidenciar que la fuente es pública / OCP
+    const recommended = (source?.recommendedUse ?? '').toLowerCase();
+    const mentionsOcp = text.includes('ocp') || recommended.includes('ocp data registry');
+    assert.ok(mentionsOcp, 'nextAction o recommendedUse debe mencionar OCP Data Registry');
+  });
+
+  it('recommendedUse menciona ONCAE Honduras', () => {
+    const text = (source?.recommendedUse ?? '').toLowerCase();
+    assert.ok(text.includes('oncae'), 'recommendedUse debe mencionar ONCAE');
+  });
+
+  it('recommendedUse menciona OCP Data Registry', () => {
+    const text = (source?.recommendedUse ?? '').toLowerCase();
+    assert.ok(text.includes('ocp data registry'), 'recommendedUse debe mencionar OCP Data Registry');
+  });
+
+  it('nextAction menciona 99 RTN únicos válidos (evidencia del dry-run)', () => {
+    assert.ok(source?.nextAction?.includes('99 RTN'), 'nextAction debe mencionar 99 RTN');
+  });
+
+  it('limitations NO implica persistencia activa (no post-approval, no matching)', () => {
+    const lims = (source?.limitations ?? []).join(' ').toLowerCase();
+    assert.ok(lims.includes('post-approval'), 'debe mencionar ausencia de post-approval');
+    assert.ok(lims.includes('matching automático'), 'debe mencionar ausencia de matching automático');
+    assert.ok(!lims.includes('post-approval activo'), 'no debe afirmar que post-approval está activo');
+  });
+
+  it('aiFlowStatus = dry_run_validated y no connected (sin post-approval)', () => {
+    assert.strictEqual(source?.aiFlowStatus, 'dry_run_validated');
+    assert.notEqual(source?.aiFlowStatus, 'connected');
+    assert.notEqual(source?.aiFlowStatus, 'connected_post_approval');
+  });
+
+  it('connectionMode = not_persisted (sin persistencia activa)', () => {
+    assert.strictEqual(source?.connectionMode, 'not_persisted');
+    assert.notEqual(source?.connectionMode, 'automatic_enrichment');
+    assert.notEqual(source?.connectionMode, 'wizard_discovery');
   });
 });
