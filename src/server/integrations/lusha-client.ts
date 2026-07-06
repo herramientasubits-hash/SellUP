@@ -941,7 +941,8 @@ export async function searchLushaCompanies(
 /**
  * Shape real observado en GET /v3/companies/prospecting/filters — Q3F-5F.
  * El filterType es la clave a usar en el objeto filters del POST.
- * Ejemplos confirmados: names, sizes, revenues, locations, sics (y 9 más).
+ * Ejemplos confirmados: names, sizes, revenues, locations (y 9 más).
+ * Q3F-5Y/5AA: sics y naics rechazados por POST /v3/companies/prospecting ("property X should not exist").
  * requiresQuery indica si el valor del filtro requiere un query string.
  * Se preservan campos adicionales defensivamente.
  */
@@ -976,10 +977,8 @@ export type LushaCompanyProspectingV3Filters = {
       mainIndustriesIds?: number[];
       intentTopics?: string[];
       names?: string[];
-      // Q3F-5Y: POST /v3/companies/prospecting rejected filters.companies.include.sics
-      // with "property sics should not exist". Conclusion scoped to this endpoint/path only.
-      /** Schema exacto no completamente modelado — conservador. */
-      naics?: unknown[];
+      // Q3F-5Y: sics rechazado ("property sics should not exist") — omitido.
+      // Q3F-5AA: naics rechazado ("property naics should not exist") — omitido.
     };
     exclude?: {
       domains?: string[];
@@ -1094,7 +1093,7 @@ function hasCompanyFilters(filters: LushaCompanyProspectingV3Filters | undefined
     if (include.mainIndustriesIds?.length) return true;
     if (include.intentTopics?.length) return true;
     if (include.names?.length) return true;
-    if (include.naics?.length) return true;
+    // naics omitted — Q3F-5AA: rejected by API
   }
   if (exclude?.domains?.length) return true;
   return false;

@@ -729,11 +729,11 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
     assert.notEqual(result.status, 'provider_error');
   });
 
-  it('Q3F-5Y: naics conserva su comportamiento actual — sigue siendo reconocido como filtro válido', async () => {
+  it('Q3F-5AA: objeto con solo naics runtime es bloqueado sin fetch (naics no es filtro POST válido)', async () => {
     resetMock({ ok: true, status: 200, body: { results: [] } });
 
-    // naics no fue probado en live (Q3F-5Y). Su contrato local no cambia en este hito.
-    // hasCompanyFilters sigue reconociendo naics, por lo que el request pasa.
+    // Q3F-5AA confirmó live: "property naics should not exist" (HTTP 400).
+    // hasCompanyFilters ya no reconoce naics → el request es bloqueado localmente.
     const filtersWithNaicsOnly = {
       companies: {
         include: { naics: ['3672'] },
@@ -747,8 +747,8 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
       request: { filters: filtersWithNaicsOnly, pagination: { page: 0, size: 10 } },
     });
 
-    assert.equal(fetchCalls.length, 1, 'naics sigue siendo reconocido: debe salir exactamente 1 fetch');
-    assert.notEqual(result.status, 'provider_error', 'naics no debe ser bloqueado localmente');
+    assert.equal(result.ok, false, 'objeto con solo naics debe ser bloqueado localmente');
+    assert.equal(fetchCalls.length, 0, 'ningún fetch debe salir cuando el único filtro es naics');
   });
 });
 
