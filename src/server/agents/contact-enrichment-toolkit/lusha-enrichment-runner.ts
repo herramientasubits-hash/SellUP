@@ -34,6 +34,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { normalizeDomain } from './company-consistency-checker';
 import { normalizeLushaPersonName } from './lusha-people-adapter';
+import { resolveLushaDiscoveryMode } from './lusha-types';
 import {
   createAgentRunStep,
   finishAgentRunStep,
@@ -1006,7 +1007,66 @@ export async function executeContactEnrichmentLushaRun(
   const companyName = typeof run.company_name === 'string' ? run.company_name : null;
   const companyDomain = typeof run.company_domain === 'string' ? run.company_domain : null;
 
-  // 7. Search Lusha for contacts at this company
+  // 7. Capability routing guard — 17B.4V
+  //    /v3/contacts/search requires a person identifier per item (confirmed live 17B.4D).
+  //    A company-only item violates the contract and produces HTTP 400 (observed ABANK run).
+  //    Company-first discovery needs a dedicated endpoint (e.g. /v3/contacts/decision-makers)
+  //    whose request/response contract has not been demonstrated in this codebase.
+  const discoveryMode = resolveLushaDiscoveryMode({
+    companyName: companyName ?? undefined,
+    companyDomain: companyDomain ?? undefined,
+  });
+
+  if (discoveryMode !== 'person_known_search') {
+    const errorKey = discoveryMode === 'company_first_discovery'
+      ? 'company_first_discovery_not_implemented'
+      : 'invalid_search_context';
+
+    await admin
+      .from('contact_enrichment_runs')
+      .update({
+        status: 'failed',
+        providers_used: ['lusha'],
+        summary: {
+          error: errorKey,
+          discovery_mode: discoveryMode,
+          hito: '17B.4V',
+        },
+      })
+      .eq('id', runId);
+
+    if (agentRunId) {
+      await updateAgentRun(agentRunId, {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message:
+          discoveryMode === 'company_first_discovery'
+            ? 'Lusha company-first discovery not yet implemented: /v3/contacts/search requires a person identifier. See 17B.4V.'
+            : 'Invalid search context: no person identifier and no company identity.',
+        metadata: {
+          provider: 'lusha',
+          discovery_mode: discoveryMode,
+          hito: '17B.4V',
+        },
+      });
+    }
+
+    return {
+      ok: false,
+      status: 'not_implemented',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message:
+        discoveryMode === 'company_first_discovery'
+          ? 'Lusha company-first discovery is not yet implemented. /v3/contacts/search requires a person identifier (id, linkedinUrl, email, or firstName+lastName+company). No contract has been demonstrated for /v3/contacts/decision-makers or equivalent. See 17B.4V.'
+          : 'Invalid search context: neither person identifier nor company identity is available.',
+    };
+  }
+
+  // 8. Search Lusha for contacts at this company
   const searchStep = agentRunId
     ? await createAgentRunStep({
         agent_run_id: agentRunId,
