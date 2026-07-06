@@ -142,6 +142,7 @@
   "test:agent2a:candidate-review": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-review-core.test.ts",
     "test:agent2a:contact-normalizer": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/contact-normalizer.test.ts",
     "test:agent2a:lusha-17b4k": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4k.test.ts",
+    "test:agent2a:lusha-17b4r": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4r.test.ts",
     "test:agent2a:lusha": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4g.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4h.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4k.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-people-adapter.test.ts",
     "test:agent2a:lusha-diag-17b4q": "node --import tsx --test src/components/contact-enrichment/__tests__/lusha-credential-diagnostic-card-17b4q.test.ts"
   },

@@ -9,7 +9,8 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 
-import { LUSHA_VAULT_SECRET_NAME } from './lusha-connection';
+import { LUSHA_VAULT_SECRET_NAME, resolveLushaCredential } from './lusha-connection';
+import { isLushaContactEnrichmentEnabled } from '@/lib/feature-flags.server';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -288,4 +289,104 @@ export function lushaCredentialDiagnosticMessage(
     case 'failed':
       return 'No se pudo resolver la credencial Lusha.';
   }
+}
+
+// ── Execution preflight ───────────────────────────────────────────────────────
+
+export type LushaPreflightBlockedBy =
+  | 'feature_flag'
+  | 'credential'
+  | 'runner_configuration'
+  | null;
+
+export interface LushaExecutionPreflightResult {
+  ok: boolean;
+  stages: {
+    featureFlag: {
+      checked: true;
+      enabled: boolean;
+    };
+    credential: {
+      checked: true;
+      ok: boolean;
+      source: 'vault' | 'env_fallback' | null;
+      fingerprint: string | null;
+      length: number | null;
+    };
+    runnerEntry: {
+      reachable: boolean;
+    };
+    providerCall: {
+      attempted: false;
+    };
+  };
+  wouldExecuteProvider: boolean;
+  blockedBy: LushaPreflightBlockedBy;
+  recommendation: string;
+}
+
+/**
+ * Executes the same pre-conditions as the Lusha runner but stops before calling
+ * Lusha. Safe to call anytime: no credits consumed, no candidates created,
+ * no provider usage logged.
+ */
+export async function diagnoseLushaExecutionPreflight(): Promise<LushaExecutionPreflightResult> {
+  // 1. Feature flag — same check as the runner
+  const flagEnabled = isLushaContactEnrichmentEnabled();
+
+  if (!flagEnabled) {
+    return {
+      ok: false,
+      stages: {
+        featureFlag: { checked: true, enabled: false },
+        credential: { checked: true, ok: false, source: null, fingerprint: null, length: null },
+        runnerEntry: { reachable: false },
+        providerCall: { attempted: false },
+      },
+      wouldExecuteProvider: false,
+      blockedBy: 'feature_flag',
+      recommendation:
+        'ENABLE_LUSHA_CONTACT_ENRICHMENT no está habilitado. Activar la variable de entorno en Vercel y redeploy.',
+    };
+  }
+
+  // 2. Credential — use the unified resolver (same path as getLushaApiKey)
+  const resolution = await resolveLushaCredential();
+
+  if (!resolution.ok) {
+    return {
+      ok: false,
+      stages: {
+        featureFlag: { checked: true, enabled: true },
+        credential: { checked: true, ok: false, source: null, fingerprint: null, length: null },
+        runnerEntry: { reachable: false },
+        providerCall: { attempted: false },
+      },
+      wouldExecuteProvider: false,
+      blockedBy: 'credential',
+      recommendation:
+        `Credencial Lusha no resuelta (stage: ${resolution.stage}). Verificar que '${LUSHA_VAULT_SECRET_NAME}' esté guardado en Vault y que SUPABASE_SERVICE_ROLE_KEY esté disponible en runtime.`,
+    };
+  }
+
+  // 3. Runner entry reachable (credential resolved, flag on → runner would proceed)
+  return {
+    ok: true,
+    stages: {
+      featureFlag: { checked: true, enabled: true },
+      credential: {
+        checked: true,
+        ok: true,
+        source: resolution.source,
+        fingerprint: resolution.safe.fingerprint,
+        length: resolution.safe.length,
+      },
+      runnerEntry: { reachable: true },
+      providerCall: { attempted: false },
+    },
+    wouldExecuteProvider: true,
+    blockedBy: null,
+    recommendation:
+      'Preflight completado. El runner pasaría las validaciones previas y llamaría a Lusha. Si el runner sigue fallando, el problema es posterior al preflight (run_id inválido, account_id faltante, o error de red hacia Lusha).',
+  };
 }

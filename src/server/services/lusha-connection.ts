@@ -11,19 +11,124 @@
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createHash } from 'crypto';
 
 export const LUSHA_VAULT_SECRET_NAME = 'sellup_prospecting_lusha_api_key';
 
+// ── Credential resolution types ────────────────────────────────────────────────
+
+export type LushaCredentialResolution =
+  | {
+      ok: true;
+      source: 'vault' | 'env_fallback';
+      apiKey: string;
+      safe: {
+        fingerprint: string;
+        length: number;
+      };
+    }
+  | {
+      ok: false;
+      stage:
+        | 'env_check'
+        | 'admin_client'
+        | 'vault_rpc'
+        | 'secret_missing'
+        | 'secret_empty'
+        | 'failed';
+      safe: Record<string, unknown>;
+    };
+
+// ── Admin client ───────────────────────────────────────────────────────────────
+
+// NOTE: reads env at call time (not module level) so Vercel runtime values are
+// always used, regardless of when this module was first bundled.
 function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
+  const url =
+    process.env['NEXT_PUBLIC_SUPABASE_URL'] ||
+    'https://lrdruowtadwbdulndlph.supabase.co';
+  const key = process.env['SUPABASE_SERVICE_ROLE_KEY'];
+  if (!key) throw new Error('enrichment_configuration_unavailable');
+  return createAdminClient(url, key);
+}
+
+function fp(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 8);
+}
+
+// ── Unified credential resolver ────────────────────────────────────────────────
+
+/**
+ * Single source of truth for Lusha credential resolution.
+ * Reads env vars at call time so Vercel runtime values are always current.
+ * `apiKey` is returned only server-side — never send to the browser.
+ */
+export async function resolveLushaCredential(): Promise<LushaCredentialResolution> {
+  const lushaEnvFallback = process.env['LUSHA_API_KEY']?.trim() || null;
+
+  // A. Admin client
+  let admin: ReturnType<typeof getAdminSupabase>;
+  try {
+    admin = getAdminSupabase();
+  } catch {
+    if (lushaEnvFallback) {
+      return {
+        ok: true,
+        source: 'env_fallback',
+        apiKey: lushaEnvFallback,
+        safe: { fingerprint: fp(lushaEnvFallback), length: lushaEnvFallback.length },
+      };
+    }
+    return { ok: false, stage: 'env_check', safe: {} };
   }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
+
+  // B. Vault RPC
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (admin.rpc as any)('get_vault_secret_decrypted', {
+      p_name: LUSHA_VAULT_SECRET_NAME,
+    });
+
+    if (!error) {
+      const raw = typeof data === 'string' ? data.trim() : null;
+      if (raw) {
+        return {
+          ok: true,
+          source: 'vault',
+          apiKey: raw,
+          safe: { fingerprint: fp(raw), length: raw.length },
+        };
+      }
+      if (data !== null && data !== undefined) {
+        // RPC returned a value but it's not a usable string — fall through to env
+      } else {
+        // secret_missing
+        if (lushaEnvFallback) {
+          return {
+            ok: true,
+            source: 'env_fallback',
+            apiKey: lushaEnvFallback,
+            safe: { fingerprint: fp(lushaEnvFallback), length: lushaEnvFallback.length },
+          };
+        }
+        return { ok: false, stage: 'secret_missing', safe: {} };
+      }
+    }
+  } catch {
+    // vault RPC threw — fall through to env fallback
+  }
+
+  // C. Env fallback
+  if (lushaEnvFallback) {
+    return {
+      ok: true,
+      source: 'env_fallback',
+      apiKey: lushaEnvFallback,
+      safe: { fingerprint: fp(lushaEnvFallback), length: lushaEnvFallback.length },
+    };
+  }
+
+  return { ok: false, stage: 'vault_rpc', safe: {} };
 }
 
 export interface LushaHealthCheckResult {
@@ -97,41 +202,13 @@ export async function hasLushaApiKey(): Promise<boolean> {
 }
 
 /**
- * Recupera la API Key descifrada desde Vault.
- * USO EXCLUSIVO en backend seguro para pruebas de conexión y llamadas a la API.
- * NUNCA retornar al frontend. NUNCA loggear el valor.
- *
- * Prioridad de resolución:
- * 1. Supabase Vault (secret: sellup_prospecting_lusha_api_key)
- * 2. Env fallback server-side: process.env.LUSHA_API_KEY
- *
- * Si ninguna ruta está disponible retorna null — nunca lanza.
+ * Recupera la API Key descifrada desde Vault o env fallback.
+ * USO EXCLUSIVO en backend seguro. NUNCA retornar al frontend. NUNCA loggear el valor.
+ * Usa resolveLushaCredential() como única fuente de verdad.
  */
 export async function getLushaApiKey(): Promise<string | null> {
-  // Intentar leer desde Vault; si el cliente admin no se puede construir
-  // (SUPABASE_SERVICE_ROLE_KEY ausente), caer directamente al env fallback.
-  let admin: ReturnType<typeof getAdminSupabase>;
-  try {
-    admin = getAdminSupabase();
-  } catch {
-    // SUPABASE_SERVICE_ROLE_KEY no configurado — usar env fallback
-    return process.env['LUSHA_API_KEY']?.trim() || null;
-  }
-
-  try {
-    const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
-      p_name: LUSHA_VAULT_SECRET_NAME,
-    });
-
-    if (error || !data) {
-      // Vault no accesible o secreto ausente — env fallback
-      return process.env['LUSHA_API_KEY']?.trim() || null;
-    }
-    // Retornar Vault value; si está vacío usar env fallback
-    return (data as string)?.trim() || process.env['LUSHA_API_KEY']?.trim() || null;
-  } catch {
-    return process.env['LUSHA_API_KEY']?.trim() || null;
-  }
+  const resolution = await resolveLushaCredential();
+  return resolution.ok ? resolution.apiKey : null;
 }
 
 // ============================================================

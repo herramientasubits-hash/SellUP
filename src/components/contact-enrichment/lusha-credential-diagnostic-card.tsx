@@ -10,8 +10,15 @@
 import * as React from 'react';
 import { AlertCircle, CheckCircle2, CircleDot, Loader2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { diagnoseLushaCredentialsAction } from '@/app/(sellup)/contacts/actions/diagnose-lusha-credentials';
-import type { LushaCredentialDiagnosticResult, LushaCredentialStage } from '@/server/services/lusha-credential-diagnostics';
+import {
+  diagnoseLushaCredentialsAction,
+  diagnoseLushaExecutionPreflightAction,
+} from '@/app/(sellup)/contacts/actions/diagnose-lusha-credentials';
+import type {
+  LushaCredentialDiagnosticResult,
+  LushaCredentialStage,
+  LushaExecutionPreflightResult,
+} from '@/server/services/lusha-credential-diagnostics';
 
 // ── Constants (exported for tests) ────────────────────────────────────────────
 
@@ -24,6 +31,12 @@ type DiagState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'done'; result: LushaCredentialDiagnosticResult }
+  | { status: 'error'; message: string };
+
+type PreflightState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'done'; result: LushaExecutionPreflightResult }
   | { status: 'error'; message: string };
 
 // ── Helpers (exported for tests) ──────────────────────────────────────────────
@@ -79,6 +92,150 @@ function SecretStatusRow({ label, found, nonEmpty }: { label: string; found: boo
     <div className="flex items-center justify-between gap-2 py-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className={`text-xs font-medium ${color}`}>{text}</span>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+// ── Preflight sub-component ───────────────────────────────────────────────────
+
+export const LUSHA_PREFLIGHT_DISCLAIMER =
+  'Este preflight ejecuta las mismas validaciones previas del runner y se detiene antes de llamar a Lusha. No consume créditos.';
+
+function LushaPreflightSection() {
+  const [pf, setPf] = React.useState<PreflightState>({ status: 'idle' });
+
+  async function runPreflight() {
+    setPf({ status: 'loading' });
+    try {
+      const res = await diagnoseLushaExecutionPreflightAction();
+      if (!res.ok) {
+        setPf({ status: 'error', message: res.error });
+        return;
+      }
+      setPf({ status: 'done', result: res.preflight });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message.slice(0, 200) : 'Error desconocido';
+      setPf({ status: 'error', message: msg });
+    }
+  }
+
+  if (pf.status === 'idle') {
+    return (
+      <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-2 mt-2">
+        <p className="text-xs text-muted-foreground leading-relaxed">{LUSHA_PREFLIGHT_DISCLAIMER}</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={runPreflight}
+          className="w-full text-xs"
+          data-testid="lusha-preflight-button"
+        >
+          <ShieldCheck className="mr-2 h-3.5 w-3.5" aria-hidden />
+          Validar preflight del runner
+        </Button>
+      </div>
+    );
+  }
+
+  if (pf.status === 'loading') {
+    return (
+      <div className="rounded-xl border border-border/40 bg-card/50 p-3 flex items-center gap-2 mt-2">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+        <span className="text-xs text-muted-foreground">Validando preflight del runner…</span>
+      </div>
+    );
+  }
+
+  if (pf.status === 'error') {
+    return (
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-2 mt-2">
+        <p className="text-xs font-medium text-destructive">Error en preflight</p>
+        <p className="text-xs text-muted-foreground">{pf.message}</p>
+        <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })} className="text-xs text-muted-foreground">
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
+
+  const { result: r } = pf;
+  const ok = r.wouldExecuteProvider;
+  const borderC = ok ? 'border-emerald-500/30' : 'border-amber-500/30';
+  const bgC = ok ? 'bg-emerald-500/5' : 'bg-amber-500/5';
+  const Icon = ok ? CheckCircle2 : AlertCircle;
+  const iconC = ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400';
+
+  function boolBadge(v: boolean) {
+    return v ? (
+      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Habilitado</span>
+    ) : (
+      <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Deshabilitado</span>
+    );
+  }
+
+  function sourceBadge(src: 'vault' | 'env_fallback' | null) {
+    if (!src) return <span className="text-xs text-destructive">No resuelta</span>;
+    return <span className="text-xs text-foreground">{src === 'vault' ? 'Vault' : 'Env fallback'}</span>;
+  }
+
+  return (
+    <div className={`rounded-xl border ${borderC} ${bgC} p-4 space-y-3 mt-2`} data-testid="lusha-preflight-result">
+      <div className="flex items-center gap-2">
+        <Icon className={`h-4 w-4 ${iconC}`} aria-hidden />
+        <p className="text-xs font-semibold text-foreground">Preflight del runner Lusha</p>
+      </div>
+
+      <div className="space-y-0.5">
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-xs text-muted-foreground">Feature flag</span>
+          {boolBadge(r.stages.featureFlag.enabled)}
+        </div>
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-xs text-muted-foreground">Credential resolver compartido</span>
+          {sourceBadge(r.stages.credential.source)}
+        </div>
+        {r.stages.credential.fingerprint && (
+          <div className="flex items-center justify-between gap-2 py-0.5">
+            <span className="text-xs text-muted-foreground">Fingerprint</span>
+            <span className="font-mono text-[10px] text-muted-foreground">{r.stages.credential.fingerprint}…</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-xs text-muted-foreground">Runner entry</span>
+          <span className={`text-xs font-medium ${r.stages.runnerEntry.reachable ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+            {r.stages.runnerEntry.reachable ? 'Alcanzable' : 'Bloqueado'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-xs text-muted-foreground">Provider call</span>
+          <span className="text-xs text-muted-foreground">No ejecutada</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-xs text-muted-foreground">Would execute provider</span>
+          <span className={`text-xs font-medium ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+            {ok ? 'Sí' : 'No'}
+          </span>
+        </div>
+        {r.blockedBy && (
+          <div className="flex items-center justify-between gap-2 py-0.5">
+            <span className="text-xs text-muted-foreground">Blocked by</span>
+            <span className="font-mono text-[10px] text-amber-600 dark:text-amber-400">{r.blockedBy}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-border/30" />
+      <div className="rounded-lg border border-border/40 bg-background/60 px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Recomendación</p>
+        <p className="text-xs text-foreground leading-relaxed" data-testid="lusha-preflight-recommendation">{r.recommendation}</p>
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/70 leading-relaxed">{LUSHA_PREFLIGHT_DISCLAIMER}</p>
+      <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })} className="w-full text-xs text-muted-foreground">
+        Cerrar preflight
+      </Button>
     </div>
   );
 }
@@ -376,6 +533,9 @@ export function LushaCredentialDiagnosticCard() {
       >
         Cerrar diagnóstico
       </Button>
+
+      {/* Preflight section — shown after credential diagnostic */}
+      <LushaPreflightSection />
     </div>
   );
 }
