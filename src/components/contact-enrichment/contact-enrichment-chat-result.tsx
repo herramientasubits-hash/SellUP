@@ -112,7 +112,9 @@ export function RunResultSnapshot({
     provider === 'lusha' &&
     (lushaResult?.status === 'invalid_account' || lushaResult?.status === 'not_found');
 
-  const lushaTerminalError = lushaCredentialsMissing || lushaCompanyContextError;
+  const lushaProviderError = provider === 'lusha' && lushaResult?.status === 'provider_error';
+
+  const lushaTerminalError = lushaCredentialsMissing || lushaCompanyContextError || lushaProviderError;
 
   return (
     <SurfaceCard className="space-y-4 p-6">
@@ -155,6 +157,13 @@ export function RunResultSnapshot({
                 className="text-xs text-amber-600 border-amber-500/30 bg-amber-500/10"
               >
                 Sin contexto de empresa
+              </Badge>
+            ) : provider === 'lusha' && lushaResult?.status === 'provider_error' ? (
+              <Badge
+                variant="outline"
+                className="text-xs text-destructive border-destructive/30 bg-destructive/10"
+              >
+                Error del proveedor
               </Badge>
             ) : (
               <Badge

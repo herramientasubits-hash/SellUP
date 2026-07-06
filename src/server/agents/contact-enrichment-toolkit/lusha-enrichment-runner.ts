@@ -38,6 +38,7 @@ import {
   createAgentRunStep,
   finishAgentRunStep,
   logProviderUsage,
+  updateAgentRun,
 } from '@/modules/usage-tracking/logging';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -1011,6 +1012,7 @@ export async function executeContactEnrichmentLushaRun(
         agent_run_id: agentRunId,
         step_key: 'lusha_contact_search',
         step_name: 'Lusha Contact Search V3 (company)',
+        provider_key: 'lusha',
         metadata: {
           companyName,
           companyDomain,
@@ -1019,6 +1021,7 @@ export async function executeContactEnrichmentLushaRun(
       })
     : null;
 
+  const searchStart = Date.now();
   const searchResult = await searchLushaContactsV3({
     apiKey,
     timeoutMs,
@@ -1029,22 +1032,117 @@ export async function executeContactEnrichmentLushaRun(
       },
     ],
   });
-
-  if (searchStep) {
-    await finishAgentRunStep(searchStep.id, {
-      status: searchResult.ok ? 'success' : 'error',
-      results_returned: searchResult.resultsReturned ?? 0,
-      metadata: {
-        searchStatus: searchResult.status,
-        resultsReturned: searchResult.resultsReturned,
-        hito: '17B.4K',
-      },
-    });
-  }
+  const searchDurationMs = Date.now() - searchStart;
 
   const rawResultsCount = searchResult.resultsReturned ?? 0;
 
-  if (!searchResult.ok || !searchResult.sanitizedResults?.length) {
+  // Path A — provider error: real failure, not a no-results case.
+  // Must terminate with failed status; must NOT continue to candidate flow.
+  if (!searchResult.ok) {
+    const safeErrorMsg = `${searchResult.status}: ${searchResult.errorMessage ?? ''}`.slice(0, 500).trim();
+
+    if (searchStep) {
+      await finishAgentRunStep(searchStep.id, {
+        status: 'error',
+        results_returned: 0,
+        error_message: safeErrorMsg,
+        duration_ms: searchDurationMs,
+        metadata: {
+          searchStatus: searchResult.status,
+          resultsReturned: 0,
+          httpStatus: searchResult.httpStatus ?? null,
+          requestId: searchResult.requestId ?? null,
+          hito: '17B.4U',
+        },
+      });
+    }
+
+    await admin
+      .from('contact_enrichment_runs')
+      .update({
+        status: 'failed',
+        providers_used: ['lusha'],
+        summary: {
+          provider: 'lusha',
+          search_status: searchResult.status,
+          error_stage: 'search',
+          operation: 'contacts_search',
+          http_status: searchResult.httpStatus ?? null,
+          request_id: searchResult.requestId ?? null,
+          error_message: (searchResult.errorMessage ?? '').slice(0, 300) || null,
+          raw_results: 0,
+          candidates_created: 0,
+          totalCandidates: 0,
+          hito: '17B.4U',
+        },
+      })
+      .eq('id', runId);
+
+    if (agentRunId) {
+      await updateAgentRun(agentRunId, {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message: `Lusha search failed: ${searchResult.status}`,
+        metadata: {
+          provider: 'lusha',
+          stage: 'contact_search',
+          contact_enrichment_run_id: runId,
+          search_status: searchResult.status,
+          http_status: searchResult.httpStatus ?? null,
+          hito: '17B.4U',
+        },
+      });
+    }
+
+    await logProviderUsage({
+      agent_run_id: agentRunId,
+      agent_run_step_id: searchStep?.id,
+      provider_key: 'lusha',
+      operation_key: 'lusha_contact_search',
+      credits_used: undefined,
+      results_returned: 0,
+      estimated_cost_usd: 0,
+      status: 'error',
+      triggered_by: triggeredBy,
+      error_code: searchResult.status,
+      error_message: (searchResult.errorMessage ?? '').slice(0, 300) || undefined,
+      duration_ms: searchDurationMs,
+      metadata: {
+        endpoint: 'contacts_search',
+        http_status: searchResult.httpStatus ?? null,
+        request_id: searchResult.requestId ?? null,
+        search_status: searchResult.status,
+        hito: '17B.4U',
+      },
+    });
+
+    return {
+      ok: false,
+      status: 'provider_error',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: `Lusha search failed: ${searchResult.status} — ${searchResult.errorMessage ?? ''}`,
+    };
+  }
+
+  // Path B — provider responded OK but found no contacts (not an error).
+  if (!searchResult.sanitizedResults?.length) {
+    if (searchStep) {
+      await finishAgentRunStep(searchStep.id, {
+        status: 'success',
+        results_returned: 0,
+        duration_ms: searchDurationMs,
+        metadata: {
+          searchStatus: searchResult.status,
+          resultsReturned: 0,
+          hito: '17B.4K',
+        },
+      });
+    }
+
     await admin
       .from('contact_enrichment_runs')
       .update({
@@ -1060,6 +1158,14 @@ export async function executeContactEnrichmentLushaRun(
       })
       .eq('id', runId);
 
+    if (agentRunId) {
+      await updateAgentRun(agentRunId, {
+        status: 'completed',
+        finished_at: new Date().toISOString(),
+        results_generated: 0,
+      });
+    }
+
     return {
       ok: true,
       status: 'no_reviewable_candidate',
@@ -1070,6 +1176,20 @@ export async function executeContactEnrichmentLushaRun(
       creditsUsed: null,
       message: `Lusha search returned no results: ${searchResult.status}`,
     };
+  }
+
+  // Path C — provider returned contacts; finish step as success and continue.
+  if (searchStep) {
+    await finishAgentRunStep(searchStep.id, {
+      status: 'success',
+      results_returned: rawResultsCount,
+      duration_ms: searchDurationMs,
+      metadata: {
+        searchStatus: searchResult.status,
+        resultsReturned: rawResultsCount,
+        hito: '17B.4K',
+      },
+    });
   }
 
   // 8. Enrich up to maxCandidates results
@@ -1257,6 +1377,15 @@ export async function executeContactEnrichmentLushaRun(
       },
     })
     .eq('id', runId);
+
+  // 11. Close agent_run as completed
+  if (agentRunId) {
+    await updateAgentRun(agentRunId, {
+      status: 'completed',
+      finished_at: new Date().toISOString(),
+      results_generated: candidatesCreated,
+    });
+  }
 
   return {
     ok: candidatesCreated > 0,

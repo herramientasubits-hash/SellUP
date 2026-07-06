@@ -70,6 +70,9 @@ const LUSHA_NOT_CONNECTED =
 const LUSHA_DISABLED =
   'Lusha no está habilitado en este entorno. Usa Apollo para continuar.';
 
+const LUSHA_PROVIDER_ERROR =
+  'No fue posible completar la búsqueda con Lusha. El proveedor devolvió un error durante la búsqueda. Intenta nuevamente más tarde o revisa el estado de la integración.';
+
 // ── Message minting helper ─────────────────────────────────────────────────────
 
 type DraftMessage = { role: AgentChatRole; content: string; tone?: AgentChatTone };
@@ -415,11 +418,10 @@ export function contactEnrichmentChatReducer(
 
     case 'LUSHA_FAILED': {
       const reason =
-        action.result.status === 'disabled' || action.result.status === 'missing_api_key'
-          ? action.result.status === 'disabled'
-            ? LUSHA_DISABLED
-            : LUSHA_NOT_CONNECTED
-          : LUSHA_NOT_CONNECTED;
+        action.result.status === 'disabled' ? LUSHA_DISABLED
+          : action.result.status === 'missing_api_key' ? LUSHA_NOT_CONNECTED
+            : action.result.status === 'provider_error' ? LUSHA_PROVIDER_ERROR
+              : LUSHA_NOT_CONNECTED;
       return {
         ...state,
         step: 'done',
