@@ -73,7 +73,7 @@ export type LushaUsageMetadata = {
   request_id: string | null;
 };
 
-// ── Contact Prospecting V3 types — 17B.4W ───────────────────────
+// ── Contact Prospecting V3 types — 17B.4W / 17B.4W.2 ────────────
 
 /**
  * Input for company-first Lusha contact discovery.
@@ -84,6 +84,34 @@ export type LushaContactProspectingInput = {
   companyName: string;
   companyDomain?: string | null;
   companyCountryCode?: string | null;
+};
+
+/**
+ * jobTitle object shape confirmed from live V3 response (17B.4W.2).
+ * The API returns an object, not a string.
+ */
+export type LushaContactProspectingJobTitleV3 = {
+  title?: string | null;
+  departments?: string[];
+  seniority?: string | null;
+};
+
+/**
+ * company object shape confirmed from live V3 response (17B.4W.2).
+ */
+export type LushaContactProspectingCompanyV3 = {
+  id?: string | null;
+  name?: string | null;
+  domain?: string | null;
+};
+
+/**
+ * canReveal item shape confirmed from live V3 response (17B.4W.2).
+ * credits: 0 means the field is revealable with zero cost reported by provider.
+ */
+export type LushaContactProspectingCanRevealItem = {
+  field: string;
+  credits: number;
 };
 
 /**
@@ -148,15 +176,38 @@ export type LushaContactProspectingRequest = {
 
 /**
  * Single contact entry in POST /v3/contacts/prospecting response.
- * Fields confirmed from Lusha Prospecting Reference (17B.4W).
+ *
+ * V3 live shape confirmed from live call (17B.4W.2):
+ *   id (person ID), firstName, lastName, jobTitle (object), company (object),
+ *   location, socialLinks, has (string[]), canReveal ({field, credits}[]).
+ *
+ * Documented/assumed fields kept as optional for backward compatibility.
+ * Normalizer uses V3 live fields with documented fields as fallbacks.
  */
 export type LushaContactProspectingPerson = {
+  // ── V3 live confirmed fields (17B.4W.2) ─────────────────────
+  /** Person identifier — confirmed live as "id" (NOT "contactId"). */
+  id?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  /** V3 live: object with title/departments/seniority (NOT a string). */
+  jobTitle?: LushaContactProspectingJobTitleV3 | string | null;
+  /** V3 live: object with id/name/domain. */
+  company?: LushaContactProspectingCompanyV3 | null;
+  location?: { country?: string | null; city?: string | null } | null;
+  socialLinks?: { linkedin?: string | null } | null;
+  /** Available data fields list — e.g. ["firstName","emails","phones"]. */
+  has?: string[] | null;
+  /** Revealable fields with per-field credit cost. credits=0 means eligible. */
+  canReveal?: LushaContactProspectingCanRevealItem[] | null;
+
+  // ── Documented / assumed fields (kept as fallbacks) ─────────
+  /** Documented field name for person ID — fallback if "id" absent. */
   contactId?: string | null;
   name?: string | null;
-  jobTitle?: string | null;
   companyId?: string | null;
   companyName?: string | null;
-  /** Fully qualified domain name of company. */
+  /** Fully qualified domain name of company — fallback if company.domain absent. */
   fqdn?: string | null;
   isShown?: boolean | null;
   hasDepartment?: boolean | null;
@@ -179,7 +230,14 @@ export type LushaContactProspectingResponse = {
   contacts?: LushaContactProspectingPerson[];
 };
 
-/** Normalized prospecting contact (pre-enrich). No email — email requires /v3/contacts/enrich. */
+/**
+ * Normalized prospecting contact (pre-enrich).
+ * No email — email requires /v3/contacts/enrich.
+ *
+ * Fields aligned with V3 live shape (17B.4W.2).
+ * contactId is the stable identifier used for enrich calls.
+ * canRevealEmail: true when canReveal includes field="emails" (credits=0 is still eligible).
+ */
 export type LushaProspectingNormalizedContact = {
   contactId: string;
   name: string | null;
@@ -188,6 +246,12 @@ export type LushaProspectingNormalizedContact = {
   fqdn: string | null;
   linkedinUrl: string | null;
   hasWorkEmail: boolean;
+  /** True when canReveal list includes field="emails". credits=0 is eligible. */
+  canRevealEmail: boolean;
+  /** First department string from jobTitle.departments, if present. */
+  department: string | null;
+  /** Seniority string from jobTitle.seniority, if present. */
+  seniority: string | null;
   raw: LushaContactProspectingPerson;
 };
 
@@ -208,6 +272,8 @@ export type LushaContactProspectingResult = {
   resultsReturned: number;
   totalAvailable?: number | null;
   contacts: LushaProspectingNormalizedContact[];
+  /** Credits charged for this prospecting call (from response billing object). */
+  prospectingCreditsCharged?: number | null;
   errorMessage?: string;
   errorCode?: string;
 };

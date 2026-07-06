@@ -904,32 +904,70 @@ import type {
   LushaContactProspectingRequest,
   LushaContactProspectingResult,
   LushaContactProspectingPerson,
+  LushaContactProspectingCanRevealItem,
   LushaProspectingNormalizedContact,
 } from '@/server/agents/contact-enrichment-toolkit/lusha-types';
 
+/**
+ * Normalize a single contact from POST /v3/contacts/prospecting response.
+ *
+ * V3 live shape (17B.4W.2):
+ *   id (person ID), firstName, lastName,
+ *   jobTitle: { title, departments, seniority },
+ *   company: { id, name, domain },
+ *   socialLinks: { linkedin },
+ *   has: string[],
+ *   canReveal: [{ field, credits }]
+ *
+ * Documented/assumed fields kept as fallbacks for safety.
+ * Returns null only when no usable person identifier is found.
+ */
 function normalizeLushaProspectingContact(
   raw: Record<string, unknown>,
 ): LushaProspectingNormalizedContact | null {
-  const contactId = typeof raw['contactId'] === 'string' ? raw['contactId'] : null;
+  // Person identifier: V3 live uses "id"; documented shape used "contactId".
+  const contactId =
+    (typeof raw['id'] === 'string' ? raw['id'] : null) ??
+    (typeof raw['contactId'] === 'string' ? raw['contactId'] : null);
   if (!contactId) return null;
 
-  const person: LushaContactProspectingPerson = {
-    contactId,
-    name: typeof raw['name'] === 'string' ? raw['name'] : null,
-    jobTitle: typeof raw['jobTitle'] === 'string' ? raw['jobTitle'] : null,
-    companyId: typeof raw['companyId'] === 'string' ? raw['companyId'] : null,
-    companyName: typeof raw['companyName'] === 'string' ? raw['companyName'] : null,
-    fqdn: typeof raw['fqdn'] === 'string' ? raw['fqdn'] : null,
-    isShown: typeof raw['isShown'] === 'boolean' ? raw['isShown'] : null,
-    hasDepartment: typeof raw['hasDepartment'] === 'boolean' ? raw['hasDepartment'] : null,
-    hasSeniority: typeof raw['hasSeniority'] === 'boolean' ? raw['hasSeniority'] : null,
-    hasSocialLink: typeof raw['hasSocialLink'] === 'boolean' ? raw['hasSocialLink'] : null,
-    hasEmails: typeof raw['hasEmails'] === 'boolean' ? raw['hasEmails'] : null,
-    hasWorkEmail: typeof raw['hasWorkEmail'] === 'boolean' ? raw['hasWorkEmail'] : null,
-    hasPhones: typeof raw['hasPhones'] === 'boolean' ? raw['hasPhones'] : null,
-  };
+  // Full name: V3 live splits into firstName + lastName.
+  const firstName = typeof raw['firstName'] === 'string' ? raw['firstName'].trim() : null;
+  const lastName = typeof raw['lastName'] === 'string' ? raw['lastName'].trim() : null;
+  const name =
+    [firstName, lastName].filter(Boolean).join(' ').trim() ||
+    (typeof raw['name'] === 'string' ? raw['name'].trim() : null) ||
+    null;
 
-  // linkedinUrl only present if hasSocialLink; may live in socialLinks or at root
+  // jobTitle: V3 live is an object; documented shape was a string.
+  const rawJobTitle = raw['jobTitle'];
+  let jobTitle: string | null = null;
+  let department: string | null = null;
+  let seniority: string | null = null;
+  if (rawJobTitle && typeof rawJobTitle === 'object' && !Array.isArray(rawJobTitle)) {
+    const jt = rawJobTitle as Record<string, unknown>;
+    jobTitle = typeof jt['title'] === 'string' ? jt['title'] : null;
+    const depts = Array.isArray(jt['departments']) ? (jt['departments'] as unknown[]) : [];
+    department = depts.length > 0 && typeof depts[0] === 'string' ? depts[0] : null;
+    seniority = typeof jt['seniority'] === 'string' ? jt['seniority'] : null;
+  } else if (typeof rawJobTitle === 'string') {
+    jobTitle = rawJobTitle;
+  }
+
+  // company: V3 live is an object; documented shape had flat companyName + fqdn.
+  const rawCompany = raw['company'];
+  let companyName: string | null = null;
+  let fqdn: string | null = null;
+  if (rawCompany && typeof rawCompany === 'object' && !Array.isArray(rawCompany)) {
+    const co = rawCompany as Record<string, unknown>;
+    companyName = typeof co['name'] === 'string' ? co['name'] : null;
+    fqdn = typeof co['domain'] === 'string' ? co['domain'] : null;
+  }
+  // Fallbacks to documented flat fields
+  if (!companyName && typeof raw['companyName'] === 'string') companyName = raw['companyName'];
+  if (!fqdn && typeof raw['fqdn'] === 'string') fqdn = raw['fqdn'];
+
+  // socialLinks: { linkedin } — confirmed live and in documented shape.
   const socialLinks = raw['socialLinks'];
   let linkedinUrl: string | null = null;
   if (typeof raw['linkedinUrl'] === 'string') {
@@ -939,14 +977,66 @@ function normalizeLushaProspectingContact(
     linkedinUrl = typeof sl['linkedin'] === 'string' ? sl['linkedin'] : null;
   }
 
+  // has: string[] — e.g. ["firstName", "emails", "phones"]
+  const hasArr = Array.isArray(raw['has']) ? (raw['has'] as unknown[]) : [];
+  const hasEmailsInHas = hasArr.some((v) => v === 'emails');
+
+  // canReveal: [{ field, credits }] — credits=0 still eligible (confirmed live).
+  const canRevealArr = Array.isArray(raw['canReveal']) ? (raw['canReveal'] as unknown[]) : [];
+  const canRevealEmail = canRevealArr.some(
+    (item) =>
+      item !== null &&
+      typeof item === 'object' &&
+      !Array.isArray(item) &&
+      (item as Record<string, unknown>)['field'] === 'emails',
+  );
+
+  // hasWorkEmail: from documented boolean flags or derived from has/canReveal.
+  const hasWorkEmailFlag = typeof raw['hasWorkEmail'] === 'boolean' ? raw['hasWorkEmail'] : null;
+  const hasWorkEmail = hasWorkEmailFlag === true || hasEmailsInHas || canRevealEmail;
+
+  const person: LushaContactProspectingPerson = {
+    id: contactId,
+    contactId,
+    firstName,
+    lastName,
+    name,
+    jobTitle: rawJobTitle && typeof rawJobTitle === 'object' && !Array.isArray(rawJobTitle)
+      ? (rawJobTitle as LushaContactProspectingPerson['jobTitle'])
+      : (typeof rawJobTitle === 'string' ? rawJobTitle : null),
+    company: rawCompany && typeof rawCompany === 'object' && !Array.isArray(rawCompany)
+      ? (rawCompany as LushaContactProspectingPerson['company'])
+      : null,
+    companyName,
+    fqdn,
+    socialLinks: socialLinks && typeof socialLinks === 'object' && !Array.isArray(socialLinks)
+      ? (socialLinks as LushaContactProspectingPerson['socialLinks'])
+      : null,
+    has: hasArr.filter((v): v is string => typeof v === 'string'),
+    canReveal: canRevealArr.filter(
+      (v): v is LushaContactProspectingCanRevealItem =>
+        v !== null && typeof v === 'object' && !Array.isArray(v),
+    ),
+    isShown: typeof raw['isShown'] === 'boolean' ? raw['isShown'] : null,
+    hasDepartment: typeof raw['hasDepartment'] === 'boolean' ? raw['hasDepartment'] : null,
+    hasSeniority: typeof raw['hasSeniority'] === 'boolean' ? raw['hasSeniority'] : null,
+    hasSocialLink: typeof raw['hasSocialLink'] === 'boolean' ? raw['hasSocialLink'] : null,
+    hasEmails: typeof raw['hasEmails'] === 'boolean' ? raw['hasEmails'] : null,
+    hasWorkEmail: hasWorkEmailFlag,
+    hasPhones: typeof raw['hasPhones'] === 'boolean' ? raw['hasPhones'] : null,
+  };
+
   return {
     contactId,
-    name: person.name ?? null,
-    jobTitle: person.jobTitle ?? null,
-    companyName: person.companyName ?? null,
-    fqdn: person.fqdn ?? null,
+    name,
+    jobTitle,
+    companyName,
+    fqdn,
     linkedinUrl,
-    hasWorkEmail: person.hasWorkEmail === true,
+    hasWorkEmail,
+    canRevealEmail,
+    department,
+    seniority,
     raw: person,
   };
 }
@@ -992,12 +1082,29 @@ export async function prospectLushaContactsV3(input: {
 
     const requestId =
       typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
-    const totalResults =
-      typeof raw['totalResults'] === 'number' ? raw['totalResults'] : null;
 
-    const rawContacts = Array.isArray(raw['contacts'])
-      ? (raw['contacts'] as Record<string, unknown>[])
-      : [];
+    // pagination.total confirmed live (17B.4W.2); also try legacy totalResults.
+    const paginationObj = raw['pagination'] && typeof raw['pagination'] === 'object' && !Array.isArray(raw['pagination'])
+      ? (raw['pagination'] as Record<string, unknown>)
+      : null;
+    const totalResults =
+      (paginationObj && typeof paginationObj['total'] === 'number' ? paginationObj['total'] : null) ??
+      (typeof raw['totalResults'] === 'number' ? raw['totalResults'] : null);
+
+    // billing.creditsCharged confirmed live (17B.4W.2): 0 for 0 results, 1 for 25 results.
+    const billingObj = raw['billing'] && typeof raw['billing'] === 'object' && !Array.isArray(raw['billing'])
+      ? (raw['billing'] as Record<string, unknown>)
+      : null;
+    const prospectingCreditsCharged =
+      billingObj && typeof billingObj['creditsCharged'] === 'number'
+        ? billingObj['creditsCharged']
+        : null;
+
+    const rawContacts = Array.isArray(raw['results'])
+      ? (raw['results'] as Record<string, unknown>[])
+      : Array.isArray(raw['contacts'])
+        ? (raw['contacts'] as Record<string, unknown>[])
+        : [];
 
     const contacts = rawContacts
       .map(normalizeLushaProspectingContact)
@@ -1011,6 +1118,7 @@ export async function prospectLushaContactsV3(input: {
         requestId,
         resultsReturned: 0,
         totalAvailable: totalResults,
+        prospectingCreditsCharged,
         contacts: [],
       };
     }
@@ -1022,6 +1130,7 @@ export async function prospectLushaContactsV3(input: {
       requestId,
       resultsReturned: contacts.length,
       totalAvailable: totalResults,
+      prospectingCreditsCharged,
       contacts,
     };
   } catch (err: unknown) {

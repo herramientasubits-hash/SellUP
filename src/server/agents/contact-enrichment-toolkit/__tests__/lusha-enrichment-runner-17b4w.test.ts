@@ -495,6 +495,9 @@ describe('F — Company consistency (17B.4W)', () => {
       fqdn: null,
       linkedinUrl: null,
       hasWorkEmail: false,
+      canRevealEmail: false,
+      department: null,
+      seniority: null,
       raw: nullFqdnPerson,
     };
     assert.equal(normalized.fqdn, null);

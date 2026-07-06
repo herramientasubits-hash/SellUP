@@ -87,22 +87,21 @@ function getAdminClient(): SupabaseClient {
   return createAdminClient(url, key);
 }
 
-// ── Lusha Prospecting ICP targeting — 17B.4W ───────────────────
+// ── Lusha Prospecting ICP targeting — 17B.4W / 17B.4W.2 ────────
 //
 // Department values for SellUp's ICP (HR / People / Talent / L&D).
 // These are hint filters to reduce the Prospecting search universe before
 // downstream role-relevance classification.
 //
-// Lusha department taxonomy exact values: not confirmed from live contact
-// prospecting evidence as of 17B.4W. Values are best-effort based on
-// common Lusha department labels. Update after QA live confirmation.
+// Evidence (17B.4W.2 live calls):
+//   - Request with snake_case slugs (human_resources, people, etc.) → 0 results.
+//   - Request without department filter → 292 results.
+//   - Live response departments field: ["Human Resources"] (title case, space).
+//   Minimum defensible value based on live evidence: "Human Resources".
+//   Other values omitted until confirmed from provider taxonomy.
+//   Fine-grained role relevance is enforced downstream via classifyContactRelevance().
 const SELLUP_ICP_LUSHA_DEPARTMENTS = [
-  'human_resources',
-  'people',
-  'talent',
-  'learning_and_development',
-  'organizational_development',
-  'culture',
+  'Human Resources',
 ] as const;
 
 /**
@@ -1304,6 +1303,11 @@ export async function executeContactEnrichmentLushaRun(
     let prospectDuplicatesSkipped = 0;
     let prospectTotalCredits: number | null = null;
 
+    // Accumulate prospecting call credits (charged at prospecting stage, not per enrich).
+    if (prospectResult.prospectingCreditsCharged !== null && prospectResult.prospectingCreditsCharged !== undefined) {
+      prospectTotalCredits = (prospectTotalCredits ?? 0) + prospectResult.prospectingCreditsCharged;
+    }
+
     const enrichStep = agentRunId
       ? await createAgentRunStep({
           agent_run_id: agentRunId,
@@ -1314,12 +1318,20 @@ export async function executeContactEnrichmentLushaRun(
             reveal: ['emails'],
             phone_reveal_enabled: false,
             discovery_mode: 'company_first_discovery',
+            prospecting_credits: prospectResult.prospectingCreditsCharged ?? null,
             hito: '17B.4W',
           },
         })
       : null;
 
     for (const candidate of selectedForEnrich) {
+      // Skip enrich if provider signals email is not revealable for this person.
+      // canRevealEmail=true when canReveal includes field="emails" (credits=0 is still eligible).
+      if (!candidate.canRevealEmail && !candidate.hasWorkEmail) {
+        prospectDuplicatesSkipped += 1;
+        continue;
+      }
+
       const enrichResult = await enrichLushaContactsV3({
         apiKey,
         timeoutMs,
@@ -1391,6 +1403,9 @@ export async function executeContactEnrichmentLushaRun(
         name_normalization_hito: '17B.4W',
         prospecting_job_title: candidate.jobTitle,
         prospecting_fqdn: candidate.fqdn,
+        prospecting_department: candidate.department ?? null,
+        prospecting_seniority: candidate.seniority ?? null,
+        can_reveal_email: candidate.canRevealEmail,
         input_linkedin_url: candidate.linkedinUrl ?? null,
         lusha_linkedin_url: contact.linkedinUrl ?? null,
         linkedin_source: linkedinSource,
@@ -1416,8 +1431,8 @@ export async function executeContactEnrichmentLushaRun(
           last_name: null,
           full_name: normalizedName,
           title: candidate.jobTitle ?? null,
-          seniority: null,
-          department: null,
+          seniority: candidate.seniority ?? null,
+          department: candidate.department ?? null,
           country: run.company_country_code ?? null,
           linkedin_url: candidateLinkedinUrl,
           email: actualEmail,
