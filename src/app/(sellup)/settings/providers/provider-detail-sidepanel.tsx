@@ -1132,24 +1132,40 @@ function TabConsumo({
   row,
   ms,
   providerKey,
+  isActive,
 }: {
   row: AdminProviderBudgetRow;
   ms: MeasurementStatus;
   providerKey: string;
+  isActive: boolean;
 }) {
   const [filters, setFilters] = useState<UsageFilters>({ period: 'current_month' });
   const [snapshot, setSnapshot] = useState<ProviderConsumptionSnapshot | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const seqRef = useRef(0);
 
-  useEffect(() => {
+  const loadConsumptionSnapshot = useCallback(() => {
     const seq = ++seqRef.current;
     startTransition(async () => {
-      const result = await loadProviderConsumptionForWorkspace(providerKey, filters);
-      if (seq === seqRef.current) setSnapshot(result);
+      try {
+        const result = await loadProviderConsumptionForWorkspace(providerKey, filters);
+        if (seq === seqRef.current) {
+          setSnapshot(result);
+          setLoadError(null);
+        }
+      } catch {
+        if (seq === seqRef.current) {
+          setLoadError('No fue posible cargar el consumo de este proveedor.');
+        }
+      }
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerKey, filters]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    loadConsumptionSnapshot();
+  }, [isActive, loadConsumptionSnapshot]);
 
   const options = snapshot?.filterOptions;
   const period = filters.period ?? 'current_month';
@@ -1226,6 +1242,22 @@ function TabConsumo({
 
   return (
     <div className="space-y-4">
+      {/* Error contenido — no tumba el sidepanel */}
+      {loadError && (
+        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-4 space-y-2">
+          <p className="text-xs text-foreground">{loadError}</p>
+          <p className="text-[10px] text-muted-foreground/70">Puedes reintentar sin cerrar el workspace.</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => { if (isActive) loadConsumptionSnapshot(); }}
+          >
+            Reintentar
+          </Button>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="flex flex-wrap gap-1.5">
         {/* Período */}
@@ -2326,7 +2358,7 @@ export function ProviderDetailSidepanel({
           </TabsContent>
 
           <TabsContent value="consumo">
-            <TabConsumo row={provider} ms={ms} providerKey={provider.providerKey} />
+            <TabConsumo row={provider} ms={ms} providerKey={provider.providerKey} isActive={activeTab === 'consumo'} />
           </TabsContent>
 
           <TabsContent value="presupuesto">
