@@ -44,7 +44,19 @@ import { ConnectionTestHistory } from './[sourceKey]/connection-test-history';
 import { SourceDryRunPanel } from './[sourceKey]/source-dry-run-panel';
 import { DenuePreviewBatchPanel } from './[sourceKey]/denue-preview-batch-panel';
 import { ChileResDryRunPanel } from './[sourceKey]/chile-res-dry-run-panel';
+import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
 export type { SocrataPreviewBatchListItem, SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
+
+/**
+ * Fuentes con dry-run validado y sin persistencia no tienen credencial configurable
+ * ni endpoint testeable desde UI. Ocultar paneles de conexión para estas fuentes.
+ */
+function isDryRunValidatedNotPersisted(source: SourceViewModel): boolean {
+  return (
+    source.aiFlowStatus === 'dry_run_validated' &&
+    source.connectionMode === 'not_persisted'
+  );
+}
 
 interface SourceDetailDrawerProps {
   source: SourceViewModel | null;
@@ -99,6 +111,8 @@ export function SourceDetailDrawer({
   const isRues = source.key === 'co_rues';
   const isDenue = source.key === 'mx_denue';
   const isClRes = source.key === 'cl_res';
+  const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
+  const skipConnectionPanels = isDryRunValidatedNotPersisted(source);
   const batchesCount = socrataBatches.batches.length;
 
   const infoContent = (
@@ -231,7 +245,39 @@ export function SourceDetailDrawer({
         </div>
       ) : (
         <>
-          {drawerData.connectionRecord ? (
+          {isHnContrataciones ? (
+            <SurfaceCard>
+              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Acceso técnico</h2>
+              <dl className="space-y-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <dt className="text-muted-foreground">Credenciales:</dt>
+                  <dd>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                      No requeridas
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                    Publisher institucional
+                  </dt>
+                  <dd className="text-foreground">ONCAE Honduras</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                    Feed técnico consumido por SellUp
+                  </dt>
+                  <dd className="text-foreground">OCP Data Registry · publicación Honduras ONCAE</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                    Formato
+                  </dt>
+                  <dd className="text-foreground">JSONL.gz / OCDS</dd>
+                </div>
+              </dl>
+            </SurfaceCard>
+          ) : drawerData.connectionRecord ? (
             <SourceCredentialPanel
               sourceKey={source.key}
               record={drawerData.connectionRecord}
@@ -281,9 +327,17 @@ export function SourceDetailDrawer({
             />
           )}
 
-          <TestConnectionPanel sourceKey={source.key} sourceName={source.name} />
+          {isHnContrataciones && (
+            <HnContratacionesAbiertasCard />
+          )}
 
-          <ConnectionTestHistory history={drawerData.testHistory} />
+          {!skipConnectionPanels && (
+            <TestConnectionPanel sourceKey={source.key} sourceName={source.name} />
+          )}
+
+          {!skipConnectionPanels && (
+            <ConnectionTestHistory history={drawerData.testHistory} />
+          )}
 
           {isRues && (
             <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/30 px-5 py-3.5">

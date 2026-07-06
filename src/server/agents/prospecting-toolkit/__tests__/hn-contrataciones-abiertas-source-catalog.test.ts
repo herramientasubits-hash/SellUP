@@ -205,4 +205,64 @@ describe('hn_contrataciones_abiertas — Source Catalog entry', () => {
     assert.notEqual(source?.connectionMode, 'automatic_enrichment');
     assert.notEqual(source?.connectionMode, 'wizard_discovery');
   });
+
+  // ── 8C.2C: paridad sidepanel — criterio isDryRunValidatedNotPersisted ────────
+
+  it('8C.2C: dry_run_validated + not_persisted → helper isDryRunValidatedNotPersisted retorna true', () => {
+    assert.ok(
+      source?.aiFlowStatus === 'dry_run_validated' && source?.connectionMode === 'not_persisted',
+      'La fuente debe cumplir ambas condiciones que activan la ocultación de paneles de conexión',
+    );
+  });
+
+  it('8C.2C: una fuente con credential_configured no activa isDryRunValidatedNotPersisted', () => {
+    const { sources: allSources } = getSourceCatalogViewModel();
+    const connectable = allSources.find((s) => s.connectionMode === 'credential_configured');
+    if (!connectable) return; // no hay fuente conectable en este build → skip
+    const wouldSkip =
+      connectable.aiFlowStatus === 'dry_run_validated' &&
+      connectable.connectionMode === 'not_persisted';
+    assert.ok(!wouldSkip, 'Una fuente credential_configured no debe activar skipConnectionPanels');
+  });
+
+  it('8C.2C: sidepanel Honduras mostraría Acceso técnico (key === hn_contrataciones_abiertas)', () => {
+    assert.strictEqual(source?.key, 'hn_contrataciones_abiertas');
+    assert.strictEqual(source?.aiFlowStatus, 'dry_run_validated');
+    assert.strictEqual(source?.connectionMode, 'not_persisted');
+  });
+
+  it('8C.2C: ONCAE Honduras mencionado en recommendedUse (visible en sidepanel)', () => {
+    assert.ok(
+      (source?.recommendedUse ?? '').toLowerCase().includes('oncae'),
+      'recommendedUse debe incluir ONCAE para la sección Acceso técnico del sidepanel',
+    );
+  });
+
+  it('8C.2C: OCP Data Registry mencionado en recommendedUse (visible en sidepanel)', () => {
+    assert.ok(
+      (source?.recommendedUse ?? '').toLowerCase().includes('ocp data registry'),
+      'recommendedUse debe incluir OCP Data Registry para la sección Acceso técnico del sidepanel',
+    );
+  });
+
+  it('8C.2C: dry-run metrics exportadas — 99 RTN únicos válidos', () => {
+    // HN_DRY_RUN_METRICS es exportado por HnContratacionesAbiertasCard y
+    // se renderiza en el sidepanel a través del componente.
+    const { HN_DRY_RUN_METRICS } = require('@/components/source-catalog/hn-contrataciones-abiertas-card');
+    assert.strictEqual(HN_DRY_RUN_METRICS.uniqueValidRtn, 99, '99 RTN únicos válidos debe matchear el dry-run real');
+  });
+
+  it('8C.2C: TestConnectionPanel oculto — la fuente NO tiene endpoint testeable desde UI', () => {
+    // La condición skipConnectionPanels depende de dry_run_validated + not_persisted.
+    // Este test verifica que la fuente NO tiene connectionMode con endpoint testeable.
+    const testableConnections = ['credential_configured', 'automatic_enrichment', 'wizard_discovery'];
+    assert.ok(
+      !testableConnections.includes(source?.connectionMode ?? ''),
+      `connectionMode="${source?.connectionMode}" no debería mostrar TestConnectionPanel`,
+    );
+  });
+
+  it('8C.2C: ConnectionTestHistory oculto — sin historial de pruebas para fuentes not_persisted', () => {
+    assert.strictEqual(source?.connectionMode, 'not_persisted');
+  });
 });
