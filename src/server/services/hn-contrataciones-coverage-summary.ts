@@ -37,12 +37,14 @@ export const HN_AUDITED_LOADED_ROWS = 0;
 // ─── Output types ──────────────────────────────────────────────────────────────
 
 export type HnCoverageSource = 'live_database' | 'audited_fallback';
-export type HnCoverageSourceReason = 'missing_env' | 'query_failed' | 'unknown';
+export type HnCoverageSourceReason = 'missing_env' | 'query_failed' | 'row_not_found' | 'payload_invalid' | 'unknown';
 
 export interface HnContratacionesCoverageBreakdown {
   source_year?: number | null;
   invalid_guardrail_rows?: number | null;
   pilot_scope?: boolean | null;
+  human_review_required?: boolean | null;
+  post_approval_enabled?: boolean | null;
 }
 
 export interface HnContratacionesCoverageSummary {
@@ -79,9 +81,6 @@ interface SummaryRow {
   country_code: string | null;
   refreshed_at: string | null;
   refresh_source: string | null;
-  pilot_scope: boolean | null;
-  human_review_required: boolean | null;
-  post_approval_enabled: boolean | null;
   coverage_breakdown: Record<string, unknown> | null;
 }
 
@@ -93,6 +92,8 @@ function extractBreakdown(raw: Record<string, unknown> | null): HnContrataciones
     source_year: typeof raw.source_year === 'number' ? raw.source_year : null,
     invalid_guardrail_rows: typeof raw.invalid_guardrail_rows === 'number' ? raw.invalid_guardrail_rows : null,
     pilot_scope: typeof raw.pilot_scope === 'boolean' ? raw.pilot_scope : null,
+    human_review_required: typeof raw.human_review_required === 'boolean' ? raw.human_review_required : null,
+    post_approval_enabled: typeof raw.post_approval_enabled === 'boolean' ? raw.post_approval_enabled : null,
   };
 }
 
@@ -144,7 +145,7 @@ function buildSummary(
  */
 export async function getHnContratacionesCoverageSummary(): Promise<HnContratacionesCoverageSummary> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
     return buildSummary(HN_AUDITED_LOADED_ROWS, 'audited_fallback', 'missing_env');
@@ -162,7 +163,7 @@ export async function getHnContratacionesCoverageSummary(): Promise<HnContrataci
       const { data, error } = await client
         .from('source_coverage_summaries')
         .select(
-          'source_key, loaded_rows, coverage_status, coverage_kind, country_code, refreshed_at, refresh_source, pilot_scope, human_review_required, post_approval_enabled, coverage_breakdown',
+          'source_key, loaded_rows, coverage_status, coverage_kind, country_code, refreshed_at, refresh_source, coverage_breakdown',
         )
         .eq('source_key', HN_SOURCE_KEY)
         .abortSignal(controller.signal)
@@ -171,16 +172,24 @@ export async function getHnContratacionesCoverageSummary(): Promise<HnContrataci
       clearTimeout(timeout);
 
       if (error) {
+        console.error('[hn-coverage] query_error source=hn_contrataciones_abiertas code=%s', error.code ?? 'unknown');
         if (attempt < MAX_RETRIES) continue;
         return buildSummary(HN_AUDITED_LOADED_ROWS, 'audited_fallback', 'query_failed');
       }
 
       if (!data) {
-        return buildSummary(HN_AUDITED_LOADED_ROWS, 'audited_fallback', 'unknown');
+        console.warn('[hn-coverage] row_not_found source=hn_contrataciones_abiertas');
+        return buildSummary(HN_AUDITED_LOADED_ROWS, 'audited_fallback', 'row_not_found');
       }
 
       const row = data as SummaryRow;
       const dbStatus = row.coverage_status === 'complete_snapshot' ? 'complete_snapshot' : 'partial_snapshot';
+      const breakdown = extractBreakdown(row.coverage_breakdown);
+
+      if (!breakdown && row.coverage_breakdown !== null) {
+        console.warn('[hn-coverage] payload_invalid source=hn_contrataciones_abiertas');
+        return buildSummary(HN_AUDITED_LOADED_ROWS, 'audited_fallback', 'payload_invalid');
+      }
 
       return buildSummary(
         row.loaded_rows ?? HN_AUDITED_LOADED_ROWS,
@@ -190,10 +199,10 @@ export async function getHnContratacionesCoverageSummary(): Promise<HnContrataci
           countryCode: row.country_code ?? 'HN',
           refreshedAt: row.refreshed_at ?? null,
           refreshSource: row.refresh_source ?? null,
-          sourceYear: extractBreakdown(row.coverage_breakdown)?.source_year ?? null,
-          pilotScope: row.pilot_scope ?? true,
-          humanReviewRequired: row.human_review_required ?? true,
-          breakdown: extractBreakdown(row.coverage_breakdown),
+          sourceYear: breakdown?.source_year ?? null,
+          pilotScope: breakdown?.pilot_scope ?? true,
+          humanReviewRequired: breakdown?.human_review_required ?? true,
+          breakdown,
           coverageStatus: dbStatus,
         },
       );
