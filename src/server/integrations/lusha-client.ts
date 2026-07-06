@@ -879,6 +879,168 @@ export async function enrichLushaContactsV3(input: {
 }
 
 // ============================================================
+// Contact Prospecting V3 — 17B.4W
+// POST https://api.lusha.com/v3/contacts/prospecting
+//
+// Confirmed from Lusha V3 Migration Guide: V2 /prospecting/contact/search
+// → V3 /v3/contacts/prospecting ("small request body update").
+//
+// Response shape confirmed from official Lusha Prospecting Reference (17B.4W):
+//   requestId, currentPage, pageLength, totalResults, contacts[].
+//   Per-contact: contactId, name, jobTitle, companyId, companyName, fqdn,
+//   isShown, hasDepartment, hasSeniority, hasSocialLink, hasEmails,
+//   hasWorkEmail, hasPhones.
+//
+// Request filter field names (contacts.include.departments, seniority,
+// jobTitles, locations, existingDataPoints) confirmed from official reference.
+// Company filter field names (companies.include.names, domains) derived from
+// analogous /v3/companies/prospecting pattern (confirmed Q3F) — not live-tested
+// for contacts prospecting as of 17B.4W.
+//
+// NOT CONNECTED TO PRODUCTION. No live calls from SellUp until QA confirmed.
+// ============================================================
+
+import type {
+  LushaContactProspectingRequest,
+  LushaContactProspectingResult,
+  LushaContactProspectingPerson,
+  LushaProspectingNormalizedContact,
+} from '@/server/agents/contact-enrichment-toolkit/lusha-types';
+
+function normalizeLushaProspectingContact(
+  raw: Record<string, unknown>,
+): LushaProspectingNormalizedContact | null {
+  const contactId = typeof raw['contactId'] === 'string' ? raw['contactId'] : null;
+  if (!contactId) return null;
+
+  const person: LushaContactProspectingPerson = {
+    contactId,
+    name: typeof raw['name'] === 'string' ? raw['name'] : null,
+    jobTitle: typeof raw['jobTitle'] === 'string' ? raw['jobTitle'] : null,
+    companyId: typeof raw['companyId'] === 'string' ? raw['companyId'] : null,
+    companyName: typeof raw['companyName'] === 'string' ? raw['companyName'] : null,
+    fqdn: typeof raw['fqdn'] === 'string' ? raw['fqdn'] : null,
+    isShown: typeof raw['isShown'] === 'boolean' ? raw['isShown'] : null,
+    hasDepartment: typeof raw['hasDepartment'] === 'boolean' ? raw['hasDepartment'] : null,
+    hasSeniority: typeof raw['hasSeniority'] === 'boolean' ? raw['hasSeniority'] : null,
+    hasSocialLink: typeof raw['hasSocialLink'] === 'boolean' ? raw['hasSocialLink'] : null,
+    hasEmails: typeof raw['hasEmails'] === 'boolean' ? raw['hasEmails'] : null,
+    hasWorkEmail: typeof raw['hasWorkEmail'] === 'boolean' ? raw['hasWorkEmail'] : null,
+    hasPhones: typeof raw['hasPhones'] === 'boolean' ? raw['hasPhones'] : null,
+  };
+
+  // linkedinUrl only present if hasSocialLink; may live in socialLinks or at root
+  const socialLinks = raw['socialLinks'];
+  let linkedinUrl: string | null = null;
+  if (typeof raw['linkedinUrl'] === 'string') {
+    linkedinUrl = raw['linkedinUrl'];
+  } else if (socialLinks && typeof socialLinks === 'object' && !Array.isArray(socialLinks)) {
+    const sl = socialLinks as Record<string, unknown>;
+    linkedinUrl = typeof sl['linkedin'] === 'string' ? sl['linkedin'] : null;
+  }
+
+  return {
+    contactId,
+    name: person.name ?? null,
+    jobTitle: person.jobTitle ?? null,
+    companyName: person.companyName ?? null,
+    fqdn: person.fqdn ?? null,
+    linkedinUrl,
+    hasWorkEmail: person.hasWorkEmail === true,
+    raw: person,
+  };
+}
+
+export async function prospectLushaContactsV3(input: {
+  apiKey: string;
+  timeoutMs: number;
+  request: LushaContactProspectingRequest;
+}): Promise<LushaContactProspectingResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    const response = await fetch(`${LUSHA_BASE_URL}/v3/contacts/prospecting`, {
+      method: 'POST',
+      headers: {
+        'api_key': input.apiKey.trim(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input.request),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    const headerRequestId = response.headers.get('x-request-id');
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      return {
+        ok: false,
+        status: mapLushaHttpError(response.status),
+        httpStatus: response.status,
+        requestId: headerRequestId,
+        resultsReturned: 0,
+        contacts: [],
+        errorMessage: errorBody.slice(0, 300) || undefined,
+        errorCode: mapLushaHttpError(response.status),
+      };
+    }
+
+    const raw = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+    const requestId =
+      typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
+    const totalResults =
+      typeof raw['totalResults'] === 'number' ? raw['totalResults'] : null;
+
+    const rawContacts = Array.isArray(raw['contacts'])
+      ? (raw['contacts'] as Record<string, unknown>[])
+      : [];
+
+    const contacts = rawContacts
+      .map(normalizeLushaProspectingContact)
+      .filter((c): c is LushaProspectingNormalizedContact => c !== null);
+
+    if (contacts.length === 0) {
+      return {
+        ok: true,
+        status: 'no_results',
+        httpStatus: response.status,
+        requestId,
+        resultsReturned: 0,
+        totalAvailable: totalResults,
+        contacts: [],
+      };
+    }
+
+    return {
+      ok: true,
+      status: 'success',
+      httpStatus: response.status,
+      requestId,
+      resultsReturned: contacts.length,
+      totalAvailable: totalResults,
+      contacts,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const isTimeout =
+      err instanceof Error && (err.name === 'AbortError' || err.message.includes('abort'));
+    return {
+      ok: false,
+      status: isTimeout ? 'provider_timeout' : 'provider_error',
+      resultsReturned: 0,
+      contacts: [],
+      errorMessage: isTimeout
+        ? 'Request timed out'
+        : err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+// ============================================================
 // Búsqueda de empresas — LEGACY (Prospecting API sin versión)
 // POST https://api.lusha.com/prospecting/search/companies
 //

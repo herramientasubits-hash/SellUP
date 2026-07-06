@@ -20,6 +20,7 @@ import {
 import {
   enrichLushaContactsV3,
   searchLushaContactsV3,
+  prospectLushaContactsV3,
   getLushaAccountUsage,
   extractLushaJobTitle,
   extractLushaCompanyName,
@@ -34,7 +35,8 @@ import {
 } from '@/lib/feature-flags.server';
 import { normalizeDomain } from './company-consistency-checker';
 import { normalizeLushaPersonName } from './lusha-people-adapter';
-import { resolveLushaDiscoveryMode } from './lusha-types';
+import { resolveLushaDiscoveryMode, type LushaContactProspectingRequest } from './lusha-types';
+import { classifyContactRelevance } from './contact-relevance-classifier';
 import {
   createAgentRunStep,
   finishAgentRunStep,
@@ -83,6 +85,46 @@ function getAdminClient(): SupabaseClient {
   const key = process.env['SUPABASE_SERVICE_ROLE_KEY'];
   if (!url || !key) throw new Error('Supabase service credentials not configured');
   return createAdminClient(url, key);
+}
+
+// ── Lusha Prospecting ICP targeting — 17B.4W ───────────────────
+//
+// Department values for SellUp's ICP (HR / People / Talent / L&D).
+// These are hint filters to reduce the Prospecting search universe before
+// downstream role-relevance classification.
+//
+// Lusha department taxonomy exact values: not confirmed from live contact
+// prospecting evidence as of 17B.4W. Values are best-effort based on
+// common Lusha department labels. Update after QA live confirmation.
+const SELLUP_ICP_LUSHA_DEPARTMENTS = [
+  'human_resources',
+  'people',
+  'talent',
+  'learning_and_development',
+  'organizational_development',
+  'culture',
+] as const;
+
+/**
+ * Checks FQDN from Prospecting response against expected company domain.
+ * Company consistency for the pre-enrich stage (fqdn vs domain).
+ */
+function checkProspectingFqdnConsistency(
+  fqdn: string | null,
+  expectedDomain: string | null,
+): { ok: boolean; status: 'match' | 'mismatch' | 'unknown'; fqdn: string | null; expectedDomain: string | null } {
+  const normalizedExpected = normalizeDomain(expectedDomain);
+  const normalizedFqdn = normalizeDomain(fqdn);
+
+  if (!normalizedFqdn) {
+    return { ok: false, status: 'unknown', fqdn, expectedDomain };
+  }
+  if (!normalizedExpected) {
+    // Cannot verify — allow through (email domain check post-enrich will catch mismatches)
+    return { ok: true, status: 'unknown', fqdn, expectedDomain };
+  }
+  const matches = normalizedFqdn === normalizedExpected;
+  return { ok: matches, status: matches ? 'match' : 'mismatch', fqdn, expectedDomain };
 }
 
 // ── Company consistency (Lusha-specific, simplified) ───────────
@@ -1007,28 +1049,475 @@ export async function executeContactEnrichmentLushaRun(
   const companyName = typeof run.company_name === 'string' ? run.company_name : null;
   const companyDomain = typeof run.company_domain === 'string' ? run.company_domain : null;
 
-  // 7. Capability routing guard — 17B.4V
-  //    /v3/contacts/search requires a person identifier per item (confirmed live 17B.4D).
-  //    A company-only item violates the contract and produces HTTP 400 (observed ABANK run).
-  //    Company-first discovery needs a dedicated endpoint (e.g. /v3/contacts/decision-makers)
-  //    whose request/response contract has not been demonstrated in this codebase.
+  // 7. Capability routing — 17B.4V guard promoted to 17B.4W prospecting
+  //    /v3/contacts/search requires a person identifier — company-only is HTTP 400 (17B.4D).
+  //    company_first_discovery → /v3/contacts/prospecting (17B.4W).
+  //    invalid_search_context → terminal error (no usable identity).
   const discoveryMode = resolveLushaDiscoveryMode({
     companyName: companyName ?? undefined,
     companyDomain: companyDomain ?? undefined,
   });
 
-  if (discoveryMode !== 'person_known_search') {
-    const errorKey = discoveryMode === 'company_first_discovery'
-      ? 'company_first_discovery_not_implemented'
-      : 'invalid_search_context';
+  if (discoveryMode === 'company_first_discovery') {
+    // ── 17B.4W: Lusha Contact Prospecting V3 ─────────────────────
+    // Endpoint confirmed from migration guide: POST /v3/contacts/prospecting.
+    // Company filter field names (names, domains) derived — not live-confirmed as of 17B.4W.
 
+    const prospectStep = agentRunId
+      ? await createAgentRunStep({
+          agent_run_id: agentRunId,
+          step_key: 'lusha_contact_prospecting',
+          step_name: 'Lusha Contact Prospecting V3',
+          provider_key: 'lusha',
+          metadata: {
+            companyName,
+            companyDomain,
+            discovery_mode: 'company_first_discovery',
+            capability: 'contact_prospecting',
+            endpoint_family: 'v3_contacts_prospecting',
+            hito: '17B.4W',
+          },
+        })
+      : null;
+
+    const companyInclude: Record<string, string[]> = {};
+    if (companyName) companyInclude['names'] = [companyName];
+    if (companyDomain) companyInclude['domains'] = [companyDomain];
+
+    const prospectRequest: LushaContactProspectingRequest = {
+      filters: {
+        contacts: {
+          include: {
+            departments: [...SELLUP_ICP_LUSHA_DEPARTMENTS],
+          },
+        },
+        companies: {
+          include: companyInclude,
+        },
+      },
+      pagination: { page: 0, size: 25 },
+    };
+
+    const prospectStart = Date.now();
+    const prospectResult = await prospectLushaContactsV3({ apiKey, timeoutMs, request: prospectRequest });
+    const prospectDurationMs = Date.now() - prospectStart;
+    const rawProspectCount = prospectResult.resultsReturned;
+
+    // Path A — provider error
+    if (!prospectResult.ok) {
+      const safeErrorMsg = `${prospectResult.status}: ${prospectResult.errorMessage ?? ''}`.slice(0, 500).trim();
+
+      if (prospectStep) {
+        await finishAgentRunStep(prospectStep.id, {
+          status: 'error',
+          results_returned: 0,
+          error_message: safeErrorMsg,
+          duration_ms: prospectDurationMs,
+          metadata: {
+            searchStatus: prospectResult.status,
+            resultsReturned: 0,
+            httpStatus: prospectResult.httpStatus ?? null,
+            requestId: prospectResult.requestId ?? null,
+            discovery_mode: 'company_first_discovery',
+            capability: 'contact_prospecting',
+            hito: '17B.4U',
+          },
+        });
+      }
+
+      await admin
+        .from('contact_enrichment_runs')
+        .update({
+          status: 'failed',
+          providers_used: ['lusha'],
+          summary: {
+            provider: 'lusha',
+            search_status: prospectResult.status,
+            error_stage: 'prospecting',
+            operation: 'contact_prospecting',
+            discovery_mode: 'company_first_discovery',
+            http_status: prospectResult.httpStatus ?? null,
+            request_id: prospectResult.requestId ?? null,
+            error_message: (prospectResult.errorMessage ?? '').slice(0, 300) || null,
+            raw_results: 0,
+            candidates_created: 0,
+            totalCandidates: 0,
+            hito: '17B.4W',
+          },
+        })
+        .eq('id', runId);
+
+      if (agentRunId) {
+        await updateAgentRun(agentRunId, {
+          status: 'failed',
+          finished_at: new Date().toISOString(),
+          error_message: `Lusha prospecting failed: ${prospectResult.status}`,
+          metadata: {
+            provider: 'lusha',
+            stage: 'contact_prospecting',
+            contact_enrichment_run_id: runId,
+            search_status: prospectResult.status,
+            http_status: prospectResult.httpStatus ?? null,
+            discovery_mode: 'company_first_discovery',
+            hito: '17B.4W',
+          },
+        });
+      }
+
+      await logProviderUsage({
+        agent_run_id: agentRunId,
+        agent_run_step_id: prospectStep?.id,
+        provider_key: 'lusha',
+        operation_key: 'lusha_contact_prospecting',
+        credits_used: undefined,
+        results_returned: 0,
+        estimated_cost_usd: 0,
+        status: 'error',
+        triggered_by: triggeredBy,
+        error_code: prospectResult.status,
+        error_message: (prospectResult.errorMessage ?? '').slice(0, 300) || undefined,
+        duration_ms: prospectDurationMs,
+        metadata: {
+          endpoint_family: 'v3_contacts_prospecting',
+          discovery_mode: 'company_first_discovery',
+          capability: 'contact_prospecting',
+          http_status: prospectResult.httpStatus ?? null,
+          request_id: prospectResult.requestId ?? null,
+          hito: '17B.4W',
+        },
+      });
+
+      return {
+        ok: false,
+        status: 'provider_error',
+        runId,
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: 0,
+        creditsUsed: null,
+        message: `Lusha prospecting failed: ${prospectResult.status} — ${prospectResult.errorMessage ?? ''}`,
+      };
+    }
+
+    // Path B — no results
+    if (prospectResult.contacts.length === 0) {
+      if (prospectStep) {
+        await finishAgentRunStep(prospectStep.id, {
+          status: 'success',
+          results_returned: 0,
+          duration_ms: prospectDurationMs,
+          metadata: {
+            searchStatus: prospectResult.status,
+            resultsReturned: 0,
+            discovery_mode: 'company_first_discovery',
+            hito: '17B.4W',
+          },
+        });
+      }
+
+      await admin
+        .from('contact_enrichment_runs')
+        .update({
+          status: 'ready_for_review',
+          providers_used: ['lusha'],
+          summary: {
+            totalCandidates: 0,
+            candidates_created: 0,
+            raw_results: rawProspectCount,
+            search_status: prospectResult.status,
+            discovery_mode: 'company_first_discovery',
+            hito: '17B.4W',
+          },
+        })
+        .eq('id', runId);
+
+      if (agentRunId) {
+        await updateAgentRun(agentRunId, {
+          status: 'completed',
+          finished_at: new Date().toISOString(),
+          results_generated: 0,
+        });
+      }
+
+      return {
+        ok: true,
+        status: 'no_reviewable_candidate',
+        runId,
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: rawProspectCount,
+        creditsUsed: null,
+        message: `Lusha prospecting returned no results: ${prospectResult.status}`,
+      };
+    }
+
+    // Path C — results: filter → enrich → candidates
+    if (prospectStep) {
+      await finishAgentRunStep(prospectStep.id, {
+        status: 'success',
+        results_returned: rawProspectCount,
+        duration_ms: prospectDurationMs,
+        metadata: {
+          searchStatus: prospectResult.status,
+          resultsReturned: rawProspectCount,
+          totalAvailable: prospectResult.totalAvailable ?? null,
+          discovery_mode: 'company_first_discovery',
+          hito: '17B.4W',
+        },
+      });
+    }
+
+    // 1. Company consistency (fqdn vs expected domain)
+    const fqdnConsistent = prospectResult.contacts.filter((c) => {
+      const chk = checkProspectingFqdnConsistency(c.fqdn, companyDomain);
+      return chk.ok;
+    });
+
+    // 2. Role relevance — title must match HR/People/Learning ICP
+    //    Pass dummy quality signals so classifyContactRelevance evaluates role only.
+    const roleRelevant = fqdnConsistent.filter((c) => {
+      const cls = classifyContactRelevance({
+        fullName: c.name ?? 'A B',
+        title: c.jobTitle,
+        email: 'pending@enrich.lusha',
+      });
+      return cls.matchedCategory !== null;
+    });
+
+    // 3. Pre-enrich dedup by LinkedIn (when available from prospecting response)
+    const seenLinkedins = new Set<string>(
+      snapshotLinkedinUrls.map((u) => linkedinKey(u)).filter(Boolean) as string[],
+    );
+    const preDeduped = roleRelevant.filter((c) => {
+      if (!c.linkedinUrl) return true;
+      const k = linkedinKey(c.linkedinUrl);
+      if (!k) return true;
+      if (seenLinkedins.has(k)) return false;
+      seenLinkedins.add(k);
+      return true;
+    });
+
+    // 4. Limit before enrich
+    const selectedForEnrich = preDeduped.slice(0, maxCandidates);
+
+    let prospectCandidatesCreated = 0;
+    let prospectDuplicatesSkipped = 0;
+    let prospectTotalCredits: number | null = null;
+
+    const enrichStep = agentRunId
+      ? await createAgentRunStep({
+          agent_run_id: agentRunId,
+          step_key: 'lusha_contact_enrich_batch',
+          step_name: 'Lusha Contact Enrich V3 batch (prospecting)',
+          metadata: {
+            candidatesToEnrich: selectedForEnrich.length,
+            reveal: ['emails'],
+            phone_reveal_enabled: false,
+            discovery_mode: 'company_first_discovery',
+            hito: '17B.4W',
+          },
+        })
+      : null;
+
+    for (const candidate of selectedForEnrich) {
+      const enrichResult = await enrichLushaContactsV3({
+        apiKey,
+        timeoutMs,
+        contacts: [{ id: candidate.contactId }],
+        reveal: ['emails'],
+      });
+
+      if (!enrichResult.ok || !enrichResult.sanitizedResults?.length) continue;
+
+      const contact = enrichResult.sanitizedResults[0];
+      const contactWithEmail = contact as typeof contact & { internalEmail?: string | null };
+      const actualEmail = contactWithEmail.internalEmail ?? null;
+      const emailDomain = contact.emailDomain ?? null;
+
+      const { creditsCharged: billingCredits } = extractLushaBilling(
+        (enrichResult as unknown as Record<string, unknown>)['billing'],
+      );
+      const stepCredits = enrichResult.creditsCharged ?? billingCredits ?? null;
+      if (stepCredits !== null) {
+        prospectTotalCredits = (prospectTotalCredits ?? 0) + stepCredits;
+      }
+
+      const lushaRawName = candidate.name ?? null;
+      const normalizedName = normalizeLushaPersonName(lushaRawName);
+      if (!normalizedName) continue;
+
+      const candidateLinkedinUrl = candidate.linkedinUrl ?? contact.linkedinUrl ?? null;
+      const linkedinSource = candidate.linkedinUrl
+        ? 'lusha_prospecting'
+        : contact.linkedinUrl
+          ? 'lusha_enrich'
+          : null;
+
+      const isDuplicate = await checkExactDuplicate(
+        admin,
+        run.account_id,
+        actualEmail,
+        candidateLinkedinUrl,
+        snapshotEmails,
+        snapshotLinkedinUrls,
+      );
+      if (isDuplicate) {
+        prospectDuplicatesSkipped += 1;
+        continue;
+      }
+
+      // Post-enrich company consistency via email domain
+      const emailConsistency = checkLushaCompanyConsistency(emailDomain, companyDomain);
+      if (emailConsistency.status === 'mismatch') {
+        prospectDuplicatesSkipped += 1;
+        continue;
+      }
+
+      const enrichmentMetadata: Record<string, unknown> = {
+        provider: 'lusha',
+        lusha_contact_id: candidate.contactId,
+        source_endpoint: 'v3_contacts_prospecting',
+        discovery_mode: 'company_first_discovery',
+        capability: 'contact_prospecting',
+        endpoint_family: 'v3_contacts_prospecting',
+        reveal: ['emails'],
+        email_type: contact.emailType ?? null,
+        email_domain: emailDomain,
+        phone_reveal_enabled: false,
+        phone_policy: 'disabled_in_v1_explicit_future_action_required',
+        lusha_full_name: lushaRawName,
+        normalized_full_name: normalizedName,
+        name_source: 'lusha_prospecting_normalized',
+        name_normalization_hito: '17B.4W',
+        prospecting_job_title: candidate.jobTitle,
+        prospecting_fqdn: candidate.fqdn,
+        input_linkedin_url: candidate.linkedinUrl ?? null,
+        lusha_linkedin_url: contact.linkedinUrl ?? null,
+        linkedin_source: linkedinSource,
+        company_consistency: {
+          status: emailConsistency.status,
+          signals: emailConsistency.signals,
+          expected_domain: companyDomain,
+          email_domain: emailDomain,
+          fqdn: candidate.fqdn,
+          context_source: companyResolutionSource,
+        },
+        company_resolution_source: companyResolutionSource,
+        is_hubspot_only: isHubSpotOnly,
+        billing: { credits_charged: stepCredits, credits_source: 'billing' },
+        hito: '17B.4W',
+      };
+
+      const { error: insertError } = await admin
+        .from('contact_enrichment_candidates')
+        .insert({
+          enrichment_run_id: runId,
+          first_name: null,
+          last_name: null,
+          full_name: normalizedName,
+          title: candidate.jobTitle ?? null,
+          seniority: null,
+          department: null,
+          country: run.company_country_code ?? null,
+          linkedin_url: candidateLinkedinUrl,
+          email: actualEmail,
+          phone: null,
+          source: 'lusha' as const,
+          source_contact_id: candidate.contactId,
+          confidence: 0.9,
+          status: 'pending_review' as const,
+          duplicate_status: 'no_match',
+          enrichment_metadata: enrichmentMetadata,
+        });
+
+      if (!insertError) prospectCandidatesCreated += 1;
+    }
+
+    await logProviderUsage({
+      agent_run_id: agentRunId,
+      agent_run_step_id: enrichStep?.id,
+      provider_key: 'lusha',
+      operation_key: 'lusha_contact_prospecting',
+      credits_used: prospectTotalCredits ?? undefined,
+      results_returned: prospectCandidatesCreated,
+      estimated_cost_usd: 0,
+      status: prospectCandidatesCreated > 0 ? 'success' : 'error',
+      triggered_by: triggeredBy,
+      metadata: {
+        endpoint_family: 'v3_contacts_prospecting',
+        discovery_mode: 'company_first_discovery',
+        capability: 'contact_prospecting',
+        reveal: ['emails'],
+        phone_reveal_enabled: false,
+        raw_results: rawProspectCount,
+        fqdn_consistent: fqdnConsistent.length,
+        role_relevant: roleRelevant.length,
+        selected_for_enrich: selectedForEnrich.length,
+        candidates_created: prospectCandidatesCreated,
+        duplicates_skipped: prospectDuplicatesSkipped,
+        hito: '17B.4W',
+      },
+    });
+
+    if (enrichStep) {
+      await finishAgentRunStep(enrichStep.id, {
+        status: 'success',
+        results_returned: prospectCandidatesCreated,
+        metadata: {
+          candidates_created: prospectCandidatesCreated,
+          duplicates_skipped: prospectDuplicatesSkipped,
+          credits_used: prospectTotalCredits,
+          discovery_mode: 'company_first_discovery',
+          hito: '17B.4W',
+        },
+      });
+    }
+
+    await admin
+      .from('contact_enrichment_runs')
+      .update({
+        status: 'ready_for_review',
+        providers_used: ['lusha'],
+        summary: {
+          totalCandidates: prospectCandidatesCreated,
+          candidates_created: prospectCandidatesCreated,
+          duplicates_skipped: prospectDuplicatesSkipped,
+          raw_results: rawProspectCount,
+          credits_used: prospectTotalCredits,
+          discovery_mode: 'company_first_discovery',
+          hito: '17B.4W',
+        },
+      })
+      .eq('id', runId);
+
+    if (agentRunId) {
+      await updateAgentRun(agentRunId, {
+        status: 'completed',
+        finished_at: new Date().toISOString(),
+        results_generated: prospectCandidatesCreated,
+      });
+    }
+
+    return {
+      ok: prospectCandidatesCreated > 0,
+      status: prospectCandidatesCreated > 0 ? 'success' : 'no_reviewable_candidate',
+      runId,
+      candidatesCreated: prospectCandidatesCreated,
+      duplicatesSkipped: prospectDuplicatesSkipped,
+      rawResultsCount: rawProspectCount,
+      creditsUsed: prospectTotalCredits,
+      message: `Lusha prospecting: ${prospectCandidatesCreated} candidate(s) created, ${prospectDuplicatesSkipped} filtered/skipped.`,
+    };
+  }
+
+  if (discoveryMode === 'invalid_search_context') {
     await admin
       .from('contact_enrichment_runs')
       .update({
         status: 'failed',
         providers_used: ['lusha'],
         summary: {
-          error: errorKey,
+          error: 'invalid_search_context',
           discovery_mode: discoveryMode,
           hito: '17B.4V',
         },
@@ -1039,10 +1528,7 @@ export async function executeContactEnrichmentLushaRun(
       await updateAgentRun(agentRunId, {
         status: 'failed',
         finished_at: new Date().toISOString(),
-        error_message:
-          discoveryMode === 'company_first_discovery'
-            ? 'Lusha company-first discovery not yet implemented: /v3/contacts/search requires a person identifier. See 17B.4V.'
-            : 'Invalid search context: no person identifier and no company identity.',
+        error_message: 'Invalid search context: no person identifier and no company identity.',
         metadata: {
           provider: 'lusha',
           discovery_mode: discoveryMode,
@@ -1059,10 +1545,7 @@ export async function executeContactEnrichmentLushaRun(
       duplicatesSkipped: 0,
       rawResultsCount: 0,
       creditsUsed: null,
-      message:
-        discoveryMode === 'company_first_discovery'
-          ? 'Lusha company-first discovery is not yet implemented. /v3/contacts/search requires a person identifier (id, linkedinUrl, email, or firstName+lastName+company). No contract has been demonstrated for /v3/contacts/decision-makers or equivalent. See 17B.4V.'
-          : 'Invalid search context: neither person identifier nor company identity is available.',
+      message: 'Invalid search context: neither person identifier nor company identity is available.',
     };
   }
 
