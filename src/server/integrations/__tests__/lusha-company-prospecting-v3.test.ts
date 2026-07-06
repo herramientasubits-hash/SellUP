@@ -670,6 +670,86 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
       assert.ok(!call.url.includes('apollo'), 'No debe llamar a Apollo');
     }
   });
+
+  // Q3F-5Y: POST rechazó filters.companies.include.sics con
+  // "property sics should not exist". Los tests siguientes verifican
+  // que el contrato local ya no trata sics como filtro POST soportado.
+
+  it('Q3F-5Y: objeto con solo sics runtime es bloqueado sin fetch (sics no es filtro POST válido)', async () => {
+    resetMock({ ok: true, status: 200, body: {} });
+
+    // Cast controlado: simula código legacy que construyera un objeto con sics.
+    // El type ya no expone sics, por eso el cast es necesario solo en test.
+    const filtersWithSicsOnly = {
+      companies: {
+        include: { sics: ['7372'] },
+        exclude: {},
+      },
+    } as unknown as import('../lusha-client').LushaCompanyProspectingV3Filters;
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: filtersWithSicsOnly },
+    });
+
+    assert.equal(result.ok, false, 'objeto con solo sics debe ser bloqueado localmente');
+    assert.equal(fetchCalls.length, 0, 'ningún fetch debe salir cuando el único filtro es sics');
+  });
+
+  it('Q3F-5Y: mainIndustriesIds sigue siendo reconocido como filtro POST válido', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: {
+        filters: { companies: { include: { mainIndustriesIds: [17] }, exclude: {} } },
+        pagination: { page: 0, size: 10 },
+      },
+    });
+
+    assert.equal(fetchCalls.length, 1, 'mainIndustriesIds debe permitir el request');
+    assert.notEqual(result.status, 'provider_error');
+  });
+
+  it('Q3F-5Y: locations sigue siendo reconocido como filtro POST válido', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: {
+        filters: { companies: { include: { locations: [{ country: 'Colombia' }] }, exclude: {} } },
+        pagination: { page: 0, size: 10 },
+      },
+    });
+
+    assert.equal(fetchCalls.length, 1, 'locations debe permitir el request');
+    assert.notEqual(result.status, 'provider_error');
+  });
+
+  it('Q3F-5Y: naics conserva su comportamiento actual — sigue siendo reconocido como filtro válido', async () => {
+    resetMock({ ok: true, status: 200, body: { results: [] } });
+
+    // naics no fue probado en live (Q3F-5Y). Su contrato local no cambia en este hito.
+    // hasCompanyFilters sigue reconociendo naics, por lo que el request pasa.
+    const filtersWithNaicsOnly = {
+      companies: {
+        include: { naics: ['3672'] },
+        exclude: {},
+      },
+    } as unknown as import('../lusha-client').LushaCompanyProspectingV3Filters;
+
+    const result = await searchLushaCompaniesV3({
+      apiKey: FAKE_API_KEY,
+      timeoutMs: TIMEOUT_MS,
+      request: { filters: filtersWithNaicsOnly, pagination: { page: 0, size: 10 } },
+    });
+
+    assert.equal(fetchCalls.length, 1, 'naics sigue siendo reconocido: debe salir exactamente 1 fetch');
+    assert.notEqual(result.status, 'provider_error', 'naics no debe ser bloqueado localmente');
+  });
 });
 
 // ============================================================

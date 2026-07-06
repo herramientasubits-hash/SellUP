@@ -976,8 +976,8 @@ export type LushaCompanyProspectingV3Filters = {
       mainIndustriesIds?: number[];
       intentTopics?: string[];
       names?: string[];
-      /** Schema exacto no completamente modelado — conservador. */
-      sics?: unknown[];
+      // Q3F-5Y: POST /v3/companies/prospecting rejected filters.companies.include.sics
+      // with "property sics should not exist". Conclusion scoped to this endpoint/path only.
       /** Schema exacto no completamente modelado — conservador. */
       naics?: unknown[];
     };
@@ -1094,7 +1094,6 @@ function hasCompanyFilters(filters: LushaCompanyProspectingV3Filters | undefined
     if (include.mainIndustriesIds?.length) return true;
     if (include.intentTopics?.length) return true;
     if (include.names?.length) return true;
-    if (include.sics?.length) return true;
     if (include.naics?.length) return true;
   }
   if (exclude?.domains?.length) return true;
