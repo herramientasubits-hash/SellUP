@@ -32,6 +32,7 @@ import type {
   ContactEnrichmentProvider,
 } from './contact-enrichment-chat-types';
 import { SourceBadge, CompanyChip, RunResultSnapshot, ApolloPreflightCard } from './contact-enrichment-chat-result';
+import { LushaCredentialDiagnosticCard } from './lusha-credential-diagnostic-card';
 import type { ManualContactContext } from './contact-enrichment-chat-types';
 
 // ── Composer copy by step ──────────────────────────────────────────────────────
@@ -340,6 +341,9 @@ export function ContactEnrichmentChatWizard({
                         selected={state.selectedProvider}
                         onChange={handleProviderChange}
                       />
+                    )}
+                    {lushaEnabled && state.selectedProvider === 'lusha' && (
+                      <LushaCredentialDiagnosticCard />
                     )}
                     <Button
                       onClick={state.selectedProvider === 'lusha' ? handleSearchLusha : handleSearchApollo}
