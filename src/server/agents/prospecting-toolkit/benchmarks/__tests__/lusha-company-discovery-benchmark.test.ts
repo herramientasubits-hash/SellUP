@@ -565,6 +565,110 @@ describe('Q3F-5Q.1 — real POST observed metadata', () => {
 });
 
 // ============================================================
+// Q3F-5S — microbenchmark real completado (3 runs reales)
+// ============================================================
+
+describe('Q3F-5S — real microbenchmark metadata', () => {
+  it('real_microbenchmark_completed = true en todo escenario', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.real_microbenchmark_completed, true,
+        `real_microbenchmark_completed debe ser true en escenario ${scenario}`);
+    }
+  });
+
+  it('real_microbenchmark_runs = 3', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.real_microbenchmark_runs, 3);
+  });
+
+  it('real_microbenchmark_results = 30', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.real_microbenchmark_results, 30);
+  });
+
+  it('credits_charged_observed_per_run = [1,1,1] — valor observado, no regla contractual', () => {
+    const result = run({ scenario: 'useful_results' });
+    const obs = result.credits_charged_observed_per_run;
+    assert.equal(obs.length, 3);
+    assert.equal(obs[0], 1);
+    assert.equal(obs[1], 1);
+    assert.equal(obs[2], 1);
+  });
+
+  it('billing_credits_charged_confirmed = true', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.billing_credits_charged_confirmed, true);
+  });
+
+  it('company_prospecting_cost_uses_actual_billing = true', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.company_prospecting_cost_uses_actual_billing, true);
+  });
+
+  it('size_filter_strictness_unconfirmed = true en todo escenario', () => {
+    const scenarios = [
+      'useful_results',
+      'empty_result',
+      'plan_not_authorized',
+      'forbidden',
+      'invalid_filter',
+      'provider_error',
+    ] as const;
+    for (const scenario of scenarios) {
+      const result = run({ scenario });
+      assert.equal(result.size_filter_strictness_unconfirmed, true,
+        `size_filter_strictness_unconfirmed debe ser true en escenario ${scenario}`);
+    }
+  });
+
+  it('employee_count_exact_requires_post_validation = true', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.employee_count_exact_requires_post_validation, true);
+  });
+
+  it('metadata Q3F-5Q.1 previa sigue presente — no hay regresión', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.real_successful_post_observed, true);
+    assert.equal(result.locations_colombia_post_success_observed, true);
+    assert.equal(result.employee_count_shape_observed, 'object_exact_min_max');
+    assert.equal(result.billing_key_observed, true);
+    assert.equal(result.credits_charged_field_unconfirmed, true);
+  });
+
+  it('dry_run = true y credits_used = 0 y estimated_cost_usd = 0 con metadata Q3F-5S', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.dry_run, true);
+    assert.equal(result.credits_used, 0);
+    assert.equal(result.estimated_cost_usd, 0);
+  });
+
+  it('source_catalog_unchanged = true con metadata Q3F-5S', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.source_catalog_unchanged, true);
+  });
+
+  it('writes_disabled = true con metadata Q3F-5S', () => {
+    const result = run({ scenario: 'useful_results' });
+    assert.equal(result.writes_disabled, true);
+  });
+
+  it('no hay fetch real con metadata Q3F-5S (fetch guard)', () => {
+    assert.doesNotThrow(() => run({ scenario: 'useful_results' }));
+    assert.doesNotThrow(() => run({ scenario: 'empty_result' }));
+    assert.doesNotThrow(() => run({ scenario: 'provider_error' }));
+  });
+});
+
+// ============================================================
 // Garantías de aislamiento
 // ============================================================
 

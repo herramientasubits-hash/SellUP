@@ -141,6 +141,34 @@ export interface LushaCompanyDiscoveryBenchmarkResult {
   /** Q3F-5Q: El campo creditsCharged dentro de billing no ha sido confirmado con valor específico. */
   credits_charged_field_unconfirmed: true;
 
+  // ---- Q3F-5S metadata (microbenchmark real completado 2026-07) ----
+  /** Q3F-5R: Microbenchmark real completado con 3 POSTs reales controlados. */
+  real_microbenchmark_completed: true;
+  /** Q3F-5R: Número de runs reales ejecutados. */
+  real_microbenchmark_runs: 3;
+  /** Q3F-5R: Número total de resultados retornados (10 por run × 3 runs). */
+  real_microbenchmark_results: 30;
+  /**
+   * Q3F-5R: billing.creditsCharged observado en cada run.
+   * Observación: 1 en los 3 runs con pagination.size=10.
+   * NO implica que "1 crédito/request" sea una regla contractual universal.
+   * El cálculo runtime SIEMPRE usa billing.creditsCharged real.
+   */
+  credits_charged_observed_per_run: readonly [1, 1, 1];
+  /** Q3F-5R: billing.creditsCharged se confirmó como campo numérico presente en el response real. */
+  billing_credits_charged_confirmed: true;
+  /** Q3F-5R: El costo de company prospecting usa billing.creditsCharged real, no un valor fijo. */
+  company_prospecting_cost_uses_actual_billing: true;
+  /**
+   * Q3F-5R: El filtro sizes NO actuó como hard filter confiable.
+   * "size filter strictness unconfirmed; real responses showed exact employee counts outside requested ranges."
+   * Ejemplos reales: request 51–200 → empleadosExactos=3134, 1107; request 51–200 MX → 5227.
+   * employeeCountExact es la fuente para post-filtrado SellUp.
+   */
+  size_filter_strictness_unconfirmed: true;
+  /** Q3F-5R: employeeCountExact debe usarse para post-filtrado SellUp, no confiar en el filtro sizes de Lusha. */
+  employee_count_exact_requires_post_validation: true;
+
   // Resultado del escenario
   scenario: LushaCompanyDiscoveryBenchmarkScenario;
   input: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'>;
@@ -216,6 +244,15 @@ export function runLushaCompanyDiscoveryBenchmarkDryRun(
     employee_count_shape_observed: 'object_exact_min_max' as const,
     billing_key_observed: true as const,
     credits_charged_field_unconfirmed: true as const,
+    // Q3F-5S — microbenchmark real completado
+    real_microbenchmark_completed: true as const,
+    real_microbenchmark_runs: 3 as const,
+    real_microbenchmark_results: 30 as const,
+    credits_charged_observed_per_run: [1, 1, 1] as const,
+    billing_credits_charged_confirmed: true as const,
+    company_prospecting_cost_uses_actual_billing: true as const,
+    size_filter_strictness_unconfirmed: true as const,
+    employee_count_exact_requires_post_validation: true as const,
   };
 
   const safeInput: Omit<LushaCompanyDiscoveryBenchmarkInput, 'benchmark'> = {
@@ -429,6 +466,14 @@ type BaseMetadata = {
   employee_count_shape_observed: 'object_exact_min_max';
   billing_key_observed: true;
   credits_charged_field_unconfirmed: true;
+  real_microbenchmark_completed: true;
+  real_microbenchmark_runs: 3;
+  real_microbenchmark_results: 30;
+  credits_charged_observed_per_run: readonly [1, 1, 1];
+  billing_credits_charged_confirmed: true;
+  company_prospecting_cost_uses_actual_billing: true;
+  size_filter_strictness_unconfirmed: true;
+  employee_count_exact_requires_post_validation: true;
 };
 
 function buildBase(meta: BaseMetadata): BaseMetadata {
