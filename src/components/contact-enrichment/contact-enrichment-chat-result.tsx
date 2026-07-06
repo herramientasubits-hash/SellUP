@@ -108,10 +108,16 @@ export function RunResultSnapshot({
     provider === 'lusha' &&
     (lushaResult?.status === 'missing_api_key' || lushaResult?.status === 'disabled');
 
+  const lushaCompanyContextError =
+    provider === 'lusha' &&
+    (lushaResult?.status === 'invalid_account' || lushaResult?.status === 'not_found');
+
+  const lushaTerminalError = lushaCredentialsMissing || lushaCompanyContextError;
+
   return (
     <SurfaceCard className="space-y-4 p-6">
       <div className="flex items-center gap-2">
-        {lushaCredentialsMissing ? (
+        {lushaTerminalError ? (
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
             <XCircle className="h-4 w-4 text-amber-500" aria-hidden />
           </div>
@@ -121,7 +127,7 @@ export function RunResultSnapshot({
           </div>
         )}
         <p className="text-sm font-semibold text-foreground">
-          {lushaCredentialsMissing ? 'Run no ejecutado' : 'Run creado'}
+          {lushaTerminalError ? 'Run no ejecutado' : 'Run creado'}
         </p>
       </div>
 
@@ -142,6 +148,13 @@ export function RunResultSnapshot({
                 className="text-xs text-muted-foreground border-border bg-muted/30"
               >
                 Desactivado
+              </Badge>
+            ) : provider === 'lusha' && lushaCompanyContextError ? (
+              <Badge
+                variant="outline"
+                className="text-xs text-amber-600 border-amber-500/30 bg-amber-500/10"
+              >
+                Sin contexto de empresa
               </Badge>
             ) : (
               <Badge
@@ -166,7 +179,7 @@ export function RunResultSnapshot({
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Candidatos</dt>
           <dd className="font-medium text-foreground">
-            {lushaCredentialsMissing
+            {lushaTerminalError
               ? (lushaResult?.candidatesCreated ?? 0)
               : apolloResult
                 ? apolloResult.totalCandidates
@@ -267,6 +280,10 @@ export function RunResultSnapshot({
           {lushaResult?.status === 'missing_api_key'
             ? 'Lusha no pudo acceder a la credencial configurada en Supabase Vault desde este runtime. No se ejecutó el proveedor y no se crearon candidatos.'
             : 'Lusha está desactivado en este entorno. No se ejecutó el proveedor y no se crearon candidatos.'}
+        </p>
+      ) : lushaCompanyContextError ? (
+        <p className="border-t border-border pt-3 text-xs text-amber-600">
+          No se pudo resolver suficiente contexto de la empresa para ejecutar Lusha. No se crearon candidatos.
         </p>
       ) : (
         <p className="border-t border-border pt-3 text-xs text-muted-foreground">

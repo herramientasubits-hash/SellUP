@@ -127,38 +127,52 @@ function linkedinKey(v: string | null | undefined): string | null {
 
 async function checkExactDuplicate(
   admin: SupabaseClient,
-  accountId: string,
+  accountId: string | null,
   email: string | null,
   linkedinUrl: string | null,
+  snapshotEmails?: string[],
+  snapshotLinkedinUrls?: string[],
 ): Promise<boolean> {
-  // Check existing contacts
-  if (email) {
+  // Check SellUp contacts — only when account_id is present
+  if (accountId) {
+    if (email) {
+      const eKey = emailKey(email);
+      if (eKey) {
+        const { data: existing } = await admin
+          .from('contacts')
+          .select('id')
+          .eq('account_id', accountId)
+          .ilike('email', eKey)
+          .limit(1);
+        if (existing && existing.length > 0) return true;
+      }
+    }
+
+    if (linkedinUrl) {
+      const lKey = linkedinKey(linkedinUrl);
+      if (lKey) {
+        const { data: existingLinkedin } = await admin
+          .from('contacts')
+          .select('id')
+          .eq('account_id', accountId)
+          .ilike('linkedin_url', lKey)
+          .limit(1);
+        if (existingLinkedin && existingLinkedin.length > 0) return true;
+      }
+    }
+  }
+
+  // Check HubSpot snapshot (used when account_id is null — HubSpot-only company)
+  if (!accountId && snapshotEmails && email) {
     const eKey = emailKey(email);
-    if (eKey) {
-      const { data: existing } = await admin
-        .from('contacts')
-        .select('id')
-        .eq('account_id', accountId)
-        .ilike('email', eKey)
-        .limit(1);
-      if (existing && existing.length > 0) return true;
-    }
+    if (eKey && snapshotEmails.some((e) => emailKey(e) === eKey)) return true;
   }
-
-  if (linkedinUrl) {
+  if (!accountId && snapshotLinkedinUrls && linkedinUrl) {
     const lKey = linkedinKey(linkedinUrl);
-    if (lKey) {
-      const { data: existingLinkedin } = await admin
-        .from('contacts')
-        .select('id')
-        .eq('account_id', accountId)
-        .ilike('linkedin_url', lKey)
-        .limit(1);
-      if (existingLinkedin && existingLinkedin.length > 0) return true;
-    }
+    if (lKey && snapshotLinkedinUrls.some((u) => linkedinKey(u) === lKey)) return true;
   }
 
-  // Check pending candidates
+  // Check pending candidates (no account_id filter needed)
   if (email) {
     const eKey = emailKey(email);
     if (eKey) {
@@ -890,10 +904,10 @@ export async function executeContactEnrichmentLushaRun(
   const timeoutMs = resolveLushaSearchTimeoutMs();
   const maxCandidates = resolveLushaMaxCandidatesPerRun();
 
-  // 3. Load run
+  // 3. Load run (include summary for snapshot-based dedup)
   const { data: run, error: runError } = await admin
     .from('contact_enrichment_runs')
-    .select('id, status, account_id, company_name, company_domain, company_country_code, agent_run_id')
+    .select('id, status, account_id, company_name, company_domain, company_country_code, agent_run_id, summary')
     .eq('id', runId)
     .single();
 
@@ -924,51 +938,62 @@ export async function executeContactEnrichmentLushaRun(
     };
   }
 
-  // 5. Validate account (not archived)
-  if (!run.account_id) {
-    return {
-      ok: false,
-      status: 'invalid_account',
-      runId,
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      rawResultsCount: 0,
-      creditsUsed: null,
-      message: 'Run has no account_id.',
-    };
+  // 5. Account validation — conditional on account_id presence.
+  //    Paridad con Apollo: account_id null = empresa resuelta desde HubSpot (sin cuenta SellUp aún).
+  //    Apollo nunca valida account_id; usa company_name/domain del run directamente.
+  //    Lusha hace lo mismo: si account_id está presente, validar no-archivada;
+  //    si es null, continuar con company context del run (HubSpot-only path).
+  if (run.account_id) {
+    const { data: account, error: accountError } = await admin
+      .from('accounts')
+      .select('id, archived_at')
+      .eq('id', run.account_id)
+      .single();
+
+    if (accountError || !account) {
+      await admin
+        .from('contact_enrichment_runs')
+        .update({ status: 'failed', summary: { error: 'account_not_found', hito: '17B.4S' } })
+        .eq('id', runId);
+      return {
+        ok: false,
+        status: 'invalid_account',
+        runId,
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: 0,
+        creditsUsed: null,
+        message: `Account not found: ${accountError?.message ?? 'unknown'}`,
+      };
+    }
+
+    if (account.archived_at) {
+      await admin
+        .from('contact_enrichment_runs')
+        .update({ status: 'failed', summary: { error: 'account_archived', hito: '17B.4S' } })
+        .eq('id', runId);
+      return {
+        ok: false,
+        status: 'invalid_account',
+        runId,
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: 0,
+        creditsUsed: null,
+        message: `Account ${run.account_id} is archived. Cannot enrich for archived accounts.`,
+      };
+    }
   }
 
-  const { data: account, error: accountError } = await admin
-    .from('accounts')
-    .select('id, archived_at')
-    .eq('id', run.account_id)
-    .single();
+  // Resolve company resolution source for traceability
+  const runSummary = (run.summary && typeof run.summary === 'object' ? run.summary : {}) as Record<string, unknown>;
+  const companyResolutionSource = (runSummary['company_resolution_source'] as string | undefined) ?? (run.account_id ? 'sellup' : 'hubspot');
+  const isHubSpotOnly = !run.account_id;
 
-  if (accountError || !account) {
-    return {
-      ok: false,
-      status: 'invalid_account',
-      runId,
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      rawResultsCount: 0,
-      creditsUsed: null,
-      message: `Account not found: ${accountError?.message ?? 'unknown'}`,
-    };
-  }
-
-  if (account.archived_at) {
-    return {
-      ok: false,
-      status: 'invalid_account',
-      runId,
-      candidatesCreated: 0,
-      duplicatesSkipped: 0,
-      rawResultsCount: 0,
-      creditsUsed: null,
-      message: `Account ${run.account_id} is archived. Cannot enrich for archived accounts.`,
-    };
-  }
+  // Extract snapshot for dedup (HubSpot contacts from existing_contacts_snapshot)
+  const combined = (runSummary['existing_contacts_snapshot'] as Record<string, unknown> | undefined)?.['combined'] as Record<string, unknown> | undefined;
+  const snapshotEmails = Array.isArray(combined?.['existing_emails']) ? (combined!['existing_emails'] as string[]) : [];
+  const snapshotLinkedinUrls = Array.isArray(combined?.['existing_linkedin_urls']) ? (combined!['existing_linkedin_urls'] as string[]) : [];
 
   // 6. Update run → enriching
   await admin
@@ -1105,8 +1130,15 @@ export async function executeContactEnrichmentLushaRun(
     const candidateLinkedinUrl = searchLinkedin || enrichLinkedin || null;
     const linkedinSource = searchLinkedin ? 'lusha_search' : enrichLinkedin ? 'lusha_enrich' : null;
 
-    // Dedup check
-    const isDuplicate = await checkExactDuplicate(admin, run.account_id, actualEmail, candidateLinkedinUrl);
+    // Dedup check — pass snapshot for HubSpot-only dedup
+    const isDuplicate = await checkExactDuplicate(
+      admin,
+      run.account_id,
+      actualEmail,
+      candidateLinkedinUrl,
+      snapshotEmails,
+      snapshotLinkedinUrls,
+    );
     if (isDuplicate) {
       duplicatesSkipped += 1;
       continue;
@@ -1139,9 +1171,12 @@ export async function executeContactEnrichmentLushaRun(
         signals: consistency.signals,
         expected_domain: companyDomain,
         email_domain: emailDomain,
+        context_source: companyResolutionSource,
       },
+      company_resolution_source: companyResolutionSource,
+      is_hubspot_only: isHubSpotOnly,
       billing: { credits_charged: stepCredits, credits_source: 'billing' },
-      hito: '17B.4K',
+      hito: '17B.4S',
     };
 
     const { error: insertError } = await admin
