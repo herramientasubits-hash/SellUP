@@ -13,6 +13,11 @@ import {
 } from '@/lib/feature-flags.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import {
+  diagnoseLushaCredentialResolution,
+  lushaCredentialDiagnosticMessage,
+  type LushaCredentialStage,
+} from '@/server/services/lusha-credential-diagnostics';
+import {
   enrichLushaContactsV3,
   searchLushaContactsV3,
   getLushaAccountUsage,
@@ -59,6 +64,14 @@ export type LushaRunnerResult = {
   creditsUsed: number | null;
   emailDomain?: string | null;
   message: string;
+  credentialDiagnostic?: {
+    stage: LushaCredentialStage;
+    recommendation: string;
+    hasServiceRoleKey: boolean;
+    adminClientCreated: boolean;
+    vaultRpcOk: boolean;
+    vaultSecretFound: boolean;
+  } | null;
 };
 
 // ── DB helpers ─────────────────────────────────────────────────
@@ -233,13 +246,30 @@ export async function executeControlledLushaContactEnrichRun(
     // Supabase client couldn't be initialized — treat as missing key
   }
   if (!apiKey) {
+    const diag = await diagnoseLushaCredentialResolution({
+      runId,
+      triggeredBy,
+      source: 'runner',
+    }).catch(() => null);
     return {
       ok: false,
       status: 'missing_api_key',
       runId,
       candidatesCreated: 0,
       creditsUsed: null,
-      message: 'Lusha API key not configured (sellup_prospecting_lusha_api_key not found in Vault).',
+      message: diag
+        ? `Lusha no disponible: ${lushaCredentialDiagnosticMessage(diag)}`
+        : 'Lusha API key not configured (sellup_prospecting_lusha_api_key not found in Vault).',
+      credentialDiagnostic: diag
+        ? {
+            stage: diag.stage,
+            recommendation: diag.recommendation,
+            hasServiceRoleKey: diag.checks.hasServiceRoleKey,
+            adminClientCreated: diag.checks.adminClientCreated,
+            vaultRpcOk: diag.checks.vaultRpcOk,
+            vaultSecretFound: diag.checks.vaultSecretFound,
+          }
+        : null,
     };
   }
 
@@ -808,6 +838,12 @@ export async function executeContactEnrichmentLushaRun(
     // Supabase client couldn't be initialized — treat as missing key
   }
   if (!apiKey) {
+    const diag = await diagnoseLushaCredentialResolution({
+      runId,
+      triggeredBy,
+      source: 'runner',
+    }).catch(() => null);
+
     // Best-effort: mark run as failed so UI doesn't show "Listo para enriquecer"
     try {
       const adminForUpdate = getAdminClient();
@@ -815,7 +851,13 @@ export async function executeContactEnrichmentLushaRun(
         .from('contact_enrichment_runs')
         .update({
           status: 'failed',
-          summary: { error: 'missing_api_key', hito: '17B.4L' },
+          summary: {
+            error: 'missing_api_key',
+            hito: '17B.4L',
+            credential_diagnostic: diag
+              ? { stage: diag.stage, ok: diag.ok }
+              : null,
+          },
         })
         .eq('id', runId);
     } catch { /* no admin client available in this env — skip run update */ }
@@ -828,7 +870,19 @@ export async function executeContactEnrichmentLushaRun(
       duplicatesSkipped: 0,
       rawResultsCount: 0,
       creditsUsed: null,
-      message: 'Lusha API key not configured (sellup_prospecting_lusha_api_key not found in Vault).',
+      message: diag
+        ? `Lusha no disponible: ${lushaCredentialDiagnosticMessage(diag)}`
+        : 'Lusha API key not configured (sellup_prospecting_lusha_api_key not found in Vault).',
+      credentialDiagnostic: diag
+        ? {
+            stage: diag.stage,
+            recommendation: diag.recommendation,
+            hasServiceRoleKey: diag.checks.hasServiceRoleKey,
+            adminClientCreated: diag.checks.adminClientCreated,
+            vaultRpcOk: diag.checks.vaultRpcOk,
+            vaultSecretFound: diag.checks.vaultSecretFound,
+          }
+        : null,
     };
   }
 
