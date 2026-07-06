@@ -12,6 +12,8 @@ import type { SourceConnectionRecord } from './queries';
 import { getSourceConnectionTestHistory } from './history-queries';
 import type { SourceConnectionTestHistoryViewModel } from './history-queries';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { getHnContratacionesCoverageSummary } from '@/server/services/hn-contrataciones-coverage-summary';
+import type { HnContratacionesCoverageSummary } from '@/server/services/hn-contrataciones-coverage-summary';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -106,15 +108,19 @@ export type SourceDetailDrawerData = {
   connectionRecord: SourceConnectionRecord | null;
   testHistory: SourceConnectionTestHistoryViewModel;
   isAdmin: boolean;
+  hnCoverage: HnContratacionesCoverageSummary | null;
 };
 
 export async function getSourceDetailDrawerDataAction(
   sourceKey: string,
 ): Promise<SourceDetailDrawerData> {
-  const [connectionRecord, testHistory, isAdmin] = await Promise.all([
+  const [connectionRecord, testHistory, isAdmin, hnCoverage] = await Promise.all([
     getSourceConnectionRecord(sourceKey),
     getSourceConnectionTestHistory(sourceKey),
     isCurrentUserAdmin(),
+    sourceKey === 'hn_contrataciones_abiertas'
+      ? getHnContratacionesCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
   ]);
-  return { connectionRecord, testHistory, isAdmin };
+  return { connectionRecord, testHistory, isAdmin, hnCoverage };
 }

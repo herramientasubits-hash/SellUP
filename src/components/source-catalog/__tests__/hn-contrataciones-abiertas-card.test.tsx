@@ -1,10 +1,12 @@
 /**
- * Tests: HnContratacionesAbiertasCard — helpers puros de la card Honduras dry-run
+ * Tests: HnContratacionesAbiertasCard — helpers puros y comportamiento de la card
  *
- * Verifica que las constantes del dry-run real 2025 son correctas y
- * que los guardrails de conexión operativa retornan false.
+ * Post-8C.4C: la fuente tiene snapshot persistido.
+ *   isHnPersisted() ahora retorna true.
+ *   La card acepta coverage prop para mostrar datos dinámicos.
  *
- * Hito: Centroamérica.8C.2
+ * Hito: Centroamérica.8C.4C
+ * Previo: 8C.2 (isHnPersisted = false)
  */
 
 import { describe, it } from 'node:test';
@@ -18,8 +20,10 @@ import {
   isHnFiscalSource,
 } from '../hn-contrataciones-abiertas-card';
 
+// ─── Dry-run metrics históricos (dry-run 2025, no son el snapshot) ────────────
+
 describe('HN_DRY_RUN_METRICS — valores del dry-run real 2025', () => {
-  it('300 líneas leídas', () => {
+  it('300 líneas leídas (dry-run, no snapshot)', () => {
     assert.strictEqual(HN_DRY_RUN_METRICS.linesRead, 300);
   });
 
@@ -47,7 +51,7 @@ describe('HN_DRY_RUN_METRICS — valores del dry-run real 2025', () => {
     assert.strictEqual(HN_DRY_RUN_METRICS.legacySchemeIgnored, 9);
   });
 
-  it('99 RTN únicos válidos', () => {
+  it('99 RTN únicos válidos (dry-run, distinto de los 72 del snapshot)', () => {
     assert.strictEqual(HN_DRY_RUN_METRICS.uniqueValidRtn, 99);
   });
 
@@ -58,7 +62,13 @@ describe('HN_DRY_RUN_METRICS — valores del dry-run real 2025', () => {
   it('33 con riesgo persona natural / desconocido', () => {
     assert.strictEqual(HN_DRY_RUN_METRICS.naturalPersonRisk, 33);
   });
+
+  it('99 (dry-run) !== 72 (snapshot) — los dos universos son distintos', () => {
+    assert.notEqual(HN_DRY_RUN_METRICS.uniqueValidRtn, 72);
+  });
 });
+
+// ─── formatHnRtnCoverage ──────────────────────────────────────────────────────
 
 describe('formatHnRtnCoverage — helper de cobertura RTN', () => {
   it('calcula porcentaje correctamente (176/185)', () => {
@@ -74,8 +84,10 @@ describe('formatHnRtnCoverage — helper de cobertura RTN', () => {
   });
 });
 
+// ─── Guardrails — flags de conexión operativa ────────────────────────────────
+
 describe('Guardrails — flags de conexión operativa', () => {
-  it('post-approval NO está conectado', () => {
+  it('post-approval NO está conectado (post_approval_enabled = false)', () => {
     assert.strictEqual(isHnPostApprovalConnected(), false);
   });
 
@@ -83,11 +95,24 @@ describe('Guardrails — flags de conexión operativa', () => {
     assert.strictEqual(isHnAutoMatchingEnabled(), false);
   });
 
-  it('fuente NO está persistida', () => {
-    assert.strictEqual(isHnPersisted(), false);
+  it('8C.4C: fuente SÍ está persistida (snapshot piloto aplicado exitosamente)', () => {
+    assert.strictEqual(isHnPersisted(), true);
   });
 
   it('NO es fuente fiscal', () => {
     assert.strictEqual(isHnFiscalSource(), false);
+  });
+});
+
+// ─── Distinción dry-run vs snapshot ──────────────────────────────────────────
+
+describe('Distinción semántica: 72 (snapshot) vs 99 (dry-run)', () => {
+  it('HN_DRY_RUN_METRICS.uniqueValidRtn es 99, no 72', () => {
+    assert.strictEqual(HN_DRY_RUN_METRICS.uniqueValidRtn, 99);
+    assert.notEqual(HN_DRY_RUN_METRICS.uniqueValidRtn, 72);
+  });
+
+  it('HN_DRY_RUN_METRICS.linesRead es 300 (muestra técnica), no el universo del snapshot', () => {
+    assert.strictEqual(HN_DRY_RUN_METRICS.linesRead, 300);
   });
 });

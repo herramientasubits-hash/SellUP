@@ -93,6 +93,7 @@ export type AiFlowStatus =
   | 'source_guided'
   | 'manual_only'
   | 'signal_connected_read_only'
+  | 'snapshot_persisted'
   | 'dry_run_validated'
   | 'paused'
   | 'not_applicable'
@@ -105,6 +106,7 @@ export type ConnectionMode =
   | 'offline_signal'
   | 'credential_configured'
   | 'read_only_signal'
+  | 'read_only_snapshot'
   | 'not_connected'
   | 'not_persisted'
   | 'not_applicable';
@@ -114,6 +116,7 @@ export type CatalogSourceOperationalStatus =
   | 'connection_required'
   | 'pending_validation'
   | 'dry_run_validated'
+  | 'partial_snapshot'
   | 'manual_signal_only'
   | 'validation_only'
   | 'discarded_paid_or_tos'

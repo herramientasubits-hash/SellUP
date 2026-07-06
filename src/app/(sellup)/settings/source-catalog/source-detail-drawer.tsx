@@ -48,13 +48,13 @@ import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-con
 export type { SocrataPreviewBatchListItem, SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
 
 /**
- * Fuentes con dry-run validado y sin persistencia no tienen credencial configurable
- * ni endpoint testeable desde UI. Ocultar paneles de conexión para estas fuentes.
+ * Fuentes sin credencial configurable ni endpoint testeable desde UI.
+ * Incluye: dry_run + not_persisted, y snapshot_persisted + read_only_snapshot.
  */
-function isDryRunValidatedNotPersisted(source: SourceViewModel): boolean {
+function shouldSkipConnectionPanels(source: SourceViewModel): boolean {
   return (
-    source.aiFlowStatus === 'dry_run_validated' &&
-    source.connectionMode === 'not_persisted'
+    (source.aiFlowStatus === 'dry_run_validated' && source.connectionMode === 'not_persisted') ||
+    (source.aiFlowStatus === 'snapshot_persisted' && source.connectionMode === 'read_only_snapshot')
   );
 }
 
@@ -112,7 +112,7 @@ export function SourceDetailDrawer({
   const isDenue = source.key === 'mx_denue';
   const isClRes = source.key === 'cl_res';
   const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
-  const skipConnectionPanels = isDryRunValidatedNotPersisted(source);
+  const skipConnectionPanels = shouldSkipConnectionPanels(source);
   const batchesCount = socrataBatches.batches.length;
 
   const infoContent = (
@@ -328,7 +328,7 @@ export function SourceDetailDrawer({
           )}
 
           {isHnContrataciones && (
-            <HnContratacionesAbiertasCard />
+            <HnContratacionesAbiertasCard coverage={drawerData.hnCoverage} />
           )}
 
           {!skipConnectionPanels && (

@@ -22,6 +22,7 @@ import { PaPanamaCompraConvenioCoverageCard } from '@/components/source-catalog/
 import { getSvComprasalSignalsSummary } from '@/server/services/sv-comprasal-signals-summary';
 import { SvComprasalSignalsCard } from '@/components/source-catalog/sv-comprasal-signals-card';
 import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
+import { getHnContratacionesCoverageSummary } from '@/server/services/hn-contrataciones-coverage-summary';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -67,7 +68,7 @@ export default async function SourceDetailPage({ params }: Props) {
   const isSvComprasal = source.key === 'sv_comprasal';
   const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
 
-  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage, svComprasalSignals] = await Promise.all([
+  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage, svComprasalSignals, hnCoverage] = await Promise.all([
     getSourceConnectionTestHistory(sourceKey),
     getSourceConnectionRecord(sourceKey),
     isCurrentUserAdmin(),
@@ -88,6 +89,9 @@ export default async function SourceDetailPage({ params }: Props) {
       : Promise.resolve(null),
     isSvComprasal
       ? getSvComprasalSignalsSummary().catch(() => null)
+      : Promise.resolve(null),
+    isHnContrataciones
+      ? getHnContratacionesCoverageSummary().catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -368,9 +372,9 @@ export default async function SourceDetailPage({ params }: Props) {
           : <PaPanamaCompraConvenioCoverageCard error />
       )}
 
-      {/* Honduras OCDS dry-run — solo hn_contrataciones_abiertas (dry-run validado, sin persistencia, sin post-approval) */}
+      {/* Honduras OCDS snapshot — solo hn_contrataciones_abiertas (snapshot parcial persistido, post-approval no habilitado) */}
       {isHnContrataciones && (
-        <HnContratacionesAbiertasCard />
+        <HnContratacionesAbiertasCard coverage={hnCoverage} />
       )}
 
       {/* Señales COMPRASAL El Salvador — solo sv_comprasal (señal débil weak_name_only, sin post-approval, sin matching automático) */}
