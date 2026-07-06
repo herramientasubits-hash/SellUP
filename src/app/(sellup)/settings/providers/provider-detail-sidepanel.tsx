@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useTransition } from 'react';
+import { useState, useEffect, useCallback, useTransition, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
@@ -8,6 +8,7 @@ import {
   Loader2, Lock,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -35,6 +36,7 @@ import {
 } from '@/app/(sellup)/settings/budget-credits/rules/budget-rules-client';
 import {
   loadProviderDetailForPanel,
+  loadProviderConsumptionForWorkspace,
   testAiProviderConnectionForPanel,
   updateAiProviderCredentialForPanel,
   disconnectAiProviderForPanel,
@@ -45,7 +47,10 @@ import {
   type SidepanelDetailData,
   type AiConnectionPanelState,
   type ProspectingConnectionPanelState,
+  type ProviderConsumptionSnapshot,
+  type UsageFilters,
 } from './provider-detail-actions';
+import type { FilterUser, FilterGroup } from '@/modules/ai-usage/queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
 import { getProviderOperationLabel } from '@/modules/budgets/operation-labels';
 
@@ -1071,31 +1076,287 @@ function TabConfiguracion({
 
 // ── Tab: Consumo ──────────────────────────────────────────────────────────────
 
+const CONSUMPTION_PERIOD_OPTIONS = [
+  { value: 'current_month', label: 'Mes actual' },
+  { value: '7d', label: 'Últimos 7 días' },
+  { value: '30d', label: 'Últimos 30 días' },
+  { value: 'all', label: 'Todo el período' },
+] as const;
+
+const CONSUMPTION_KPI_LABEL: Record<NonNullable<UsageFilters['period']>, string> = {
+  current_month: 'Consumo del mes',
+  '7d': 'Consumo · últimos 7 días',
+  '30d': 'Consumo · últimos 30 días',
+  all: 'Consumo acumulado',
+};
+
+const CONSUMPTION_AGENT_DISPLAY: Record<string, string> = {
+  prospect_generation: 'Generación de prospectos',
+  account_intelligence: 'Inteligencia de cuenta',
+  commercial_speech: 'Speech comercial',
+  post_meeting_followup: 'Seguimiento post-reunión',
+  contact_enrichment: 'Enriquecimiento de contactos',
+};
+
+function labelConsumptionAgent(key: string, name: string | null) {
+  return CONSUMPTION_AGENT_DISPLAY[key] ?? name ?? key;
+}
+
+function labelConsumptionUser(u: FilterUser) {
+  if (u.full_name && u.email) return `${u.full_name} (${u.email})`;
+  return u.full_name ?? u.email ?? u.id.slice(0, 8);
+}
+
+const CONSUMPTION_GROUP_INDENT_PX = 16;
+
+function consumptionDescendantGroupIds(rootId: string, groups: FilterGroup[]): Set<string> {
+  const childrenByParent = new Map<string, string[]>();
+  for (const g of groups) {
+    if (!g.parent_group_id) continue;
+    const arr = childrenByParent.get(g.parent_group_id) ?? [];
+    arr.push(g.id);
+    childrenByParent.set(g.parent_group_id, arr);
+  }
+  const result = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (result.has(id)) continue;
+    result.add(id);
+    for (const childId of childrenByParent.get(id) ?? []) stack.push(childId);
+  }
+  return result;
+}
+
 function TabConsumo({
   row,
   ms,
-  usageLogs,
-  loading,
+  providerKey,
 }: {
   row: AdminProviderBudgetRow;
   ms: MeasurementStatus;
-  usageLogs: ProviderUsageLogRow[];
-  loading: boolean;
+  providerKey: string;
 }) {
-  const consumed =
+  const [filters, setFilters] = useState<UsageFilters>({ period: 'current_month' });
+  const [snapshot, setSnapshot] = useState<ProviderConsumptionSnapshot | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const seqRef = useRef(0);
+
+  useEffect(() => {
+    const seq = ++seqRef.current;
+    startTransition(async () => {
+      const result = await loadProviderConsumptionForWorkspace(providerKey, filters);
+      if (seq === seqRef.current) setSnapshot(result);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerKey, filters]);
+
+  const options = snapshot?.filterOptions;
+  const period = filters.period ?? 'current_month';
+  const kpiLabel = CONSUMPTION_KPI_LABEL[period];
+
+  const filteredCredits = snapshot?.totalCredits ?? null;
+  const filteredCost = snapshot?.totalCostUsd ?? 0;
+  const kpiValue =
     ms === 'active'
-      ? formatAmount(row.consumedCredits, row.consumedUsd) || '0 cr'
+      ? formatAmount(filteredCredits, filteredCost > 0 ? filteredCost : null) || '0 cr'
       : '—';
 
   const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
-  const recentOps = usageLogs.slice(0, 5);
-  const visibleCount = Math.min(5, usageLogs.length);
+
+  const recentLogs = snapshot?.recentLogs ?? [];
+  const recentOps = recentLogs.slice(0, 5);
+  const visibleCount = Math.min(5, recentLogs.length);
+
+  // Client-side user scoping: filter visible users by selected role ∩ group
+  const groupScope = filters.groupId
+    ? consumptionDescendantGroupIds(filters.groupId, options?.groups ?? [])
+    : null;
+
+  const visibleUsers = (options?.users ?? []).filter((u) => {
+    if (filters.role && u.role_key !== filters.role) return false;
+    if (groupScope && (!u.group_id || !groupScope.has(u.group_id))) return false;
+    return true;
+  });
+
+  function setFilter(key: keyof UsageFilters, value: string | null) {
+    setFilters((prev) => {
+      const next = { ...prev };
+      if (!value || value === 'all') {
+        delete next[key];
+      } else {
+        (next as Record<string, string>)[key] = value;
+      }
+      return next;
+    });
+  }
+
+  function onRoleChange(value: string | null) {
+    setFilters((prev) => {
+      const next: UsageFilters = { ...prev };
+      if (!value || value === 'all') {
+        delete next.role;
+      } else {
+        next.role = value;
+        const u = (options?.users ?? []).find((u) => u.id === next.user);
+        if (u && u.role_key !== next.role) delete next.user;
+      }
+      return next;
+    });
+  }
+
+  function onGroupChange(value: string | null) {
+    setFilters((prev) => {
+      const next: UsageFilters = { ...prev };
+      if (!value || value === 'all') {
+        delete next.groupId;
+      } else {
+        next.groupId = value;
+        const scope = consumptionDescendantGroupIds(value, options?.groups ?? []);
+        const u = (options?.users ?? []).find((u) => u.id === next.user);
+        if (u && (!u.group_id || !scope.has(u.group_id))) delete next.user;
+      }
+      return next;
+    });
+  }
+
+  const groupNameMap = new Map((options?.groups ?? []).map((g) => [g.id, g.name]));
+  const userByIdMap = new Map((options?.users ?? []).map((u) => [u.id, u]));
+  const selectedUser = filters.user ? userByIdMap.get(filters.user) : undefined;
 
   return (
     <div className="space-y-4">
-      {/* Consumo del mes — KPI canónico */}
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-1.5">
+        {/* Período */}
+        <Select value={period} onValueChange={(v) => setFilter('period', v)}>
+          <SelectTrigger className="h-7 w-[140px] text-[11px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CONSUMPTION_PERIOD_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Rol */}
+        {(options?.roles ?? []).length > 0 && (
+          <Select value={filters.role ?? 'all'} onValueChange={onRoleChange}>
+            <SelectTrigger className="h-7 w-[150px] text-[11px]">
+              <SelectValue placeholder="Rol">
+                {filters.role
+                  ? (options?.roles.find((r) => r.key === filters.role)?.label ?? filters.role)
+                  : 'Todos los roles'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los roles</SelectItem>
+              {(options?.roles ?? []).map((r) => (
+                <SelectItem key={r.key} value={r.key} className="text-xs">{r.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Grupo */}
+        {(options?.groups ?? []).length > 0 && (
+          <Select value={filters.groupId ?? 'all'} onValueChange={onGroupChange}>
+            <SelectTrigger className="h-7 w-[160px] text-[11px]">
+              <SelectValue placeholder="Grupo">
+                {filters.groupId
+                  ? (groupNameMap.get(filters.groupId) ?? filters.groupId)
+                  : 'Todos los grupos'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los grupos</SelectItem>
+              {(options?.groups ?? []).map((g) => (
+                <SelectItem key={g.id} value={g.id} className="text-xs">
+                  <span style={{ paddingLeft: `${g.depth * CONSUMPTION_GROUP_INDENT_PX}px` }}>
+                    {g.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Usuario */}
+        {(options?.users ?? []).length > 0 && (
+          <Select value={filters.user ?? 'all'} onValueChange={(v) => setFilter('user', v)}>
+            <SelectTrigger className="h-7 w-[160px] text-[11px]">
+              <SelectValue placeholder="Usuario">
+                {selectedUser ? labelConsumptionUser(selectedUser) : 'Todos los usuarios'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los usuarios</SelectItem>
+              {visibleUsers.map((u) => (
+                <SelectItem key={u.id} value={u.id} className="text-xs">
+                  {labelConsumptionUser(u)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Agente */}
+        {(options?.agents ?? []).length > 0 && (
+          <Select value={filters.agent ?? 'all'} onValueChange={(v) => setFilter('agent', v)}>
+            <SelectTrigger className="h-7 w-[180px] text-[11px]">
+              <SelectValue placeholder="Agente">
+                {filters.agent
+                  ? labelConsumptionAgent(
+                      filters.agent,
+                      options?.agents.find((a) => a.key === filters.agent)?.name ?? null,
+                    )
+                  : 'Todos los agentes'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los agentes</SelectItem>
+              {(options?.agents ?? []).map((a) => (
+                <SelectItem key={a.key} value={a.key} className="text-xs">
+                  {labelConsumptionAgent(a.key, a.name)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Estado */}
+        {(options?.statuses ?? []).length > 0 && (
+          <Select value={filters.status ?? 'all'} onValueChange={(v) => setFilter('status', v)}>
+            <SelectTrigger className="h-7 w-[130px] text-[11px]">
+              <SelectValue placeholder="Estado">
+                {filters.status ? filters.status.replace(/_/g, ' ') : 'Todos los estados'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos los estados</SelectItem>
+              {(options?.statuses ?? []).map((s) => (
+                <SelectItem key={s} value={s} className="text-xs capitalize">
+                  {s.replace(/_/g, ' ')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {/* KPI — consumo filtrado */}
       <SectionCard>
-        <InfoRow label="Consumo del mes" value={consumed} />
+        {isPending ? (
+          <div className="flex items-center gap-2 py-1">
+            <Loader2 className="h-3 w-3 text-muted-foreground/50 animate-spin" />
+            <span className="text-xs text-muted-foreground/60">Calculando...</span>
+          </div>
+        ) : (
+          <InfoRow label={kpiLabel} value={kpiValue} />
+        )}
         {row.quotaSyncedAt && (
           <InfoRow
             label="Cuota disponible (API)"
@@ -1104,7 +1365,7 @@ function TabConsumo({
         )}
       </SectionCard>
 
-      {/* Reglas de consumo */}
+      {/* Reglas de consumo — estáticas, no cambian con filtros analíticos */}
       <div className="space-y-1.5">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Reglas de consumo</p>
         <SectionCard>
@@ -1135,38 +1396,38 @@ function TabConsumo({
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2 px-1">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Operaciones recientes</p>
-            {usageLogs.length > 0 && (
+            {recentLogs.length > 0 && (
               <p className="text-[10px] text-muted-foreground/50">
-                Últimas {visibleCount} de {usageLogs.length} operaciones cargadas
+                Últimas {visibleCount} de {recentLogs.length} cargadas
               </p>
             )}
           </div>
-          {loading ? (
+          {isPending ? (
             <LoadingPlaceholder label="Cargando operaciones..." />
           ) : recentOps.length === 0 ? (
             <EmptyBlock
-              message="Sin operaciones registradas para este proveedor."
-              sub="Los datos aparecen después de la primera ejecución."
+              message="Sin operaciones registradas para este scope."
+              sub="Ajusta los filtros o amplía el período para ver actividad."
             />
           ) : (
             <div className="space-y-1.5">
               {recentOps.map((log) => (
                 <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 flex items-center gap-3">
                   <span className="text-xs text-foreground truncate flex-1">
-                    {getProviderOperationLabel(row.providerKey, log.operationKey ?? '')}
+                    {getProviderOperationLabel(providerKey, log.operation_key ?? '')}
                   </span>
-                  {log.creditsUsed != null && (
+                  {log.credits_used != null && (
                     <span className="text-[10px] text-muted-foreground/70 shrink-0">
-                      {log.creditsUsed.toLocaleString()} cr
+                      {log.credits_used.toLocaleString()} cr
                     </span>
                   )}
-                  {log.estimatedCostUsd != null && (
+                  {log.estimated_cost_usd != null && log.estimated_cost_usd > 0 && (
                     <span className="text-[10px] text-muted-foreground/70 shrink-0">
-                      ${log.estimatedCostUsd.toFixed(4)}
+                      ${log.estimated_cost_usd.toFixed(4)}
                     </span>
                   )}
                   <span className="text-[10px] text-muted-foreground/50 shrink-0 ml-auto">
-                    {formatDateShort(log.createdAt)}
+                    {formatDateShort(log.created_at)}
                   </span>
                 </div>
               ))}
@@ -1174,10 +1435,6 @@ function TabConsumo({
           )}
         </div>
       )}
-
-      <ProgressiveNote>
-        Los filtros avanzados de consumo se incorporarán progresivamente.
-      </ProgressiveNote>
     </div>
   );
 }
@@ -2069,7 +2326,7 @@ export function ProviderDetailSidepanel({
           </TabsContent>
 
           <TabsContent value="consumo">
-            <TabConsumo row={provider} ms={ms} usageLogs={usageLogs} loading={loadingDetail} />
+            <TabConsumo row={provider} ms={ms} providerKey={provider.providerKey} />
           </TabsContent>
 
           <TabsContent value="presupuesto">

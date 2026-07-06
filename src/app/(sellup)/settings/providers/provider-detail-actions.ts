@@ -4,6 +4,13 @@ import { getProviderDetail } from '@/modules/budgets/provider-detail-queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import {
+  getProviderStats,
+  getRecentProviderLogs,
+  getDistinctFilterOptions,
+} from '@/modules/ai-usage/queries';
+import type { UsageFilters, FilterOptions } from '@/modules/ai-usage/queries';
+import type { ProviderUsageLog } from '@/modules/usage-tracking/types';
+import {
   testAiProviderConnectionWithVault,
   updateAiProviderCredential,
   disconnectAiProvider,
@@ -216,5 +223,43 @@ export async function disconnectProspectingProviderForPanel(
     return { ok: false, error: 'Proveedor no soportado aún. Configuración progresiva.' };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
+  }
+}
+
+// ── Consumption workspace ─────────────────────────────────────────────────────
+
+export interface ProviderConsumptionSnapshot {
+  totalCredits: number | null;
+  totalCostUsd: number;
+  recentLogs: ProviderUsageLog[];
+  filterOptions: FilterOptions | null;
+}
+
+export type { UsageFilters, FilterOptions };
+
+export async function loadProviderConsumptionForWorkspace(
+  providerKey: string,
+  filters: UsageFilters,
+): Promise<ProviderConsumptionSnapshot | null> {
+  try {
+    const providerFilters: UsageFilters = { ...filters, provider: providerKey };
+    const [statsResult, logsResult, optionsResult] = await Promise.all([
+      getProviderStats(providerFilters),
+      getRecentProviderLogs(25, providerFilters),
+      getDistinctFilterOptions(),
+    ]);
+
+    if (statsResult === null) return null;
+
+    const stat = (statsResult ?? []).find((s) => s.provider_key === providerKey);
+
+    return {
+      totalCredits: stat?.total_credits_used ?? null,
+      totalCostUsd: stat?.total_estimated_cost_usd ?? 0,
+      recentLogs: logsResult ?? [],
+      filterOptions: optionsResult,
+    };
+  } catch {
+    return null;
   }
 }
