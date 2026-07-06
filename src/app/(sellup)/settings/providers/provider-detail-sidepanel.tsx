@@ -49,6 +49,7 @@ import {
   type ProspectingConnectionPanelState,
   type ProviderConsumptionSnapshot,
   type UsageFilters,
+  type ConsumptionErrorStage,
 } from './provider-detail-actions';
 import type { FilterUser, FilterGroup } from '@/modules/ai-usage/queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
@@ -1142,21 +1143,35 @@ function TabConsumo({
   const [filters, setFilters] = useState<UsageFilters>({ period: 'current_month' });
   const [snapshot, setSnapshot] = useState<ProviderConsumptionSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [diagnosticStage, setDiagnosticStage] = useState<ConsumptionErrorStage | null>(null);
   const [isPending, startTransition] = useTransition();
   const seqRef = useRef(0);
+
+  const STAGE_LABEL: Record<ConsumptionErrorStage, string> = {
+    provider_stats: 'Métricas de consumo',
+    recent_logs: 'Operaciones recientes',
+    filter_options: 'Opciones de filtro',
+    mapping: 'Preparación de datos',
+  };
 
   const loadConsumptionSnapshot = useCallback(() => {
     const seq = ++seqRef.current;
     startTransition(async () => {
       try {
         const result = await loadProviderConsumptionForWorkspace(providerKey, filters);
-        if (seq === seqRef.current) {
-          setSnapshot(result);
+        if (seq !== seqRef.current) return;
+        if (result.ok) {
+          setSnapshot(result.snapshot);
           setLoadError(null);
+          setDiagnosticStage(null);
+        } else {
+          setLoadError('No fue posible cargar el consumo de este proveedor.');
+          setDiagnosticStage(result.errorStage);
         }
       } catch {
         if (seq === seqRef.current) {
           setLoadError('No fue posible cargar el consumo de este proveedor.');
+          setDiagnosticStage(null);
         }
       }
     });
@@ -1246,6 +1261,11 @@ function TabConsumo({
       {loadError && (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-4 space-y-2">
           <p className="text-xs text-foreground">{loadError}</p>
+          {diagnosticStage && (
+            <p className="text-[10px] text-muted-foreground/70">
+              No se pudo cargar: {STAGE_LABEL[diagnosticStage]}
+            </p>
+          )}
           <p className="text-[10px] text-muted-foreground/70">Puedes reintentar sin cerrar el workspace.</p>
           <Button
             size="sm"

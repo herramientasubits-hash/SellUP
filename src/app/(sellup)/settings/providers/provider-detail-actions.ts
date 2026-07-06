@@ -235,31 +235,90 @@ export interface ProviderConsumptionSnapshot {
   filterOptions: FilterOptions | null;
 }
 
+export type ConsumptionErrorStage =
+  | 'provider_stats'
+  | 'recent_logs'
+  | 'filter_options'
+  | 'mapping';
+
+export type ConsumptionLoadResult =
+  | { ok: true; snapshot: ProviderConsumptionSnapshot }
+  | { ok: false; errorStage: ConsumptionErrorStage; errorCode: string | null };
+
 export type { UsageFilters, FilterOptions };
+
+function classifyConsumptionError(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown_server_error';
+  const name = error.name;
+  if (name === 'AbortError' || name === 'TimeoutError') return 'timeout_or_transport';
+  if (name === 'AuthError' || name === 'PostgrestError') {
+    const msg = error.message ?? '';
+    if (msg.includes('JWT') || msg.includes('auth') || msg.includes('permission')) {
+      return 'auth_scope_error';
+    }
+    return 'supabase_query_error';
+  }
+  if (name === 'SyntaxError' || name === 'TypeError') return 'serialization_error';
+  return 'unknown_server_error';
+}
 
 export async function loadProviderConsumptionForWorkspace(
   providerKey: string,
   filters: UsageFilters,
-): Promise<ProviderConsumptionSnapshot | null> {
+): Promise<ConsumptionLoadResult> {
+  const providerFilters: UsageFilters = { ...filters, provider: providerKey };
+
+  let statsResult: Awaited<ReturnType<typeof getProviderStats>>;
   try {
-    const providerFilters: UsageFilters = { ...filters, provider: providerKey };
-    const [statsResult, logsResult, optionsResult] = await Promise.all([
-      getProviderStats(providerFilters),
-      getRecentProviderLogs(25, providerFilters),
-      getDistinctFilterOptions(),
-    ]);
+    statsResult = await getProviderStats(providerFilters);
+  } catch (error) {
+    console.error('[providers:consumption-load]', {
+      providerKey,
+      stage: 'provider_stats',
+      errorName: error instanceof Error ? error.name : 'unknown',
+    });
+    return { ok: false, errorStage: 'provider_stats', errorCode: classifyConsumptionError(error) };
+  }
 
-    if (statsResult === null) return null;
+  let logsResult: Awaited<ReturnType<typeof getRecentProviderLogs>>;
+  try {
+    logsResult = await getRecentProviderLogs(25, providerFilters);
+  } catch (error) {
+    console.error('[providers:consumption-load]', {
+      providerKey,
+      stage: 'recent_logs',
+      errorName: error instanceof Error ? error.name : 'unknown',
+    });
+    return { ok: false, errorStage: 'recent_logs', errorCode: classifyConsumptionError(error) };
+  }
 
+  let optionsResult: Awaited<ReturnType<typeof getDistinctFilterOptions>>;
+  try {
+    optionsResult = await getDistinctFilterOptions();
+  } catch (error) {
+    console.error('[providers:consumption-load]', {
+      providerKey,
+      stage: 'filter_options',
+      errorName: error instanceof Error ? error.name : 'unknown',
+    });
+    return { ok: false, errorStage: 'filter_options', errorCode: classifyConsumptionError(error) };
+  }
+
+  try {
     const stat = (statsResult ?? []).find((s) => s.provider_key === providerKey);
-
-    return {
+    const snapshot: ProviderConsumptionSnapshot = {
       totalCredits: stat?.total_credits_used ?? null,
       totalCostUsd: stat?.total_estimated_cost_usd ?? 0,
       recentLogs: logsResult ?? [],
       filterOptions: optionsResult,
     };
-  } catch {
-    return null;
+    return { ok: true, snapshot };
+  } catch (error) {
+    console.error('[providers:consumption-load]', {
+      providerKey,
+      stage: 'mapping',
+      errorName: error instanceof Error ? error.name : 'unknown',
+    });
+    return { ok: false, errorStage: 'mapping', errorCode: classifyConsumptionError(error) };
   }
 }
