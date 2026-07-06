@@ -12,7 +12,8 @@ import {
   getApolloConnection,
   getLushaConnection,
 } from '@/modules/prospecting-config/actions';
-import type { ProspectingConnectionPanelState } from './provider-detail-actions';
+import { getAllAIProviders } from '@/modules/ai-config/actions';
+import type { ProspectingConnectionPanelState, AiConnectionPanelState } from './provider-detail-actions';
 
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -25,11 +26,12 @@ export default async function ProvidersConsumptionPage({ searchParams }: PagePro
   const resolved = await searchParams;
   const defaultTab = typeof resolved.tab === 'string' ? resolved.tab : null;
 
-  const [summary, rules, apolloConn, lushaConn] = await Promise.all([
+  const [summary, rules, apolloConn, lushaConn, aiProviders] = await Promise.all([
     getAdminBudgetSummary(),
     getBudgetRulesForAdmin(),
     getApolloConnection().catch(() => null),
     getLushaConnection().catch(() => null),
+    getAllAIProviders().catch(() => [] as Awaited<ReturnType<typeof getAllAIProviders>>),
   ]);
 
   const notConfigured: ProspectingConnectionPanelState = {
@@ -64,6 +66,19 @@ export default async function ProvidersConsumptionPage({ searchParams }: PagePro
       : notConfigured,
   };
 
+  const aiProviderConnectionStates: Record<string, AiConnectionPanelState> = {};
+  for (const p of aiProviders) {
+    const hasCredential = p.credentials_status === 'configured';
+    const connectionStatus = p.connection_status ?? 'not_configured';
+    aiProviderConnectionStates[p.key] = {
+      hasCredential,
+      connectionStatus,
+      lastTestedAt: p.last_tested_at ?? null,
+      lastConnectionError: p.last_connection_error ?? null,
+      canActivate: hasCredential && connectionStatus === 'connected',
+    };
+  }
+
   return (
     <div className="space-y-8 px-8 py-6">
       <PageHeader
@@ -84,6 +99,7 @@ export default async function ProvidersConsumptionPage({ searchParams }: PagePro
                   resolvedAt={summary.resolvedAt}
                   allRules={rules}
                   providerConnectionStates={providerConnectionStates}
+                  aiProviderConnectionStates={aiProviderConnectionStates}
                 />
               </div>
             </SurfaceCard>

@@ -35,7 +35,6 @@ import {
 } from '@/app/(sellup)/settings/budget-credits/rules/budget-rules-client';
 import {
   loadProviderDetailForPanel,
-  loadAiProviderConnectionForPanel,
   testAiProviderConnectionForPanel,
   updateAiProviderCredentialForPanel,
   disconnectAiProviderForPanel,
@@ -44,11 +43,10 @@ import {
   updateProspectingProviderCredentialForPanel,
   disconnectProspectingProviderForPanel,
   type SidepanelDetailData,
-  type ProviderUsageLogRow,
-  type ProviderSyncLogRow,
   type AiConnectionPanelState,
   type ProspectingConnectionPanelState,
 } from './provider-detail-actions';
+import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
 
 // ── Rule display constants ────────────────────────────────────────────────────
 
@@ -536,10 +534,19 @@ function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } |
 
 // ── Tab: Configuración IA ─────────────────────────────────────────────────────
 
-function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
-  const [connState, setConnState] = useState<AiConnectionPanelState | null>(null);
-  const [loadingConn, setLoadingConn] = useState(true);
-  const [connLoadError, setConnLoadError] = useState(false);
+function TabConfiguracionIA({
+  row,
+  ms,
+  initialConnState,
+}: {
+  row: AdminProviderBudgetRow;
+  ms: MeasurementStatus;
+  initialConnState?: AiConnectionPanelState | null;
+}) {
+  const router = useRouter();
+  const [connState, setConnState] = useState<AiConnectionPanelState | null>(
+    initialConnState ?? null,
+  );
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showKeyForm, setShowKeyForm] = useState(false);
@@ -549,27 +556,17 @@ function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Meas
   const opType = getProviderOperationalType(row.providerKey);
   const opBadge = OPERATIONAL_TYPE_BADGE[opType];
 
-  const loadConn = useCallback(async () => {
-    setLoadingConn(true);
-    setConnLoadError(false);
-    try {
-      const s = await loadAiProviderConnectionForPanel(row.providerKey);
-      setConnState(s);
-    } catch {
-      setConnLoadError(true);
-    } finally {
-      setLoadingConn(false);
-    }
-  }, [row.providerKey]);
-
-  useEffect(() => { void loadConn(); }, [loadConn]);
+  // Sync when server re-renders with fresh initial state (after router.refresh())
+  useEffect(() => {
+    setConnState(initialConnState ?? null);
+  }, [initialConnState]);
 
   const handleTest = () => {
     setFeedback(null);
     startTransition(async () => {
       const r = await testAiProviderConnectionForPanel(row.providerKey);
       setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Conexión verificada' : 'Error al probar') });
-      void loadConn();
+      router.refresh();
     });
   };
 
@@ -582,7 +579,7 @@ function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Meas
       setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Credencial guardada' : 'Error al guardar') });
       setApiKeyInput('');
       if (r.ok) setShowKeyForm(false);
-      void loadConn();
+      router.refresh();
     });
   };
 
@@ -592,7 +589,7 @@ function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Meas
       const r = await disconnectAiProviderForPanel(row.providerKey);
       setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Desconectado' : 'Error al desconectar') });
       setShowDisconnectConfirm(false);
-      void loadConn();
+      router.refresh();
     });
   };
 
@@ -610,17 +607,7 @@ function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Meas
       {/* Conexión */}
       <div>
         <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Conexión" />
-        {loadingConn ? (
-          <LoadingPlaceholder label="Cargando estado de conexión..." />
-        ) : connLoadError ? (
-          <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-4 space-y-2">
-            <p className="text-xs text-muted-foreground">No fue posible cargar el estado de conexión.</p>
-            <Button size="sm" variant="outline" onClick={() => void loadConn()} className="h-7 text-xs">
-              Reintentar
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2">
+        <div className="space-y-2">
             <SectionCard>
               <InfoRow
                 label="Estado"
@@ -701,7 +688,6 @@ function TabConfiguracionIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Meas
 
             <InlineFeedback feedback={feedback} />
           </div>
-        )}
       </div>
 
       {/* Modelos y tarifas */}
@@ -1069,14 +1055,16 @@ function TabConfiguracion({
   row,
   ms,
   initialConnState,
+  aiInitialConnState,
 }: {
   row: AdminProviderBudgetRow;
   ms: MeasurementStatus;
   initialConnState?: ProspectingConnectionPanelState | null;
+  aiInitialConnState?: AiConnectionPanelState | null;
 }) {
   const opType = getProviderOperationalType(row.providerKey);
   return opType === 'ia'
-    ? <TabConfiguracionIA row={row} ms={ms} />
+    ? <TabConfiguracionIA row={row} ms={ms} initialConnState={aiInitialConnState} />
     : <TabConfiguracionNoIA row={row} ms={ms} initialConnState={initialConnState} />;
 }
 
@@ -1952,6 +1940,7 @@ interface ProviderDetailSidepanelProps {
   onConfigureAllowance: (row: AdminProviderBudgetRow) => void;
   allRules?: BudgetRuleRow[];
   providerConnectionStates?: Record<string, ProspectingConnectionPanelState>;
+  aiProviderConnectionStates?: Record<string, AiConnectionPanelState>;
 }
 
 export function ProviderDetailSidepanel({
@@ -1962,6 +1951,7 @@ export function ProviderDetailSidepanel({
   onConfigureAllowance,
   allRules = [],
   providerConnectionStates,
+  aiProviderConnectionStates,
 }: ProviderDetailSidepanelProps) {
   const ms: MeasurementStatus = provider?.measurementStatus ?? 'prepared';
   const opType = provider ? getProviderOperationalType(provider.providerKey) : null;
@@ -2088,6 +2078,7 @@ export function ProviderDetailSidepanel({
               row={provider}
               ms={ms}
               initialConnState={providerConnectionStates?.[provider.providerKey.toLowerCase()]}
+              aiInitialConnState={aiProviderConnectionStates?.[provider.providerKey.toLowerCase()]}
             />
           </TabsContent>
 

@@ -4,7 +4,6 @@ import { getProviderDetail } from '@/modules/budgets/provider-detail-queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import {
-  getAiProviderConnectionStatus,
   testAiProviderConnectionWithVault,
   updateAiProviderCredential,
   disconnectAiProvider,
@@ -23,8 +22,6 @@ import {
   updateTavilyApiKey,
   disconnectTavily,
 } from '@/modules/integrations/actions';
-
-export type { ProviderUsageLogRow, ProviderSyncLogRow };
 
 export interface SidepanelDetailData {
   usageLogs: ProviderUsageLogRow[];
@@ -75,23 +72,6 @@ export interface ProspectingConnectionPanelState {
 }
 
 // ── Wrappers IA ───────────────────────────────────────────────────────────────
-
-export async function loadAiProviderConnectionForPanel(
-  providerKey: string,
-): Promise<AiConnectionPanelState | null> {
-  try {
-    const status = await getAiProviderConnectionStatus(providerKey);
-    return {
-      hasCredential: status.has_credential,
-      connectionStatus: status.connection_status,
-      lastTestedAt: status.last_tested_at,
-      lastConnectionError: status.last_connection_error,
-      canActivate: status.can_activate,
-    };
-  } catch {
-    return null;
-  }
-}
 
 export async function testAiProviderConnectionForPanel(
   providerKey: string,

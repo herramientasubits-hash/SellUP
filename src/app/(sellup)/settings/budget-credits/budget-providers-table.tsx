@@ -31,13 +31,14 @@ import {
   type SidepanelInitialTab,
 } from '../providers/provider-detail-sidepanel';
 import type { BudgetRuleRow } from '@/modules/budgets/rule-queries';
-import type { ProspectingConnectionPanelState } from '../providers/provider-detail-actions';
+import type { ProspectingConnectionPanelState, AiConnectionPanelState } from '../providers/provider-detail-actions';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
   resolvedAt: string;
   allRules?: BudgetRuleRow[];
   providerConnectionStates?: Record<string, ProspectingConnectionPanelState>;
+  aiProviderConnectionStates?: Record<string, AiConnectionPanelState>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -159,7 +160,7 @@ const LIGHT_TABLE_COLUMNS = ['Proveedor', 'Tipo', 'Estado', 'Consumo del mes', '
 
 const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
 
-export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], providerConnectionStates }: Props) {
+export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], providerConnectionStates, aiProviderConnectionStates }: Props) {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [sidepanelProvider, setSidepanelProvider] = useState<AdminProviderBudgetRow | null>(null);
@@ -442,6 +443,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
         onConfigureAllowance={(row) => { setSidepanelProvider(null); setEditingProvider(row); }}
         allRules={allRules}
         providerConnectionStates={providerConnectionStates}
+        aiProviderConnectionStates={aiProviderConnectionStates}
       />
 
       <ProviderAllowanceDrawer
