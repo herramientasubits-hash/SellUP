@@ -26,4 +26,9 @@ VALUES
     'Lusha V3 Company Prospecting (POST /v3/companies/prospecting). Contrato: USD 300/mes cobrados anualmente = USD 3,600/año / 40,800 créditos/mes. Observado Q3F-5R: billing.creditsCharged=1 en 3/3 requests con size=10. Costo runtime usa billing.creditsCharged real — no asumir 1 crédito/request. Estado: EXPERIMENTAL, no conectado a producción. Activado en Q3F-5S.',
     true
   )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (provider_key, operation_key, unit) WHERE is_active = true
+DO UPDATE SET
+  unit_cost_usd = EXCLUDED.unit_cost_usd,
+  currency      = EXCLUDED.currency,
+  notes         = EXCLUDED.notes,
+  updated_at    = now();
