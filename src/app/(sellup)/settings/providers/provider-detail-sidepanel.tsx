@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
   ChevronDown, Cpu, Zap, Database, Bot, Plus, Pencil, Power, Trash2,
@@ -781,9 +782,23 @@ const API_KEY_NOTES: Record<string, { where: string; tips: string }> = {
   },
 };
 
-function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
-  const [connState, setConnState] = useState<ProspectingConnectionPanelState | null>(null);
-  const [loadingConn, setLoadingConn] = useState(true);
+function TabConfiguracionNoIA({
+  row,
+  ms,
+  initialConnState,
+}: {
+  row: AdminProviderBudgetRow;
+  ms: MeasurementStatus;
+  initialConnState?: ProspectingConnectionPanelState | null;
+}) {
+  const router = useRouter();
+  const pkey = row.providerKey.toLowerCase();
+  const isProspecting = pkey === 'apollo' || pkey === 'lusha';
+
+  const [connState, setConnState] = useState<ProspectingConnectionPanelState | null>(
+    initialConnState ?? null,
+  );
+  const [loadingConn, setLoadingConn] = useState(isProspecting ? false : true);
   const [connLoadError, setConnLoadError] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -794,7 +809,15 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
   const msBadge = MEASUREMENT_STATUS_BADGE[ms];
   const opType = getProviderOperationalType(row.providerKey);
   const opBadge = OPERATIONAL_TYPE_BADGE[opType];
-  const pkey = row.providerKey.toLowerCase();
+
+  // Sync when server re-renders with fresh state (after router.refresh())
+  useEffect(() => {
+    if (initialConnState) {
+      setConnState(initialConnState);
+      setLoadingConn(false);
+      setConnLoadError(false);
+    }
+  }, [initialConnState]);
 
   const loadConn = useCallback(async () => {
     setLoadingConn(true);
@@ -809,14 +832,26 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
     }
   }, [pkey]);
 
-  useEffect(() => { void loadConn(); }, [loadConn]);
+  // Only fetch on mount for non-prospecting providers (e.g. tavily)
+  useEffect(() => {
+    if (!isProspecting) void loadConn();
+  }, [loadConn, isProspecting]);
+
+  // After mutations: server-refresh for apollo/lusha, direct reload for others
+  const refreshConn = useCallback(() => {
+    if (isProspecting) {
+      router.refresh();
+    } else {
+      void loadConn();
+    }
+  }, [isProspecting, router, loadConn]);
 
   const handleTest = () => {
     setFeedback(null);
     startTransition(async () => {
       const r = await testProspectingProviderConnectionForPanel(pkey);
       setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Conexión verificada' : 'Error al probar') });
-      void loadConn();
+      refreshConn();
     });
   };
 
@@ -829,7 +864,7 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
       setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Credencial guardada' : 'Error al guardar') });
       setApiKeyInput('');
       if (r.ok) setShowKeyForm(false);
-      void loadConn();
+      refreshConn();
     });
   };
 
@@ -839,7 +874,7 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
       const r = await disconnectProspectingProviderForPanel(pkey);
       setFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Desconectado' : 'Error al desconectar') });
       setShowDisconnectConfirm(false);
-      void loadConn();
+      refreshConn();
     });
   };
 
@@ -1030,11 +1065,19 @@ function TabConfiguracionNoIA({ row, ms }: { row: AdminProviderBudgetRow; ms: Me
 
 // ── Tab: Configuración (dispatcher) ──────────────────────────────────────────
 
-function TabConfiguracion({ row, ms }: { row: AdminProviderBudgetRow; ms: MeasurementStatus }) {
+function TabConfiguracion({
+  row,
+  ms,
+  initialConnState,
+}: {
+  row: AdminProviderBudgetRow;
+  ms: MeasurementStatus;
+  initialConnState?: ProspectingConnectionPanelState | null;
+}) {
   const opType = getProviderOperationalType(row.providerKey);
   return opType === 'ia'
     ? <TabConfiguracionIA row={row} ms={ms} />
-    : <TabConfiguracionNoIA row={row} ms={ms} />;
+    : <TabConfiguracionNoIA row={row} ms={ms} initialConnState={initialConnState} />;
 }
 
 // ── Tab: Consumo ──────────────────────────────────────────────────────────────
@@ -1908,6 +1951,7 @@ interface ProviderDetailSidepanelProps {
   onClose: () => void;
   onConfigureAllowance: (row: AdminProviderBudgetRow) => void;
   allRules?: BudgetRuleRow[];
+  providerConnectionStates?: Record<string, ProspectingConnectionPanelState>;
 }
 
 export function ProviderDetailSidepanel({
@@ -1917,6 +1961,7 @@ export function ProviderDetailSidepanel({
   onClose,
   onConfigureAllowance,
   allRules = [],
+  providerConnectionStates,
 }: ProviderDetailSidepanelProps) {
   const ms: MeasurementStatus = provider?.measurementStatus ?? 'prepared';
   const opType = provider ? getProviderOperationalType(provider.providerKey) : null;
@@ -2039,7 +2084,11 @@ export function ProviderDetailSidepanel({
           </TabsContent>
 
           <TabsContent value="configuracion">
-            <TabConfiguracion row={provider} ms={ms} />
+            <TabConfiguracion
+              row={provider}
+              ms={ms}
+              initialConnState={providerConnectionStates?.[provider.providerKey.toLowerCase()]}
+            />
           </TabsContent>
 
           <TabsContent value="consumo">
