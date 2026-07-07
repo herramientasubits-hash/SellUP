@@ -266,6 +266,16 @@ export async function loadProviderConsumptionForWorkspace(
   providerKey: string,
   filters: UsageFilters,
 ): Promise<ConsumptionLoadResult> {
+  // PROBE TEMPORAL Q3F-5.5: diagnostica si el transporte Server Action funciona para Apollo.
+  // Eliminar después del QA en Vercel.
+  if (providerKey === 'apollo') {
+    return {
+      ok: false,
+      errorStage: 'mapping',
+      errorCode: 'transport_probe',
+    };
+  }
+
   const providerFilters: UsageFilters = { ...filters, provider: providerKey };
 
   let statsResult: Awaited<ReturnType<typeof getProviderStats>>;
