@@ -170,7 +170,7 @@ export function RunResultSnapshot({
                 variant="outline"
                 className="text-xs text-emerald-600 border-emerald-500/30 bg-emerald-500/10"
               >
-                {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review'
+                {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review' || lushaResult?.providerStatus === 'success'
                   ? 'Listo para revisión'
                   : apolloResult?.status === 'completed' || lushaResult?.status === 'completed'
                     ? 'Completado'
@@ -188,8 +188,8 @@ export function RunResultSnapshot({
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Candidatos</dt>
           <dd className="font-medium text-foreground">
-            {lushaTerminalError
-              ? (lushaResult?.candidatesCreated ?? 0)
+            {lushaResult
+              ? lushaResult.candidatesCreated
               : apolloResult
                 ? apolloResult.totalCandidates
                 : runResult.candidatesCount}
