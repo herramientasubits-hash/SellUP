@@ -36,7 +36,6 @@ import {
 } from '@/app/(sellup)/settings/budget-credits/rules/budget-rules-client';
 import {
   loadProviderDetailForPanel,
-  loadProviderConsumptionForWorkspace,
   testAiProviderConnectionForPanel,
   updateAiProviderCredentialForPanel,
   disconnectAiProviderForPanel,
@@ -47,10 +46,13 @@ import {
   type SidepanelDetailData,
   type AiConnectionPanelState,
   type ProspectingConnectionPanelState,
-  type ProviderConsumptionSnapshot,
-  type UsageFilters,
-  type ConsumptionErrorStage,
 } from './provider-detail-actions';
+import { loadProviderConsumptionForWorkspace } from './provider-consumption-actions';
+import type {
+  ProviderConsumptionSnapshot,
+  UsageFilters,
+  ConsumptionErrorStage,
+} from './provider-consumption-types';
 import type { FilterUser, FilterGroup } from '@/modules/ai-usage/queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
 import { getProviderOperationLabel } from '@/modules/budgets/operation-labels';
@@ -1466,20 +1468,20 @@ function TabConsumo({
               {recentOps.map((log) => (
                 <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 flex items-center gap-3">
                   <span className="text-xs text-foreground truncate flex-1">
-                    {getProviderOperationLabel(providerKey, log.operation_key ?? '')}
+                    {getProviderOperationLabel(providerKey, log.operationKey ?? '')}
                   </span>
-                  {log.credits_used != null && (
+                  {log.creditsUsed != null && (
                     <span className="text-[10px] text-muted-foreground/70 shrink-0">
-                      {log.credits_used.toLocaleString()} cr
+                      {log.creditsUsed.toLocaleString()} cr
                     </span>
                   )}
-                  {log.estimated_cost_usd != null && log.estimated_cost_usd > 0 && (
+                  {log.estimatedCostUsd != null && log.estimatedCostUsd > 0 && (
                     <span className="text-[10px] text-muted-foreground/70 shrink-0">
-                      ${log.estimated_cost_usd.toFixed(4)}
+                      ${log.estimatedCostUsd.toFixed(4)}
                     </span>
                   )}
                   <span className="text-[10px] text-muted-foreground/50 shrink-0 ml-auto">
-                    {formatDateShort(log.created_at)}
+                    {formatDateShort(log.createdAt)}
                   </span>
                 </div>
               ))}

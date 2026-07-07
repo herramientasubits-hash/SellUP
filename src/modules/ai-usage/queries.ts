@@ -1,5 +1,3 @@
-'use server';
-
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { flattenOrgGroups } from '@/modules/access/group-tree';
