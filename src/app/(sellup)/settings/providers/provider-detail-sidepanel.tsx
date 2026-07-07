@@ -1284,7 +1284,9 @@ function TabConsumo({
         {/* Período */}
         <Select value={period} onValueChange={(v) => setFilter('period', v)}>
           <SelectTrigger className="h-7 w-[140px] text-[11px]">
-            <SelectValue />
+            <SelectValue>
+              {CONSUMPTION_PERIOD_OPTIONS.find((o) => o.value === period)?.label ?? period}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {CONSUMPTION_PERIOD_OPTIONS.map((o) => (
@@ -1410,7 +1412,7 @@ function TabConsumo({
         ) : (
           <div className="py-1 space-y-3">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{kpiLabel}</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
               <div>
                 <p className="text-[10px] text-muted-foreground/60 mb-0.5">Créditos consumidos</p>
                 <p className="text-xs font-medium text-foreground">
