@@ -94,6 +94,9 @@ export async function loadProviderConsumptionForWorkspace(
     const snapshot: ProviderConsumptionSnapshot = {
       totalCredits: stat?.total_credits_used ?? null,
       totalCostUsd: stat?.total_estimated_cost_usd ?? 0,
+      totalCalls: stat?.total_calls ?? 0,
+      successCalls: stat?.success_calls ?? 0,
+      errorCalls: stat?.error_calls ?? 0,
       recentLogs,
       filterOptions,
     };

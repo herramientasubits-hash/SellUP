@@ -1190,10 +1190,9 @@ function TabConsumo({
 
   const filteredCredits = snapshot?.totalCredits ?? null;
   const filteredCost = snapshot?.totalCostUsd ?? 0;
-  const kpiValue =
-    ms === 'active'
-      ? formatAmount(filteredCredits, filteredCost > 0 ? filteredCost : null) || '0 cr'
-      : '—';
+  const totalCalls = snapshot?.totalCalls ?? 0;
+  const successCalls = snapshot?.successCalls ?? 0;
+  const errorCalls = snapshot?.errorCalls ?? 0;
 
   const hasGlobalRule = row.globalLimitCredits != null || row.globalLimitUsd != null;
 
@@ -1409,7 +1408,37 @@ function TabConsumo({
             <span className="text-xs text-muted-foreground/60">Calculando...</span>
           </div>
         ) : (
-          <InfoRow label={kpiLabel} value={kpiValue} />
+          <div className="py-1 space-y-3">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{kpiLabel}</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Créditos consumidos</p>
+                <p className="text-xs font-medium text-foreground">
+                  {filteredCredits != null ? filteredCredits.toLocaleString() + ' cr' : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Costo estimado</p>
+                <p className="text-xs font-medium text-foreground">
+                  {filteredCost > 0 ? `$${filteredCost.toFixed(4)}` : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Operaciones</p>
+                <p className="text-xs font-medium text-foreground">{totalCalls.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Exitosas</p>
+                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{successCalls.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Con error</p>
+                <p className={`text-xs font-medium ${errorCalls > 0 ? 'text-destructive' : 'text-foreground'}`}>
+                  {errorCalls.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </div>
         )}
         {row.quotaSyncedAt && (
           <InfoRow

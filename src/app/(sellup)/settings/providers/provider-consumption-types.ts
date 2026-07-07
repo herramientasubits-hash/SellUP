@@ -15,6 +15,9 @@ export interface ProviderConsumptionLogEntry {
 export interface ProviderConsumptionSnapshot {
   totalCredits: number | null;
   totalCostUsd: number;
+  totalCalls: number;
+  successCalls: number;
+  errorCalls: number;
   recentLogs: ProviderConsumptionLogEntry[];
   filterOptions: FilterOptions | null;
 }
