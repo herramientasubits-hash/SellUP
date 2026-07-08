@@ -5,8 +5,9 @@
 // identidad vive junto a su lógica pura en el toolkit del servidor. No
 // arrastra código de servidor al bundle del cliente.
 import type { LushaPersonIdentityEvidenceV1 } from '@/server/agents/contact-enrichment-toolkit/lusha-person-identity-evidence';
+import type { ApolloPersonIdentityObservationV1 } from '@/server/agents/contact-enrichment-toolkit/apollo-person-identity-observation';
 
-export type { LushaPersonIdentityEvidenceV1 };
+export type { LushaPersonIdentityEvidenceV1, ApolloPersonIdentityObservationV1 };
 
 export type ContactEnrichmentRunStatus =
   | 'pending'
@@ -199,6 +200,12 @@ export interface ContactCandidateEnrichmentMetadata {
    * company-first (17B.4W.6). Ausente en candidatos legacy previos al hito.
    */
   person_identity?: LushaPersonIdentityEvidenceV1 | null;
+  /**
+   * Observación (no bloqueante) de identidad de persona search→match para
+   * candidatos Apollo (17B.4X.3). Modo OBSERVATION_FIRST: no participa en el
+   * gate de identidad de aprobación, que solo lee `person_identity`.
+   */
+  apollo_person_identity_observation?: ApolloPersonIdentityObservationV1 | null;
   [key: string]: unknown;
 }
 

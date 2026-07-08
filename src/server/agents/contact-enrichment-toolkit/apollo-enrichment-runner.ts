@@ -877,6 +877,9 @@ export async function executeContactEnrichmentApolloRun(
           companyDomain: run.company_domain,
           companyName: run.company_name,
         }),
+        ...(res?.apolloPersonIdentityObservation
+          ? { apollo_person_identity_observation: res.apolloPersonIdentityObservation }
+          : {}),
       },
     });
   }
@@ -909,6 +912,9 @@ export async function executeContactEnrichmentApolloRun(
           companyDomain: run.company_domain,
           companyName: run.company_name,
         }),
+        ...(res.apolloPersonIdentityObservation
+          ? { apollo_person_identity_observation: res.apolloPersonIdentityObservation }
+          : {}),
       },
     });
   }

@@ -23,6 +23,10 @@ import type {
   ContactRelevanceStatus,
 } from './contact-relevance-classifier';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
+import {
+  computeApolloPersonIdentityObservation,
+  type ApolloPersonIdentityObservationV1,
+} from './apollo-person-identity-observation';
 
 // ── Constantes de configuración — derivadas del config compartido ──────────────
 
@@ -112,6 +116,12 @@ export interface CompleteContactResult {
   reason?: string;
   /** Diagnósticos seguros del intento (solo cuando se ejecutó matchPerson). */
   matchDiagnostics?: CompletionMatchDiagnostics;
+  /**
+   * Observación de identidad de persona search→match (17B.4X.3). Solo presente
+   * cuando people/match se invocó realmente (matchParams no era null). No
+   * decide aprobación ni participa en el gate de identidad; es observacional.
+   */
+  apolloPersonIdentityObservation?: ApolloPersonIdentityObservationV1;
 }
 
 export interface ContactCompletionDeps {
@@ -411,6 +421,15 @@ export async function completeContactWithApollo(
     };
   }
 
+  // Observación de identidad search→match (17B.4X.3): se construye con la
+  // identidad de match en null hasta que sepamos si hubo persona coincidente.
+  // people/match ya se va a invocar con estos params exactos, así que la
+  // correlación es honesta desde este punto en adelante.
+  const buildIdentityObservation = (
+    matchContact: NormalizedApolloContact | null,
+  ): ApolloPersonIdentityObservationV1 =>
+    computeApolloPersonIdentityObservation({ searchContact: candidate, matchContact, matchParams });
+
   let result: ApolloEnrichResult<ApolloPerson>;
   try {
     result = await matchPerson(matchParams);
@@ -422,6 +441,7 @@ export async function completeContactWithApollo(
       wasActionableBefore: false,
       isActionableAfter: false,
       reason: err instanceof Error ? err.message : 'Error inesperado en people/match',
+      apolloPersonIdentityObservation: buildIdentityObservation(null),
     };
   }
 
@@ -447,6 +467,7 @@ export async function completeContactWithApollo(
       providerUsage,
       reason: result.error?.message ?? 'Error en people/match',
       matchDiagnostics,
+      apolloPersonIdentityObservation: buildIdentityObservation(null),
     };
   }
 
@@ -463,6 +484,7 @@ export async function completeContactWithApollo(
       providerUsage,
       reason: 'no_match_data',
       matchDiagnostics,
+      apolloPersonIdentityObservation: buildIdentityObservation(null),
     };
   }
 
@@ -487,6 +509,7 @@ export async function completeContactWithApollo(
         : {}),
     },
     matchDiagnostics,
+    apolloPersonIdentityObservation: buildIdentityObservation(completedContact),
   };
 }
 
