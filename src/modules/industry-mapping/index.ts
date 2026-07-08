@@ -1,7 +1,7 @@
-// ── Public API — Provider Industry Mapping DRAFT Domain Service (Q3F-5AI) ───
-// Publication, pre-publication validation, LOAD1/LOAD2, runtime activation of
-// migration 082, Agent 1 integration, and provider calls are explicitly out
-// of scope for this service.
+// ── Public API — Provider Industry Mapping DRAFT + Publication Domain
+// Services (Q3F-5AI + Q3F-5AJ) ───────────────────────────────────────────────
+// LOAD1/LOAD2, runtime activation of migration 082, Agent 1 integration, and
+// provider calls are explicitly out of scope for these services.
 
 // Types
 export type {
@@ -51,3 +51,25 @@ export type {
   UpdateMappingAssociationInput,
   RemoveMappingAssociationInput,
 } from './mapping-draft-association-service';
+
+// Pre-publication validator (pure, Q3F-5AJ)
+export { validateProviderIndustryMappingForPublication } from './mapping-publication-validator';
+export type {
+  MappingPublicationValidatorInput,
+  MappingPublicationValidationResult,
+  MappingPublicationValidationIssue,
+  MappingPublicationValidationIssueCode,
+  PublicationValidatorSnapshotInput,
+  PublicationValidatorConceptEntryInput,
+  PublicationValidatorAssociationInput,
+  PublicationValidatorCanonicalIndustryInput,
+} from './mapping-publication-validator';
+
+// Publication Domain Service (PV1 revision-pin + publication RPC, Q3F-5AJ)
+export { publishMappingSnapshot } from './mapping-publication-service';
+export type {
+  PublishMappingSnapshotInput,
+  PublishMappingSnapshotResult,
+} from './mapping-publication-service';
+export { MappingPublicationValidationError } from './mapping-publication-types';
+export type { MappingPublicationDbClient } from './mapping-publication-types';
