@@ -511,19 +511,21 @@ Honduras tiene el registro mercantil descentralizado en cámaras de comercio reg
 
 ### Lectura general
 
-Nicaragua es el país con menor cobertura de datos públicos digitales de la región. No hay fuente pública estructurada y descargable de empresas. La DGI permite validación individual de RUC. El Registro Público tiene consulta web básica. **No incluir en automatización MVP.** Usar únicamente Apollo o validación manual para prospectos nicaragüenses.
+Nicaragua es el país con menor cobertura de datos públicos digitales de la región. No hay fuente pública estructurada y descargable de empresas. **⚠️ Centroamérica.9A/9B (evaluación cerrada):** se auditaron las tres candidatas — DGI (validación tributaria individual), Registro Público/Mercantil (consulta web básica) y SISCAE/NicaraguaCompra (única candidata con potencial de señal B2G estructurada) — y ninguna resultó viable para MVP. El smoke test técnico de Centroamérica.9B confirmó que el dominio principal (`nicaraguacompra.gob.ni`) no completa conexión TCP en los puertos 443/80 y que el subdominio operativo candidato (`gestion.nicaraguacompra.gob.ni`) no tiene resolución DNS; no se afirma geobloqueo ni bloqueo por firewall/ASN como hecho confirmado — solo que no existe hoy una superficie pública técnicamente accesible desde el entorno de SellUp. **Decisión SellUp: Nicaragua queda sin fuente automatizable para MVP.** No se crea source entry, snapshot, signal, post-approval ni matching automático para NI. Usar únicamente Apollo o validación manual para prospectos nicaragüenses.
 
 ### Fuentes recomendadas
 
 | Fuente | URL | Tipo | Sectores útiles | Uso recomendado | Automatización MVP | Riesgos / límites | Prioridad |
 |---|---|---|---|---|---|---|---|
-| **DGI Nicaragua** — Consulta RUC | [dgi.gob.ni](https://www.dgi.gob.ni/) | Validación tributaria | Todos | Validar RUC, razón social, estado tributario | Manual | Sin API; datos muy limitados | **P1** |
-| **Registro Público** | [registropublico.gob.ni](https://www.registropublico.gob.ni/) | Validación legal | Todos | Consulta básica de sociedades por NAM o razón social | Manual — web muy básico | Sin API; sin descarga masiva | **P1** |
-| **NicaraguaCompra / SISCAE** | [nicaraguacompra.gob.ni](https://www.nicaraguacompra.gob.ni/) | Señales comerciales | Todos B2G | Proveedores del Estado nicaragüense | Baja | Confirmar estructura | **P2** |
+| **DGI Nicaragua** — Consulta RUC | [dgi.gob.ni](https://www.dgi.gob.ni/) | Validación tributaria | Todos | Validar RUC, razón social, estado tributario | `NOT_VIABLE_MVP` — sin lookup público reutilizable sin login, sin API pública confirmada, sin bulk confirmado | Sin API; datos muy limitados | **P1** |
+| **Registro Público** | [registropublico.gob.ni](https://www.registropublico.gob.ni/) | Validación legal | Todos | Consulta básica de sociedades por NAM o razón social | `MANUAL_SIGNAL_ONLY` (tentativo) — consulta nominal/NAM reportada, sin RUC vinculado confirmado, sin API/bulk confirmado, disponibilidad técnica en vivo no validada | Sin API; sin descarga masiva | **P1** |
+| **NicaraguaCompra / SISCAE** | [nicaraguacompra.gob.ni](https://www.nicaraguacompra.gob.ni/) | Señales comerciales | Todos B2G | Proveedores del Estado nicaragüense | `NOT_VIABLE_MVP` — smoke test Centroamérica.9B: dominio principal sin conexión TCP 443/80, subdominio operativo sin resolución DNS, sin superficie HTTP/API/OCDS/bulk auditable | Sin superficie técnica confirmada; no confundir con geobloqueo (hipótesis no demostrada) | **P2** |
 | **Cámara de Industrias** | [cadin.org.ni](https://cadin.org.ni/) | Sectorial | Manufactura / Industria | Gremio industrial | Manual | Afiliados | **P2** |
 | **Cámara de Comercio** | [cccn.org.ni](https://www.cccn.org.ni/) | Sectorial | Comercio / Retail | Directorio gremial | Manual | Afiliados | **P2** |
 
-> **Nota:** Nicaragua tiene la cobertura de datos públicos más limitada de los 17 países cubiertos. No integrar en automatización MVP.
+> **Nota (Centroamérica.9C — cierre MVP):** Nicaragua tiene la cobertura de datos públicos más limitada de los 17 países cubiertos y queda fuera del alcance activo de automatización de Source Catalog hasta nueva evidencia técnica. No integrar en automatización MVP; no crear `source_key` placeholder (`ni_siscae`, `ni_nicaraguacompra`, `ni_dgi`, `ni_registro_publico`); no persistir snapshots ni signals para NI.
+>
+> **Revisión futura (event-driven, sin cron/automatización periódica):** reevaluar solo cuando aparezca una señal objetiva de cambio — nuevo dominio oficial, portal público restaurado, API pública, feed estructurado, datos abiertos oficiales, bulk oficial, o cambio verificable de infraestructura SISCAE.
 
 ---
 
