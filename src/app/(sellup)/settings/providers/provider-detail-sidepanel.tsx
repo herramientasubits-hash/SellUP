@@ -1230,9 +1230,9 @@ function TabConsumo({
         accessorKey: 'operationKey',
         header: () => <>Operación</>,
         enableSorting: false,
-        size: 200,
+        size: 220,
         cell: ({ row }) => (
-          <span className="block text-foreground max-w-[140px] truncate">
+          <span className="block text-foreground leading-snug">
             {getProviderOperationLabel(providerKey, row.original.operationKey)}
           </span>
         ),
