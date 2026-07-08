@@ -35,6 +35,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { normalizeDomain } from './company-consistency-checker';
 import { normalizeLushaPersonName } from './lusha-people-adapter';
+import { buildLushaPersonIdentityEvidence } from './lusha-person-identity-evidence';
 import { resolveLushaDiscoveryMode, type LushaContactProspectingRequest } from './lusha-types';
 import { classifyContactRelevance } from './contact-relevance-classifier';
 import {
@@ -1358,6 +1359,23 @@ export async function executeContactEnrichmentLushaRun(
       const normalizedName = normalizeLushaPersonName(lushaRawName);
       if (!normalizedName) continue;
 
+      // 17B.4W.6 — Person identity evidence (observabilidad, NO bloqueante).
+      // Compara la identidad de prospecting usada para pedir el enrich contra
+      // la identidad devuelta por ESTA iteración de enrich. No cambia si el
+      // candidato se crea, ni la precedencia de email/LinkedIn.
+      const enrichFullName =
+        [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() ||
+        contact.fullName ||
+        null;
+      const personIdentityEvidence = buildLushaPersonIdentityEvidence({
+        prospectContactId: candidate.contactId,
+        prospectFullName: lushaRawName,
+        prospectLinkedinUrl: candidate.linkedinUrl ?? null,
+        enrichContactId: contact.id ?? null,
+        enrichFullName,
+        enrichLinkedinUrl: contact.linkedinUrl ?? null,
+      });
+
       const candidateLinkedinUrl = candidate.linkedinUrl ?? contact.linkedinUrl ?? null;
       const linkedinSource = candidate.linkedinUrl
         ? 'lusha_prospecting'
@@ -1419,6 +1437,9 @@ export async function executeContactEnrichmentLushaRun(
         },
         company_resolution_source: companyResolutionSource,
         is_hubspot_only: isHubSpotOnly,
+        // Person identity consistency evidence (17B.4W.6). Observabilidad
+        // determinista — sin heurística de email, sin fuzzy, sin IA.
+        person_identity: personIdentityEvidence,
         billing: { credits_charged: stepCredits, credits_source: 'billing' },
         hito: '17B.4W',
       };

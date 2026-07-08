@@ -1,6 +1,13 @@
 // Agente 2A — Contact Enrichment Types
 // Hito 17A.2A — Snapshot de contactos existentes
 
+// Type-only import (borrado en compilación): el contrato de evidencia de
+// identidad vive junto a su lógica pura en el toolkit del servidor. No
+// arrastra código de servidor al bundle del cliente.
+import type { LushaPersonIdentityEvidenceV1 } from '@/server/agents/contact-enrichment-toolkit/lusha-person-identity-evidence';
+
+export type { LushaPersonIdentityEvidenceV1 };
+
 export type ContactEnrichmentRunStatus =
   | 'pending'
   | 'resolving'
@@ -187,6 +194,11 @@ export interface ContactCandidateEnrichmentMetadata {
   relevance?: ContactCandidateRelevanceMetadata;
   apollo_search_attempt?: string | null;
   company_consistency?: ContactCandidateCompanyConsistency | null;
+  /**
+   * Evidencia de consistencia de identidad de persona para candidatos Lusha
+   * company-first (17B.4W.6). Ausente en candidatos legacy previos al hito.
+   */
+  person_identity?: LushaPersonIdentityEvidenceV1 | null;
   [key: string]: unknown;
 }
 

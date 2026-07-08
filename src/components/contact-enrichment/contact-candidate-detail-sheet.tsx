@@ -48,7 +48,12 @@ import type {
   ContactDuplicateStatus,
   ContactSource,
   ContactCandidateCompanyConsistency,
+  LushaPersonIdentityEvidenceV1,
 } from '@/modules/contact-enrichment/types';
+import {
+  IDENTITY_TONE_STYLES,
+  resolveIdentityDisplay,
+} from './contact-candidate-identity-display';
 
 // Motivos de rechazo sugeridos (Hito 17A.4B). "Otro" habilita un comentario
 // opcional; el resto se guarda tal cual en review_notes + metadata.review.
@@ -255,6 +260,16 @@ export function ContactCandidateDetailSheet({
   const showConsistencyWarning =
     companyConsistency?.status === 'possible_mismatch' ||
     companyConsistency?.status === 'possible_related_domain';
+
+  // Consistencia de identidad de persona (17B.4W.6). null ⇒ candidato legacy.
+  const personIdentity =
+    (candidate?.enrichment_metadata?.person_identity as
+      | LushaPersonIdentityEvidenceV1
+      | null
+      | undefined) ?? null;
+  const identityDisplay = resolveIdentityDisplay(personIdentity);
+  const showIdentityEvidence =
+    personIdentity?.identity_consistency === 'mismatch';
 
   return (
     <DrawerShell
@@ -493,6 +508,51 @@ export function ContactCandidateDetailSheet({
                 </DetailRow>
               )}
             </dl>
+          </SurfaceCard>
+
+          {/* 3a. Consistencia de identidad (Hito 17B.4W.6) — observacional */}
+          <SurfaceCard>
+            <SurfaceCardHeader
+              title="Consistencia de identidad"
+              description="Compara la persona encontrada en Lusha con la identidad devuelta por el enriquecimiento."
+            />
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
+                {identityDisplay.tone === 'consistent' ? (
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                ) : identityDisplay.tone === 'mismatch' ? (
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                ) : (
+                  <Info className="h-3.5 w-3.5 text-muted-foreground/50" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Badge
+                  className={`${IDENTITY_TONE_STYLES[identityDisplay.tone]} border-0 text-[10px] font-semibold`}
+                >
+                  {identityDisplay.label}
+                </Badge>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {identityDisplay.description}
+                </p>
+                {showIdentityEvidence && (
+                  <div className="space-y-0.5 pt-1 text-[11px] text-muted-foreground/80">
+                    <p>
+                      Persona encontrada:{' '}
+                      <span className="text-foreground">
+                        {personIdentity?.prospect_full_name || UNAVAILABLE}
+                      </span>
+                    </p>
+                    <p>
+                      Identidad enriquecida:{' '}
+                      <span className="text-foreground">
+                        {personIdentity?.enrich_full_name || UNAVAILABLE}
+                      </span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
           </SurfaceCard>
 
           {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
