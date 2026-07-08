@@ -311,6 +311,19 @@ export function buildContactInsertPayload(args: {
 
 // ── Metadata de revisión (enrichment_metadata.review) ───────────
 
+/**
+ * Evidencia truthful de un override humano de discrepancia de identidad
+ * (Hito 17B.4W.8). Solo se persiste cuando el candidato es `mismatch` y el
+ * humano aprobó explícitamente con acknowledgement + motivo.
+ */
+export interface IdentityApprovalOverrideEvidenceV1 {
+  acknowledged: true;
+  reason: string;
+  identity_state_at_override: 'mismatch';
+  reviewed_by: string;
+  reviewed_at: string;
+}
+
 export interface ReviewMetadata {
   status: 'approved' | 'discarded' | 'duplicate';
   reason?: string;
@@ -319,6 +332,7 @@ export interface ReviewMetadata {
   created_contact_id?: string;
   matched_contact_id?: string;
   matched_by?: DuplicateMatch['matchedBy'];
+  identity_override?: IdentityApprovalOverrideEvidenceV1;
 }
 
 /** Inserta/actualiza la clave `review` sin perder relevance/completion previos. */
@@ -327,6 +341,76 @@ export function mergeReview(
   review: ReviewMetadata,
 ): Record<string, unknown> {
   return { ...(existing ?? {}), review };
+}
+
+// ── Identity approval state (Hito 17B.4W.8) ─────────────────────
+// Clasifica al candidato según la evidencia persistida en
+// enrichment_metadata.person_identity (17B.4W.6). Política genérica: no usa
+// provider_key, source, email local-part, confianza ni heurísticas — solo
+// identity_consistency.
+
+export type CandidateIdentityApprovalStateV1 =
+  | 'consistent'
+  | 'mismatch'
+  | 'insufficient_evidence'
+  | 'no_evidence';
+
+/** Payload de entrada de un override humano de discrepancia de identidad. */
+export interface IdentityApprovalOverrideInputV1 {
+  acknowledged: boolean;
+  reason: string;
+}
+
+const IDENTITY_CONSISTENCY_TO_STATE: Record<string, CandidateIdentityApprovalStateV1> = {
+  consistent: 'consistent',
+  mismatch: 'mismatch',
+  insufficient_evidence: 'insufficient_evidence',
+};
+
+/**
+ * Resuelve el estado de aprobación de identidad de un candidato a partir de
+ * `enrichment_metadata.person_identity?.identity_consistency`. Ausente, nulo
+ * o valor no reconocido ⇒ `no_evidence` (candidatos legacy o sin proveedor
+ * que registre evidencia).
+ */
+export function resolveCandidateIdentityApprovalState(
+  candidate: Pick<CandidateRecord, 'enrichment_metadata'>,
+): CandidateIdentityApprovalStateV1 {
+  const personIdentity = candidate.enrichment_metadata?.person_identity as
+    | { identity_consistency?: unknown }
+    | null
+    | undefined;
+  const raw = personIdentity?.identity_consistency;
+  if (typeof raw !== 'string') return 'no_evidence';
+  return IDENTITY_CONSISTENCY_TO_STATE[raw] ?? 'no_evidence';
+}
+
+/**
+ * Valida un override humano: requiere acknowledgement explícito y un motivo
+ * no vacío (tras trim). Devuelve el motivo ya recortado cuando es válido.
+ */
+export function validateIdentityApprovalOverride(
+  input: IdentityApprovalOverrideInputV1 | null | undefined,
+): { valid: true; reason: string } | { valid: false } {
+  if (!input || input.acknowledged !== true) return { valid: false };
+  const reason = input.reason.trim();
+  if (reason.length === 0) return { valid: false };
+  return { valid: true, reason };
+}
+
+/** Construye la evidencia truthful de override para persistir en `review`. */
+export function buildIdentityApprovalOverrideEvidence(args: {
+  reason: string;
+  actorId: string;
+  nowIso: string;
+}): IdentityApprovalOverrideEvidenceV1 {
+  return {
+    acknowledged: true,
+    reason: args.reason,
+    identity_state_at_override: 'mismatch',
+    reviewed_by: args.actorId,
+    reviewed_at: args.nowIso,
+  };
 }
 
 // ── Patch aplicado al candidato ─────────────────────────────────
@@ -345,7 +429,13 @@ export interface CandidateReviewPatch {
 
 export type ApproveResult =
   | { ok: true; contactId: string; message: string; accountCreated?: boolean }
-  | { ok: false; error: string; duplicate?: boolean; contactId?: string };
+  | {
+      ok: false;
+      error: string;
+      duplicate?: boolean;
+      contactId?: string;
+      code?: 'IDENTITY_MISMATCH_REQUIRES_REVIEW' | 'IDENTITY_OVERRIDE_REASON_REQUIRED';
+    };
 
 export type DiscardResult = { ok: true; message: string } | { ok: false; error: string };
 
@@ -363,6 +453,10 @@ const MSG = {
   approvedNewAccount: 'Cuenta creada en SellUp y contacto aprobado.',
   approvedLinkedAccount: 'Contacto aprobado y asociado a la cuenta existente.',
   discarded: 'Candidato rechazado.',
+  identityMismatchRequiresReview:
+    'Este candidato tiene una discrepancia de identidad sin revisar. Revísala antes de aprobar.',
+  identityOverrideReasonRequired:
+    'Debes confirmar que revisaste la discrepancia e indicar un motivo antes de aprobar.',
 } as const;
 
 // ── Dependencias inyectables ────────────────────────────────────
@@ -371,6 +465,8 @@ export interface AuditEntry {
   contactId: string;
   accountId: string;
   actorUserId: string | null;
+  /** true solo cuando el candidato era `mismatch` y se aprobó vía override humano válido. */
+  identityOverrideApplied?: boolean;
 }
 
 export interface ApproveDeps {
@@ -425,6 +521,7 @@ export interface DiscardDeps {
 export async function runApproveCandidate(
   candidateId: string,
   deps: ApproveDeps,
+  identityOverride?: IdentityApprovalOverrideInputV1,
 ): Promise<ApproveResult> {
   if (typeof candidateId !== 'string' || !candidateId.trim()) {
     return { ok: false, error: MSG.invalid };
@@ -433,6 +530,36 @@ export async function runApproveCandidate(
   const candidate = await deps.loadCandidate(candidateId.trim());
   if (!candidate) return { ok: false, error: MSG.notFound };
   if (candidate.status !== 'pending_review') return { ok: false, error: MSG.notPending };
+
+  // Gate de identidad (Hito 17B.4W.8): se evalúa ANTES de cualquier mutación
+  // (cuenta, contacto, estado del candidato, audit). Política genérica: solo
+  // mismatch requiere override explícito; consistent/insufficient_evidence/
+  // no_evidence siguen el flujo normal sin cambios.
+  const identityState = resolveCandidateIdentityApprovalState(candidate);
+  let identityOverrideEvidence: IdentityApprovalOverrideEvidenceV1 | undefined;
+
+  if (identityState === 'mismatch') {
+    const validation = validateIdentityApprovalOverride(identityOverride);
+    if (!identityOverride) {
+      return {
+        ok: false,
+        error: MSG.identityMismatchRequiresReview,
+        code: 'IDENTITY_MISMATCH_REQUIRES_REVIEW',
+      };
+    }
+    if (!validation.valid) {
+      return {
+        ok: false,
+        error: MSG.identityOverrideReasonRequired,
+        code: 'IDENTITY_OVERRIDE_REASON_REQUIRED',
+      };
+    }
+    identityOverrideEvidence = buildIdentityApprovalOverrideEvidence({
+      reason: validation.reason,
+      actorId: deps.actorId,
+      nowIso: deps.nowIso,
+    });
+  }
 
   // Resolver cuenta SellUp: usa la existente o crea/vincula una para candidatos HubSpot-only.
   let accountId = candidate.account_id;
@@ -501,12 +628,16 @@ export async function runApproveCandidate(
 
   const contactId = insertResult.id;
 
-  // Marcar candidato approved con referencia al contacto creado.
+  // Marcar candidato approved con referencia al contacto creado. El override
+  // de identidad solo se persiste cuando el estado evaluado fue `mismatch`;
+  // nunca se escribe para consistent/insufficient_evidence/no_evidence aunque
+  // el llamador haya enviado un payload de override innecesario.
   const review: ReviewMetadata = {
     status: 'approved',
     reviewed_at: deps.nowIso,
     reviewed_by: deps.actorId,
     created_contact_id: contactId,
+    ...(identityOverrideEvidence ? { identity_override: identityOverrideEvidence } : {}),
   };
   const updateResult = await deps.updateCandidate(candidate.id, {
     status: 'approved',
@@ -523,7 +654,12 @@ export async function runApproveCandidate(
     return { ok: false, error: MSG.approveFailed, contactId };
   }
 
-  await deps.logAudit?.({ contactId, accountId, actorUserId: deps.actorId });
+  await deps.logAudit?.({
+    contactId,
+    accountId,
+    actorUserId: deps.actorId,
+    identityOverrideApplied: identityOverrideEvidence !== undefined,
+  });
 
   let message: string = MSG.approved;
   if (resolvedAccountOutcome === 'created') message = MSG.approvedNewAccount;

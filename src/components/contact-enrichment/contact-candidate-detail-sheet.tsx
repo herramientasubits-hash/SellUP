@@ -29,6 +29,15 @@ import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectTrigger,
@@ -157,6 +166,14 @@ export function ContactCandidateDetailSheet({
   const [reason, setReason] = React.useState<string>(REJECTION_REASONS[0]);
   const [otherComment, setOtherComment] = React.useState('');
 
+  // Override de discrepancia de identidad (Hito 17B.4W.8) — solo aplica cuando
+  // identity_consistency === 'mismatch'. El servidor sigue siendo la autoridad;
+  // este estado solo controla el diálogo de confirmación humana.
+  const [showIdentityOverrideDialog, setShowIdentityOverrideDialog] = React.useState(false);
+  const [overrideAcknowledged, setOverrideAcknowledged] = React.useState(false);
+  const [overrideReason, setOverrideReason] = React.useState('');
+  const [overrideValidationError, setOverrideValidationError] = React.useState<string | null>(null);
+
   const busy = approving || rejecting;
 
   React.useEffect(() => {
@@ -195,17 +212,23 @@ export function ContactCandidateDetailSheet({
         setShowRejectForm(false);
         setReason(REJECTION_REASONS[0]);
         setOtherComment('');
+        setShowIdentityOverrideDialog(false);
+        setOverrideAcknowledged(false);
+        setOverrideReason('');
+        setOverrideValidationError(null);
       });
     }
   }, [open, candidateId]);
 
-  async function handleApprove() {
+  async function handleApprove(identityOverride?: { acknowledged: boolean; reason: string }) {
     if (!candidate || busy) return;
     setApproving(true);
+    if (identityOverride) setOverrideValidationError(null);
     try {
-      const result = await approveContactCandidate(candidate.id);
+      const result = await approveContactCandidate(candidate.id, identityOverride);
       if (result.ok) {
         toast.success(result.message ?? 'Contacto aprobado y creado en SellUp.');
+        setShowIdentityOverrideDialog(false);
         router.refresh();
         onClose();
       } else if (result.duplicate) {
@@ -213,6 +236,18 @@ export function ContactCandidateDetailSheet({
         toast.warning(result.error ?? 'Este candidato parece estar duplicado.');
         router.refresh();
         onClose();
+      } else if (result.code === 'IDENTITY_MISMATCH_REQUIRES_REVIEW') {
+        // El estado en pantalla quedó obsoleto respecto al servidor (autoridad
+        // real): abrimos el diálogo de revisión en vez de mostrar un error genérico.
+        setShowIdentityOverrideDialog(true);
+        toast.warning(
+          result.error ?? 'Este candidato requiere revisar la discrepancia de identidad antes de aprobar.',
+        );
+      } else if (result.code === 'IDENTITY_OVERRIDE_REASON_REQUIRED') {
+        setShowIdentityOverrideDialog(true);
+        setOverrideValidationError(
+          result.error ?? 'Debes confirmar que revisaste la discrepancia e indicar un motivo.',
+        );
       } else {
         toast.error(result.error ?? 'No fue posible aprobar el candidato.');
       }
@@ -221,6 +256,15 @@ export function ContactCandidateDetailSheet({
     } finally {
       setApproving(false);
     }
+  }
+
+  function handleConfirmIdentityOverride() {
+    const trimmedReason = overrideReason.trim();
+    if (!overrideAcknowledged || trimmedReason.length === 0) {
+      setOverrideValidationError('Debes confirmar que revisaste la discrepancia e indicar un motivo.');
+      return;
+    }
+    void handleApprove({ acknowledged: overrideAcknowledged, reason: trimmedReason });
   }
 
   async function handleReject() {
@@ -270,8 +314,12 @@ export function ContactCandidateDetailSheet({
   const identityDisplay = resolveIdentityDisplay(personIdentity);
   const showIdentityEvidence =
     personIdentity?.identity_consistency === 'mismatch';
+  // Gate de aprobación (Hito 17B.4W.8): mismatch exige override humano explícito
+  // antes de aprobar. El servidor sigue siendo la autoridad real de esta regla.
+  const isIdentityMismatch = showIdentityEvidence;
 
   return (
+    <>
     <DrawerShell
       open={open}
       onOpenChange={(v) => !v && onClose()}
@@ -329,12 +377,19 @@ export function ContactCandidateDetailSheet({
                   type="button"
                   size="sm"
                   disabled={busy || (!candidate.account_id && !candidate.hubspot_company_id)}
-                  onClick={handleApprove}
+                  onClick={() =>
+                    isIdentityMismatch ? setShowIdentityOverrideDialog(true) : handleApprove()
+                  }
                 >
                   {approving ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Aprobando…
+                    </>
+                  ) : isIdentityMismatch ? (
+                    <>
+                      <AlertTriangle className="h-4 w-4" />
+                      Revisar y aprobar de todas formas
                     </>
                   ) : (
                     <>
@@ -698,6 +753,90 @@ export function ContactCandidateDetailSheet({
         </div>
       )}
     </DrawerShell>
+
+    <Dialog
+      open={showIdentityOverrideDialog}
+      onOpenChange={(v) => {
+        if (busy) return;
+        setShowIdentityOverrideDialog(v);
+        if (!v) {
+          setOverrideAcknowledged(false);
+          setOverrideReason('');
+          setOverrideValidationError(null);
+        }
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Revisar discrepancia de identidad</DialogTitle>
+          <DialogDescription>
+            La identidad encontrada inicialmente y la identidad devuelta por el enriquecimiento
+            no coinciden completamente. Esto no demuestra que el correo sea incorrecto, pero
+            debes revisar la información antes de crear el contacto.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <label className="flex items-start gap-2.5 text-sm">
+            <Checkbox
+              checked={overrideAcknowledged}
+              onCheckedChange={(v) => {
+                setOverrideAcknowledged(v === true);
+                setOverrideValidationError(null);
+              }}
+              disabled={busy}
+              className="mt-0.5"
+            />
+            <span className="text-foreground">
+              He revisado la discrepancia de identidad y decido continuar.
+            </span>
+          </label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Motivo de aprobación</label>
+            <Textarea
+              value={overrideReason}
+              onChange={(e) => {
+                setOverrideReason(e.target.value);
+                setOverrideValidationError(null);
+              }}
+              rows={3}
+              placeholder="Describe brevemente qué verificaste antes de continuar."
+              disabled={busy}
+              className="text-sm"
+            />
+          </div>
+          {overrideValidationError && (
+            <p className="text-xs text-destructive">{overrideValidationError}</p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => setShowIdentityOverrideDialog(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || !overrideAcknowledged || overrideReason.trim().length === 0}
+            onClick={handleConfirmIdentityOverride}
+          >
+            {approving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Aprobando…
+              </>
+            ) : (
+              'Aprobar de todas formas'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

@@ -18,6 +18,7 @@ import {
   type CandidateReviewPatch,
   type ContactInsertPayload,
   type ExistingContactForDedup,
+  type IdentityApprovalOverrideInputV1,
 } from './candidate-review-core';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import type {
@@ -469,6 +470,7 @@ export interface ApproveCandidateActionResult {
   message?: string;
   error?: string;
   duplicate?: boolean;
+  code?: 'IDENTITY_MISMATCH_REQUIRES_REVIEW' | 'IDENTITY_OVERRIDE_REASON_REQUIRED';
 }
 
 export interface DiscardCandidateActionResult {
@@ -483,6 +485,7 @@ export interface DiscardCandidateActionResult {
  */
 export async function approveContactCandidate(
   candidateId: string,
+  identityOverride?: IdentityApprovalOverrideInputV1,
 ): Promise<ApproveCandidateActionResult> {
   try {
     const { internalUserId } = await requireActiveUserForEnrichment();
@@ -526,13 +529,19 @@ export async function approveContactCandidate(
           .eq('id', id);
         return { error: error?.message };
       },
-      logAudit: async ({ contactId, accountId, actorUserId }) => {
+      logAudit: async ({ contactId, accountId, actorUserId, identityOverrideApplied }) => {
         await logContactAudit({
           contactId,
           accountId,
           actorUserId,
           actionType: 'contact_created',
-          details: { source: 'contact_enrichment_candidate', candidate_id: candidateId },
+          details: {
+            source: 'contact_enrichment_candidate',
+            candidate_id: candidateId,
+            ...(identityOverrideApplied
+              ? { identity_override_used: true, identity_state_at_override: 'mismatch' as const }
+              : {}),
+          },
         });
       },
       resolveOrCreateAccount: async (args) => {
@@ -635,7 +644,7 @@ export async function approveContactCandidate(
           })
           .eq('id', runId);
       },
-    });
+    }, identityOverride);
 
     return result;
   } catch (err) {
