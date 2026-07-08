@@ -148,7 +148,8 @@
     "test:agent2a:lusha": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4g.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4h.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4k.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-people-adapter.test.ts",
     "test:agent2a:lusha-diag-17b4q": "node --import tsx --test src/components/contact-enrichment/__tests__/lusha-credential-diagnostic-card-17b4q.test.ts",
     "test:agent2a:lusha-17b4s": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4s.test.ts",
-    "test:agent2a:lusha-17b4w2": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4w2.test.ts"
+    "test:agent2a:lusha-17b4w2": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4w2.test.ts",
+    "test:agent2a:identity-override-ui-17b4w8a": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-sheet-identity-override-17b4w8a.test.tsx"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -191,11 +192,15 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "jsdom": "^29.1.1",
     "prettier": "^3.8.3",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
