@@ -73,3 +73,25 @@ export type {
 } from './mapping-publication-service';
 export { MappingPublicationValidationError } from './mapping-publication-types';
 export type { MappingPublicationDbClient } from './mapping-publication-types';
+
+// Trusted snapshot loaders — LOAD1 + LOAD2 (Q3F-5AK). The canonical resolver
+// is NOT implemented by these loaders; they only prove NS1 (the resolver
+// never receives a null mapping snapshot).
+export { loadPublishedIndustryMappingSnapshot } from './mapping-snapshot-load1';
+export type { LoadPublishedIndustryMappingSnapshotInput } from './mapping-snapshot-load1';
+export { loadHistoricalIndustryMappingSnapshot } from './mapping-snapshot-load2';
+export type { LoadHistoricalIndustryMappingSnapshotInput } from './mapping-snapshot-load2';
+export {
+  MappingSnapshotLoadError,
+  SOURCE_VOCABULARIES_TABLE,
+  CATALOG_VERSIONS_TABLE,
+} from './mapping-snapshot-load-types';
+export type {
+  MappingSnapshotLoadErrorCode,
+  MappingSnapshotLoadErrorContext,
+  MappingSnapshotLoadDbClient,
+  IndustryProviderMappingSnapshot,
+  MappingSnapshotConceptEntry,
+  MappingSnapshotAssociation,
+  CanonicalIndustryReference,
+} from './mapping-snapshot-load-types';
