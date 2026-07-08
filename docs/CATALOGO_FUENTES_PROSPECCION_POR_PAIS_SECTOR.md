@@ -452,18 +452,45 @@ Panamá tiene una particularidad importante: **PANADATA** es el agregador privad
 
 ### Lectura general
 
-El **Registro Mercantil General** es la fuente principal para validación societaria. Tiene portal de consultas (e-Consultas) pero sin API pública documentada. SAT/NIT permite validación tributaria individual. **Guatecompras** es el portal de compras públicas con datos OCDS. Para MVP, Guatemala funciona principalmente como destino de validación manual o Apollo.
+El **Registro Mercantil General** es la fuente principal para validación societaria. Tiene portal de consultas (e-Consultas) pero sin API pública documentada. SAT/NIT permite validación tributaria individual. **Guatecompras** es el portal de compras públicas con datos OCDS. **RGAE** (Registro General de Adquisiciones del Estado, MINFIN) quedó registrada en Source Catalog (`gt_rgae_proveedores`) tras Catálogo.GT.1/GT.2A/GT.2B con snapshot 2025 persistido — ver detalle abajo. Para el resto de necesidades, Guatemala sigue funcionando principalmente como destino de validación manual o Apollo.
 
 ### Fuentes recomendadas
 
 | Fuente | URL | Tipo | Sectores útiles | Uso recomendado | Automatización MVP | Riesgos / límites | Prioridad |
 |---|---|---|---|---|---|---|---|
 | **Registro Mercantil General** | [registromercantil.gob.gt](https://www.registromercantil.gob.gt/) · [eportal](https://eportal.registromercantil.gob.gt/) | Validación legal | Todos | Buscar y validar sociedades mercantiles: representante legal, capital, estado | Manual — e-Consultas web | Sin API; sin descarga masiva. Mantenimiento frecuente del portal | **P0** |
+| **RGAE** — Registro General de Adquisiciones del Estado (MINFIN) | [minfin.gob.gt](https://www.minfin.gob.gt/) | Señal comercial B2G | Todos | Proveedores del Estado (Sociedades) con NIT normalizado. Snapshot 2025 persistido en `source_company_snapshots` | Manual — ingesta XLSX local, sin API | Ver subsección RGAE — snapshot persistido, sin lookup ni post-approval | **P2** |
 | **SAT Guatemala** — NIT | [portal.sat.gob.gt](https://portal.sat.gob.gt/) | Validación tributaria | Todos | Validar NIT, razón social, actividad económica | Manual — web | Solo validación individual | **P1** |
-| **Guatecompras** (OCDS) | [guatecompras.gt](https://www.guatecompras.gt/) | Señales comerciales | Tecnología, Salud, Educación, Seguridad | Proveedores del Estado. Datos parcialmente estructurados | Media | Confirmar descarga o API | **P1** |
+| **Guatecompras** (OCDS) | [guatecompras.gt](https://www.guatecompras.gt/) | Señales comerciales | Tecnología, Salud, Educación, Seguridad | Proveedores del Estado. Datos parcialmente estructurados | Media | Confirmar descarga o API — fuente conceptual, no implementada | **P1** |
 | **SEGEPLAN** — Portal de Proyectos | [segeplan.gob.gt](https://www.segeplan.gob.gt/) | Señales comerciales | Construcción, Infraestructura, Tecnología, Servicios | Proyectos y proveedores del Estado guatemalteco. Complementa Guatecompras con contexto de planificación nacional | Media | Confirmar estructura de datos abiertos antes de integrar | **P2** |
 | **AGEXPORT** | [agexport.org.gt](https://agexport.org.gt/) | Sectorial | Exportadores, Manufactura, Agroindustria | Discovery de exportadores guatemaltecos | Manual | Solo exportadores / afiliados | **P1** |
 | **Cámara de Industria de Guatemala** | [industriaguatemala.org](https://www.industriaguatemala.org/) | Sectorial | Manufactura / Industria | Gremio industrial. Publicaciones y socios | Manual | Afiliados | **P1** |
+| **Cámara de Comercio de Guatemala** (`gt_camara_comercio`) | [camaracomercio.com.gt](https://www.camaracomercio.com.gt/) | Sectorial | Todos | Directorio de empresas afiliadas a la Cámara | Manual | Solo afiliados; sin API ni persistencia; señal manual pura (`manual_signal_only`) | **P1** |
+
+### RGAE — snapshot persistido (`gt_rgae_proveedores`)
+
+- Fuente oficial pública: **MINFIN Guatemala**, Registro General de Adquisiciones del Estado.
+- `source_key`: `gt_rgae_proveedores`, registrada en Source Catalog en Catálogo.GT.2B.
+- Snapshot 2025 persistido en `source_company_snapshots`: **6.245 Sociedades**, **6.245 NIT únicos normalizados**, **0 duplicados**.
+- `coverage_status` = `complete_snapshot` en `source_coverage_summaries` para el universo filtrado (TIPO_PROVEEDOR = Sociedades, año 2025). En el contrato de clasificación del Source Catalog (`CatalogSourceOperationalStatus`) no existe el literal `complete_snapshot`; la entry usa `partial_snapshot` — el literal permitido más fiel — porque el snapshot no cubre personas individuales ni años distintos a 2025.
+- Ingesta actual **manual** desde XLSX local descargado del portal MINFIN; no hay API ni fetch automático conectado.
+- Adapter, mapper y writer implementados en `src/server/source-catalog/connectors/gt-rgae/` (156/156 tests).
+- Snapshot y coverage persistidos; **no existe lookup todavía**, ni consumer de runtime enrichment.
+- `human_review_required = true`, `post_approval_enabled = false`, `matching_automatic_enabled = false`, `account_creation_enabled = false`, `canonical_name_overwrite_enabled = false`.
+- No equivale a validación fiscal SAT ni a validación societaria del Registro Mercantil (`tax_validation_status` / `legal_validation_status` = `not_applicable`).
+
+### Cámara de Comercio de Guatemala (`gt_camara_comercio`)
+
+- Permanece `manual_signal_only`: directorio de empresas afiliadas, sin API, sin persistencia, sin consumer.
+- En Catálogo.GT.2B se corrigió su clasificación operativa (`sellupUse`, `aiFlowStatus`, `connectionMode`) para que quede explícitamente en la pestaña de fuentes manuales del Source Catalog, en vez de caer por fallback (`pending_classification`) en la pestaña de fuentes operativas/IA. No se modificó su nombre, URL, `recommendedUse`, `limitations` ni prioridad.
+
+### Guatecompras
+
+Se mantiene como fuente conceptual/documental (portal de compras públicas con datos OCDS). No está implementada como conector, adapter ni snapshot en el repo.
+
+### Estado Guatemala
+
+RGAE ya está persistida y gobernada en Source Catalog tras Catálogo.GT.2B (snapshot + coverage reales, clasificación operativa correcta, documento maestro alineado). Guatemala **no** se considera cerrada completamente: queda pendiente una decisión futura sobre construir un lookup read-only para RGAE y, eventualmente, evaluar Guatecompras como fuente estructurada.
 
 ---
 
