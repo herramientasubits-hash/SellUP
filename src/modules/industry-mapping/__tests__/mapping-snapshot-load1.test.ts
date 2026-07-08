@@ -223,6 +223,81 @@ test('LOAD1: two distinct targets for one concept assemble successfully (valid a
   assert.equal(result.conceptEntries[0].associations.length, 2);
 });
 
+test('LOAD1: two catalog-version rows for the same requested semantic version is an integrity failure', async () => {
+  const db = makeDb({
+    industry_catalog_versions: [
+      { id: CATALOG_VERSION_ID, version: CATALOG_VERSION },
+      { id: 'catalog-version-2', version: CATALOG_VERSION },
+    ],
+  });
+  await assertRejectsWithCode(
+    loadPublishedIndustryMappingSnapshot(db, { sourceVocabularyKey: VOCAB_KEY, catalogVersion: CATALOG_VERSION }),
+    'SNAPSHOT_CONTENT_INTEGRITY_ERROR',
+  );
+});
+
+test('LOAD1: duplicate catalog-version integrity failure message does not leak raw DB detail', async () => {
+  const db = makeDb({
+    industry_catalog_versions: [
+      { id: CATALOG_VERSION_ID, version: CATALOG_VERSION },
+      { id: 'catalog-version-2', version: CATALOG_VERSION },
+    ],
+  });
+  await assert.rejects(
+    loadPublishedIndustryMappingSnapshot(db, { sourceVocabularyKey: VOCAB_KEY, catalogVersion: CATALOG_VERSION }),
+    (error: unknown) => {
+      assert.ok(error instanceof MappingSnapshotLoadError);
+      assert.ok(!error.message.includes('SQLSTATE'));
+      assert.ok(!error.message.includes('SELECT'));
+      return true;
+    },
+  );
+});
+
+test('LOAD1: catalog-version query infrastructure error is a distinct typed failure', async () => {
+  const db = makeDb();
+  const failingDb = {
+    ...db,
+    from(table: string) {
+      if (table !== 'industry_catalog_versions') return db.from(table);
+      return {
+        select() {
+          const chain = {
+            eq() {
+              return chain;
+            },
+            async maybeSingle() {
+              return { data: null, error: { message: 'FATAL: connection reset SQLSTATE 08006' } };
+            },
+            then(onfulfilled: (value: unknown) => unknown) {
+              return Promise.resolve({
+                data: null,
+                error: { message: 'FATAL: connection reset SQLSTATE 08006' },
+              }).then(onfulfilled);
+            },
+          };
+          return chain;
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    loadPublishedIndustryMappingSnapshot(failingDb as never, {
+      sourceVocabularyKey: VOCAB_KEY,
+      catalogVersion: CATALOG_VERSION,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof MappingSnapshotLoadError);
+      assert.equal(error.code, 'SNAPSHOT_LOAD_FAILED');
+      assert.notEqual(error.code, 'CATALOG_VERSION_NOT_FOUND');
+      assert.ok(!error.message.includes('SQLSTATE'));
+      assert.ok(!error.message.includes('connection reset'));
+      return true;
+    },
+  );
+});
+
 test('LOAD1: reconstructed snapshot scope mismatch against requested catalog version is an integrity failure', async () => {
   // The single-PUBLISHED-scope query already filters by the resolved
   // catalog_version_id, so a mismatch cannot arise through LOAD1's own query

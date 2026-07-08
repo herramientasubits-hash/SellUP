@@ -74,13 +74,16 @@ export async function loadCatalogVersionByVersionString(
   db: MappingSnapshotLoadDbClient,
   version: string,
 ): Promise<CatalogVersionRow | null> {
-  const { data, error } = await db
-    .from(CATALOG_VERSIONS_TABLE)
-    .select('*')
-    .eq('version', version)
-    .maybeSingle();
+  const { data, error } = await db.from(CATALOG_VERSIONS_TABLE).select('*').eq('version', version);
   if (error) throw infrastructureFailure(error);
-  return (data as unknown as CatalogVersionRow | null) ?? null;
+  const rows = (data as unknown as CatalogVersionRow[] | null) ?? [];
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    throw integrityError('Two or more catalog version rows match the requested semantic version.', {
+      catalogVersion: version,
+    });
+  }
+  return rows[0];
 }
 
 export async function loadCatalogVersionById(
