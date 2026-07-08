@@ -350,6 +350,47 @@ describe('validateProviderIndustryMappingForPublication — multi-error and dete
     assert.deepEqual(forward.issues, reversed.issues);
   });
 
+  it('26. issue ordering is deterministic when two same-code issues share the same first concept ID (duplicate-ID counterexample)', () => {
+    // Two distinct concept rows both carry id 'c1' but different raw labels,
+    // so both recompute a different normalizedKey and both produce
+    // CONCEPT_NORMALIZED_KEY_MISMATCH with the same conceptEntryIds=['c1'].
+    // Reversing the caller's input order must not change the result.
+    const fooConcept = concept({ id: 'c1', rawLabel: 'Foo', normalizedLookupKey: 'wrong-foo' });
+    const barConcept = concept({ id: 'c1', rawLabel: 'Bar', normalizedLookupKey: 'wrong-bar' });
+
+    const forward = validateProviderIndustryMappingForPublication(
+      baseInput({ conceptEntries: [fooConcept, barConcept] }),
+    );
+    const reversed = validateProviderIndustryMappingForPublication(
+      baseInput({ conceptEntries: [barConcept, fooConcept] }),
+    );
+
+    assert.deepEqual(forward.issues, reversed.issues);
+    const mismatchIssues = forward.issues.filter((i) => i.code === 'CONCEPT_NORMALIZED_KEY_MISMATCH');
+    assert.equal(mismatchIssues.length, 2);
+  });
+
+  it('27. issue ordering is deterministic when two same-code association issues share the same association ID and differ only by invalid relation semantics literal', () => {
+    // Two distinct association rows both carry id 'a1' but different invalid
+    // relationSemantics values, so both produce
+    // ASSOCIATION_RELATION_SEMANTICS_INVALID with the same associationId.
+    const concepts = [concept({ id: 'concept-1' })];
+    const industries = [industry({})];
+    const assocFoo = association({ id: 'a1', relationSemantics: 'FOO_INVALID' });
+    const assocBar = association({ id: 'a1', relationSemantics: 'BAR_INVALID' });
+
+    const forward = validateProviderIndustryMappingForPublication(
+      baseInput({ conceptEntries: concepts, associations: [assocFoo, assocBar], canonicalIndustries: industries }),
+    );
+    const reversed = validateProviderIndustryMappingForPublication(
+      baseInput({ conceptEntries: concepts, associations: [assocBar, assocFoo], canonicalIndustries: industries }),
+    );
+
+    assert.deepEqual(forward.issues, reversed.issues);
+    const invalidIssues = forward.issues.filter((i) => i.code === 'ASSOCIATION_RELATION_SEMANTICS_INVALID');
+    assert.equal(invalidIssues.length, 2);
+  });
+
   it('24. validator input is not mutated', () => {
     const input = baseInput({
       conceptEntries: [concept({})],

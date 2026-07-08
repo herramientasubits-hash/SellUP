@@ -233,6 +233,62 @@ describe('publishMappingSnapshot — RPC error mapping', () => {
       (error: unknown) => error instanceof MappingDraftError && error.code === 'MAPPING_PUBLICATION_FAILED',
     );
   });
+
+  const RAW_DETAIL_SUFFIX = 'physical-detail-should-not-leak';
+
+  // Table-driven: every known migration 082 physical publication marker
+  // (section 10 RAISE EXCEPTION identities) mapped to its expected domain
+  // code, plus proof the physical detail never survives into the public
+  // `.message`.
+  const KNOWN_MARKER_CASES: Array<{ marker: string; expectedCode: string }> = [
+    { marker: 'SNAPSHOT_NOT_FOUND', expectedCode: 'MAPPING_SNAPSHOT_NOT_FOUND' },
+    { marker: 'VOCABULARY_NOT_REGISTERED', expectedCode: 'MAPPING_PUBLICATION_VOCABULARY_NOT_REGISTERED' },
+    { marker: 'VOCABULARY_DEPRECATED', expectedCode: 'MAPPING_PUBLICATION_VOCABULARY_DEPRECATED' },
+    { marker: 'SNAPSHOT_SCOPE_INTEGRITY_ERROR', expectedCode: 'MAPPING_PUBLICATION_SNAPSHOT_SCOPE_INTEGRITY_ERROR' },
+    { marker: 'SNAPSHOT_NOT_DRAFT', expectedCode: 'MAPPING_SNAPSHOT_NOT_DRAFT' },
+    { marker: 'PUBLISHER_REQUIRED', expectedCode: 'MAPPING_PUBLICATION_PUBLISHER_REQUIRED' },
+    { marker: 'SELF_APPROVAL_FORBIDDEN', expectedCode: 'MAPPING_PUBLISHER_MUST_DIFFER_FROM_CREATOR' },
+    { marker: 'VERSION_LABEL_REQUIRED', expectedCode: 'MAPPING_PUBLICATION_VERSION_LABEL_REQUIRED' },
+    { marker: 'CHANGE_REASON_REQUIRED', expectedCode: 'MAPPING_PUBLICATION_CHANGE_REASON_REQUIRED' },
+    {
+      marker: 'DRAFT_CONTENT_CHANGED_AFTER_VALIDATION',
+      expectedCode: 'MAPPING_PUBLICATION_REVISION_STALE',
+    },
+  ];
+
+  for (const { marker, expectedCode } of KNOWN_MARKER_CASES) {
+    it(`21. known physical marker ${marker} maps to ${expectedCode} and does not leak raw DB text`, async () => {
+      const db = makeDb({ rpc: failingRpc(`${marker}: ${RAW_DETAIL_SUFFIX}`) });
+
+      try {
+        await publishMappingSnapshot(db, { snapshotId: SNAPSHOT_ID, publisherActorId: PUBLISHER });
+        assert.fail('expected publishMappingSnapshot to throw');
+      } catch (error) {
+        assert.ok(error instanceof MappingDraftError);
+        assert.equal(error.code, expectedCode);
+        assert.notEqual(error.message, `${marker}: ${RAW_DETAIL_SUFFIX}`);
+        assert.ok(!error.message.includes(RAW_DETAIL_SUFFIX));
+      }
+    });
+  }
+
+  it('22. unknown/unexpected RPC failure maps to MAPPING_PUBLICATION_FAILED and does not leak raw DB text', async () => {
+    const rawMessage = `UNEXPECTED_DATABASE_INTERNAL_DETAIL: ${RAW_DETAIL_SUFFIX}`;
+    const db = makeDb({ rpc: failingRpc(rawMessage) });
+
+    try {
+      await publishMappingSnapshot(db, { snapshotId: SNAPSHOT_ID, publisherActorId: PUBLISHER });
+      assert.fail('expected publishMappingSnapshot to throw');
+    } catch (error) {
+      assert.ok(error instanceof MappingDraftError);
+      assert.equal(error.code, 'MAPPING_PUBLICATION_FAILED');
+      assert.notEqual(error.message, rawMessage);
+      assert.ok(!error.message.includes(RAW_DETAIL_SUFFIX));
+      // The original infrastructure error remains available as `cause` for
+      // server-side logging only — never surfaced via `.message`.
+      assert.ok(error.cause !== undefined);
+    }
+  });
 });
 
 describe('publishMappingSnapshot — happy path and lifecycle boundary', () => {

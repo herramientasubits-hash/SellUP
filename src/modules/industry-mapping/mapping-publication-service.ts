@@ -169,10 +169,31 @@ function mapPublicationRpcError(error: { code?: string; message?: string }): Map
   if (message.includes(PUBLICATION_RPC_RAISE.SNAPSHOT_NOT_FOUND)) {
     return new MappingDraftError('MAPPING_SNAPSHOT_NOT_FOUND', 'Mapping snapshot not found.', error);
   }
+  if (message.includes(PUBLICATION_RPC_RAISE.VOCABULARY_NOT_REGISTERED)) {
+    return new MappingDraftError(
+      'MAPPING_PUBLICATION_VOCABULARY_NOT_REGISTERED',
+      'Mapping vocabulary is not registered.',
+      error,
+    );
+  }
+  if (message.includes(PUBLICATION_RPC_RAISE.SNAPSHOT_SCOPE_INTEGRITY_ERROR)) {
+    return new MappingDraftError(
+      'MAPPING_PUBLICATION_SNAPSHOT_SCOPE_INTEGRITY_ERROR',
+      'Mapping snapshot scope integrity check failed.',
+      error,
+    );
+  }
   if (message.includes(PUBLICATION_RPC_RAISE.SNAPSHOT_NOT_DRAFT)) {
     return new MappingDraftError(
       'MAPPING_SNAPSHOT_NOT_DRAFT',
       'Mapping snapshot is not in draft status.',
+      error,
+    );
+  }
+  if (message.includes(PUBLICATION_RPC_RAISE.PUBLISHER_REQUIRED)) {
+    return new MappingDraftError(
+      'MAPPING_PUBLICATION_PUBLISHER_REQUIRED',
+      'Publisher is required for publication.',
       error,
     );
   }
@@ -212,11 +233,12 @@ function mapPublicationRpcError(error: { code?: string; message?: string }): Map
     );
   }
 
-  return new MappingDraftError(
-    'MAPPING_PUBLICATION_FAILED',
-    `Publication RPC failed: ${message || 'unknown error'}`,
-    error,
-  );
+  // Unknown/unexpected RPC failure: the public message must stay stable and
+  // must never interpolate the raw physical error text (Postgres message,
+  // SQLSTATE, constraint detail/hint, or RPC payload). The original
+  // infrastructure error remains available as `cause` for server-side
+  // logging only, per the existing MappingDraftError convention.
+  return new MappingDraftError('MAPPING_PUBLICATION_FAILED', 'Publication RPC failed.', error);
 }
 
 /**

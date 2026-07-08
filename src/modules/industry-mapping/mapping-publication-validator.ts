@@ -124,18 +124,91 @@ export type MappingPublicationValidationResult =
   | { valid: false; issues: readonly MappingPublicationValidationIssue[] };
 
 // ── Deterministic ordering ───────────────────────────────────────────────────
-// Stable code-order (ISSUE_CODE_ORDER) first, then lexical ascending by each
-// issue's designated primary sort key (a single concept/association id, or —
-// for collision/duplicate-target groups — the smallest id in the group).
+// Stable code-order (ISSUE_CODE_ORDER) first, then a complete variant-specific
+// canonical sort key built from every diagnostic identity field that can
+// distinguish two issues of the same code (not just the first id in an array).
+// Ordinal (non-locale) string comparison throughout — no locale-dependent
+// collation, no reliance on original caller array order.
 
-function primarySortKey(issue: MappingPublicationValidationIssue): string {
-  if (issue.associationIds && issue.associationIds.length > 0) {
-    return [...issue.associationIds].sort()[0];
+const SORT_KEY_NULL = '\u0000NULL\u0000';
+const SORT_KEY_SEP = '\u0001';
+
+function ordinalCompare(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+function scalarKeyPart(value: string | undefined): string {
+  return value === undefined ? SORT_KEY_NULL : JSON.stringify(value);
+}
+
+function sortedListKeyPart(values: readonly string[] | undefined): string {
+  if (values === undefined || values.length === 0) return SORT_KEY_NULL;
+  return JSON.stringify([...values].sort(ordinalCompare));
+}
+
+/**
+ * Canonical, complete identity key for one issue, scoped by its own code.
+ * Every field that can vary between two issues sharing the same code (and,
+ * for the array-keyed codes, the same first sorted id) is included, so
+ * malformed duplicate-ID input cannot produce caller-order-dependent output.
+ */
+function deterministicIssueSortKey(issue: MappingPublicationValidationIssue): string {
+  switch (issue.code) {
+    case 'SNAPSHOT_NOT_DRAFT':
+    case 'SNAPSHOT_VERSION_LABEL_MISSING':
+    case 'SNAPSHOT_CHANGE_REASON_MISSING':
+      return [issue.code, scalarKeyPart(issue.snapshotId)].join(SORT_KEY_SEP);
+
+    case 'CONCEPT_SNAPSHOT_MISMATCH':
+    case 'CONCEPT_NORMALIZED_KEY_EMPTY':
+      return [issue.code, sortedListKeyPart(issue.conceptEntryIds)].join(SORT_KEY_SEP);
+
+    case 'CONCEPT_NORMALIZED_KEY_MISMATCH':
+    case 'CONCEPT_NORMALIZED_KEY_COLLISION':
+      return [issue.code, sortedListKeyPart(issue.conceptEntryIds), scalarKeyPart(issue.normalizedKey)].join(
+        SORT_KEY_SEP,
+      );
+
+    case 'ASSOCIATION_SNAPSHOT_MISMATCH':
+    case 'ASSOCIATION_CONCEPT_NOT_FOUND':
+    case 'ASSOCIATION_CONCEPT_SNAPSHOT_MISMATCH':
+      return [issue.code, scalarKeyPart(issue.associationId)].join(SORT_KEY_SEP);
+
+    case 'ASSOCIATION_RELATION_SEMANTICS_INVALID':
+      // No dedicated field carries the offending literal — it only appears in
+      // `message` (interpolated from the association's own relationSemantics
+      // value, never raw/random) — included here to distinguish two same-ID
+      // associations with different invalid literals.
+      return [issue.code, scalarKeyPart(issue.associationId), scalarKeyPart(issue.message)].join(SORT_KEY_SEP);
+
+    case 'ASSOCIATION_CATALOG_VERSION_MISMATCH':
+      return [issue.code, scalarKeyPart(issue.associationId), scalarKeyPart(issue.catalogVersionId)].join(
+        SORT_KEY_SEP,
+      );
+
+    case 'ASSOCIATION_INDUSTRY_NOT_FOUND':
+      return [issue.code, scalarKeyPart(issue.associationId), scalarKeyPart(issue.industryId)].join(SORT_KEY_SEP);
+
+    case 'ASSOCIATION_INDUSTRY_CATALOG_VERSION_MISMATCH':
+      return [
+        issue.code,
+        scalarKeyPart(issue.associationId),
+        scalarKeyPart(issue.industryId),
+        scalarKeyPart(issue.catalogVersionId),
+      ].join(SORT_KEY_SEP);
+
+    case 'ASSOCIATION_DUPLICATE_TARGET':
+      return [issue.code, sortedListKeyPart(issue.associationIds), sortedListKeyPart(issue.relationSemanticsValues)].join(
+        SORT_KEY_SEP,
+      );
+
+    default: {
+      const exhaustiveCheck: never = issue.code;
+      return exhaustiveCheck;
+    }
   }
-  if (issue.conceptEntryIds && issue.conceptEntryIds.length > 0) {
-    return [...issue.conceptEntryIds].sort()[0];
-  }
-  return issue.associationId ?? '';
 }
 
 function sortIssuesDeterministically(
@@ -144,7 +217,7 @@ function sortIssuesDeterministically(
   return [...issues].sort((a, b) => {
     const codeDelta = ISSUE_CODE_ORDER.indexOf(a.code) - ISSUE_CODE_ORDER.indexOf(b.code);
     if (codeDelta !== 0) return codeDelta;
-    return primarySortKey(a).localeCompare(primarySortKey(b));
+    return ordinalCompare(deterministicIssueSortKey(a), deterministicIssueSortKey(b));
   });
 }
 
@@ -192,11 +265,6 @@ export function validateProviderIndustryMappingForPublication(
     conceptEntryById.set(concept.id, concept);
   }
 
-  // Recomputed normalized key per concept entry, keyed by concept id. COL1
-  // collision grouping below reuses this map — it never trusts the persisted
-  // normalizedLookupKey for grouping purposes.
-  const recomputedKeyByConceptId = new Map<string, string>();
-
   for (const concept of conceptEntries) {
     if (concept.snapshotId !== snapshot.id) {
       issues.push({
@@ -207,7 +275,6 @@ export function validateProviderIndustryMappingForPublication(
     }
 
     const expectedNormalizedKey = normalizeClassificationValue(concept.rawLabel);
-    recomputedKeyByConceptId.set(concept.id, expectedNormalizedKey);
 
     if (expectedNormalizedKey === '') {
       issues.push({
@@ -228,9 +295,12 @@ export function validateProviderIndustryMappingForPublication(
   }
 
   // COL1 collision: group by recomputed (not persisted) non-empty key.
+  // Recomputed per concept object directly (not via an id-keyed cache) so
+  // malformed input with duplicate concept ids cannot silently collapse two
+  // distinct rows onto a single (order-dependent) cached key.
   const conceptIdsByRecomputedKey = new Map<string, string[]>();
   for (const concept of conceptEntries) {
-    const key = recomputedKeyByConceptId.get(concept.id) ?? '';
+    const key = normalizeClassificationValue(concept.rawLabel);
     if (key === '') continue;
     const bucket = conceptIdsByRecomputedKey.get(key);
     if (bucket) {
