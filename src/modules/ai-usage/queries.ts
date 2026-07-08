@@ -281,6 +281,63 @@ async function resolveUserScope(
   return { mode: 'ids', ids: [...new Set(ids)] };
 }
 
+// ============================================================
+// Agent-scope resolution (Q3F-8B)
+//
+// UsageFilters.agent carries an agent_key (e.g. "prospect_generation"), NOT a
+// run id. provider_usage_logs has no agent_key column — it only has
+// agent_run_id. So filtering provider logs by Agent means resolving the key to
+// its agent_runs.id[] first, then constraining agent_run_id ∈ those ids.
+//
+// The chain: agent_runs.agent_key → agent_runs.id → provider_usage_logs.agent_run_id
+// ============================================================
+
+/**
+ * Resolve an agent_key to the set of agent_runs.id it produced.
+ *
+ * Selects only `id` (no unnecessary columns) and touches agent_runs only —
+ * provider_usage_logs scoping happens in the caller. Never mixes role / group /
+ * user scope; it is orthogonal to resolveUserScope.
+ *
+ * Return contract:
+ *   - key with runs    → [id, id, ...]
+ *   - key with no runs → []
+ *   - query error      → [] (fail-closed, mirroring getActiveUserIdsForRoleKey:
+ *                        an unresolvable scope contributes an empty id set
+ *                        rather than silently widening results)
+ */
+async function resolveAgentRunIds(
+  admin: AdminClient,
+  agentKey: string,
+): Promise<string[]> {
+  const { data } = await admin
+    .from('agent_runs')
+    .select('id')
+    .eq('agent_key', agentKey);
+  return (data ?? []).map((r) => r.id as string);
+}
+
+// The single Agent-scope decision shared by getProviderStats,
+// getProviderOperationStats and getRecentProviderLogs. Kept pure (no Supabase
+// client) so the three-case boundary is unit-testable directly, matching this
+// module's aggregateOperationStats testing approach.
+//   - disabled                → no filters.agent → do NOT constrain agent_run_id
+//   - enabled, runIds.length>0 → constrain agent_run_id ∈ runIds
+//   - enabled, runIds.length=0 → Agent selected but 0 matching runs → EMPTY
+//     (the caller must short-circuit; it must NOT fall through to an
+//     unconstrained provider_usage_logs query, which would wrongly show all data)
+export type AgentRunScope =
+  | { enabled: false }
+  | { enabled: true; runIds: string[] };
+
+export function createAgentRunScope(
+  agentKey: string | undefined,
+  resolvedIds: string[] | null,
+): AgentRunScope {
+  if (!agentKey) return { enabled: false };
+  return { enabled: true, runIds: resolvedIds ?? [] };
+}
+
 export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
   const access = await resolveAiUsageAccess();
   if (access.mode === 'denied') return null;
@@ -546,6 +603,15 @@ export async function getProviderStats(
   const scope = await resolveUserScope(admin, filters, baseIds);
   if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
+  // Agent scope: resolve agent_key → agent_runs.id[] and constrain
+  // provider_usage_logs.agent_run_id. An active Agent filter with no matching
+  // runs yields an empty universe (never an unconstrained query).
+  const agentScope = createAgentRunScope(
+    filters.agent,
+    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
+  );
+  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
+
   let query = admin
     .from('provider_usage_logs')
     .select(
@@ -556,6 +622,7 @@ export async function getProviderStats(
   if (filters.provider) query = query.eq('provider_key', filters.provider);
   if (filters.status) query = query.eq('status', filters.status);
   if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
+  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
 
   const { data, error } = await query;
   if (error) return [];
@@ -602,6 +669,138 @@ export async function getProviderStats(
 }
 
 // ============================================================
+// getProviderOperationStats — breakdown by operation_key
+// Answers "which operations are consuming this provider's credits in the
+// selected scope?". Uses the exact same UsageFilters scope semantics as
+// getProviderStats (period/provider/status/user-scope/agent) so the breakdown
+// and the Q3F-7 KPIs describe the same filtered universe.
+// ============================================================
+
+export interface OperationStat {
+  operation_key: string;
+  total_calls: number;
+  success_calls: number;
+  error_calls: number;
+  total_credits_used: number;
+  total_estimated_cost_usd: number;
+}
+
+interface OperationLogRow {
+  operation_key: string | null;
+  status: string | null;
+  credits_used: number | null;
+  estimated_cost_usd: number | null;
+}
+
+/**
+ * Pure aggregator — groups provider_usage_logs rows by operation_key.
+ * Mirrors getProviderStats' success/error classification exactly:
+ * success_calls = status === 'success'; error_calls = every other status
+ * (no new error taxonomy invented here).
+ *
+ * Kept dependency-free (no Supabase client) so it is directly unit
+ * testable without mocking the admin client.
+ */
+export function aggregateOperationStats(rows: OperationLogRow[]): OperationStat[] {
+  const map = new Map<string, OperationStat>();
+
+  for (const row of rows) {
+    const key = row.operation_key ?? '';
+    const existing: OperationStat = map.get(key) ?? {
+      operation_key: key,
+      total_calls: 0,
+      success_calls: 0,
+      error_calls: 0,
+      total_credits_used: 0,
+      total_estimated_cost_usd: 0,
+    };
+
+    existing.total_calls++;
+    if (row.status === 'success') existing.success_calls++;
+    else existing.error_calls++;
+
+    existing.total_credits_used += Number(row.credits_used ?? 0);
+    existing.total_estimated_cost_usd += Number(row.estimated_cost_usd ?? 0);
+
+    map.set(key, existing);
+  }
+
+  // Same priority getProviderStats uses for cost (credits first here, since
+  // this view is about credit consumption), then call volume, then a stable
+  // alphabetical tie-break so ordering is deterministic across runs.
+  return Array.from(map.values()).sort((a, b) => {
+    if (b.total_credits_used !== a.total_credits_used) {
+      return b.total_credits_used - a.total_credits_used;
+    }
+    if (b.total_calls !== a.total_calls) return b.total_calls - a.total_calls;
+    return a.operation_key.localeCompare(b.operation_key);
+  });
+}
+
+/**
+ * Pure boundary helper (Q3F-8E) — decides whether a provider_usage_logs
+ * result for the operation-stats query is a legitimate empty result or a
+ * failed query that must propagate as a thrown exception.
+ *
+ * `null | undefined` data with no error is treated the same as `[]` (a
+ * genuinely empty successful result); a truthy `error` always throws,
+ * regardless of what `data` contains, so getProviderOperationStats' Supabase
+ * failures reach provider-consumption-actions.ts's `operation_stats`
+ * try/catch instead of silently becoming `[]` (indistinguishable from "Sin
+ * consumo por operación"). Kept dependency-free so it is unit-testable
+ * without mocking the Supabase client.
+ */
+export function resolveOperationLogRowsOrThrow(
+  data: OperationLogRow[] | null | undefined,
+  error: unknown,
+): OperationLogRow[] {
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getProviderOperationStats(
+  filters: UsageFilters = {},
+): Promise<OperationStat[] | null> {
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
+
+  const admin = getAdminClient();
+  const since = periodStart(filters.period);
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const scope = await resolveUserScope(admin, filters, baseIds);
+  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
+
+  // Same Agent scope as getProviderStats: resolve agent_key → agent_runs.id[]
+  // and constrain provider_usage_logs.agent_run_id, so the breakdown and the
+  // Q3F-7 KPIs describe the identical filtered universe.
+  const agentScope = createAgentRunScope(
+    filters.agent,
+    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
+  );
+  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
+
+  let query = admin
+    .from('provider_usage_logs')
+    .select('operation_key, status, credits_used, estimated_cost_usd, created_at');
+
+  if (since) query = query.gte('created_at', since);
+  if (filters.provider) query = query.eq('provider_key', filters.provider);
+  if (filters.status) query = query.eq('status', filters.status);
+  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
+  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
+
+  const { data, error } = await query;
+  // Unlike getProviderStats/getRecentProviderLogs, a Supabase query error here
+  // must NOT collapse into a valid-looking empty result: it needs to surface
+  // as a thrown exception so provider-consumption-actions.ts's `operation_stats`
+  // try/catch can classify it and the UI can show the contained-error banner
+  // instead of a false "Sin consumo por operación" empty state (Q3F-8E).
+  const rows = resolveOperationLogRowsOrThrow(data as OperationLogRow[] | null, error);
+
+  return aggregateOperationStats(rows);
+}
+
+// ============================================================
 // getRecentProviderLogs — with filters
 // ============================================================
 
@@ -618,6 +817,15 @@ export async function getRecentProviderLogs(
   const scope = await resolveUserScope(admin, filters, baseIds);
   if (scope.mode === 'ids' && scope.ids.length === 0) return [];
 
+  // Same Agent scope as getProviderStats / getProviderOperationStats: recent
+  // logs include only rows whose agent_run_id belongs to runs of the selected
+  // agent_key. An active Agent filter with no matching runs yields no logs.
+  const agentScope = createAgentRunScope(
+    filters.agent,
+    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
+  );
+  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
+
   let query = admin
     .from('provider_usage_logs')
     .select('*')
@@ -628,6 +836,7 @@ export async function getRecentProviderLogs(
   if (filters.provider) query = query.eq('provider_key', filters.provider);
   if (filters.status) query = query.eq('status', filters.status);
   if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
+  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
 
   const { data, error } = await query;
   if (error) return [];

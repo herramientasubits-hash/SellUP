@@ -2,6 +2,7 @@
 
 import {
   getProviderStats,
+  getProviderOperationStats,
   getRecentProviderLogs,
   getDistinctFilterOptions,
   type UsageFilters,
@@ -9,6 +10,7 @@ import {
 import type {
   ProviderConsumptionLogEntry,
   ProviderConsumptionSnapshot,
+  ProviderOperationBreakdownRow,
   ConsumptionLoadResult,
 } from './provider-consumption-types';
 
@@ -40,6 +42,13 @@ export async function loadProviderConsumptionForWorkspace(
     return { ok: false, errorStage: 'provider_stats', errorCode: classifyConsumptionError(error) };
   }
 
+  let operationStatsResult: Awaited<ReturnType<typeof getProviderOperationStats>>;
+  try {
+    operationStatsResult = await getProviderOperationStats(providerFilters);
+  } catch (error) {
+    return { ok: false, errorStage: 'operation_stats', errorCode: classifyConsumptionError(error) };
+  }
+
   let logsResult: Awaited<ReturnType<typeof getRecentProviderLogs>>;
   try {
     logsResult = await getRecentProviderLogs(25, providerFilters);
@@ -56,6 +65,23 @@ export async function loadProviderConsumptionForWorkspace(
 
   try {
     const stat = (statsResult ?? []).find((s) => s.provider_key === providerKey);
+    const providerTotalCredits = stat?.total_credits_used ?? 0;
+
+    const operationBreakdown: ProviderOperationBreakdownRow[] = (operationStatsResult ?? []).map(
+      (op) => {
+        const rawPercentage =
+          providerTotalCredits > 0 ? (op.total_credits_used / providerTotalCredits) * 100 : 0;
+        return {
+          operationKey: op.operation_key,
+          totalCalls: op.total_calls,
+          successCalls: op.success_calls,
+          errorCalls: op.error_calls,
+          totalCredits: op.total_credits_used,
+          totalCostUsd: op.total_estimated_cost_usd,
+          creditsPercentage: Number.isFinite(rawPercentage) ? rawPercentage : 0,
+        };
+      },
+    );
 
     const recentLogs: ProviderConsumptionLogEntry[] = (logsResult ?? []).map((l) => ({
       id: l.id,
@@ -98,6 +124,7 @@ export async function loadProviderConsumptionForWorkspace(
       successCalls: stat?.success_calls ?? 0,
       errorCalls: stat?.error_calls ?? 0,
       recentLogs,
+      operationBreakdown,
       filterOptions,
     };
     return { ok: true, snapshot };

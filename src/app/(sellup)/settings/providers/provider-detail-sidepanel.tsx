@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useTransition, useRef } from 'react';
+import { useState, useEffect, useCallback, useTransition, useRef, useMemo } from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
 import { useRouter } from 'next/navigation';
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
@@ -55,7 +56,9 @@ import type {
 } from './provider-consumption-types';
 import type { FilterUser, FilterGroup } from '@/modules/ai-usage/queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
+import type { ProviderOperationBreakdownRow } from './provider-consumption-types';
 import { getProviderOperationLabel } from '@/modules/budgets/operation-labels';
+import { DataTable } from '@/components/data-table';
 
 // ── Rule display constants ────────────────────────────────────────────────────
 
@@ -164,6 +167,19 @@ function EmptyBlock({ message, sub }: { message: string; sub?: string }) {
       {sub && <p className="text-[10px] text-muted-foreground/50 mt-1">{sub}</p>}
     </div>
   );
+}
+
+// Operation breakdown cardinality is the number of distinct operation_key
+// values for the provider/scope (a handful), never per-log rows. A page size
+// far above that keeps every row on a single page so the shared DataTable does
+// not surface interactive pagination for this compact block.
+const OPERATION_BREAKDOWN_PAGE_SIZE = 100;
+
+// UI-only percentage format for the "% consumo" column: light administrative
+// precision (one decimal), integers rendered without a trailing ".0". Does not
+// alter creditsPercentage in the DTO.
+function formatOperationPercent(value: number): string {
+  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
 // ── Shared type (used by TabResumen and main component) ───────────────────────
@@ -1151,6 +1167,7 @@ function TabConsumo({
 
   const STAGE_LABEL: Record<ConsumptionErrorStage, string> = {
     provider_stats: 'Métricas de consumo',
+    operation_stats: 'Distribución por operación',
     recent_logs: 'Operaciones recientes',
     filter_options: 'Opciones de filtro',
     mapping: 'Preparación de datos',
@@ -1199,6 +1216,78 @@ function TabConsumo({
   const recentLogs = snapshot?.recentLogs ?? [];
   const recentOps = recentLogs.slice(0, 5);
   const visibleCount = Math.min(5, recentLogs.length);
+  const operationBreakdown = snapshot?.operationBreakdown ?? [];
+
+  // Distribución por operación → shared DataTable (Foundation § 10; AGENTS.md
+  // prohibits raw <Table>). Columns are provider-aware because the operation
+  // label depends on providerKey. Sorting is disabled so the query's
+  // deterministic order (total_credits DESC, total_calls DESC, operation_key
+  // ASC) is preserved verbatim.
+  const operationColumns = useMemo<ColumnDef<ProviderOperationBreakdownRow, unknown>[]>(
+    () => [
+      {
+        id: 'operationKey',
+        accessorKey: 'operationKey',
+        header: () => <>Operación</>,
+        enableSorting: false,
+        size: 200,
+        cell: ({ row }) => (
+          <span className="block text-foreground max-w-[140px] truncate">
+            {getProviderOperationLabel(providerKey, row.original.operationKey)}
+          </span>
+        ),
+      },
+      {
+        id: 'totalCalls',
+        accessorKey: 'totalCalls',
+        header: () => <div className="text-right">Operaciones</div>,
+        enableSorting: false,
+        size: 110,
+        cell: ({ row }) => (
+          <div className="text-right text-foreground whitespace-nowrap">
+            {row.original.totalCalls.toLocaleString()}
+          </div>
+        ),
+      },
+      {
+        id: 'totalCredits',
+        accessorKey: 'totalCredits',
+        header: () => <div className="text-right">Créditos</div>,
+        enableSorting: false,
+        size: 110,
+        cell: ({ row }) => (
+          <div className="text-right text-foreground whitespace-nowrap">
+            {row.original.totalCredits.toLocaleString()} cr
+          </div>
+        ),
+      },
+      {
+        id: 'creditsPercentage',
+        accessorKey: 'creditsPercentage',
+        header: () => <div className="text-right">% consumo</div>,
+        enableSorting: false,
+        size: 100,
+        cell: ({ row }) => (
+          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+            {formatOperationPercent(row.original.creditsPercentage)}
+          </div>
+        ),
+      },
+      {
+        id: 'totalCostUsd',
+        accessorKey: 'totalCostUsd',
+        header: () => <div className="text-right">Costo estimado</div>,
+        enableSorting: false,
+        size: 120,
+        cell: ({ row }) => (
+          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+            {row.original.totalCostUsd > 0 ? `$${row.original.totalCostUsd.toFixed(4)}` : '—'}
+          </div>
+        ),
+      },
+    ],
+    [providerKey],
+  );
 
   // Client-side user scoping: filter visible users by selected role ∩ group
   const groupScope = filters.groupId
@@ -1449,6 +1538,31 @@ function TabConsumo({
           />
         )}
       </SectionCard>
+
+      {/* Distribución por operación — misma scope que el KPI de arriba */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
+          Distribución por operación
+        </p>
+        {isPending ? (
+          <LoadingPlaceholder label="Calculando distribución..." />
+        ) : operationBreakdown.length === 0 ? (
+          <EmptyBlock
+            message="Sin consumo por operación"
+            sub="No hay operaciones registradas para los filtros seleccionados."
+          />
+        ) : (
+          <DataTable
+            columns={operationColumns}
+            data={operationBreakdown}
+            getRowId={(op) => op.operationKey}
+            hideToolbar
+            enableColumnReorder={false}
+            initialPageSize={OPERATION_BREAKDOWN_PAGE_SIZE}
+            className="text-xs"
+          />
+        )}
+      </div>
 
       {/* Reglas de consumo — estáticas, no cambian con filtros analíticos */}
       <div className="space-y-1.5">

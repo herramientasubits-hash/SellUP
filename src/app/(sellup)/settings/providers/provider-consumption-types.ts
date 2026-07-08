@@ -12,6 +12,19 @@ export interface ProviderConsumptionLogEntry {
   createdAt: string;
 }
 
+/** One row of the "Distribución por operación" breakdown (Q3F-8). */
+export interface ProviderOperationBreakdownRow {
+  operationKey: string;
+  totalCalls: number;
+  /** Reserved for future reconciliation use; not rendered in Q3F-8 UI. */
+  successCalls: number;
+  /** Reserved for future reconciliation use; not rendered in Q3F-8 UI. */
+  errorCalls: number;
+  totalCredits: number;
+  totalCostUsd: number;
+  creditsPercentage: number;
+}
+
 export interface ProviderConsumptionSnapshot {
   totalCredits: number | null;
   totalCostUsd: number;
@@ -19,11 +32,13 @@ export interface ProviderConsumptionSnapshot {
   successCalls: number;
   errorCalls: number;
   recentLogs: ProviderConsumptionLogEntry[];
+  operationBreakdown: ProviderOperationBreakdownRow[];
   filterOptions: FilterOptions | null;
 }
 
 export type ConsumptionErrorStage =
   | 'provider_stats'
+  | 'operation_stats'
   | 'recent_logs'
   | 'filter_options'
   | 'mapping';
