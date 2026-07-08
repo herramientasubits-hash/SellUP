@@ -6,10 +6,12 @@
  * - Query scope: source_key fijo, country_code fijo
  * - Año explícito usa eq source_year; sin año usa order DESC + limit 1 + maybeSingle
  * - Found: fixture completo → found=true + campos correctos
+ * - Found: contrato explícito 8C.5B.1 (guardrails + provenance + sin raw_data)
  * - Not found: data=null, error=null → found=false, reason='not_found'
  * - Query error → found=false, reason='query_error', sin error raw al caller
- * - Guardrail violation: uno por cada uno de los 7 invariantes
+ * - Guardrail violation: uno por cada uno de los 8 invariantes (incl. source)
  * - Signals malformed → found=true, procurement_signals=null (si raw_data OK)
+ * - Count negativo → count=null (hardening local 8C.5B.1)
  * - Environment: falta service role → found=false, reason='environment_unavailable'
  */
 
@@ -231,7 +233,39 @@ describe('found — fixture completo', () => {
     assert.ok(r.masked_rtn.length > 0);
     assert.equal(r.priority_score, 60);
     assert.equal(r.reason, null);
-    assert.ok(r.raw_data);
+  });
+
+  it('expone los guardrails semánticos explícitamente (8C.5B.1)', async () => {
+    const sb = makeMock({ row: SAMPLE_ROW });
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.equal(r.source_key, 'hn_contrataciones_abiertas');
+    assert.equal(r.country_code, 'HN');
+    assert.equal(r.source_year, 2024);
+    assert.equal(r.source_type, 'procurement_signal');
+    assert.equal(r.legal_validation_status, 'not_applicable');
+    assert.equal(r.human_review_required, true);
+    assert.equal(r.post_approval_enabled, false);
+    assert.equal(r.matching_automatic_enabled, false);
+  });
+
+  it('expone provenance explícita construida desde literales validados', async () => {
+    const sb = makeMock({ row: SAMPLE_ROW });
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.equal(r.provenance.snapshot_source, 'ocp_registry_jsonl');
+    assert.equal(r.provenance.legal_entity_hint, 'likely_legal_entity');
+    assert.equal(r.provenance.source_year, 2024);
+  });
+
+  it('NO expone raw_data en el resultado público found=true', async () => {
+    const sb = makeMock({ row: SAMPLE_ROW });
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.equal('raw_data' in r, false, 'raw_data no debe ser parte del contrato público');
   });
 
   it('retorna procurement_signals correctos', async () => {
@@ -355,6 +389,17 @@ describe('guardrail — legal_entity_hint incorrecto', () => {
   });
 });
 
+describe('guardrail — source incorrecto (8C.5B.1)', () => {
+  it('retorna snapshot_guardrail_violation cuando source no es ocp_registry_jsonl', async () => {
+    const sb = makeMock({ row: makeRowWithRawData({ source: 'some_other_source' }) });
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    assert.equal(r.found, false);
+    assert.equal(r.reason, 'snapshot_guardrail_violation');
+    if (r.found) return;
+    assert.equal(r.guardrail_field, 'source');
+  });
+});
+
 // ── Signals malformed (raw_data OK) ──────────────────────────────────────────
 
 describe('signals malformed — null signals', () => {
@@ -391,6 +436,21 @@ describe('signals malformed — total_award_amount es string', () => {
     if (!r.found) return;
     assert.ok(r.procurement_signals);
     assert.equal(r.procurement_signals.total_award_amount, null);
+  });
+});
+
+describe('signals malformed — count negativo (8C.5B.1)', () => {
+  it('retorna found=true con awards_count=null cuando el count es negativo', async () => {
+    const sb = makeMock({
+      row: { ...SAMPLE_ROW, signals: { ...VALID_SIGNALS, awards_count: -3 } },
+    });
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.ok(r.procurement_signals);
+    assert.equal(r.procurement_signals.awards_count, null);
+    // otros counts válidos permanecen intactos
+    assert.equal(r.procurement_signals.tenders_count, 3);
   });
 });
 

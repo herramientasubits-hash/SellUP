@@ -22,6 +22,17 @@
  *   post_approval_enabled: false
  *   matching_automatic_enabled: false
  *   legal_entity_hint: 'likely_legal_entity'
+ *   source: 'ocp_registry_jsonl'         — provenance is a trusted guardrail (8C.5B.1)
+ *
+ * Contract obligation (Centroamérica.8C.5B.1):
+ *   Every `found: true` result MUST carry the semantic guardrails EXPLICITLY —
+ *   source_type, legal_validation_status, human_review_required, post_approval_enabled,
+ *   matching_automatic_enabled — plus an explicit `provenance` block. A consumer must
+ *   NEVER be able to read `found === true` as company_verified / legal_identity_confirmed
+ *   / fiscal_identity_confirmed. These fields are emitted as SAFE LITERALS, only after
+ *   the 8 guardrails on raw_data pass; they are never echoed blindly from the DB row.
+ *   The raw persistence payload (`raw_data`) is NOT part of the public result — it is
+ *   parsed and validated internally only, to reduce coupling to the snapshot JSON shape.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -34,6 +45,13 @@ import {
 const SNAPSHOT_TABLE = 'source_company_snapshots';
 const SOURCE_KEY = 'hn_contrataciones_abiertas';
 const COUNTRY_CODE = 'HN';
+
+// ── Safe semantic literals ───────────────────────────────────────────────────
+// These NEVER come from the DB row; they are emitted only after guardrails pass.
+const SOURCE_TYPE = 'procurement_signal' as const;
+const LEGAL_VALIDATION_STATUS = 'not_applicable' as const;
+const LEGAL_ENTITY_HINT = 'likely_legal_entity' as const;
+const SNAPSHOT_SOURCE = 'ocp_registry_jsonl' as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -57,25 +75,58 @@ export type HnContratacionesLookupReason =
   | 'not_found'
   | 'snapshot_guardrail_violation';
 
+/**
+ * Explicit provenance of a found snapshot. Built from validated literals only —
+ * never inferred from an untrusted `raw_data.source`.
+ */
+export interface HnLookupProvenance {
+  snapshot_source: typeof SNAPSHOT_SOURCE;
+  legal_entity_hint: typeof LEGAL_ENTITY_HINT;
+  source_year: number | null;
+}
+
+/**
+ * Successful lookup. Carries the source's semantic guardrails EXPLICITLY so no
+ * consumer can mistake `found: true` for a verified legal/fiscal identity.
+ * `raw_data` is intentionally absent — it is an internal parsing detail only.
+ */
+export interface HnContratacionesLookupFound {
+  found: true;
+
+  source_key: typeof SOURCE_KEY;
+  country_code: typeof COUNTRY_CODE;
+  source_year: number | null;
+
+  legal_name: string | null;
+
+  normalized_rtn: string;
+  masked_rtn: string;
+
+  priority_score: number | null;
+  procurement_signals: HnProcurementSignals | null;
+
+  source_type: typeof SOURCE_TYPE;
+  legal_validation_status: typeof LEGAL_VALIDATION_STATUS;
+  human_review_required: true;
+  post_approval_enabled: false;
+  matching_automatic_enabled: false;
+
+  provenance: HnLookupProvenance;
+
+  reason: null;
+}
+
+export interface HnContratacionesLookupNotFound {
+  found: false;
+  normalized_rtn: string | null;
+  masked_rtn: string | null;
+  reason: HnContratacionesLookupReason;
+  guardrail_field?: string;
+}
+
 export type HnContratacionesLookupResult =
-  | {
-      found: true;
-      source_year: number | null;
-      legal_name: string | null;
-      normalized_rtn: string;
-      masked_rtn: string;
-      priority_score: number | null;
-      procurement_signals: HnProcurementSignals | null;
-      raw_data: Record<string, unknown>;
-      reason: null;
-    }
-  | {
-      found: false;
-      normalized_rtn: string | null;
-      masked_rtn: string | null;
-      reason: HnContratacionesLookupReason;
-      guardrail_field?: string;
-    };
+  | HnContratacionesLookupFound
+  | HnContratacionesLookupNotFound;
 
 // ── Admin client ───────────────────────────────────────────────────────────────
 
@@ -116,6 +167,11 @@ function verifyGuardrails(rawData: Record<string, unknown>): GuardrailResult {
   if (rawData['legal_entity_hint'] !== 'likely_legal_entity') {
     return { ok: false, field: 'legal_entity_hint' };
   }
+  // Provenance guardrail (8C.5B.1): a row whose declared source is not the
+  // OCP registry snapshot cannot back trusted `provenance` — reject it.
+  if (rawData['source'] !== SNAPSHOT_SOURCE) {
+    return { ok: false, field: 'source' };
+  }
   return { ok: true };
 }
 
@@ -126,6 +182,16 @@ function extractSignals(signals: Record<string, unknown>): HnProcurementSignals 
     function toNum(v: unknown): number | null {
       return typeof v === 'number' && Number.isFinite(v) ? v : null;
     }
+    // Counts are structurally non-negative upstream: the OCDS adapter builds them
+    // from array lengths and `++` increments (never subtraction), so the mapper
+    // writes counts >= 0. There is no explicit clamp upstream, and the lookup reads
+    // a persisted JSON payload it does not own, so we harden conservatively here:
+    // a negative count is meaningless → null (never flips found to false).
+    function toCount(v: unknown): number | null {
+      const n = toNum(v);
+      if (n === null) return null;
+      return n < 0 ? null : n;
+    }
     function toStr(v: unknown): string | null {
       if (typeof v !== 'string') return null;
       // Validate date-like string loosely: non-empty string accepted
@@ -133,9 +199,9 @@ function extractSignals(signals: Record<string, unknown>): HnProcurementSignals 
     }
 
     return {
-      awards_count: toNum(signals['awards_count']),
-      tenders_count: toNum(signals['tenders_count']),
-      contracts_count: toNum(signals['contracts_count']),
+      awards_count: toCount(signals['awards_count']),
+      tenders_count: toCount(signals['tenders_count']),
+      contracts_count: toCount(signals['contracts_count']),
       total_award_amount: toNum(signals['total_award_amount']),
       latest_date: toStr(signals['latest_date']),
     };
@@ -240,15 +306,35 @@ export async function lookupHnContratacionesByRtn(
         ? row['priority_score']
         : null;
 
+    // Guardrails passed. Emit semantic fields as SAFE LITERALS (not echoed from
+    // the row) and build provenance only now that `source` has been validated.
     return {
       found: true,
+
+      source_key: SOURCE_KEY,
+      country_code: COUNTRY_CODE,
       source_year: sourceYear,
+
       legal_name: legalName,
+
       normalized_rtn: normalizedRtn,
       masked_rtn: maskedRtn,
+
       priority_score: priorityScore,
       procurement_signals: procurementSignals,
-      raw_data: rawData,
+
+      source_type: SOURCE_TYPE,
+      legal_validation_status: LEGAL_VALIDATION_STATUS,
+      human_review_required: true,
+      post_approval_enabled: false,
+      matching_automatic_enabled: false,
+
+      provenance: {
+        snapshot_source: SNAPSHOT_SOURCE,
+        legal_entity_hint: LEGAL_ENTITY_HINT,
+        source_year: sourceYear,
+      },
+
       reason: null,
     };
   } catch (err) {
