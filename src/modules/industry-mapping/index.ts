@@ -118,3 +118,12 @@ export type {
   IndustryCanonicalResolutionMismatchTarget,
   IndustryCanonicalResolutionErrorContext,
 } from './industry-canonical-resolution-types';
+
+// Pure Apollo Organization Industry Raw-Label Ingestion Boundary (Q3F-5AP.1).
+// Converts one provider execution result set into a collision-safe, ordered
+// collection of raw labels. No production caller wires this yet — by design.
+export { ingestApolloOrganizationIndustryRawLabels } from './apollo-industry-raw-label-ingestion';
+export type {
+  ApolloOrganizationIndustryObservation,
+  ApolloIndustryRawLabel,
+} from './apollo-industry-raw-label-ingestion';
