@@ -90,7 +90,8 @@ export interface ProviderUsageLog {
   output_tokens: number;
   credits_used: number | null;
   results_returned: number;
-  estimated_cost_usd: number;
+  /** NULL means unknown cost — see metadata.cost.truth_source. NOT a free operation. */
+  estimated_cost_usd: number | null;
   real_cost_usd: number | null;
   status: ProviderUsageStatus;
   error_code: string | null;
@@ -234,8 +235,13 @@ export interface LogProviderUsageInput {
   output_tokens?: number;
   credits_used?: number;
   results_returned?: number;
-  estimated_cost_usd?: number;
-  real_cost_usd?: number;
+  /**
+   * Omitted → written as 0 (historical default for callers that never priced
+   * their operation). Explicit `null` → written as SQL NULL (unknown cost —
+   * never coerce to 0). Explicit number → written as-is (0 is a valid known cost).
+   */
+  estimated_cost_usd?: number | null;
+  real_cost_usd?: number | null;
   status?: ProviderUsageStatus;
   error_code?: string;
   error_message?: string;
@@ -243,6 +249,36 @@ export interface LogProviderUsageInput {
   triggered_by?: string;
   metadata?: Record<string, unknown>;
 }
+
+// ============================================================
+// Provider cost-truth vocabulary (17B.4X.5)
+//
+// Every provider operation's cost must carry an explicit truth signal.
+// UNKNOWN COST != FREE COST: a numeric 0 is only ever a valid cost when
+// paired with truth_source 'estimated' or 'actual'. When cost cannot be
+// determined (no configured pricing, no usage signal), the operation must
+// record estimated_cost_usd = NULL with truth_source 'unknown' — never 0.
+// ============================================================
+
+export type ProviderCostTruthSourceV1 = 'actual' | 'estimated' | 'unknown';
+
+export interface ProviderEstimatedCostTraceV1 {
+  truth_source: 'estimated';
+  pricing_provider_key: string;
+  pricing_operation_key: string;
+  pricing_unit: string;
+  unit_cost_usd_snapshot: number;
+  pricing_config_id?: string;
+  /** Present only when the cost model assumes fungibility across distinct provider operations. */
+  credit_unit_assumption?: string;
+}
+
+export interface ProviderUnknownCostTraceV1 {
+  truth_source: 'unknown';
+  unknown_reason: string;
+}
+
+export type ProviderCostTraceV1 = ProviderEstimatedCostTraceV1 | ProviderUnknownCostTraceV1;
 
 export interface LogResultQualityEventInput {
   agent_run_id?: string;
@@ -288,7 +324,10 @@ export interface ProviderStat {
   total_input_tokens: number;
   total_output_tokens: number;
   total_results_returned: number;
+  /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
   total_estimated_cost_usd: number;
+  /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
+  has_unknown_cost: boolean;
   last_used_at: string | null;
 }
 
@@ -310,7 +349,10 @@ export interface AiUsageSummary {
   failed_executions: number;
   total_provider_calls: number;
   error_provider_calls: number;
+  /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
   total_estimated_cost_usd: number;
+  /** True when at least one aggregated provider log has estimated_cost_usd = NULL (unknown cost). */
+  has_unknown_cost: boolean;
   distinct_providers: number;
   avg_cost_per_run: number | null;
 }

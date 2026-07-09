@@ -61,6 +61,7 @@ function emptySummary(): AiUsageSummary {
     total_provider_calls: 0,
     error_provider_calls: 0,
     total_estimated_cost_usd: 0,
+    has_unknown_cost: false,
     distinct_providers: 0,
     avg_cost_per_run: null,
   };
@@ -502,10 +503,19 @@ export async function getAiUsageSummary(
   const error_provider_calls = logs.filter(
     (l) => l.status === 'error' || l.status === 'rate_limited' || l.status === 'quota_exceeded',
   ).length;
-  const total_estimated_cost_usd = logs.reduce(
-    (s, l) => s + Number(l.estimated_cost_usd ?? 0),
-    0,
-  );
+  // Known-cost subtotal only. A NULL estimated_cost_usd means unknown cost —
+  // it is excluded from the sum (never coerced to 0) and flagged via
+  // has_unknown_cost so total_estimated_cost_usd is never mislabeled as a
+  // complete total (17B.4X.5).
+  let total_estimated_cost_usd = 0;
+  let has_unknown_cost = false;
+  for (const l of logs) {
+    if (l.estimated_cost_usd == null) {
+      has_unknown_cost = true;
+    } else {
+      total_estimated_cost_usd += Number(l.estimated_cost_usd);
+    }
+  }
   const distinct_providers = new Set(logs.map((l) => l.provider_key)).size;
   const avg_cost_per_run =
     total_executions > 0 ? total_estimated_cost_usd / total_executions : null;
@@ -517,6 +527,7 @@ export async function getAiUsageSummary(
     total_provider_calls,
     error_provider_calls,
     total_estimated_cost_usd,
+    has_unknown_cost,
     distinct_providers,
     avg_cost_per_run,
   };
@@ -640,6 +651,7 @@ export async function getProviderStats(
       total_output_tokens: 0,
       total_results_returned: 0,
       total_estimated_cost_usd: 0,
+      has_unknown_cost: false,
       last_used_at: null,
     };
 
@@ -654,7 +666,12 @@ export async function getProviderStats(
     existing.total_input_tokens += Number(row.input_tokens ?? 0);
     existing.total_output_tokens += Number(row.output_tokens ?? 0);
     existing.total_results_returned += Number(row.results_returned ?? 0);
-    existing.total_estimated_cost_usd += Number(row.estimated_cost_usd ?? 0);
+    // Known-cost subtotal only — a NULL row is unknown cost, never a hidden 0.
+    if (row.estimated_cost_usd == null) {
+      existing.has_unknown_cost = true;
+    } else {
+      existing.total_estimated_cost_usd += Number(row.estimated_cost_usd);
+    }
 
     if (!existing.last_used_at || (row.created_at as string) > existing.last_used_at) {
       existing.last_used_at = row.created_at as string;
@@ -682,7 +699,10 @@ export interface OperationStat {
   success_calls: number;
   error_calls: number;
   total_credits_used: number;
+  /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
   total_estimated_cost_usd: number;
+  /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
+  has_unknown_cost: boolean;
 }
 
 interface OperationLogRow {
@@ -713,6 +733,7 @@ export function aggregateOperationStats(rows: OperationLogRow[]): OperationStat[
       error_calls: 0,
       total_credits_used: 0,
       total_estimated_cost_usd: 0,
+      has_unknown_cost: false,
     };
 
     existing.total_calls++;
@@ -720,7 +741,12 @@ export function aggregateOperationStats(rows: OperationLogRow[]): OperationStat[
     else existing.error_calls++;
 
     existing.total_credits_used += Number(row.credits_used ?? 0);
-    existing.total_estimated_cost_usd += Number(row.estimated_cost_usd ?? 0);
+    // Known-cost subtotal only — a NULL row is unknown cost, never a hidden 0.
+    if (row.estimated_cost_usd == null) {
+      existing.has_unknown_cost = true;
+    } else {
+      existing.total_estimated_cost_usd += Number(row.estimated_cost_usd);
+    }
 
     map.set(key, existing);
   }
@@ -856,7 +882,10 @@ export interface UserConsumptionRow {
   provider_calls: number;
   /** Distinct provider keys used by this user within the active filters. */
   providers: string[];
+  /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
   estimated_cost_usd: number;
+  /** True when at least one aggregated provider log has estimated_cost_usd = NULL (unknown cost). */
+  has_unknown_cost: boolean;
   last_activity_at: string | null;
 }
 
@@ -870,11 +899,19 @@ interface UserAgg {
   provider_calls: number;
   providers: Set<string>;
   cost: number;
+  hasUnknownCost: boolean;
   last_at: string | null;
 }
 
 function newAgg(): UserAgg {
-  return { executions: 0, provider_calls: 0, providers: new Set(), cost: 0, last_at: null };
+  return {
+    executions: 0,
+    provider_calls: 0,
+    providers: new Set(),
+    cost: 0,
+    hasUnknownCost: false,
+    last_at: null,
+  };
 }
 
 export async function getUserConsumption(
@@ -939,7 +976,12 @@ export async function getUserConsumption(
     const cur = byUser.get(uid) ?? newAgg();
     cur.provider_calls++;
     if (l.provider_key) cur.providers.add(l.provider_key as string);
-    cur.cost += Number(l.estimated_cost_usd ?? 0);
+    // Known-cost subtotal only — a NULL row is unknown cost, never a hidden 0.
+    if (l.estimated_cost_usd == null) {
+      cur.hasUnknownCost = true;
+    } else {
+      cur.cost += Number(l.estimated_cost_usd);
+    }
     if (!cur.last_at || (l.created_at as string) > cur.last_at) cur.last_at = l.created_at as string;
     byUser.set(uid, cur);
   }
@@ -956,6 +998,7 @@ export async function getUserConsumption(
       provider_calls: agg?.provider_calls ?? 0,
       providers: agg ? [...agg.providers] : [],
       estimated_cost_usd: agg?.cost ?? 0,
+      has_unknown_cost: agg?.hasUnknownCost ?? false,
       last_activity_at: agg?.last_at ?? null,
     };
   });
@@ -985,6 +1028,7 @@ export async function getUserConsumption(
         provider_calls: agg.provider_calls,
         providers: [...agg.providers],
         estimated_cost_usd: agg.cost,
+        has_unknown_cost: agg.hasUnknownCost,
         last_activity_at: agg.last_at,
       });
     }

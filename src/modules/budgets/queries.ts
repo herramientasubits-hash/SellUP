@@ -21,6 +21,29 @@ export function getAdminClient() {
 
 type AdminClient = ReturnType<typeof getAdminClient>;
 
+/**
+ * Sums credits_used/estimated_cost_usd from provider_usage_logs rows.
+ * estimated_cost_usd = NULL means unknown cost — it is excluded from usd
+ * (never coerced to 0) and flagged via hasUnknownCost so `usd` is never
+ * mislabeled as a complete total (17B.4X.5).
+ */
+function sumPeriodConsumption(
+  rows: Array<{ credits_used: number | null; estimated_cost_usd: number | null }>,
+): PeriodConsumption {
+  let credits = 0;
+  let usd = 0;
+  let hasUnknownCost = false;
+  for (const r of rows) {
+    credits += Number(r.credits_used ?? 0);
+    if (r.estimated_cost_usd == null) {
+      hasUnknownCost = true;
+    } else {
+      usd += Number(r.estimated_cost_usd);
+    }
+  }
+  return { credits, usd, hasUnknownCost };
+}
+
 // ─── Rules ────────────────────────────────────────────────────────────────────
 
 /**
@@ -155,11 +178,9 @@ export async function getConsumptionForUser(
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0 };
+  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
 
-  const credits = data.reduce((s, r) => s + Number(r.credits_used ?? 0), 0);
-  const usd = data.reduce((s, r) => s + Number(r.estimated_cost_usd ?? 0), 0);
-  return { credits, usd };
+  return sumPeriodConsumption(data);
 }
 
 /**
@@ -177,7 +198,7 @@ export async function getConsumptionForGroups(
   periodStart: string,
   periodEnd: string,
 ): Promise<PeriodConsumption> {
-  if (groupIds.length === 0) return { credits: 0, usd: 0 };
+  if (groupIds.length === 0) return { credits: 0, usd: 0, hasUnknownCost: false };
 
   const { data, error } = await admin
     .from('provider_usage_logs')
@@ -187,11 +208,9 @@ export async function getConsumptionForGroups(
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0 };
+  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
 
-  const credits = data.reduce((s, r) => s + Number(r.credits_used ?? 0), 0);
-  const usd = data.reduce((s, r) => s + Number(r.estimated_cost_usd ?? 0), 0);
-  return { credits, usd };
+  return sumPeriodConsumption(data);
 }
 
 /**
@@ -215,11 +234,9 @@ export async function getConsumptionForRole(
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0 };
+  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
 
-  const credits = data.reduce((s, r) => s + Number(r.credits_used ?? 0), 0);
-  const usd = data.reduce((s, r) => s + Number(r.estimated_cost_usd ?? 0), 0);
-  return { credits, usd };
+  return sumPeriodConsumption(data);
 }
 
 /**
@@ -239,11 +256,9 @@ export async function getConsumptionGlobal(
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0 };
+  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
 
-  const credits = data.reduce((s, r) => s + Number(r.credits_used ?? 0), 0);
-  const usd = data.reduce((s, r) => s + Number(r.estimated_cost_usd ?? 0), 0);
-  return { credits, usd };
+  return sumPeriodConsumption(data);
 }
 
 /**
@@ -266,10 +281,12 @@ export async function getConsumptionByProvider(
 
   for (const row of data) {
     const key = row.provider_key as string;
-    const prev = result.get(key) ?? { credits: 0, usd: 0 };
+    const prev = result.get(key) ?? { credits: 0, usd: 0, hasUnknownCost: false };
+    const hasUnknownCost = prev.hasUnknownCost || row.estimated_cost_usd == null;
     result.set(key, {
       credits: prev.credits + Number(row.credits_used ?? 0),
-      usd: prev.usd + Number(row.estimated_cost_usd ?? 0),
+      usd: row.estimated_cost_usd == null ? prev.usd : prev.usd + Number(row.estimated_cost_usd),
+      hasUnknownCost,
     });
   }
   return result;

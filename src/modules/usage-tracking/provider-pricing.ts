@@ -16,6 +16,19 @@ export type ActivePricingConfig = {
   unit: 'per_credit';
 };
 
+/**
+ * Provider-neutral shape for a resolved per_credit pricing row, carrying the
+ * config id snapshot alongside the unit cost. Used where the caller needs
+ * to trace the exact pricing_config_id used (17B.4X.5).
+ */
+export interface ActiveProviderCreditPricingV1 {
+  pricingConfigId: string;
+  providerKey: string;
+  operationKey: string;
+  unit: 'per_credit';
+  unitCostUsd: number;
+}
+
 // ─── Admin client ─────────────────────────────────────────────────────────────
 
 function getAdminClient() {
@@ -81,4 +94,55 @@ export async function loadActiveTavilyMultiQueryPricing(): Promise<ActivePricing
  */
 export async function loadActiveTavilyLinkedInCompanySearchPricing(): Promise<ActivePricingConfig | null> {
   return loadActiveTavilyPerCreditPricing('linkedin_company_search');
+}
+
+/**
+ * Carga la configuración activa de pricing per_credit para Lusha
+ * (Agente 2A · 17B.4X.5). Misma disciplina null-safe que
+ * loadActiveTavilyPerCreditPricing: nunca inventa un fallback 0. Un
+ * unit_cost_usd configurado en 0 sigue siendo representable como pricing
+ * válido — solo se retorna null cuando no hay fila activa, la fila no es
+ * per_credit, el costo no es un número finito no negativo, o la query falla.
+ */
+async function loadActiveLushaPerCreditPricing(
+  operationKey: string,
+): Promise<ActiveProviderCreditPricingV1 | null> {
+  try {
+    const admin = getAdminClient();
+    const { data, error } = await admin
+      .from('provider_pricing_config')
+      .select('id, provider_key, operation_key, unit, unit_cost_usd')
+      .eq('provider_key', 'lusha')
+      .eq('operation_key', operationKey)
+      .eq('unit', 'per_credit')
+      .eq('is_active', true)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const unitCostUsd = Number(data.unit_cost_usd);
+    if (!Number.isFinite(unitCostUsd) || unitCostUsd < 0) return null;
+
+    return {
+      pricingConfigId: data.id as string,
+      providerKey: data.provider_key as string,
+      operationKey: data.operation_key as string,
+      unit: 'per_credit',
+      unitCostUsd,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Carga la configuración activa de pricing Lusha para operation_key='credit'
+ * (contrato final 17B.4X.4A: lusha/credit/per_credit, unit_cost_usd
+ * 0.08823529 en producción). Retorna null si no hay pricing activo —
+ * el caller trata null como costo desconocido, nunca como costo 0.
+ */
+export async function loadActiveLushaCreditPricing(): Promise<ActiveProviderCreditPricingV1 | null> {
+  return loadActiveLushaPerCreditPricing('credit');
 }

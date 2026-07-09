@@ -44,6 +44,9 @@ import {
   logProviderUsage,
   updateAgentRun,
 } from '@/modules/usage-tracking/logging';
+import { loadActiveLushaCreditPricing } from '@/modules/usage-tracking/provider-pricing';
+import type { ActiveProviderCreditPricingV1 } from '@/modules/usage-tracking/provider-pricing';
+import type { ProviderCostTraceV1 } from '@/modules/usage-tracking/types';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -78,6 +81,136 @@ export type LushaRunnerResult = {
     vaultSecretFound: boolean;
   } | null;
 };
+
+// ── Cost truth — Agente 2A · 17B.4X.5 ───────────────────────────
+//
+// UNKNOWN COST != FREE COST. Every Lusha operation contributing to a run
+// carries an explicit truth signal. estimated_cost_usd = NULL means unknown
+// cost, never a hidden 0. Search has no authorized pricing mapping (17B.4X.4A
+// contract) and is always unknown. Enrich/prospecting are priced from
+// provider_pricing_config (lusha/credit/per_credit) when a credits_used
+// signal and active pricing are both available; otherwise unknown.
+
+export interface LushaRunCostComponentV1 {
+  operationKey: string;
+  estimatedCostUsd: number | null;
+  realCostUsd: number | null;
+  truthSource: 'estimated' | 'unknown';
+  costTrace: ProviderCostTraceV1;
+}
+
+/**
+ * Prices a Lusha credit-consuming operation (enrich or prospecting) from the
+ * live lusha/credit/per_credit configuration. Returns an unknown component
+ * (never a fabricated 0) when credits are unavailable or pricing is missing.
+ * `creditUnitAssumption` documents when prospecting+enrich credits are
+ * treated as fungible (17B.4X.4A contract) — omit for direct enrich pricing.
+ * `loadPricing` is injectable for tests; defaults to the real DB-backed loader.
+ */
+export async function computeLushaCreditCostComponent(
+  operationKey: string,
+  creditsUsed: number | null | undefined,
+  creditUnitAssumption?: string,
+  loadPricing: () => Promise<ActiveProviderCreditPricingV1 | null> = loadActiveLushaCreditPricing,
+): Promise<LushaRunCostComponentV1> {
+  if (creditsUsed === null || creditsUsed === undefined) {
+    return {
+      operationKey,
+      estimatedCostUsd: null,
+      realCostUsd: null,
+      truthSource: 'unknown',
+      costTrace: { truth_source: 'unknown', unknown_reason: 'credits_not_available' },
+    };
+  }
+
+  const pricing = await loadPricing();
+  if (!pricing) {
+    return {
+      operationKey,
+      estimatedCostUsd: null,
+      realCostUsd: null,
+      truthSource: 'unknown',
+      costTrace: { truth_source: 'unknown', unknown_reason: 'pricing_not_available' },
+    };
+  }
+
+  const estimatedCostUsd = Number((creditsUsed * pricing.unitCostUsd).toFixed(6));
+  return {
+    operationKey,
+    estimatedCostUsd,
+    realCostUsd: null,
+    truthSource: 'estimated',
+    costTrace: {
+      truth_source: 'estimated',
+      pricing_provider_key: pricing.providerKey,
+      pricing_operation_key: pricing.operationKey,
+      pricing_unit: pricing.unit,
+      unit_cost_usd_snapshot: pricing.unitCostUsd,
+      pricing_config_id: pricing.pricingConfigId,
+      ...(creditUnitAssumption ? { credit_unit_assumption: creditUnitAssumption } : {}),
+    },
+  };
+}
+
+/**
+ * Lusha Contact Search has no authorized pricing mapping (17B.4X.4A contract).
+ * Always unknown — never priced from credits, regardless of provider response.
+ */
+export function lushaSearchUnknownCostComponent(): LushaRunCostComponentV1 {
+  return {
+    operationKey: 'lusha_contact_search',
+    estimatedCostUsd: null,
+    realCostUsd: null,
+    truthSource: 'unknown',
+    costTrace: { truth_source: 'unknown', unknown_reason: 'search_credit_cost_not_mapped' },
+  };
+}
+
+export interface LushaRunCostSummaryFieldsV1 {
+  cost_truth_source: 'estimated' | 'unknown';
+  known_cost_subtotal_usd: number;
+  unknown_cost_component_count: number;
+}
+
+/**
+ * Merges in-memory cost components collected during THIS run execution into
+ * run-summary fields. Never sums historical provider_usage_logs rows (retry
+ * rows would double count). Any unknown component forces the run truth to
+ * 'unknown' — a partial known subtotal is never relabeled as a complete total.
+ */
+export function buildLushaRunCostSummaryFields(
+  components: LushaRunCostComponentV1[],
+): LushaRunCostSummaryFieldsV1 {
+  const knownCostSubtotalUsd = components.reduce(
+    (sum, c) => sum + (c.estimatedCostUsd ?? 0),
+    0,
+  );
+  const unknownCostComponentCount = components.filter((c) => c.truthSource === 'unknown').length;
+  const costTruthSource: 'estimated' | 'unknown' =
+    components.length > 0 && unknownCostComponentCount === 0 ? 'estimated' : 'unknown';
+
+  return {
+    cost_truth_source: costTruthSource,
+    known_cost_subtotal_usd: Number(knownCostSubtotalUsd.toFixed(6)),
+    unknown_cost_component_count: unknownCostComponentCount,
+  };
+}
+
+/**
+ * Zero-component run summary for branches where no Lusha API call was ever
+ * attempted (missing credentials, invalid account, invalid search context).
+ * This is a true $0, not a visibility gap, so it is 'estimated' — distinct
+ * from buildLushaRunCostSummaryFields([]), which defaults an empty component
+ * list to 'unknown' (a call WAS attempted somewhere in that path but produced
+ * no cost signal).
+ */
+export function noProviderCallAttemptedCostSummaryFields(): LushaRunCostSummaryFieldsV1 {
+  return {
+    cost_truth_source: 'estimated',
+    known_cost_subtotal_usd: 0,
+    unknown_cost_component_count: 0,
+  };
+}
 
 // ── DB helpers ─────────────────────────────────────────────────
 
@@ -471,14 +604,24 @@ export async function executeControlledLushaContactEnrichRun(
       });
     }
 
+    // Provider was called; it may have still charged a credit on failure.
+    // Price whatever signal is available rather than assuming free cost.
+    const failedEnrichCostComponent = await computeLushaCreditCostComponent(
+      'lusha_contact_enrich',
+      enrichResult.creditsCharged ?? null,
+    );
+    const failedEnrichCostSummary = buildLushaRunCostSummaryFields([failedEnrichCostComponent]);
+
     await admin
       .from('contact_enrichment_runs')
       .update({
         status: 'failed',
+        estimated_cost_usd: failedEnrichCostSummary.known_cost_subtotal_usd,
         summary: {
           error: enrichResult.errorMessage ?? enrichResult.status,
           lusha_status: enrichResult.status,
           candidates_created: 0,
+          ...failedEnrichCostSummary,
           hito: '17B.4G',
         },
       })
@@ -516,6 +659,15 @@ export async function executeControlledLushaContactEnrichRun(
   );
   const creditsUsed = enrichResult.creditsCharged ?? billingCredits ?? creditsDelta ?? null;
 
+  // Cost truth for this enrich (17B.4X.5). Computed once and reused across
+  // every terminal branch below (no_full_name / exact_duplicate / insert
+  // failure / success) — the same enrich call was attempted regardless of
+  // what happens downstream, so its cost component truth is identical.
+  const enrichCostComponent = await computeLushaCreditCostComponent(
+    'lusha_contact_enrich',
+    creditsUsed,
+  );
+
   // 12. Build candidate from sanitized result
   // Name priority: inputFullName (search identifier) > firstName+lastName > fullName.
   // normalizeLushaPersonName fixes Unicode combining chars and bad capitalization.
@@ -546,10 +698,21 @@ export async function executeControlledLushaContactEnrichRun(
         metadata: { reason: 'no_full_name_in_result' },
       });
     }
-    await admin
-      .from('contact_enrichment_runs')
-      .update({ status: 'failed', summary: { error: 'no_full_name_in_result', hito: '17B.4G' } })
-      .eq('id', runId);
+    {
+      const noNameCostFields = buildLushaRunCostSummaryFields([enrichCostComponent]);
+      await admin
+        .from('contact_enrichment_runs')
+        .update({
+          status: 'failed',
+          estimated_cost_usd: noNameCostFields.known_cost_subtotal_usd,
+          summary: {
+            error: 'no_full_name_in_result',
+            ...noNameCostFields,
+            hito: '17B.4G',
+          },
+        })
+        .eq('id', runId);
+    }
     return {
       ok: false,
       status: 'no_reviewable_candidate',
@@ -660,18 +823,23 @@ export async function executeControlledLushaContactEnrichRun(
         metadata: { duplicate_status: 'exact_duplicate', hito: '17B.4G' },
       });
     }
-    await admin
-      .from('contact_enrichment_runs')
-      .update({
-        status: 'ready_for_review',
-        summary: {
-          totalCandidates: 0,
-          candidates_created: 0,
-          duplicate_status: 'exact_duplicate',
-          hito: '17B.4G',
-        },
-      })
-      .eq('id', runId);
+    {
+      const dupCostFields = buildLushaRunCostSummaryFields([enrichCostComponent]);
+      await admin
+        .from('contact_enrichment_runs')
+        .update({
+          status: 'ready_for_review',
+          estimated_cost_usd: dupCostFields.known_cost_subtotal_usd,
+          summary: {
+            totalCandidates: 0,
+            candidates_created: 0,
+            duplicate_status: 'exact_duplicate',
+            ...dupCostFields,
+            hito: '17B.4G',
+          },
+        })
+        .eq('id', runId);
+    }
 
     return {
       ok: false,
@@ -761,10 +929,21 @@ export async function executeControlledLushaContactEnrichRun(
         metadata: { insertError: insertError?.message ?? 'unknown' },
       });
     }
-    await admin
-      .from('contact_enrichment_runs')
-      .update({ status: 'failed', summary: { error: insertError?.message ?? 'insert failed', hito: '17B.4G' } })
-      .eq('id', runId);
+    {
+      const insertFailCostFields = buildLushaRunCostSummaryFields([enrichCostComponent]);
+      await admin
+        .from('contact_enrichment_runs')
+        .update({
+          status: 'failed',
+          estimated_cost_usd: insertFailCostFields.known_cost_subtotal_usd,
+          summary: {
+            error: insertError?.message ?? 'insert failed',
+            ...insertFailCostFields,
+            hito: '17B.4G',
+          },
+        })
+        .eq('id', runId);
+    }
     return {
       ok: false,
       status: 'provider_error',
@@ -794,11 +973,13 @@ export async function executeControlledLushaContactEnrichRun(
   }
 
   // 17. Update run → ready_for_review
+  const successCostFields = buildLushaRunCostSummaryFields([enrichCostComponent]);
   await admin
     .from('contact_enrichment_runs')
     .update({
       status: 'ready_for_review',
       providers_used: ['lusha'],
+      estimated_cost_usd: successCostFields.known_cost_subtotal_usd,
       summary: {
         totalCandidates: 1,
         candidates_created: 1,
@@ -809,6 +990,7 @@ export async function executeControlledLushaContactEnrichRun(
         remaining_before: remainingBefore,
         remaining_after: remainingAfter,
         credits_delta: creditsDelta,
+        ...successCostFields,
         hito: '17B.4G',
       },
     })
@@ -822,7 +1004,8 @@ export async function executeControlledLushaContactEnrichRun(
     operation_key: 'lusha_contact_enrich',
     credits_used: creditsUsed ?? undefined,
     results_returned: 1,
-    estimated_cost_usd: 0,
+    estimated_cost_usd: enrichCostComponent.estimatedCostUsd,
+    real_cost_usd: enrichCostComponent.realCostUsd,
     status: 'success',
     triggered_by: triggeredBy,
     duration_ms: enrichDurationMs,
@@ -840,6 +1023,7 @@ export async function executeControlledLushaContactEnrichRun(
       remaining_before: remainingBefore,
       remaining_after: remainingAfter,
       credits_delta: creditsDelta,
+      cost: enrichCostComponent.costTrace,
       hito: '17B.4G',
     },
   });
@@ -909,8 +1093,10 @@ export async function executeContactEnrichmentLushaRun(
         .from('contact_enrichment_runs')
         .update({
           status: 'failed',
+          estimated_cost_usd: 0,
           summary: {
             error: 'missing_api_key',
+            ...noProviderCallAttemptedCostSummaryFields(),
             hito: '17B.4L',
             credential_diagnostic: diag
               ? { stage: diag.stage, ok: diag.ok }
@@ -997,7 +1183,15 @@ export async function executeContactEnrichmentLushaRun(
     if (accountError || !account) {
       await admin
         .from('contact_enrichment_runs')
-        .update({ status: 'failed', summary: { error: 'account_not_found', hito: '17B.4S' } })
+        .update({
+          status: 'failed',
+          estimated_cost_usd: 0,
+          summary: {
+            error: 'account_not_found',
+            ...noProviderCallAttemptedCostSummaryFields(),
+            hito: '17B.4S',
+          },
+        })
         .eq('id', runId);
       return {
         ok: false,
@@ -1014,7 +1208,15 @@ export async function executeContactEnrichmentLushaRun(
     if (account.archived_at) {
       await admin
         .from('contact_enrichment_runs')
-        .update({ status: 'failed', summary: { error: 'account_archived', hito: '17B.4S' } })
+        .update({
+          status: 'failed',
+          estimated_cost_usd: 0,
+          summary: {
+            error: 'account_archived',
+            ...noProviderCallAttemptedCostSummaryFields(),
+            hito: '17B.4S',
+          },
+        })
         .eq('id', runId);
       return {
         ok: false,
@@ -1125,11 +1327,19 @@ export async function executeContactEnrichmentLushaRun(
         });
       }
 
+      const prospectErrorCostComponent = await computeLushaCreditCostComponent(
+        'lusha_contact_prospecting',
+        prospectResult.prospectingCreditsCharged ?? null,
+        'prospecting_and_enrich_treated_as_fungible',
+      );
+      const prospectErrorCostFields = buildLushaRunCostSummaryFields([prospectErrorCostComponent]);
+
       await admin
         .from('contact_enrichment_runs')
         .update({
           status: 'failed',
           providers_used: ['lusha'],
+          estimated_cost_usd: prospectErrorCostFields.known_cost_subtotal_usd,
           summary: {
             provider: 'lusha',
             search_status: prospectResult.status,
@@ -1142,6 +1352,7 @@ export async function executeContactEnrichmentLushaRun(
             raw_results: 0,
             candidates_created: 0,
             totalCandidates: 0,
+            ...prospectErrorCostFields,
             hito: '17B.4W',
           },
         })
@@ -1169,9 +1380,10 @@ export async function executeContactEnrichmentLushaRun(
         agent_run_step_id: prospectStep?.id,
         provider_key: 'lusha',
         operation_key: 'lusha_contact_prospecting',
-        credits_used: undefined,
+        credits_used: prospectResult.prospectingCreditsCharged ?? undefined,
         results_returned: 0,
-        estimated_cost_usd: 0,
+        estimated_cost_usd: prospectErrorCostComponent.estimatedCostUsd,
+        real_cost_usd: prospectErrorCostComponent.realCostUsd,
         status: 'error',
         triggered_by: triggeredBy,
         error_code: prospectResult.status,
@@ -1183,6 +1395,7 @@ export async function executeContactEnrichmentLushaRun(
           capability: 'contact_prospecting',
           http_status: prospectResult.httpStatus ?? null,
           request_id: prospectResult.requestId ?? null,
+          cost: prospectErrorCostComponent.costTrace,
           hito: '17B.4W',
         },
       });
@@ -1215,17 +1428,26 @@ export async function executeContactEnrichmentLushaRun(
         });
       }
 
+      const noResultsCostComponent = await computeLushaCreditCostComponent(
+        'lusha_contact_prospecting',
+        prospectResult.prospectingCreditsCharged ?? null,
+        'prospecting_and_enrich_treated_as_fungible',
+      );
+      const noResultsCostFields = buildLushaRunCostSummaryFields([noResultsCostComponent]);
+
       await admin
         .from('contact_enrichment_runs')
         .update({
           status: 'ready_for_review',
           providers_used: ['lusha'],
+          estimated_cost_usd: noResultsCostFields.known_cost_subtotal_usd,
           summary: {
             totalCandidates: 0,
             candidates_created: 0,
             raw_results: rawProspectCount,
             search_status: prospectResult.status,
             discovery_mode: 'company_first_discovery',
+            ...noResultsCostFields,
             hito: '17B.4W',
           },
         })
@@ -1246,7 +1468,7 @@ export async function executeContactEnrichmentLushaRun(
         candidatesCreated: 0,
         duplicatesSkipped: 0,
         rawResultsCount: rawProspectCount,
-        creditsUsed: null,
+        creditsUsed: prospectResult.prospectingCreditsCharged ?? null,
         message: `Lusha prospecting returned no results: ${prospectResult.status}`,
       };
     }
@@ -1469,6 +1691,17 @@ export async function executeContactEnrichmentLushaRun(
       if (!insertError) prospectCandidatesCreated += 1;
     }
 
+    // Cost truth (17B.4X.5). prospectTotalCredits already aggregates the
+    // prospecting call's credits plus every per-contact enrich call's
+    // credits under the single lusha_contact_prospecting usage row —
+    // mirrors the existing aggregation unit, does not re-shape it.
+    const prospectSuccessCostComponent = await computeLushaCreditCostComponent(
+      'lusha_contact_prospecting',
+      prospectTotalCredits,
+      'prospecting_and_enrich_treated_as_fungible',
+    );
+    const prospectSuccessCostFields = buildLushaRunCostSummaryFields([prospectSuccessCostComponent]);
+
     await logProviderUsage({
       agent_run_id: agentRunId,
       agent_run_step_id: enrichStep?.id,
@@ -1476,7 +1709,8 @@ export async function executeContactEnrichmentLushaRun(
       operation_key: 'lusha_contact_prospecting',
       credits_used: prospectTotalCredits ?? undefined,
       results_returned: prospectCandidatesCreated,
-      estimated_cost_usd: 0,
+      estimated_cost_usd: prospectSuccessCostComponent.estimatedCostUsd,
+      real_cost_usd: prospectSuccessCostComponent.realCostUsd,
       status: prospectCandidatesCreated > 0 ? 'success' : 'error',
       triggered_by: triggeredBy,
       metadata: {
@@ -1491,6 +1725,7 @@ export async function executeContactEnrichmentLushaRun(
         selected_for_enrich: selectedForEnrich.length,
         candidates_created: prospectCandidatesCreated,
         duplicates_skipped: prospectDuplicatesSkipped,
+        cost: prospectSuccessCostComponent.costTrace,
         hito: '17B.4W',
       },
     });
@@ -1514,6 +1749,7 @@ export async function executeContactEnrichmentLushaRun(
       .update({
         status: 'ready_for_review',
         providers_used: ['lusha'],
+        estimated_cost_usd: prospectSuccessCostFields.known_cost_subtotal_usd,
         summary: {
           totalCandidates: prospectCandidatesCreated,
           candidates_created: prospectCandidatesCreated,
@@ -1521,6 +1757,7 @@ export async function executeContactEnrichmentLushaRun(
           raw_results: rawProspectCount,
           credits_used: prospectTotalCredits,
           discovery_mode: 'company_first_discovery',
+          ...prospectSuccessCostFields,
           hito: '17B.4W',
         },
       })
@@ -1552,9 +1789,11 @@ export async function executeContactEnrichmentLushaRun(
       .update({
         status: 'failed',
         providers_used: ['lusha'],
+        estimated_cost_usd: 0,
         summary: {
           error: 'invalid_search_context',
           discovery_mode: discoveryMode,
+          ...noProviderCallAttemptedCostSummaryFields(),
           hito: '17B.4V',
         },
       })
@@ -1636,11 +1875,17 @@ export async function executeContactEnrichmentLushaRun(
       });
     }
 
+    // Search has no authorized pricing mapping (17B.4X.4A contract) —
+    // always unknown, regardless of provider status or credits.
+    const searchErrorCostComponent = lushaSearchUnknownCostComponent();
+    const searchErrorCostFields = buildLushaRunCostSummaryFields([searchErrorCostComponent]);
+
     await admin
       .from('contact_enrichment_runs')
       .update({
         status: 'failed',
         providers_used: ['lusha'],
+        estimated_cost_usd: searchErrorCostFields.known_cost_subtotal_usd,
         summary: {
           provider: 'lusha',
           search_status: searchResult.status,
@@ -1652,6 +1897,7 @@ export async function executeContactEnrichmentLushaRun(
           raw_results: 0,
           candidates_created: 0,
           totalCandidates: 0,
+          ...searchErrorCostFields,
           hito: '17B.4U',
         },
       })
@@ -1680,7 +1926,8 @@ export async function executeContactEnrichmentLushaRun(
       operation_key: 'lusha_contact_search',
       credits_used: undefined,
       results_returned: 0,
-      estimated_cost_usd: 0,
+      estimated_cost_usd: searchErrorCostComponent.estimatedCostUsd,
+      real_cost_usd: searchErrorCostComponent.realCostUsd,
       status: 'error',
       triggered_by: triggeredBy,
       error_code: searchResult.status,
@@ -1691,6 +1938,7 @@ export async function executeContactEnrichmentLushaRun(
         http_status: searchResult.httpStatus ?? null,
         request_id: searchResult.requestId ?? null,
         search_status: searchResult.status,
+        cost: searchErrorCostComponent.costTrace,
         hito: '17B.4U',
       },
     });
@@ -1722,16 +1970,24 @@ export async function executeContactEnrichmentLushaRun(
       });
     }
 
+    // Search has no authorized pricing mapping (17B.4X.4A contract) —
+    // always unknown, even for a successful no-results response.
+    const searchNoResultsCostFields = buildLushaRunCostSummaryFields([
+      lushaSearchUnknownCostComponent(),
+    ]);
+
     await admin
       .from('contact_enrichment_runs')
       .update({
         status: 'ready_for_review',
         providers_used: ['lusha'],
+        estimated_cost_usd: searchNoResultsCostFields.known_cost_subtotal_usd,
         summary: {
           totalCandidates: 0,
           candidates_created: 0,
           raw_results: rawResultsCount,
           search_status: searchResult.status,
+          ...searchNoResultsCostFields,
           hito: '17B.4K',
         },
       })
@@ -1906,6 +2162,21 @@ export async function executeContactEnrichmentLushaRun(
   }
 
   // 9. Log usage
+  // Cost truth (17B.4X.5). The enrich batch is priced from totalCreditsUsed.
+  // The preceding search step (Path A/B/C above) is never priced (17B.4X.4A
+  // contract) — its unknown component is carried into the RUN-level truth
+  // below so the run is never labeled 'estimated' while an unpriced search
+  // stage happened, even though the enrich usage row itself can be
+  // individually 'estimated'.
+  const enrichBatchCostComponent = await computeLushaCreditCostComponent(
+    'lusha_contact_enrich',
+    totalCreditsUsed,
+  );
+  const runCostFields = buildLushaRunCostSummaryFields([
+    lushaSearchUnknownCostComponent(),
+    enrichBatchCostComponent,
+  ]);
+
   await logProviderUsage({
     agent_run_id: agentRunId,
     agent_run_step_id: enrichStep?.id,
@@ -1913,7 +2184,8 @@ export async function executeContactEnrichmentLushaRun(
     operation_key: 'lusha_contact_enrich',
     credits_used: totalCreditsUsed ?? undefined,
     results_returned: candidatesCreated,
-    estimated_cost_usd: 0,
+    estimated_cost_usd: enrichBatchCostComponent.estimatedCostUsd,
+    real_cost_usd: enrichBatchCostComponent.realCostUsd,
     status: candidatesCreated > 0 ? 'success' : 'error',
     triggered_by: triggeredBy,
     metadata: {
@@ -1923,6 +2195,7 @@ export async function executeContactEnrichmentLushaRun(
       raw_results: rawResultsCount,
       candidates_created: candidatesCreated,
       duplicates_skipped: duplicatesSkipped,
+      cost: enrichBatchCostComponent.costTrace,
       hito: '17B.4K',
     },
   });
@@ -1946,12 +2219,14 @@ export async function executeContactEnrichmentLushaRun(
     .update({
       status: 'ready_for_review',
       providers_used: ['lusha'],
+      estimated_cost_usd: runCostFields.known_cost_subtotal_usd,
       summary: {
         totalCandidates: candidatesCreated,
         candidates_created: candidatesCreated,
         duplicates_skipped: duplicatesSkipped,
         raw_results: rawResultsCount,
         credits_used: totalCreditsUsed,
+        ...runCostFields,
         hito: '17B.4K',
       },
     })

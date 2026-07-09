@@ -223,35 +223,51 @@ async function resolveUserSnapshot(
   }
 }
 
+/**
+ * Pure payload builder for the provider_usage_logs insert (17B.4X.5).
+ * Exported for direct unit testing of the estimated_cost_usd/real_cost_usd
+ * null-write contract without a DB dependency:
+ *   - omitted (undefined) estimated_cost_usd → 0 (historical default)
+ *   - explicit null → SQL NULL (unknown cost, never coerced to 0)
+ *   - explicit number → written as-is (0 is a valid known cost)
+ */
+export function buildProviderUsageLogInsertPayload(
+  input: LogProviderUsageInput,
+  userSnapshot: { roleKey: string | null; groupId: string | null },
+): Record<string, unknown> {
+  return {
+    agent_run_id: input.agent_run_id ?? null,
+    agent_run_step_id: input.agent_run_step_id ?? null,
+    batch_id: input.batch_id ?? null,
+    usage_key: input.usage_key ?? null,
+    provider_key: input.provider_key,
+    operation_key: input.operation_key,
+    model: input.model ?? null,
+    input_tokens: input.input_tokens ?? 0,
+    output_tokens: input.output_tokens ?? 0,
+    credits_used: input.credits_used ?? null,
+    results_returned: input.results_returned ?? 0,
+    estimated_cost_usd: input.estimated_cost_usd === undefined ? 0 : input.estimated_cost_usd,
+    real_cost_usd: input.real_cost_usd ?? null,
+    status: input.status ?? 'success',
+    error_code: input.error_code ?? null,
+    error_message: input.error_message ? input.error_message.slice(0, 500) : null,
+    duration_ms: input.duration_ms ?? null,
+    triggered_by: input.triggered_by ?? null,
+    triggered_by_role_key: userSnapshot.roleKey,
+    triggered_by_group_id: userSnapshot.groupId,
+    metadata: sanitizeMetadata(input.metadata ?? {}),
+  };
+}
+
 export async function logProviderUsage(input: LogProviderUsageInput): Promise<boolean> {
   try {
     const admin = getAdminClient();
 
-    const { roleKey, groupId } = await resolveUserSnapshot(admin, input.triggered_by);
+    const userSnapshot = await resolveUserSnapshot(admin, input.triggered_by);
+    const payload = buildProviderUsageLogInsertPayload(input, userSnapshot);
 
-    const { error } = await admin.from('provider_usage_logs').insert({
-      agent_run_id: input.agent_run_id ?? null,
-      agent_run_step_id: input.agent_run_step_id ?? null,
-      batch_id: input.batch_id ?? null,
-      usage_key: input.usage_key ?? null,
-      provider_key: input.provider_key,
-      operation_key: input.operation_key,
-      model: input.model ?? null,
-      input_tokens: input.input_tokens ?? 0,
-      output_tokens: input.output_tokens ?? 0,
-      credits_used: input.credits_used ?? null,
-      results_returned: input.results_returned ?? 0,
-      estimated_cost_usd: input.estimated_cost_usd ?? 0,
-      real_cost_usd: input.real_cost_usd ?? null,
-      status: input.status ?? 'success',
-      error_code: input.error_code ?? null,
-      error_message: input.error_message ? input.error_message.slice(0, 500) : null,
-      duration_ms: input.duration_ms ?? null,
-      triggered_by: input.triggered_by ?? null,
-      triggered_by_role_key: roleKey,
-      triggered_by_group_id: groupId,
-      metadata: sanitizeMetadata(input.metadata ?? {}),
-    });
+    const { error } = await admin.from('provider_usage_logs').insert(payload);
 
     if (error) {
       console.error('[usage-tracking] logProviderUsage error:', error.message);

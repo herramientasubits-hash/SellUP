@@ -170,7 +170,7 @@ export async function checkBudget(
 
   let consumed: Awaited<ReturnType<typeof getConsumptionForUser>>;
   if (!match) {
-    consumed = { credits: 0, usd: 0 };
+    consumed = { credits: 0, usd: 0, hasUnknownCost: false };
   } else if (match.scope === 'global') {
     consumed = await getConsumptionGlobal(admin, providerKey, periodStart, periodEnd);
   } else if (match.scope === 'group') {

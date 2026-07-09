@@ -129,7 +129,10 @@ export interface UserBudgetContext {
 
 export interface PeriodConsumption {
   credits: number;
+  /** Known-cost subtotal only — see hasUnknownCost before treating this as a complete total. */
   usd: number;
+  /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
+  hasUnknownCost: boolean;
 }
 
 // Re-export BudgetRule for consumers that import from this module
