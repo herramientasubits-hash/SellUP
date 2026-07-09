@@ -301,7 +301,10 @@ export interface UsageSummary {
   running_agent_runs: number;
   failed_agent_runs: number;
   total_provider_calls: number;
+  /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
   total_estimated_cost_usd: number;
+  /** True when at least one aggregated provider log has estimated_cost_usd = NULL (unknown cost). */
+  has_unknown_cost: boolean;
   error_calls: number;
 }
 

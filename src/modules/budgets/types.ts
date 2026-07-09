@@ -94,6 +94,8 @@ export interface AdminProviderBudgetRow {
   globalLimitUsd: number | null;
   consumedCredits: number;
   consumedUsd: number;
+  /** True when at least one aggregated row in the period has estimated_cost_usd = NULL (unknown cost). Governs consumedUsd/remainingUsd truthful display. */
+  hasUnknownCost: boolean;
   remainingCredits: number | null;
   remainingUsd: number | null;
   /** Period used for the consumption aggregation. */

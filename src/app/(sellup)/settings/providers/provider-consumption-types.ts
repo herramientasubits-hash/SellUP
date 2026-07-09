@@ -22,6 +22,8 @@ export interface ProviderOperationBreakdownRow {
   errorCalls: number;
   totalCredits: number;
   totalCostUsd: number;
+  /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
+  hasUnknownCost: boolean;
   creditsPercentage: number;
 }
 
@@ -40,6 +42,8 @@ export interface ProviderUserConsumptionBreakdownRow {
 export interface ProviderConsumptionSnapshot {
   totalCredits: number | null;
   totalCostUsd: number;
+  /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
+  hasUnknownCost: boolean;
   totalCalls: number;
   successCalls: number;
   errorCalls: number;

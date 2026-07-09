@@ -48,6 +48,33 @@ async function requireAdmin(): Promise<void> {
 // Returns aggregated counts and cost totals for the summary cards.
 // ============================================================
 
+interface CostRow {
+  estimated_cost_usd: number | null;
+}
+
+/**
+ * Pure aggregator (17B.4X.5H) — sums known provider_usage_logs costs while
+ * tracking completeness. A NULL estimated_cost_usd means unknown cost: it is
+ * excluded from the sum (never coerced to 0 via `Number(null) || 0`) and
+ * flagged via has_unknown_cost so total_estimated_cost_usd is never
+ * mislabeled as a complete total. Dependency-free so it is directly
+ * unit-testable without mocking the Supabase client.
+ */
+export function aggregateUsageSummaryCost(
+  rows: CostRow[],
+): { total_estimated_cost_usd: number; has_unknown_cost: boolean } {
+  let total_estimated_cost_usd = 0;
+  let has_unknown_cost = false;
+  for (const row of rows) {
+    if (row.estimated_cost_usd == null) {
+      has_unknown_cost = true;
+    } else {
+      total_estimated_cost_usd += Number(row.estimated_cost_usd);
+    }
+  }
+  return { total_estimated_cost_usd, has_unknown_cost };
+}
+
 export async function getUsageSummary(): Promise<UsageSummary> {
   await requireAdmin();
   const admin = getAdminClient();
@@ -73,10 +100,7 @@ export async function getUsageSummary(): Promise<UsageSummary> {
     (l) => l.status === 'error' || l.status === 'rate_limited' || l.status === 'quota_exceeded'
   ).length;
 
-  const total_estimated_cost_usd = providerLogs.reduce(
-    (acc, l) => acc + (Number(l.estimated_cost_usd) || 0),
-    0
-  );
+  const { total_estimated_cost_usd, has_unknown_cost } = aggregateUsageSummaryCost(providerLogs);
 
   return {
     total_agent_runs,
@@ -84,6 +108,7 @@ export async function getUsageSummary(): Promise<UsageSummary> {
     failed_agent_runs,
     total_provider_calls,
     total_estimated_cost_usd,
+    has_unknown_cost,
     error_calls,
   };
 }

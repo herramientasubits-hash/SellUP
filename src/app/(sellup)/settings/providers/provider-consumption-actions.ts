@@ -16,6 +16,7 @@ import type {
   ProviderUserConsumptionBreakdownRow,
   ConsumptionLoadResult,
 } from './provider-consumption-types';
+import { toOperationBreakdownRow, toSnapshotCostFields } from './provider-consumption-mappers';
 
 function classifyConsumptionError(error: unknown): string {
   if (!(error instanceof Error)) return 'unknown_server_error';
@@ -78,19 +79,7 @@ export async function loadProviderConsumptionForWorkspace(
     const providerTotalCredits = stat?.total_credits_used ?? 0;
 
     const operationBreakdown: ProviderOperationBreakdownRow[] = (operationStatsResult ?? []).map(
-      (op) => {
-        const rawPercentage =
-          providerTotalCredits > 0 ? (op.total_credits_used / providerTotalCredits) * 100 : 0;
-        return {
-          operationKey: op.operation_key,
-          totalCalls: op.total_calls,
-          successCalls: op.success_calls,
-          errorCalls: op.error_calls,
-          totalCredits: op.total_credits_used,
-          totalCostUsd: op.total_estimated_cost_usd,
-          creditsPercentage: Number.isFinite(rawPercentage) ? rawPercentage : 0,
-        };
-      },
+      (op) => toOperationBreakdownRow(op, providerTotalCredits),
     );
 
     const recentLogs: ProviderConsumptionLogEntry[] = (logsResult ?? []).map((l) => ({
@@ -142,7 +131,7 @@ export async function loadProviderConsumptionForWorkspace(
 
     const snapshot: ProviderConsumptionSnapshot = {
       totalCredits: stat?.total_credits_used ?? null,
-      totalCostUsd: stat?.total_estimated_cost_usd ?? 0,
+      ...toSnapshotCostFields(stat),
       totalCalls: stat?.total_calls ?? 0,
       successCalls: stat?.success_calls ?? 0,
       errorCalls: stat?.error_calls ?? 0,

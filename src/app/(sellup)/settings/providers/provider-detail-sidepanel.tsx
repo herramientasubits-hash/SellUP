@@ -70,6 +70,12 @@ import type {
 } from './provider-consumption-types';
 import { getProviderOperationLabel } from '@/modules/budgets/operation-labels';
 import { DataTable } from '@/components/data-table';
+import {
+  resolveCostDisplay,
+  resolveRemainingCostDisplay,
+  toCostTruth,
+} from '@/modules/usage-tracking/cost-display';
+import { CostValue } from '@/components/shared/cost-value';
 
 // ── Rule display constants ────────────────────────────────────────────────────
 
@@ -107,6 +113,45 @@ function formatAmount(credits: number | null, usd: number | null): string {
   if (credits != null && credits > 0) parts.push(`${credits.toLocaleString()} cr`);
   if (usd != null && usd > 0) parts.push(`$${usd.toFixed(2)}`);
   return parts.join(' · ') || '—';
+}
+
+/** Truthful "consumido" label — a positive/zero USD subtotal with unknown cost truth renders with a '+'/"Costo desconocido" marker instead of a bare exact number. */
+function deriveConsumedInfo(
+  credits: number | null,
+  usd: number,
+  hasUnknownCost: boolean,
+): { label: string; description?: string } {
+  const usdDisplay =
+    usd > 0 || hasUnknownCost
+      ? resolveCostDisplay({
+          valueUsd: usd,
+          costTruth: toCostTruth(hasUnknownCost),
+          formatUsd: (v) => `$${v.toFixed(2)}`,
+        })
+      : null;
+
+  const parts: string[] = [];
+  if (credits != null && credits > 0) parts.push(`${credits.toLocaleString()} cr`);
+  if (usdDisplay) parts.push(usdDisplay.label);
+
+  const label = parts.join(' · ') || '—';
+  return { label, description: usdDisplay?.description ?? undefined };
+}
+
+/** Truthful "disponible por regla" label — remaining USD under unknown cost truth is not a reliable lower bound, so it renders as "Indeterminado" instead of an exact number. */
+function deriveRemainingInfo(
+  remainingCredits: number | null,
+  remainingUsd: number | null,
+  hasUnknownCost: boolean,
+): { label: string; description?: string } {
+  if (remainingUsd == null) return { label: formatAmount(remainingCredits, remainingUsd) };
+  const usdDisplay = resolveRemainingCostDisplay(remainingUsd, toCostTruth(hasUnknownCost), (v) => `$${v.toFixed(2)}`);
+
+  const parts: string[] = [];
+  if (remainingCredits != null && remainingCredits > 0) parts.push(`${remainingCredits.toLocaleString()} cr`);
+  parts.push(usdDisplay.label);
+
+  return { label: parts.join(' · '), description: usdDisplay.description ?? undefined };
 }
 
 function formatAllowance(credits: number | null, usd: number | null): string {
@@ -266,9 +311,11 @@ function TabResumen({
         : null;
 
   // Consumo
-  const consumed = ms === 'active'
-    ? formatAmount(row.consumedCredits, row.consumedUsd) || '0 cr'
-    : '—';
+  const consumed = (() => {
+    if (ms !== 'active') return { label: '—' };
+    const info = deriveConsumedInfo(row.consumedCredits, row.consumedUsd, row.hasUnknownCost);
+    return info.label === '—' ? { label: '0 cr' } : info;
+  })();
 
   const allowance = formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
   const hasQuota = row.providerMonthlyCreditsAllowance != null || row.providerMonthlyUsdAllowance != null;
@@ -352,7 +399,7 @@ function TabResumen({
 
         {/* 2. Consumo y presupuesto */}
         <SectionCard>
-          <InfoRow label="Consumo del mes" value={consumed} />
+          <InfoRow label="Consumo del mes" value={<span title={consumed.description}>{consumed.label}</span>} />
           <InfoRow label="Cuota configurada" value={hasQuota ? allowance : <span className="text-muted-foreground/50">Sin cuota configurada</span>} />
           {row.activeRules > 0 && (
             <InfoRow label="Reglas activas" value={`${row.activeRules} regla${row.activeRules !== 1 ? 's' : ''}`} />
@@ -939,7 +986,12 @@ function TabConfiguracionNoIA({
   const hasCredential = connState?.credentialsStatus === 'stored';
 
   const allowance = formatAllowance(row.providerMonthlyCreditsAllowance, row.providerMonthlyUsdAllowance);
-  const consumed = ms === 'active' ? formatAmount(row.consumedCredits, row.consumedUsd) || '0 cr' : '—';
+  const consumed = ms === 'active'
+    ? (() => {
+        const info = deriveConsumedInfo(row.consumedCredits, row.consumedUsd, row.hasUnknownCost);
+        return info.label === '—' ? { label: '0 cr' } : info;
+      })()
+    : { label: '—' };
   const quotaSourceLabel =
     row.quotaSource === 'api_synced' ? 'API del proveedor'
     : row.quotaSource === 'manual' ? 'Configuración manual'
@@ -1085,7 +1137,7 @@ function TabConfiguracionNoIA({
               {MEASUREMENT_STATUS_LABEL[ms]}
             </span>
           } />
-          <InfoRow label="Consumo del mes" value={consumed} />
+          <InfoRow label="Consumo del mes" value={<span title={consumed.description}>{consumed.label}</span>} />
           <InfoRow label="Cuota configurada" value={allowance} />
           <InfoRow label="Fuente de cuota" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
           {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
@@ -1463,7 +1515,17 @@ function TabConsumo({
         size: 120,
         cell: ({ row }) => (
           <div className="text-right text-muted-foreground/70 whitespace-nowrap">
-            {row.original.totalCostUsd > 0 ? `$${row.original.totalCostUsd.toFixed(4)}` : '—'}
+            {row.original.totalCostUsd === 0 && !row.original.hasUnknownCost ? (
+              '—'
+            ) : (
+              <CostValue
+                display={resolveCostDisplay({
+                  valueUsd: row.original.totalCostUsd,
+                  costTruth: toCostTruth(row.original.hasUnknownCost),
+                  formatUsd: (v) => `$${v.toFixed(4)}`,
+                })}
+              />
+            )}
           </div>
         ),
       },
@@ -1525,7 +1587,17 @@ function TabConsumo({
         size: 120,
         cell: ({ row }) => (
           <div className="text-right text-muted-foreground/70 whitespace-nowrap">
-            {row.original.totalCostUsd > 0 ? `$${row.original.totalCostUsd.toFixed(4)}` : '—'}
+            {row.original.totalCostUsd === 0 && !row.original.hasUnknownCost ? (
+              '—'
+            ) : (
+              <CostValue
+                display={resolveCostDisplay({
+                  valueUsd: row.original.totalCostUsd,
+                  costTruth: toCostTruth(row.original.hasUnknownCost),
+                  formatUsd: (v) => `$${v.toFixed(4)}`,
+                })}
+              />
+            )}
           </div>
         ),
       },
@@ -1768,7 +1840,17 @@ function TabConsumo({
                   <div>
                     <p className="text-[10px] text-muted-foreground/60 mb-0.5">Costo estimado</p>
                     <p className="text-xs font-medium text-foreground">
-                      {filteredCost > 0 ? `$${filteredCost.toFixed(4)}` : '—'}
+                      {filteredCost === 0 && !(snapshot?.hasUnknownCost ?? false) ? (
+                        '—'
+                      ) : (
+                        <CostValue
+                          display={resolveCostDisplay({
+                            valueUsd: filteredCost,
+                            costTruth: toCostTruth(snapshot?.hasUnknownCost ?? false),
+                            formatUsd: (v) => `$${v.toFixed(4)}`,
+                          })}
+                        />
+                      )}
                     </p>
                   </div>
                   <div>
@@ -1860,7 +1942,10 @@ function TabConsumo({
               />
               <InfoRow
                 label="Disponible por regla"
-                value={formatAmount(row.remainingCredits, row.remainingUsd)}
+                value={(() => {
+                  const remaining = deriveRemainingInfo(row.remainingCredits, row.remainingUsd, row.hasUnknownCost);
+                  return <span title={remaining.description}>{remaining.label}</span>;
+                })()}
               />
             </>
           ) : (

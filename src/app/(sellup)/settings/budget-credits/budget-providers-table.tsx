@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, ExternalLink, Eye, X } from 'lucide-react';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { syncProviderQuota } from '@/modules/budgets';
+import { deriveConsumedDisplay } from './budget-display';
 import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';
 import type { DataTableBulkAction } from '@/components/data-table/data-table';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -43,13 +44,6 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatAmount(credits: number | null, usd: number | null): string {
-  const parts: string[] = [];
-  if (credits != null && credits > 0) parts.push(`${credits.toLocaleString()} cr`);
-  if (usd != null && usd > 0) parts.push(`$${usd.toFixed(2)}`);
-  return parts.join(' · ') || '—';
-}
-
 function formatDateShort(iso: string): string {
   return new Date(iso).toLocaleString('es-CO', {
     month: 'short',
@@ -82,10 +76,13 @@ const ATTENTION_BADGE: Record<Exclude<AttentionLevel, 'none'>, { label: string; 
 
 // ── Consumed display ──────────────────────────────────────────────────────────
 
-function deriveConsumed(row: AdminProviderBudgetRow, ms: MeasurementStatus): string {
-  if (ms !== 'active') return '—';
-  const raw = formatAmount(row.consumedCredits, row.consumedUsd);
-  return raw === '—' ? '0 cr' : raw;
+function deriveConsumed(
+  row: AdminProviderBudgetRow,
+  ms: MeasurementStatus,
+): { label: string; description?: string } {
+  if (ms !== 'active') return { label: '—' };
+  const result = deriveConsumedDisplay(row.consumedCredits, row.consumedUsd, row.hasUnknownCost);
+  return result.label === '—' ? { label: '0 cr' } : result;
 }
 
 // ── Selection review panel ────────────────────────────────────────────────────
@@ -99,7 +96,9 @@ function SelectionReviewPanel({
 }) {
   const totalCredits = rows.reduce((s, r) => s + (r.consumedCredits ?? 0), 0);
   const totalUsd = rows.reduce((s, r) => s + (r.consumedUsd ?? 0), 0);
-  const hasTotal = totalCredits > 0 || totalUsd > 0;
+  const totalHasUnknownCost = rows.some((r) => r.hasUnknownCost);
+  const hasTotal = totalCredits > 0 || totalUsd > 0 || totalHasUnknownCost;
+  const totalConsumed = deriveConsumedDisplay(totalCredits, totalUsd, totalHasUnknownCost);
 
   return (
     <div className="rounded-lg border border-su-brand/20 bg-muted/10 animate-su-fade-in">
@@ -134,8 +133,11 @@ function SelectionReviewPanel({
               <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${msBadge.className}`}>
                 {MEASUREMENT_STATUS_LABEL[ms]}
               </span>
-              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground whitespace-nowrap">
-                {consumed}
+              <span
+                className="ml-auto shrink-0 text-[11px] text-muted-foreground whitespace-nowrap"
+                title={consumed.description}
+              >
+                {consumed.label}
               </span>
             </div>
           );
@@ -143,7 +145,7 @@ function SelectionReviewPanel({
         {hasTotal && (
           <div className="flex items-center justify-between pt-1 text-xs font-medium">
             <span className="text-muted-foreground/70">Total consumo del mes</span>
-            <span>{formatAmount(totalCredits, totalUsd)}</span>
+            <span title={totalConsumed.description}>{totalConsumed.label}</span>
           </div>
         )}
         <p className="text-[11px] text-muted-foreground/60 leading-relaxed pt-1">
@@ -347,8 +349,8 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                     </td>
 
                     {/* Consumo del mes */}
-                    <td className="px-4 py-3 text-xs text-foreground whitespace-nowrap">
-                      {consumed}
+                    <td className="px-4 py-3 text-xs text-foreground whitespace-nowrap" title={consumed.description}>
+                      {consumed.label}
                     </td>
 
                     {/* Alerta */}

@@ -7,6 +7,8 @@ import { MetricCard } from '@/components/shared/metric-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getUsageSummary, getRecentUsageActivity } from '@/modules/usage-tracking/actions';
 import type { AgentRun, ProviderUsageLog, ResultQualityEvent } from '@/modules/usage-tracking/types';
+import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
+import { CostValue } from '@/components/shared/cost-value';
 import {
   MOCK_SUMMARY,
   MOCK_AGENTS,
@@ -137,7 +139,15 @@ function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
               <td className="py-2.5 pr-4 text-muted-foreground">{log.operation_key.replace(/_/g, ' ')}</td>
               <td className="py-2.5 pr-4"><StatusBadge status={log.status} /></td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{log.results_returned}</td>
-              <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">{formatCost(Number(log.estimated_cost_usd), 2)}</td>
+              <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
+                <CostValue
+                  display={resolveCostDisplay({
+                    valueUsd: log.estimated_cost_usd ?? 0,
+                    costTruth: toCostTruth(log.estimated_cost_usd == null),
+                    formatUsd: (v) => formatCost(v, 2),
+                  })}
+                />
+              </td>
               <td className="py-2.5 text-right text-muted-foreground">{formatRelativeTime(log.created_at)}</td>
             </tr>
           ))}
@@ -296,7 +306,21 @@ export default async function UsagePage() {
     { label: 'Fallidas',     value: isEmpty ? '0'                                     : String(summary.failed_agent_runs),     sub: 'con error',            icon: Bot,          accent: summary.failed_agent_runs > 0 ? 'text-destructive' : 'text-muted-foreground', bg: 'bg-muted/40' },
     { label: 'Llamadas API', value: isEmpty ? String(MOCK_SUMMARY.totalProviderCalls) : String(summary.total_provider_calls), sub: 'a proveedores',        icon: Plug,         accent: 'text-foreground',   bg: 'bg-muted/40' },
     { label: 'Aprobados',    value: isEmpty ? String(MOCK_SUMMARY.totalApproved)      : '—',                                  sub: 'resultados aprobados', icon: CheckCircle2, accent: 'text-emerald-500',  bg: 'bg-emerald-500/10' },
-    { label: 'Costo est.',   value: isEmpty ? `$${MOCK_SUMMARY.totalCostUsd.toFixed(2)}` : formatCost(summary.total_estimated_cost_usd, 2), sub: 'USD estimados', icon: DollarSign, accent: 'text-su-brand', bg: 'bg-su-brand-soft' },
+    {
+      label: 'Costo est.',
+      value: isEmpty
+        ? `$${MOCK_SUMMARY.totalCostUsd.toFixed(2)}`
+        : (
+          <CostValue
+            display={resolveCostDisplay({
+              valueUsd: summary.total_estimated_cost_usd,
+              costTruth: toCostTruth(summary.has_unknown_cost),
+              formatUsd: (v) => formatCost(v, 2),
+            })}
+          />
+        ),
+      sub: 'USD estimados', icon: DollarSign, accent: 'text-su-brand', bg: 'bg-su-brand-soft',
+    },
   ];
 
   return (

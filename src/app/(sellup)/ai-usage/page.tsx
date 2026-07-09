@@ -24,6 +24,8 @@ import {
 } from '@/modules/ai-usage/queries';
 import type { UsageFilters } from '@/modules/ai-usage/queries';
 import type { AgentStat, ProviderStat, ProviderUsageLog } from '@/modules/usage-tracking/types';
+import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
+import { CostValue } from '@/components/shared/cost-value';
 
 // ============================================================
 // Display helpers
@@ -282,9 +284,17 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_results_returned}</td>
               <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
-                {p.total_estimated_cost_usd === 0
+                {p.total_estimated_cost_usd === 0 && !p.has_unknown_cost
                   ? <span className="text-muted-foreground/40">—</span>
-                  : formatCost(p.total_estimated_cost_usd, 2)}
+                  : (
+                    <CostValue
+                      display={resolveCostDisplay({
+                        valueUsd: p.total_estimated_cost_usd,
+                        costTruth: toCostTruth(p.has_unknown_cost),
+                        formatUsd: (v) => formatCost(v, 2),
+                      })}
+                    />
+                  )}
               </td>
               <td className="py-3 text-right text-muted-foreground">
                 {formatRelativeTime(p.last_used_at)}
@@ -415,7 +425,15 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     : [
         {
           label: 'Costo estimado total',
-          value: formatCost(summary.total_estimated_cost_usd, 2),
+          value: (
+            <CostValue
+              display={resolveCostDisplay({
+                valueUsd: summary.total_estimated_cost_usd,
+                costTruth: toCostTruth(summary.has_unknown_cost),
+                formatUsd: (v) => formatCost(v, 2),
+              })}
+            />
+          ),
           sub: 'USD acumulado',
           icon: DollarSign,
           accent: 'text-su-brand',
@@ -677,9 +695,17 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                             : <span className="text-muted-foreground/40">—</span>}
                         </td>
                         <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
-                          {u.estimated_cost_usd > 0
-                            ? formatCost(u.estimated_cost_usd, 2)
-                            : <span className="text-muted-foreground/40">$0.00</span>}
+                          {u.estimated_cost_usd === 0 && !u.has_unknown_cost
+                            ? <span className="text-muted-foreground/40">$0.00</span>
+                            : (
+                              <CostValue
+                                display={resolveCostDisplay({
+                                  valueUsd: u.estimated_cost_usd,
+                                  costTruth: toCostTruth(u.has_unknown_cost),
+                                  formatUsd: (v) => formatCost(v, 2),
+                                })}
+                              />
+                            )}
                         </td>
                         <td className="py-3 text-right text-muted-foreground">
                           {formatRelativeTime(u.last_activity_at)}

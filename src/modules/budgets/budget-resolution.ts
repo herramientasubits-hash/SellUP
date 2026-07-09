@@ -268,7 +268,7 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
 
       const consumed =
         ps === periodStart
-          ? (consumption.get(providerKey) ?? { credits: 0, usd: 0 })
+          ? (consumption.get(providerKey) ?? { credits: 0, usd: 0, hasUnknownCost: false })
           : await getConsumptionGlobal(admin, providerKey, ps, pe);
 
       const limitCredits = globalRule?.limit_credits != null ? Number(globalRule.limit_credits) : null;
@@ -299,6 +299,7 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
         globalLimitUsd: limitUsd,
         consumedCredits: consumed.credits,
         consumedUsd: consumed.usd,
+        hasUnknownCost: consumed.hasUnknownCost,
         remainingCredits: limitCredits !== null ? Math.max(0, limitCredits - consumed.credits) : null,
         remainingUsd: limitUsd !== null ? Math.max(0, limitUsd - consumed.usd) : null,
         periodType,
