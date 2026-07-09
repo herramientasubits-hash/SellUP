@@ -1049,3 +1049,204 @@ export async function getUserConsumption(
 
   return rows.slice(0, USER_CONSUMPTION_LIMIT);
 }
+
+// ============================================================
+// getProviderUserConsumption (Q3F-9) — per-user breakdown scoped to a
+// single provider. Answers "who consumes THIS provider?" using
+// provider_usage_logs as the sole metric source (never agent_runs, never a
+// full active-user roster). Distinct from getUserConsumption, which mixes
+// agent_runs + provider_usage_logs across every provider.
+// ============================================================
+
+export type ProviderScopedUsageFilters = UsageFilters & {
+  provider: string;
+};
+
+export interface ProviderUserConsumptionRow {
+  triggered_by: string | null;
+  full_name: string | null;
+  email: string | null;
+  provider_calls: number;
+  total_credits_used: number;
+  /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
+  total_estimated_cost_usd: number;
+  /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
+  has_unknown_cost: boolean;
+  last_activity_at: string | null;
+}
+
+interface ProviderUserLogRow {
+  triggered_by: string | null;
+  credits_used: number | null;
+  estimated_cost_usd: number | null;
+  created_at: string;
+}
+
+/**
+ * Pure boundary helper — mirrors resolveOperationLogRowsOrThrow: a truthy
+ * error always throws (so the caller's try/catch can classify it instead of
+ * a silent, indistinguishable-from-real-empty "Sin consumo por usuario");
+ * null/undefined data collapses to [] (a legitimate empty result).
+ */
+export function resolveProviderUserLogRowsOrThrow(
+  data: ProviderUserLogRow[] | null | undefined,
+  error: unknown,
+): ProviderUserLogRow[] {
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Internal-only Map key for rows with triggered_by === null. Never crosses
+// the aggregator's return value — every returned row restores
+// triggered_by: null verbatim.
+const UNATTRIBUTED_BUCKET_KEY = '__unattributed__';
+
+/**
+ * Pure aggregator — groups provider_usage_logs rows by triggered_by.
+ * triggered_by === null is preserved as its own single bucket (unattributed
+ * consumption); it is never dropped and never merged into a real user's
+ * bucket. Zero-credit consumers are preserved (no credits/cost filtering).
+ * Dependency-free so it is directly unit-testable.
+ */
+export function aggregateProviderUserConsumption(
+  rows: ProviderUserLogRow[],
+): ProviderUserConsumptionRow[] {
+  const map = new Map<string, ProviderUserConsumptionRow>();
+
+  for (const row of rows) {
+    const key = row.triggered_by ?? UNATTRIBUTED_BUCKET_KEY;
+    const existing: ProviderUserConsumptionRow = map.get(key) ?? {
+      triggered_by: row.triggered_by,
+      full_name: null,
+      email: null,
+      provider_calls: 0,
+      total_credits_used: 0,
+      total_estimated_cost_usd: 0,
+      has_unknown_cost: false,
+      last_activity_at: null,
+    };
+
+    // Known-cost subtotal only. A NULL estimated_cost_usd means unknown cost —
+    // it is excluded from the sum (never coerced to 0) and flagged via
+    // has_unknown_cost so total_estimated_cost_usd is never mislabeled as a
+    // complete total.
+    const rowHasUnknownCost = row.estimated_cost_usd == null;
+    const updated: ProviderUserConsumptionRow = {
+      ...existing,
+      provider_calls: existing.provider_calls + 1,
+      total_credits_used: existing.total_credits_used + Number(row.credits_used ?? 0),
+      total_estimated_cost_usd: rowHasUnknownCost
+        ? existing.total_estimated_cost_usd
+        : existing.total_estimated_cost_usd + Number(row.estimated_cost_usd),
+      has_unknown_cost: existing.has_unknown_cost || rowHasUnknownCost,
+      last_activity_at:
+        !existing.last_activity_at || row.created_at > existing.last_activity_at
+          ? row.created_at
+          : existing.last_activity_at,
+    };
+
+    map.set(key, updated);
+  }
+
+  return Array.from(map.values());
+}
+
+/**
+ * Canonical sort (Q3F-9) — total_credits_used DESC, then
+ * total_estimated_cost_usd DESC, then provider_calls DESC, then identity ASC
+ * (full_name ?? email ?? triggered_by ?? ''). Fully deterministic; no
+ * heuristic or IA-based ordering.
+ */
+export function sortProviderUserConsumptionRows(
+  rows: ProviderUserConsumptionRow[],
+): ProviderUserConsumptionRow[] {
+  return [...rows].sort((a, b) => {
+    if (b.total_credits_used !== a.total_credits_used) {
+      return b.total_credits_used - a.total_credits_used;
+    }
+    if (b.total_estimated_cost_usd !== a.total_estimated_cost_usd) {
+      return b.total_estimated_cost_usd - a.total_estimated_cost_usd;
+    }
+    if (b.provider_calls !== a.provider_calls) {
+      return b.provider_calls - a.provider_calls;
+    }
+    const aIdentity = a.full_name ?? a.email ?? a.triggered_by ?? '';
+    const bIdentity = b.full_name ?? b.email ?? b.triggered_by ?? '';
+    return aIdentity.localeCompare(bIdentity);
+  });
+}
+
+export async function getProviderUserConsumption(
+  filters: ProviderScopedUsageFilters,
+): Promise<ProviderUserConsumptionRow[] | null> {
+  if (!filters.provider || !filters.provider.trim()) {
+    throw new TypeError('getProviderUserConsumption requires filters.provider');
+  }
+
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return null;
+
+  const admin = getAdminClient();
+  const since = periodStart(filters.period);
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const scope = await resolveUserScope(admin, filters, baseIds);
+  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
+
+  // Same Agent scope as getProviderStats / getProviderOperationStats: resolve
+  // agent_key → agent_runs.id[] and constrain provider_usage_logs.agent_run_id.
+  const agentScope = createAgentRunScope(
+    filters.agent,
+    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
+  );
+  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
+
+  let query = admin
+    .from('provider_usage_logs')
+    .select('triggered_by, credits_used, estimated_cost_usd, created_at')
+    .eq('provider_key', filters.provider);
+
+  if (since) query = query.gte('created_at', since);
+  if (filters.status) query = query.eq('status', filters.status);
+  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
+  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
+
+  const { data, error } = await query;
+  // Mirrors getProviderOperationStats (Q3F-8E): a Supabase query error must
+  // NOT collapse into a valid-looking empty result — it must propagate so
+  // the caller's try/catch can classify it instead of a false "Sin consumo
+  // por usuario" empty state.
+  const rows = resolveProviderUserLogRowsOrThrow(data as ProviderUserLogRow[] | null, error);
+
+  const aggregated = aggregateProviderUserConsumption(rows);
+
+  const uniqueIds = [
+    ...new Set(
+      aggregated.map((r) => r.triggered_by).filter((id): id is string => id !== null),
+    ),
+  ];
+
+  let enriched = aggregated;
+  if (uniqueIds.length > 0) {
+    const { data: users, error: usersError } = await admin
+      .from('internal_users')
+      .select('id, full_name, email')
+      .in('id', uniqueIds);
+    if (usersError) throw usersError;
+
+    const userMap = new Map(
+      (users ?? []).map((u) => [
+        u.id as string,
+        u as { id: string; full_name: string | null; email: string | null },
+      ]),
+    );
+
+    enriched = aggregated.map((row) => {
+      if (row.triggered_by === null) return row;
+      const u = userMap.get(row.triggered_by);
+      if (!u) return row;
+      return { ...row, full_name: u.full_name, email: u.email };
+    });
+  }
+
+  return sortProviderUserConsumptionRows(enriched);
+}

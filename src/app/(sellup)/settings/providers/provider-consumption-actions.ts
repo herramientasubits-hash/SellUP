@@ -4,13 +4,16 @@ import {
   getProviderStats,
   getProviderOperationStats,
   getRecentProviderLogs,
+  getProviderUserConsumption,
   getDistinctFilterOptions,
   type UsageFilters,
+  type ProviderScopedUsageFilters,
 } from '@/modules/ai-usage/queries';
 import type {
   ProviderConsumptionLogEntry,
   ProviderConsumptionSnapshot,
   ProviderOperationBreakdownRow,
+  ProviderUserConsumptionBreakdownRow,
   ConsumptionLoadResult,
 } from './provider-consumption-types';
 
@@ -33,7 +36,7 @@ export async function loadProviderConsumptionForWorkspace(
   providerKey: string,
   filters: UsageFilters,
 ): Promise<ConsumptionLoadResult> {
-  const providerFilters: UsageFilters = { ...filters, provider: providerKey };
+  const providerFilters: ProviderScopedUsageFilters = { ...filters, provider: providerKey };
 
   let statsResult: Awaited<ReturnType<typeof getProviderStats>>;
   try {
@@ -54,6 +57,13 @@ export async function loadProviderConsumptionForWorkspace(
     logsResult = await getRecentProviderLogs(25, providerFilters);
   } catch (error) {
     return { ok: false, errorStage: 'recent_logs', errorCode: classifyConsumptionError(error) };
+  }
+
+  let userConsumptionResult: Awaited<ReturnType<typeof getProviderUserConsumption>>;
+  try {
+    userConsumptionResult = await getProviderUserConsumption(providerFilters);
+  } catch (error) {
+    return { ok: false, errorStage: 'user_consumption', errorCode: classifyConsumptionError(error) };
   }
 
   let optionsResult: Awaited<ReturnType<typeof getDistinctFilterOptions>>;
@@ -93,6 +103,19 @@ export async function loadProviderConsumptionForWorkspace(
       createdAt: l.created_at,
     }));
 
+    const userConsumption: ProviderUserConsumptionBreakdownRow[] = (userConsumptionResult ?? []).map(
+      (row) => ({
+        userId: row.triggered_by,
+        fullName: row.full_name,
+        email: row.email,
+        totalCalls: row.provider_calls,
+        totalCredits: row.total_credits_used,
+        totalCostUsd: row.total_estimated_cost_usd,
+        hasUnknownCost: row.has_unknown_cost,
+        lastActivityAt: row.last_activity_at,
+      }),
+    );
+
     const filterOptions = optionsResult
       ? {
           providers: [...optionsResult.providers],
@@ -125,6 +148,7 @@ export async function loadProviderConsumptionForWorkspace(
       errorCalls: stat?.error_calls ?? 0,
       recentLogs,
       operationBreakdown,
+      userConsumption,
       filterOptions,
     };
     return { ok: true, snapshot };

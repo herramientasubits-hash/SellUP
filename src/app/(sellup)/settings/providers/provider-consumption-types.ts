@@ -25,6 +25,18 @@ export interface ProviderOperationBreakdownRow {
   creditsPercentage: number;
 }
 
+/** One row of the "Consumo por usuario" breakdown (Q3F-9). */
+export interface ProviderUserConsumptionBreakdownRow {
+  userId: string | null;
+  fullName: string | null;
+  email: string | null;
+  totalCalls: number;
+  totalCredits: number;
+  totalCostUsd: number;
+  hasUnknownCost: boolean;
+  lastActivityAt: string | null;
+}
+
 export interface ProviderConsumptionSnapshot {
   totalCredits: number | null;
   totalCostUsd: number;
@@ -33,6 +45,7 @@ export interface ProviderConsumptionSnapshot {
   errorCalls: number;
   recentLogs: ProviderConsumptionLogEntry[];
   operationBreakdown: ProviderOperationBreakdownRow[];
+  userConsumption: ProviderUserConsumptionBreakdownRow[];
   filterOptions: FilterOptions | null;
 }
 
@@ -40,6 +53,7 @@ export type ConsumptionErrorStage =
   | 'provider_stats'
   | 'operation_stats'
   | 'recent_logs'
+  | 'user_consumption'
   | 'filter_options'
   | 'mapping';
 

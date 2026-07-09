@@ -56,7 +56,10 @@ import type {
 } from './provider-consumption-types';
 import type { FilterUser, FilterGroup } from '@/modules/ai-usage/queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
-import type { ProviderOperationBreakdownRow } from './provider-consumption-types';
+import type {
+  ProviderOperationBreakdownRow,
+  ProviderUserConsumptionBreakdownRow,
+} from './provider-consumption-types';
 import { getProviderOperationLabel } from '@/modules/budgets/operation-labels';
 import { DataTable } from '@/components/data-table';
 
@@ -180,6 +183,23 @@ const OPERATION_BREAKDOWN_PAGE_SIZE = 100;
 // alter creditsPercentage in the DTO.
 function formatOperationPercent(value: number): string {
   return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
+}
+
+// "Consumo por usuario" page size (Q3F-9 frozen contract).
+const USER_CONSUMPTION_PAGE_SIZE = 25;
+
+// Identity display matrix for the "Usuario" column (Q3F-9). Never surfaces a
+// raw UUID; falls back to explicit copy when identity cannot be resolved.
+function userConsumptionIdentity(
+  row: ProviderUserConsumptionBreakdownRow,
+): { primary: string; secondary: string | null } {
+  if (row.userId === null) {
+    return { primary: 'Sin usuario identificado', secondary: 'Consumo sin atribución de usuario' };
+  }
+  if (row.fullName && row.email) return { primary: row.fullName, secondary: row.email };
+  if (row.fullName) return { primary: row.fullName, secondary: null };
+  if (row.email) return { primary: row.email, secondary: null };
+  return { primary: 'Usuario no disponible', secondary: null };
 }
 
 // ── Shared type (used by TabResumen and main component) ───────────────────────
@@ -1169,6 +1189,7 @@ function TabConsumo({
     provider_stats: 'Métricas de consumo',
     operation_stats: 'Distribución por operación',
     recent_logs: 'Operaciones recientes',
+    user_consumption: 'Consumo por usuario',
     filter_options: 'Opciones de filtro',
     mapping: 'Preparación de datos',
   };
@@ -1217,6 +1238,7 @@ function TabConsumo({
   const recentOps = recentLogs.slice(0, 5);
   const visibleCount = Math.min(5, recentLogs.length);
   const operationBreakdown = snapshot?.operationBreakdown ?? [];
+  const userConsumption = snapshot?.userConsumption ?? [];
 
   // Distribución por operación → shared DataTable (Foundation § 10; AGENTS.md
   // prohibits raw <Table>). Columns are provider-aware because the operation
@@ -1287,6 +1309,80 @@ function TabConsumo({
       },
     ],
     [providerKey],
+  );
+
+  // Consumo por usuario → shared DataTable (Foundation § 10; AGENTS.md
+  // prohibits raw <Table>). Sorting disabled so the query's deterministic
+  // order (credits DESC, cost DESC, calls DESC, identity ASC) is preserved.
+  const userColumns = useMemo<ColumnDef<ProviderUserConsumptionBreakdownRow, unknown>[]>(
+    () => [
+      {
+        id: 'user',
+        header: () => <>Usuario</>,
+        enableSorting: false,
+        size: 220,
+        cell: ({ row }) => {
+          const { primary, secondary } = userConsumptionIdentity(row.original);
+          return (
+            <div className="leading-snug">
+              <span className="block text-foreground">{primary}</span>
+              {secondary && (
+                <span className="block text-[10px] text-muted-foreground/60">{secondary}</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'totalCalls',
+        accessorKey: 'totalCalls',
+        header: () => <div className="text-right">Operaciones</div>,
+        enableSorting: false,
+        size: 110,
+        cell: ({ row }) => (
+          <div className="text-right text-foreground whitespace-nowrap">
+            {row.original.totalCalls.toLocaleString()}
+          </div>
+        ),
+      },
+      {
+        id: 'totalCredits',
+        accessorKey: 'totalCredits',
+        header: () => <div className="text-right">Créditos</div>,
+        enableSorting: false,
+        size: 110,
+        cell: ({ row }) => (
+          <div className="text-right text-foreground whitespace-nowrap">
+            {row.original.totalCredits.toLocaleString()} cr
+          </div>
+        ),
+      },
+      {
+        id: 'totalCostUsd',
+        accessorKey: 'totalCostUsd',
+        header: () => <div className="text-right">Costo estimado</div>,
+        enableSorting: false,
+        size: 120,
+        cell: ({ row }) => (
+          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+            {row.original.totalCostUsd > 0 ? `$${row.original.totalCostUsd.toFixed(4)}` : '—'}
+          </div>
+        ),
+      },
+      {
+        id: 'lastActivityAt',
+        accessorKey: 'lastActivityAt',
+        header: () => <div className="text-right">Última actividad</div>,
+        enableSorting: false,
+        size: 130,
+        cell: ({ row }) => (
+          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+            {row.original.lastActivityAt ? formatDateShort(row.original.lastActivityAt) : '—'}
+          </div>
+        ),
+      },
+    ],
+    [],
   );
 
   // Client-side user scoping: filter visible users by selected role ∩ group
@@ -1559,6 +1655,31 @@ function TabConsumo({
             hideToolbar
             enableColumnReorder={false}
             initialPageSize={OPERATION_BREAKDOWN_PAGE_SIZE}
+            className="text-xs"
+          />
+        )}
+      </div>
+
+      {/* Consumo por usuario — misma scope que el KPI de arriba (Q3F-9) */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
+          Consumo por usuario
+        </p>
+        {isPending ? (
+          <LoadingPlaceholder label="Calculando consumo por usuario..." />
+        ) : userConsumption.length === 0 ? (
+          <EmptyBlock
+            message="Sin consumo por usuario"
+            sub="No hay usuarios con consumo registrado para los filtros seleccionados."
+          />
+        ) : (
+          <DataTable
+            columns={userColumns}
+            data={userConsumption}
+            getRowId={(u) => u.userId ?? '__unattributed__'}
+            hideToolbar
+            enableColumnReorder={false}
+            initialPageSize={USER_CONSUMPTION_PAGE_SIZE}
             className="text-xs"
           />
         )}
