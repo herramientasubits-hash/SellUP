@@ -16,6 +16,7 @@
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import type { MappingDraftDbClient } from './mapping-draft-types';
+import type { MappingDraftDeleteDbClient } from './mapping-draft-delete-service';
 import type { MappingPublicationDbClient } from './mapping-publication-types';
 import type { MappingSnapshotLoadDbClient } from './mapping-snapshot-load-types';
 
@@ -36,6 +37,17 @@ export function createIndustryMappingDraftDbClient(): MappingDraftDbClient {
 /** Service-role client cast to the publication domain service's structural DB/RPC contract. */
 export function createIndustryMappingPublicationDbClient(): MappingPublicationDbClient {
   return createIndustryMappingServiceRoleClient() as unknown as MappingPublicationDbClient;
+}
+
+/**
+ * Service-role client cast to the DRAFT-delete domain service's narrow
+ * structural RPC-only contract (Q3F-5AR.0). The delete-DRAFT RPC's EXECUTE
+ * privilege remains revoked as of migration 083 — this factory exists so the
+ * application call path is coded and offline-tested ahead of that later
+ * narrow activation.
+ */
+export function createIndustryMappingDraftDeleteDbClient(): MappingDraftDeleteDbClient {
+  return createIndustryMappingServiceRoleClient() as unknown as MappingDraftDeleteDbClient;
 }
 
 /** Service-role client cast to the snapshot loaders' structural DB contract. */

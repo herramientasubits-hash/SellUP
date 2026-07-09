@@ -26,6 +26,7 @@ import {
   createIndustryMappingDraftDbClient,
   createIndustryMappingPublicationDbClient,
   createIndustryMappingSnapshotLoadDbClient,
+  createIndustryMappingDraftDeleteDbClient,
 } from './mapping-runtime-db-client';
 import {
   createMappingDraftForActor,
@@ -37,6 +38,7 @@ import {
   updateMappingAssociationForActor,
   removeMappingAssociationForActor,
   publishMappingSnapshotForActor,
+  deleteMappingDraftForActor,
   loadPublishedIndustryMappingSnapshotForRuntime,
   loadHistoricalIndustryMappingSnapshotForRuntime,
   type CreateMappingDraftForActorInput,
@@ -48,6 +50,7 @@ import {
   type UpdateMappingAssociationForActorInput,
   type RemoveMappingAssociationForActorInput,
   type PublishMappingSnapshotForActorInput,
+  type DeleteMappingDraftForActorInput,
 } from './mapping-runtime-wrappers';
 
 import type { MappingSnapshot, MappingConceptEntry, MappingAssociation } from './mapping-draft-types';
@@ -167,6 +170,23 @@ export async function publishMappingSnapshotForCurrentActor(
   const authClient = await currentAuthClient();
   const db = createIndustryMappingPublicationDbClient();
   return publishMappingSnapshotForActor(authClient, db, input);
+}
+
+// ── DRAFT deletion (Q3F-5AR.0) ──────────────────────────────────────────────
+// No transport (no 'use server', no route handler, no UI) calls this yet —
+// production transport caller count is 0. The delete-DRAFT RPC's EXECUTE
+// privilege remains revoked as of migration 083; a later hito will design
+// the narrow activation.
+
+export type DeleteMappingDraftForCurrentActorInput = DeleteMappingDraftForActorInput;
+
+/** Deletes a DRAFT mapping snapshot as the current actor. Service-role DB client. */
+export async function deleteMappingDraftForCurrentActor(
+  input: DeleteMappingDraftForCurrentActorInput,
+): Promise<void> {
+  const authClient = await currentAuthClient();
+  const db = createIndustryMappingDraftDeleteDbClient();
+  return deleteMappingDraftForActor(authClient, db, input);
 }
 
 // ── Loaders (no actor identity required) ────────────────────────────────────

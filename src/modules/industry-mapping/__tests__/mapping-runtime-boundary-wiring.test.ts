@@ -12,7 +12,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -64,6 +64,21 @@ describe('server.ts wiring — publication wrapper (RB14, P)', () => {
   });
 });
 
+describe('server.ts wiring — delete-draft wrapper (Q3F-5AR.0, DD-21, DD-22, DD-23)', () => {
+  it('DD-23: deleteMappingDraftForCurrentActor is exported from server.ts', () => {
+    assert.match(serverSource, /export async function deleteMappingDraftForCurrentActor\(/);
+  });
+
+  it('DD-21/DD-22: deleteMappingDraftForCurrentActor uses createIndustryMappingDraftDeleteDbClient (service-role) for the RPC and currentAuthClient only for actor resolution', () => {
+    const body = extractExportedFunctionBody(serverSource, 'deleteMappingDraftForCurrentActor');
+    assert.match(body, /createIndustryMappingDraftDeleteDbClient\(\)/);
+    assert.match(body, /currentAuthClient\(\)/);
+    assert.doesNotMatch(body, /createIndustryMappingDraftDbClient\(\)/);
+    assert.doesNotMatch(body, /createIndustryMappingPublicationDbClient\(\)/);
+    assert.doesNotMatch(body, /createIndustryMappingSnapshotLoadDbClient\(\)/);
+  });
+});
+
 describe('server.ts wiring — loaders (RB15, RB16, RB17, P)', () => {
   it('loadPublishedIndustryMappingSnapshot uses createIndustryMappingSnapshotLoadDbClient (service-role) and never resolves an actor', () => {
     const body = extractExportedFunctionBody(serverSource, 'loadPublishedIndustryMappingSnapshot');
@@ -93,6 +108,7 @@ describe('exported input types omit actor fields (section 20/N)', () => {
     ['UpdateMappingAssociationForActorInput', 'actorId'],
     ['RemoveMappingAssociationForActorInput', 'actorId'],
     ['PublishMappingSnapshotForActorInput', 'publisherActorId'],
+    ['DeleteMappingDraftForActorInput', 'actorId'],
   ];
 
   for (const [typeName, omittedField] of expectedOmits) {
@@ -112,13 +128,14 @@ describe('exported input types omit actor fields (section 20/N)', () => {
   });
 });
 
-describe('no archive or delete-draft wrapper exported (RB19, RB20)', () => {
+describe('no archive wrapper exported; delete-draft wrapper contract (RB19, RB20 — evolved by Q3F-5AQ.0R, DD-25, DD-33, DD-34)', () => {
   function exportedFunctionNames(source: string): string[] {
     return [...source.matchAll(/export async function (\w+)/g)].map((match) => match[1]);
   }
 
-  it('RB19: no archive wrapper exported', () => {
-    const names = [...exportedFunctionNames(serverSource), ...exportedFunctionNames(wrappersSource)];
+  const names = [...exportedFunctionNames(serverSource), ...exportedFunctionNames(wrappersSource)];
+
+  it('RB19 (DD-25, DD-33): no archive wrapper exported — PASS, unchanged by Q3F-5AQ.0R', () => {
     assert.ok(names.length > 0, 'sanity: expected to find exported functions');
     assert.ok(
       !names.some((name) => /archive/i.test(name)),
@@ -126,12 +143,116 @@ describe('no archive or delete-draft wrapper exported (RB19, RB20)', () => {
     );
   });
 
-  it('RB20: no delete-draft wrapper exported', () => {
-    const names = [...exportedFunctionNames(serverSource), ...exportedFunctionNames(wrappersSource)];
-    assert.ok(
-      !names.some((name) => /delete/i.test(name) && /draft/i.test(name)),
-      `unexpected delete-draft-related export found: ${names.filter((n) => /delete/i.test(n) && /draft/i.test(n)).join(', ')}`,
-    );
+  // RB20 was originally frozen as "no delete-draft wrapper exported"
+  // (Q3F-5AN.1). Q3F-5AQ.0R intentionally reinterpreted DELETE-DRAFT as the
+  // required reversible-cleanup capability, so RB20 is evolved (not
+  // silently deleted) into the following DD-34 contract: the delete-draft
+  // application wrapper now DOES exist, its exported input does not expose
+  // actor identity, it resolves the current actor, it uses the service_role
+  // delete-draft DB client, it calls only the delete-DRAFT domain
+  // service/RPC path, and it still does not expose archive.
+  describe('RB20 evolved contract (DD-34): delete-draft application wrapper exists and is narrowly scoped', () => {
+    it('a delete-draft wrapper IS exported (RB20_CONTRACT_EVOLVED_BY_Q3F_5AQ_0R)', () => {
+      const deleteDraftNames = names.filter((name) => /delete/i.test(name) && /draft/i.test(name));
+      assert.ok(
+        deleteDraftNames.length > 0,
+        'expected a delete-draft wrapper export after Q3F-5AQ.0R (RB20 evolved)',
+      );
+    });
+
+    it('deleteMappingDraftForActor is exported from mapping-runtime-wrappers.ts', () => {
+      assert.match(wrappersSource, /export async function deleteMappingDraftForActor\(/);
+    });
+
+    it('deleteMappingDraftForCurrentActor is exported from server.ts', () => {
+      assert.match(serverSource, /export async function deleteMappingDraftForCurrentActor\(/);
+    });
+
+    it("its exported input type is declared as Omit<DeleteMappingDraftInput, 'actorId'> (no actor field exposed)", () => {
+      assert.match(
+        wrappersSource,
+        /export type DeleteMappingDraftForActorInput = Omit<[^;]*'actorId'[^;]*>;/,
+      );
+    });
+
+    it('deleteMappingDraftForActor resolves the trusted current actor', () => {
+      const body = extractExportedFunctionBody(wrappersSource, 'deleteMappingDraftForActor');
+      assert.match(body, /resolveTrustedIndustryMappingActor\(/);
+    });
+
+    it('deleteMappingDraftForCurrentActor uses the service_role delete-draft DB client', () => {
+      const body = extractExportedFunctionBody(serverSource, 'deleteMappingDraftForCurrentActor');
+      assert.match(body, /createIndustryMappingDraftDeleteDbClient\(\)/);
+    });
+
+    it('the delete-draft wrapper path calls only the delete-DRAFT domain service (deleteMappingDraft), never archive/publish', () => {
+      const body = extractExportedFunctionBody(wrappersSource, 'deleteMappingDraftForActor');
+      assert.match(body, /\bdeleteMappingDraft\(/);
+      assert.doesNotMatch(body, /archive/i);
+      assert.doesNotMatch(body, /publishMappingSnapshot/);
+    });
+
+    it('still no archive wrapper is exported alongside the new delete-draft wrapper', () => {
+      assert.ok(!names.some((name) => /archive/i.test(name)));
+    });
+  });
+});
+
+describe('no transport introduced by the delete-draft boundary (DD-26)', () => {
+  it("neither server.ts nor mapping-runtime-wrappers.ts contains a 'use server' directive statement", () => {
+    // Matches only an actual directive statement (a line consisting solely
+    // of 'use server';), not the string appearing inside a doc comment
+    // (both files' headers already say "no 'use server'" in prose).
+    assert.doesNotMatch(combinedSource, /^\s*['"]use server['"];?\s*$/m);
+  });
+
+  it('neither file imports a Next.js route-handler/server-action transport surface', () => {
+    assert.doesNotMatch(combinedSource, /next\/server/);
+    assert.doesNotMatch(combinedSource, /NextRequest|NextResponse/);
+  });
+});
+
+describe('production transport caller count remains 0 (DD-27)', () => {
+  it('no file under src/app references deleteMappingDraftForCurrentActor', () => {
+    const appDir = path.join(moduleDir, '..', '..', '..', 'app');
+    const offenders: string[] = [];
+
+    function walk(dir: string) {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+        const content = readFileSync(fullPath, 'utf8');
+        if (content.includes('deleteMappingDraftForCurrentActor')) {
+          offenders.push(fullPath);
+        }
+      }
+    }
+
+    walk(appDir);
+    assert.deepEqual(offenders, [], `unexpected production transport caller(s): ${offenders.join(', ')}`);
+  });
+
+  it('no file under industry-mapping (outside this module’s own boundary/test files) references deleteMappingDraftForCurrentActor', () => {
+    const industryMappingDir = path.join(moduleDir, '..');
+    const allowedFiles = new Set(['server.ts']);
+    const offenders: string[] = [];
+
+    for (const entry of readdirSync(industryMappingDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) continue;
+      if (!/\.ts$/.test(entry.name)) continue;
+      if (allowedFiles.has(entry.name)) continue;
+      const fullPath = path.join(industryMappingDir, entry.name);
+      const content = readFileSync(fullPath, 'utf8');
+      if (content.includes('deleteMappingDraftForCurrentActor')) {
+        offenders.push(fullPath);
+      }
+    }
+
+    assert.deepEqual(offenders, [], `unexpected production transport caller(s): ${offenders.join(', ')}`);
   });
 });
 

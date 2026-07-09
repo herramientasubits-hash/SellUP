@@ -50,6 +50,11 @@ import {
   type PublishMappingSnapshotResult,
 } from './mapping-publication-service';
 import {
+  deleteMappingDraft,
+  type DeleteMappingDraftInput,
+  type MappingDraftDeleteDbClient,
+} from './mapping-draft-delete-service';
+import {
   loadPublishedIndustryMappingSnapshot,
   type LoadPublishedIndustryMappingSnapshotInput,
 } from './mapping-snapshot-load1';
@@ -245,6 +250,26 @@ export async function publishMappingSnapshotForActor(
   return publishMappingSnapshot(db, {
     snapshotId: input.snapshotId,
     publisherActorId: internalUserId,
+  });
+}
+
+// ── DRAFT deletion (Q3F-5AR.0) ──────────────────────────────────────────────
+// No archive wrapper exists and none is added here (RB19). This wrapper
+// calls only the delete-DRAFT domain service/RPC path — never the archive or
+// publish RPC.
+
+export type DeleteMappingDraftForActorInput = Omit<DeleteMappingDraftInput, 'actorId'>;
+
+/** Deletes a DRAFT mapping snapshot as the resolved actor. */
+export async function deleteMappingDraftForActor(
+  authClient: IndustryMappingAuthSessionClient,
+  db: MappingDraftDeleteDbClient,
+  input: DeleteMappingDraftForActorInput,
+): Promise<void> {
+  const { internalUserId } = await resolveTrustedIndustryMappingActor(authClient);
+  return deleteMappingDraft(db, {
+    snapshotId: input.snapshotId,
+    actorId: internalUserId,
   });
 }
 

@@ -15,6 +15,7 @@ import {
   updateMappingAssociationForActor,
   removeMappingAssociationForActor,
   publishMappingSnapshotForActor,
+  deleteMappingDraftForActor,
   loadPublishedIndustryMappingSnapshotForRuntime,
   loadHistoricalIndustryMappingSnapshotForRuntime,
 } from '../mapping-runtime-wrappers';
@@ -23,6 +24,7 @@ import { INDUSTRIES_TABLE } from '../mapping-publication-types';
 import { SOURCE_VOCABULARIES_TABLE, CATALOG_VERSIONS_TABLE } from '../mapping-snapshot-load-types';
 import { makeFakeMappingDraftDb, makeFakeTableState } from './fake-mapping-draft-db';
 import { makeFakePublicationDb, makeFakePublicationTableState } from './fake-mapping-publication-db';
+import { makeFakeMappingDraftDeleteDb } from './fake-mapping-draft-delete-db';
 import { makeFakeActiveAuthClient } from './fake-industry-mapping-auth-client';
 
 const RESOLVED_ACTOR = 'internal-actor-0000-0000-0000-000000000001';
@@ -332,6 +334,84 @@ describe('publishMappingSnapshotForActor (RB9, RB12)', () => {
 
     assert.equal(result.publishedBy, RESOLVED_ACTOR);
     assert.notEqual(result.publishedBy, ATTACKER_ACTOR);
+  });
+});
+
+describe('deleteMappingDraftForActor (Q3F-5AR.0)', () => {
+  it('DD-16/DD-17: resolves the trusted internal actor and injects it as the RPC actor argument', async () => {
+    const authClient = authClientResolvingTo(RESOLVED_ACTOR);
+    const { db, calls } = makeFakeMappingDraftDeleteDb(() => ({ data: null, error: null }));
+
+    await deleteMappingDraftForActor(authClient, db, { snapshotId: 'snap-0001' });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.params.p_snapshot_id, 'snap-0001');
+    assert.equal(calls[0]!.params.p_actor_id, RESOLVED_ACTOR);
+  });
+
+  it('DD-18: a malformed input containing actorId cannot override the trusted actor identity', async () => {
+    const authClient = authClientResolvingTo(RESOLVED_ACTOR);
+    const { db, calls } = makeFakeMappingDraftDeleteDb(() => ({ data: null, error: null }));
+
+    const maliciousInput = {
+      snapshotId: 'snap-0001',
+      actorId: ATTACKER_ACTOR,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
+    await deleteMappingDraftForActor(authClient, db, maliciousInput);
+
+    assert.equal(calls[0]!.params.p_actor_id, RESOLVED_ACTOR);
+    assert.notEqual(calls[0]!.params.p_actor_id, ATTACKER_ACTOR);
+  });
+
+  it('DD-19: a malformed input containing createdByActorId cannot override the trusted actor identity', async () => {
+    const authClient = authClientResolvingTo(RESOLVED_ACTOR);
+    const { db, calls } = makeFakeMappingDraftDeleteDb(() => ({ data: null, error: null }));
+
+    const maliciousInput = {
+      snapshotId: 'snap-0001',
+      createdByActorId: ATTACKER_ACTOR,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
+    await deleteMappingDraftForActor(authClient, db, maliciousInput);
+
+    assert.equal(calls[0]!.params.p_actor_id, RESOLVED_ACTOR);
+    assert.notEqual(calls[0]!.params.p_actor_id, ATTACKER_ACTOR);
+  });
+
+  it('DD-20: a malformed input containing publisherActorId cannot override the trusted actor identity', async () => {
+    const authClient = authClientResolvingTo(RESOLVED_ACTOR);
+    const { db, calls } = makeFakeMappingDraftDeleteDb(() => ({ data: null, error: null }));
+
+    const maliciousInput = {
+      snapshotId: 'snap-0001',
+      publisherActorId: ATTACKER_ACTOR,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
+    await deleteMappingDraftForActor(authClient, db, maliciousInput);
+
+    assert.equal(calls[0]!.params.p_actor_id, RESOLVED_ACTOR);
+    assert.notEqual(calls[0]!.params.p_actor_id, ATTACKER_ACTOR);
+  });
+
+  it('DD-35: a typed domain error propagates through the wrapper without generic rewrapping', async () => {
+    const authClient = authClientResolvingTo(RESOLVED_ACTOR);
+    const { db } = makeFakeMappingDraftDeleteDb(() => ({
+      data: null,
+      error: { message: 'DRAFT_AUTHOR_REQUIRED' },
+    }));
+
+    await assert.rejects(
+      () => deleteMappingDraftForActor(authClient, db, { snapshotId: 'snap-0001' }),
+      (error: unknown) => {
+        assert.ok(error instanceof MappingDraftError);
+        assert.equal(error.code, 'MAPPING_DRAFT_AUTHOR_REQUIRED');
+        return true;
+      },
+    );
   });
 });
 

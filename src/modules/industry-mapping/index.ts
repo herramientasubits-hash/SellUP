@@ -74,6 +74,14 @@ export type {
 export { MappingPublicationValidationError } from './mapping-publication-types';
 export type { MappingPublicationDbClient } from './mapping-publication-types';
 
+// DRAFT-delete Domain Service (Q3F-5AR.0). No archive service is exported —
+// archive remains out of scope. No transport wires this yet.
+export { deleteMappingDraft } from './mapping-draft-delete-service';
+export type {
+  DeleteMappingDraftInput,
+  MappingDraftDeleteDbClient,
+} from './mapping-draft-delete-service';
+
 // Trusted snapshot loaders — LOAD1 + LOAD2 (Q3F-5AK). The canonical resolver
 // is NOT implemented by these loaders; they only prove NS1 (the resolver
 // never receives a null mapping snapshot).
