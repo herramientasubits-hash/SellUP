@@ -95,3 +95,26 @@ export type {
   MappingSnapshotAssociation,
   CanonicalIndustryReference,
 } from './mapping-snapshot-load-types';
+
+// Pure Deterministic Industry Canonical Runtime Resolver (Q3F-5AL). Consumes
+// an already-loaded LoadedIndustryCatalog and an already-loaded trusted
+// IndustryProviderMappingSnapshot — never loads either itself, never invokes
+// a DB/provider/AI call.
+export { resolveIndustryCanonical } from './industry-canonical-resolver';
+export {
+  IndustryCanonicalResolutionError,
+} from './industry-canonical-resolution-types';
+export type {
+  LoadedIndustryReference,
+  LoadedIndustryCatalog,
+  IndustrySourceVocabularyContext,
+  CatalogIndustryResolutionMethod,
+  IndustryResolutionMethod,
+  IndustrySourceRelation,
+  IndustryCanonicalResolutionCandidate,
+  IndustryCanonicalResolutionInput,
+  IndustryCanonicalResolutionResult,
+  IndustryCanonicalResolutionErrorCode,
+  IndustryCanonicalResolutionMismatchTarget,
+  IndustryCanonicalResolutionErrorContext,
+} from './industry-canonical-resolution-types';
