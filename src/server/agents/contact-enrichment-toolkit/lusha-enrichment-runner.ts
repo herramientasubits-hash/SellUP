@@ -1772,7 +1772,11 @@ export async function executeContactEnrichmentLushaRun(
       results_returned: prospectCandidatesCreated,
       estimated_cost_usd: prospectSuccessCostComponent.estimatedCostUsd,
       real_cost_usd: prospectSuccessCostComponent.realCostUsd,
-      status: prospectCandidatesCreated > 0 ? 'success' : 'error',
+      // Technical provider outcome, not business outcome (17B.4X.5F — G8).
+      // The provider call already succeeded by this point (Path A above
+      // handles technical failure); prospectCandidatesCreated is a downstream
+      // dedup/filter result and must never drive provider_usage_logs.status.
+      status: 'success',
       triggered_by: triggeredBy,
       metadata: {
         endpoint_family: 'v3_contacts_prospecting',
@@ -2247,7 +2251,11 @@ export async function executeContactEnrichmentLushaRun(
     results_returned: candidatesCreated,
     estimated_cost_usd: enrichBatchCostComponent.estimatedCostUsd,
     real_cost_usd: enrichBatchCostComponent.realCostUsd,
-    status: candidatesCreated > 0 ? 'success' : 'error',
+    // Technical provider outcome, not business outcome (17B.4X.5F — G8).
+    // The enrich batch already completed technically by this point;
+    // candidatesCreated is a downstream dedup/filter result and must never
+    // drive provider_usage_logs.status.
+    status: 'success',
     triggered_by: triggeredBy,
     metadata: {
       endpoint: 'contacts_enrich',
@@ -2263,7 +2271,7 @@ export async function executeContactEnrichmentLushaRun(
 
   if (enrichStep) {
     await finishAgentRunStep(enrichStep.id, {
-      status: candidatesCreated > 0 ? 'success' : 'success',
+      status: 'success',
       results_returned: candidatesCreated,
       metadata: {
         candidates_created: candidatesCreated,
