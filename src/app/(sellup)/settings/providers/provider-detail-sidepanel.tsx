@@ -1991,7 +1991,7 @@ function TabConsumo({
                       {log.creditsUsed.toLocaleString()} cr
                     </span>
                   )}
-                  {log.estimatedCostUsd != null && log.estimatedCostUsd > 0 && (
+                  {log.estimatedCostUsd != null && (
                     <span className="text-[10px] text-muted-foreground/70 shrink-0">
                       ${log.estimatedCostUsd.toFixed(4)}
                     </span>
