@@ -623,6 +623,200 @@ test('two raw candidate objects for the same canonical id do not cause AMBIGUOUS
   assert.equal(result.status, 'RESOLVED');
 });
 
+// ── Section 26: explicit same-target dedup preference (Q3F-5AL.2) ───────────
+// provider_mapping must survive a same-ref.id collision against any
+// catalog_* candidate, and that survival must be explicit — never a
+// byproduct of which side happens to be resolved/processed first.
+
+test('DM1: catalog_exact_name A + provider_mapping A -> provider_mapping survives', () => {
+  const result = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([concept('banking', [association(bankingRef, 'SOURCE_EQUIVALENT_TO_CANONICAL')])]),
+    }),
+    catalog([bankingRef]),
+  );
+  assert.equal(result.status, 'RESOLVED');
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].resolutionMethod, 'provider_mapping');
+  assert.equal(result.candidates[0].ref.id, bankingRef.id);
+});
+
+test('DM2: catalog_slug A + provider_mapping A -> provider_mapping survives', () => {
+  const slugOnlyRef = ref('industry-banking', 'Bank Sector', 'banking');
+  const result = resolveIndustryCanonical(
+    input({
+      rawLabel: 'banking',
+      mappingSnapshot: snapshot([concept('banking', [association(slugOnlyRef, 'SOURCE_BROADER_THAN_CANONICAL')])]),
+    }),
+    catalog([slugOnlyRef]),
+  );
+  assert.equal(result.status, 'RESOLVED');
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].resolutionMethod, 'provider_mapping');
+  assert.equal(result.candidates[0].ref.id, slugOnlyRef.id);
+});
+
+test('DM3: catalog_normalized_name A + provider_mapping A -> provider_mapping survives', () => {
+  const normalizedOnlyRef = ref('industry-banking', 'Banca', 'banca');
+  const result = resolveIndustryCanonical(
+    input({
+      rawLabel: 'BÁNCA!!',
+      mappingSnapshot: snapshot([concept('banca', [association(normalizedOnlyRef, 'SOURCE_NARROWER_THAN_CANONICAL')])]),
+    }),
+    catalog([normalizedOnlyRef]),
+  );
+  assert.equal(result.status, 'RESOLVED');
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].resolutionMethod, 'provider_mapping');
+  assert.equal(result.candidates[0].ref.id, normalizedOnlyRef.id);
+});
+
+test('DM4/DM5: direct-then-mapping and mapping-carrying-additional-candidates both yield provider_mapping for the shared id, order-independent', () => {
+  // "direct A + mapping A" (public call order is fixed: direct is always
+  // resolved before mapping), proven identical to a variant where the
+  // mapping side additionally carries an extra distinct target — the
+  // shared-id outcome for A must not change because of what else is present
+  // or which side "arrived" conceptually first.
+  const resultBare = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([concept('banking', [association(bankingRef, 'SOURCE_EQUIVALENT_TO_CANONICAL')])]),
+    }),
+    catalog([bankingRef]),
+  );
+  const resultWithExtra = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([
+        concept('banking', [
+          association(bankingRef, 'SOURCE_EQUIVALENT_TO_CANONICAL'),
+          association(financeRef, 'SOURCE_BROADER_THAN_CANONICAL'),
+        ]),
+      ]),
+    }),
+    catalog([bankingRef]),
+  );
+  assert.equal(resultBare.status, 'RESOLVED');
+  assert.equal(resultBare.candidates[0].resolutionMethod, 'provider_mapping');
+  assert.equal(resultWithExtra.status, 'AMBIGUOUS');
+  const bankingInExtra = resultWithExtra.candidates.find((c) => c.ref.id === bankingRef.id) as IndustryCanonicalResolutionCandidate;
+  assert.equal(bankingInExtra.resolutionMethod, 'provider_mapping');
+});
+
+test('DM6: different targets, catalog A + mapping B -> both survive', () => {
+  const result = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([concept('banking', [association(financeRef, 'SOURCE_EQUIVALENT_TO_CANONICAL')])]),
+    }),
+    catalog([bankingRef]),
+  );
+  assert.equal(result.status, 'AMBIGUOUS');
+  assert.deepEqual(result.candidates.map((c) => c.ref.id).sort(), [bankingRef.id, financeRef.id].sort());
+});
+
+test('DM7: different targets, mapping A + catalog B -> both survive semantically', () => {
+  const result = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Financial Services',
+      mappingSnapshot: snapshot([
+        concept('financial services', [association(bankingRef, 'SOURCE_EQUIVALENT_TO_CANONICAL')]),
+      ]),
+    }),
+    catalog([financeRef]),
+  );
+  assert.equal(result.status, 'AMBIGUOUS');
+  assert.deepEqual(result.candidates.map((c) => c.ref.id).sort(), [bankingRef.id, financeRef.id].sort());
+  const bankingCandidate = result.candidates.find((c) => c.ref.id === bankingRef.id) as IndustryCanonicalResolutionCandidate;
+  assert.equal(bankingCandidate.resolutionMethod, 'provider_mapping');
+});
+
+test('DM8: same target result cardinality is exactly one candidate -> RESOLVED', () => {
+  const result = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([concept('banking', [association(bankingRef, 'SOURCE_EQUIVALENT_TO_CANONICAL')])]),
+    }),
+    catalog([bankingRef]),
+  );
+  assert.equal(result.status, 'RESOLVED');
+  assert.equal(result.candidates.length, 1);
+});
+
+test('DM9: same-target surviving sourceRelation is preserved exactly', () => {
+  const result = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([concept('banking', [association(bankingRef, 'SOURCE_BROADER_THAN_CANONICAL')])]),
+    }),
+    catalog([bankingRef]),
+  );
+  assert.equal(result.status, 'RESOLVED');
+  assert.deepEqual((result.candidates[0] as { sourceRelation: { semantics: string } }).sourceRelation, {
+    semantics: 'SOURCE_BROADER_THAN_CANONICAL',
+  });
+});
+
+test('DM10: same-id merge is deterministic under repeated invocation', () => {
+  const theInput = input({
+    rawLabel: 'Banking',
+    mappingSnapshot: snapshot([concept('banking', [association(bankingRef, 'SOURCE_EQUIVALENT_TO_CANONICAL')])]),
+  });
+  const theCatalog = catalog([bankingRef]);
+  const result1 = resolveIndustryCanonical(theInput, theCatalog);
+  const result2 = resolveIndustryCanonical(theInput, theCatalog);
+  const result3 = resolveIndustryCanonical(theInput, theCatalog);
+  assert.deepEqual(result1, result2);
+  assert.deepEqual(result2, result3);
+});
+
+// ── Section 27: malformed same-class same-id collisions (defense-in-depth) ──
+// Trusted LOAD1/LOAD2 should never produce duplicate same-concept/target
+// associations, and catalog uniqueness (migration 057) should never produce
+// duplicate exact/slug/normalized targets. These tests exercise the pure
+// dedup helper's fallback behavior if malformed input ever reaches it
+// anyway — reachable via the public resolver only through a malformed
+// trusted snapshot / catalog fixture, never through normal well-formed data.
+
+test('MC1: two provider_mapping associations for the same canonical target (different sourceRelation) resolve deterministically regardless of association order', () => {
+  const forward = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([
+        concept('banking', [
+          association(bankingRef, 'SOURCE_BROADER_THAN_CANONICAL'),
+          association(bankingRef, 'SOURCE_NARROWER_THAN_CANONICAL'),
+        ]),
+      ]),
+    }),
+    catalog([]),
+  );
+  const reversed = resolveIndustryCanonical(
+    input({
+      rawLabel: 'Banking',
+      mappingSnapshot: snapshot([
+        concept('banking', [
+          association(bankingRef, 'SOURCE_NARROWER_THAN_CANONICAL'),
+          association(bankingRef, 'SOURCE_BROADER_THAN_CANONICAL'),
+        ]),
+      ]),
+    }),
+    catalog([]),
+  );
+  assert.equal(forward.status, 'RESOLVED');
+  assert.deepEqual(forward, reversed);
+});
+
+test('MC2: two malformed catalog entries sharing the same id (different methods reachable via exact-name duplication) resolve deterministically regardless of catalog order', () => {
+  const dupA: CanonicalIndustryReference = ref('industry-dup', 'Banking', 'banking-a');
+  const dupB: CanonicalIndustryReference = ref('industry-dup', 'Banking', 'banking-b');
+  const forward = resolveIndustryCanonical(input({ rawLabel: 'Banking' }), catalog([dupA, dupB]));
+  const reversed = resolveIndustryCanonical(input({ rawLabel: 'Banking' }), catalog([dupB, dupA]));
+  assert.equal(forward.status, 'RESOLVED');
+  assert.deepEqual(forward, reversed);
+});
+
 // ── Section 25: type contract static assertions (compile-time only) ─────────
 
 test('provider_mapping candidate requires sourceRelation; catalog candidate does not expose it (type-level)', () => {

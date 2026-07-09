@@ -92,12 +92,49 @@ function resolveProviderMappingCandidates(
 }
 
 // ── Same-target dedup + different-target combination (order-independent) ────
-// Final candidate identity is ref.id. Direct and mapping candidates for the
-// same ref.id collapse into one candidate that preserves provider_mapping
-// metadata (sourceRelation) regardless of which collection is processed
-// first — mapping candidates are written into the map after direct
-// candidates, so a same-id mapping entry always overwrites its direct
-// counterpart. Candidates for different ref.id values are never dropped.
+// Final candidate identity is ref.id. For a same-id collision, the surviving
+// candidate is chosen by explicit inspection of each side's resolutionMethod
+// — never by which side is processed first. Candidates for different ref.id
+// values are never dropped.
+
+// A deterministic, non-ranked metadata key used only to break ties between
+// two candidates of the SAME resolution class (both provider_mapping, or
+// both catalog_*) that collide on ref.id. This never happens for
+// well-formed trusted input (COL1 + catalog uniqueness), but the helper must
+// still resolve malformed/test input deterministically. The key is built
+// from immutable candidate fields only — it does not rank sourceRelation
+// semantics or catalog resolution methods against each other.
+function candidateTieBreakKey(candidate: IndustryCanonicalResolutionCandidate): string {
+  const relationKey = candidate.resolutionMethod === 'provider_mapping' ? candidate.sourceRelation.semantics : '';
+  return [candidate.resolutionMethod, candidate.ref.id, candidate.ref.name, candidate.ref.slug, candidate.ref.catalogVersion, relationKey].join(
+    ' ',
+  );
+}
+
+// Symmetric: selectDeterministicTieBreak(a, b) === selectDeterministicTieBreak(b, a).
+function selectDeterministicTieBreak(
+  a: IndustryCanonicalResolutionCandidate,
+  b: IndustryCanonicalResolutionCandidate,
+): IndustryCanonicalResolutionCandidate {
+  return ordinalCompare(candidateTieBreakKey(a), candidateTieBreakKey(b)) <= 0 ? a : b;
+}
+
+// Explicit same-canonical-target preference. Symmetric in its two
+// parameters — swapping `existing` and `incoming` never changes the result
+// — so the caller's traversal/insertion order can never decide the outcome.
+function selectPreferredCandidateForSameCanonicalTarget(
+  existing: IndustryCanonicalResolutionCandidate,
+  incoming: IndustryCanonicalResolutionCandidate,
+): IndustryCanonicalResolutionCandidate {
+  const existingIsMapping = existing.resolutionMethod === 'provider_mapping';
+  const incomingIsMapping = incoming.resolutionMethod === 'provider_mapping';
+
+  if (existingIsMapping !== incomingIsMapping) {
+    return existingIsMapping ? existing : incoming;
+  }
+
+  return selectDeterministicTieBreak(existing, incoming);
+}
 
 function combineAndDedup(
   directCandidates: readonly IndustryCanonicalResolutionCandidate[],
@@ -105,11 +142,12 @@ function combineAndDedup(
 ): IndustryCanonicalResolutionCandidate[] {
   const byCanonicalId = new Map<string, IndustryCanonicalResolutionCandidate>();
 
-  for (const candidate of directCandidates) {
-    byCanonicalId.set(candidate.ref.id, candidate);
-  }
-  for (const candidate of mappingCandidates) {
-    byCanonicalId.set(candidate.ref.id, candidate);
+  for (const candidate of [...directCandidates, ...mappingCandidates]) {
+    const existing = byCanonicalId.get(candidate.ref.id);
+    byCanonicalId.set(
+      candidate.ref.id,
+      existing ? selectPreferredCandidateForSameCanonicalTarget(existing, candidate) : candidate,
+    );
   }
 
   return [...byCanonicalId.values()].sort((a, b) => ordinalCompare(a.ref.id, b.ref.id));
