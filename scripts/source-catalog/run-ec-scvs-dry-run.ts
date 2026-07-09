@@ -27,6 +27,12 @@ import {
 } from '../../src/server/source-catalog/connectors/ec-scvs/ec-scvs-duplicate-profiler';
 import { normalizeEcuadorRuc } from '../../src/server/source-catalog/connectors/ec-scvs/ec-ruc-normalizer';
 import type { EcScvsAnomalyClass } from '../../src/server/source-catalog/connectors/ec-scvs/ec-scvs-types';
+import {
+  profileExpedienteGlobal,
+  profileExpedienteRucCardinality,
+  profileDuplicateExpedienteGroups,
+  crossReferenceRucExpedienteCollisions,
+} from '../../src/server/source-catalog/connectors/ec-scvs/ec-scvs-expediente-profiler';
 
 interface EcScvsDryRunArgs {
   localFile: string;
@@ -78,7 +84,7 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════════════\n');
 
   // ── 1. Leer CSV ───────────────────────────────────────────────────────────
-  console.log(`[1/4] Leyendo CSV local: ${basename}`);
+  console.log(`[1/5] Leyendo CSV local: ${basename}`);
   const readResult = await readEcScvsCsv(args.localFile);
 
   if (!readResult.ok) {
@@ -95,11 +101,11 @@ async function main() {
   console.log(`      Filas malformadas (column count mismatch): ${readResult.malformedRowCount}`);
 
   // ── 2. Adapter (sin dedup) ────────────────────────────────────────────────
-  console.log('\n[2/4] Normalizando RUC (sin deduplicar)...');
+  console.log('\n[2/5] Normalizando RUC (sin deduplicar)...');
   const { candidates, invalidCandidates, stats } = adaptEcScvsRows(readResult.rows);
 
   // ── 3. Anomaly profiling (raw non-numeric RUC) ───────────────────────────
-  console.log('\n[3/4] Perfilando anomalías de identificador (raw non-numeric)...');
+  console.log('\n[3/5] Perfilando anomalías de identificador (raw non-numeric)...');
   const anomalyCounts: Record<EcScvsAnomalyClass, number> = {
     A_PUNCTUATION_ONLY_RECOVERABLE: 0,
     B_ALPHABETIC_CONTAMINATION: 0,
@@ -118,7 +124,7 @@ async function main() {
   }
 
   // ── 4. Duplicate profiling ────────────────────────────────────────────────
-  console.log('\n[4/4] Perfilando grupos de RUC duplicado...');
+  console.log('\n[4/5] Perfilando grupos de RUC duplicado...');
   const duplicateProfile = profileDuplicateRucGroups(candidates);
 
   // ── Summary ───────────────────────────────────────────────────────────────
@@ -167,8 +173,89 @@ async function main() {
     );
   }
 
+  // ── 5. Catálogo.EC.3B — Expediente identity profiling (experimental) ─────
+  console.log('\n[5/5] Perfilando "expediente" como candidato a source-record identity...');
+
+  const expedienteGlobal = profileExpedienteGlobal(readResult.rows);
+  const expedienteCardinality = profileExpedienteRucCardinality(readResult.rows);
+  const expedienteDuplicates = profileDuplicateExpedienteGroups(readResult.rows);
+  const rucExpedienteCrossRef = crossReferenceRucExpedienteCollisions(candidates);
+
+  console.log('\n─── EC.3B — Raw/trimmed expediente profile (sin exponer valores) ──\n');
+  const expedienteRows: Array<[string, string | number]> = [
+    ['expediente_total_rows', expedienteGlobal.totalRows],
+    ['expediente_non_null', expedienteGlobal.nonNullCount],
+    ['expediente_null', expedienteGlobal.nullCount],
+    ['expediente_empty_after_trim', expedienteGlobal.emptyAfterTrimCount],
+    ['expediente_distinct_raw', expedienteGlobal.distinctRawCount],
+    ['expediente_distinct_trimmed', expedienteGlobal.distinctTrimmedCount],
+    ['expediente_duplicate_raw_groups', expedienteGlobal.duplicateRawGroups],
+    ['expediente_duplicate_trimmed_groups', expedienteGlobal.duplicateTrimmedGroups],
+    ['expediente_duplicate_rows_excess', expedienteGlobal.duplicateRowsExcess],
+    ['expediente_min_length', expedienteGlobal.minLength ?? 'n/a'],
+    ['expediente_max_length', expedienteGlobal.maxLength ?? 'n/a'],
+    ['expediente_numeric_only', expedienteGlobal.numericOnlyCount],
+    ['expediente_alphanumeric', expedienteGlobal.alphanumericCount],
+    ['expediente_punctuation', expedienteGlobal.punctuationCount],
+    ['expediente_leading_zeros', expedienteGlobal.leadingZeroCount],
+  ];
+  for (const [k, v] of expedienteRows) {
+    console.log(`  ${String(k).padEnd(38)} ${v}`);
+  }
+
+  console.log('\n─── EC.3B — Length distribution ────────────────────────────────────');
+  for (const entry of expedienteGlobal.lengthDistribution) {
+    console.log(`  length=${String(entry.length).padEnd(6)} count=${entry.count}`);
+  }
+
+  console.log('\n─── EC.3B — Expediente ↔ RUC cardinality ───────────────────────────\n');
+  const cardinalityRows: Array<[string, string | number]> = [
+    ['usable_expediente_rows', expedienteCardinality.usableExpedienteRows],
+    ['rows_without_usable_expediente', expedienteCardinality.rowsWithoutUsableExpediente],
+    [
+      'rows_without_expediente_but_valid_ruc',
+      expedienteCardinality.rowsWithoutUsableExpedienteButValidRuc,
+    ],
+    ['expedientes_with_zero_valid_ruc', expedienteCardinality.expedientesWithZeroValidRuc],
+    ['expedientes_with_exactly_1_ruc', expedienteCardinality.expedientesWithExactlyOneRuc],
+    ['expedientes_with_more_than_1_ruc', expedienteCardinality.expedientesWithMoreThanOneRuc],
+    ['max_distinct_ruc_per_expediente', expedienteCardinality.maxDistinctRucPerExpediente],
+    ['ruc_with_exactly_1_expediente', expedienteCardinality.rucWithExactlyOneExpediente],
+    ['ruc_with_more_than_1_expediente', expedienteCardinality.rucWithMoreThanOneExpediente],
+    ['max_expedientes_per_ruc', expedienteCardinality.maxExpedientesPerRuc],
+    ['relationship_class', expedienteCardinality.relationshipClass],
+  ];
+  for (const [k, v] of cardinalityRows) {
+    console.log(`  ${String(k).padEnd(38)} ${v}`);
+  }
+
+  console.log('\n─── EC.3B — Duplicate expediente groups (X1–X6) ────────────────────');
+  console.log('  Class'.padEnd(40) + 'Groups'.padStart(8) + 'Rows'.padStart(8) + 'Excess'.padStart(8));
+  for (const cls of expedienteDuplicates.classSummary) {
+    console.log(
+      `  ${cls.duplicateClass}`.padEnd(40) +
+        String(cls.groups).padStart(8) +
+        String(cls.rows).padStart(8) +
+        String(cls.excessRows).padStart(8),
+    );
+  }
+  console.log(
+    `\n  max_group_size=${expedienteDuplicates.maxGroupSize} groups_2=${expedienteDuplicates.groupsWithTwoRows} groups_3=${expedienteDuplicates.groupsWithThreeRows} groups_gt3=${expedienteDuplicates.groupsWithMoreThanThreeRows}`,
+  );
+
+  console.log('\n─── EC.3B — Cruce EC.3 duplicate-RUC groups (C/F) ↔ expediente ─────\n');
+  console.log(
+    `  class_C groups=${rucExpedienteCrossRef.classC.groups} all_distinct=${rucExpedienteCrossRef.classC.groupsWithAllDistinctExpediente} shared_within_group=${rucExpedienteCrossRef.classC.groupsWithSharedExpedienteWithinGroup} reused_elsewhere=${rucExpedienteCrossRef.classC.expedienteReusedElsewhereCount}`,
+  );
+  console.log(
+    `  class_F groups=${rucExpedienteCrossRef.classF.groups} all_distinct=${rucExpedienteCrossRef.classF.groupsWithAllDistinctExpediente} shared_within_group=${rucExpedienteCrossRef.classF.groupsWithSharedExpedienteWithinGroup} reused_elsewhere=${rucExpedienteCrossRef.classF.expedienteReusedElsewhereCount}`,
+  );
+  console.log(
+    `\n  SCVS_EXPEDIENTE_RESOLVES_RUC_COLLISIONS=${rucExpedienteCrossRef.resolvesRucCollisions} (unresolved_groups=${rucExpedienteCrossRef.totalUnresolvedGroups}, unresolved_excess_rows=${rucExpedienteCrossRef.totalUnresolvedExcessRows})`,
+  );
+
   console.log('\n═══════════════════════════════════════════════════════════════════');
-  console.log('  ✓ DRY-RUN completado.');
+  console.log('  ✓ DRY-RUN completado (EC.3 + EC.3B profiling).');
   console.log('  DB writes:      0');
   console.log('  Snapshot writes: 0');
   console.log('  Coverage writes: 0');

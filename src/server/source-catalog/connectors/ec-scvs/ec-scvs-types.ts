@@ -159,3 +159,125 @@ export interface EcScvsDryRunSummary {
   snapshot_writes: 0;
   coverage_writes: 0;
 }
+
+// ─── Catálogo.EC.3B — Expediente identity profiling ───────────────────────────
+//
+// Profiling EXPERIMENTAL de "expediente" como candidato a source-record
+// identity. NO define un normalizador productivo. NO reemplaza el profiling
+// D3 (duplicate RUC groups) de EC.3 — lo complementa cruzando expediente.
+
+/** Resultado puro de normalización EXPERIMENTAL de expediente para profiling. */
+export interface EcScvsExpedienteProfilingNormalization {
+  trimmed: string | null;
+  isUsable: boolean;
+  length: number | null;
+  isNumericOnly: boolean;
+  hasLetters: boolean;
+  hasPunctuation: boolean;
+  hasLeadingZero: boolean;
+}
+
+/** Profiling global (raw + trimmed) de la columna expediente sobre TODAS las filas. */
+export interface EcScvsExpedienteGlobalProfile {
+  totalRows: number;
+  nonNullCount: number;
+  nullCount: number;
+  emptyAfterTrimCount: number;
+
+  distinctRawCount: number;
+  distinctTrimmedCount: number;
+  duplicateRawGroups: number;
+  duplicateTrimmedGroups: number;
+  duplicateRowsExcess: number;
+
+  minLength: number | null;
+  maxLength: number | null;
+  lengthDistribution: Array<{ length: number; count: number }>;
+
+  numericOnlyCount: number;
+  alphanumericCount: number;
+  punctuationCount: number;
+  leadingZeroCount: number;
+}
+
+/** Clasificación de la relación cardinal global expediente ↔ RUC. */
+export type EcScvsExpedienteRucRelationshipClass =
+  | 'A_ONE_TO_ONE'
+  | 'B_ONE_RUC_TO_MANY_EXPEDIENTES'
+  | 'C_ONE_EXPEDIENTE_TO_MANY_RUCS'
+  | 'D_MANY_TO_MANY'
+  | 'E_MIXED_WITH_ANOMALIES';
+
+export interface EcScvsExpedienteRucCardinalityProfile {
+  usableExpedienteRows: number;
+  rowsWithoutUsableExpediente: number;
+  rowsWithoutUsableExpedienteButValidRuc: number;
+
+  expedientesWithZeroValidRuc: number;
+  expedientesWithExactlyOneRuc: number;
+  expedientesWithMoreThanOneRuc: number;
+  maxDistinctRucPerExpediente: number;
+
+  rucWithExactlyOneExpediente: number;
+  rucWithMoreThanOneExpediente: number;
+  maxExpedientesPerRuc: number;
+
+  relationshipClass: EcScvsExpedienteRucRelationshipClass;
+}
+
+/**
+ * Clases de grupo de expediente duplicado (>1 source row con el mismo
+ * expediente trimmed). Espejo estructural de EcScvsDuplicateClass (D3),
+ * pero con el eje invertido: aquí se agrupa por expediente y se observa
+ * si ruc/nombre/tipo/ubicación varían dentro del grupo.
+ */
+export type EcScvsExpedienteDuplicateClass =
+  | 'X1_EXACT_DUPLICATE_ROWS'
+  | 'X2_SAME_IDENTITY_LOCATION_VARIANT'
+  | 'X3_SAME_EXPEDIENTE_RUC_VARIANT'
+  | 'X4_SAME_EXPEDIENTE_NAME_VARIANT'
+  | 'X5_SAME_EXPEDIENTE_TYPE_VARIANT'
+  | 'X6_MULTI_FIELD_CONFLICT';
+
+export interface EcScvsExpedienteDuplicateGroup {
+  /** Hash corto y seguro del expediente trimmed — nunca el expediente completo. */
+  groupHash: string;
+  rowCount: number;
+  duplicateClass: EcScvsExpedienteDuplicateClass;
+}
+
+export interface EcScvsExpedienteDuplicateClassSummary {
+  duplicateClass: EcScvsExpedienteDuplicateClass;
+  groups: number;
+  rows: number;
+  excessRows: number;
+}
+
+export interface EcScvsExpedienteDuplicateProfilingResult {
+  groups: EcScvsExpedienteDuplicateGroup[];
+  classSummary: EcScvsExpedienteDuplicateClassSummary[];
+  totalDuplicateGroups: number;
+  totalDuplicateRows: number;
+  totalExcessRows: number;
+  maxGroupSize: number;
+  groupsWithTwoRows: number;
+  groupsWithThreeRows: number;
+  groupsWithMoreThanThreeRows: number;
+}
+
+/** Cruce entre duplicate-RUC groups (EC.3 / D3) y expediente (EC.3B). */
+export interface EcScvsRucExpedienteCrossReferenceBucket {
+  groups: number;
+  groupsWithAllDistinctExpediente: number;
+  groupsWithSharedExpedienteWithinGroup: number;
+  expedienteReusedElsewhereCount: number;
+  unresolvedExcessRows: number;
+}
+
+export interface EcScvsRucExpedienteCrossReferenceResult {
+  classC: EcScvsRucExpedienteCrossReferenceBucket;
+  classF: EcScvsRucExpedienteCrossReferenceBucket;
+  resolvesRucCollisions: boolean;
+  totalUnresolvedGroups: number;
+  totalUnresolvedExcessRows: number;
+}
