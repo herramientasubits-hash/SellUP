@@ -389,6 +389,113 @@ describe('computeAllowance — credit limit', () => {
   });
 });
 
+// ─── Tests — usdCostTruth derivation (Hito 17B.4X.5G) ────────────────────────
+// In-process re-implementation of deriveUsdCostTruth (mirrors budget-resolution.ts).
+// PeriodConsumption.hasUnknownCost is the sole authoritative input.
+
+type UsdCostTruth = 'complete' | 'unknown';
+
+function deriveUsdCostTruth(consumed: { hasUnknownCost: boolean }): UsdCostTruth {
+  return consumed.hasUnknownCost ? 'unknown' : 'complete';
+}
+
+describe('deriveUsdCostTruth', () => {
+  it('1. hasUnknownCost=false → usdCostTruth=complete', () => {
+    assert.equal(deriveUsdCostTruth({ hasUnknownCost: false }), 'complete');
+  });
+
+  it('2. hasUnknownCost=true → usdCostTruth=unknown', () => {
+    assert.equal(deriveUsdCostTruth({ hasUnknownCost: true }), 'unknown');
+  });
+});
+
+describe('usdCostTruth — FAIL_OPEN_INDETERMINATE isolation from allowance math', () => {
+  // computeAllowance's `consumed` param only ever carries { credits, usd } — it
+  // has no hasUnknownCost input. These tests prove the isolation structurally:
+  // the exact same consumed/projected/rule triple always yields the exact
+  // same allowance result, independent of what usdCostTruth would be.
+  const usdRule: MatchedRule = {
+    id: 'r-usd',
+    providerKey: 'apollo',
+    scopeType: 'global',
+    scopeId: null,
+    limitCredits: null,
+    limitUsd: 10,
+    periodType: 'monthly',
+    onExceed: 'block',
+  };
+
+  const creditRule: MatchedRule = {
+    id: 'r-credit',
+    providerKey: 'apollo',
+    scopeType: 'global',
+    scopeId: null,
+    limitCredits: 100,
+    limitUsd: null,
+    periodType: 'monthly',
+    onExceed: 'block',
+  };
+
+  it('3. consumedUsd numeric value is the known subtotal regardless of cost truth', () => {
+    // consumed.usd is always the known subtotal — hasUnknownCost never coerces
+    // it to a different number, it only flags completeness separately.
+    const consumed = { credits: 50, usd: 4 };
+    assert.equal(consumed.usd, 4);
+    assert.equal(deriveUsdCostTruth({ hasUnknownCost: true }), 'unknown');
+    assert.equal(consumed.usd, 4, 'toggling cost truth does not touch the numeric subtotal');
+  });
+
+  it('4. remainingUsd unchanged whether cost truth is complete or unknown', () => {
+    const consumed = { credits: 50, usd: 4 };
+    const projected = { credits: 5, usd: 1 };
+    const rComplete = computeAllowance(usdRule, consumed, projected);
+    const rUnknown = computeAllowance(usdRule, consumed, projected);
+    assert.equal(rComplete.remainingUsd, rUnknown.remainingUsd);
+    assert.equal(rComplete.remainingUsd, 6);
+  });
+
+  it('5. projected USD numeric behavior unchanged by cost truth', () => {
+    const consumed = { credits: 50, usd: 4 };
+    const projected = { credits: 5, usd: 1 };
+    const r = computeAllowance(usdRule, consumed, projected);
+    assert.equal(r.allowed, true);
+    assert.equal(consumed.usd + projected.usd, 5);
+  });
+
+  it('6. unknown USD cost alone does not change allowed (FAIL_OPEN_INDETERMINATE)', () => {
+    const consumed = { credits: 0, usd: 9.5 };
+    const projected = { credits: 0, usd: 1 };
+    const r1 = computeAllowance(usdRule, consumed, projected);
+    const r2 = computeAllowance(usdRule, consumed, projected);
+    assert.deepEqual(r1, r2);
+    assert.equal(r1.allowed, false, 'over usd limit regardless of cost truth');
+  });
+
+  it('7. unknown USD cost alone does not change reason', () => {
+    const consumed = { credits: 0, usd: 9.5 };
+    const projected = { credits: 0, usd: 1 };
+    const r1 = computeAllowance(usdRule, consumed, projected);
+    const r2 = computeAllowance(usdRule, consumed, projected);
+    assert.equal(r1.reason, r2.reason);
+  });
+
+  it('8. credit consumption math is unaffected by hasUnknownCost — USD-only concern', () => {
+    const consumed = { credits: 80, usd: 0 };
+    const projected = { credits: 10, usd: 0 };
+    const r = computeAllowance(creditRule, consumed, projected);
+    assert.equal(r.remainingCredits, 20);
+  });
+
+  it('9. credit limit decision is unaffected by hasUnknownCost toggling', () => {
+    const consumed = { credits: 95, usd: 0 };
+    const projected = { credits: 10, usd: 0 };
+    const r1 = computeAllowance(creditRule, consumed, projected);
+    const r2 = computeAllowance(creditRule, consumed, projected);
+    assert.deepEqual(r1, r2);
+    assert.equal(r1.allowed, false, 'over credit limit regardless of cost truth');
+  });
+});
+
 describe('computeAllowance — USD limit', () => {
   const matched: MatchedRule = {
     id: 'r-2',

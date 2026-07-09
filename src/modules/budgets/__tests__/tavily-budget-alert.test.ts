@@ -27,6 +27,7 @@ function makeCheckBudgetResult(overrides: Record<string, unknown> = {}) {
     projectedUsd: 0,
     remainingCredits: 380,
     remainingUsd: null,
+    usdCostTruth: 'complete' as const,
     ...overrides,
   };
 }
@@ -73,6 +74,7 @@ async function runHelper(
       consumed_credits: 0,
       projected_credits: projectedCredits,
       remaining_credits: null,
+      usd_cost_truth: 'unknown' as const,
       missing_user: true as const,
     };
   }
@@ -95,6 +97,7 @@ async function runHelper(
       consumed_credits: r.consumedCredits,
       projected_credits: projectedCredits,
       remaining_credits: r.remainingCredits,
+      usd_cost_truth: r.usdCostTruth,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -111,6 +114,7 @@ async function runHelper(
       consumed_credits: 0,
       projected_credits: projectedCredits,
       remaining_credits: null,
+      usd_cost_truth: 'unknown' as const,
       technical_error: msg,
     };
   }
@@ -213,5 +217,51 @@ describe('evaluateTavilyBudgetAlertOnly — lógica de contrato', () => {
   it('consumed_credits se propaga desde el resultado', async () => {
     const meta = await runHelper(makeCheckBudgetResult({ consumedCredits: 120 }));
     assert.equal(meta.consumed_credits, 120);
+  });
+
+  // ── usd_cost_truth propagation (Hito 17B.4X.5G) ─────────────────────────────
+  // Mismo vocabulario y aislamiento que Apollo: usd_cost_truth nunca altera
+  // would_block_in_enforcement ni los valores numéricos ya cubiertos arriba.
+
+  it('usd_cost_truth=complete se propaga sin alterar would_block ni numéricos', async () => {
+    const meta = await runHelper(
+      makeCheckBudgetResult({ usdCostTruth: 'complete', matchedRule: makeRule('alert') }),
+    );
+    assert.equal(meta.usd_cost_truth, 'complete');
+    assert.equal(meta.would_block_in_enforcement, false);
+    assert.equal(meta.consumed_credits, 120);
+    assert.equal(meta.remaining_credits, 380);
+  });
+
+  it('usd_cost_truth=unknown se propaga sin alterar would_block ni numéricos', async () => {
+    const meta = await runHelper(
+      makeCheckBudgetResult({ usdCostTruth: 'unknown', matchedRule: makeRule('alert') }),
+    );
+    assert.equal(meta.usd_cost_truth, 'unknown');
+    assert.equal(meta.would_block_in_enforcement, false);
+    assert.equal(meta.consumed_credits, 120);
+    assert.equal(meta.remaining_credits, 380);
+  });
+
+  it('usd_cost_truth=unknown con on_exceed=block — would_block sigue derivado solo de la regla', async () => {
+    const meta = await runHelper(
+      makeCheckBudgetResult({
+        usdCostTruth: 'unknown',
+        allowed: false,
+        matchedRule: makeRule('block', { id: 'rule-tavily-usd-unknown' }),
+      }),
+    );
+    assert.equal(meta.usd_cost_truth, 'unknown');
+    assert.equal(meta.would_block_in_enforcement, true);
+  });
+
+  it('error técnico — usd_cost_truth=unknown (no hubo checkBudget exitoso)', async () => {
+    const meta = await runHelper(new Error('DB connection failed'));
+    assert.equal(meta.usd_cost_truth, 'unknown');
+  });
+
+  it('userId null — usd_cost_truth=unknown (no hubo checkBudget)', async () => {
+    const meta = await runHelper(makeCheckBudgetResult(), null);
+    assert.equal(meta.usd_cost_truth, 'unknown');
   });
 });

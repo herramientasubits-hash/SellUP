@@ -6,7 +6,7 @@
 // La metadata se guarda en provider_usage_logs.metadata para auditoría.
 
 import { checkBudget } from './budget-resolution';
-import type { BudgetOnExceed, BudgetScopeApplied } from './types';
+import type { BudgetOnExceed, BudgetScopeApplied, UsdCostTruth } from './types';
 
 export const APOLLO_BUDGET_PROVIDER_KEY = 'apollo';
 
@@ -27,6 +27,12 @@ export interface ApolloBudgetCheckMeta {
   consumed_credits: number;
   projected_credits: number;
   remaining_credits: number | null;
+  /**
+   * 'unknown' cuando el subtotal USD del budget check no cubre todas las filas
+   * de costo. Ausente en callers preexistentes que construyen este shape sin
+   * pasar por evaluateApolloBudgetAlertOnly.
+   */
+  usd_cost_truth?: UsdCostTruth;
   /** Presente cuando checkBudget falla técnicamente (no interrumpe el flujo). */
   technical_error?: string;
 }
@@ -71,6 +77,7 @@ export async function evaluateApolloBudgetAlertOnly(
       consumed_credits: result.consumedCredits,
       projected_credits: projectedCredits,
       remaining_credits: result.remainingCredits,
+      usd_cost_truth: result.usdCostTruth,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -87,6 +94,7 @@ export async function evaluateApolloBudgetAlertOnly(
       consumed_credits: 0,
       projected_credits: projectedCredits,
       remaining_credits: null,
+      usd_cost_truth: 'unknown',
       technical_error: msg,
     };
   }

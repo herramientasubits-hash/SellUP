@@ -49,7 +49,24 @@ export interface BudgetCheckResult {
   /** Remaining capacity. null when the matched rule has no limit for that unit. */
   remainingCredits: number | null;
   remainingUsd: number | null;
+  /**
+   * Whether the USD fields above reflect complete cost data for the period.
+   * 'unknown' means the underlying PeriodConsumption had at least one row
+   * with no estimated USD cost — consumedUsd/remainingUsd/projectedUsd still
+   * hold the known subtotal, but it is not the full picture. Credit budget
+   * math (consumedCredits, remainingCredits, allowed) is unaffected either way.
+   */
+  usdCostTruth: UsdCostTruth;
 }
+
+// ─── USD cost truth ─────────────────────────────────────────────────────────
+
+/**
+ * 'complete' = no unknown-cost rows participated in the resolved consumption.
+ * 'unknown'  = at least one relevant usage row has unknown USD cost.
+ * Derived from PeriodConsumption.hasUnknownCost (FAIL_OPEN_INDETERMINATE model).
+ */
+export type UsdCostTruth = 'complete' | 'unknown';
 
 // ─── Admin summary ─────────────────────────────────────────────────────────────
 

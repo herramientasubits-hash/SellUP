@@ -13,6 +13,7 @@ import type {
   MatchedRule,
   AdminBudgetSummary,
   AdminProviderBudgetRow,
+  UsdCostTruth,
 } from './types';
 import { getPeriodBounds } from './periods';
 import { collectGroupSubtreeIds } from '@/modules/access/group-tree';
@@ -136,6 +137,16 @@ function computeAllowance(
   return { allowed, reason, remainingCredits, remainingUsd };
 }
 
+/**
+ * Derives whether the USD subtotal in a BudgetCheckResult is complete.
+ * PeriodConsumption.hasUnknownCost is the sole authoritative input —
+ * FAIL_OPEN_INDETERMINATE: unknown cost truth never changes allow/block
+ * or the numeric credit/USD subtotals, it only makes the gap explicit.
+ */
+function deriveUsdCostTruth(consumed: { hasUnknownCost: boolean }): UsdCostTruth {
+  return consumed.hasUnknownCost ? 'unknown' : 'complete';
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -208,6 +219,7 @@ export async function checkBudget(
     projectedUsd: consumed.usd + projected.usd,
     remainingCredits,
     remainingUsd,
+    usdCostTruth: deriveUsdCostTruth(consumed),
   };
 }
 

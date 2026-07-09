@@ -6,7 +6,7 @@
 // La metadata se guarda en provider_usage_logs.metadata para auditoría.
 
 import { checkBudget } from './budget-resolution';
-import type { BudgetOnExceed, BudgetScopeApplied } from './types';
+import type { BudgetOnExceed, BudgetScopeApplied, UsdCostTruth } from './types';
 
 export const TAVILY_BUDGET_PROVIDER_KEY = 'tavily';
 
@@ -24,6 +24,12 @@ export interface TavilyBudgetCheckMeta {
   consumed_credits: number;
   projected_credits: number;
   remaining_credits: number | null;
+  /**
+   * 'unknown' cuando el subtotal USD del budget check no cubre todas las filas
+   * de costo. Ausente en callers preexistentes que construyen este shape sin
+   * pasar por evaluateTavilyBudgetAlertOnly.
+   */
+  usd_cost_truth?: UsdCostTruth;
   /** Presente cuando userId faltante. */
   missing_user?: true;
   /** Presente cuando checkBudget falla técnicamente (no interrumpe el flujo). */
@@ -58,6 +64,7 @@ export async function evaluateTavilyBudgetAlertOnly(
       consumed_credits: 0,
       projected_credits: projectedCredits,
       remaining_credits: null,
+      usd_cost_truth: 'unknown',
       missing_user: true,
     };
   }
@@ -88,6 +95,7 @@ export async function evaluateTavilyBudgetAlertOnly(
       consumed_credits: result.consumedCredits,
       projected_credits: projectedCredits,
       remaining_credits: result.remainingCredits,
+      usd_cost_truth: result.usdCostTruth,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -105,6 +113,7 @@ export async function evaluateTavilyBudgetAlertOnly(
       consumed_credits: 0,
       projected_credits: projectedCredits,
       remaining_credits: null,
+      usd_cost_truth: 'unknown',
       technical_error: msg,
     };
   }
