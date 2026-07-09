@@ -6,10 +6,18 @@ import { useRouter } from 'next/navigation';
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
   ChevronDown, Cpu, Zap, Database, Bot, Plus, Pencil, Power, Trash2,
-  Loader2, Lock,
+  Loader2, Lock, Check, ChevronsUpDown,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Command,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -168,6 +176,24 @@ function EmptyBlock({ message, sub }: { message: string; sub?: string }) {
     <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-5 text-center">
       <p className="text-xs text-muted-foreground">{message}</p>
       {sub && <p className="text-[10px] text-muted-foreground/50 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+// Single consolidated empty state for the whole consumption snapshot (Q3F-9G
+// Problema B) — replaces the KPI cards, operation breakdown, user breakdown
+// and recent-operations blocks with one message instead of four separate
+// empties, so a zero-consumption filter combination reads as one clear signal.
+function GlobalConsumptionEmptyBlock() {
+  return (
+    <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 text-center space-y-1">
+      <p className="text-xs font-medium text-foreground">Sin consumo registrado</p>
+      <p className="text-[10px] text-muted-foreground/60">
+        No encontramos consumo de este proveedor para los filtros seleccionados.
+      </p>
+      <p className="text-[10px] text-muted-foreground/50">
+        Ajusta los filtros para consultar otro período, usuario o contexto.
+      </p>
     </div>
   );
 }
@@ -1141,9 +1167,18 @@ function labelConsumptionAgent(key: string, name: string | null) {
   return CONSUMPTION_AGENT_DISPLAY[key] ?? name ?? key;
 }
 
+// Display matrix for the Usuario filter (Q3F-9G Paso 10): fullName is
+// preferred, email is the fallback, and the raw internal_users.id never
+// reaches the UI — an id-only user shows a readable placeholder instead.
+function consumptionUserIdentity(u: FilterUser): { primary: string; secondary: string | null } {
+  if (u.full_name && u.email) return { primary: u.full_name, secondary: u.email };
+  if (u.full_name) return { primary: u.full_name, secondary: null };
+  if (u.email) return { primary: u.email, secondary: null };
+  return { primary: 'Usuario no disponible', secondary: null };
+}
+
 function labelConsumptionUser(u: FilterUser) {
-  if (u.full_name && u.email) return `${u.full_name} (${u.email})`;
-  return u.full_name ?? u.email ?? u.id.slice(0, 8);
+  return consumptionUserIdentity(u).primary;
 }
 
 const CONSUMPTION_GROUP_INDENT_PX = 16;
@@ -1165,6 +1200,131 @@ function consumptionDescendantGroupIds(rootId: string, groups: FilterGroup[]): S
     for (const childId of childrenByParent.get(id) ?? []) stack.push(childId);
   }
   return result;
+}
+
+// Presentation-only signal (Q3F-9G Paso 14): true when the snapshot carries
+// any real activity, regardless of which block it shows up in. Deliberately
+// ignores per-row hasUnknownCost — an unknown-cost flag with zero underlying
+// calls/credits/rows must not read as "there is data".
+function hasProviderConsumptionData(snapshot: ProviderConsumptionSnapshot): boolean {
+  return (
+    snapshot.totalCalls > 0 ||
+    (snapshot.totalCredits ?? 0) > 0 ||
+    snapshot.totalCostUsd > 0 ||
+    snapshot.successCalls > 0 ||
+    snapshot.errorCalls > 0 ||
+    snapshot.operationBreakdown.length > 0 ||
+    snapshot.userConsumption.length > 0 ||
+    snapshot.recentLogs.length > 0
+  );
+}
+
+// Searchable Usuario filter (Q3F-9G Paso 9). Local Command + Popover pattern
+// (not the shared forms/searchable-select.tsx) because that component filters
+// cmdk's own CommandItem `value`, which here must stay the user id for
+// selection — searching by fullName/email needs a manually filtered list, so
+// filtering is done here and `shouldFilter` is turned off on <Command>.
+function ConsumptionUserFilter({
+  users,
+  selectedUserId,
+  onSelect,
+}: {
+  users: FilterUser[];
+  selectedUserId: string | null;
+  onSelect: (userId: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const selectedUser = selectedUserId ? users.find((u) => u.id === selectedUserId) : undefined;
+  const triggerLabel = selectedUser ? labelConsumptionUser(selectedUser) : 'Todos los usuarios';
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredUsers = normalizedQuery
+    ? users.filter((u) => {
+        const identity = consumptionUserIdentity(u);
+        const haystack = `${identity.primary} ${identity.secondary ?? ''}`.toLowerCase();
+        return haystack.includes(normalizedQuery);
+      })
+    : users;
+  const noMatches = normalizedQuery.length > 0 && filteredUsers.length === 0;
+
+  function choose(userId: string | null) {
+    onSelect(userId);
+    setOpen(false);
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery('');
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="h-7 w-[160px] justify-between font-normal text-[11px] px-2"
+          >
+            <span className="truncate">{triggerLabel}</span>
+            <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+          </Button>
+        }
+      />
+      <PopoverContent
+        align="start"
+        className="w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-md"
+      >
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Buscar usuario..." value={query} onValueChange={setQuery} />
+          <CommandList className="max-h-[280px] overflow-y-auto">
+            <CommandGroup>
+              <CommandItem value="__all__" onSelect={() => choose(null)} className="text-xs">
+                <span className="flex-1">Todos los usuarios</span>
+                {!selectedUserId && <Check className="ml-2 h-3.5 w-3.5 shrink-0" />}
+              </CommandItem>
+            </CommandGroup>
+            {noMatches ? (
+              <div className="py-4 text-center">
+                <p className="text-xs text-foreground">No encontramos usuarios</p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  Prueba con otro nombre o correo.
+                </p>
+              </div>
+            ) : (
+              <CommandGroup>
+                {filteredUsers.map((u) => {
+                  const identity = consumptionUserIdentity(u);
+                  return (
+                    <CommandItem
+                      key={u.id}
+                      value={u.id}
+                      onSelect={() => choose(u.id)}
+                      className="flex flex-col items-start text-xs"
+                    >
+                      <div className="flex items-center w-full">
+                        <span className="flex-1 truncate">{identity.primary}</span>
+                        {selectedUserId === u.id && <Check className="ml-2 h-3.5 w-3.5 shrink-0" />}
+                      </div>
+                      {identity.secondary && (
+                        <span className="text-[10px] text-muted-foreground/60 leading-tight">
+                          {identity.secondary}
+                        </span>
+                      )}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function TabConsumo({
@@ -1438,8 +1598,13 @@ function TabConsumo({
   }
 
   const groupNameMap = new Map((options?.groups ?? []).map((g) => [g.id, g.name]));
-  const userByIdMap = new Map((options?.users ?? []).map((u) => [u.id, u]));
-  const selectedUser = filters.user ? userByIdMap.get(filters.user) : undefined;
+
+  // Q3F-9G Paso 14/15: one consolidated empty state instead of four separate
+  // ones when the filtered snapshot carries no activity at all. Gated behind
+  // "snapshot loaded successfully" so it never fires during loading or on a
+  // query failure (Paso 18 — failure keeps the error containment above).
+  const hasConsumptionData = snapshot ? hasProviderConsumptionData(snapshot) : false;
+  const showGlobalEmpty = !isPending && !loadError && !!snapshot && !hasConsumptionData;
 
   return (
     <div className="space-y-4">
@@ -1526,21 +1691,11 @@ function TabConsumo({
 
         {/* Usuario */}
         {(options?.users ?? []).length > 0 && (
-          <Select value={filters.user ?? 'all'} onValueChange={(v) => setFilter('user', v)}>
-            <SelectTrigger className="h-7 w-[160px] text-[11px]">
-              <SelectValue placeholder="Usuario">
-                {selectedUser ? labelConsumptionUser(selectedUser) : 'Todos los usuarios'}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos los usuarios</SelectItem>
-              {visibleUsers.map((u) => (
-                <SelectItem key={u.id} value={u.id} className="text-xs">
-                  {labelConsumptionUser(u)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ConsumptionUserFilter
+            users={visibleUsers}
+            selectedUserId={filters.user ?? null}
+            onSelect={(userId) => setFilter('user', userId)}
+          />
         )}
 
         {/* Agente */}
@@ -1587,103 +1742,111 @@ function TabConsumo({
         )}
       </div>
 
-      {/* KPI — consumo filtrado */}
-      <SectionCard>
-        {isPending ? (
-          <div className="flex items-center gap-2 py-1">
-            <Loader2 className="h-3 w-3 text-muted-foreground/50 animate-spin" />
-            <span className="text-xs text-muted-foreground/60">Calculando...</span>
-          </div>
-        ) : (
-          <div className="py-1 space-y-3">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{kpiLabel}</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-              <div>
-                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Créditos consumidos</p>
-                <p className="text-xs font-medium text-foreground">
-                  {filteredCredits != null ? filteredCredits.toLocaleString() + ' cr' : '—'}
-                </p>
+      {/* Q3F-9G Problema B: one consolidated empty state instead of KPI +
+          Distribución + Consumo por usuario each showing their own empty. */}
+      {showGlobalEmpty ? (
+        <GlobalConsumptionEmptyBlock />
+      ) : (
+        <>
+          {/* KPI — consumo filtrado */}
+          <SectionCard>
+            {isPending ? (
+              <div className="flex items-center gap-2 py-1">
+                <Loader2 className="h-3 w-3 text-muted-foreground/50 animate-spin" />
+                <span className="text-xs text-muted-foreground/60">Calculando...</span>
               </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Costo estimado</p>
-                <p className="text-xs font-medium text-foreground">
-                  {filteredCost > 0 ? `$${filteredCost.toFixed(4)}` : '—'}
-                </p>
+            ) : (
+              <div className="py-1 space-y-3">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{kpiLabel}</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Créditos consumidos</p>
+                    <p className="text-xs font-medium text-foreground">
+                      {filteredCredits != null ? filteredCredits.toLocaleString() + ' cr' : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Costo estimado</p>
+                    <p className="text-xs font-medium text-foreground">
+                      {filteredCost > 0 ? `$${filteredCost.toFixed(4)}` : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Operaciones</p>
+                    <p className="text-xs font-medium text-foreground">{totalCalls.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Exitosas</p>
+                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{successCalls.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Con error</p>
+                    <p className={`text-xs font-medium ${errorCalls > 0 ? 'text-destructive' : 'text-foreground'}`}>
+                      {errorCalls.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Operaciones</p>
-                <p className="text-xs font-medium text-foreground">{totalCalls.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Exitosas</p>
-                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{successCalls.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground/60 mb-0.5">Con error</p>
-                <p className={`text-xs font-medium ${errorCalls > 0 ? 'text-destructive' : 'text-foreground'}`}>
-                  {errorCalls.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-        {row.quotaSyncedAt && (
-          <InfoRow
-            label="Cuota disponible (API)"
-            value={formatAmount(row.providerCreditsAvailable, row.providerUsdAvailable)}
-          />
-        )}
-      </SectionCard>
+            )}
+            {row.quotaSyncedAt && (
+              <InfoRow
+                label="Cuota disponible (API)"
+                value={formatAmount(row.providerCreditsAvailable, row.providerUsdAvailable)}
+              />
+            )}
+          </SectionCard>
 
-      {/* Distribución por operación — misma scope que el KPI de arriba */}
-      <div className="space-y-1.5">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
-          Distribución por operación
-        </p>
-        {isPending ? (
-          <LoadingPlaceholder label="Calculando distribución..." />
-        ) : operationBreakdown.length === 0 ? (
-          <EmptyBlock
-            message="Sin consumo por operación"
-            sub="No hay operaciones registradas para los filtros seleccionados."
-          />
-        ) : (
-          <DataTable
-            columns={operationColumns}
-            data={operationBreakdown}
-            getRowId={(op) => op.operationKey}
-            hideToolbar
-            enableColumnReorder={false}
-            initialPageSize={OPERATION_BREAKDOWN_PAGE_SIZE}
-            className="text-xs"
-          />
-        )}
-      </div>
+          {/* Distribución por operación — misma scope que el KPI de arriba */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
+              Distribución por operación
+            </p>
+            {isPending ? (
+              <LoadingPlaceholder label="Calculando distribución..." />
+            ) : operationBreakdown.length === 0 ? (
+              <EmptyBlock
+                message="Sin consumo por operación"
+                sub="No hay operaciones registradas para los filtros seleccionados."
+              />
+            ) : (
+              <DataTable
+                columns={operationColumns}
+                data={operationBreakdown}
+                getRowId={(op) => op.operationKey}
+                hideToolbar
+                enableColumnReorder={false}
+                initialPageSize={OPERATION_BREAKDOWN_PAGE_SIZE}
+                className="text-xs"
+              />
+            )}
+          </div>
 
-      {/* Consumo por usuario — misma scope que el KPI de arriba (Q3F-9) */}
-      <div className="space-y-1.5">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
-          Consumo por usuario
-        </p>
-        {isPending ? (
-          <LoadingPlaceholder label="Calculando consumo por usuario..." />
-        ) : userConsumption.length === 0 ? (
-          <EmptyBlock
-            message="Sin consumo por usuario"
-            sub="No hay usuarios con consumo registrado para los filtros seleccionados."
-          />
-        ) : (
-          <DataTable
-            columns={userColumns}
-            data={userConsumption}
-            getRowId={(u) => u.userId ?? '__unattributed__'}
-            hideToolbar
-            enableColumnReorder={false}
-            initialPageSize={USER_CONSUMPTION_PAGE_SIZE}
-            className="text-xs"
-          />
-        )}
-      </div>
+          {/* Consumo por usuario — misma scope que el KPI de arriba (Q3F-9) */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
+              Consumo por usuario
+            </p>
+            {isPending ? (
+              <LoadingPlaceholder label="Calculando consumo por usuario..." />
+            ) : userConsumption.length === 0 ? (
+              <EmptyBlock
+                message="Sin consumo por usuario"
+                sub="No hay usuarios con consumo registrado para los filtros seleccionados."
+              />
+            ) : (
+              <DataTable
+                columns={userColumns}
+                data={userConsumption}
+                getRowId={(u) => u.userId ?? '__unattributed__'}
+                hideToolbar
+                enableColumnReorder={false}
+                initialPageSize={USER_CONSUMPTION_PAGE_SIZE}
+                className="text-xs"
+              />
+            )}
+          </div>
+        </>
+      )}
 
       {/* Reglas de consumo — estáticas, no cambian con filtros analíticos */}
       <div className="space-y-1.5">
@@ -1711,8 +1874,10 @@ function TabConsumo({
         </SectionCard>
       </div>
 
-      {/* Operaciones recientes */}
-      {ms === 'active' && (
+      {/* Operaciones recientes — oculto durante el empty global (Problema B);
+          empty parcial propio cuando sí hay consumo pero sin logs recientes
+          (Problema C). */}
+      {ms === 'active' && !showGlobalEmpty && (
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2 px-1">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Operaciones recientes</p>
@@ -1726,8 +1891,8 @@ function TabConsumo({
             <LoadingPlaceholder label="Cargando operaciones..." />
           ) : recentOps.length === 0 ? (
             <EmptyBlock
-              message="Sin operaciones registradas para este scope."
-              sub="Ajusta los filtros o amplía el período para ver actividad."
+              message="Sin operaciones recientes"
+              sub="No hay operaciones registradas para los filtros seleccionados."
             />
           ) : (
             <div className="space-y-1.5">
