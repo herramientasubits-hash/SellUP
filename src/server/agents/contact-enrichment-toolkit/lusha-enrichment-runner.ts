@@ -46,7 +46,7 @@ import {
 } from '@/modules/usage-tracking/logging';
 import { loadActiveLushaCreditPricing } from '@/modules/usage-tracking/provider-pricing';
 import type { ActiveProviderCreditPricingV1 } from '@/modules/usage-tracking/provider-pricing';
-import type { ProviderCostTraceV1 } from '@/modules/usage-tracking/types';
+import type { ProviderCostTraceV1, LogProviderUsageInput } from '@/modules/usage-tracking/types';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -148,6 +148,50 @@ export async function computeLushaCreditCostComponent(
       unit_cost_usd_snapshot: pricing.unitCostUsd,
       pricing_config_id: pricing.pricingConfigId,
       ...(creditUnitAssumption ? { credit_unit_assumption: creditUnitAssumption } : {}),
+    },
+  };
+}
+
+/**
+ * Builds the provider_usage_logs input for a real company_first_discovery
+ * prospecting call that returned zero raw results (17B.4X.5C — G7 gap).
+ * A technically-successful provider response with 0 contacts is NOT free:
+ * it reuses the SAME cost component already computed for the run's cost
+ * truth (no second pricing lookup, no re-derived credits). status is
+ * 'success' because the request itself succeeded — mirrors the sibling
+ * prospectStep AgentRunStep already marked 'success' for this exact branch.
+ */
+export function buildLushaZeroResultProspectingUsageLogInput(params: {
+  agentRunId?: string;
+  agentRunStepId?: string;
+  triggeredBy?: string;
+  prospectingCreditsCharged: number | null | undefined;
+  searchStatus: string;
+  requestId?: string | null;
+  durationMs: number;
+  costComponent: LushaRunCostComponentV1;
+}): LogProviderUsageInput {
+  return {
+    agent_run_id: params.agentRunId,
+    agent_run_step_id: params.agentRunStepId,
+    provider_key: 'lusha',
+    operation_key: 'lusha_contact_prospecting',
+    credits_used: params.prospectingCreditsCharged ?? undefined,
+    results_returned: 0,
+    estimated_cost_usd: params.costComponent.estimatedCostUsd,
+    real_cost_usd: params.costComponent.realCostUsd,
+    status: 'success',
+    triggered_by: params.triggeredBy,
+    duration_ms: params.durationMs,
+    metadata: {
+      endpoint_family: 'v3_contacts_prospecting',
+      discovery_mode: 'company_first_discovery',
+      capability: 'contact_prospecting',
+      search_status: params.searchStatus,
+      raw_results: 0,
+      request_id: params.requestId ?? null,
+      cost: params.costComponent.costTrace,
+      hito: '17B.4X.5C',
     },
   };
 }
@@ -1434,6 +1478,23 @@ export async function executeContactEnrichmentLushaRun(
         'prospecting_and_enrich_treated_as_fungible',
       );
       const noResultsCostFields = buildLushaRunCostSummaryFields([noResultsCostComponent]);
+
+      // 17B.4X.5C — G7: a real zero-result prospecting call must still leave
+      // a provider_usage_logs audit row. Reuses noResultsCostComponent as-is
+      // (no second pricing lookup) so the usage row and run cost truth below
+      // derive from the same pricing snapshot.
+      await logProviderUsage(
+        buildLushaZeroResultProspectingUsageLogInput({
+          agentRunId,
+          agentRunStepId: prospectStep?.id,
+          triggeredBy,
+          prospectingCreditsCharged: prospectResult.prospectingCreditsCharged,
+          searchStatus: prospectResult.status,
+          requestId: prospectResult.requestId ?? null,
+          durationMs: prospectDurationMs,
+          costComponent: noResultsCostComponent,
+        }),
+      );
 
       await admin
         .from('contact_enrichment_runs')
