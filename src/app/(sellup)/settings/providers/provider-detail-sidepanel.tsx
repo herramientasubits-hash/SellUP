@@ -2587,16 +2587,10 @@ function ContactEnrichmentOutcomeSection({
         <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Tasa de aprobación</p>
           <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
-            Candidatos aprobados sobre candidatos revisables en ejecuciones con resultado maduro.
+            Candidatos aprobados sobre candidatos revisables en ejecuciones con resultado comparable.
           </p>
           {approvalDisplay != null ? (
-            <p className="text-sm font-medium text-foreground">
-              {approvalDisplay}
-              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
-                ({coverage.approvedCandidateCount} aprobado{coverage.approvedCandidateCount === 1 ? '' : 's'} /{' '}
-                {coverage.reviewableCandidateCount} revisable{coverage.reviewableCandidateCount === 1 ? '' : 's'})
-              </span>
-            </p>
+            <p className="text-sm font-medium text-foreground">{approvalDisplay}</p>
           ) : (
             <p className="text-[10px] text-muted-foreground/40 italic">Sin candidatos revisables en ejecuciones maduras</p>
           )}
