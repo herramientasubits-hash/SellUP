@@ -12,6 +12,7 @@
 
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -41,6 +42,13 @@ const VOCAB_TABLE = 'public.provider_industry_source_vocabularies';
 const FROZEN_KEY = 'apollo_organization_industry';
 const FROZEN_LIFECYCLE = 'active';
 const FROZEN_DISPLAY_NAME = 'Apollo Organization Industry';
+
+// Canonical byte identity (Q3F-5AR.2 / DD-32): the semantic seed-shape
+// assertions above (M84-4 through M84-35) prove the *behavior* of the single
+// seeded row, but none of them prove the file itself is byte-for-byte the
+// frozen migration the delete-DRAFT boundary was audited against.
+const FROZEN_MIGRATION_084_SHA256 =
+  '0c071f62017c1be1eda612b708ea0490f84978d13402bab4fb14e290c3891df4';
 
 const insertStatements = statements.filter((s) => /^INSERT\s+INTO\s/i.test(s));
 
@@ -286,6 +294,17 @@ describe('Migration 084 — Apollo organization-industry vocabulary bootstrap se
     it('M84-35: states runtime vocabulary DML remains disabled', () => {
       assert.ok(/SELECT-only/i.test(sql));
       assert.ok(/Runtime DML on\s*[\s\S]*?remains disabled/i.test(sql));
+    });
+  });
+
+  describe('DD-32 — migration 084 remains byte-identical to the frozen audit', () => {
+    it('DD-32: migration 084 SHA-256 matches the frozen canonical hash', () => {
+      const actualSha256 = createHash('sha256').update(sql, 'utf-8').digest('hex');
+      assert.equal(
+        actualSha256,
+        FROZEN_MIGRATION_084_SHA256,
+        'migration 084 bytes changed since the delete-DRAFT boundary audit — re-audit before any EXECUTE activation',
+      );
     });
   });
 });

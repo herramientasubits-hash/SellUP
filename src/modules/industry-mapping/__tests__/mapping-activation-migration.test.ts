@@ -16,6 +16,7 @@
 
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -53,6 +54,17 @@ const ROLES = ['PUBLIC', 'anon', 'authenticated', 'service_role'];
 const PUBLISH_SIG = 'public.publish_provider_industry_mapping_snapshot(UUID, UUID, BIGINT)';
 const ARCHIVE_SIG = 'public.archive_provider_industry_mapping_snapshot(UUID, UUID)';
 const DELETE_DRAFT_SIG = 'public.delete_draft_provider_industry_mapping_snapshot(UUID, UUID)';
+
+// Canonical byte identity (Q3F-5AR.2 / DD-31): the semantic GRANT/REVOKE
+// assertions above prove migration 083's *behavior* (M83-9 through M83-26),
+// but none of them prove the file itself is byte-for-byte the frozen
+// migration the delete-DRAFT boundary was audited against — a semantically
+// equivalent rewrite (reordered GRANTs, added comments, whitespace changes)
+// would still pass every statement-level check above while silently no
+// longer being the reviewed artifact. This hash is the frozen SHA-256
+// captured when migration 083 was last audited as unchanged.
+const FROZEN_MIGRATION_083_SHA256 =
+  'd17187e7f27411c5c7be98ed8831a60aa07675c8376747cdd487978788f1a7e2';
 const LIFECYCLE_RPCS = [PUBLISH_SIG, ARCHIVE_SIG, DELETE_DRAFT_SIG];
 
 function findRevokeStatements(privilege: string, target: string, role: string): string[] {
@@ -303,6 +315,17 @@ describe('Migration 083 — provider industry mapping S2 activation', () => {
       for (const pattern of forbidden) {
         assert.ok(!pattern.test(sql), `Migration must not match secret pattern ${pattern}`);
       }
+    });
+  });
+
+  describe('DD-31 — migration 083 remains byte-identical to the frozen audit', () => {
+    it('DD-31: migration 083 SHA-256 matches the frozen canonical hash', () => {
+      const actualSha256 = createHash('sha256').update(sql, 'utf-8').digest('hex');
+      assert.equal(
+        actualSha256,
+        FROZEN_MIGRATION_083_SHA256,
+        'migration 083 bytes changed since the delete-DRAFT boundary audit — re-audit before any EXECUTE activation',
+      );
     });
   });
 });
