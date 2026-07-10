@@ -213,7 +213,18 @@ describe('no transport introduced by the delete-draft boundary (DD-26)', () => {
 });
 
 describe('production transport caller count remains 0 (DD-27)', () => {
-  it('no file under src/app references deleteMappingDraftForCurrentActor', () => {
+  // TEMPORARY (Q3F-5AT.2): the reversible live-QA harness at
+  // src/app/qa-industry-mapping-child-graph-harness/actions.ts is the ONE
+  // permitted src/app caller of deleteMappingDraftForCurrentActor, gated by
+  // an env kill switch + exact single-operator-email allowlist (see that
+  // file). This allowlist entry — and the harness directory itself — must
+  // be removed together once live QA validation is complete; every other
+  // src/app caller must continue to fail this check.
+  const TEMPORARY_DELETE_DRAFT_CALLER_ALLOWLIST = [
+    path.join('qa-industry-mapping-child-graph-harness', 'actions.ts'),
+  ];
+
+  it('no file under src/app references deleteMappingDraftForCurrentActor (except the temporary QA harness allowlist)', () => {
     const appDir = path.join(moduleDir, '..', '..', '..', 'app');
     const offenders: string[] = [];
 
@@ -225,6 +236,8 @@ describe('production transport caller count remains 0 (DD-27)', () => {
           continue;
         }
         if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+        const relativePath = path.relative(appDir, fullPath);
+        if (TEMPORARY_DELETE_DRAFT_CALLER_ALLOWLIST.includes(relativePath)) continue;
         const content = readFileSync(fullPath, 'utf8');
         if (content.includes('deleteMappingDraftForCurrentActor')) {
           offenders.push(fullPath);
