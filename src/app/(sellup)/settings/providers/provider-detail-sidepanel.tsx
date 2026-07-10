@@ -76,6 +76,7 @@ import {
   toCostTruth,
 } from '@/modules/usage-tracking/cost-display';
 import { CostValue } from '@/components/shared/cost-value';
+import { summarizeProviderEffectiveness } from './provider-effectiveness-summary';
 
 // ── Rule display constants ────────────────────────────────────────────────────
 
@@ -2373,38 +2374,46 @@ function TabEfectividad({
   syncLogs: ProviderSyncLogRow[];
   loading: boolean;
 }) {
-  const errorCount = usageLogs.filter(
-    (l) => l.status != null && (l.status.toLowerCase().includes('error') || l.status.toLowerCase().includes('fail')),
-  ).length;
-
-  const totalOps = usageLogs.length;
-  const successRate = totalOps > 0 ? Math.round(((totalOps - errorCount) / totalOps) * 100) : null;
+  const {
+    observedLogCount,
+    technicalSuccessCount,
+    technicalFailureCount,
+    technicalSuccessRate,
+    isCappedWindow,
+    knownCostSubtotalUsd,
+    hasUnknownCost,
+    hasSufficientRecentEvidence,
+  } = useMemo(() => summarizeProviderEffectiveness(usageLogs), [usageLogs]);
 
   const latestSync = syncLogs[0];
   const syncOk = latestSync?.syncStatus === 'success';
 
   const costMtd = row.usdCostMtd;
-  const totalCostLogs = usageLogs.reduce((s, l) => s + (l.estimatedCostUsd ?? 0), 0);
+
+  const windowCaption = isCappedWindow
+    ? `últimas ${observedLogCount} ops`
+    : `${observedLogCount} ops registrada${observedLogCount === 1 ? '' : 's'}`;
+  const windowSuffix = isCappedWindow ? 'últimas ops' : 'ops registradas';
 
   return (
     <div className="space-y-4">
       <div className="grid md:grid-cols-2 gap-3">
-        {/* Calidad de resultados */}
+        {/* Resultado técnico reciente */}
         <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
-          <p className="text-xs font-medium text-foreground mb-1">Calidad de resultados</p>
+          <p className="text-xs font-medium text-foreground mb-1">Resultado técnico reciente</p>
           <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
-            Tasa de resultados útiles vs totales por agente.
+            Proporción de éxito técnico en los logs recientes registrados.
           </p>
           {loading ? (
             <div className="flex items-center gap-1.5">
               <Loader2 className="h-3 w-3 text-muted-foreground/40 animate-spin" />
               <span className="text-[10px] text-muted-foreground/50">Cargando...</span>
             </div>
-          ) : successRate != null ? (
+          ) : technicalSuccessRate != null ? (
             <p className="text-sm font-medium text-foreground">
-              {successRate}%
+              {technicalSuccessRate}%
               <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
-                ({totalOps - errorCount} / {totalOps} ops)
+                ({technicalSuccessCount} / {observedLogCount} {windowSuffix})
               </span>
             </p>
           ) : (
@@ -2412,11 +2421,13 @@ function TabEfectividad({
           )}
         </div>
 
-        {/* Costo vs utilidad */}
+        {/* Costo registrado */}
         <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
-          <p className="text-xs font-medium text-foreground mb-1">Costo vs utilidad</p>
+          <p className="text-xs font-medium text-foreground mb-1">Costo registrado</p>
           <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
-            Costo estimado del período registrado.
+            {costMtd != null
+              ? 'Costo estimado del mes en curso, según catálogo del proveedor.'
+              : 'Costo estimado de las operaciones recientes registradas.'}
           </p>
           {loading ? (
             <div className="flex items-center gap-1.5">
@@ -2425,29 +2436,40 @@ function TabEfectividad({
             </div>
           ) : costMtd != null ? (
             <p className="text-sm font-medium text-foreground">${costMtd.toFixed(4)} MTD (API)</p>
-          ) : totalCostLogs > 0 ? (
-            <p className="text-sm font-medium text-foreground">${totalCostLogs.toFixed(4)} estimado logs</p>
+          ) : knownCostSubtotalUsd > 0 || hasUnknownCost ? (
+            <p className="text-sm font-medium text-foreground">
+              <CostValue
+                display={resolveCostDisplay({
+                  valueUsd: knownCostSubtotalUsd,
+                  costTruth: toCostTruth(hasUnknownCost),
+                  formatUsd: (v) => `$${v.toFixed(4)}`,
+                })}
+              />
+              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
+                {windowCaption}
+              </span>
+            </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
           )}
         </div>
 
-        {/* Errores por agente */}
+        {/* Fallos técnicos recientes */}
         <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
-          <p className="text-xs font-medium text-foreground mb-1">Errores por agente</p>
+          <p className="text-xs font-medium text-foreground mb-1">Fallos técnicos recientes</p>
           <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
-            Frecuencia de errores en logs registrados.
+            Errores y límites de proveedor en los logs recientes registrados.
           </p>
           {loading ? (
             <div className="flex items-center gap-1.5">
               <Loader2 className="h-3 w-3 text-muted-foreground/40 animate-spin" />
               <span className="text-[10px] text-muted-foreground/50">Cargando...</span>
             </div>
-          ) : totalOps > 0 ? (
+          ) : hasSufficientRecentEvidence ? (
             <p className="text-sm font-medium text-foreground">
-              {errorCount}
+              {technicalFailureCount}
               <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
-                error{errorCount !== 1 ? 'es' : ''} en {totalOps} ops
+                fallo{technicalFailureCount !== 1 ? 's' : ''} en {windowCaption}
               </span>
             </p>
           ) : (
@@ -2489,9 +2511,11 @@ function TabEfectividad({
         </div>
       </div>
 
-      <ProgressiveNote>
-        Efectividad cruzará costo, calidad, errores y utilidad una vez que haya ejecuciones históricas suficientes registradas para este proveedor.
-      </ProgressiveNote>
+      {!loading && !hasSufficientRecentEvidence && (
+        <ProgressiveNote>
+          Aún no hay operaciones registradas para resumir el comportamiento técnico reciente de este proveedor.
+        </ProgressiveNote>
+      )}
     </div>
   );
 }
