@@ -714,22 +714,6 @@ export async function readTestState(): Promise<QaHarnessResult> {
   };
 }
 
-// ── React useActionState adapters (UI wiring only — no additional business
-// logic; delegate immediately to the real commands above) ──────────────────
-
-export async function createTestGraphActionState(
-  _prevState: QaHarnessResult | null, // eslint-disable-line @typescript-eslint/no-unused-vars -- useActionState(action, initialState) signature
-  _formData: FormData, // eslint-disable-line @typescript-eslint/no-unused-vars -- useActionState(action, initialState) signature
-): Promise<QaHarnessResult> {
-  'use server';
-  return createTestGraph();
-}
-
-export async function deleteTestGraphActionState(
-  snapshotId: string,
-  _prevState: QaHarnessResult | null, // eslint-disable-line @typescript-eslint/no-unused-vars -- useActionState(action, initialState) signature
-  _formData: FormData, // eslint-disable-line @typescript-eslint/no-unused-vars -- useActionState(action, initialState) signature
-): Promise<QaHarnessResult> {
-  'use server';
-  return deleteTestGraph(snapshotId);
-}
+// React useActionState adapters live in qa-harness-server-actions.ts (a
+// dedicated top-level 'use server' module) — Client Components cannot import
+// inline 'use server' functions from this plain module directly.

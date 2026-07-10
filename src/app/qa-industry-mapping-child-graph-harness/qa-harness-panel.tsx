@@ -12,11 +12,8 @@
 // CREATE_TEST_GRAPH / DELETE_TEST_GRAPH commands.
 
 import { useActionState } from 'react';
-import {
-  createTestGraphActionState,
-  deleteTestGraphActionState,
-  type QaHarnessResult,
-} from './actions';
+import { createTestGraphActionState, deleteTestGraphActionState } from './qa-harness-server-actions';
+import type { QaHarnessResult } from './actions';
 
 function ResultBlock({ title, state }: { title: string; state: QaHarnessResult | null }) {
   if (!state) return null;
