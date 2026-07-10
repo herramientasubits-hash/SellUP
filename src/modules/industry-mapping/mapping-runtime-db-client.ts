@@ -41,10 +41,9 @@ export function createIndustryMappingPublicationDbClient(): MappingPublicationDb
 
 /**
  * Service-role client cast to the DRAFT-delete domain service's narrow
- * structural RPC-only contract (Q3F-5AR.0). The delete-DRAFT RPC's EXECUTE
- * privilege remains revoked as of migration 083 — this factory exists so the
- * application call path is coded and offline-tested ahead of that later
- * narrow activation.
+ * structural RPC-only contract (Q3F-5AR.0). Migration 085 grants delete-DRAFT
+ * RPC EXECUTE to service_role only; authenticated/anon/PUBLIC remain without
+ * EXECUTE. The application transport caller posture is a separate concern.
  */
 export function createIndustryMappingDraftDeleteDbClient(): MappingDraftDeleteDbClient {
   return createIndustryMappingServiceRoleClient() as unknown as MappingDraftDeleteDbClient;

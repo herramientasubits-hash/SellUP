@@ -173,10 +173,11 @@ export async function publishMappingSnapshotForCurrentActor(
 }
 
 // ── DRAFT deletion (Q3F-5AR.0) ──────────────────────────────────────────────
-// No transport (no 'use server', no route handler, no UI) calls this yet —
-// production transport caller count is 0. The delete-DRAFT RPC's EXECUTE
-// privilege remains revoked as of migration 083; a later hito will design
-// the narrow activation.
+// Migration 085 grants delete-DRAFT RPC EXECUTE to service_role only;
+// authenticated/anon/PUBLIC remain without EXECUTE. The application
+// transport caller posture (which/how many callers exist under src/app) is
+// a separate concern tracked independently — see DD-27 in
+// mapping-runtime-boundary-wiring.test.ts.
 
 export type DeleteMappingDraftForCurrentActorInput = DeleteMappingDraftForActorInput;
 

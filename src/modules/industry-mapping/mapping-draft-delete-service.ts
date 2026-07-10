@@ -21,11 +21,10 @@
 //
 // No archive call, no publish call: this service is DELETE-DRAFT ONLY.
 //
-// EXECUTE on the delete-DRAFT RPC remains revoked from
-// PUBLIC/anon/authenticated/service_role as of migration 083 (Q3F-5AR.0
-// intentionally does not activate it) — this service is coded and
-// offline-tested only; it cannot succeed against a live database until a
-// later narrow activation migration grants EXECUTE.
+// Migration 085 grants delete-DRAFT RPC EXECUTE to service_role only;
+// authenticated/anon/PUBLIC remain without EXECUTE. The application
+// transport caller posture (which/how many callers exist under src/app) is
+// a separate concern.
 
 import { MappingDraftError, type MappingDraftDbError } from './mapping-draft-types';
 
