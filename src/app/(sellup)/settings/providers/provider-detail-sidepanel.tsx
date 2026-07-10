@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
   ChevronDown, Cpu, Zap, Database, Bot, Plus, Pencil, Power, Trash2,
-  Loader2, Lock, Check, ChevronsUpDown,
+  Loader2, Lock, Check, ChevronDownIcon,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -1320,10 +1320,10 @@ function ConsumptionUserFilter({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="h-7 w-[160px] justify-between font-normal text-[11px] px-2"
+            className="h-7 w-[160px] justify-between rounded-lg border-input bg-transparent px-2 font-normal text-[11px] hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50"
           >
             <span className="truncate">{triggerLabel}</span>
-            <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+            <ChevronDownIcon className="pointer-events-none size-4 shrink-0 text-muted-foreground" />
           </Button>
         }
       />
