@@ -77,6 +77,11 @@ import {
 } from '@/modules/usage-tracking/cost-display';
 import { CostValue } from '@/components/shared/cost-value';
 import { summarizeProviderEffectiveness } from './provider-effectiveness-summary';
+import {
+  isEffectivenessSupportedProvider,
+  resolveContactEnrichmentEffectivenessUiState,
+} from './contact-enrichment-effectiveness-ui';
+import type { ProviderEffectivenessProviderSummary } from '@/modules/provider-effectiveness/types';
 
 // ── Rule display constants ────────────────────────────────────────────────────
 
@@ -2367,11 +2372,13 @@ function TabEfectividad({
   row,
   usageLogs,
   syncLogs,
+  contactEnrichmentEffectiveness,
   loading,
 }: {
   row: AdminProviderBudgetRow;
   usageLogs: ProviderUsageLogRow[];
   syncLogs: ProviderSyncLogRow[];
+  contactEnrichmentEffectiveness: ProviderEffectivenessProviderSummary | null;
   loading: boolean;
 }) {
   const {
@@ -2516,6 +2523,134 @@ function TabEfectividad({
           Aún no hay operaciones registradas para resumir el comportamiento técnico reciente de este proveedor.
         </ProgressiveNote>
       )}
+
+      {isEffectivenessSupportedProvider(row.providerKey) && (
+        <div className="pt-1 border-t border-border/30 mt-1">
+          <p className="text-xs font-semibold text-foreground mt-4 mb-1">
+            Resultado en enriquecimiento de contactos
+          </p>
+          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-3">
+            Enriquecimientos individuales de contactos con evidencia suficiente para evaluar resultado — no es un puntaje general del proveedor.
+          </p>
+          {loading ? (
+            <LoadingPlaceholder label="Cargando resultado de enriquecimiento..." />
+          ) : contactEnrichmentEffectiveness == null ? (
+            <ProgressiveNote>
+              No fue posible cargar el resultado de enriquecimiento de contactos para este proveedor en este momento.
+            </ProgressiveNote>
+          ) : (
+            <ContactEnrichmentOutcomeSection summary={contactEnrichmentEffectiveness} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContactEnrichmentOutcomeSection({
+  summary,
+}: {
+  summary: ProviderEffectivenessProviderSummary;
+}) {
+  const uiState = resolveContactEnrichmentEffectivenessUiState(summary);
+
+  if (uiState === 'no_evidence') {
+    return (
+      <ProgressiveNote>
+        Aún no hay enriquecimientos individuales de contactos con evidencia suficiente para evaluar este resultado.
+      </ProgressiveNote>
+    );
+  }
+
+  const { coverage } = summary;
+
+  if (uiState === 'pending_review') {
+    return (
+      <ProgressiveNote>
+        Hay {coverage.attributedRunCount} ejecución{coverage.attributedRunCount === 1 ? '' : 'es'} de enriquecimiento
+        individual registrada{coverage.attributedRunCount === 1 ? '' : 's'}; ninguna cuenta todavía con resultado
+        maduro (revisión de candidatos pendiente).
+      </ProgressiveNote>
+    );
+  }
+
+  const { comparable } = summary;
+
+  const approvalDisplay = comparable.approvalRate != null ? `${Math.round(comparable.approvalRate * 100)}%` : null;
+  const zeroReviewableDisplay =
+    comparable.zeroReviewableRate != null ? `${Math.round(comparable.zeroReviewableRate * 100)}%` : null;
+  const costTruth = toCostTruth(coverage.unknownCostRunCount > 0 || coverage.ambiguousCostRunCount > 0);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid md:grid-cols-3 gap-3">
+        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+          <p className="text-xs font-medium text-foreground mb-1">Tasa de aprobación</p>
+          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+            Candidatos aprobados sobre candidatos revisables en ejecuciones con resultado maduro.
+          </p>
+          {approvalDisplay != null ? (
+            <p className="text-sm font-medium text-foreground">
+              {approvalDisplay}
+              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
+                ({coverage.approvedCandidateCount} aprobado{coverage.approvedCandidateCount === 1 ? '' : 's'} /{' '}
+                {coverage.reviewableCandidateCount} revisable{coverage.reviewableCandidateCount === 1 ? '' : 's'})
+              </span>
+            </p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground/40 italic">Sin candidatos revisables en ejecuciones maduras</p>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+          <p className="text-xs font-medium text-foreground mb-1">Costo por contacto aprobado</p>
+          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+            Costo conocido de las ejecuciones que produjeron un contacto aprobado.
+          </p>
+          {comparable.costPerApprovedContactUsd != null ? (
+            <p className="text-sm font-medium text-foreground">
+              <CostValue
+                display={resolveCostDisplay({
+                  valueUsd: comparable.costPerApprovedContactUsd,
+                  costTruth,
+                  formatUsd: (v) => `$${v.toFixed(4)}`,
+                })}
+              />
+            </p>
+          ) : coverage.approvedCandidateCount === 0 ? (
+            <p className="text-[10px] text-muted-foreground/40 italic">Aún no hay contactos aprobados</p>
+          ) : coverage.costEligibleRunCount === 0 ? (
+            <p className="text-[10px] text-muted-foreground/40 italic">Costo desconocido para las ejecuciones disponibles</p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+          <p className="text-xs font-medium text-foreground mb-1">Ejecuciones sin candidatos revisables</p>
+          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+            Ejecuciones técnicamente exitosas que no produjeron ningún candidato revisable.
+          </p>
+          {zeroReviewableDisplay != null ? (
+            <p className="text-sm font-medium text-foreground">
+              {zeroReviewableDisplay}
+              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
+                ({coverage.zeroReviewableRunCount} / {coverage.zeroReviewableEligibleRunCount})
+              </span>
+            </p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
+          )}
+        </div>
+      </div>
+
+      <p className="text-[11px] text-muted-foreground/50 leading-relaxed">
+        Lectura basada en {coverage.outcomeMatureRunCount} ejecución{coverage.outcomeMatureRunCount === 1 ? '' : 'es'} de
+        enriquecimiento individual con resultado maduro
+        {coverage.openReviewRunCount > 0
+          ? `; ${coverage.openReviewRunCount} más continúan pendientes de revisión.`
+          : '.'}
+      </p>
     </div>
   );
 }
@@ -2949,6 +3084,7 @@ export function ProviderDetailSidepanel({
               row={provider}
               usageLogs={usageLogs}
               syncLogs={syncLogs}
+              contactEnrichmentEffectiveness={detailData?.contactEnrichmentEffectiveness ?? null}
               loading={loadingDetail}
             />
           </TabsContent>

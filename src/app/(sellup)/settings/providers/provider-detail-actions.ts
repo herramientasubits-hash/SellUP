@@ -22,23 +22,42 @@ import {
   updateTavilyApiKey,
   disconnectTavily,
 } from '@/modules/integrations/actions';
+import { getProviderEffectivenessReadModel } from '@/modules/provider-effectiveness/actions';
+import type { ProviderEffectivenessProviderSummary } from '@/modules/provider-effectiveness/types';
+import { isEffectivenessSupportedProvider } from './contact-enrichment-effectiveness-ui';
 
 export interface SidepanelDetailData {
   usageLogs: ProviderUsageLogRow[];
   syncLogs: ProviderSyncLogRow[];
   providerRules: BudgetRuleRow[];
   formOptions: BudgetRuleFormOptions;
+  /** Null when the provider is outside the read model's supported cohort, or when the read failed. */
+  contactEnrichmentEffectiveness: ProviderEffectivenessProviderSummary | null;
+}
+
+async function loadContactEnrichmentEffectivenessForPanel(
+  providerKey: string,
+): Promise<ProviderEffectivenessProviderSummary | null> {
+  if (!isEffectivenessSupportedProvider(providerKey)) return null;
+  try {
+    const model = await getProviderEffectivenessReadModel({ provider: providerKey });
+    return model.providers[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function loadProviderDetailForPanel(providerKey: string): Promise<SidepanelDetailData | null> {
   try {
     const detail = await getProviderDetail(providerKey);
     if (!detail) return null;
+    const contactEnrichmentEffectiveness = await loadContactEnrichmentEffectivenessForPanel(providerKey);
     return {
       usageLogs: detail.recentUsageLogs,
       syncLogs: detail.recentSyncLogs,
       providerRules: detail.allRulesForProvider,
       formOptions: detail.formOptions,
+      contactEnrichmentEffectiveness,
     };
   } catch {
     return null;
