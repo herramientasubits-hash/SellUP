@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, ExternalLink, Eye, X } from 'lucide-react';
+import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, Eye, X } from 'lucide-react';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { syncProviderQuota } from '@/modules/budgets';
 import { deriveConsumedDisplay } from './budget-display';
@@ -454,11 +454,6 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                               </DropdownMenuItem>
                             </>
                           )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => { window.location.href = `/settings/providers/${row.providerKey}`; }}>
-                            <ExternalLink className="mr-2 h-3.5 w-3.5" />
-                            Abrir página completa
-                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
