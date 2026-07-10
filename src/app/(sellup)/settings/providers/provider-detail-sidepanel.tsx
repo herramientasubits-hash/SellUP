@@ -2754,6 +2754,8 @@ interface ProviderDetailSidepanelProps {
   allRules?: BudgetRuleRow[];
   providerConnectionStates?: Record<string, ProspectingConnectionPanelState>;
   aiProviderConnectionStates?: Record<string, AiConnectionPanelState>;
+  /** Notified when the user switches tabs, so a parent can mirror it into the URL (Q3F-10E.1). Not called for the initialTab-driven sync. */
+  onActiveTabChange?: (tab: SidepanelInitialTab) => void;
 }
 
 export function ProviderDetailSidepanel({
@@ -2765,6 +2767,7 @@ export function ProviderDetailSidepanel({
   allRules = [],
   providerConnectionStates,
   aiProviderConnectionStates,
+  onActiveTabChange,
 }: ProviderDetailSidepanelProps) {
   const ms: MeasurementStatus = provider?.measurementStatus ?? 'prepared';
   const opType = provider ? getProviderOperationalType(provider.providerKey) : null;
@@ -2846,7 +2849,14 @@ export function ProviderDetailSidepanel({
       }
     >
       {provider && (
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SidepanelInitialTab)}>
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => {
+            const tab = v as SidepanelInitialTab;
+            setActiveTab(tab);
+            onActiveTabChange?.(tab);
+          }}
+        >
           <TabsList className="w-full grid grid-cols-6 mb-5 h-auto">
             <TabsTrigger value="resumen" className="text-[11px] gap-1 py-1.5">
               <Activity className="h-3 w-3" />

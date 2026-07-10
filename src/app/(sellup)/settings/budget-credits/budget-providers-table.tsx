@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, ExternalLink, Eye, X } from 'lucide-react';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { syncProviderQuota } from '@/modules/budgets';
@@ -33,6 +34,10 @@ import {
 } from '../providers/provider-detail-sidepanel';
 import type { BudgetRuleRow } from '@/modules/budgets/rule-queries';
 import type { ProspectingConnectionPanelState, AiConnectionPanelState } from '../providers/provider-detail-actions';
+import {
+  resolveProviderWorkspaceUrlState,
+  buildProviderWorkspaceParams,
+} from './provider-workspace-url-state';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
@@ -163,17 +168,60 @@ const LIGHT_TABLE_COLUMNS = ['Proveedor', 'Tipo', 'Estado', 'Consumo del mes', '
 const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
 
 export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], providerConnectionStates, aiProviderConnectionStates }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [sidepanelProvider, setSidepanelProvider] = useState<AdminProviderBudgetRow | null>(null);
-  const [sidepanelTab, setSidepanelTab] = useState<SidepanelInitialTab>('resumen');
   const [editingProvider, setEditingProvider] = useState<AdminProviderBudgetRow | null>(null);
   const [syncingKeys, setSyncingKeys] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
 
+  // ── Provider workspace URL state (Q3F-10E.1) ────────────────────────────────
+  // The URL is the source of truth for which provider workspace (if any) is
+  // open and on which tab. Selection/review/allowance-editing state above
+  // stays local — only the sidepanel is addressable.
+  const validProviderKeys = useMemo(() => new Set(providers.map((p) => p.providerKey)), [providers]);
+  const rawProvider = searchParams.get('provider');
+  const rawPtab = searchParams.get('ptab');
+  const workspaceState = resolveProviderWorkspaceUrlState({ provider: rawProvider, ptab: rawPtab }, validProviderKeys);
+  const sidepanelProvider = workspaceState.providerKey
+    ? providers.find((p) => p.providerKey === workspaceState.providerKey) ?? null
+    : null;
+  const sidepanelTab = workspaceState.tab;
+
+  // Canonicalize invalid provider/ptab combinations (unknown key, orphan
+  // ptab, unknown tab) by replacing them out of the URL. Runs only when the
+  // resolved canonical params actually differ, so it cannot loop.
+  useEffect(() => {
+    const canonical = buildProviderWorkspaceParams(searchParams, {
+      providerKey: sidepanelProvider ? workspaceState.providerKey : null,
+      tab: sidepanelProvider ? workspaceState.tab : null,
+    });
+    if (canonical.toString() === searchParams.toString()) return;
+    const query = canonical.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawProvider, rawPtab, sidepanelProvider, pathname]);
+
   function openSidepanel(row: AdminProviderBudgetRow, tab: SidepanelInitialTab = 'resumen') {
-    setSidepanelTab(tab);
-    setSidepanelProvider(row);
+    const params = buildProviderWorkspaceParams(searchParams, { providerKey: row.providerKey, tab });
+    const query = params.toString();
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function closeSidepanel() {
+    const params = buildProviderWorkspaceParams(searchParams, { providerKey: null, tab: null });
+    const query = params.toString();
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function handleActiveTabChange(tab: SidepanelInitialTab) {
+    if (!sidepanelProvider) return;
+    const params = buildProviderWorkspaceParams(searchParams, { providerKey: sidepanelProvider.providerKey, tab });
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
   const resolvedDate = new Date(resolvedAt).toLocaleString('es-CO', {
@@ -441,8 +489,9 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
         provider={sidepanelProvider}
         open={sidepanelProvider !== null}
         initialTab={sidepanelTab}
-        onClose={() => setSidepanelProvider(null)}
-        onConfigureAllowance={(row) => { setSidepanelProvider(null); setEditingProvider(row); }}
+        onClose={closeSidepanel}
+        onActiveTabChange={handleActiveTabChange}
+        onConfigureAllowance={(row) => { closeSidepanel(); setEditingProvider(row); }}
         allRules={allRules}
         providerConnectionStates={providerConnectionStates}
         aiProviderConnectionStates={aiProviderConnectionStates}
