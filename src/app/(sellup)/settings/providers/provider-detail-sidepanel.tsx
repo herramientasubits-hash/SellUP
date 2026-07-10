@@ -1320,7 +1320,7 @@ function ConsumptionUserFilter({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="h-7 w-[160px] justify-between rounded-lg border-input bg-transparent px-2 font-normal text-[11px] hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50"
+            className="h-8 w-[160px] justify-between rounded-lg border-input bg-transparent px-2 font-normal text-[11px] hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50"
           >
             <span className="truncate">{triggerLabel}</span>
             <ChevronDownIcon className="pointer-events-none size-4 shrink-0 text-muted-foreground" />
