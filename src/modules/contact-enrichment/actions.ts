@@ -44,7 +44,7 @@ import type { IntendedProvider, CompanyResolutionSource } from './request-attemp
 
 // ── Auth helper (patrón idéntico a prospect-batches/actions.ts) ───────────────
 
-async function requireActiveUserForEnrichment(): Promise<{ internalUserId: string }> {
+export async function requireActiveUserForEnrichment(): Promise<{ internalUserId: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
