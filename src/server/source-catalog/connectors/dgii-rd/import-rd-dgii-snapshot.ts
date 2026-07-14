@@ -41,6 +41,8 @@ import {
   RD_DGII_RNC_TXT_ZIP_URL,
 } from './types';
 import { normalizeDominicanRnc } from './normalizers';
+import { deriveTaxRecordIdentity } from '../../record-identity';
+import type { RecordIdentityKey } from '../../record-identity';
 
 const inflateRawAsync = promisify(inflateRaw);
 
@@ -320,6 +322,7 @@ type SnapshotRow = {
   financials: object;
   raw_data: object;
   imported_at: string;
+  record_identity_key: RecordIdentityKey | null;
 };
 
 export function buildSnapshotRow(opts: {
@@ -356,6 +359,7 @@ export function buildSnapshotRow(opts: {
   } = opts;
 
   const normalizedRnc = normalizeDominicanRnc(rnc) ?? rnc;
+  const identity = deriveTaxRecordIdentity(normalizedRnc);
 
   return {
     source_key: RD_DGII_BULK_SOURCE_KEY,
@@ -395,6 +399,7 @@ export function buildSnapshotRow(opts: {
       importer_version: IMPORTER_VERSION,
     },
     imported_at: importedAt,
+    record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
   };
 }
 

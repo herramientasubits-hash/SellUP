@@ -5,6 +5,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as XLSX from 'xlsx';
 
 import {
@@ -17,6 +18,7 @@ import {
   detectSiisHeaderRowIndex,
 } from '../siis-snapshot-etl';
 import type { SiisCompanyFinancialRecord } from '../types';
+import { deriveTaxRecordIdentity } from '../../../record-identity';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -540,5 +542,60 @@ describe('snapshot row build (upsert payload expectation)', () => {
 
     assert.equal(normNit, '900123456');
     assert.equal(normName, 'tecnologia avanzada');
+  });
+});
+
+// ─── 9. record_identity_key shadow write (APP-A P2A) ──────────────────────────
+//
+// El ETL construye record_identity_key = tax:<normalized_tax_id> vía
+// deriveTaxRecordIdentity(normalizeSiisNIT(rec.taxId)), en paralelo al grano
+// viejo (normalized_tax_id). Estos tests documentan esa composición exacta,
+// dado que el row builder es inline dentro de runSiisSnapshotEtl y no está
+// extraído como función pura exportada.
+
+describe('record_identity_key shadow write (APP-A P2A)', () => {
+  it('produces tax:<normalized_tax_id> for a valid NIT', () => {
+    const normalizedTaxId = normalizeSiisNIT('900.123.456-1');
+    const identity = deriveTaxRecordIdentity(normalizedTaxId);
+
+    assert.equal(identity.status, 'resolved');
+    if (identity.status !== 'resolved') return;
+    assert.equal(identity.recordIdentityKey, 'tax:900123456');
+  });
+
+  it('is unavailable when the NIT is missing/blank (no row exclusion — null identity)', () => {
+    const normalizedTaxId = normalizeSiisNIT(undefined);
+    const identity = deriveTaxRecordIdentity(normalizedTaxId);
+
+    assert.equal(identity.status, 'unavailable');
+    if (identity.status !== 'unavailable') return;
+    assert.equal(identity.reason, 'missing_tax_id');
+  });
+
+  it('two records with the same normalized NIT collapse to the same record_identity_key (matches old dedup grain)', () => {
+    const idA = deriveTaxRecordIdentity(normalizeSiisNIT('900.123.456-1'));
+    const idB = deriveTaxRecordIdentity(normalizeSiisNIT('900123456'));
+
+    assert.equal(idA.status, 'resolved');
+    assert.equal(idB.status, 'resolved');
+    if (idA.status !== 'resolved' || idB.status !== 'resolved') return;
+    assert.equal(idA.recordIdentityKey, idB.recordIdentityKey);
+  });
+
+  it('upsert onConflict target remains the legacy tax grain (unchanged by shadow write)', () => {
+    const source = readFileSync(
+      new URL('../siis-snapshot-etl.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.ok(
+      source.includes(
+        "onConflict: 'source_key,country_code,source_year,normalized_tax_id'",
+      ),
+      'debe conservar el conflict target viejo (OLD_TAX_GRAIN_ON_CONFLICT)',
+    );
+    assert.ok(
+      !source.includes("onConflict: 'source_key,country_code,source_year,record_identity_key'"),
+      'no debe activar RECORD_IDENTITY_ON_CONFLICT (P2B) en este hito',
+    );
   });
 });

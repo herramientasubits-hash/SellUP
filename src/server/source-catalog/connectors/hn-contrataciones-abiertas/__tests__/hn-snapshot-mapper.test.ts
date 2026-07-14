@@ -7,6 +7,7 @@ import {
   HN_SNAPSHOT_COUNTRY_CODE,
 } from '../hn-snapshot-mapper';
 import type { HnOcdsCandidate } from '../hn-ocds-types';
+import { deriveTaxRecordIdentity } from '../../../record-identity';
 
 function makeCandidate(overrides: Partial<HnOcdsCandidate> = {}): HnOcdsCandidate {
   return {
@@ -199,5 +200,77 @@ describe('mapCandidatesToSnapshot', () => {
     assert.equal(result.eligibleLegalEntities, 0);
     assert.equal(result.excludedNaturalPersonRisk, 0);
     assert.equal(result.invalidRtn, 0);
+  });
+});
+
+// ─── record_identity_key shadow write (APP-A P2A) ─────────────────────────────
+//
+// hn-snapshot-writer.ts NO se toca en este hito: en Honduras la construcción
+// del payload ocurre en el mapper (mapCandidateToSnapshot), por lo que el
+// shadow dual-write vive aquí.
+
+describe('record_identity_key shadow write (APP-A P2A)', () => {
+  it('mapCandidateToSnapshot derives record_identity_key = tax:<normalizedRtn>', () => {
+    const result = mapCandidateToSnapshot(makeCandidate({ normalizedRtn: '08011977037644' }), 2024);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const identity = deriveTaxRecordIdentity('08011977037644');
+    assert.equal(identity.status, 'resolved');
+    if (identity.status !== 'resolved') return;
+
+    assert.equal(result.row.record_identity_key, identity.recordIdentityKey);
+    assert.equal(result.row.record_identity_key, 'tax:08011977037644');
+  });
+
+  it('record_identity_key tracks the RTN, not the legal name (no name fallback)', () => {
+    const result = mapCandidateToSnapshot(
+      makeCandidate({ normalizedRtn: '01019999123456', supplierName: 'Grupo Industrial HN SA' }),
+      2024,
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.row.record_identity_key, 'tax:01019999123456');
+  });
+
+  it('two candidates with the same normalizedRtn produce the same record_identity_key (no row exclusion, no multiplicity change)', () => {
+    const resultA = mapCandidateToSnapshot(makeCandidate({ normalizedRtn: '08011977037644' }), 2024);
+    const resultB = mapCandidateToSnapshot(
+      makeCandidate({ normalizedRtn: '08011977037644', supplierName: 'Otro nombre SA' }),
+      2024,
+    );
+    assert.equal(resultA.ok, true);
+    assert.equal(resultB.ok, true);
+    if (!resultA.ok || !resultB.ok) return;
+    assert.equal(resultA.row.record_identity_key, resultB.row.record_identity_key);
+  });
+
+  it('excluded candidates (invalid_rtn / unknown_or_person_natural_risk) never reach record_identity_key derivation — exclusion behavior unchanged', () => {
+    const invalidRtn = mapCandidateToSnapshot(
+      { ...makeCandidate(), rtnValid: false as const, normalizedRtn: null as unknown as string } as unknown as HnOcdsCandidate,
+      2024,
+    );
+    assert.equal(invalidRtn.ok, false);
+    if (invalidRtn.ok) return;
+    assert.equal(invalidRtn.reason, 'invalid_rtn');
+
+    const naturalPersonRisk = mapCandidateToSnapshot(
+      makeCandidate({ legalEntityHint: 'unknown_or_person_natural_risk', legalEntityReason: null }),
+      2024,
+    );
+    assert.equal(naturalPersonRisk.ok, false);
+    if (naturalPersonRisk.ok) return;
+    assert.equal(naturalPersonRisk.reason, 'unknown_or_person_natural_risk');
+  });
+
+  it('deriveTaxRecordIdentity defensive path: unavailable (null) for a missing/blank tax id — the structural upstream guard is what actually prevents this from reaching mapCandidateToSnapshot in production', () => {
+    // mapCandidateToSnapshot itself rejects null/missing normalizedRtn via the invalid_rtn
+    // branch before deriveTaxRecordIdentity is ever called, so an "unavailable" identity
+    // is not practically fixturable through the mapper's success path. This test verifies
+    // the shared helper's defensive behavior directly instead.
+    const identity = deriveTaxRecordIdentity(null);
+    assert.equal(identity.status, 'unavailable');
+    if (identity.status !== 'unavailable') return;
+    assert.equal(identity.reason, 'missing_tax_id');
   });
 });

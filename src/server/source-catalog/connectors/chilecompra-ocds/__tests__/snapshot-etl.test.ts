@@ -6,6 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it, mock, beforeEach } from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
   processRelease,
   accToSnapshotRow,
@@ -17,6 +18,7 @@ import {
 } from '../run-chilecompra-ocds-snapshot-etl';
 import type { ProcessReleaseCounters } from '../run-chilecompra-ocds-snapshot-etl';
 import type { OcdsRelease } from '../types';
+import { deriveTaxRecordIdentity, OLD_TAX_GRAIN_ON_CONFLICT } from '../../../record-identity';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -895,5 +897,75 @@ describe('Award endpoint — ETL usa urlAward cuando existe', () => {
     );
     assert.equal(result.processes_scanned, 1);
     assert.equal(result.award_url_missing, 0, 'no es missing url, es fallo de fetch');
+  });
+});
+
+// ─── 10. record_identity_key shadow write (APP-A P2A) ─────────────────────────
+
+describe('record_identity_key shadow write (APP-A P2A)', () => {
+  it('accToSnapshotRow derives record_identity_key = tax:<normalizedTaxId>', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    const release = makeRelease();
+
+    processRelease(release, release.ocid!, null, map, counters);
+    const acc = map.values().next().value;
+    const row = accToSnapshotRow(acc, 2024, [1], new Date().toISOString());
+
+    const identity = deriveTaxRecordIdentity(acc.normalizedTaxId);
+    assert.equal(identity.status, 'resolved');
+    if (identity.status !== 'resolved') return;
+
+    assert.equal(row['record_identity_key'], identity.recordIdentityKey);
+    assert.equal(row['record_identity_key'], `tax:${acc.normalizedTaxId}`);
+  });
+
+  it('two releases for the same supplier RUT collapse into one row with one record_identity_key (no row exclusion, no multiplicity change)', () => {
+    const map = new Map();
+    const counters = makeCounters();
+
+    const release1 = makeRelease({ ocid: 'ocds-70d2nz-4280-24-LP1' });
+    const release2 = makeRelease({
+      ocid: 'ocds-70d2nz-4280-24-LP2',
+      awards: [
+        {
+          id: 'award-2',
+          status: 'active',
+          suppliers: [{ id: 'supplier-1', name: 'Proveedor SA' }],
+          // @ts-expect-error -- value no está en OcdsAward tipado pero sí en datos reales
+          value: { amount: 2_000_000, currency: 'CLP' },
+        },
+      ],
+    });
+
+    processRelease(release1, release1.ocid!, null, map, counters);
+    processRelease(release2, release2.ocid!, null, map, counters);
+
+    assert.equal(map.size, 1, 'sigue habiendo una sola fila por RUT (sin cambio de multiplicidad)');
+    const acc = map.values().next().value;
+    const row = accToSnapshotRow(acc, 2024, [1], new Date().toISOString());
+
+    assert.equal(row['record_identity_key'], `tax:${acc.normalizedTaxId}`);
+  });
+
+  it('upsert onConflict target remains the legacy tax grain (unchanged by shadow write)', () => {
+    const source = readFileSync(
+      new URL('../run-chilecompra-ocds-snapshot-etl.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.ok(
+      source.includes(
+        "onConflict: 'source_key,country_code,source_year,normalized_tax_id'",
+      ),
+      'debe conservar el conflict target viejo (OLD_TAX_GRAIN_ON_CONFLICT)',
+    );
+    assert.equal(
+      OLD_TAX_GRAIN_ON_CONFLICT,
+      'source_key,country_code,source_year,normalized_tax_id',
+    );
+    assert.ok(
+      !source.includes("onConflict: 'source_key,country_code,source_year,record_identity_key'"),
+      'no debe activar RECORD_IDENTITY_ON_CONFLICT (P2B) en este hito',
+    );
   });
 });

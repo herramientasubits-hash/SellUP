@@ -28,6 +28,7 @@ import {
 import type { FetchAwardResult } from './chilecompra-ocds-client';
 import { normalizeRut, resolveBuyer, collectUnspsc } from './normalizers';
 import type { OcdsRelease, OcdsAward } from './types';
+import { deriveTaxRecordIdentity } from '../../record-identity';
 
 const ETL_VERSION = 'v1.16CL-D.2';
 const BATCH_SIZE = 100;
@@ -390,6 +391,7 @@ export function accToSnapshotRow(
 ): Record<string, unknown> {
   const unspscCodes = cappedArray(acc.unspscMap.keys() as unknown as Set<string>);
   const unspscDescs = unspscCodes.map((code) => acc.unspscMap.get(code) ?? '');
+  const identity = deriveTaxRecordIdentity(acc.normalizedTaxId);
 
   return {
     source_key: SOURCE_KEY,
@@ -429,6 +431,7 @@ export function accToSnapshotRow(
       original_supplier_name_sample: acc.originalLegalNameSample ?? null,
     },
     imported_at: generatedAt,
+    record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
   };
 }
 

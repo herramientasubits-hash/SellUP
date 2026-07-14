@@ -30,12 +30,18 @@ import {
   buildSnapshotRow,
   runImporter,
   extractAllLinesFromZip,
+  upsertChunk,
 } from '../import-rd-dgii-snapshot';
 
 import {
   normalizeDominicanRnc,
   isDominicanBusinessRnc,
 } from '../normalizers';
+
+import {
+  deriveTaxRecordIdentity,
+  OLD_TAX_GRAIN_ON_CONFLICT,
+} from '../../../record-identity';
 
 // ── 1. Strict integer parsing ──────────────────────────────────────────────────
 
@@ -459,5 +465,115 @@ describe('dry-run in high offset window', () => {
 
   it('parseStrictNonNegativeIntegerArg handles offset 551000 as plain integer', () => {
     assert.equal(parseStrictNonNegativeIntegerArg('551000', '--offset'), 551000);
+  });
+});
+
+// ── 15. record_identity_key shadow write (APP-A P2A) ─────────────────────────
+
+describe('record_identity_key shadow write (APP-A P2A)', () => {
+  it('buildSnapshotRow derives record_identity_key = tax:<normalized RNC>', () => {
+    const row = buildSnapshotRow({
+      rnc: '101-000-001',
+      legalName: 'EMPRESA TEST SRL',
+      tradeName: undefined,
+      taxpayerStatus: 'ACTIVO',
+      normalizedStatus: 'active',
+      isActive: true,
+      economicActivity: undefined,
+      registrationDate: undefined,
+      localAdministration: undefined,
+      paymentRegime: undefined,
+      category: undefined,
+      sourceYear: 2026,
+      sourceLastModified: undefined,
+      importedAt: new Date().toISOString(),
+    });
+
+    assert.equal(row.normalized_tax_id, '101000001');
+    assert.equal(row.record_identity_key, 'tax:101000001');
+
+    const identity = deriveTaxRecordIdentity(row.normalized_tax_id);
+    assert.equal(identity.status, 'resolved');
+    if (identity.status !== 'resolved') return;
+    assert.equal(row.record_identity_key, identity.recordIdentityKey);
+  });
+
+  it('two rows built from the same RNC produce the same record_identity_key (matches old dedup grain)', () => {
+    const shared = {
+      rnc: '101000001',
+      legalName: 'EMPRESA A',
+      tradeName: undefined,
+      taxpayerStatus: 'ACTIVO',
+      normalizedStatus: 'active',
+      isActive: true,
+      economicActivity: undefined,
+      registrationDate: undefined,
+      localAdministration: undefined,
+      paymentRegime: undefined,
+      category: undefined,
+      sourceYear: 2026,
+      sourceLastModified: undefined,
+      importedAt: new Date().toISOString(),
+    };
+
+    const row1 = buildSnapshotRow(shared);
+    const row2 = buildSnapshotRow({ ...shared, legalName: 'EMPRESA A V2' });
+
+    assert.equal(row1.record_identity_key, row2.record_identity_key);
+    assert.equal(row1.normalized_tax_id, row2.normalized_tax_id);
+  });
+
+  it('upsertChunk keeps the old tax-grain onConflict target (unchanged by shadow write)', async () => {
+    const upsertCalls: Array<{ rows: unknown[]; options: Record<string, unknown> }> = [];
+
+    const fakeSupabase = {
+      from: () => ({
+        upsert: (rows: unknown[], options: Record<string, unknown>) => {
+          upsertCalls.push({ rows, options });
+          return { error: null };
+        },
+      }),
+    };
+
+    const row = buildSnapshotRow({
+      rnc: '101000001',
+      legalName: 'EMPRESA TEST SRL',
+      tradeName: undefined,
+      taxpayerStatus: 'ACTIVO',
+      normalizedStatus: 'active',
+      isActive: true,
+      economicActivity: undefined,
+      registrationDate: undefined,
+      localAdministration: undefined,
+      paymentRegime: undefined,
+      category: undefined,
+      sourceYear: 2026,
+      sourceLastModified: undefined,
+      importedAt: new Date().toISOString(),
+    });
+
+    const result = await upsertChunk(fakeSupabase, [row]);
+
+    assert.equal(result.error, null);
+    assert.equal(upsertCalls.length, 1);
+    assert.equal(upsertCalls[0]!.options['onConflict'], OLD_TAX_GRAIN_ON_CONFLICT);
+    assert.equal(
+      upsertCalls[0]!.options['onConflict'],
+      'source_key,country_code,source_year,normalized_tax_id',
+    );
+    // row still carries record_identity_key as a shadow column, not as the conflict target
+    assert.equal((upsertCalls[0]!.rows[0] as { record_identity_key: unknown }).record_identity_key, 'tax:101000001');
+  });
+
+  it('record_identity_key is null (unavailable) when normalized RNC cannot be derived, without excluding the row', () => {
+    // buildSnapshotRow falls back to the raw rnc if normalizeDominicanRnc returns null
+    // (e.g. malformed input already past upstream filtering); deriveTaxRecordIdentity
+    // still resolves as long as a non-empty string reaches it. This test documents the
+    // defensive path for an empty/whitespace-only value, which normalizeDominicanRnc
+    // cannot itself produce from a valid business RNC.
+    const identity = deriveTaxRecordIdentity('   ');
+    assert.equal(identity.status, 'unavailable');
+    if (identity.status !== 'unavailable') return;
+    assert.equal(identity.reason, 'missing_tax_id');
   });
 });

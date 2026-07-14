@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
 import { downloadSiisExcel, SIIS_CONFIRMED_YEARS } from './siis-client';
 import type { SiisCompanyFinancialRecord } from './types';
+import { deriveTaxRecordIdentity } from '../../record-identity';
 
 // ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -463,24 +464,31 @@ export async function runSiisSnapshotEtl(
 
     for (let i = 0; i < records.length; i += BATCH_SIZE) {
       const batch = records.slice(i, i + BATCH_SIZE);
-      const rows = batch.map((rec) => ({
-        source_key: 'co_siis' as const,
-        country_code: 'CO' as const,
-        source_year: year,
-        tax_id: rec.taxId ?? null,
-        legal_name: rec.legalName ?? null,
-        normalized_tax_id: normalizeSiisNIT(rec.taxId),
-        normalized_legal_name: normalizeSiisLegalName(rec.legalName),
-        sector: rec.macrosector ?? rec.ciiu ?? null,
-        city: rec.city ?? null,
-        department: rec.department ?? null,
-        region: rec.region ?? null,
-        priority_score: computePriorityScore(rec),
-        financials: rec.financials ?? {},
-        signals: { supervisor: rec.supervisor, ciiu: rec.ciiu, ranking: rec.ranking },
-        raw_data: rec.raw ?? {},
-        imported_at: new Date().toISOString(),
-      }));
+      const rows = batch.map((rec) => {
+        const normalizedTaxId = normalizeSiisNIT(rec.taxId);
+        const identity = deriveTaxRecordIdentity(normalizedTaxId);
+
+        return {
+          source_key: 'co_siis' as const,
+          country_code: 'CO' as const,
+          source_year: year,
+          tax_id: rec.taxId ?? null,
+          legal_name: rec.legalName ?? null,
+          normalized_tax_id: normalizedTaxId,
+          normalized_legal_name: normalizeSiisLegalName(rec.legalName),
+          sector: rec.macrosector ?? rec.ciiu ?? null,
+          city: rec.city ?? null,
+          department: rec.department ?? null,
+          region: rec.region ?? null,
+          priority_score: computePriorityScore(rec),
+          financials: rec.financials ?? {},
+          signals: { supervisor: rec.supervisor, ciiu: rec.ciiu, ranking: rec.ranking },
+          raw_data: rec.raw ?? {},
+          imported_at: new Date().toISOString(),
+          record_identity_key:
+            identity.status === 'resolved' ? identity.recordIdentityKey : null,
+        };
+      });
 
       const { error: upsertErr } = await sb!
         .from('source_company_snapshots')

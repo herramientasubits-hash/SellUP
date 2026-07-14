@@ -24,6 +24,8 @@
  */
 
 import type { HnOcdsCandidate } from './hn-ocds-types';
+import { deriveTaxRecordIdentity } from '../../record-identity';
+import type { RecordIdentityKey } from '../../record-identity';
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,7 @@ export type HnSnapshotRow = {
   signals: HnSnapshotSignals;
   financials: Record<string, never>;
   raw_data: HnSnapshotRawData;
+  record_identity_key?: RecordIdentityKey | null;
 };
 
 export type HnSnapshotMapResult =
@@ -129,6 +132,8 @@ export function mapCandidateToSnapshot(
     source: 'ocp_registry_jsonl',
   };
 
+  const identity = deriveTaxRecordIdentity(candidate.normalizedRtn);
+
   const row: HnSnapshotRow = {
     source_key: HN_SNAPSHOT_SOURCE_KEY,
     country_code: HN_SNAPSHOT_COUNTRY_CODE,
@@ -153,6 +158,7 @@ export function mapCandidateToSnapshot(
     },
     financials: {},
     raw_data: rawData,
+    record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
   };
 
   return { ok: true, row };
