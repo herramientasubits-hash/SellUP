@@ -2025,7 +2025,13 @@ const RULE_SCOPES: BudgetScopeType[] = ['global', 'role', 'group', 'user'];
 
 // Providers whose quota can be refreshed from the provider's own API (mirrors
 // SYNCABLE_PROVIDERS in quota-sync-actions.ts and the table-level bulk sync).
-const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
+//
+// Anthropic is intentionally excluded: it has no documented endpoint for
+// monthly credits/allowance, only historical USD cost via a separate Admin
+// API key that SellUp does not yet integrate. Showing an active sync CTA
+// here would misrepresent that capability as ready. See the info-only note
+// rendered below for providerKey === 'anthropic'.
+const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo']);
 
 function getQuotaButtonLabel(providerKey: string, row: AdminProviderBudgetRow): string | null {
   if (row.measurementStatus === 'not_measured') return null;
@@ -2398,6 +2404,13 @@ function TabPresupuesto({
             </Button>
           )}
         </div>
+        {!isNotMeasured && row.providerKey === 'anthropic' && (
+          <p className="text-[11px] text-muted-foreground/70 leading-relaxed px-1">
+            Sync de costo requiere Admin API key. Anthropic requiere una Admin API key
+            para sincronizar costo USD. Mientras tanto, configura el presupuesto
+            mensual de forma manual.
+          </p>
+        )}
         <InlineFeedback feedback={syncFeedback} />
       </div>
 

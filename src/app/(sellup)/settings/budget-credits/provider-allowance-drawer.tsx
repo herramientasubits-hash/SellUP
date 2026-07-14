@@ -10,7 +10,11 @@ import { updateProviderAllowance, useApiQuotaAsPrimary } from '@/modules/budgets
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { toast } from 'sonner';
 
-const SYNCABLE_PROVIDERS = new Set(['tavily', 'lusha', 'anthropic']);
+// Anthropic is intentionally excluded: it has no documented endpoint for
+// monthly credits/allowance, only historical USD cost via a separate Admin
+// API key that SellUp does not yet integrate. See the Claude USD note below
+// for the manual-budget explanation shown instead.
+const SYNCABLE_PROVIDERS = new Set(['tavily', 'lusha']);
 /** Proveedores que se miden principalmente en USD, no en créditos */
 const USD_PRIMARY_PROVIDERS = new Set(['anthropic']);
 
@@ -243,6 +247,10 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
               </p>
               <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
                 Configura el presupuesto mensual USD. El campo de créditos no aplica para este proveedor.
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                Anthropic requiere una Admin API key para sincronizar costo USD. Mientras
+                tanto, configura el presupuesto mensual de forma manual.
               </p>
             </div>
           )}
