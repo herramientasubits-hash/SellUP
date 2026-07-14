@@ -49,6 +49,7 @@ function baseRun(overrides: Partial<AccountContactEnrichmentRun> = {}): AccountC
     approvedCount: 0,
     totalCreditsUsed: 1,
     providerUsageStatuses: ['success'],
+    summaryError: null,
     ...overrides,
   };
 }

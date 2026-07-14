@@ -33,4 +33,9 @@ export interface AccountContactEnrichmentRun {
   totalCreditsUsed: number | null;
   /** Distinct provider_usage_logs.status values recorded for this run's agent_run_id. */
   providerUsageStatuses: string[];
+  /** Error reason recorded by the runner when no provider call was ever
+   *  attempted (e.g. 'missing_api_key', 'invalid_account'). Only present on
+   *  failed runs. Used by the inline detail expansion to distinguish "no
+   *  credentials" from "company context error" from a generic failure. */
+  summaryError: string | null;
 }

@@ -107,6 +107,22 @@ describe('A — loadContactEnrichmentRunsByAccountId (SITECO reproduction)', () 
     assert.deepEqual(runs.map((r) => r.id), [LUSHA_RUN_ID, APOLLO_RUN_ID]);
   });
 
+  it('passes summaryError through from summary.error (Hito 17B.4X.7C.3E.4 — inline detail needs it)', async () => {
+    const runs = await loadContactEnrichmentRunsByAccountId(SITECO_ACCOUNT_ID, {
+      fetchRunRows: async () => [
+        { ...lushaRunRow(), summary: {} },
+        { ...apolloRunRow(), summary: { error: 'missing_api_key' } },
+      ],
+      fetchCandidateCountRows: async () => [],
+      fetchProviderUsageSummaryRows: async () => [],
+    });
+
+    const lusha = runs.find((r) => r.id === LUSHA_RUN_ID);
+    const apollo = runs.find((r) => r.id === APOLLO_RUN_ID);
+    assert.equal(lusha?.summaryError, null);
+    assert.equal(apollo?.summaryError, 'missing_api_key');
+  });
+
   it('scopes candidate counts by enrichment_run_id — no mixing across runs', async () => {
     const runs = await loadContactEnrichmentRunsByAccountId(SITECO_ACCOUNT_ID, {
       fetchRunRows: async () => [lushaRunRow(), apolloRunRow()],

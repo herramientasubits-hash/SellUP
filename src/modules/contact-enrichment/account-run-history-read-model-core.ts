@@ -127,6 +127,7 @@ export async function loadContactEnrichmentRunsByAccountId(
       approvedCount: candidateAcc.approved,
       totalCreditsUsed: usageAcc?.totalCredits ?? null,
       providerUsageStatuses: usageAcc ? [...usageAcc.statuses] : [],
+      summaryError: run.summaryError,
     };
   });
 }
