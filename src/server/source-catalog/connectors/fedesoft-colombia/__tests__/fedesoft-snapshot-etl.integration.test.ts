@@ -267,6 +267,54 @@ describe('runFedesoftSnapshotEtl (commit flow)', () => {
     assert.ok(upsertCallCount >= 3, `Expected >= 3 upsert calls (BATCH_SIZE=100), got ${upsertCallCount}`);
   });
 
+  it('upserts with the shared OLD_TAX_GRAIN_ON_CONFLICT target and returns shadow counts', async () => {
+    upsertCallCount = 0;
+    const capturedOnConflict: unknown[] = [];
+    const capturedRows: Array<Record<string, unknown>> = [];
+    const mockSb = {
+      from: () => ({
+        insert: () => ({
+          select: () => ({
+            single: () => Promise.resolve({ data: { id: 'mock-run-id' }, error: null }),
+          }),
+        }),
+        update: () => ({ eq: () => Promise.resolve() }),
+        upsert: (rows: Array<Record<string, unknown>>, opts: { onConflict: unknown }) => {
+          upsertCallCount++;
+          capturedOnConflict.push(opts.onConflict);
+          capturedRows.push(...rows);
+          return { error: null };
+        },
+      }),
+    };
+
+    const { runFedesoftSnapshotEtl } = await import('../fedesoft-snapshot-etl');
+    const { OLD_TAX_GRAIN_ON_CONFLICT } = await import('../../../record-identity');
+    const result = await runFedesoftSnapshotEtl(MOCK_SOURCE_YEAR, {
+      dryRun: false,
+      sb: mockSb,
+    });
+
+    assert.equal(result.ok, true);
+    assert.ok(capturedOnConflict.length > 0);
+    assert.ok(capturedOnConflict.every((v) => v === OLD_TAX_GRAIN_ON_CONFLICT));
+    assert.equal(OLD_TAX_GRAIN_ON_CONFLICT, 'source_key,country_code,source_year,normalized_tax_id');
+
+    // fakeCompanies: 2 with NIT (no directoryId → tax:<nit>), 2 without NIT (name: fallback → unavailable)
+    assert.equal(result.recordIdentityResolved, 2);
+    assert.equal(result.recordIdentityUnavailable, 2);
+    assert.equal(result.recordIdentityUnavailableReasons.missing_tax_id, 2);
+
+    const withTax = capturedRows.find((r) => r.normalized_tax_id === '900123456');
+    assert.equal(withTax?.record_identity_key, 'tax:900123456');
+
+    const withoutTax = capturedRows.find((r) => r.normalized_tax_id === 'name:no nit company');
+    assert.equal(withoutTax?.record_identity_key, null);
+
+    // All 4 companies still arrive at the writer regardless of identity availability (P2A, no exclusion).
+    assert.equal(capturedRows.length, 4);
+  });
+
   it('handles upsert error gracefully', async () => {
     upsertCallCount = 0;
     const errorSb = {

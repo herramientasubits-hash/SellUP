@@ -50,10 +50,13 @@ import {
 import {
   deduplicateProviderEntries,
   buildPanamaSnapshotRows,
+  derivePanamaRecordIdentity,
   PANAMACOMPRA_SOURCE_KEY,
 } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanamaProviderEntry } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanaNormalizedProvider } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-normalizer';
+import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
+import type { RecordIdentityUnavailableReason } from '../../src/server/source-catalog/record-identity';
 
 // ─── Guardrails piloto ─────────────────────────────────────────────────────────
 
@@ -170,6 +173,9 @@ export type EtlReport = {
   conveniosAsociados: number;
   errores: string[];
   writes: number;
+  recordIdentityResolved: number;
+  recordIdentityUnavailable: number;
+  recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
 };
 
 function printReport(report: EtlReport, isDryRun: boolean, operational: boolean): void {
@@ -189,6 +195,8 @@ function printReport(report: EtlReport, isDryRun: boolean, operational: boolean)
   console.log(`  Convenios asociados:       ${report.conveniosAsociados}`);
   console.log(`  Errores:                   ${report.errores.length}`);
   console.log(`  Writes a source_company_snapshots: ${report.writes}`);
+  console.log(`  record_identity_key resuelto (shadow): ${report.recordIdentityResolved}`);
+  console.log(`  record_identity_key unavailable (shadow): ${report.recordIdentityUnavailable}`);
   console.log('───────────────────────────────────────────────────────────');
   if (report.errores.length > 0) {
     console.log('  Errores detalle:');
@@ -214,30 +222,66 @@ function printReport(report: EtlReport, isDryRun: boolean, operational: boolean)
 
 // ─── Upsert a Supabase ────────────────────────────────────────────────────────
 
+export type PanamaUpsertResult = {
+  written: number;
+  recordIdentityResolved: number;
+  recordIdentityUnavailable: number;
+  recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPanamaSnapshotRows>): Promise<number> {
-  if (snapshots.length === 0) return 0;
+async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPanamaSnapshotRows>): Promise<PanamaUpsertResult> {
+  const emptyResult: PanamaUpsertResult = {
+    written: 0,
+    recordIdentityResolved: 0,
+    recordIdentityUnavailable: 0,
+    recordIdentityUnavailableReasons: {},
+  };
+  if (snapshots.length === 0) return emptyResult;
 
   // source_year is required by the unique constraint; use current year for pilot load
   const sourceYear = new Date().getFullYear();
 
-  const allRows = snapshots.map((s) => ({
-    source_key: s.source_key,
-    country_code: s.country_code,
-    source_year: sourceYear,
-    tax_id: s.tax_id,
-    normalized_tax_id: s.normalized_tax_id,
-    legal_name: s.legal_name,
-    sector: null,
-    city: null,
-    department: null,
-    region: null,
-    priority_score: 0,
-    signals: { source_url: s.source_url },
-    financials: {},
-    raw_data: s.raw_data,
-    imported_at: new Date().toISOString(),
-  }));
+  // EC4D5.C3 — shadow dual-write: deriva record_identity_key desde company_id →
+  // provider_id → normalized_tax_id, sin excluir ni reordenar filas (P2A puro).
+  let recordIdentityResolved = 0;
+  let recordIdentityUnavailable = 0;
+  const recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>> = {};
+
+  const allRows = snapshots.map((s) => {
+    const identity = derivePanamaRecordIdentity({
+      companyId: s.raw_data.company_id,
+      providerId: s.raw_data.provider_id,
+      normalizedTaxId: s.normalized_tax_id,
+    });
+
+    if (identity.status === 'resolved') {
+      recordIdentityResolved++;
+    } else {
+      recordIdentityUnavailable++;
+      recordIdentityUnavailableReasons[identity.reason] =
+        (recordIdentityUnavailableReasons[identity.reason] ?? 0) + 1;
+    }
+
+    return {
+      source_key: s.source_key,
+      country_code: s.country_code,
+      source_year: sourceYear,
+      tax_id: s.tax_id,
+      normalized_tax_id: s.normalized_tax_id,
+      legal_name: s.legal_name,
+      sector: null,
+      city: null,
+      department: null,
+      region: null,
+      priority_score: 0,
+      signals: { source_url: s.source_url },
+      financials: {},
+      raw_data: s.raw_data,
+      imported_at: new Date().toISOString(),
+      record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
+    };
+  });
 
   // Second-pass dedup: the DB unique constraint is (source_key,country_code,source_year,normalized_tax_id).
   // The provider deduplicator uses companyId/providerId as keys, so two providers with different IDs
@@ -254,7 +298,7 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
   const { error, count } = await admin
     .from('source_company_snapshots')
     .upsert(rows, {
-      onConflict: 'source_key,country_code,source_year,normalized_tax_id',
+      onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
       ignoreDuplicates: false,
       count: 'exact',
     });
@@ -267,7 +311,12 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
     throw new Error(`upsert_source_company_snapshots: ${msg}`);
   }
 
-  return typeof count === 'number' ? count : snapshots.length;
+  return {
+    written: typeof count === 'number' ? count : snapshots.length,
+    recordIdentityResolved,
+    recordIdentityUnavailable,
+    recordIdentityUnavailableReasons,
+  };
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
@@ -325,6 +374,9 @@ async function main(): Promise<void> {
     conveniosAsociados: 0,
     errores: [],
     writes: 0,
+    recordIdentityResolved: 0,
+    recordIdentityUnavailable: 0,
+    recordIdentityUnavailableReasons: {},
   };
 
   // ── Paso 1: Listar convenios ───────────────────────────────────────────────
@@ -445,7 +497,11 @@ async function main(): Promise<void> {
     console.log('');
     console.log(`[${applyLabel}] Upserting ${snapshots.length} snapshots en source_company_snapshots...`);
     try {
-      report.writes = await upsertSnapshots(admin, snapshots);
+      const upsertResult = await upsertSnapshots(admin, snapshots);
+      report.writes = upsertResult.written;
+      report.recordIdentityResolved = upsertResult.recordIdentityResolved;
+      report.recordIdentityUnavailable = upsertResult.recordIdentityUnavailable;
+      report.recordIdentityUnavailableReasons = upsertResult.recordIdentityUnavailableReasons;
       console.log(`[${applyLabel}] ✓ ${report.writes} filas escritas.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

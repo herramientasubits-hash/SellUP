@@ -20,6 +20,8 @@
  */
 
 import type { PanaNormalizedProvider } from './panamacompra-pa-normalizer';
+import { buildRecordIdentityKey, deriveTaxRecordIdentity } from '../../record-identity';
+import type { RecordIdentityResult } from '../../record-identity';
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -175,4 +177,28 @@ export function buildPanamaSnapshotRow(entry: PanamaProviderEntry): PanamaSnapsh
  */
 export function buildPanamaSnapshotRows(entries: PanamaProviderEntry[]): PanamaSnapshotRow[] {
   return entries.map((e) => buildPanamaSnapshotRow(e));
+}
+
+// ─── Record identity (EC4D5.C3 — shadow dual-write, additive) ─────────────────
+
+export type PanamaRecordIdentityInput = {
+  companyId: string | null;
+  providerId: string | null;
+  normalizedTaxId: string | null;
+};
+
+/**
+ * Deriva record_identity_key para un proveedor PanamaCompra.
+ * Precedencia: company_id (nativo) → provider_id (nativo) → normalized_tax_id.
+ * Nunca deriva de nombre/razón social/slug/hash. Si nada está disponible,
+ * retorna 'unavailable' — la fila sigue llegando al writer sin bloquearse.
+ */
+export function derivePanamaRecordIdentity(input: PanamaRecordIdentityInput): RecordIdentityResult {
+  if (input.companyId) {
+    return buildRecordIdentityKey('company', input.companyId);
+  }
+  if (input.providerId) {
+    return buildRecordIdentityKey('provider', input.providerId);
+  }
+  return deriveTaxRecordIdentity(input.normalizedTaxId);
 }

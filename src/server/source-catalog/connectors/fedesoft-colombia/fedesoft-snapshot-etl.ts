@@ -2,6 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { runFedesoftConnector } from './fedesoft-connector';
 import { FEDESOFT_SOURCE_KEY, FEDESOFT_COUNTRY_CODE } from './types';
 import type { FedesoftCompany, FedesoftConnectorResult, FedesoftMatchSource } from './types';
+import { buildRecordIdentityKey, deriveTaxRecordIdentity, OLD_TAX_GRAIN_ON_CONFLICT } from '../../record-identity';
+import type { RecordIdentityResult, RecordIdentityUnavailableReason } from '../../record-identity';
 
 export type FedesoftSnapshotEtlResult = {
   ok: boolean;
@@ -20,6 +22,9 @@ export type FedesoftSnapshotEtlResult = {
   runId: string | undefined;
   errors: string[];
   warnings: string[];
+  recordIdentityResolved: number;
+  recordIdentityUnavailable: number;
+  recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
 };
 
 export type FedesoftSnapshotEtlOptions = {
@@ -61,6 +66,33 @@ export function getFedesoftPriorityScore(company: FedesoftCompany): number {
   return Math.min(score, MAX_PRIORITY);
 }
 
+// ─── Record identity (EC4D5.C3 — shadow dual-write, additive) ─────────────────
+
+export type FedesoftRecordIdentityInput = {
+  directoryId: number | null | undefined;
+  /** The row-level normalized_tax_id AFTER the legacy `name:<normalizedName>` fallback is applied. */
+  normalizedTaxId: string | null;
+};
+
+/**
+ * Deriva record_identity_key para una empresa Fedesoft.
+ * Precedencia: directoryId (nativo) → normalized_tax_id (solo si NO es el
+ * fallback legado `name:<normalizedName>`). Nunca deriva de slug/nombre/hash.
+ * Si nada está disponible, retorna 'unavailable' — la fila sigue llegando al
+ * writer sin bloquearse (P2A puro).
+ */
+export function deriveFedesoftRecordIdentity(
+  input: FedesoftRecordIdentityInput,
+): RecordIdentityResult {
+  if (input.directoryId !== null && input.directoryId !== undefined) {
+    return buildRecordIdentityKey('fedesoft-directory', String(input.directoryId));
+  }
+  if (input.normalizedTaxId && !input.normalizedTaxId.startsWith('name:')) {
+    return deriveTaxRecordIdentity(input.normalizedTaxId);
+  }
+  return { status: 'unavailable', reason: 'missing_tax_id' };
+}
+
 export function buildFedesoftSnapshotRow(
   company: FedesoftCompany,
   sourceYear: number,
@@ -69,6 +101,11 @@ export function buildFedesoftSnapshotRow(
 
   const firstLocation = company.locations.length > 0 ? company.locations[0] : null;
 
+  const recordIdentity = deriveFedesoftRecordIdentity({
+    directoryId: company.metadata.directoryId,
+    normalizedTaxId,
+  });
+
   return {
     source_key: FEDESOFT_SOURCE_KEY,
     country_code: FEDESOFT_COUNTRY_CODE,
@@ -76,6 +113,8 @@ export function buildFedesoftSnapshotRow(
 
     tax_id: company.taxId,
     normalized_tax_id: normalizedTaxId,
+    record_identity_key:
+      recordIdentity.status === 'resolved' ? recordIdentity.recordIdentityKey : null,
 
     legal_name: company.name,
     normalized_legal_name: company.normalizedName,
@@ -266,10 +305,32 @@ export async function runFedesoftSnapshotEtl(
           ...warnings,
           `DRY RUN — ${companies.length} companies built, no writes performed.`,
         ],
+        recordIdentityResolved: 0,
+        recordIdentityUnavailable: 0,
+        recordIdentityUnavailableReasons: {},
       };
     }
 
     const rows = buildFedesoftSnapshotRows(companies, sourceYear);
+
+    // EC4D5.C3 — shadow dual-write observability: cuenta resolved/unavailable
+    // sin excluir ni reordenar filas (P2A puro, no bloqueante).
+    let recordIdentityResolved = 0;
+    let recordIdentityUnavailable = 0;
+    const recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>> = {};
+    for (const company of companies) {
+      const identity = deriveFedesoftRecordIdentity({
+        directoryId: company.metadata.directoryId,
+        normalizedTaxId: company.normalizedTaxId ?? `name:${company.normalizedName}`,
+      });
+      if (identity.status === 'resolved') {
+        recordIdentityResolved++;
+      } else {
+        recordIdentityUnavailable++;
+        recordIdentityUnavailableReasons[identity.reason] =
+          (recordIdentityUnavailableReasons[identity.reason] ?? 0) + 1;
+      }
+    }
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
@@ -277,7 +338,7 @@ export async function runFedesoftSnapshotEtl(
       const { error: upsertErr } = await sb!
         .from('source_company_snapshots')
         .upsert(batch, {
-          onConflict: 'source_key,country_code,source_year,normalized_tax_id',
+          onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
         });
 
       if (upsertErr) {
@@ -315,6 +376,9 @@ export async function runFedesoftSnapshotEtl(
       runId,
       errors,
       warnings,
+      recordIdentityResolved,
+      recordIdentityUnavailable,
+      recordIdentityUnavailableReasons,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -351,6 +415,9 @@ export async function runFedesoftSnapshotEtl(
       runId,
       errors,
       warnings,
+      recordIdentityResolved: 0,
+      recordIdentityUnavailable: 0,
+      recordIdentityUnavailableReasons: {},
     };
   }
 }

@@ -10,6 +10,7 @@ import {
   deduplicateProviderEntries,
   buildPanamaSnapshotRow,
   buildPanamaSnapshotRows,
+  derivePanamaRecordIdentity,
   PANAMACOMPRA_SOURCE_KEY,
   PANAMACOMPRA_COUNTRY_CODE,
 } from '../panamacompra-pa-snapshot-builder';
@@ -175,5 +176,64 @@ describe('buildPanamaSnapshotRows — Caso 20: no escribe DB', () => {
   it('buildPanamaSnapshotRows devuelve array vacío para entradas vacías', () => {
     const rows = buildPanamaSnapshotRows([]);
     assert.deepEqual(rows, []);
+  });
+});
+
+// ─── derivePanamaRecordIdentity — EC4D5.C3 shadow dual-write ─────────────────
+
+describe('derivePanamaRecordIdentity', () => {
+  it('company_id gana sobre provider_id y normalized_tax_id', () => {
+    const result = derivePanamaRecordIdentity({
+      companyId: 'E456',
+      providerId: 'P123',
+      normalizedTaxId: '8-100-200',
+    });
+    assert.deepEqual(result, { status: 'resolved', recordIdentityKey: 'company:E456' });
+  });
+
+  it('provider_id gana cuando no hay company_id', () => {
+    const result = derivePanamaRecordIdentity({
+      companyId: null,
+      providerId: 'P123',
+      normalizedTaxId: '8-100-200',
+    });
+    assert.deepEqual(result, { status: 'resolved', recordIdentityKey: 'provider:P123' });
+  });
+
+  it('cae a tax cuando no hay company_id ni provider_id', () => {
+    const result = derivePanamaRecordIdentity({
+      companyId: null,
+      providerId: null,
+      normalizedTaxId: '8-100-200',
+    });
+    assert.deepEqual(result, { status: 'resolved', recordIdentityKey: 'tax:8-100-200' });
+  });
+
+  it('unavailable cuando no hay ningún identificador — no excluye la fila', () => {
+    const result = derivePanamaRecordIdentity({
+      companyId: null,
+      providerId: null,
+      normalizedTaxId: null,
+    });
+    assert.equal(result.status, 'unavailable');
+
+    // La fila sigue construyéndose normalmente (P2A no bloquea, no excluye).
+    const row = buildPanamaSnapshotRow(
+      makeEntry(makeProvider({ companyId: null, providerId: null, normalizedTaxId: null })),
+    );
+    assert.ok(row);
+    assert.equal(row.source_key, 'pa_panamacompra_convenio');
+  });
+
+  it('nunca deriva de nombre/razón social', () => {
+    const result = derivePanamaRecordIdentity({
+      companyId: null,
+      providerId: null,
+      normalizedTaxId: null,
+    });
+    assert.notEqual(result.status, 'resolved');
+    if (result.status === 'unavailable') {
+      assert.notEqual(result.reason, 'forbidden_namespace' as string);
+    }
   });
 });

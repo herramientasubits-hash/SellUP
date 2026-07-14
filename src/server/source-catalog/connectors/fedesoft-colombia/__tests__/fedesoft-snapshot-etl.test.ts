@@ -4,6 +4,7 @@ import {
   getFedesoftPriorityScore,
   buildFedesoftSnapshotRow,
   buildFedesoftSnapshotRows,
+  deriveFedesoftRecordIdentity,
 } from '../fedesoft-snapshot-etl';
 import type { FedesoftCompany } from '../types';
 
@@ -173,5 +174,80 @@ describe('buildFedesoftSnapshotRows', () => {
     assert.equal(rows.length, 2);
     assert.equal(rows[0].normalized_tax_id, '111');
     assert.equal(rows[1].normalized_tax_id, '222');
+  });
+});
+
+// ─── deriveFedesoftRecordIdentity — EC4D5.C3 shadow dual-write ───────────────
+
+describe('deriveFedesoftRecordIdentity', () => {
+  it('directoryId gana sobre normalized_tax_id', () => {
+    const result = deriveFedesoftRecordIdentity({
+      directoryId: 4821,
+      normalizedTaxId: '900123456',
+    });
+    assert.deepEqual(result, { status: 'resolved', recordIdentityKey: 'fedesoft-directory:4821' });
+  });
+
+  it('cae a tax cuando no hay directoryId y normalized_tax_id es válido', () => {
+    const result = deriveFedesoftRecordIdentity({
+      directoryId: null,
+      normalizedTaxId: '900123456',
+    });
+    assert.deepEqual(result, { status: 'resolved', recordIdentityKey: 'tax:900123456' });
+  });
+
+  it('normalized_tax_id legado `name:` produce unavailable (nunca resuelto)', () => {
+    const result = deriveFedesoftRecordIdentity({
+      directoryId: null,
+      normalizedTaxId: 'name:tech solutions',
+    });
+    assert.equal(result.status, 'unavailable');
+  });
+
+  it('unavailable cuando no hay directoryId ni normalized_tax_id', () => {
+    const result = deriveFedesoftRecordIdentity({
+      directoryId: undefined,
+      normalizedTaxId: null,
+    });
+    assert.equal(result.status, 'unavailable');
+  });
+
+  it('unavailable no excluye la fila del writer — buildFedesoftSnapshotRow sigue construyéndose', () => {
+    const company = makeCompany({
+      normalizedTaxId: null,
+      normalizedName: 'sin identidad sas',
+      metadata: {},
+    });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    assert.equal(row.normalized_tax_id, 'name:sin identidad sas');
+    assert.equal(row.record_identity_key, null);
+    assert.equal(row.source_key, 'co_fedesoft');
+  });
+});
+
+describe('buildFedesoftSnapshotRow — record_identity_key wiring', () => {
+  it('usa fedesoft-directory:<directoryId> cuando metadata.directoryId está presente', () => {
+    const company = makeCompany({ metadata: { directoryId: 4821 } });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    assert.equal(row.record_identity_key, 'fedesoft-directory:4821');
+  });
+
+  it('usa tax:<normalized_tax_id> cuando no hay directoryId', () => {
+    const company = makeCompany({ metadata: {}, normalizedTaxId: '900123456' });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    assert.equal(row.record_identity_key, 'tax:900123456');
+  });
+
+  it('nunca usa fedesoftSlug como record_identity_key', () => {
+    const company = makeCompany({
+      metadata: {},
+      normalizedTaxId: null,
+      fedesoftSlug: 'tech-solutions',
+      normalizedName: 'tech solutions',
+    });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    assert.equal(row.record_identity_key, null);
+    assert.notEqual(row.record_identity_key, 'tech-solutions');
+    assert.ok(!String(row.record_identity_key ?? '').includes('tech-solutions'));
   });
 });
