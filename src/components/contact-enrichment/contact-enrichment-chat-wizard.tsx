@@ -13,11 +13,12 @@ import {
 } from '@/components/agent-chat';
 import {
   resolveContactEnrichmentCompanyAction,
-  startContactEnrichmentRunAction,
-  runContactEnrichmentApolloAction,
-  runContactEnrichmentLushaAction,
+  createContactEnrichmentRequestAction,
+  runContactEnrichmentApolloForRequestAction,
+  runContactEnrichmentLushaForRequestAction,
   isLushaEnabledAction,
 } from '@/modules/contact-enrichment/actions';
+import type { ContactEnrichmentRunResult } from '@/modules/contact-enrichment/types';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
   contactEnrichmentChatReducer,
@@ -165,27 +166,33 @@ export function ContactEnrichmentChatWizard({
     if (!candidate) return;
     dispatch({ type: 'CONFIRM' });
 
-    const result = await startContactEnrichmentRunAction({
-      companyName: candidate.name,
-      companyDomain: candidate.domain ?? undefined,
-      hubspotCompanyId: candidate.hubspotCompanyId ?? undefined,
-      sellupAccountId: candidate.sellupAccountId ?? undefined,
-      confirmedCompany: candidate,
-    });
+    const result = await createContactEnrichmentRequestAction(candidate);
 
-    if (!result.success || !result.data) {
-      dispatch({ type: 'RUN_FAILED', message: result.error ?? 'Error creando run' });
+    if (!result.success || !result.requestId) {
+      dispatch({ type: 'RUN_FAILED', message: result.error ?? 'Error creando la request de enriquecimiento' });
       return;
     }
-    dispatch({ type: 'RUN_SUCCEEDED', result: result.data });
+    dispatch({ type: 'REQUEST_CREATED', requestId: result.requestId });
+  }
+
+  /** Placeholder run snapshot for display — the real attempt (with existing-
+   *  contacts snapshot) is created server-side inside the request-level
+   *  action; candidatesCount is always read from apolloResult/lushaResult. */
+  function placeholderRunResult(attemptId: string): ContactEnrichmentRunResult {
+    return { runId: attemptId, agentRunId: attemptId, status: 'ready_to_enrich', candidatesCount: 0 };
   }
 
   async function handleSearchApollo() {
-    const runId = state.runResult?.runId;
-    if (!runId || state.step !== 'done') return;
+    const requestId = state.requestId;
+    if (!requestId || state.step !== 'done') return;
     dispatch({ type: 'APOLLO_START' });
 
-    const result = await runContactEnrichmentApolloAction(runId);
+    const result = await runContactEnrichmentApolloForRequestAction(requestId);
+
+    if (!result.attemptId) {
+      dispatch({ type: 'RUN_FAILED', message: result.error ?? 'Error preparando el intento de enriquecimiento' });
+      return;
+    }
 
     const uiResult = {
       status: result.status ?? 'error',
@@ -205,20 +212,26 @@ export function ContactEnrichmentChatWizard({
       searchGuardrail: result.searchGuardrail,
       error: result.error,
     };
+    const runResult = placeholderRunResult(result.attemptId);
 
     if (!result.success || result.providerStatus !== 'success') {
-      dispatch({ type: 'APOLLO_FAILED', result: uiResult });
+      dispatch({ type: 'APOLLO_FAILED', result: uiResult, runResult });
       return;
     }
-    dispatch({ type: 'APOLLO_SUCCEEDED', result: uiResult });
+    dispatch({ type: 'APOLLO_SUCCEEDED', result: uiResult, runResult });
   }
 
   async function handleSearchLusha() {
-    const runId = state.runResult?.runId;
-    if (!runId || state.step !== 'done') return;
+    const requestId = state.requestId;
+    if (!requestId || state.step !== 'done') return;
     dispatch({ type: 'LUSHA_START' });
 
-    const result = await runContactEnrichmentLushaAction(runId);
+    const result = await runContactEnrichmentLushaForRequestAction(requestId);
+
+    if (!result.attemptId) {
+      dispatch({ type: 'RUN_FAILED', message: result.error ?? 'Error preparando el intento de enriquecimiento' });
+      return;
+    }
 
     const uiResult = {
       status: result.status ?? 'error',
@@ -230,12 +243,13 @@ export function ContactEnrichmentChatWizard({
       noReviewableContactsFound: result.noReviewableContactsFound ?? true,
       error: result.error,
     } as const;
+    const runResult = placeholderRunResult(result.attemptId);
 
     if (!result.success || result.providerStatus !== 'success') {
-      dispatch({ type: 'LUSHA_FAILED', result: uiResult });
+      dispatch({ type: 'LUSHA_FAILED', result: uiResult, runResult });
       return;
     }
-    dispatch({ type: 'LUSHA_SUCCEEDED', result: uiResult });
+    dispatch({ type: 'LUSHA_SUCCEEDED', result: uiResult, runResult });
   }
 
   function handleProviderChange(provider: ContactEnrichmentProvider) {
@@ -313,26 +327,28 @@ export function ContactEnrichmentChatWizard({
               </div>
             )}
 
-            {state.step === 'done' && state.runResult && (
+            {state.step === 'done' && (
               <div className="space-y-3">
-                <RunResultSnapshot
-                  runResult={state.runResult}
-                  candidate={state.selectedCandidate}
-                  apolloResult={state.apolloResult}
-                  lushaResult={state.lushaResult}
-                  provider={state.selectedProvider}
-                  onCreateManualContact={
-                    onCreateManualContact && state.selectedCandidate?.sellupAccountId
-                      ? () =>
-                          onCreateManualContact({
-                            accountId: state.selectedCandidate!.sellupAccountId!,
-                            runId: state.runResult!.runId,
-                            companyName: state.selectedCandidate?.name ?? null,
-                            companyDomain: state.selectedCandidate?.domain ?? null,
-                          })
-                      : undefined
-                  }
-                />
+                {state.runResult && (
+                  <RunResultSnapshot
+                    runResult={state.runResult}
+                    candidate={state.selectedCandidate}
+                    apolloResult={state.apolloResult}
+                    lushaResult={state.lushaResult}
+                    provider={state.selectedProvider}
+                    onCreateManualContact={
+                      onCreateManualContact && state.selectedCandidate?.sellupAccountId
+                        ? () =>
+                            onCreateManualContact({
+                              accountId: state.selectedCandidate!.sellupAccountId!,
+                              runId: state.runResult!.runId,
+                              companyName: state.selectedCandidate?.name ?? null,
+                              companyDomain: state.selectedCandidate?.domain ?? null,
+                            })
+                        : undefined
+                    }
+                  />
+                )}
                 {!state.apolloResult && !state.lushaResult && (
                   <>
                     <ApolloPreflightCard provider={state.selectedProvider} />

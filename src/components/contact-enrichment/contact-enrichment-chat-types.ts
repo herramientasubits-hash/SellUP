@@ -97,6 +97,10 @@ export interface ContactEnrichmentChatState {
   selectedCandidate: CompanyCandidate | null;
   skippedHubSpot: boolean;
   runResult: ContactEnrichmentRunResult | null;
+  /** contact_enrichment_requests id (Hito 17B.4X.7C.2). Created before any
+   *  provider attempt exists; the attempt itself is created lazily when the
+   *  user picks a provider and searches. */
+  requestId: string | null;
   /** Selected provider for enrichment. Apollo is default. (17B.4K) */
   selectedProvider: ContactEnrichmentProvider;
   /** Apollo candidate-sourcing result (Hito 17A.3A). Null until Apollo runs. */
@@ -119,14 +123,15 @@ export type ContactEnrichmentChatAction =
   | { type: 'SUBMIT_EXTRA_DATA'; domain: string; country: string }
   | { type: 'CONFIRM' }
   | { type: 'RUN_SUCCEEDED'; result: ContactEnrichmentRunResult }
+  | { type: 'REQUEST_CREATED'; requestId: string }
   | { type: 'RUN_FAILED'; message: string }
   | { type: 'SELECT_PROVIDER'; provider: ContactEnrichmentProvider }
   | { type: 'APOLLO_START' }
-  | { type: 'APOLLO_SUCCEEDED'; result: ApolloEnrichmentUiResult }
-  | { type: 'APOLLO_FAILED'; result: ApolloEnrichmentUiResult }
+  | { type: 'APOLLO_SUCCEEDED'; result: ApolloEnrichmentUiResult; runResult?: ContactEnrichmentRunResult }
+  | { type: 'APOLLO_FAILED'; result: ApolloEnrichmentUiResult; runResult?: ContactEnrichmentRunResult }
   | { type: 'LUSHA_START' }
-  | { type: 'LUSHA_SUCCEEDED'; result: LushaEnrichmentUiResult }
-  | { type: 'LUSHA_FAILED'; result: LushaEnrichmentUiResult }
+  | { type: 'LUSHA_SUCCEEDED'; result: LushaEnrichmentUiResult; runResult?: ContactEnrichmentRunResult }
+  | { type: 'LUSHA_FAILED'; result: LushaEnrichmentUiResult; runResult?: ContactEnrichmentRunResult }
   | { type: 'RESET' };
 
 // ── Manual contact context (Hito 17A.7C.2) ────────────────────────────────────

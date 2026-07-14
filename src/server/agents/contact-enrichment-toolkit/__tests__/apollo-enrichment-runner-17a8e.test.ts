@@ -65,6 +65,9 @@ function makeRun(overrides: Partial<ContactEnrichmentRunRow> = {}): ContactEnric
 const NOOP_DEPS: Partial<ApolloEnrichmentRunnerDeps> = {
   loadRun: async () => makeRun(),
   updateRun: async () => {},
+  // In-memory stand-in for the atomic claim (17B.4X.7C.2) — mirrors
+  // loadRun's always-ready_to_enrich fixture.
+  claimRunForExecution: async () => ({ status: 'claimed', row: makeRun() }),
   loadApolloUnitCost: async () => 0,
   logUsage: async () => true,
   createStep: async () => ({ id: 'step-1' }) as unknown as AgentRunStep,

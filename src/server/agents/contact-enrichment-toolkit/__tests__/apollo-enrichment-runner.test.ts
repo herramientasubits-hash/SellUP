@@ -102,6 +102,17 @@ function makeHarness(
         ...(patch.summary !== undefined ? { summary: patch.summary } : {}),
       };
     },
+    // In-memory stand-in for the atomic claim (17B.4X.7C.2): mirrors the
+    // production UPDATE ... WHERE status='ready_to_enrich' contract against
+    // this harness's in-memory store instead of a real database.
+    claimRunForExecution: async (runId) => {
+      if (store.id !== runId) return { status: 'not_found' };
+      if (store.status !== 'ready_to_enrich') {
+        return { status: 'not_ready', currentStatus: store.status };
+      }
+      store = { ...store, status: 'enriching' };
+      return { status: 'claimed', row: store };
+    },
     runApollo: async () => apolloResult,
     writeCandidates: async (_runId, candidates) => {
       writeCalls += 1;
@@ -294,6 +305,77 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(result.status, 'error');
     assert.equal(h.getStore().status, 'completed'); // sin cambios
     assert.equal(h.getWriteCalls(), 0);
+  });
+
+  // ── Atomic execution claim (Hito 17B.4X.7C.2) ───────────────────────────────
+
+  it('claim not_ready: NUNCA llama a Apollo, ni escribe candidatos, ni registra usage', async () => {
+    let apolloCalled = false;
+    const h = makeHarness(makeRun({ status: 'enriching' }), {
+      status: 'success',
+      people: [person('a', 'a@corp.com')],
+      attempts: [],
+    });
+    h.deps.runApollo = async () => {
+      apolloCalled = true;
+      throw new Error('runApollo NUNCA debe llamarse cuando el claim falla');
+    };
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(apolloCalled, false, 'Apollo no debe ejecutarse tras un claim fallido');
+    assert.equal(result.status, 'error');
+    assert.equal(h.getWriteCalls(), 0);
+    assert.equal(h.getUsageLogged(), false);
+    assert.equal(h.getStore().status, 'enriching'); // sin mutar — el claim no reabre ni cambia el estado ajeno
+  });
+
+  it('claim not_found: NUNCA llama a Apollo cuando el run no existe', async () => {
+    let apolloCalled = false;
+    const h = makeHarness(makeRun(), {
+      status: 'success',
+      people: [person('a', 'a@corp.com')],
+      attempts: [],
+    });
+    h.deps.claimRunForExecution = async () => ({ status: 'not_found' });
+    h.deps.runApollo = async () => {
+      apolloCalled = true;
+      throw new Error('runApollo NUNCA debe llamarse cuando el run no existe');
+    };
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(apolloCalled, false);
+    assert.equal(result.status, 'error');
+    assert.equal(result.error, 'Run de enriquecimiento no encontrado');
+    assert.equal(h.getWriteCalls(), 0);
+  });
+
+  it('dos llamadas concurrentes al mismo runId: solo una gana el claim y llama a Apollo', async () => {
+    let apolloCallCount = 0;
+    const h = makeHarness(makeRun(), {
+      status: 'success',
+      people: [person('a', 'a@corp.com')],
+      attempts: [],
+    });
+    const originalClaim = h.deps.claimRunForExecution!;
+    h.deps.runApollo = async () => {
+      apolloCallCount += 1;
+      return { status: 'success', people: [person('a', 'a@corp.com')], attempts: [] };
+    };
+
+    // Simula dos llamadas concurrentes reclamando el mismo attempt: el claim
+    // atómico del harness ya serializa sobre `store`, así que la segunda
+    // observa 'enriching' y pierde — exactamente el contrato que el UPDATE
+    // condicional real garantiza en Postgres.
+    const [resultA, resultB] = await Promise.all([
+      executeContactEnrichmentApolloRun('run-1', 'user-1', { ...h.deps, claimRunForExecution: originalClaim }),
+      executeContactEnrichmentApolloRun('run-1', 'user-1', { ...h.deps, claimRunForExecution: originalClaim }),
+    ]);
+
+    const statuses = [resultA.status, resultB.status].sort();
+    assert.deepEqual(statuses, ['error', 'ready_for_review']);
+    assert.equal(apolloCallCount, 1, 'Apollo debe ejecutarse exactamente una vez entre ambas llamadas');
   });
 
   // ── Filtro de relevancia/calidad (Hito 17A.3B) ──────────────────────────────

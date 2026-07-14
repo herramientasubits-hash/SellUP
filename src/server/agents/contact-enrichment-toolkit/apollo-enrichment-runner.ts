@@ -50,6 +50,7 @@ import {
   APOLLO_PROJECTED_CREDITS_CONSERVATIVE,
   type ApolloBudgetCheckMeta,
 } from '@/modules/budgets/apollo-budget-alert';
+import { claimContactEnrichmentAttemptForExecution } from './contact-enrichment-execution-claim';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
 const APOLLO_OPERATION_KEY = 'people_search';
@@ -73,6 +74,18 @@ export interface ContactEnrichmentRunRow {
   status: ContactEnrichmentRunStatus;
   summary: Record<string, unknown>;
 }
+
+/**
+ * Result of the atomic execution claim (Hito 17B.4X.7C.2), scoped to this
+ * runner's own row shape (no account_id — Apollo never needed it). The
+ * shared claim helper's row is a superset of ContactEnrichmentRunRow, so its
+ * result is structurally assignable here without a cast.
+ */
+export type ApolloClaimExecutionResult =
+  | { status: 'claimed'; row: ContactEnrichmentRunRow }
+  | { status: 'not_ready'; currentStatus: ContactEnrichmentRunStatus | null }
+  | { status: 'not_found' }
+  | { status: 'error'; reason: string };
 
 export interface ApolloEnrichmentRunResult {
   status: 'ready_for_review' | 'completed' | 'skipped' | 'error';
@@ -129,6 +142,15 @@ export interface RunPatch {
 export interface ApolloEnrichmentRunnerDeps {
   loadRun?: (runId: string) => Promise<ContactEnrichmentRunRow | null>;
   updateRun?: (runId: string, patch: RunPatch) => Promise<void>;
+  /**
+   * Atomic execution claim (Hito 17B.4X.7C.2): moves the run from
+   * ready_to_enrich to enriching in a single conditional UPDATE, closing
+   * the load→check→update race. Defaults to the real atomic claim against
+   * Supabase — tests that inject their own loadRun/updateRun in-memory
+   * store MUST also inject claimRunForExecution, or this default will try
+   * to reach a real database.
+   */
+  claimRunForExecution?: (runId: string) => Promise<ApolloClaimExecutionResult>;
   runApollo?: (input: {
     runId: string;
     companyName: string;
@@ -172,6 +194,10 @@ async function defaultUpdateRun(runId: string, patch: RunPatch): Promise<void> {
   if (patch.summary !== undefined) payload.summary = patch.summary;
   if (patch.estimated_cost_usd !== undefined) payload.estimated_cost_usd = patch.estimated_cost_usd;
   await admin.from('contact_enrichment_runs').update(payload).eq('id', runId);
+}
+
+async function defaultClaimRunForExecution(runId: string): Promise<ApolloClaimExecutionResult> {
+  return claimContactEnrichmentAttemptForExecution(runId);
 }
 
 async function defaultLoadApolloUnitCost(): Promise<number> {
@@ -492,6 +518,7 @@ export async function executeContactEnrichmentApolloRun(
   const {
     loadRun = defaultLoadRun,
     updateRun = defaultUpdateRun,
+    claimRunForExecution = defaultClaimRunForExecution,
     runApollo = searchApolloPeopleForCompany,
     writeCandidates = writeContactCandidates,
     loadApolloUnitCost = defaultLoadApolloUnitCost,
@@ -504,9 +531,12 @@ export async function executeContactEnrichmentApolloRun(
 
   const startMs = Date.now();
 
-  // 1. Cargar run
-  const run = await loadRun(runId);
-  if (!run) {
+  // 1+2+3. Atomic claim: closes the load→check→update(enriching) race
+  // (Hito 17B.4X.7C.2). Two concurrent callers on the same runId can never
+  // both win — only a 'claimed' result may proceed to call Apollo.
+  const claim = await claimRunForExecution(runId);
+
+  if (claim.status === 'not_found') {
     return emptyRunResult({
       status: 'error',
       runStatus: 'failed',
@@ -515,16 +545,26 @@ export async function executeContactEnrichmentApolloRun(
     });
   }
 
-  // 2. Validar estado
-  if (run.status !== 'ready_to_enrich') {
+  if (claim.status === 'error') {
     return emptyRunResult({
       status: 'error',
-      runStatus: run.status,
+      runStatus: 'failed',
       providerStatus: 'error',
-      error: `El run no está en estado ready_to_enrich (actual: ${run.status})`,
+      error: `Error reclamando el run para ejecución: ${claim.reason}`,
     });
   }
 
+  if (claim.status === 'not_ready') {
+    const currentStatus = claim.currentStatus ?? 'failed';
+    return emptyRunResult({
+      status: 'error',
+      runStatus: currentStatus,
+      providerStatus: 'error',
+      error: `El run no está en estado ready_to_enrich (actual: ${currentStatus})`,
+    });
+  }
+
+  const run = claim.row;
   const prevSummary = run.summary ?? {};
   const searchedAt = new Date().toISOString();
 
@@ -549,9 +589,7 @@ export async function executeContactEnrichmentApolloRun(
         technical_error: 'no_triggered_by',
       };
 
-  // 3. Marcar enriching + abrir step
-  await updateRun(runId, { status: 'enriching' });
-
+  // 3. Abrir step (el claim atómico ya marcó el run como 'enriching')
   const step = run.agent_run_id
     ? await createStep({
         agent_run_id: run.agent_run_id,

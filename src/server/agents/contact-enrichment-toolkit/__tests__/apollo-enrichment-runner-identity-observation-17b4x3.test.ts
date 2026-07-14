@@ -85,6 +85,9 @@ function makeHarness(completeContactFn: ApolloEnrichmentRunnerDeps['completeCont
   const deps: ApolloEnrichmentRunnerDeps = {
     loadRun: async () => makeRun(),
     updateRun: async () => {},
+    // In-memory stand-in for the atomic claim (17B.4X.7C.2) — mirrors
+    // loadRun's always-ready_to_enrich fixture.
+    claimRunForExecution: async () => ({ status: 'claimed', row: makeRun() }),
     runApollo: async () => makeApolloResult(),
     writeCandidates: async (_runId, candidates) => {
       written.push([...candidates]);

@@ -47,6 +47,10 @@ import {
 import { loadActiveLushaCreditPricing } from '@/modules/usage-tracking/provider-pricing';
 import type { ActiveProviderCreditPricingV1 } from '@/modules/usage-tracking/provider-pricing';
 import type { ProviderCostTraceV1, LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import {
+  claimContactEnrichmentAttemptForExecution,
+  type ClaimExecutionResult,
+} from './contact-enrichment-execution-claim';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -1095,10 +1099,23 @@ export type { LushaRunnerResult as LushaRunnerResultCompat };
  * NO crea contactos finales. NO toca HubSpot. NO revela teléfonos.
  * Gated por ENABLE_LUSHA_CONTACT_ENRICHMENT.
  */
+export interface ExecuteContactEnrichmentLushaRunDeps {
+  /**
+   * Atomic execution claim (Hito 17B.4X.7C.2): moves the run from
+   * ready_to_enrich to enriching in a single conditional UPDATE, closing
+   * the load→check→update race. Defaults to the real atomic claim against
+   * Supabase — injectable for tests.
+   */
+  claimRunForExecution?: (runId: string) => Promise<ClaimExecutionResult>;
+}
+
 export async function executeContactEnrichmentLushaRun(
   runId: string,
   triggeredBy: string,
+  deps: ExecuteContactEnrichmentLushaRunDeps = {},
 ): Promise<LushaRunnerResult> {
+  const { claimRunForExecution = claimContactEnrichmentAttemptForExecution } = deps;
+
   // 1. Feature flag
   if (!isLushaContactEnrichmentEnabled()) {
     return {
@@ -1178,14 +1195,12 @@ export async function executeContactEnrichmentLushaRun(
   const timeoutMs = resolveLushaSearchTimeoutMs();
   const maxCandidates = resolveLushaMaxCandidatesPerRun();
 
-  // 3. Load run (include summary for snapshot-based dedup)
-  const { data: run, error: runError } = await admin
-    .from('contact_enrichment_runs')
-    .select('id, status, account_id, company_name, company_domain, company_country_code, agent_run_id, summary')
-    .eq('id', runId)
-    .single();
+  // 3+4. Atomic execution claim (Hito 17B.4X.7C.2): closes the
+  // load→check→update(enriching) race in a single conditional UPDATE.
+  // Only a 'claimed' result may proceed to account validation or Lusha.
+  const claim = await claimRunForExecution(runId);
 
-  if (runError || !run) {
+  if (claim.status === 'not_found') {
     return {
       ok: false,
       status: 'not_found',
@@ -1194,12 +1209,24 @@ export async function executeContactEnrichmentLushaRun(
       duplicatesSkipped: 0,
       rawResultsCount: 0,
       creditsUsed: null,
-      message: `Run not found: ${runError?.message ?? 'unknown'}`,
+      message: 'Run not found: unknown',
     };
   }
 
-  // 4. Validate run status
-  if (run.status !== 'ready_to_enrich') {
+  if (claim.status === 'error') {
+    return {
+      ok: false,
+      status: 'not_found',
+      runId,
+      candidatesCreated: 0,
+      duplicatesSkipped: 0,
+      rawResultsCount: 0,
+      creditsUsed: null,
+      message: `Run not found: ${claim.reason}`,
+    };
+  }
+
+  if (claim.status === 'not_ready') {
     return {
       ok: false,
       status: 'invalid_run_status',
@@ -1208,9 +1235,11 @@ export async function executeContactEnrichmentLushaRun(
       duplicatesSkipped: 0,
       rawResultsCount: 0,
       creditsUsed: null,
-      message: `Run status is '${run.status}', expected 'ready_to_enrich'.`,
+      message: `Run status is '${claim.currentStatus ?? 'unknown'}', expected 'ready_to_enrich'.`,
     };
   }
+
+  const run = claim.row;
 
   // 5. Account validation — conditional on account_id presence.
   //    Paridad con Apollo: account_id null = empresa resuelta desde HubSpot (sin cuenta SellUp aún).
@@ -1285,12 +1314,7 @@ export async function executeContactEnrichmentLushaRun(
   const snapshotEmails = Array.isArray(combined?.['existing_emails']) ? (combined!['existing_emails'] as string[]) : [];
   const snapshotLinkedinUrls = Array.isArray(combined?.['existing_linkedin_urls']) ? (combined!['existing_linkedin_urls'] as string[]) : [];
 
-  // 6. Update run → enriching
-  await admin
-    .from('contact_enrichment_runs')
-    .update({ status: 'enriching' })
-    .eq('id', runId);
-
+  // 6. (el claim atómico ya marcó el run como 'enriching')
   const agentRunId = typeof run.agent_run_id === 'string' ? run.agent_run_id : undefined;
   const companyName = typeof run.company_name === 'string' ? run.company_name : null;
   const companyDomain = typeof run.company_domain === 'string' ? run.company_domain : null;

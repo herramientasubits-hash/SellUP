@@ -36,6 +36,9 @@ const SELECTED_CONFIRM =
 
 const RUN_DONE = 'Listo. Creé el run y revisé los contactos existentes antes de enriquecer.';
 
+const REQUEST_DONE =
+  'Listo. Preparé el contexto de esta empresa. Elige un proveedor para buscar contactos.';
+
 const APOLLO_SEARCHING = 'Voy a buscar perfiles relevantes en Apollo…';
 
 const APOLLO_DONE_WITH_CANDIDATES =
@@ -159,6 +162,7 @@ export function createInitialContactEnrichmentChatState(
     selectedCandidate: null,
     skippedHubSpot: false,
     runResult: null,
+    requestId: null,
     selectedProvider: 'apollo',
     apolloResult: null,
     lushaResult: null,
@@ -337,6 +341,15 @@ export function contactEnrichmentChatReducer(
       };
     }
 
+    case 'REQUEST_CREATED': {
+      return {
+        ...state,
+        step: 'done',
+        requestId: action.requestId,
+        ...appendMessages(state, [{ role: 'assistant', content: REQUEST_DONE }]),
+      };
+    }
+
     case 'RUN_FAILED': {
       return {
         ...state,
@@ -373,6 +386,7 @@ export function contactEnrichmentChatReducer(
         ...state,
         step: 'done',
         apolloResult: action.result,
+        ...(action.runResult ? { runResult: action.runResult } : {}),
         ...appendMessages(state, [{ role: 'assistant', content }]),
       };
     }
@@ -383,6 +397,7 @@ export function contactEnrichmentChatReducer(
         ...state,
         step: 'done',
         apolloResult: action.result,
+        ...(action.runResult ? { runResult: action.runResult } : {}),
         ...appendMessages(state, [{ role: 'system', content: reason, tone: 'warning' }]),
       };
     }
@@ -412,6 +427,7 @@ export function contactEnrichmentChatReducer(
         ...state,
         step: 'done',
         lushaResult: action.result,
+        ...(action.runResult ? { runResult: action.runResult } : {}),
         ...appendMessages(state, [{ role: 'assistant', content }]),
       };
     }
@@ -426,6 +442,7 @@ export function contactEnrichmentChatReducer(
         ...state,
         step: 'done',
         lushaResult: action.result,
+        ...(action.runResult ? { runResult: action.runResult } : {}),
         ...appendMessages(state, [{ role: 'system', content: reason, tone: 'warning' }]),
       };
     }

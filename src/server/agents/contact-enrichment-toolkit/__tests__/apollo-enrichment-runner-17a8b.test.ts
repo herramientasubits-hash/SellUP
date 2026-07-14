@@ -143,6 +143,10 @@ function makeHarness(
     updateRun: async (_id, patch) => {
       if (patch.summary) lastSummary = patch.summary;
     },
+    // In-memory stand-in for the atomic claim (17B.4X.7C.2) — mirrors
+    // loadRun's always-ready_to_enrich fixture, since this harness has no
+    // shared mutable store to race against.
+    claimRunForExecution: async () => ({ status: 'claimed', row: makeRun() }),
     runApollo: async () => apolloResult,
     writeCandidates: async (_runId, candidates) => {
       written.push([...candidates]);

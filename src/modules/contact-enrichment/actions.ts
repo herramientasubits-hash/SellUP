@@ -23,6 +23,7 @@ import {
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import type {
   Agent2AInput,
+  CompanyCandidate,
   CompanyResolutionResult,
   ContactEnrichmentRunResult,
   PendingContactCandidate,
@@ -30,7 +31,15 @@ import type {
   ContactSource,
   ContactCandidateStatus,
   ContactDuplicateStatus,
+  ContactEnrichmentRunStatus,
 } from './types';
+import { createInitialContactEnrichmentAttempt } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-attempt-creator';
+import {
+  resolveAttemptForRequestProvider,
+  type ExistingAttemptProviderAndStatus,
+} from './request-attempt-resolution-core';
+import { createContactEnrichmentRequest } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-request-creator';
+import type { IntendedProvider, CompanyResolutionSource } from './request-attempt-types';
 
 // ── Auth helper (patrón idéntico a prospect-batches/actions.ts) ───────────────
 
@@ -232,6 +241,9 @@ export interface RunApolloActionResult {
   costGuardrail?: RunApolloActionCostGuardrail;
   /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
   searchGuardrail?: RunApolloActionSearchGuardrail;
+  /** attemptId resuelto (Hito 17B.4X.7C.2) — solo presente cuando el caller
+   *  vino de runContactEnrichmentApolloForRequestAction. */
+  attemptId?: string;
   error?: string;
 }
 
@@ -941,6 +953,9 @@ export interface RunLushaActionResult {
   creditsUsed?: number | null;
   providerStatus?: 'success' | 'skipped' | 'error';
   noReviewableContactsFound?: boolean;
+  /** attemptId resuelto (Hito 17B.4X.7C.2) — solo presente cuando el caller
+   *  vino de runContactEnrichmentLushaForRequestAction. */
+  attemptId?: string;
   error?: string;
 }
 
@@ -1027,4 +1042,195 @@ export async function checkLushaAccountUsageAction() {
     apiKey,
     timeoutMs: resolveLushaSearchTimeoutMs(),
   });
+}
+
+// ── Request-level orchestration (Hito 17B.4X.7C.2) ────────────────────────────
+// Wires contact_enrichment_requests → contact_enrichment_runs as attempts.
+// NO automatic fallback, NO attempt_order=2, NO routing evaluation side
+// effects, NO request-level status write (request status is deferred).
+// Legacy attempt-id actions (runContactEnrichmentApolloAction/
+// runContactEnrichmentLushaAction) and bulk keep working unchanged — both
+// now execute through the atomic claim inside the runners.
+
+async function loadExistingAttemptProviderAndStatus(
+  attemptId: string,
+): Promise<ExistingAttemptProviderAndStatus | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('contact_enrichment_runs')
+    .select('intended_provider, status')
+    .eq('id', attemptId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    intendedProvider: (data.intended_provider as IntendedProvider | null) ?? null,
+    status: data.status as ContactEnrichmentRunStatus,
+  };
+}
+
+async function resolveAttemptIdForRequestProvider(
+  requestId: string,
+  provider: IntendedProvider,
+  triggeredBy: string,
+) {
+  return resolveAttemptForRequestProvider(requestId, provider, triggeredBy, {
+    createAttempt: (reqId, prov, trig) =>
+      createInitialContactEnrichmentAttempt({
+        requestId: reqId,
+        intendedProvider: prov,
+        triggeredBy: trig,
+      }),
+    loadExistingAttempt: loadExistingAttemptProviderAndStatus,
+  });
+}
+
+export interface CreateContactEnrichmentRequestActionResult {
+  success: boolean;
+  requestId?: string;
+  error?: string;
+}
+
+/**
+ * Crea el contact_enrichment_requests de esta empresa confirmada. Context-only:
+ * no crea agent_run, no crea contact_enrichment_runs, no toma snapshot de
+ * contactos existentes, no llama Apollo/Lusha. El attempt (con snapshot) se
+ * crea al ejecutar runContactEnrichmentApolloForRequestAction /
+ * runContactEnrichmentLushaForRequestAction.
+ */
+export async function createContactEnrichmentRequestAction(
+  confirmedCompany: CompanyCandidate,
+): Promise<CreateContactEnrichmentRequestActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+
+    if (!confirmedCompany?.name?.trim()) {
+      throw new Error('La empresa confirmada no tiene nombre');
+    }
+
+    const result = await createContactEnrichmentRequest({
+      accountId: confirmedCompany.sellupAccountId ?? null,
+      companyName: confirmedCompany.name,
+      companyDomain: confirmedCompany.domain ?? null,
+      companyCountryCode: confirmedCompany.countryCode ?? null,
+      hubspotCompanyId: confirmedCompany.hubspotCompanyId ?? null,
+      companyResolutionSource: confirmedCompany.source as CompanyResolutionSource,
+      triggeredBy: internalUserId,
+    });
+
+    if (result.status !== 'created') {
+      return { success: false, error: result.reason };
+    }
+
+    return { success: true, requestId: result.request.id };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error creando la request de enriquecimiento';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Ejecuta Apollo a nivel de request: crea (o reutiliza de forma segura) el
+ * attempt_order=1 de esta request y ejecuta el runner existente por
+ * attemptId. No crea attempt_order=2, no evalúa routing, no aplica
+ * fallback automático.
+ */
+export async function runContactEnrichmentApolloForRequestAction(
+  requestId: unknown,
+): Promise<RunApolloActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+
+    if (typeof requestId !== 'string' || !requestId.trim()) {
+      throw new Error('requestId inválido');
+    }
+
+    const resolved = await resolveAttemptIdForRequestProvider(
+      requestId.trim(),
+      'apollo',
+      internalUserId,
+    );
+
+    if (resolved.outcome === 'rejected') {
+      return { success: false, status: 'error', error: resolved.message };
+    }
+
+    const result = await executeContactEnrichmentApolloRun(resolved.attemptId, internalUserId);
+
+    return {
+      success: result.status !== 'error',
+      status: result.status,
+      candidatesCreated: result.candidatesCreated,
+      duplicatesSkipped: result.duplicatesSkipped,
+      possibleDuplicates: result.possibleDuplicates,
+      totalCandidates: result.totalCandidates,
+      rawResultsCount: result.rawResultsCount,
+      rejectedByRelevance: result.rejectedByRelevance,
+      noReviewableContactsFound: result.noReviewableContactsFound,
+      completionAttempted: result.completionAttempted,
+      actionableContactsCount: result.actionableContactsCount,
+      noActionableContactsFound: result.noActionableContactsFound,
+      providerStatus: result.providerStatus,
+      estimatedCostUsd: result.estimatedCostUsd,
+      costGuardrail: result.costGuardrail,
+      searchGuardrail: result.searchGuardrail,
+      attemptId: resolved.attemptId,
+      error: result.error,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error ejecutando Apollo para la request';
+    return { success: false, status: 'error', error: message };
+  }
+}
+
+/**
+ * Ejecuta Lusha a nivel de request: crea (o reutiliza de forma segura) el
+ * attempt_order=1 de esta request y ejecuta el runner existente por
+ * attemptId. No crea attempt_order=2, no evalúa routing, no aplica
+ * fallback automático.
+ */
+export async function runContactEnrichmentLushaForRequestAction(
+  requestId: unknown,
+): Promise<RunLushaActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+
+    if (typeof requestId !== 'string' || !requestId.trim()) {
+      throw new Error('requestId inválido');
+    }
+
+    const resolved = await resolveAttemptIdForRequestProvider(
+      requestId.trim(),
+      'lusha',
+      internalUserId,
+    );
+
+    if (resolved.outcome === 'rejected') {
+      return { success: false, status: 'error', providerStatus: 'error', error: resolved.message };
+    }
+
+    const result = await executeContactEnrichmentLushaRun(resolved.attemptId, internalUserId);
+
+    const providerStatus: 'success' | 'skipped' | 'error' =
+      result.ok ? 'success'
+        : result.status === 'disabled' || result.status === 'missing_api_key' ? 'skipped'
+          : 'error';
+
+    return {
+      success: result.ok,
+      status: result.status as RunLushaActionResult['status'],
+      candidatesCreated: result.candidatesCreated,
+      duplicatesSkipped: result.duplicatesSkipped ?? 0,
+      rawResultsCount: result.rawResultsCount ?? 0,
+      creditsUsed: result.creditsUsed,
+      providerStatus,
+      noReviewableContactsFound: result.candidatesCreated === 0,
+      attemptId: resolved.attemptId,
+      error: result.ok ? undefined : result.message,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error ejecutando Lusha para la request';
+    return { success: false, status: 'error', providerStatus: 'error', error: message };
+  }
 }

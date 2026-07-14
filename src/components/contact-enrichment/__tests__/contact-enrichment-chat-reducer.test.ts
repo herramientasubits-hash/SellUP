@@ -286,6 +286,127 @@ describe('D — reducer transitions', () => {
   });
 });
 
+// ── F — Request/attempt cutover (Hito 17B.4X.7C.2) ──────────────────────────
+
+describe('F — request/attempt cutover', () => {
+  function confirmedState(): ContactEnrichmentChatState {
+    const resolved = contactEnrichmentChatReducer(createInitialContactEnrichmentChatState(), {
+      type: 'RESOLVED_SINGLE',
+      candidate: sellupCandidate(),
+      skippedHubSpot: false,
+    });
+    return contactEnrichmentChatReducer(resolved, { type: 'CONFIRM' });
+  }
+
+  it('F1 REQUEST_CREATED → done with requestId, runResult stays null (no attempt yet)', () => {
+    const next = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-1',
+    });
+    assert.equal(next.step, 'done');
+    assert.equal(next.requestId, 'req-1');
+    assert.equal(next.runResult, null);
+  });
+
+  it('F2 desde REQUEST_CREATED, SELECT_PROVIDER funciona (step ya es done)', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-2',
+    });
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'SELECT_PROVIDER',
+      provider: 'lusha',
+    });
+    assert.equal(next.selectedProvider, 'lusha');
+  });
+
+  it('F3 APOLLO_SUCCEEDED con runResult adjunto lo escribe en el estado (attempt result)', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-3',
+    });
+    const attemptResult = runResult();
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'APOLLO_SUCCEEDED',
+      result: {
+        status: 'ready_for_review',
+        candidatesCreated: 2,
+        duplicatesSkipped: 0,
+        possibleDuplicates: 0,
+        totalCandidates: 2,
+        rawResultsCount: 2,
+        rejectedByRelevance: 0,
+        noReviewableContactsFound: false,
+        completionAttempted: 0,
+        actionableContactsCount: 2,
+        noActionableContactsFound: false,
+        providerStatus: 'success',
+        estimatedCostUsd: 0.01,
+      },
+      runResult: attemptResult,
+    });
+    assert.equal(next.step, 'done');
+    assert.equal(next.requestId, 'req-3');
+    assert.equal(next.runResult?.runId, attemptResult.runId);
+    assert.equal(next.apolloResult?.candidatesCreated, 2);
+  });
+
+  it('F4 LUSHA_SUCCEEDED con runResult adjunto lo escribe en el estado (attempt result)', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-4',
+    });
+    const attemptResult = runResult();
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'LUSHA_SUCCEEDED',
+      result: {
+        status: 'ready_for_review',
+        candidatesCreated: 1,
+        duplicatesSkipped: 0,
+        rawResultsCount: 1,
+        creditsUsed: 1,
+        providerStatus: 'success',
+        noReviewableContactsFound: false,
+      },
+      runResult: attemptResult,
+    });
+    assert.equal(next.step, 'done');
+    assert.equal(next.runResult?.runId, attemptResult.runId);
+    assert.equal(next.lushaResult?.candidatesCreated, 1);
+  });
+
+  it('F5 APOLLO_SUCCEEDED sin runResult adjunto no rompe el estado (runResult permanece null)', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-5',
+    });
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'APOLLO_SUCCEEDED',
+      result: {
+        status: 'completed',
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        possibleDuplicates: 0,
+        totalCandidates: 0,
+        rawResultsCount: 0,
+        rejectedByRelevance: 0,
+        noReviewableContactsFound: true,
+        completionAttempted: 0,
+        actionableContactsCount: 0,
+        noActionableContactsFound: false,
+        providerStatus: 'success',
+        estimatedCostUsd: 0,
+      },
+    });
+    assert.equal(next.runResult, null);
+  });
+
+  it('F6 el estado inicial siempre trae requestId=null', () => {
+    const state = createInitialContactEnrichmentChatState();
+    assert.equal(state.requestId, null);
+  });
+});
+
 // ── E — Message integrity ───────────────────────────────────────────────────
 
 describe('E — message integrity', () => {
