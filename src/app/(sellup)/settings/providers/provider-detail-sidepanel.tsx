@@ -9,7 +9,7 @@ import { formatUsageLogErrorDetailText } from '@/modules/budgets/provider-usage-
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
   ChevronDown, Cpu, Zap, Database, Bot, Plus, Pencil, Power, Trash2,
-  Loader2, Lock, Check, ChevronDownIcon,
+  Loader2, Lock, Check, ChevronDownIcon, RefreshCw,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,6 +25,7 @@ import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
+import { syncProviderQuota } from '@/modules/budgets';
 import type { BudgetRuleRow } from '@/modules/budgets/rule-queries';
 import type { BudgetScopeType, BudgetPeriodType, BudgetOnExceed } from '@/modules/usage-tracking/types';
 import {
@@ -2022,6 +2023,10 @@ function TabConsumo({
 
 const RULE_SCOPES: BudgetScopeType[] = ['global', 'role', 'group', 'user'];
 
+// Providers whose quota can be refreshed from the provider's own API (mirrors
+// SYNCABLE_PROVIDERS in quota-sync-actions.ts and the table-level bulk sync).
+const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
+
 function getQuotaButtonLabel(providerKey: string, row: AdminProviderBudgetRow): string | null {
   if (row.measurementStatus === 'not_measured') return null;
   const hasAllowance =
@@ -2277,10 +2282,14 @@ function TabPresupuesto({
   onRefresh: () => void;
   onConfigureAllowance: (row: AdminProviderBudgetRow) => void;
 }) {
+  const router = useRouter();
   const [allowanceOpen, setAllowanceOpen] = useState(false);
   const [, startTransition] = useTransition();
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const quotaButtonLabel = getQuotaButtonLabel(row.providerKey, row);
   const isNotMeasured = row.measurementStatus === 'not_measured';
+  const isSyncCapable = SYNC_CAPABLE_PROVIDERS.has(row.providerKey);
   const allowance = formatAllowance(
     row.providerMonthlyCreditsAllowance,
     row.providerMonthlyUsdAllowance,
@@ -2291,6 +2300,32 @@ function TabPresupuesto({
     : row.quotaSource === 'manual' ? 'Configuración manual'
     : row.quotaSource === 'sync_error' ? 'Error de sincronización'
     : 'No configurada';
+
+  const handleSync = () => {
+    setSyncFeedback(null);
+    setIsSyncing(true);
+    startTransition(async () => {
+      try {
+        const result = await syncProviderQuota(row.providerKey);
+        if (result.success) {
+          setSyncFeedback({
+            ok: true,
+            msg: result.skippedAllowance
+              ? 'Dato externo actualizado (cuota manual preservada).'
+              : 'Cuota sincronizada con la API del proveedor.',
+          });
+          onRefresh();
+          router.refresh();
+        } else {
+          setSyncFeedback({ ok: false, msg: result.error ?? 'No se pudo sincronizar la cuota.' });
+        }
+      } catch {
+        setSyncFeedback({ ok: false, msg: 'No se pudo sincronizar la cuota.' });
+      } finally {
+        setIsSyncing(false);
+      }
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -2331,16 +2366,39 @@ function TabPresupuesto({
           </SectionCard>
         )}
 
-        {!isNotMeasured && quotaButtonLabel && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs h-7"
-            onClick={() => setAllowanceOpen(true)}
-          >
-            {quotaButtonLabel}
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {!isNotMeasured && quotaButtonLabel && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7"
+              onClick={() => setAllowanceOpen(true)}
+            >
+              {quotaButtonLabel}
+            </Button>
+          )}
+          {!isNotMeasured && isSyncCapable && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7"
+              disabled={isSyncing}
+              onClick={handleSync}
+            >
+              {isSyncing ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <RefreshCw className="h-3 w-3 mr-1" />
+              )}
+              {isSyncing
+                ? 'Sincronizando…'
+                : row.quotaSource === 'sync_error'
+                  ? 'Reintentar sincronización'
+                  : 'Sincronizar con API'}
+            </Button>
+          )}
+        </div>
+        <InlineFeedback feedback={syncFeedback} />
       </div>
 
       {/* Reglas */}
@@ -2685,8 +2743,6 @@ const OUTCOME_BADGE: Record<string, { label: string; className: string }> = {
   missing_user:    { label: 'Sin usuario',      className: 'border-border/40 bg-muted/30 text-muted-foreground' },
   unknown:         { label: 'Desconocido',      className: 'border-border/40 bg-muted/30 text-muted-foreground' },
 };
-
-const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
 
 function TabLogs({
   row,
