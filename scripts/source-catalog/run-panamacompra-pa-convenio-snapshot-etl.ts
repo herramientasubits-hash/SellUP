@@ -55,7 +55,7 @@ import {
 } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanamaProviderEntry } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanaNormalizedProvider } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-normalizer';
-import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
+import { OLD_TAX_GRAIN_ON_CONFLICT, validateRecordIdentityKey } from '../../src/server/source-catalog/record-identity';
 import type { RecordIdentityUnavailableReason } from '../../src/server/source-catalog/record-identity';
 
 // ─── Guardrails piloto ─────────────────────────────────────────────────────────
@@ -176,6 +176,9 @@ export type EtlReport = {
   recordIdentityResolved: number;
   recordIdentityUnavailable: number;
   recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
+  recordIdentityBoundaryAllowed: number;
+  recordIdentityBoundaryBlocked: number;
+  recordIdentityBoundaryBlockedReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
 };
 
 function printReport(report: EtlReport, isDryRun: boolean, operational: boolean): void {
@@ -197,6 +200,8 @@ function printReport(report: EtlReport, isDryRun: boolean, operational: boolean)
   console.log(`  Writes a source_company_snapshots: ${report.writes}`);
   console.log(`  record_identity_key resuelto (shadow): ${report.recordIdentityResolved}`);
   console.log(`  record_identity_key unavailable (shadow): ${report.recordIdentityUnavailable}`);
+  console.log(`  record_identity_boundary — allowed:  ${report.recordIdentityBoundaryAllowed}`);
+  console.log(`  record_identity_boundary — blocked:  ${report.recordIdentityBoundaryBlocked}`);
   console.log('───────────────────────────────────────────────────────────');
   if (report.errores.length > 0) {
     console.log('  Errores detalle:');
@@ -227,6 +232,9 @@ export type PanamaUpsertResult = {
   recordIdentityResolved: number;
   recordIdentityUnavailable: number;
   recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
+  recordIdentityBoundaryAllowed: number;
+  recordIdentityBoundaryBlocked: number;
+  recordIdentityBoundaryBlockedReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -236,6 +244,9 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
     recordIdentityResolved: 0,
     recordIdentityUnavailable: 0,
     recordIdentityUnavailableReasons: {},
+    recordIdentityBoundaryAllowed: 0,
+    recordIdentityBoundaryBlocked: 0,
+    recordIdentityBoundaryBlockedReasons: {},
   };
   if (snapshots.length === 0) return emptyResult;
 
@@ -295,9 +306,40 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
     return true;
   });
 
+  // EC4D5.E — P2B identity boundary: solo filas con record_identity_key válido
+  // (company:<id> / provider:<id> / tax:<id>) llegan al upsert. No se deriva
+  // identidad desde nombre, razón social, slug ni hash — solo se valida lo que
+  // derivePanamaRecordIdentity ya calculó arriba.
+  let boundaryAllowed = 0;
+  let boundaryBlocked = 0;
+  const boundaryBlockedReasons: Partial<Record<RecordIdentityUnavailableReason, number>> = {};
+  const allowedRows: typeof rows = [];
+  for (const row of rows) {
+    const validation = validateRecordIdentityKey(row.record_identity_key);
+    if (validation.valid) {
+      allowedRows.push(row);
+      boundaryAllowed++;
+    } else {
+      boundaryBlocked++;
+      boundaryBlockedReasons[validation.reason] = (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+    }
+  }
+
+  if (allowedRows.length === 0) {
+    return {
+      written: 0,
+      recordIdentityResolved,
+      recordIdentityUnavailable,
+      recordIdentityUnavailableReasons,
+      recordIdentityBoundaryAllowed: boundaryAllowed,
+      recordIdentityBoundaryBlocked: boundaryBlocked,
+      recordIdentityBoundaryBlockedReasons: boundaryBlockedReasons,
+    };
+  }
+
   const { error, count } = await admin
     .from('source_company_snapshots')
-    .upsert(rows, {
+    .upsert(allowedRows, {
       onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
       ignoreDuplicates: false,
       count: 'exact',
@@ -312,10 +354,13 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
   }
 
   return {
-    written: typeof count === 'number' ? count : snapshots.length,
+    written: typeof count === 'number' ? count : allowedRows.length,
     recordIdentityResolved,
     recordIdentityUnavailable,
     recordIdentityUnavailableReasons,
+    recordIdentityBoundaryAllowed: boundaryAllowed,
+    recordIdentityBoundaryBlocked: boundaryBlocked,
+    recordIdentityBoundaryBlockedReasons: boundaryBlockedReasons,
   };
 }
 
@@ -377,6 +422,9 @@ async function main(): Promise<void> {
     recordIdentityResolved: 0,
     recordIdentityUnavailable: 0,
     recordIdentityUnavailableReasons: {},
+    recordIdentityBoundaryAllowed: 0,
+    recordIdentityBoundaryBlocked: 0,
+    recordIdentityBoundaryBlockedReasons: {},
   };
 
   // ── Paso 1: Listar convenios ───────────────────────────────────────────────
@@ -502,6 +550,9 @@ async function main(): Promise<void> {
       report.recordIdentityResolved = upsertResult.recordIdentityResolved;
       report.recordIdentityUnavailable = upsertResult.recordIdentityUnavailable;
       report.recordIdentityUnavailableReasons = upsertResult.recordIdentityUnavailableReasons;
+      report.recordIdentityBoundaryAllowed = upsertResult.recordIdentityBoundaryAllowed;
+      report.recordIdentityBoundaryBlocked = upsertResult.recordIdentityBoundaryBlocked;
+      report.recordIdentityBoundaryBlockedReasons = upsertResult.recordIdentityBoundaryBlockedReasons;
       console.log(`[${applyLabel}] ✓ ${report.writes} filas escritas.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -41,7 +41,7 @@ import {
   RD_DGII_RNC_TXT_ZIP_URL,
 } from './types';
 import { normalizeDominicanRnc } from './normalizers';
-import { deriveTaxRecordIdentity } from '../../record-identity';
+import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../record-identity';
 import type { RecordIdentityKey } from '../../record-identity';
 
 const inflateRawAsync = promisify(inflateRaw);
@@ -84,6 +84,11 @@ export type ImportReport = {
   errors: string[];
   warnings: string[];
   durationMs: number;
+  recordIdentityBoundary?: {
+    allowedCount: number;
+    blockedCount: number;
+    blockedReasons: Record<string, number>;
+  };
 };
 
 // ── Strict integer parsing (Perú.9I.1 pattern) ────────────────────────────────
@@ -629,10 +634,27 @@ export async function runImporter(
   let rowsUpserted = 0;
   let chunksProcessed = 0;
 
-  for (let i = 0; i < rows.length; i += config.chunkSize) {
-    const chunk = rows.slice(i, i + config.chunkSize);
+  // ── Record identity boundary (APP-B P2B) ────────────────────────────────────
+  // Solo filas con record_identity_key válido se envían a upsert. Filas
+  // bloqueadas se cuentan pero no son un error fatal.
+  const allowedRows: SnapshotRow[] = [];
+  let boundaryBlockedCount = 0;
+  const boundaryBlockedReasons: Record<string, number> = {};
+  for (const row of rows) {
+    const validation = validateRecordIdentityKey(row.record_identity_key);
+    if (validation.valid) {
+      allowedRows.push(row);
+    } else {
+      boundaryBlockedCount += 1;
+      boundaryBlockedReasons[validation.reason] =
+        (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+    }
+  }
+
+  for (let i = 0; i < allowedRows.length; i += config.chunkSize) {
+    const chunk = allowedRows.slice(i, i + config.chunkSize);
     const chunkNum = Math.floor(i / config.chunkSize) + 1;
-    const totalChunks = Math.ceil(rows.length / config.chunkSize);
+    const totalChunks = Math.ceil(allowedRows.length / config.chunkSize);
 
     const { upserted, error: upsertErr } = await upsertChunk(supabase, chunk);
 
@@ -662,6 +684,11 @@ export async function runImporter(
     errors,
     warnings,
     startMs,
+    recordIdentityBoundary: {
+      allowedCount: allowedRows.length,
+      blockedCount: boundaryBlockedCount,
+      blockedReasons: boundaryBlockedReasons,
+    },
   });
 }
 
@@ -681,6 +708,11 @@ function buildReport(
     errors: string[];
     warnings: string[];
     startMs: number;
+    recordIdentityBoundary?: {
+      allowedCount: number;
+      blockedCount: number;
+      blockedReasons: Record<string, number>;
+    };
   },
 ): ImportReport {
   return {
@@ -701,6 +733,7 @@ function buildReport(
     errors: data.errors,
     warnings: data.warnings,
     durationMs: Date.now() - data.startMs,
+    recordIdentityBoundary: data.recordIdentityBoundary,
   };
 }
 

@@ -7,9 +7,11 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { runGtRgaeSnapshotWriter } from '../gt-rgae-snapshot-writer';
 import type { GtRgaeSupabaseAdminLike } from '../gt-rgae-snapshot-writer';
 import type { GtRgaeNormalizedCandidate, GtRgaeDryRunSummary } from '../gt-rgae-types';
+import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../../record-identity';
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────────
 
@@ -323,6 +325,58 @@ describe('runGtRgaeSnapshotWriter — record identity shadow (EC4D5.C2)', () => 
     const upsertOpts = snapshotCalls[0]!.opts as { onConflict: string };
     assert.equal(upsertOpts.onConflict, 'source_key,country_code,source_year,normalized_tax_id');
     assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,normalized_tax_id');
+  });
+});
+
+// ─── APP-B P2B — record_identity_key boundary ──────────────────────────────────
+
+describe('runGtRgaeSnapshotWriter — record_identity_key boundary (APP-B P2B)', () => {
+  it('todas las filas con NIT válido pasan validateRecordIdentityKey y quedan allowedCount === rowsWritten', async () => {
+    const candidates = makeCandidates(5);
+    const { admin } = makeFakeAdmin();
+
+    const result = await runGtRgaeSnapshotWriter(candidates, {
+      sourceYear: 2025,
+      dryRun: false,
+      dryRunSummary: makeBaseSummary(),
+      supabaseAdmin: admin,
+    });
+
+    assert.ok(result.recordIdentityBoundary);
+    assert.equal(result.recordIdentityBoundary!.allowedCount, 5);
+    assert.equal(result.recordIdentityBoundary!.blockedCount, 0);
+    assert.equal(result.rowsWritten, 5);
+  });
+
+  it('una fila con record_identity_key resuelto (tax:<nit>) pasa validateRecordIdentityKey (función pura)', () => {
+    const identity = deriveTaxRecordIdentity('1234567');
+    assert.equal(identity.status, 'resolved');
+    if (identity.status !== 'resolved') return;
+
+    const validation = validateRecordIdentityKey(identity.recordIdentityKey);
+    assert.equal(validation.valid, true);
+  });
+
+  it('un record_identity_key ausente (NIT normalizado vacío) falla validateRecordIdentityKey (función pura)', () => {
+    const identity = deriveTaxRecordIdentity('');
+    assert.equal(identity.status, 'unavailable');
+
+    // identity.status is already asserted 'unavailable' above, so record_identity_key is null.
+    const recordIdentityKey: string | null = null;
+    const validation = validateRecordIdentityKey(recordIdentityKey);
+    assert.equal(validation.valid, false);
+    if (validation.valid) return;
+    assert.equal(validation.reason, 'missing_value');
+  });
+
+  it('el boundary P2B no usa RECORD_IDENTITY_ON_CONFLICT y conserva OLD_TAX_GRAIN_ON_CONFLICT', () => {
+    const source = readFileSync(
+      new URL('../gt-rgae-snapshot-writer.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.ok(source.includes('validateRecordIdentityKey'));
+    assert.ok(source.includes('OLD_TAX_GRAIN_ON_CONFLICT'));
+    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
   });
 });
 

@@ -21,6 +21,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   parseStrictNonNegativeIntegerArg,
@@ -40,6 +41,7 @@ import {
 
 import {
   deriveTaxRecordIdentity,
+  validateRecordIdentityKey,
   OLD_TAX_GRAIN_ON_CONFLICT,
 } from '../../../record-identity';
 
@@ -575,5 +577,61 @@ describe('record_identity_key shadow write (APP-A P2A)', () => {
     assert.equal(identity.status, 'unavailable');
     if (identity.status !== 'unavailable') return;
     assert.equal(identity.reason, 'missing_tax_id');
+  });
+});
+
+// ── 16. record_identity_key boundary (APP-B P2B) ──────────────────────────────
+
+describe('record_identity_key boundary (APP-B P2B)', () => {
+  it('a row built from a valid RNC passes validateRecordIdentityKey', () => {
+    const row = buildSnapshotRow({
+      rnc: '101-000-001',
+      legalName: 'EMPRESA TEST SRL',
+      tradeName: undefined,
+      taxpayerStatus: 'ACTIVO',
+      normalizedStatus: 'active',
+      isActive: true,
+      economicActivity: undefined,
+      registrationDate: undefined,
+      localAdministration: undefined,
+      paymentRegime: undefined,
+      category: undefined,
+      sourceYear: 2026,
+      sourceLastModified: undefined,
+      importedAt: new Date().toISOString(),
+    });
+
+    const validation = validateRecordIdentityKey(row.record_identity_key);
+    assert.equal(validation.valid, true);
+  });
+
+  it('a row with an unavailable identity (null record_identity_key) fails validateRecordIdentityKey', () => {
+    const identity = deriveTaxRecordIdentity('   ');
+    assert.equal(identity.status, 'unavailable');
+
+    // identity.status is already asserted 'unavailable' above, so record_identity_key is null.
+    const recordIdentityKey: string | null = null;
+    const validation = validateRecordIdentityKey(recordIdentityKey);
+    assert.equal(validation.valid, false);
+    if (validation.valid) return;
+    assert.equal(validation.reason, 'missing_value');
+  });
+
+  it('the P2B boundary source keeps the old onConflict target and does not reference RECORD_IDENTITY_ON_CONFLICT', () => {
+    const source = readFileSync(
+      new URL('../import-rd-dgii-snapshot.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.ok(
+      source.includes(
+        "onConflict: 'source_key,country_code,source_year,normalized_tax_id'",
+      ),
+      'debe conservar el conflict target viejo (OLD_TAX_GRAIN_ON_CONFLICT)',
+    );
+    assert.ok(
+      !source.includes("onConflict: 'source_key,country_code,source_year,record_identity_key'"),
+    );
+    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('validateRecordIdentityKey'));
   });
 });

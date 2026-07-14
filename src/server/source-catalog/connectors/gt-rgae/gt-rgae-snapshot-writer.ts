@@ -34,7 +34,11 @@ import {
   buildGtRgaeCoveragePayload,
 } from './gt-rgae-snapshot-mapper';
 import type { GtRgaeSnapshotRow, GtRgaeCoverageSummaryPayload } from './gt-rgae-snapshot-mapper';
-import { deriveTaxRecordIdentity, OLD_TAX_GRAIN_ON_CONFLICT } from '../../record-identity';
+import {
+  deriveTaxRecordIdentity,
+  validateRecordIdentityKey,
+  OLD_TAX_GRAIN_ON_CONFLICT,
+} from '../../record-identity';
 import type { RecordIdentityKey, RecordIdentityUnavailableReason } from '../../record-identity';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
@@ -54,6 +58,13 @@ export type GtRgaeRecordIdentityShadowSummary = {
   resolved_count: number;
   unavailable_count: number;
   unavailable_reasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
+};
+
+/** APP-B P2B — partición real: solo allowedCount llega al upsert. */
+export type GtRgaeRecordIdentityBoundarySummary = {
+  allowedCount: number;
+  blockedCount: number;
+  blockedReasons: Record<string, number>;
 };
 
 export type GtRgaeSnapshotWriterOptions = {
@@ -83,6 +94,7 @@ export type GtRgaeSnapshotWriterResult = {
   coverageWritten: boolean;
   preflight: GtRgaePreflight | null;
   recordIdentityShadow: GtRgaeRecordIdentityShadowSummary;
+  recordIdentityBoundary?: GtRgaeRecordIdentityBoundarySummary;
 };
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
@@ -162,15 +174,35 @@ async function runPreflight(admin: GtRgaeSupabaseAdminLike): Promise<GtRgaePrefl
 async function upsertSnapshotBatches(
   admin: GtRgaeSupabaseAdminLike,
   rows: GtRgaeShadowSnapshotRow[],
-): Promise<number> {
+): Promise<{ rowsWritten: number; boundary: GtRgaeRecordIdentityBoundarySummary }> {
   let totalUpserted = 0;
+  let boundaryAllowedCount = 0;
+  let boundaryBlockedCount = 0;
+  const boundaryBlockedReasons: Record<string, number> = {};
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
+
+    // APP-B P2B — solo filas con record_identity_key válido llegan al upsert.
+    const allowedRows: typeof batch = [];
+    for (const row of batch) {
+      const validation = validateRecordIdentityKey(row.record_identity_key);
+      if (validation.valid) {
+        allowedRows.push(row);
+        boundaryAllowedCount += 1;
+      } else {
+        boundaryBlockedCount += 1;
+        boundaryBlockedReasons[validation.reason] =
+          (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+      }
+    }
+
+    if (allowedRows.length === 0) continue;
+
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { error } = await admin
       .from('source_company_snapshots')
-      .upsert(batch, {
+      .upsert(allowedRows, {
         onConflict: CONFLICT_TARGET,
         ignoreDuplicates: false,
       });
@@ -186,10 +218,17 @@ async function upsertSnapshotBatches(
       throw new Error(`upsert_source_company_snapshots (batch offset ${i}): ${msg}`);
     }
 
-    totalUpserted += batch.length;
+    totalUpserted += allowedRows.length;
   }
 
-  return totalUpserted;
+  return {
+    rowsWritten: totalUpserted,
+    boundary: {
+      allowedCount: boundaryAllowedCount,
+      blockedCount: boundaryBlockedCount,
+      blockedReasons: boundaryBlockedReasons,
+    },
+  };
 }
 
 async function upsertCoverageSummary(
@@ -268,8 +307,9 @@ export async function runGtRgaeSnapshotWriter(
   result.preflight = await runPreflight(admin);
 
   // 5. Upsert en source_company_snapshots
-  const rowsWritten = await upsertSnapshotBatches(admin, shadowRows);
+  const { rowsWritten, boundary } = await upsertSnapshotBatches(admin, shadowRows);
   result.rowsWritten = rowsWritten;
+  result.recordIdentityBoundary = boundary;
 
   // 6. Coverage solo si todos los batches exitosos Y rowsWritten === snapshotRows.length
   const allBatchesComplete =

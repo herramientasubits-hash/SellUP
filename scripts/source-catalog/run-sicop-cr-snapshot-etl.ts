@@ -62,7 +62,10 @@ import {
   SICOP_SOURCE_KEY,
   SICOP_COUNTRY_CODE,
 } from '../../src/server/source-catalog/connectors/sicop-cr/sicop-cr-snapshot-builder';
-import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
+import {
+  OLD_TAX_GRAIN_ON_CONFLICT,
+  validateRecordIdentityKey,
+} from '../../src/server/source-catalog/record-identity';
 
 // ─── Args ──────────────────────────────────────────────────────────────────────
 
@@ -297,24 +300,48 @@ async function main() {
   const BATCH_SIZE = 50;
   let totalUpserted = 0;
   const errors: string[] = [];
+  let boundaryAllowedCount = 0;
+  let boundaryBlockedCount = 0;
+  const boundaryBlockedReasons: Record<string, number> = {};
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
+
+    // APP-B P2B — partición: solo filas con record_identity_key válido llegan al upsert.
+    const allowedRows: typeof batch = [];
+    for (const row of batch) {
+      const validation = validateRecordIdentityKey(row.record_identity_key);
+      if (validation.valid) {
+        allowedRows.push(row);
+        boundaryAllowedCount += 1;
+      } else {
+        boundaryBlockedCount += 1;
+        boundaryBlockedReasons[validation.reason] = (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+      }
+    }
+
+    if (allowedRows.length === 0) continue;
+
     const { error } = await sb
       .from('source_company_snapshots')
-      .upsert(batch, {
+      .upsert(allowedRows, {
         onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
         ignoreDuplicates: false,
       });
     if (error) {
       errors.push(`Batch offset ${i}: ${error.message}`);
     } else {
-      totalUpserted += batch.length;
+      totalUpserted += allowedRows.length;
     }
   }
 
   console.log('\n  Resultado de upsert:');
   console.log(`    Filas upserted: ${totalUpserted}`);
+  console.log(`    record_identity_boundary.allowedCount: ${boundaryAllowedCount}`);
+  console.log(`    record_identity_boundary.blockedCount: ${boundaryBlockedCount}`);
+  if (boundaryBlockedCount > 0) {
+    console.log(`    record_identity_boundary.blockedReasons: ${JSON.stringify(boundaryBlockedReasons)}`);
+  }
   if (errors.length > 0) {
     console.error(`    Errores (${errors.length}):`);
     for (const e of errors) console.error(`      ${e}`);

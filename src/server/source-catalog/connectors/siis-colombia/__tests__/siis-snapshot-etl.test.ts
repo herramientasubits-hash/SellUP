@@ -18,7 +18,7 @@ import {
   detectSiisHeaderRowIndex,
 } from '../siis-snapshot-etl';
 import type { SiisCompanyFinancialRecord } from '../types';
-import { deriveTaxRecordIdentity } from '../../../record-identity';
+import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../../record-identity';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -597,5 +597,43 @@ describe('record_identity_key shadow write (APP-A P2A)', () => {
       !source.includes("onConflict: 'source_key,country_code,source_year,record_identity_key'"),
       'no debe activar RECORD_IDENTITY_ON_CONFLICT (P2B) en este hito',
     );
+  });
+});
+
+// ─── 10. record_identity_key boundary (APP-B P2B) ─────────────────────────────
+
+describe('record_identity_key boundary (APP-B P2B)', () => {
+  it('a row with a resolved tax:<id> identity passes validateRecordIdentityKey', () => {
+    const identity = deriveTaxRecordIdentity(normalizeSiisNIT('900.123.456-1'));
+    assert.equal(identity.status, 'resolved');
+    if (identity.status !== 'resolved') return;
+
+    const validation = validateRecordIdentityKey(identity.recordIdentityKey);
+    assert.equal(validation.valid, true);
+  });
+
+  it('a row with an unavailable identity (null record_identity_key) fails validateRecordIdentityKey', () => {
+    // NIT que normaliza a null: solo dígito verificador, sin cuerpo de NIT.
+    const normalizedTaxId = normalizeSiisNIT('-1');
+    assert.equal(normalizedTaxId, null);
+
+    const identity = deriveTaxRecordIdentity(normalizedTaxId);
+    assert.equal(identity.status, 'unavailable');
+
+    // identity.status is already asserted 'unavailable' above, so record_identity_key is null.
+    const recordIdentityKey: string | null = null;
+    const validation = validateRecordIdentityKey(recordIdentityKey);
+    assert.equal(validation.valid, false);
+    if (validation.valid) return;
+    assert.equal(validation.reason, 'missing_value');
+  });
+
+  it('the P2B boundary source does not use RECORD_IDENTITY_ON_CONFLICT', () => {
+    const source = readFileSync(
+      new URL('../siis-snapshot-etl.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('validateRecordIdentityKey'));
   });
 });

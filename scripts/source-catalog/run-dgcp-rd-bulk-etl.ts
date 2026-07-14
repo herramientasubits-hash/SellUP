@@ -46,7 +46,10 @@ import {
   DGCP_COUNTRY_CODE,
   type DgcpSnapshotRow,
 } from '../../src/server/source-catalog/connectors/dgcp-rd/dgcp-rd-snapshot-builder';
-import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
+import {
+  OLD_TAX_GRAIN_ON_CONFLICT,
+  validateRecordIdentityKey,
+} from '../../src/server/source-catalog/record-identity';
 
 // ─── DGCP bulk URLs ────────────────────────────────────────────────────────────
 
@@ -110,15 +113,38 @@ async function upsertInBatches(
   sb: any,
   rows: DgcpSnapshotRow[],
   batchSize: number,
-): Promise<{ upserted: number; errors: string[] }> {
+): Promise<{
+  upserted: number;
+  errors: string[];
+  recordIdentityBoundary: { allowedCount: number; blockedCount: number; blockedReasons: Record<string, number> };
+}> {
   let upserted = 0;
   const errors: string[] = [];
+  let boundaryAllowedCount = 0;
+  let boundaryBlockedCount = 0;
+  const boundaryBlockedReasons: Record<string, number> = {};
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
+
+    // APP-B P2B — partición: solo filas con record_identity_key válido llegan al upsert.
+    const allowedRows: DgcpSnapshotRow[] = [];
+    for (const row of batch) {
+      const validation = validateRecordIdentityKey(row.record_identity_key);
+      if (validation.valid) {
+        allowedRows.push(row);
+        boundaryAllowedCount += 1;
+      } else {
+        boundaryBlockedCount += 1;
+        boundaryBlockedReasons[validation.reason] = (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+      }
+    }
+
+    if (allowedRows.length === 0) continue;
+
     const { error } = await sb
       .from('source_company_snapshots')
-      .upsert(batch, {
+      .upsert(allowedRows, {
         onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
       });
 
@@ -127,15 +153,23 @@ async function upsertInBatches(
       errors.push(msg);
       console.error(`       ✗ ${msg}`);
     } else {
-      upserted += batch.length;
+      upserted += allowedRows.length;
       const pct = Math.round(((i + batch.length) / rows.length) * 100);
       console.log(
-        `       ✓ Batch ${Math.floor(i / batchSize) + 1}: ${batch.length} filas (${pct}% completado)`,
+        `       ✓ Batch ${Math.floor(i / batchSize) + 1}: ${allowedRows.length} filas (${pct}% completado)`,
       );
     }
   }
 
-  return { upserted, errors };
+  return {
+    upserted,
+    errors,
+    recordIdentityBoundary: {
+      allowedCount: boundaryAllowedCount,
+      blockedCount: boundaryBlockedCount,
+      blockedReasons: boundaryBlockedReasons,
+    },
+  };
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
@@ -333,6 +367,8 @@ async function main(): Promise<void> {
   // ── Paso 5: Upsert ────────────────────────────────────────────────────────
   let writesRealized = 0;
   const upsertErrors: string[] = [];
+  let recordIdentityBoundaryAllowed = 0;
+  let recordIdentityBoundaryBlocked = 0;
 
   if (!dryRun && rows.length > 0) {
     console.log(
@@ -340,9 +376,13 @@ async function main(): Promise<void> {
     );
     console.log(`        source_key='${DGCP_SOURCE_KEY}' únicamente`);
     const sb = getAdminSupabase();
-    const { upserted, errors } = await upsertInBatches(sb, rows, args.batchSize);
+    const { upserted, errors, recordIdentityBoundary } = await upsertInBatches(sb, rows, args.batchSize);
     writesRealized = upserted;
     upsertErrors.push(...errors);
+    recordIdentityBoundaryAllowed = recordIdentityBoundary.allowedCount;
+    recordIdentityBoundaryBlocked = recordIdentityBoundary.blockedCount;
+    console.log(`       → record_identity_boundary.allowedCount: ${recordIdentityBoundaryAllowed}`);
+    console.log(`       → record_identity_boundary.blockedCount: ${recordIdentityBoundaryBlocked}`);
   } else if (!dryRun && rows.length === 0) {
     console.log('\n  [5/5] Sin snapshots para upsert (0 filas).');
   } else {
@@ -370,6 +410,8 @@ async function main(): Promise<void> {
     console.log(`  Modo:                         DRY-RUN (sin escrituras)`);
   } else {
     console.log(`  Writes realizados:            ${writesRealized}`);
+    console.log(`  record_identity_boundary.allowedCount: ${recordIdentityBoundaryAllowed}`);
+    console.log(`  record_identity_boundary.blockedCount: ${recordIdentityBoundaryBlocked}`);
     console.log(`  Modo:                         APPLY → source_company_snapshots (do_dgcp)`);
     console.log('');
     console.log('  ⚠ Siguiente paso: actualizar source_coverage_summaries.');

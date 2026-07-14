@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   runHnSnapshotWriter,
   validateSnapshotRows,
@@ -7,8 +8,10 @@ import {
   buildHnCoverageSummaryPayload,
 } from '../hn-snapshot-writer';
 import type { HnOcdsCandidate } from '../hn-ocds-types';
+import { mapCandidateToSnapshot } from '../hn-snapshot-mapper';
 import type { HnSnapshotRow } from '../hn-snapshot-mapper';
 import type { HnSupabaseAdminLike } from '../hn-snapshot-writer';
+import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../../record-identity';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -488,6 +491,102 @@ describe('buildHnCoverageSummaryPayload', () => {
   it('refresh_source correcto', () => {
     const p = buildHnCoverageSummaryPayload(baseOpts);
     assert.equal(p.refresh_source, 'hn_8c4b_pilot_snapshot');
+  });
+});
+
+// ─── record_identity_key boundary (APP-B P2B) ────────────────────────────────
+
+describe('record_identity_key boundary (APP-B P2B)', () => {
+  it('a row with a resolved tax:<normalizedRtn> identity passes validateRecordIdentityKey', () => {
+    const result = mapCandidateToSnapshot(makeCandidate(), 2024);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const validation = validateRecordIdentityKey(result.row.record_identity_key);
+    assert.equal(validation.valid, true);
+  });
+
+  it('a row with an unavailable identity (null record_identity_key) fails validateRecordIdentityKey', () => {
+    // normalizedRtn no vacío (pasa el filtro rtnValid/normalizedRtn del mapper)
+    // pero solo espacios en blanco, por lo que deriveTaxRecordIdentity lo trata
+    // como ausente (missing_tax_id) sin excluir la fila.
+    const result = mapCandidateToSnapshot(makeCandidate({ normalizedRtn: '   ' }), 2024);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const identity = deriveTaxRecordIdentity('   ');
+    assert.equal(identity.status, 'unavailable');
+
+    assert.equal(result.row.record_identity_key, null);
+    const validation = validateRecordIdentityKey(result.row.record_identity_key);
+    assert.equal(validation.valid, false);
+    if (validation.valid) return;
+    assert.equal(validation.reason, 'missing_value');
+  });
+
+  it('apply reports recordIdentityBoundary with allowedCount = rowsWritten and blockedCount = 0 when every row resolves', async () => {
+    // Todo candidato válido para el mapper (rtnValid + normalizedRtn no vacío +
+    // likely_legal_entity) también resuelve record_identity_key, porque
+    // deriveTaxRecordIdentity solo falla ante un valor vacío/blanco, lo cual
+    // findInvariantViolations ya rechaza como normalized_tax_id inválido (no
+    // 14 dígitos) antes de llegar a la partición P2B. Este test documenta el
+    // caso feliz: la frontera está conectada y no bloquea nada cuando todo
+    // el upstream ya es válido.
+    const { admin, calls } = makeMockAdmin();
+    const candidates = [
+      makeCandidate(),
+      makeCandidate({ normalizedRtn: '08011977037644' }),
+    ];
+    const result = await runHnSnapshotWriter(candidates, {
+      sourceYear: 2024,
+      dryRun: false,
+      supabaseAdmin: admin,
+    });
+
+    assert.ok(calls.includes('upsert:source_company_snapshots'));
+    assert.equal(result.rowsWritten, 2);
+    assert.ok(result.recordIdentityBoundary);
+    if (!result.recordIdentityBoundary) return;
+    assert.equal(result.recordIdentityBoundary.allowedCount, 2);
+    assert.equal(result.recordIdentityBoundary.blockedCount, 0);
+  });
+
+  it('a whitespace-only normalizedRtn is rejected upstream by findInvariantViolations (normalized_tax_id format), never reaching the P2B boundary', async () => {
+    // Documents that this connector's existing 14-digit invariant already
+    // guards against the one shape that would make deriveTaxRecordIdentity
+    // resolve to "unavailable" for a candidate that otherwise passes the
+    // mapper's rtnValid/normalizedRtn/legalEntityHint filter. The P2B
+    // boundary is additional, not a replacement for this pre-existing check.
+    const { admin, calls } = makeMockAdmin();
+    const candidates = [makeCandidate({ normalizedRtn: '   ' })];
+
+    await assert.rejects(
+      () => runHnSnapshotWriter(candidates, {
+        sourceYear: 2024,
+        dryRun: false,
+        supabaseAdmin: admin,
+      }),
+      (err) => {
+        assert.ok(err instanceof Error);
+        assert.ok(err.message.includes('invariant_violation'));
+        return true;
+      },
+    );
+    assert.equal(calls.length, 0);
+  });
+
+  it('the P2B boundary source keeps the old onConflict target and does not reference RECORD_IDENTITY_ON_CONFLICT', () => {
+    const source = readFileSync(
+      new URL('../hn-snapshot-writer.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.ok(
+      source.includes(
+        "'source_key,country_code,source_year,normalized_tax_id' as const",
+      ),
+    );
+    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('validateRecordIdentityKey'));
   });
 });
 

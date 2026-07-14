@@ -33,7 +33,10 @@ import {
   DGCP_SOURCE_KEY,
   DGCP_COUNTRY_CODE,
 } from '../../src/server/source-catalog/connectors/dgcp-rd/dgcp-rd-snapshot-builder';
-import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
+import {
+  OLD_TAX_GRAIN_ON_CONFLICT,
+  validateRecordIdentityKey,
+} from '../../src/server/source-catalog/record-identity';
 
 // ─── Args ──────────────────────────────────────────────────────────────────────
 
@@ -266,24 +269,48 @@ async function main(): Promise<void> {
   console.log(`       → ${snapshotsBuilt} snapshots construidos`);
 
   // ── Apply ─────────────────────────────────────────────────────────────────
+  let boundaryAllowedCount = 0;
+  let boundaryBlockedCount = 0;
+  const boundaryBlockedReasons: Record<string, number> = {};
+
   if (!dryRun && rows.length > 0) {
     console.log('\n  [APPLY] Upsertando en source_company_snapshots...');
     const sb = getAdminSupabase();
 
-    const { error: upsertErr } = await sb
-      .from('source_company_snapshots')
-      .upsert(rows, {
-        onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
-      });
-
-    if (upsertErr) {
-      const msg = `Upsert error: ${upsertErr.message}`;
-      errors.push(msg);
-      console.error(`       ✗ ${msg}`);
-    } else {
-      writesRealized += rows.length;
-      console.log(`       ✓ ${writesRealized} filas upsertadas con source_key='${DGCP_SOURCE_KEY}'`);
+    // APP-B P2B — partición: solo filas con record_identity_key válido llegan al upsert.
+    const allowedRows: typeof rows = [];
+    for (const row of rows) {
+      const validation = validateRecordIdentityKey(row.record_identity_key);
+      if (validation.valid) {
+        allowedRows.push(row);
+        boundaryAllowedCount += 1;
+      } else {
+        boundaryBlockedCount += 1;
+        boundaryBlockedReasons[validation.reason] = (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+      }
     }
+
+    if (allowedRows.length > 0) {
+      const { error: upsertErr } = await sb
+        .from('source_company_snapshots')
+        .upsert(allowedRows, {
+          onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
+        });
+
+      if (upsertErr) {
+        const msg = `Upsert error: ${upsertErr.message}`;
+        errors.push(msg);
+        console.error(`       ✗ ${msg}`);
+      } else {
+        writesRealized += allowedRows.length;
+        console.log(`       ✓ ${writesRealized} filas upsertadas con source_key='${DGCP_SOURCE_KEY}'`);
+      }
+    } else {
+      console.log('       ⚠ Ninguna fila con record_identity_key válido — 0 upsert.');
+    }
+
+    console.log(`       → record_identity_boundary.allowedCount: ${boundaryAllowedCount}`);
+    console.log(`       → record_identity_boundary.blockedCount: ${boundaryBlockedCount}`);
   } else if (!dryRun && rows.length === 0) {
     console.log('\n  [APPLY] Sin filas para upsert.');
   }
@@ -304,6 +331,13 @@ async function main(): Promise<void> {
   console.log(`  Writes realizados:           ${writesRealized}`);
   console.log(`  record_identity_shadow.resolved_count:    ${recordIdentityResolved}`);
   console.log(`  record_identity_shadow.unavailable_count: ${recordIdentityUnavailable}`);
+  if (!dryRun) {
+    console.log(`  record_identity_boundary.allowedCount:     ${boundaryAllowedCount}`);
+    console.log(`  record_identity_boundary.blockedCount:     ${boundaryBlockedCount}`);
+    if (Object.keys(boundaryBlockedReasons).length > 0) {
+      console.log(`  record_identity_boundary.blockedReasons:   ${JSON.stringify(boundaryBlockedReasons)}`);
+    }
+  }
   if (dryRun) {
     console.log(`  Modo:                       DRY-RUN (sin escrituras)`);
   } else {

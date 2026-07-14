@@ -28,7 +28,7 @@ import {
 import type { FetchAwardResult } from './chilecompra-ocds-client';
 import { normalizeRut, resolveBuyer, collectUnspsc } from './normalizers';
 import type { OcdsRelease, OcdsAward } from './types';
-import { deriveTaxRecordIdentity } from '../../record-identity';
+import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../record-identity';
 
 const ETL_VERSION = 'v1.16CL-D.2';
 const BATCH_SIZE = 100;
@@ -77,6 +77,11 @@ export type ChileCompraOcdsSnapshotEtlResult = {
   run_id?: string;
   errors: string[];
   warnings: string[];
+  recordIdentityBoundary?: {
+    allowedCount: number;
+    blockedCount: number;
+    blockedReasons: Record<string, number>;
+  };
 };
 
 // ─── OCDS composed name helpers ───────────────────────────────────────────────
@@ -701,6 +706,13 @@ export async function runChileCompraOcdsSnapshotEtl(
   let recordsUpserted = 0;
   let writesPerformed = 0;
 
+  // ── Record identity boundary (APP-B P2B) ────────────────────────────────────
+  // Solo filas con record_identity_key válido se envían a upsert. Filas
+  // bloqueadas se cuentan pero no son un error fatal.
+  let boundaryAllowedCount = 0;
+  let boundaryBlockedCount = 0;
+  const boundaryBlockedReasons: Record<string, number> = {};
+
   try {
     sb = getAdminSupabase();
 
@@ -729,16 +741,32 @@ export async function runChileCompraOcdsSnapshotEtl(
     if (rows.length > 0) {
       for (let i = 0; i < rows.length; i += BATCH_SIZE) {
         const batch = rows.slice(i, i + BATCH_SIZE);
+
+        const allowedRows: typeof batch = [];
+        for (const row of batch) {
+          const validation = validateRecordIdentityKey(row['record_identity_key']);
+          if (validation.valid) {
+            allowedRows.push(row);
+            boundaryAllowedCount += 1;
+          } else {
+            boundaryBlockedCount += 1;
+            boundaryBlockedReasons[validation.reason] =
+              (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+          }
+        }
+
+        if (allowedRows.length === 0) continue;
+
         const { error: upsertErr } = await sb
           .from('source_company_snapshots')
-          .upsert(batch, {
+          .upsert(allowedRows, {
             onConflict: 'source_key,country_code,source_year,normalized_tax_id',
           });
         if (upsertErr) {
           errors.push(`Batch upsert error at offset ${i}: ${upsertErr.message}`);
         } else {
-          recordsUpserted += batch.length;
-          writesPerformed += batch.length;
+          recordsUpserted += allowedRows.length;
+          writesPerformed += allowedRows.length;
         }
       }
     }
@@ -773,6 +801,11 @@ export async function runChileCompraOcdsSnapshotEtl(
       run_id: runId,
       errors,
       warnings,
+      recordIdentityBoundary: {
+        allowedCount: boundaryAllowedCount,
+        blockedCount: boundaryBlockedCount,
+        blockedReasons: boundaryBlockedReasons,
+      },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -807,6 +840,11 @@ export async function runChileCompraOcdsSnapshotEtl(
       run_id: runId,
       errors,
       warnings,
+      recordIdentityBoundary: {
+        allowedCount: boundaryAllowedCount,
+        blockedCount: boundaryBlockedCount,
+        blockedReasons: boundaryBlockedReasons,
+      },
     };
   }
 }

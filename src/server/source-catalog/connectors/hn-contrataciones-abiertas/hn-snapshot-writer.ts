@@ -24,6 +24,7 @@
 import type { HnOcdsCandidate } from './hn-ocds-types';
 import { mapCandidatesToSnapshot } from './hn-snapshot-mapper';
 import type { HnSnapshotRow } from './hn-snapshot-mapper';
+import { validateRecordIdentityKey } from '../../record-identity';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,11 @@ export type HnSnapshotWriterResult = {
   rowsWritten: number;
   conflictsTarget: string;
   coverageSummaryWritten: boolean;
+  recordIdentityBoundary?: {
+    allowedCount: number;
+    blockedCount: number;
+    blockedReasons: Record<string, number>;
+  };
 };
 
 export type HnCoverageSummaryPayload = {
@@ -287,9 +293,32 @@ export async function runHnSnapshotWriter(
   // 2. Crear admin client solo después de validación (nunca en dry-run)
   const admin = options.supabaseAdmin ?? (await createHnSupabaseAdmin());
 
+  // 2.5. Record identity boundary (APP-B P2B): partición adicional, no reemplaza
+  // el filtro de legal entity ya aplicado en mapCandidatesToSnapshot. Solo filas
+  // con record_identity_key válido se envían a upsert; las bloqueadas se cuentan
+  // pero no son un error fatal.
+  const allowedRows: HnSnapshotRow[] = [];
+  let boundaryBlockedCount = 0;
+  const boundaryBlockedReasons: Record<string, number> = {};
+  for (const row of mapped.rows) {
+    const validation = validateRecordIdentityKey(row.record_identity_key ?? null);
+    if (validation.valid) {
+      allowedRows.push(row);
+    } else {
+      boundaryBlockedCount += 1;
+      boundaryBlockedReasons[validation.reason] =
+        (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+    }
+  }
+
   // 3. Upsert en source_company_snapshots
-  const rowsWritten = await upsertSnapshotBatch(admin, mapped.rows);
+  const rowsWritten = await upsertSnapshotBatch(admin, allowedRows);
   result.rowsWritten = rowsWritten;
+  result.recordIdentityBoundary = {
+    allowedCount: allowedRows.length,
+    blockedCount: boundaryBlockedCount,
+    blockedReasons: boundaryBlockedReasons,
+  };
 
   // 4. Coverage summary solo si write exitoso y rowsWritten > 0
   if (rowsWritten > 0) {

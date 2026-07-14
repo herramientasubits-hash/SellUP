@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
 import { downloadSiisExcel, SIIS_CONFIRMED_YEARS } from './siis-client';
 import type { SiisCompanyFinancialRecord } from './types';
-import { deriveTaxRecordIdentity } from '../../record-identity';
+import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../record-identity';
 
 // ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -26,6 +26,11 @@ export type SiisSnapshotEtlResult = {
   runId?: string;
   errors: string[];
   warnings: string[];
+  recordIdentityBoundary?: {
+    allowedCount: number;
+    blockedCount: number;
+    blockedReasons: Record<string, number>;
+  };
 };
 
 export type SiisSnapshotEtlOptions = {
@@ -461,6 +466,9 @@ export async function runSiisSnapshotEtl(
 
     let recordsUpserted = 0;
     const BATCH_SIZE = 100;
+    let boundaryAllowedCount = 0;
+    let boundaryBlockedCount = 0;
+    const boundaryBlockedReasons: Record<string, number> = {};
 
     for (let i = 0; i < records.length; i += BATCH_SIZE) {
       const batch = records.slice(i, i + BATCH_SIZE);
@@ -490,14 +498,29 @@ export async function runSiisSnapshotEtl(
         };
       });
 
+      const allowedRows: typeof rows = [];
+      for (const row of rows) {
+        const validation = validateRecordIdentityKey(row.record_identity_key);
+        if (validation.valid) {
+          allowedRows.push(row);
+          boundaryAllowedCount += 1;
+        } else {
+          boundaryBlockedCount += 1;
+          boundaryBlockedReasons[validation.reason] =
+            (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+        }
+      }
+
+      if (allowedRows.length === 0) continue;
+
       const { error: upsertErr } = await sb!
         .from('source_company_snapshots')
-        .upsert(rows, { onConflict: 'source_key,country_code,source_year,normalized_tax_id' });
+        .upsert(allowedRows, { onConflict: 'source_key,country_code,source_year,normalized_tax_id' });
 
       if (upsertErr) {
         errors.push(`Batch upsert error at offset ${i}: ${upsertErr.message}`);
       } else {
-        recordsUpserted += batch.length;
+        recordsUpserted += allowedRows.length;
       }
     }
 
@@ -505,7 +528,20 @@ export async function runSiisSnapshotEtl(
       records_found: recordsFound,
       records_upserted: recordsUpserted,
     });
-    return { ok: true, year, recordsFound, recordsUpserted, runId, errors, warnings };
+    return {
+      ok: true,
+      year,
+      recordsFound,
+      recordsUpserted,
+      runId,
+      errors,
+      warnings,
+      recordIdentityBoundary: {
+        allowedCount: boundaryAllowedCount,
+        blockedCount: boundaryBlockedCount,
+        blockedReasons: boundaryBlockedReasons,
+      },
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(msg);

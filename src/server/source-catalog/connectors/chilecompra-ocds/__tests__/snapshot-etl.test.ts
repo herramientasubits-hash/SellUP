@@ -18,7 +18,11 @@ import {
 } from '../run-chilecompra-ocds-snapshot-etl';
 import type { ProcessReleaseCounters } from '../run-chilecompra-ocds-snapshot-etl';
 import type { OcdsRelease } from '../types';
-import { deriveTaxRecordIdentity, OLD_TAX_GRAIN_ON_CONFLICT } from '../../../record-identity';
+import {
+  deriveTaxRecordIdentity,
+  validateRecordIdentityKey,
+  OLD_TAX_GRAIN_ON_CONFLICT,
+} from '../../../record-identity';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -966,6 +970,49 @@ describe('record_identity_key shadow write (APP-A P2A)', () => {
     assert.ok(
       !source.includes("onConflict: 'source_key,country_code,source_year,record_identity_key'"),
       'no debe activar RECORD_IDENTITY_ON_CONFLICT (P2B) en este hito',
+    );
+  });
+});
+
+// ─── 11. record_identity_key boundary (APP-B P2B) ─────────────────────────────
+
+describe('record_identity_key boundary (APP-B P2B)', () => {
+  it('a row with a resolved tax:<normalizedTaxId> identity passes validateRecordIdentityKey', () => {
+    const map = new Map();
+    const counters = makeCounters();
+    const release = makeRelease();
+
+    processRelease(release, release.ocid!, null, map, counters);
+    const acc = map.values().next().value;
+    const row = accToSnapshotRow(acc, 2024, [1], new Date().toISOString());
+
+    const validation = validateRecordIdentityKey(row['record_identity_key']);
+    assert.equal(validation.valid, true);
+  });
+
+  it('a row with an unavailable identity (null record_identity_key) fails validateRecordIdentityKey', () => {
+    const identity = deriveTaxRecordIdentity(null);
+    assert.equal(identity.status, 'unavailable');
+
+    // identity.status is already asserted 'unavailable' above, so record_identity_key is null.
+    const recordIdentityKey: string | null = null;
+    const validation = validateRecordIdentityKey(recordIdentityKey);
+    assert.equal(validation.valid, false);
+    if (validation.valid) return;
+    assert.equal(validation.reason, 'missing_value');
+  });
+
+  it('the P2B boundary source does not use RECORD_IDENTITY_ON_CONFLICT', () => {
+    const source = readFileSync(
+      new URL('../run-chilecompra-ocds-snapshot-etl.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('validateRecordIdentityKey'));
+    assert.ok(
+      source.includes(
+        "onConflict: 'source_key,country_code,source_year,normalized_tax_id'",
+      ),
     );
   });
 });

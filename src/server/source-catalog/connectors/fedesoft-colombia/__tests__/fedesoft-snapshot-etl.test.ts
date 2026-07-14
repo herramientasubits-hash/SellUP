@@ -1,11 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   getFedesoftPriorityScore,
   buildFedesoftSnapshotRow,
   buildFedesoftSnapshotRows,
   deriveFedesoftRecordIdentity,
 } from '../fedesoft-snapshot-etl';
+import { validateRecordIdentityKey } from '../../../record-identity';
 import type { FedesoftCompany } from '../types';
 
 function makeCompany(
@@ -249,5 +251,59 @@ describe('buildFedesoftSnapshotRow — record_identity_key wiring', () => {
     assert.equal(row.record_identity_key, null);
     assert.notEqual(row.record_identity_key, 'tech-solutions');
     assert.ok(!String(row.record_identity_key ?? '').includes('tech-solutions'));
+  });
+});
+
+// ─── P2B identity boundary (EC4D5.E) ──────────────────────────────────────────
+
+describe('P2B identity boundary (EC4D5.E)', () => {
+  it('fedesoft-directory:<id> es una identidad permitida (allowed)', () => {
+    const company = makeCompany({ metadata: { directoryId: 4821 } });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    assert.equal(row.record_identity_key, 'fedesoft-directory:4821');
+    assert.equal(validateRecordIdentityKey(row.record_identity_key).valid, true);
+  });
+
+  it('tax:<id> (fallback) es una identidad permitida (allowed) cuando no hay directoryId', () => {
+    const company = makeCompany({ metadata: {}, normalizedTaxId: '900123456' });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    assert.equal(row.record_identity_key, 'tax:900123456');
+    assert.equal(validateRecordIdentityKey(row.record_identity_key).valid, true);
+  });
+
+  it('el fallback legado `name:<normalizedName>` queda bloqueado (blocked)', () => {
+    const company = makeCompany({
+      metadata: {},
+      normalizedTaxId: null,
+      normalizedName: 'sin identidad sas',
+    });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    // normalized_tax_id itself legitimately carries the legacy name: fallback
+    // (old tax-grain column), but record_identity_key must never derive from it.
+    assert.equal(row.normalized_tax_id, 'name:sin identidad sas');
+    assert.equal(row.record_identity_key, null);
+    const validation = validateRecordIdentityKey(row.record_identity_key);
+    assert.equal(validation.valid, false);
+    if (validation.valid) return;
+    assert.equal(validation.reason, 'missing_value');
+  });
+
+  it('fedesoftSlug no rescata la fila del boundary — sigue bloqueada', () => {
+    const company = makeCompany({
+      metadata: {},
+      normalizedTaxId: null,
+      fedesoftSlug: 'tech-solutions',
+      normalizedName: 'tech solutions',
+    });
+    const row = buildFedesoftSnapshotRow(company, SOURCE_YEAR);
+    assert.equal(row.record_identity_key, null);
+    assert.equal(validateRecordIdentityKey(row.record_identity_key).valid, false);
+  });
+
+  it('el ETL referencia validateRecordIdentityKey y no usa RECORD_IDENTITY_ON_CONFLICT', () => {
+    const source = readFileSync(new URL('../fedesoft-snapshot-etl.ts', import.meta.url), 'utf-8');
+    assert.ok(source.includes('validateRecordIdentityKey'));
+    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('OLD_TAX_GRAIN_ON_CONFLICT'));
   });
 });

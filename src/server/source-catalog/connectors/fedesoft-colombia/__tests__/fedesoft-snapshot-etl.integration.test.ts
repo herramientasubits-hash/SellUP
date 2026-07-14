@@ -201,7 +201,10 @@ describe('runFedesoftSnapshotEtl (commit flow)', () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.companiesBuilt, 4);
-    assert.equal(result.recordsUpserted, 4);
+    // 2 of 4 fake companies resolve to tax:<nit>; the other 2 fall back to the
+    // legacy `name:<normalizedName>` normalized_tax_id and are blocked by the
+    // P2B identity boundary before upsert (see recordIdentityBoundary test below).
+    assert.equal(result.recordsUpserted, 2);
     assert.equal(result.runId, 'mock-run-id');
     assert.ok(upsertCallCount > 0, 'upsert should have been called');
   });
@@ -308,11 +311,22 @@ describe('runFedesoftSnapshotEtl (commit flow)', () => {
     const withTax = capturedRows.find((r) => r.normalized_tax_id === '900123456');
     assert.equal(withTax?.record_identity_key, 'tax:900123456');
 
+    // P2B identity boundary (EC4D5.E): companies whose normalized_tax_id is the
+    // legacy `name:<normalizedName>` fallback have record_identity_key = null
+    // and are blocked BEFORE upsert — they must not appear in capturedRows.
     const withoutTax = capturedRows.find((r) => r.normalized_tax_id === 'name:no nit company');
-    assert.equal(withoutTax?.record_identity_key, null);
+    assert.equal(withoutTax, undefined, 'a row with an unavailable identity must not reach upsert');
 
-    // All 4 companies still arrive at the writer regardless of identity availability (P2A, no exclusion).
-    assert.equal(capturedRows.length, 4);
+    assert.equal(capturedRows.length, 2, 'only the 2 rows with a resolvable identity reach upsert');
+    assert.ok(
+      capturedRows.every((r) => typeof r.record_identity_key === 'string'),
+      'every row that reaches upsert has a valid record_identity_key',
+    );
+    assert.equal(result.recordIdentityBoundaryAllowed, 2);
+    assert.equal(result.recordIdentityBoundaryBlocked, 2);
+    // validateRecordIdentityKey sees the final (null) record_identity_key value,
+    // not the upstream derivation reason — a null value is always 'missing_value'.
+    assert.equal(result.recordIdentityBoundaryBlockedReasons.missing_value, 2);
   });
 
   it('handles upsert error gracefully', async () => {

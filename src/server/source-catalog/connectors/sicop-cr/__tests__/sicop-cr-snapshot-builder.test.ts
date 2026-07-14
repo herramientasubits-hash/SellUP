@@ -15,6 +15,7 @@ import {
   SICOP_COUNTRY_CODE,
 } from '../sicop-cr-snapshot-builder';
 import type { UniqueProvider } from '../sicop-cr-normalizer';
+import { validateRecordIdentityKey } from '../../../record-identity';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -179,5 +180,28 @@ describe('buildSicopSnapshotRow — record identity shadow (EC4D5.C2)', () => {
     const rows = buildSicopSnapshotRows(providers);
     assert.equal(rows[0].record_identity_key, 'tax:3101111111');
     assert.equal(rows[1].record_identity_key, 'tax:3102222222');
+  });
+});
+
+// ─── buildSicopSnapshotRow — record identity boundary (APP-B P2B) ─────────────
+//
+// El upsert real (run-sicop-cr-snapshot-etl.ts) parte las filas en allowed vs
+// blocked usando validateRecordIdentityKey. Estos tests cubren, a nivel de
+// función pura, los dos resultados posibles del builder frente a esa validación.
+
+describe('buildSicopSnapshotRow — record identity boundary (APP-B P2B)', () => {
+  it('una fila con cédula válida produce un record_identity_key que pasa validateRecordIdentityKey', () => {
+    const row = buildSicopSnapshotRow({ provider: makeProvider('3101123456') });
+    const validation = validateRecordIdentityKey(row.record_identity_key);
+    assert.equal(validation.valid, true);
+  });
+
+  it('una fila con cédula vacía produce un record_identity_key null que falla validateRecordIdentityKey', () => {
+    const emptyCedulaProvider: UniqueProvider = { ...makeProvider(), cedula: '' };
+    const row = buildSicopSnapshotRow({ provider: emptyCedulaProvider });
+    const validation = validateRecordIdentityKey(row.record_identity_key);
+    assert.equal(validation.valid, false);
+    if (validation.valid) return;
+    assert.equal(validation.reason, 'missing_value');
   });
 });

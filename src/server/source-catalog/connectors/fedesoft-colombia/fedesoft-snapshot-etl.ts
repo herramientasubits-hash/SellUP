@@ -2,7 +2,12 @@ import { createClient } from '@supabase/supabase-js';
 import { runFedesoftConnector } from './fedesoft-connector';
 import { FEDESOFT_SOURCE_KEY, FEDESOFT_COUNTRY_CODE } from './types';
 import type { FedesoftCompany, FedesoftConnectorResult, FedesoftMatchSource } from './types';
-import { buildRecordIdentityKey, deriveTaxRecordIdentity, OLD_TAX_GRAIN_ON_CONFLICT } from '../../record-identity';
+import {
+  buildRecordIdentityKey,
+  deriveTaxRecordIdentity,
+  OLD_TAX_GRAIN_ON_CONFLICT,
+  validateRecordIdentityKey,
+} from '../../record-identity';
 import type { RecordIdentityResult, RecordIdentityUnavailableReason } from '../../record-identity';
 
 export type FedesoftSnapshotEtlResult = {
@@ -25,6 +30,9 @@ export type FedesoftSnapshotEtlResult = {
   recordIdentityResolved: number;
   recordIdentityUnavailable: number;
   recordIdentityUnavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
+  recordIdentityBoundaryAllowed: number;
+  recordIdentityBoundaryBlocked: number;
+  recordIdentityBoundaryBlockedReasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
 };
 
 export type FedesoftSnapshotEtlOptions = {
@@ -308,6 +316,9 @@ export async function runFedesoftSnapshotEtl(
         recordIdentityResolved: 0,
         recordIdentityUnavailable: 0,
         recordIdentityUnavailableReasons: {},
+        recordIdentityBoundaryAllowed: 0,
+        recordIdentityBoundaryBlocked: 0,
+        recordIdentityBoundaryBlockedReasons: {},
       };
     }
 
@@ -332,8 +343,28 @@ export async function runFedesoftSnapshotEtl(
       }
     }
 
-    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-      const batch = rows.slice(i, i + BATCH_SIZE);
+    // EC4D5.E — P2B identity boundary: solo filas con record_identity_key
+    // válido (fedesoft-directory:<id> o tax:<id>, nunca el fallback legado
+    // `name:<normalizedName>`) llegan al upsert. No se deriva identidad desde
+    // nombre/razón social/slug/hash — solo se valida lo que ya calculó
+    // deriveFedesoftRecordIdentity al construir la fila.
+    let boundaryAllowed = 0;
+    let boundaryBlocked = 0;
+    const boundaryBlockedReasons: Partial<Record<RecordIdentityUnavailableReason, number>> = {};
+    const allowedRows: typeof rows = [];
+    for (const row of rows) {
+      const validation = validateRecordIdentityKey(row.record_identity_key);
+      if (validation.valid) {
+        allowedRows.push(row);
+        boundaryAllowed++;
+      } else {
+        boundaryBlocked++;
+        boundaryBlockedReasons[validation.reason] = (boundaryBlockedReasons[validation.reason] ?? 0) + 1;
+      }
+    }
+
+    for (let i = 0; i < allowedRows.length; i += BATCH_SIZE) {
+      const batch = allowedRows.slice(i, i + BATCH_SIZE);
 
       const { error: upsertErr } = await sb!
         .from('source_company_snapshots')
@@ -379,6 +410,9 @@ export async function runFedesoftSnapshotEtl(
       recordIdentityResolved,
       recordIdentityUnavailable,
       recordIdentityUnavailableReasons,
+      recordIdentityBoundaryAllowed: boundaryAllowed,
+      recordIdentityBoundaryBlocked: boundaryBlocked,
+      recordIdentityBoundaryBlockedReasons: boundaryBlockedReasons,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -418,6 +452,9 @@ export async function runFedesoftSnapshotEtl(
       recordIdentityResolved: 0,
       recordIdentityUnavailable: 0,
       recordIdentityUnavailableReasons: {},
+      recordIdentityBoundaryAllowed: 0,
+      recordIdentityBoundaryBlocked: 0,
+      recordIdentityBoundaryBlockedReasons: {},
     };
   }
 }
