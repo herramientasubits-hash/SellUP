@@ -541,7 +541,6 @@ async function verifyDeletedGraph(
   db: QaHarnessReadClient,
   snapshotId: string,
   preDeleteConceptIds: string[],
-  capturedBaseline: GlobalBaselineCounts,
 ): Promise<{ ok: boolean; postCounts: GlobalBaselineCounts; baselineRestored: boolean }> {
   const { data: snapshot } = await db
     .from('provider_industry_mapping_snapshots')
@@ -563,7 +562,7 @@ async function verifyDeletedGraph(
   }
 
   const postCounts = await readGlobalBaselineCounts(db);
-  const baselineRestored = countsEqual(postCounts, FIXED_PRECONDITION) && countsEqual(postCounts, capturedBaseline);
+  const baselineRestored = countsEqual(postCounts, FIXED_PRECONDITION);
 
   return { ok: snapshotAbsent && zeroConcepts && zeroAssociations && baselineRestored, postCounts, baselineRestored };
 }
@@ -629,7 +628,7 @@ export async function deleteTestGraph(snapshotId: string): Promise<QaHarnessResu
     };
   }
 
-  const verification = await verifyDeletedGraph(db, snapshotId, preDeleteConceptIds, capturedBaseline);
+  const verification = await verifyDeletedGraph(db, snapshotId, preDeleteConceptIds);
 
   return {
     ...result,

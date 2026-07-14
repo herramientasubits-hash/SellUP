@@ -367,3 +367,53 @@ describe('HT35: synthetic QA graph warning text', () => {
     assert.match(pageSource, /Synthetic QA graph\. Not Apollo-derived mapping\./);
   });
 });
+
+// HT36-HT38 — STATIC CONTRACT: baseline restoration target. These assert on
+// the exact source text of verifyDeletedGraph/deleteTestGraph; they do not
+// execute PostgreSQL and do not perform a runtime round trip.
+
+// HT36 — DELETE_RESTORE_TARGET_IS_FIXED_PRECONDITION_ONLY.
+describe('HT36: delete restore target is FIXED_PRECONDITION only (STATIC CONTRACT)', () => {
+  it('verifyDeletedGraph assigns baselineRestored via countsEqual(postCounts, FIXED_PRECONDITION) with no capturedBaseline reference in the assignment', () => {
+    const body = extractFunctionBody(actionsSource, 'verifyDeletedGraph');
+    const assignmentLine = body
+      .split('\n')
+      .find((line) => line.includes('const baselineRestored ='));
+    assert.ok(assignmentLine, 'expected to find the baselineRestored assignment line');
+    assert.match(assignmentLine, /const baselineRestored = countsEqual\(postCounts, FIXED_PRECONDITION\);/);
+    assert.doesNotMatch(assignmentLine, /capturedBaseline/);
+  });
+});
+
+// HT37 — DELETE_RESTORE_TARGET_DOES_NOT_USE_PREDELETE_COUNTS.
+describe('HT37: delete restore target does not use pre-delete counts (STATIC CONTRACT)', () => {
+  it('verifyDeletedGraph does not declare a capturedBaseline/preDeleteBaseline/preDeleteCounts parameter', () => {
+    const signatureStart = actionsSource.indexOf('async function verifyDeletedGraph(');
+    assert.ok(signatureStart !== -1, 'expected to find the verifyDeletedGraph signature');
+    const signatureEnd = actionsSource.indexOf('): Promise<', signatureStart);
+    assert.ok(signatureEnd !== -1, 'expected to find the end of the verifyDeletedGraph signature');
+    const signature = actionsSource.slice(signatureStart, signatureEnd);
+    assert.doesNotMatch(signature, /capturedBaseline|preDeleteBaseline|preDeleteCounts/);
+  });
+
+  it('the deleteTestGraph call site no longer passes capturedBaseline (or an equivalent pre-delete snapshot) into verifyDeletedGraph', () => {
+    const body = extractFunctionBody(actionsSource, 'deleteTestGraph');
+    assert.match(body, /await verifyDeletedGraph\(db, snapshotId, preDeleteConceptIds\);/);
+    assert.doesNotMatch(body, /verifyDeletedGraph\([^)]*capturedBaseline[^)]*\)/);
+  });
+});
+
+// HT38 — BASELINE_TRANSITION_STATIC_CONTRACT.
+describe('HT38: baseline transition static contract (STATIC CONTRACT)', () => {
+  it('CREATE requires countsEqual(baseline, FIXED_PRECONDITION)', () => {
+    const body = extractFunctionBody(actionsSource, 'createTestGraph');
+    assert.match(body, /countsEqual\(baseline, FIXED_PRECONDITION\)/);
+  });
+
+  it('DELETE post-verification requires countsEqual(postCounts, FIXED_PRECONDITION) and never compares postCounts against a pre-delete counts snapshot', () => {
+    const body = extractFunctionBody(actionsSource, 'verifyDeletedGraph');
+    assert.match(body, /countsEqual\(postCounts, FIXED_PRECONDITION\)/);
+    assert.doesNotMatch(body, /countsEqual\(postCounts,\s*capturedBaseline\)/);
+    assert.doesNotMatch(body, /countsEqual\(postCounts,\s*preDelete\w*\)/);
+  });
+});
