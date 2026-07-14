@@ -4,7 +4,6 @@ import {
   Brain,
   Users,
   Activity,
-  Bot,
   Globe,
   MapPin,
   Tag,
@@ -20,6 +19,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
 import { ContactsTab } from '@/components/contacts/contacts-tab';
+import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
+import { AccountAgentsRunHistory } from '@/components/contact-enrichment/account-agents-run-history';
 import {
   PIPELINE_STATUS_LABELS,
   SOURCE_LABELS,
@@ -73,12 +74,13 @@ const AUDIT_ICONS: Record<AccountAuditAction, typeof Activity> = {
 export default async function AccountDetailPage({ params }: AccountDetailPageProps) {
   const { accountId } = await params;
 
-  const [account, auditLog, users, contacts, contactsSummary] = await Promise.all([
+  const [account, auditLog, users, contacts, contactsSummary, contactEnrichmentRuns] = await Promise.all([
     getAccountById(accountId),
     getAccountAudit(accountId),
     getActiveUsers(),
     getContactsByAccount(accountId),
     getContactsSummary(accountId),
+    getContactEnrichmentRunsByAccountId(accountId),
   ]);
 
   if (!account) notFound();
@@ -328,11 +330,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
         {/* ── Agentes ──────────────────────────────────────────── */}
         <TabsContent value="agentes">
-          <PlaceholderTab
-            icon={Bot}
-            title="Agentes IA — Próxima fase"
-            description="Desde aquí se ejecutarán y monitorearán los agentes IA sobre esta cuenta: Agente 1 de enriquecimiento, speech comercial, análisis de oportunidades y más."
-          />
+          <AccountAgentsRunHistory runs={contactEnrichmentRuns} />
         </TabsContent>
       </Tabs>
     </div>

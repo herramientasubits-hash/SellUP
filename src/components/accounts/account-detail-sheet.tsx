@@ -22,6 +22,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
+import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
+import { AccountAgentsRunHistory } from '@/components/contact-enrichment/account-agents-run-history';
+import type { AccountContactEnrichmentRun } from '@/modules/contact-enrichment/account-run-history-types';
 import {
   PIPELINE_STATUS_LABELS,
   SOURCE_LABELS,
@@ -96,6 +99,7 @@ interface SheetData {
   contacts: Contact[];
   contactsSummary: ContactsSummary;
   users: InternalUserOption[];
+  contactEnrichmentRuns: AccountContactEnrichmentRun[];
 }
 
 export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }: AccountDetailSheetProps) {
@@ -109,13 +113,14 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
     try {
       const account = await getAccountById(id);
       if (!account) return;
-      const [auditLog, contacts, contactsSummary, users] = await Promise.all([
+      const [auditLog, contacts, contactsSummary, users, contactEnrichmentRuns] = await Promise.all([
         getAccountAudit(id),
         getContactsByAccount(id),
         getContactsSummary(id),
         getActiveUsers(),
+        getContactEnrichmentRunsByAccountId(id),
       ]);
-      setData({ account, auditLog, contacts, contactsSummary, users });
+      setData({ account, auditLog, contacts, contactsSummary, users, contactEnrichmentRuns });
     } finally {
       setLoading(false);
     }
@@ -377,22 +382,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
 
                   {/* Agentes */}
                   <TabsContent value="agentes">
-                    <SurfaceCard>
-                      <div className="flex flex-col items-center gap-3 py-10 text-center">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-                          <Bot className="h-5 w-5 text-muted-foreground/40" />
-                        </div>
-                        <div className="max-w-sm space-y-1">
-                          <p className="text-sm font-semibold text-foreground">
-                            Agentes IA — Próxima fase
-                          </p>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            Agente 1 de enriquecimiento, speech comercial y análisis de
-                            oportunidades.
-                          </p>
-                        </div>
-                      </div>
-                    </SurfaceCard>
+                    <AccountAgentsRunHistory runs={data.contactEnrichmentRuns} />
                   </TabsContent>
                 </Tabs>
               )}
