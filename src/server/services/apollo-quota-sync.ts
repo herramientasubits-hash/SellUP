@@ -29,7 +29,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 /** Mensaje fijo para degradación controlada cuando ningún endpoint expone el saldo */
 export const APOLLO_NO_QUOTA_ENDPOINT_MSG =
-  'Cuota no disponible por API con la credencial actual — configura el límite mensual de forma manual';
+  'Apollo no expone cuota mensual ni créditos disponibles por API — configura el límite mensual de forma manual';
 
 // ── Tipos internos ─────────────────────────────────────────────────────────────
 

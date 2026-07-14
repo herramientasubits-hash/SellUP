@@ -122,7 +122,7 @@ function parseApolloUsageStatsResponse(raw: unknown): ApolloQuotaData | null {
 // ── Mensaje de degradación controlada ─────────────────────────────────────────
 
 const APOLLO_NO_QUOTA_ENDPOINT_MSG =
-  'Cuota no disponible por API con la credencial actual — configura el límite mensual de forma manual';
+  'Apollo no expone cuota mensual ni créditos disponibles por API — configura el límite mensual de forma manual';
 
 // ─── Tests: parseApolloHealthResponse ─────────────────────────────────────────
 
@@ -301,7 +301,7 @@ describe('Apollo degradación controlada (L3B)', () => {
     const errorMsg = APOLLO_NO_QUOTA_ENDPOINT_MSG;
     assert.ok(!errorMsg.includes('401'));
     assert.ok(!errorMsg.includes('403'));
-    assert.ok(errorMsg.includes('credencial'));
+    assert.ok(!errorMsg.includes('credencial'));
   });
 
   it('quota_source queda sync_error con mensaje de degradación (no api_synced)', () => {
