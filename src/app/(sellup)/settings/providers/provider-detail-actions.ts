@@ -8,7 +8,13 @@ import {
   testAiProviderConnectionWithVault,
   updateAiProviderCredential,
   disconnectAiProvider,
+  syncAnthropicModels,
 } from '@/modules/ai-config/actions';
+import {
+  getAiProviderDetail,
+  isIaProviderKey,
+  type AiProviderDetailResult,
+} from '@/modules/ai-config/provider-ai-detail-queries';
 import {
   testApolloConnectionAction,
   updateApolloApiKey,
@@ -34,6 +40,8 @@ export interface SidepanelDetailData {
   formOptions: BudgetRuleFormOptions;
   /** Null when the provider is outside the read model's supported cohort, or when the read failed. */
   contactEnrichmentEffectiveness: ProviderEffectivenessProviderSummary | null;
+  /** Null when the provider is not an IA provider (anthropic/openai/gemini), or when the read failed. */
+  aiProviderDetail: AiProviderDetailResult | null;
 }
 
 async function loadContactEnrichmentEffectivenessForPanel(
@@ -48,17 +56,30 @@ async function loadContactEnrichmentEffectivenessForPanel(
   }
 }
 
+async function loadAiProviderDetailForPanel(providerKey: string): Promise<AiProviderDetailResult | null> {
+  if (!isIaProviderKey(providerKey)) return null;
+  try {
+    return await getAiProviderDetail(providerKey);
+  } catch {
+    return null;
+  }
+}
+
 export async function loadProviderDetailForPanel(providerKey: string): Promise<SidepanelDetailData | null> {
   try {
     const detail = await getProviderDetail(providerKey);
     if (!detail) return null;
-    const contactEnrichmentEffectiveness = await loadContactEnrichmentEffectivenessForPanel(providerKey);
+    const [contactEnrichmentEffectiveness, aiProviderDetail] = await Promise.all([
+      loadContactEnrichmentEffectivenessForPanel(providerKey),
+      loadAiProviderDetailForPanel(providerKey),
+    ]);
     return {
       usageLogs: detail.recentUsageLogs,
       syncLogs: detail.recentSyncLogs,
       providerRules: detail.allRulesForProvider,
       formOptions: detail.formOptions,
       contactEnrichmentEffectiveness,
+      aiProviderDetail,
     };
   } catch {
     return null;
@@ -145,6 +166,19 @@ export async function disconnectAiProviderForPanel(
   try {
     const result = await disconnectAiProvider(providerKey);
     return { ok: result.success, message: result.message, error: result.error };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
+  }
+}
+
+/** Thin panel wrapper around the existing syncAnthropicModels() server action — no new backend logic. */
+export async function syncAnthropicModelsForPanel(): Promise<ActionResult> {
+  try {
+    const result = await syncAnthropicModels();
+    const message = result.success
+      ? `Modelos verificados: ${result.models_checked.length} · nuevos: ${result.models_added.length} · no disponibles: ${result.models_marked_unavailable.length}`
+      : undefined;
+    return { ok: result.success, message, error: result.error };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
   }

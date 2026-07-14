@@ -52,6 +52,7 @@ import {
   testAiProviderConnectionForPanel,
   updateAiProviderCredentialForPanel,
   disconnectAiProviderForPanel,
+  syncAnthropicModelsForPanel,
   loadProspectingProviderConnectionForPanel,
   testProspectingProviderConnectionForPanel,
   updateProspectingProviderCredentialForPanel,
@@ -61,6 +62,7 @@ import {
   type AiConnectionPanelState,
   type ProspectingConnectionPanelState,
 } from './provider-detail-actions';
+import type { AiModelWithPricing, AiProviderDetailResult } from '@/modules/ai-config/provider-ai-detail-queries';
 import { loadProviderConsumptionForWorkspace } from './provider-consumption-actions';
 import type {
   ProviderConsumptionSnapshot,
@@ -662,16 +664,73 @@ function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } |
   );
 }
 
+// ── Tab: Configuración IA — modelos y tarifas helpers ────────────────────────
+
+const MODEL_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  active:   { label: 'Activo',   cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  inactive: { label: 'Inactivo', cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' },
+  error:    { label: 'Error',    cls: 'border-destructive/30 bg-destructive/10 text-destructive' },
+};
+
+function ModelStatusBadge({ status }: { status: string }) {
+  const cfg = MODEL_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function formatPricePerMillion(value: number, currency: string): string {
+  return `${currency} ${value.toFixed(2)} / 1M tok`;
+}
+
+function AiModelRow({ model }: { model: AiModelWithPricing }) {
+  return (
+    <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-foreground truncate">{model.displayName}</p>
+          <p className="text-[10px] text-muted-foreground/50 truncate">{model.modelKey}</p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {model.isActiveGlobalModel && (
+            <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2 py-0.5 text-[10px] font-medium text-su-brand">
+              Activo global
+            </span>
+          )}
+          <ModelStatusBadge status={model.status} />
+        </div>
+      </div>
+      {model.latestPricing ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground/70">
+          <span>Entrada: {formatPricePerMillion(model.latestPricing.inputPerMillion, model.latestPricing.currency)}</span>
+          <span>Salida: {formatPricePerMillion(model.latestPricing.outputPerMillion, model.latestPricing.currency)}</span>
+          <span className="text-muted-foreground/40">Vigente desde {formatDateShort(model.latestPricing.effectiveFrom)}</span>
+        </div>
+      ) : (
+        <p className="text-[10px] text-muted-foreground/50">Sin tarifa vigente configurada.</p>
+      )}
+    </div>
+  );
+}
+
 // ── Tab: Configuración IA ─────────────────────────────────────────────────────
 
 function TabConfiguracionIA({
   row,
   ms,
   initialConnState,
+  aiProviderDetail,
+  loadingDetail,
+  onRefresh,
 }: {
   row: AdminProviderBudgetRow;
   ms: MeasurementStatus;
   initialConnState?: AiConnectionPanelState | null;
+  aiProviderDetail: AiProviderDetailResult | null;
+  loadingDetail: boolean;
+  onRefresh: () => void;
 }) {
   const router = useRouter();
   const [connState, setConnState] = useState<AiConnectionPanelState | null>(
@@ -682,14 +741,26 @@ function TabConfiguracionIA({
   const [showKeyForm, setShowKeyForm] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [syncPending, startSyncTransition] = useTransition();
+  const [syncFeedback, setSyncFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const opType = getProviderOperationalType(row.providerKey);
   const opBadge = OPERATIONAL_TYPE_BADGE[opType];
+  const isAnthropic = row.providerKey.toLowerCase() === 'anthropic';
 
   // Sync when server re-renders with fresh initial state (after router.refresh())
   useEffect(() => {
     setConnState(initialConnState ?? null);
   }, [initialConnState]);
+
+  const handleSyncModels = () => {
+    setSyncFeedback(null);
+    startSyncTransition(async () => {
+      const r = await syncAnthropicModelsForPanel();
+      setSyncFeedback({ ok: r.ok, msg: r.message ?? r.error ?? (r.ok ? 'Modelos actualizados' : 'Error al actualizar modelos') });
+      if (r.ok) onRefresh();
+    });
+  };
 
   const handleTest = () => {
     setFeedback(null);
@@ -823,23 +894,47 @@ function TabConfiguracionIA({
       {/* Modelos y tarifas */}
       <div>
         <SectionHeader icon={<Cpu className="h-3.5 w-3.5" />} label="Modelos y tarifas" />
+        <p className="text-[11px] text-muted-foreground/60 px-1 -mt-1.5 mb-2">
+          Modelos disponibles y tarifa vigente para este proveedor.
+        </p>
         <div className="space-y-2">
-          <SectionCard>
-            <InfoRow label="Proveedor" value={<span className="text-muted-foreground capitalize">{row.providerKey}</span>} />
-            <InfoRow label="Tipo operativo" value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
-                {OPERATIONAL_TYPE_LABEL[opType]} · LLM
-              </span>
-            } />
-            <InfoRow label="Modelo activo" value={
-              <span className="text-muted-foreground/60 text-[10px]">Pendiente de conectar en este workspace</span>
-            } />
-          </SectionCard>
-          <ConfigAccordion label="Gestionar modelos y tarifas">
-            <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">
-              La gestión detallada de modelos, tarifas y precios se conectará progresivamente dentro del workspace del proveedor.
-            </p>
-          </ConfigAccordion>
+          {loadingDetail ? (
+            <LoadingPlaceholder label="Cargando modelos..." />
+          ) : !aiProviderDetail || aiProviderDetail.models.length === 0 ? (
+            <EmptyBlock message="Sin modelos configurados para este proveedor." />
+          ) : (
+            <>
+              <SectionCard>
+                <InfoRow
+                  label="Modelo activo"
+                  value={
+                    aiProviderDetail.isActiveProviderGlobal && aiProviderDetail.activeModelKey ? (
+                      <span className="text-foreground">{aiProviderDetail.activeModelKey}</span>
+                    ) : (
+                      <span className="text-muted-foreground/60 text-[10px]">Ningún modelo de este proveedor está activo globalmente</span>
+                    )
+                  }
+                />
+              </SectionCard>
+              {!aiProviderDetail.models.some((m) => m.latestPricing) && (
+                <p className="text-[10px] text-muted-foreground/50 px-1">Sin tarifa vigente configurada.</p>
+              )}
+              <div className="space-y-1.5">
+                {aiProviderDetail.models.map((m) => (
+                  <AiModelRow key={m.id} model={m} />
+                ))}
+              </div>
+            </>
+          )}
+          {isAnthropic && (
+            <div className="pt-1 space-y-1">
+              <Button size="sm" variant="outline" disabled={syncPending} onClick={handleSyncModels} className="h-7 text-xs">
+                {syncPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                Actualizar modelos
+              </Button>
+              <InlineFeedback feedback={syncFeedback} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1191,15 +1286,30 @@ function TabConfiguracion({
   ms,
   initialConnState,
   aiInitialConnState,
+  aiProviderDetail,
+  loadingDetail,
+  onRefresh,
 }: {
   row: AdminProviderBudgetRow;
   ms: MeasurementStatus;
   initialConnState?: ProspectingConnectionPanelState | null;
   aiInitialConnState?: AiConnectionPanelState | null;
+  aiProviderDetail: AiProviderDetailResult | null;
+  loadingDetail: boolean;
+  onRefresh: () => void;
 }) {
   const opType = getProviderOperationalType(row.providerKey);
   return opType === 'ia'
-    ? <TabConfiguracionIA row={row} ms={ms} initialConnState={aiInitialConnState} />
+    ? (
+      <TabConfiguracionIA
+        row={row}
+        ms={ms}
+        initialConnState={aiInitialConnState}
+        aiProviderDetail={aiProviderDetail}
+        loadingDetail={loadingDetail}
+        onRefresh={onRefresh}
+      />
+    )
     : <TabConfiguracionNoIA row={row} ms={ms} initialConnState={initialConnState} />;
 }
 
@@ -3404,6 +3514,9 @@ export function ProviderDetailSidepanel({
               ms={ms}
               initialConnState={providerConnectionStates?.[provider.providerKey.toLowerCase()]}
               aiInitialConnState={aiProviderConnectionStates?.[provider.providerKey.toLowerCase()]}
+              aiProviderDetail={detailData?.aiProviderDetail ?? null}
+              loadingDetail={loadingDetail}
+              onRefresh={() => fetchDetail(provider.providerKey)}
             />
           </TabsContent>
 
