@@ -8,7 +8,9 @@ import {
   createAgentRunStep,
   finishAgentRunStep,
   logProviderUsage,
+  updateAgentRun as updateAgentRunRecord,
 } from '@/modules/usage-tracking/logging';
+import type { UpdateAgentRunInput } from '@/modules/usage-tracking/types';
 import type { ContactEnrichmentRunStatus } from '@/modules/contact-enrichment/types';
 import {
   searchApolloPeopleForCompany,
@@ -172,6 +174,12 @@ export interface ApolloEnrichmentRunnerDeps {
   finishStep?: typeof finishAgentRunStep;
   /** Evaluación de presupuesto alert-only (Hito E). Inyectable para tests. */
   evaluateBudget?: (userId: string, projectedCredits: number) => Promise<ApolloBudgetCheckMeta>;
+  /**
+   * Terminaliza agent_runs (Hito 17B.4X.7C.3B.2). Inyectable para tests —
+   * el default real escribe en Supabase, así que cualquier harness in-memory
+   * que ejercite una rama terminal DEBE inyectar su propio stub.
+   */
+  updateAgentRun?: (id: string, input: UpdateAgentRunInput) => Promise<boolean>;
 }
 
 // ── Implementaciones por defecto (DB real) ─────────────────────
@@ -527,6 +535,7 @@ export async function executeContactEnrichmentApolloRun(
     createStep = createAgentRunStep,
     finishStep = finishAgentRunStep,
     evaluateBudget = evaluateApolloBudgetAlertOnly,
+    updateAgentRun = updateAgentRunRecord,
   } = deps;
 
   const startMs = Date.now();
@@ -660,6 +669,16 @@ export async function executeContactEnrichmentApolloRun(
         budget_check: budgetMeta,
       },
     });
+    // Terminaliza agent_runs (Hito 17B.4X.7C.3B.2) — sin tocar metadata para
+    // no perder requestId/attemptOrder/intendedProvider ya guardados.
+    if (run.agent_run_id) {
+      await updateAgentRun(run.agent_run_id, {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        results_generated: 0,
+        error_message: apollo.reason,
+      });
+    }
     return emptyRunResult({
       status: 'error',
       runStatus: 'failed',
@@ -1024,6 +1043,16 @@ export async function executeContactEnrichmentApolloRun(
         budget_check: budgetMeta,
       },
     });
+    // Terminaliza agent_runs (Hito 17B.4X.7C.3B.2) — sin tocar metadata para
+    // no perder requestId/attemptOrder/intendedProvider ya guardados.
+    if (run.agent_run_id) {
+      await updateAgentRun(run.agent_run_id, {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        results_generated: 0,
+        error_message: `write_candidates_failed: ${writeResult.error}`,
+      });
+    }
     return emptyRunResult({
       status: 'error',
       runStatus: 'failed',
@@ -1143,6 +1172,19 @@ export async function executeContactEnrichmentApolloRun(
     estimated_cost_usd: estimatedCostUsd,
     summary: buildSummary(prevSummary, insertedCount, apolloBlock, summaryFlags),
   });
+
+  // Terminaliza agent_runs (Hito 17B.4X.7C.3B.2): tanto 'completed' como
+  // 'ready_for_review' en contact_enrichment_runs significan que ESTA
+  // ejecución del agente terminó (candidatos insertados o no) — sin tocar
+  // metadata para no perder requestId/attemptOrder/intendedProvider.
+  if (run.agent_run_id) {
+    await updateAgentRun(run.agent_run_id, {
+      status: 'completed',
+      finished_at: new Date().toISOString(),
+      results_generated: insertedCount,
+      estimated_cost_usd: estimatedCostUsd,
+    });
+  }
 
   if (step) {
     await finishStep(step.id, {

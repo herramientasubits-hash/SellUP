@@ -167,6 +167,9 @@ function makeHarness(
     logUsage: async () => true,
     createStep: async () => ({ id: 'step-1' }) as unknown as AgentRunStep,
     finishStep: async () => true,
+    // In-memory stand-in for agent_runs terminalization (Hito 17B.4X.7C.3B.2) —
+    // never hits Supabase.
+    updateAgentRun: async () => true,
     ...overrides,
   };
 

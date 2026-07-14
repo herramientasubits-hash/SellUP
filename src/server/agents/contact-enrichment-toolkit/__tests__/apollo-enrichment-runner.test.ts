@@ -21,7 +21,7 @@ import {
 } from '../contact-completion-adapter';
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
 import type { AgentRunStep } from '@/modules/usage-tracking/types';
-import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import type { LogProviderUsageInput, UpdateAgentRunInput } from '@/modules/usage-tracking/types';
 
 /** Vista mínima de un candidato escrito (para inspeccionar metadata en tests). */
 interface DeduplicatedContactLike {
@@ -83,6 +83,7 @@ interface Harness {
   /** @deprecated usa getUsageLogs() para verificar argumentos */
   getUsageLogged: () => boolean;
   getUsageLogs: () => LogProviderUsageInput[];
+  getAgentRunUpdates: () => Array<{ id: string; input: UpdateAgentRunInput }>;
 }
 
 function makeHarness(
@@ -92,6 +93,7 @@ function makeHarness(
   let store = initialRun;
   let writeCalls = 0;
   const usageLogs: LogProviderUsageInput[] = [];
+  const agentRunUpdates: Array<{ id: string; input: UpdateAgentRunInput }> = [];
 
   const deps: ApolloEnrichmentRunnerDeps = {
     loadRun: async () => store,
@@ -138,6 +140,12 @@ function makeHarness(
     },
     createStep: async () => ({ id: 'step-1' }) as unknown as AgentRunStep,
     finishStep: async () => true,
+    // In-memory stand-in for agent_runs terminalization (Hito 17B.4X.7C.3B.2) —
+    // never hits Supabase; tests assert against getAgentRunUpdates().
+    updateAgentRun: async (id, input) => {
+      agentRunUpdates.push({ id, input });
+      return true;
+    },
   };
 
   return {
@@ -146,6 +154,7 @@ function makeHarness(
     getWriteCalls: () => writeCalls,
     getUsageLogged: () => usageLogs.length > 0,
     getUsageLogs: () => usageLogs,
+    getAgentRunUpdates: () => agentRunUpdates,
   };
 }
 
@@ -167,6 +176,14 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(result.candidatesCreated, 2);
     assert.equal(h.getStore().status, 'ready_for_review');
     assert.equal(h.getUsageLogged(), true);
+    // 17B.4X.7C.3B.2 — agent_runs también terminaliza cuando hay candidatos.
+    const updates = h.getAgentRunUpdates();
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].id, 'ar-1');
+    assert.equal(updates[0].input.status, 'completed');
+    assert.equal(typeof updates[0].input.finished_at, 'string');
+    assert.equal(updates[0].input.results_generated, 2);
+    assert.equal(updates[0].input.metadata, undefined, 'no debe tocar metadata existente');
   });
 
   it('preserva existing_contacts_snapshot y actualiza summary', async () => {
@@ -235,6 +252,14 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.ok(snapshot.combined, 'snapshot debe seguir presente');
     const apolloBlock = summary.apollo_enrichment as Record<string, unknown>;
     assert.equal(apolloBlock.status, 'error');
+    // 17B.4X.7C.3B.2 — agent_runs debe terminalizar como failed también.
+    const updates = h.getAgentRunUpdates();
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].input.status, 'failed');
+    assert.equal(typeof updates[0].input.finished_at, 'string');
+    assert.equal(updates[0].input.results_generated, 0);
+    assert.ok(updates[0].input.error_message, 'error_message debe estar presente');
+    assert.equal(updates[0].input.metadata, undefined, 'no debe tocar metadata existente');
   });
 
   it('los 3 intentos en 0 → completed, no_contacts_found y search_attempts en summary', async () => {
@@ -268,6 +293,21 @@ describe('executeContactEnrichmentApolloRun', () => {
       attempts.map((a) => a.attempt),
       ['strict_hr_department', 'hr_titles_without_department', 'broad_seniorities_only'],
     );
+
+    // ── 17B.4X.7C.3B.2 — regresión del bug live (SITECO, run fe613742) ──────
+    // raw_results_count=0, inserted_candidates_count=0, credits_used=0,
+    // contact_enrichment_runs.status=completed → agent_runs también debe
+    // terminalizar (antes quedaba running/finished_at=null indefinidamente).
+    const updates = h.getAgentRunUpdates();
+    assert.equal(updates.length, 1, 'agent_runs debe recibir exactamente una terminalización');
+    const [update] = updates;
+    assert.equal(update.id, 'ar-1');
+    assert.equal(update.input.status, 'completed');
+    assert.equal(typeof update.input.finished_at, 'string');
+    assert.ok(update.input.finished_at, 'finished_at debe estar seteado');
+    assert.equal(update.input.results_generated, 0);
+    assert.equal(update.input.error_message, undefined);
+    assert.equal(update.input.metadata, undefined, 'requestId/attemptOrder/intendedProvider no deben tocarse');
   });
 
   it('summary incluye search_attempts cuando hubo fallback con resultados', async () => {
