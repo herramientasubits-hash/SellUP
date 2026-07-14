@@ -33,6 +33,7 @@ import {
   DGCP_SOURCE_KEY,
   DGCP_COUNTRY_CODE,
 } from '../../src/server/source-catalog/connectors/dgcp-rd/dgcp-rd-snapshot-builder';
+import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 
 // ─── Args ──────────────────────────────────────────────────────────────────────
 
@@ -243,6 +244,8 @@ async function main(): Promise<void> {
   console.log('\n  [4/4] Construyendo snapshots...');
 
   const rows = [];
+  let recordIdentityResolved = 0;
+  let recordIdentityUnavailable = 0;
 
   for (const { rpe, normalizedRnc, proveedor } of resolvedProviders) {
     // Buscar todos los acumuladores para este RPE
@@ -252,6 +255,11 @@ async function main(): Promise<void> {
       const row = buildDgcpSnapshotRow({ acc, proveedor, normalizedRnc });
       rows.push(row);
       snapshotsBuilt++;
+      if (row.record_identity_key) {
+        recordIdentityResolved++;
+      } else {
+        recordIdentityUnavailable++;
+      }
     }
   }
 
@@ -265,7 +273,7 @@ async function main(): Promise<void> {
     const { error: upsertErr } = await sb
       .from('source_company_snapshots')
       .upsert(rows, {
-        onConflict: 'source_key,country_code,source_year,normalized_tax_id',
+        onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
       });
 
     if (upsertErr) {
@@ -294,6 +302,8 @@ async function main(): Promise<void> {
   console.log(`  Skipped other:              ${skippedOtherRnc}`);
   console.log(`  Snapshots construidos:       ${snapshotsBuilt}`);
   console.log(`  Writes realizados:           ${writesRealized}`);
+  console.log(`  record_identity_shadow.resolved_count:    ${recordIdentityResolved}`);
+  console.log(`  record_identity_shadow.unavailable_count: ${recordIdentityUnavailable}`);
   if (dryRun) {
     console.log(`  Modo:                       DRY-RUN (sin escrituras)`);
   } else {

@@ -153,3 +153,31 @@ describe('buildSicopSnapshotRows — batch', () => {
     assert.equal(rows[1].source_key, 'cr_sicop');
   });
 });
+
+// ─── buildSicopSnapshotRow — record identity shadow (EC4D5.C2) ────────────────
+
+describe('buildSicopSnapshotRow — record identity shadow (EC4D5.C2)', () => {
+  it('setea record_identity_key = tax:<cedula_juridica>', () => {
+    const row = buildSicopSnapshotRow({ provider: makeProvider('3101123456') });
+    assert.equal(row.record_identity_key, 'tax:3101123456');
+  });
+
+  it('record_identity_key deriva de normalized_tax_id (= cedula), no de otro campo', () => {
+    const row = buildSicopSnapshotRow({ provider: makeProvider('3109999999', 'OTRA EMPRESA S.A.') });
+    assert.equal(row.record_identity_key, `tax:${row.normalized_tax_id}`);
+  });
+
+  it('record_identity_key es null cuando la cedula está vacía, sin excluir la fila', () => {
+    const emptyCedulaProvider: UniqueProvider = { ...makeProvider(), cedula: '' };
+    const row = buildSicopSnapshotRow({ provider: emptyCedulaProvider });
+    assert.equal(row.record_identity_key, null);
+    assert.equal(row.source_key, 'cr_sicop');
+  });
+
+  it('buildSicopSnapshotRows propaga record_identity_key en cada fila del batch', () => {
+    const providers = [makeProvider('3101111111', 'EMPRESA A'), makeProvider('3102222222', 'EMPRESA B')];
+    const rows = buildSicopSnapshotRows(providers);
+    assert.equal(rows[0].record_identity_key, 'tax:3101111111');
+    assert.equal(rows[1].record_identity_key, 'tax:3102222222');
+  });
+});

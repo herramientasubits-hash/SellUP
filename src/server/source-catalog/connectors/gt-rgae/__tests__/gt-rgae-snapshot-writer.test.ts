@@ -259,6 +259,73 @@ describe('runGtRgaeSnapshotWriter — apply', () => {
   });
 });
 
+// ─── EC4D5.C2 — record identity shadow ─────────────────────────────────────────
+
+describe('runGtRgaeSnapshotWriter — record identity shadow (EC4D5.C2)', () => {
+  it('cada fila upserted incluye record_identity_key = tax:<normalized_nit>', async () => {
+    const candidates = [
+      makeCandidate({ normalizedNit: '1234567' }),
+      makeCandidate({ normalizedNit: '7654321' }),
+    ];
+    const { admin, snapshotCalls } = makeFakeAdmin();
+
+    await runGtRgaeSnapshotWriter(candidates, {
+      sourceYear: 2025,
+      dryRun: false,
+      dryRunSummary: makeBaseSummary(),
+      supabaseAdmin: admin,
+    });
+
+    const rows = snapshotCalls[0]!.rows as Array<{ normalized_tax_id: string; record_identity_key: string | null }>;
+    assert.equal(rows.length, 2);
+    for (const row of rows) {
+      assert.equal(row.record_identity_key, `tax:${row.normalized_tax_id}`);
+    }
+  });
+
+  it('recordIdentityShadow.resolved_count refleja filas con NIT válido, sin excluir filas', async () => {
+    const candidates = makeCandidates(5);
+    const { admin } = makeFakeAdmin();
+
+    const result = await runGtRgaeSnapshotWriter(candidates, {
+      sourceYear: 2025,
+      dryRun: false,
+      dryRunSummary: makeBaseSummary(),
+      supabaseAdmin: admin,
+    });
+
+    assert.equal(result.recordIdentityShadow.resolved_count, 5);
+    assert.equal(result.recordIdentityShadow.unavailable_count, 0);
+    assert.equal(result.snapshotRowsPrepared, 5);
+    assert.equal(result.rowsWritten, 5);
+  });
+
+  it('dry-run también calcula recordIdentityShadow sin escribir', async () => {
+    const candidates = makeCandidates(3);
+
+    const result = await runGtRgaeSnapshotWriter(candidates, { sourceYear: 2025, dryRun: true });
+
+    assert.equal(result.recordIdentityShadow.resolved_count, 3);
+    assert.equal(result.rowsWritten, 0);
+  });
+
+  it('onConflict sigue siendo el grain fiscal viejo (OLD_TAX_GRAIN_ON_CONFLICT)', async () => {
+    const candidates = makeCandidates(2);
+    const { admin, snapshotCalls } = makeFakeAdmin();
+
+    const result = await runGtRgaeSnapshotWriter(candidates, {
+      sourceYear: 2025,
+      dryRun: false,
+      dryRunSummary: makeBaseSummary(),
+      supabaseAdmin: admin,
+    });
+
+    const upsertOpts = snapshotCalls[0]!.opts as { onConflict: string };
+    assert.equal(upsertOpts.onConflict, 'source_key,country_code,source_year,normalized_tax_id');
+    assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,normalized_tax_id');
+  });
+});
+
 // ─── Batch failure ─────────────────────────────────────────────────────────────
 
 describe('runGtRgaeSnapshotWriter — batch failure', () => {

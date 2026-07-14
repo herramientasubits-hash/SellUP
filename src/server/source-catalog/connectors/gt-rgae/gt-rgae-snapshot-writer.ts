@@ -34,6 +34,8 @@ import {
   buildGtRgaeCoveragePayload,
 } from './gt-rgae-snapshot-mapper';
 import type { GtRgaeSnapshotRow, GtRgaeCoverageSummaryPayload } from './gt-rgae-snapshot-mapper';
+import { deriveTaxRecordIdentity, OLD_TAX_GRAIN_ON_CONFLICT } from '../../record-identity';
+import type { RecordIdentityKey, RecordIdentityUnavailableReason } from '../../record-identity';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -41,6 +43,17 @@ import type { GtRgaeSnapshotRow, GtRgaeCoverageSummaryPayload } from './gt-rgae-
 export type GtRgaeSupabaseAdminLike = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   from: (table: string) => any;
+};
+
+/** GtRgaeSnapshotRow + shadow record_identity_key (EC4D5.C2 — additive, no excluye filas). */
+export type GtRgaeShadowSnapshotRow = GtRgaeSnapshotRow & {
+  record_identity_key: RecordIdentityKey | null;
+};
+
+export type GtRgaeRecordIdentityShadowSummary = {
+  resolved_count: number;
+  unavailable_count: number;
+  unavailable_reasons: Partial<Record<RecordIdentityUnavailableReason, number>>;
 };
 
 export type GtRgaeSnapshotWriterOptions = {
@@ -69,14 +82,48 @@ export type GtRgaeSnapshotWriterResult = {
   conflictsTarget: string;
   coverageWritten: boolean;
   preflight: GtRgaePreflight | null;
+  recordIdentityShadow: GtRgaeRecordIdentityShadowSummary;
 };
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
-const CONFLICT_TARGET = 'source_key,country_code,source_year,normalized_tax_id' as const;
+const CONFLICT_TARGET = OLD_TAX_GRAIN_ON_CONFLICT;
 const BATCH_SIZE = 50;
 
 // ─── Helpers internos ──────────────────────────────────────────────────────────
+
+/**
+ * EC4D5.C2 — shadow dual-write: deriva record_identity_key desde normalized_tax_id
+ * sin excluir ni reordenar filas. P2A puro (aditivo, no bloqueante).
+ */
+function withRecordIdentity(rows: GtRgaeSnapshotRow[]): {
+  rows: GtRgaeShadowSnapshotRow[];
+  shadow: GtRgaeRecordIdentityShadowSummary;
+} {
+  const unavailableReasons: Partial<Record<RecordIdentityUnavailableReason, number>> = {};
+  let resolvedCount = 0;
+  let unavailableCount = 0;
+
+  const shadowRows = rows.map((row) => {
+    const identity = deriveTaxRecordIdentity(row.normalized_tax_id);
+    if (identity.status === 'resolved') {
+      resolvedCount++;
+      return { ...row, record_identity_key: identity.recordIdentityKey };
+    }
+    unavailableCount++;
+    unavailableReasons[identity.reason] = (unavailableReasons[identity.reason] ?? 0) + 1;
+    return { ...row, record_identity_key: null };
+  });
+
+  return {
+    rows: shadowRows,
+    shadow: {
+      resolved_count: resolvedCount,
+      unavailable_count: unavailableCount,
+      unavailable_reasons: unavailableReasons,
+    },
+  };
+}
 
 async function createGtRgaeSupabaseAdmin(): Promise<GtRgaeSupabaseAdminLike> {
   const url = process.env['NEXT_PUBLIC_SUPABASE_URL'];
@@ -114,7 +161,7 @@ async function runPreflight(admin: GtRgaeSupabaseAdminLike): Promise<GtRgaePrefl
 
 async function upsertSnapshotBatches(
   admin: GtRgaeSupabaseAdminLike,
-  rows: GtRgaeSnapshotRow[],
+  rows: GtRgaeShadowSnapshotRow[],
 ): Promise<number> {
   let totalUpserted = 0;
 
@@ -179,6 +226,7 @@ export async function runGtRgaeSnapshotWriter(
 
   const snapshotRows = mapCandidatesToSnapshot(candidates);
   const violations = findSnapshotInvariantViolations(snapshotRows);
+  const { rows: shadowRows, shadow: recordIdentityShadow } = withRecordIdentity(snapshotRows);
 
   const result: GtRgaeSnapshotWriterResult = {
     sourceKey: 'gt_rgae_proveedores',
@@ -192,6 +240,7 @@ export async function runGtRgaeSnapshotWriter(
     conflictsTarget: CONFLICT_TARGET,
     coverageWritten: false,
     preflight: null,
+    recordIdentityShadow,
   };
 
   if (dryRun) {
@@ -219,7 +268,7 @@ export async function runGtRgaeSnapshotWriter(
   result.preflight = await runPreflight(admin);
 
   // 5. Upsert en source_company_snapshots
-  const rowsWritten = await upsertSnapshotBatches(admin, snapshotRows);
+  const rowsWritten = await upsertSnapshotBatches(admin, shadowRows);
   result.rowsWritten = rowsWritten;
 
   // 6. Coverage solo si todos los batches exitosos Y rowsWritten === snapshotRows.length

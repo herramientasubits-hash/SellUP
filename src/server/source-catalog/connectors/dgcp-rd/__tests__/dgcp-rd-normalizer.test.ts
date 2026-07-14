@@ -294,3 +294,38 @@ describe('buildDgcpSnapshotRow', () => {
     assert.equal(row.raw_data.priority_boost, true);
   });
 });
+
+// ─── buildDgcpSnapshotRow — record identity shadow (EC4D5.C2) ─────────────────
+
+describe('buildDgcpSnapshotRow — record identity shadow (EC4D5.C2)', () => {
+  const ACC: ProviderAccumulator = {
+    rpe: '131399',
+    sourceYear: 2026,
+    contracts: [normalizeContrato(CONTRATO_FIXTURE)],
+    totalAmountDop: 73000,
+    lastAwardDate: '2026-06-26',
+  };
+
+  it('setea record_identity_key = tax:<normalizedRnc>', () => {
+    const row = buildDgcpSnapshotRow({ acc: ACC, proveedor: PROVEEDOR_FIXTURE, normalizedRnc: '132164148' });
+    assert.equal(row.record_identity_key, 'tax:132164148');
+  });
+
+  it('NO deriva record_identity_key desde rpe (usa normalizedRnc, no acc.rpe)', () => {
+    const accOtherRpe: ProviderAccumulator = { ...ACC, rpe: '999999' };
+    const row = buildDgcpSnapshotRow({ acc: accOtherRpe, proveedor: PROVEEDOR_FIXTURE, normalizedRnc: '132164148' });
+    assert.equal(row.record_identity_key, 'tax:132164148');
+    assert.notEqual(row.record_identity_key, 'tax:999999');
+  });
+
+  it('record_identity_key es null cuando normalizedRnc está vacío', () => {
+    const row = buildDgcpSnapshotRow({ acc: ACC, proveedor: PROVEEDOR_FIXTURE, normalizedRnc: '' });
+    assert.equal(row.record_identity_key, null);
+  });
+
+  it('no excluye la fila cuando record_identity_key es null — row sigue completo', () => {
+    const row = buildDgcpSnapshotRow({ acc: ACC, proveedor: PROVEEDOR_FIXTURE, normalizedRnc: '' });
+    assert.equal(row.source_key, 'do_dgcp');
+    assert.equal(row.raw_data.total_contracts_year, 1);
+  });
+});

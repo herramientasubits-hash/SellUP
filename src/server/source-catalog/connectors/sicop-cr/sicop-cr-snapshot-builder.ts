@@ -20,6 +20,8 @@
  */
 
 import type { UniqueProvider, SicopProviderRecord } from './sicop-cr-normalizer';
+import { deriveTaxRecordIdentity } from '../../record-identity';
+import type { RecordIdentityKey } from '../../record-identity';
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -75,6 +77,7 @@ export type SicopSnapshotRow = {
   financials: Record<string, never>;
   raw_data: SicopSnapshotRawData;
   imported_at: string;
+  record_identity_key: RecordIdentityKey | null;
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -128,6 +131,7 @@ export function buildSicopSnapshotRow(params: {
 }): SicopSnapshotRow {
   const { provider } = params;
   const importedAt = params.importedAt ?? new Date().toISOString();
+  const identity = deriveTaxRecordIdentity(provider.cedula);
 
   const year = inferYear(provider.records);
   const datasets = [...new Set(provider.records.map((r) => r.dataset))];
@@ -179,6 +183,7 @@ export function buildSicopSnapshotRow(params: {
     financials: {},
     raw_data: rawData,
     imported_at: importedAt,
+    record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
   };
 }
 

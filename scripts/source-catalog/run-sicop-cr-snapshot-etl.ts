@@ -62,6 +62,7 @@ import {
   SICOP_SOURCE_KEY,
   SICOP_COUNTRY_CODE,
 } from '../../src/server/source-catalog/connectors/sicop-cr/sicop-cr-snapshot-builder';
+import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 
 // ─── Args ──────────────────────────────────────────────────────────────────────
 
@@ -263,6 +264,11 @@ async function main() {
   const rows = buildSicopSnapshotRows(providers, importedAt);
   console.log(`      ${rows.length} snapshots construidos.`);
 
+  const recordIdentityResolved = rows.filter((r) => r.record_identity_key !== null).length;
+  const recordIdentityUnavailable = rows.length - recordIdentityResolved;
+  console.log(`      record_identity_shadow.resolved_count:    ${recordIdentityResolved}`);
+  console.log(`      record_identity_shadow.unavailable_count: ${recordIdentityUnavailable}`);
+
   // Verificar invariante: solo cr_sicop
   const wrongKey = rows.find((r) => r.source_key !== 'cr_sicop' || r.country_code !== 'CR');
   if (wrongKey) {
@@ -297,7 +303,7 @@ async function main() {
     const { error } = await sb
       .from('source_company_snapshots')
       .upsert(batch, {
-        onConflict: 'source_key,country_code,source_year,normalized_tax_id',
+        onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
         ignoreDuplicates: false,
       });
     if (error) {

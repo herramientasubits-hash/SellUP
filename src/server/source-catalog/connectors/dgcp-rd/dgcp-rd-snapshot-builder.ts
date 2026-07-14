@@ -24,6 +24,8 @@
 
 import type { DgcpProveedor } from './dgcp-rd-client';
 import type { NormalizedContrato } from './dgcp-rd-normalizer';
+import { deriveTaxRecordIdentity } from '../../record-identity';
+import type { RecordIdentityKey } from '../../record-identity';
 
 export const DGCP_SOURCE_KEY = 'do_dgcp';
 export const DGCP_COUNTRY_CODE = 'DO';
@@ -92,6 +94,7 @@ export type DgcpSnapshotRow = {
   financials: Record<string, never>;
   raw_data: DgcpSnapshotRawData;
   imported_at: string;
+  record_identity_key: RecordIdentityKey | null;
 };
 
 // ─── Accumulator ───────────────────────────────────────────────────────────────
@@ -156,6 +159,7 @@ export function buildDgcpSnapshotRow(params: {
 }): DgcpSnapshotRow {
   const { acc, proveedor, normalizedRnc } = params;
   const importedAt = params.importedAt ?? new Date().toISOString();
+  const identity = deriveTaxRecordIdentity(normalizedRnc);
 
   const sampleContracts: DgcpSampleContract[] = acc.contracts
     .slice(0, MAX_SAMPLE_CONTRACTS)
@@ -220,5 +224,6 @@ export function buildDgcpSnapshotRow(params: {
     financials: {},
     raw_data: rawData,
     imported_at: importedAt,
+    record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
   };
 }

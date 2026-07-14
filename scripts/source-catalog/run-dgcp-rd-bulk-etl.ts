@@ -46,6 +46,7 @@ import {
   DGCP_COUNTRY_CODE,
   type DgcpSnapshotRow,
 } from '../../src/server/source-catalog/connectors/dgcp-rd/dgcp-rd-snapshot-builder';
+import { OLD_TAX_GRAIN_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 
 // ─── DGCP bulk URLs ────────────────────────────────────────────────────────────
 
@@ -118,7 +119,7 @@ async function upsertInBatches(
     const { error } = await sb
       .from('source_company_snapshots')
       .upsert(batch, {
-        onConflict: 'source_key,country_code,source_year,normalized_tax_id',
+        onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
       });
 
     if (error) {
@@ -262,6 +263,8 @@ async function main(): Promise<void> {
   let skippedBadRnc = 0;
   const seenKey = new Set<string>();
   let dedupSkipped = 0;
+  let recordIdentityResolved = 0;
+  let recordIdentityUnavailable = 0;
 
   for (const acc of accumulator.values()) {
     const proveedor = proveedoresMap.get(acc.rpe);
@@ -298,6 +301,11 @@ async function main(): Promise<void> {
       importedAt,
     });
     rows.push(row);
+    if (row.record_identity_key) {
+      recordIdentityResolved++;
+    } else {
+      recordIdentityUnavailable++;
+    }
   }
 
   const yearsLoaded = [...new Set(rows.map((r) => r.source_year))].sort();
@@ -355,6 +363,8 @@ async function main(): Promise<void> {
   console.log(`  Skipped persona física:        ${skippedNonJuridical}`);
   console.log(`  Skipped RNC inválido:          ${skippedBadRnc}`);
   console.log(`  Años cargados:                 ${yearsLoaded.join(', ') || '(ninguno)'}`);
+  console.log(`  record_identity_shadow.resolved_count:    ${recordIdentityResolved}`);
+  console.log(`  record_identity_shadow.unavailable_count: ${recordIdentityUnavailable}`);
 
   if (dryRun) {
     console.log(`  Modo:                         DRY-RUN (sin escrituras)`);
