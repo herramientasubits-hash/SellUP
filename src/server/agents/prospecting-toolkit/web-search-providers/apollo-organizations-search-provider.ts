@@ -54,6 +54,9 @@ import {
 } from '../apollo-organizations-query-mapping';
 import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
+import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
+import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
+import { captureProviderIndustryRawLabelObservations } from '../provider-industry-raw-label-capture';
 
 // ─── Versión de mapping de perfil ────────────────────────────────────────────
 
@@ -434,6 +437,11 @@ export type ApolloOrgsSearchDeps = {
   logUsage?: typeof realLogApolloOrgsUsage;
   /** L2.15: injectable enrichment fn — for tests only, never call real in production without flag. */
   enrichOrg?: (params: EnrichOrganizationParams) => Promise<ApolloEnrichResult<ApolloOrganization>>;
+  /**
+   * Q3F-5AU.7: injectable raw industry label capture fn — for tests only.
+   * Best-effort observability; never affects results, ranking, or scoring.
+   */
+  captureIndustryLabels?: typeof captureProviderIndustryRawLabelObservations;
 };
 
 // ─── Provider público ─────────────────────────────────────────────────────────
@@ -609,6 +617,38 @@ export async function runApolloOrganizationsSearch(
 
   // ── Mapping resultados ───────────────────────────────────────────────────────
   const rawOrgs = apolloResult.data ?? [];
+
+  // ── Q3F-5AU.7: best-effort raw industry label observation capture ──────────
+  // Reads rawOrgs only — runs before any mapping/enrichment/gate step, so it
+  // cannot influence candidates, ranking, scoring, filters, dedup, or the
+  // writer. captureIndustryLabels never throws by contract; the try/catch is
+  // defense in depth so a future regression there still can't break this flow.
+  const rawIndustryLabels = ingestApolloOrganizationIndustryRawLabels(rawOrgs);
+  if (rawIndustryLabels.length > 0) {
+    const captureIndustryLabels = deps?.captureIndustryLabels ?? captureProviderIndustryRawLabelObservations;
+    try {
+      await captureIndustryLabels({
+        sourceVocabularyKey: 'apollo_organization_industry',
+        providerKey: 'apollo',
+        operationKey: 'organizations_search',
+        labels: rawIndustryLabels.map((label) => ({
+          rawLabel: label.rawLabel,
+          normalizedLookupKey: normalizeClassificationValue(label.rawLabel),
+        })),
+        countryCode: input.countryCode ?? null,
+        requestedIndustry: input.industry ?? null,
+        agentRunId: usageContext?.agentRunId ?? null,
+        sourceContext: {
+          operation: 'apollo_organizations_search',
+          resultCount: rawOrgs.length,
+        },
+      });
+    } catch {
+      // Best-effort observability only — never let capture failures affect
+      // the Apollo organizations search flow.
+    }
+  }
+
   const mapped: WebSearchResult[] = [];
   // L2.8: track cuántas orgs se perdieron en normalización (sin name o error de mapping)
   let normalizationDroppedCount = 0;
