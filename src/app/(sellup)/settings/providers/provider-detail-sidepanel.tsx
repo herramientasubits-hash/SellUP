@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback, useTransition, useRef, useMemo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { CONTACTS_CANDIDATES_ROUTE } from '@/config/navigation';
+import { formatUsageLogErrorDetailText } from '@/modules/budgets/provider-usage-log-display';
 import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
   ChevronDown, Cpu, Zap, Database, Bot, Plus, Pencil, Power, Trash2,
@@ -2374,12 +2377,15 @@ function TabEfectividad({
   syncLogs,
   contactEnrichmentEffectiveness,
   loading,
+  onRevisarLogs,
 }: {
   row: AdminProviderBudgetRow;
   usageLogs: ProviderUsageLogRow[];
   syncLogs: ProviderSyncLogRow[];
   contactEnrichmentEffectiveness: ProviderEffectivenessProviderSummary | null;
   loading: boolean;
+  /** Navigates to the Logs tab, URL-safe (Q3F-13S). */
+  onRevisarLogs: () => void;
 }) {
   const {
     observedLogCount,
@@ -2518,6 +2524,18 @@ function TabEfectividad({
         </div>
       </div>
 
+      {!loading && ((hasSufficientRecentEvidence && technicalFailureCount > 0) || (latestSync && !syncOk)) && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRevisarLogs}
+            className="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+          >
+            Revisar logs →
+          </button>
+        </div>
+      )}
+
       {!loading && !hasSufficientRecentEvidence && (
         <ProgressiveNote>
           Aún no hay operaciones registradas para resumir el comportamiento técnico reciente de este proveedor.
@@ -2566,11 +2584,19 @@ function ContactEnrichmentOutcomeSection({
 
   if (uiState === 'pending_review') {
     return (
-      <ProgressiveNote>
-        Hay {coverage.attributedRunCount} ejecución{coverage.attributedRunCount === 1 ? '' : 'es'} de enriquecimiento
-        individual registrada{coverage.attributedRunCount === 1 ? '' : 's'}; ninguna cuenta todavía con resultado
-        maduro (revisión de candidatos pendiente).
-      </ProgressiveNote>
+      <div className="space-y-2">
+        <ProgressiveNote>
+          Hay {coverage.attributedRunCount} ejecución{coverage.attributedRunCount === 1 ? '' : 'es'} de enriquecimiento
+          individual registrada{coverage.attributedRunCount === 1 ? '' : 's'}; ninguna cuenta todavía con resultado
+          maduro (revisión de candidatos pendiente).
+        </ProgressiveNote>
+        <Link
+          href={CONTACTS_CANDIDATES_ROUTE}
+          className="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors border-su-brand/20 bg-su-brand-soft text-su-brand hover:bg-su-brand-soft/80"
+        >
+          Revisar candidatos →
+        </Link>
+      </div>
     );
   }
 
@@ -2732,7 +2758,7 @@ function TabLogs({
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/40 bg-muted/20">
-                    {['Fecha', 'Operación', 'Créditos', 'Costo USD', 'Estado'].map((col) => (
+                    {['Fecha', 'Operación', 'Usuario / Agente', 'Créditos', 'Costo USD', 'Estado', 'Detalle de error'].map((col) => (
                       <th key={col} className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground/70 whitespace-nowrap">
                         {col}
                       </th>
@@ -2748,6 +2774,10 @@ function TabLogs({
                       <td className="px-3 py-2 text-foreground max-w-[140px] truncate">
                         {log.operationKey ?? '—'}
                       </td>
+                      <td className="px-3 py-2 text-foreground max-w-[170px]">
+                        <div className="truncate">{log.userDisplay?.primary ?? '—'}</div>
+                        <div className="truncate text-[10px] text-muted-foreground/60">{log.agentDisplay ?? '—'}</div>
+                      </td>
                       <td className="px-3 py-2 text-foreground whitespace-nowrap">
                         {log.creditsUsed != null ? `${log.creditsUsed.toLocaleString()} cr` : '—'}
                       </td>
@@ -2756,6 +2786,9 @@ function TabLogs({
                       </td>
                       <td className="px-3 py-2 text-muted-foreground/70 capitalize">
                         {log.status ?? '—'}
+                      </td>
+                      <td className="px-3 py-2 text-destructive max-w-[180px] truncate" title={formatUsageLogErrorDetailText(log.errorDetail ?? null)}>
+                        {formatUsageLogErrorDetailText(log.errorDetail ?? null)}
                       </td>
                     </tr>
                   ))}
@@ -2954,6 +2987,18 @@ export function ProviderDetailSidepanel({
     setActiveTab(initialTab);
   }, [provider?.providerKey, initialTab]);
 
+  // URL-safe tab navigation (Q3F-13S) — identical to the Tabs onValueChange
+  // handler below. Any programmatic tab switch (e.g. an investigation CTA)
+  // must go through this, not setActiveTab alone, or the URL (?ptab=) falls
+  // out of sync with the visible tab.
+  const navigateToTab = useCallback(
+    (tab: SidepanelInitialTab) => {
+      setActiveTab(tab);
+      onActiveTabChange?.(tab);
+    },
+    [onActiveTabChange],
+  );
+
   const hasAttention = provider && (
     (provider.quotaSource === 'sync_error' && !provider.providerMonthlyCreditsAllowance && !provider.providerMonthlyUsdAllowance) ||
     (provider.remainingCredits != null && provider.remainingCredits <= 0) ||
@@ -3004,11 +3049,7 @@ export function ProviderDetailSidepanel({
       {provider && (
         <Tabs
           value={activeTab}
-          onValueChange={(v) => {
-            const tab = v as SidepanelInitialTab;
-            setActiveTab(tab);
-            onActiveTabChange?.(tab);
-          }}
+          onValueChange={(v) => navigateToTab(v as SidepanelInitialTab)}
         >
           <TabsList className="w-full grid grid-cols-6 mb-5 h-auto">
             <TabsTrigger value="resumen" className="text-[11px] gap-1 py-1.5">
@@ -3080,6 +3121,7 @@ export function ProviderDetailSidepanel({
               syncLogs={syncLogs}
               contactEnrichmentEffectiveness={detailData?.contactEnrichmentEffectiveness ?? null}
               loading={loadingDetail}
+              onRevisarLogs={() => navigateToTab('logs')}
             />
           </TabsContent>
 
