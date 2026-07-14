@@ -1,7 +1,8 @@
 'use server';
 
-import { getProviderDetail } from '@/modules/budgets/provider-detail-queries';
+import { getProviderDetail, getFilteredProviderUsageLogs } from '@/modules/budgets/provider-detail-queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
+import { getDistinctFilterOptions, type UsageFilters, type FilterOptions } from '@/modules/ai-usage/queries';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import {
   testAiProviderConnectionWithVault,
@@ -61,6 +62,29 @@ export async function loadProviderDetailForPanel(providerKey: string): Promise<S
     };
   } catch {
     return null;
+  }
+}
+
+// ── Logs tab filter parity (Q3F-HOTFIX-4A) ────────────────────────────────────
+
+export interface ProviderLogsFilterResult {
+  ok: boolean;
+  logs: ProviderUsageLogRow[];
+  filterOptions: FilterOptions | null;
+}
+
+export async function loadFilteredProviderUsageLogsForPanel(
+  providerKey: string,
+  filters: UsageFilters,
+): Promise<ProviderLogsFilterResult> {
+  try {
+    const [logs, filterOptions] = await Promise.all([
+      getFilteredProviderUsageLogs(providerKey, filters, 20),
+      getDistinctFilterOptions(),
+    ]);
+    return { ok: true, logs, filterOptions };
+  } catch {
+    return { ok: false, logs: [], filterOptions: null };
   }
 }
 

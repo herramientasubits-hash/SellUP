@@ -12,6 +12,7 @@
 import { getAdminBudgetSummary } from './budget-resolution';
 import { getAdminClient } from './queries';
 import { getBudgetRulesForProvider, getBudgetRuleFormOptions } from './rule-queries';
+import { getRecentProviderLogs, type UsageFilters } from '@/modules/ai-usage/queries';
 import {
   resolveUsageLogDisplayContext,
   type ResolvedUserRef,
@@ -99,6 +100,67 @@ export async function getProviderDetail(
     recentUsageLogs: usageResult,
     recentSyncLogs: syncResult,
   };
+}
+
+// ─── Filtered usage logs (Q3F-HOTFIX-4A — Logs tab filter parity) ────────────
+
+/**
+ * Filter-aware variant of getRecentUsageLogs for the Logs tab's filter bar.
+ * Reuses getRecentProviderLogs — the same access-scoped, filter-capable query
+ * that already powers the Consumo tab — instead of duplicating its role/group/
+ * agent/period resolution, then applies the same user/agent/error display
+ * resolution as getRecentUsageLogs so the row shape stays identical.
+ */
+export async function getFilteredProviderUsageLogs(
+  providerKey: string,
+  filters: UsageFilters,
+  limit = 20,
+): Promise<ProviderUsageLogRow[]> {
+  try {
+    const admin = getAdminClient();
+    const rows = await getRecentProviderLogs(limit, {
+      ...filters,
+      provider: providerKey.toLowerCase(),
+    });
+    if (!rows) return [];
+
+    const userIds = [...new Set(rows.map((r) => r.triggered_by).filter((id): id is string => id != null))];
+    const agentRunIds = [...new Set(rows.map((r) => r.agent_run_id).filter((id): id is string => id != null))];
+
+    const [userMap, agentRunMap] = await Promise.all([
+      resolveUserRefs(admin, userIds),
+      resolveAgentRunRefs(admin, agentRunIds),
+    ]);
+
+    return rows.map((r) => {
+      const triggeredBy = r.triggered_by ?? null;
+      const agentRunId = r.agent_run_id ?? null;
+      const display = resolveUsageLogDisplayContext({
+        triggeredBy,
+        resolvedUser: triggeredBy ? userMap.get(triggeredBy) : undefined,
+        agentRunId,
+        resolvedAgentRun: agentRunId ? agentRunMap.get(agentRunId) : undefined,
+        errorMessage: r.error_message ?? null,
+        errorCode: r.error_code ?? null,
+      });
+
+      return {
+        id: r.id,
+        operationKey: r.operation_key ?? null,
+        creditsUsed: r.credits_used != null ? Number(r.credits_used) : null,
+        estimatedCostUsd: r.estimated_cost_usd != null ? Number(r.estimated_cost_usd) : null,
+        status: r.status ?? null,
+        triggeredBy,
+        agentRunId,
+        createdAt: r.created_at,
+        userDisplay: display.user,
+        agentDisplay: display.agent,
+        errorDetail: display.errorDetail,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

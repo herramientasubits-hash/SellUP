@@ -56,6 +56,7 @@ import {
   testProspectingProviderConnectionForPanel,
   updateProspectingProviderCredentialForPanel,
   disconnectProspectingProviderForPanel,
+  loadFilteredProviderUsageLogsForPanel,
   type SidepanelDetailData,
   type AiConnectionPanelState,
   type ProspectingConnectionPanelState,
@@ -65,6 +66,7 @@ import type {
   ProviderConsumptionSnapshot,
   UsageFilters,
   ConsumptionErrorStage,
+  FilterOptions,
 } from './provider-consumption-types';
 import type { FilterUser, FilterGroup } from '@/modules/ai-usage/queries';
 import type { ProviderUsageLogRow, ProviderSyncLogRow } from '@/modules/budgets/provider-detail-queries';
@@ -2760,15 +2762,17 @@ const OUTCOME_BADGE: Record<string, { label: string; className: string }> = {
 function TabLogs({
   row,
   ms,
-  usageLogs,
+  usageLogs: initialUsageLogs,
   syncLogs,
   loading,
+  isActive,
 }: {
   row: AdminProviderBudgetRow;
   ms: MeasurementStatus;
   usageLogs: ProviderUsageLogRow[];
   syncLogs: ProviderSyncLogRow[];
   loading: boolean;
+  isActive: boolean;
 }) {
   const budgetLogs = row.recentBudgetCheckLogs ?? [];
   const [showAllBudget, setShowAllBudget] = useState(false);
@@ -2776,8 +2780,104 @@ function TabLogs({
   const INITIAL_BUDGET = 5;
   const INITIAL_USAGE = 10;
 
+  // Q3F-HOTFIX-4A — Logs filter parity with Consumo. Filters trigger their
+  // own fetch (reusing the same access-scoped getRecentProviderLogs Consumo
+  // already uses) instead of client-filtering `initialUsageLogs` — that prop
+  // stays untouched so Resumen/Efectividad keep their own unfiltered window.
+  const [logFilters, setLogFilters] = useState<UsageFilters>({});
+  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
+  const [filteredLogs, setFilteredLogs] = useState<ProviderUsageLogRow[] | null>(null);
+  const [logsLoadError, setLogsLoadError] = useState<string | null>(null);
+  const [isLogsPending, startLogsTransition] = useTransition();
+  const logsSeqRef = useRef(0);
+
+  const loadFilteredLogs = useCallback(() => {
+    const seq = ++logsSeqRef.current;
+    startLogsTransition(async () => {
+      try {
+        const result = await loadFilteredProviderUsageLogsForPanel(row.providerKey, logFilters);
+        if (seq !== logsSeqRef.current) return;
+        if (result.ok) {
+          setFilteredLogs(result.logs);
+          setFilterOptions(result.filterOptions);
+          setLogsLoadError(null);
+        } else {
+          setLogsLoadError('No fue posible cargar los logs de este proveedor.');
+        }
+      } catch {
+        if (seq === logsSeqRef.current) {
+          setLogsLoadError('No fue posible cargar los logs de este proveedor.');
+        }
+      }
+    });
+  }, [row.providerKey, logFilters]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    loadFilteredLogs();
+  }, [isActive, loadFilteredLogs]);
+
+  function setLogFilter(key: keyof UsageFilters, value: string | null) {
+    setLogFilters((prev) => {
+      const next = { ...prev };
+      if (!value || value === 'all') {
+        delete next[key];
+      } else {
+        (next as Record<string, string>)[key] = value;
+      }
+      return next;
+    });
+  }
+
+  function onLogRoleChange(value: string | null) {
+    setLogFilters((prev) => {
+      const next: UsageFilters = { ...prev };
+      if (!value || value === 'all') {
+        delete next.role;
+      } else {
+        next.role = value;
+        const u = (filterOptions?.users ?? []).find((u) => u.id === next.user);
+        if (u && u.role_key !== next.role) delete next.user;
+      }
+      return next;
+    });
+  }
+
+  function onLogGroupChange(value: string | null) {
+    setLogFilters((prev) => {
+      const next: UsageFilters = { ...prev };
+      if (!value || value === 'all') {
+        delete next.groupId;
+      } else {
+        next.groupId = value;
+        const scope = consumptionDescendantGroupIds(value, filterOptions?.groups ?? []);
+        const u = (filterOptions?.users ?? []).find((u) => u.id === next.user);
+        if (u && (!u.group_id || !scope.has(u.group_id))) delete next.user;
+      }
+      return next;
+    });
+  }
+
+  // Client-side user scoping: filter visible users by selected role ∩ group,
+  // same intersection Consumo applies to its own Usuario dropdown.
+  const logGroupScope = logFilters.groupId
+    ? consumptionDescendantGroupIds(logFilters.groupId, filterOptions?.groups ?? [])
+    : null;
+
+  const visibleLogUsers = (filterOptions?.users ?? []).filter((u) => {
+    if (logFilters.role && u.role_key !== logFilters.role) return false;
+    if (logGroupScope && (!u.group_id || !logGroupScope.has(u.group_id))) return false;
+    return true;
+  });
+
+  const logGroupNameMap = new Map((filterOptions?.groups ?? []).map((g) => [g.id, g.name]));
+
+  const hasActiveLogFilters = Object.keys(logFilters).length > 0;
+  const effectiveUsageLogs = filteredLogs ?? initialUsageLogs;
+  const usageLoading = loading || (filteredLogs === null && isLogsPending);
+
   const visibleBudgetLogs = showAllBudget ? budgetLogs : budgetLogs.slice(0, INITIAL_BUDGET);
-  const visibleUsageLogs = showAllUsage ? usageLogs : usageLogs.slice(0, INITIAL_USAGE);
+  const visibleUsageLogs = showAllUsage ? effectiveUsageLogs : effectiveUsageLogs.slice(0, INITIAL_USAGE);
 
   const syncedAt = row.quotaSyncedAt ? formatDateShort(row.quotaSyncedAt) : null;
   const syncError = row.quotaSyncError;
@@ -2812,15 +2912,154 @@ function TabLogs({
       {/* Actividad reciente (provider_usage_logs) */}
       <div className="space-y-2">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Actividad reciente (usage logs)</p>
-        {loading ? (
+
+        {logsLoadError && (
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-4 space-y-2">
+            <p className="text-xs text-foreground">{logsLoadError}</p>
+            <p className="text-[10px] text-muted-foreground/70">Puedes reintentar sin cerrar el workspace.</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => { if (isActive) loadFilteredLogs(); }}
+            >
+              Reintentar
+            </Button>
+          </div>
+        )}
+
+        {ms !== 'not_measured' && (
+          <div className="flex flex-wrap gap-1.5">
+            {/* Período */}
+            <Select value={logFilters.period ?? 'all'} onValueChange={(v) => setLogFilter('period', v)}>
+              <SelectTrigger className="h-7 w-[140px] text-[11px]">
+                <SelectValue>
+                  {logFilters.period
+                    ? (CONSUMPTION_PERIOD_OPTIONS.find((o) => o.value === logFilters.period)?.label ?? logFilters.period)
+                    : 'Todo el período'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {CONSUMPTION_PERIOD_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value} className="text-xs">
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Rol */}
+            {(filterOptions?.roles ?? []).length > 0 && (
+              <Select value={logFilters.role ?? 'all'} onValueChange={onLogRoleChange}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px]">
+                  <SelectValue placeholder="Rol">
+                    {logFilters.role
+                      ? (filterOptions?.roles.find((r) => r.key === logFilters.role)?.label ?? logFilters.role)
+                      : 'Todos los roles'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Todos los roles</SelectItem>
+                  {(filterOptions?.roles ?? []).map((r) => (
+                    <SelectItem key={r.key} value={r.key} className="text-xs">{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* Grupo */}
+            {(filterOptions?.groups ?? []).length > 0 && (
+              <Select value={logFilters.groupId ?? 'all'} onValueChange={onLogGroupChange}>
+                <SelectTrigger className="h-7 w-[160px] text-[11px]">
+                  <SelectValue placeholder="Grupo">
+                    {logFilters.groupId
+                      ? (logGroupNameMap.get(logFilters.groupId) ?? logFilters.groupId)
+                      : 'Todos los grupos'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Todos los grupos</SelectItem>
+                  {(filterOptions?.groups ?? []).map((g) => (
+                    <SelectItem key={g.id} value={g.id} className="text-xs">
+                      <span style={{ paddingLeft: `${g.depth * CONSUMPTION_GROUP_INDENT_PX}px` }}>
+                        {g.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* Usuario */}
+            {(filterOptions?.users ?? []).length > 0 && (
+              <ConsumptionUserFilter
+                users={visibleLogUsers}
+                selectedUserId={logFilters.user ?? null}
+                onSelect={(userId) => setLogFilter('user', userId)}
+              />
+            )}
+
+            {/* Agente */}
+            {(filterOptions?.agents ?? []).length > 0 && (
+              <Select value={logFilters.agent ?? 'all'} onValueChange={(v) => setLogFilter('agent', v)}>
+                <SelectTrigger className="h-7 w-[180px] text-[11px]">
+                  <SelectValue placeholder="Agente">
+                    {logFilters.agent
+                      ? labelConsumptionAgent(
+                          logFilters.agent,
+                          filterOptions?.agents.find((a) => a.key === logFilters.agent)?.name ?? null,
+                        )
+                      : 'Todos los agentes'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Todos los agentes</SelectItem>
+                  {(filterOptions?.agents ?? []).map((a) => (
+                    <SelectItem key={a.key} value={a.key} className="text-xs">
+                      {labelConsumptionAgent(a.key, a.name)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* Estado */}
+            {(filterOptions?.statuses ?? []).length > 0 && (
+              <Select value={logFilters.status ?? 'all'} onValueChange={(v) => setLogFilter('status', v)}>
+                <SelectTrigger className="h-7 w-[130px] text-[11px]">
+                  <SelectValue placeholder="Estado">
+                    {logFilters.status ? logFilters.status.replace(/_/g, ' ') : 'Todos los estados'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Todos los estados</SelectItem>
+                  {(filterOptions?.statuses ?? []).map((s) => (
+                    <SelectItem key={s} value={s} className="text-xs capitalize">
+                      {s.replace(/_/g, ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        )}
+
+        {usageLoading ? (
           <LoadingPlaceholder label="Cargando actividad..." />
         ) : ms === 'not_measured' ? (
           <EmptyBlock message="Este proveedor no genera actividad medida en SellUp." />
-        ) : usageLogs.length === 0 ? (
-          <EmptyBlock
-            message="Sin actividad registrada para este proveedor."
-            sub="Los registros aparecen después de la primera ejecución desde SellUp."
-          />
+        ) : effectiveUsageLogs.length === 0 ? (
+          hasActiveLogFilters ? (
+            <EmptyBlock
+              message="No hay logs para los filtros seleccionados."
+              sub="Ajusta el período, rol, grupo, usuario, agente o estado para ampliar la búsqueda."
+            />
+          ) : (
+            <EmptyBlock
+              message="Sin logs recientes."
+              sub="Los registros aparecen después de la primera ejecución desde SellUp."
+            />
+          )
         ) : (
           <>
             <div className="overflow-x-auto rounded-lg border border-border/40">
@@ -2864,7 +3103,7 @@ function TabLogs({
                 </tbody>
               </table>
             </div>
-            {usageLogs.length > INITIAL_USAGE && (
+            {effectiveUsageLogs.length > INITIAL_USAGE && (
               <button
                 type="button"
                 onClick={() => setShowAllUsage((v) => !v)}
@@ -2872,7 +3111,7 @@ function TabLogs({
               >
                 {showAllUsage
                   ? 'Contraer'
-                  : `Mostrar ${usageLogs.length - INITIAL_USAGE} más`}
+                  : `Mostrar ${effectiveUsageLogs.length - INITIAL_USAGE} más`}
               </button>
             )}
           </>
@@ -3201,6 +3440,7 @@ export function ProviderDetailSidepanel({
               usageLogs={usageLogs}
               syncLogs={syncLogs}
               loading={loadingDetail}
+              isActive={activeTab === 'logs'}
             />
           </TabsContent>
         </Tabs>
