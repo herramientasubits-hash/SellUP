@@ -21,6 +21,7 @@ import {
   type IdentityApprovalOverrideInputV1,
 } from './candidate-review-core';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
+import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import type {
   Agent2AInput,
   CompanyCandidate,
@@ -976,22 +977,18 @@ export async function runContactEnrichmentLushaAction(
     }
 
     const result = await executeContactEnrichmentLushaRun(runId.trim(), internalUserId);
-
-    const providerStatus: 'success' | 'skipped' | 'error' =
-      result.ok ? 'success'
-        : result.status === 'disabled' || result.status === 'missing_api_key' ? 'skipped'
-          : 'error';
+    const outcome = classifyLushaRunOutcome(result);
 
     return {
-      success: result.ok,
+      success: outcome.success,
       status: result.status as RunLushaActionResult['status'],
       candidatesCreated: result.candidatesCreated,
       duplicatesSkipped: result.duplicatesSkipped ?? 0,
       rawResultsCount: result.rawResultsCount ?? 0,
       creditsUsed: result.creditsUsed,
-      providerStatus,
+      providerStatus: outcome.providerStatus,
       noReviewableContactsFound: result.candidatesCreated === 0,
-      error: result.ok ? undefined : result.message,
+      error: outcome.error,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error ejecutando Lusha';
@@ -1211,23 +1208,19 @@ export async function runContactEnrichmentLushaForRequestAction(
     }
 
     const result = await executeContactEnrichmentLushaRun(resolved.attemptId, internalUserId);
-
-    const providerStatus: 'success' | 'skipped' | 'error' =
-      result.ok ? 'success'
-        : result.status === 'disabled' || result.status === 'missing_api_key' ? 'skipped'
-          : 'error';
+    const outcome = classifyLushaRunOutcome(result);
 
     return {
-      success: result.ok,
+      success: outcome.success,
       status: result.status as RunLushaActionResult['status'],
       candidatesCreated: result.candidatesCreated,
       duplicatesSkipped: result.duplicatesSkipped ?? 0,
       rawResultsCount: result.rawResultsCount ?? 0,
       creditsUsed: result.creditsUsed,
-      providerStatus,
+      providerStatus: outcome.providerStatus,
       noReviewableContactsFound: result.candidatesCreated === 0,
       attemptId: resolved.attemptId,
-      error: result.ok ? undefined : result.message,
+      error: outcome.error,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error ejecutando Lusha para la request';

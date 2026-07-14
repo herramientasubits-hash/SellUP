@@ -407,6 +407,115 @@ describe('F — request/attempt cutover', () => {
   });
 });
 
+// ── G — Lusha empty-after-filtering vs unavailable messaging (17B.4X.7C.3D) ──
+//
+// Reproduces contact_enrichment_run_id 5e6fcc30-8449-4816-b46b-63a190704665
+// (SITECO): Lusha executed correctly (1 credit consumed, providers_used
+// includes lusha, provider_usage_logs.status=success) but every raw result
+// was filtered out (candidates=0). The UI must not claim missing
+// credentials/unavailable for this outcome.
+
+describe('G — Lusha empty-after-filtering vs unavailable', () => {
+  function confirmedState(): ContactEnrichmentChatState {
+    const resolved = contactEnrichmentChatReducer(createInitialContactEnrichmentChatState(), {
+      type: 'RESOLVED_SINGLE',
+      candidate: sellupCandidate(),
+      skippedHubSpot: false,
+    });
+    return contactEnrichmentChatReducer(resolved, { type: 'CONFIRM' });
+  }
+
+  it('G1 LUSHA_SUCCEEDED with 0 candidates does NOT show the credentials/unavailable message', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-g1',
+    });
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'LUSHA_SUCCEEDED',
+      result: {
+        status: 'no_reviewable_candidate',
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: 4,
+        creditsUsed: 1,
+        providerStatus: 'success',
+        noReviewableContactsFound: true,
+      },
+      runResult: runResult(),
+    });
+    const content = next.messages.at(-1)?.content ?? '';
+    assert.doesNotMatch(content, /no está disponible/i);
+    assert.doesNotMatch(content, /no tiene credenciales/i);
+  });
+
+  it('G2 LUSHA_SUCCEEDED with 0 candidates states the search executed correctly and lists what did not happen', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-g2',
+    });
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'LUSHA_SUCCEEDED',
+      result: {
+        status: 'no_reviewable_candidate',
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: 4,
+        creditsUsed: 1,
+        providerStatus: 'success',
+        noReviewableContactsFound: true,
+      },
+      runResult: runResult(),
+    });
+    const content = next.messages.at(-1)?.content ?? '';
+    assert.match(content, /ejecutó la búsqueda correctamente/i);
+    assert.match(content, /filtros de relevancia o consistencia/i);
+    assert.match(content, /no se sincronizó nada a HubSpot/i);
+    assert.match(content, /no se revelaron teléfonos/i);
+  });
+
+  it('G3 LUSHA_FAILED with status=missing_api_key still shows the credentials/unavailable message (real case)', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-g3',
+    });
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'LUSHA_FAILED',
+      result: {
+        status: 'missing_api_key',
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: 0,
+        creditsUsed: null,
+        providerStatus: 'skipped',
+        noReviewableContactsFound: true,
+      },
+    });
+    const content = next.messages.at(-1)?.content ?? '';
+    assert.match(content, /no está disponible o no tiene credenciales/i);
+  });
+
+  it('G4 LUSHA_FAILED with an unrelated real error (invalid_account) does NOT fall back to the credentials message', () => {
+    const afterRequest = contactEnrichmentChatReducer(confirmedState(), {
+      type: 'REQUEST_CREATED',
+      requestId: 'req-g4',
+    });
+    const next = contactEnrichmentChatReducer(afterRequest, {
+      type: 'LUSHA_FAILED',
+      result: {
+        status: 'invalid_account',
+        candidatesCreated: 0,
+        duplicatesSkipped: 0,
+        rawResultsCount: 0,
+        creditsUsed: null,
+        providerStatus: 'error',
+        noReviewableContactsFound: true,
+      },
+    });
+    const content = next.messages.at(-1)?.content ?? '';
+    assert.doesNotMatch(content, /no tiene credenciales configuradas/i);
+  });
+});
+
 // ── E — Message integrity ───────────────────────────────────────────────────
 
 describe('E — message integrity', () => {

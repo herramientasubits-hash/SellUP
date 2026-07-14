@@ -65,7 +65,7 @@ const LUSHA_DONE_WITH_CANDIDATES =
   'Encontré candidato(s) en Lusha con email corporativo. Quedaron listos para revisión. No creé contactos finales: requieren tu aprobación.';
 
 const LUSHA_DONE_NO_CANDIDATES =
-  'Lusha no encontró contactos disponibles para esta empresa o el resultado ya existe como contacto.';
+  'Lusha ejecutó la búsqueda correctamente, pero los perfiles encontrados no pasaron los filtros de relevancia o consistencia con la empresa. No se crearon candidatos, no se sincronizó nada a HubSpot y no se revelaron teléfonos.';
 
 const LUSHA_NOT_CONNECTED =
   'Lusha no está disponible o no tiene credenciales configuradas.\nNo se crearon candidatos.';
@@ -433,11 +433,16 @@ export function contactEnrichmentChatReducer(
     }
 
     case 'LUSHA_FAILED': {
+      // Only 'disabled'/'missing_api_key' are genuine credentials/availability
+      // failures. Every other real-failure status (provider_error, not_found,
+      // invalid_account, invalid_run_status, not_implemented, generic error)
+      // falls back to the provider-error copy — never to the "sin
+      // credenciales" message, which would misreport an unrelated failure as
+      // a credentials problem (Hito 17B.4X.7C.3D).
       const reason =
         action.result.status === 'disabled' ? LUSHA_DISABLED
           : action.result.status === 'missing_api_key' ? LUSHA_NOT_CONNECTED
-            : action.result.status === 'provider_error' ? LUSHA_PROVIDER_ERROR
-              : LUSHA_NOT_CONNECTED;
+            : LUSHA_PROVIDER_ERROR;
       return {
         ...state,
         step: 'done',

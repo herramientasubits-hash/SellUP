@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertCircle, Building2, Check, Globe, Lightbulb, MapPin, ShieldCheck, UserPlus, XCircle } from 'lucide-react';
+import { AlertCircle, Building2, Check, Globe, Info, Lightbulb, MapPin, ShieldCheck, UserPlus, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -15,7 +15,10 @@ import type {
   ContactEnrichmentProvider,
   LushaEnrichmentUiResult,
 } from './contact-enrichment-chat-types';
-import { getContactEnrichmentEmptyStateCopy } from './contact-enrichment-empty-state-copy';
+import {
+  getContactEnrichmentEmptyStateCopy,
+  getLushaEmptyStateCopy,
+} from './contact-enrichment-empty-state-copy';
 
 // ── Source badge ────────────────────────────────────────────────────────────
 
@@ -294,6 +297,17 @@ export function RunResultSnapshot({
         <p className="border-t border-border pt-3 text-xs text-amber-600">
           No se pudo resolver suficiente contexto de la empresa para ejecutar Lusha. No se crearon candidatos.
         </p>
+      ) : lushaProviderError ? (
+        <p className="border-t border-border pt-3 text-xs text-destructive">
+          {lushaResult?.error ??
+            'No fue posible completar la búsqueda con Lusha. El proveedor devolvió un error durante la búsqueda. Intenta nuevamente más tarde o revisa el estado de la integración.'}
+        </p>
+      ) : lushaResult && lushaResult.candidatesCreated === 0 ? (
+        <LushaEmptyState result={lushaResult} />
+      ) : lushaResult ? (
+        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+          Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.
+        </p>
       ) : (
         <p className="border-t border-border pt-3 text-xs text-muted-foreground">
           {provider === 'lusha'
@@ -302,6 +316,54 @@ export function RunResultSnapshot({
         </p>
       )}
     </SurfaceCard>
+  );
+}
+
+// ── Lusha empty-after-filtering state (Hito 17B.4X.7C.3D) ───────────────────
+//
+// Lusha executed correctly and consumed credits, but every raw profile was
+// filtered out by relevance/company-consistency checks. This is a business
+// outcome, not a provider error — must never be confused with
+// missing_api_key/disabled/provider_error (those render above, before this
+// branch is reached).
+
+function LushaEmptyState({ result }: { result: LushaEnrichmentUiResult }) {
+  const copy = getLushaEmptyStateCopy({
+    rawResultsCount: result.rawResultsCount,
+    creditsUsed: result.creditsUsed,
+  });
+
+  return (
+    <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+          <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
+          <p className="text-xs text-muted-foreground">{copy.detail}</p>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
+        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
+      </div>
+
+      <dl className="space-y-1.5 border-t border-border/50 pt-3 text-xs">
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Resultados brutos</dt>
+          <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Créditos usados</dt>
+          <dd className="font-medium text-foreground">{result.creditsUsed ?? 0}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">Reveal de teléfono</dt>
+          <dd className="font-medium text-foreground">no ejecutado</dd>
+        </div>
+      </dl>
+    </div>
   );
 }
 

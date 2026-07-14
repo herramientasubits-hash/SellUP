@@ -1,7 +1,7 @@
-// Pure helper — derives empty-state copy from an Apollo enrichment result.
-// No React, no network. Safe to import from unit tests.
+// Pure helper — derives empty-state copy from an Apollo/Lusha enrichment
+// result. No React, no network. Safe to import from unit tests.
 
-import type { ApolloEnrichmentUiResult } from './contact-enrichment-chat-types';
+import type { ApolloEnrichmentUiResult, LushaEnrichmentUiResult } from './contact-enrichment-chat-types';
 
 export type ApolloEmptyStateCase = 'guardrail_blocked' | 'all_filtered' | 'no_results';
 
@@ -83,5 +83,47 @@ export function getContactEnrichmentEmptyStateCopy(
       'Revisa el país configurado en la cuenta.',
       'Si ya conoces al decisor, crea el contacto manualmente.',
     ],
+  };
+}
+
+// ── Lusha empty-after-filtering copy (Hito 17B.4X.7C.3D) ───────────────────
+//
+// Distinguishes "Lusha ran successfully but every raw result was filtered
+// out by relevance/company-consistency checks" from a real
+// unavailable/no-credentials/provider-error state. This helper is only
+// called once the caller has already ruled out those real-error branches.
+
+export type LushaEmptyStateCase = 'all_filtered' | 'no_results';
+
+export interface LushaEmptyStateCopy {
+  case: LushaEmptyStateCase;
+  headline: string;
+  detail: string;
+  notAnError: string;
+}
+
+export function getLushaEmptyStateCopy(
+  result: Pick<LushaEnrichmentUiResult, 'rawResultsCount' | 'creditsUsed'>,
+): LushaEmptyStateCopy {
+  // Case B — Lusha returned raw profiles, but all were filtered
+  if (result.rawResultsCount > 0) {
+    return {
+      case: 'all_filtered',
+      headline: 'Lusha no encontró contactos relevantes',
+      detail:
+        'Lusha ejecutó la búsqueda correctamente, pero los perfiles encontrados no pasaron los filtros de relevancia o consistencia con la empresa.',
+      notAnError:
+        'No fue un error. No se crearon candidatos, no se sincronizó nada a HubSpot y no se revelaron teléfonos.',
+    };
+  }
+
+  // Case A — Lusha returned 0 raw profiles
+  return {
+    case: 'no_results',
+    headline: 'Lusha no devolvió perfiles para esta búsqueda',
+    detail:
+      'No se encontraron perfiles con los criterios actuales de la empresa en Lusha.',
+    notAnError:
+      'No fue un error. No se crearon candidatos, no se sincronizó nada a HubSpot y no se revelaron teléfonos.',
   };
 }
