@@ -13,6 +13,7 @@ import {
   executeContactEnrichmentApolloRun,
   type ContactEnrichmentRunRow,
   type ApolloEnrichmentRunnerDeps,
+  type RunPatch,
 } from '../apollo-enrichment-runner';
 import type { ApolloPeopleAdapterResult, SearchGuardrailMeta } from '../apollo-people-adapter';
 import {
@@ -84,6 +85,9 @@ interface Harness {
   getUsageLogged: () => boolean;
   getUsageLogs: () => LogProviderUsageInput[];
   getAgentRunUpdates: () => Array<{ id: string; input: UpdateAgentRunInput }>;
+  /** Raw patches passed to updateRun — used to assert providers_used writes
+   *  (17B.4X.7C.3F), since ContactEnrichmentRunRow itself has no such field. */
+  getRunPatches: () => RunPatch[];
 }
 
 function makeHarness(
@@ -94,10 +98,12 @@ function makeHarness(
   let writeCalls = 0;
   const usageLogs: LogProviderUsageInput[] = [];
   const agentRunUpdates: Array<{ id: string; input: UpdateAgentRunInput }> = [];
+  const runPatches: RunPatch[] = [];
 
   const deps: ApolloEnrichmentRunnerDeps = {
     loadRun: async () => store,
     updateRun: async (_id, patch) => {
+      runPatches.push(patch);
       store = {
         ...store,
         ...(patch.status !== undefined ? { status: patch.status } : {}),
@@ -155,6 +161,7 @@ function makeHarness(
     getUsageLogged: () => usageLogs.length > 0,
     getUsageLogs: () => usageLogs,
     getAgentRunUpdates: () => agentRunUpdates,
+    getRunPatches: () => runPatches,
   };
 }
 
@@ -1107,5 +1114,157 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(completion.status, 'completed');
     assert.equal(completion.had_actionable_channel, true);
     assert.deepEqual(completion.completed_fields, ['email']);
+  });
+});
+
+// ── providers_used trace consistency (Hito 17B.4X.7C.3F) ──────────────────
+//
+// Apollo runs were reaching terminal states (completed/ready_for_review/
+// failed) with providers_used=[] even though Apollo actually executed —
+// while Lusha already persists providers_used=['lusha'] on its own success
+// path. This suite locks in the fix contract: providers_used=['apollo'] is
+// written in every branch where a real Apollo provider call happened, and
+// is NEVER written when the run never reached Apollo (claim failures,
+// missing credentials/not-connected).
+describe('executeContactEnrichmentApolloRun — providers_used trace (17B.4X.7C.3F)', () => {
+  it('A — success con 0 resultados (completed) → providers_used=["apollo"]', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com)', rawResultsCount: 0 },
+      ],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 0, rawResultsCount: 0 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.candidatesCreated, 0);
+    assert.equal(h.getStore().status, 'completed');
+    const finalPatch = h.getRunPatches().at(-1);
+    assert.deepEqual(finalPatch?.providers_used, ['apollo']);
+    // No cambia el resto del contrato existente.
+    assert.equal(h.getAgentRunUpdates().at(-1)?.input.status, 'completed');
+  });
+
+  it('B — success con candidatos (ready_for_review) → providers_used=["apollo"]', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [person('a', 'a@corp.com'), person('b', 'b@corp.com')],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com)', rawResultsCount: 2 },
+      ],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 2, rawResultsCount: 2 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'ready_for_review');
+    assert.equal(result.candidatesCreated, 2);
+    const finalPatch = h.getRunPatches().at(-1);
+    assert.deepEqual(finalPatch?.providers_used, ['apollo']);
+  });
+
+  it('C — provider error después de un intento real (network/response error) → providers_used=["apollo"]', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'error',
+      people: [],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com)', rawResultsCount: 0 },
+      ],
+      reason: 'Error de red consultando Apollo: fetch failed',
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'error');
+    assert.equal(h.getStore().status, 'failed');
+    const finalPatch = h.getRunPatches().at(-1);
+    assert.deepEqual(finalPatch?.providers_used, ['apollo']);
+    // No fallback, no reintento automático, no Lusha.
+    assert.equal(h.getWriteCalls(), 0);
+  });
+
+  it('D — error al escribir candidatos después de un intento real → providers_used=["apollo"]', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'success',
+      people: [person('a', 'a@corp.com')],
+      attempts: [
+        { attempt: 'strict_hr_department', filters: 'org(dominio=corp.com)', rawResultsCount: 1 },
+      ],
+      providerUsage: { provider: 'apollo', operation: 'people_search', creditsUsed: 1, rawResultsCount: 1 },
+    };
+    const h = makeHarness(makeRun(), apollo);
+    h.deps.writeCandidates = async () => ({
+      inserted: 0,
+      skippedNoName: 0,
+      error: 'insert failed: boom',
+    });
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'error');
+    assert.equal(h.getStore().status, 'failed');
+    const finalPatch = h.getRunPatches().at(-1);
+    assert.deepEqual(finalPatch?.providers_used, ['apollo']);
+  });
+
+  it('E — proveedor no conectado (sin credenciales, sin llamada real) → providers_used NUNCA se escribe', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'error',
+      people: [],
+      attempts: [],
+      reason: 'Apollo no está conectado o no tiene credenciales disponibles',
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'error');
+    assert.equal(h.getStore().status, 'failed');
+    const finalPatch = h.getRunPatches().at(-1);
+    assert.equal(finalPatch?.providers_used, undefined);
+  });
+
+  it('E2 — claim not_ready (run fuera de ready_to_enrich) → nunca llama a Apollo, providers_used no se toca', async () => {
+    const h = makeHarness(makeRun({ status: 'enriching' }), {
+      status: 'success',
+      people: [],
+      attempts: [],
+    });
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'error');
+    assert.equal(h.getRunPatches().length, 0, 'no debe actualizar el run cuando el claim falla');
+  });
+
+  it('E3 — claim not_found → nunca llama a Apollo, providers_used no se toca', async () => {
+    const h = makeHarness(makeRun(), { status: 'success', people: [], attempts: [] });
+
+    const result = await executeContactEnrichmentApolloRun('missing-run', 'user-1', h.deps);
+
+    assert.equal(result.status, 'error');
+    assert.equal(h.getRunPatches().length, 0);
+  });
+
+  it('skipped (datos insuficientes, sin llamada real) → providers_used no se toca', async () => {
+    const apollo: ApolloPeopleAdapterResult = {
+      status: 'skipped',
+      people: [],
+      attempts: [],
+      reason: 'Datos insuficientes para Apollo: falta dominio y nombre de empresa',
+    };
+    const h = makeHarness(makeRun(), apollo);
+
+    const result = await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
+
+    assert.equal(result.status, 'skipped');
+    const finalPatch = h.getRunPatches().at(-1);
+    assert.equal(finalPatch?.providers_used, undefined);
   });
 });

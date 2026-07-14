@@ -31,6 +31,15 @@ import {
   type ApolloOrgResolutionResult,
 } from './apollo-organization-resolver';
 
+/**
+ * Sentinel reason for the "no real Apollo call was made" branch (missing
+ * credentials/connection). Shared with the runner so it can distinguish this
+ * pre-flight failure from an error that occurred after a real provider
+ * attempt (17B.4X.7C.3F — providers_used trace consistency).
+ */
+export const APOLLO_NOT_CONNECTED_REASON =
+  'Apollo no está conectado o no tiene credenciales disponibles';
+
 // ── Country code → Apollo location mapping (Hito 17A.9B.2) ───────
 
 /**
@@ -479,7 +488,7 @@ export async function searchApolloPeopleForCompany(
       people: [],
       attempts: [],
       searchGuardrail: { ...baseSearchGuardrail, stopped_early_reason: null },
-      reason: 'Apollo no está conectado o no tiene credenciales disponibles',
+      reason: APOLLO_NOT_CONNECTED_REASON,
     };
   }
 

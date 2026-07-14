@@ -15,6 +15,7 @@ import type { ContactEnrichmentRunStatus } from '@/modules/contact-enrichment/ty
 import {
   searchApolloPeopleForCompany,
   DEFAULT_MAX_CANDIDATES,
+  APOLLO_NOT_CONNECTED_REASON,
   type ApolloPeopleAdapterResult,
   type SearchGuardrailMeta,
   type ApolloOrgResolutionMeta,
@@ -137,6 +138,7 @@ export interface RunPatch {
   status?: ContactEnrichmentRunStatus;
   summary?: Record<string, unknown>;
   estimated_cost_usd?: number;
+  providers_used?: string[];
 }
 
 // ── Dependency injection (para tests) ──────────────────────────
@@ -201,6 +203,7 @@ async function defaultUpdateRun(runId: string, patch: RunPatch): Promise<void> {
   if (patch.status !== undefined) payload.status = patch.status;
   if (patch.summary !== undefined) payload.summary = patch.summary;
   if (patch.estimated_cost_usd !== undefined) payload.estimated_cost_usd = patch.estimated_cost_usd;
+  if (patch.providers_used !== undefined) payload.providers_used = patch.providers_used;
   await admin.from('contact_enrichment_runs').update(payload).eq('id', runId);
 }
 
@@ -638,9 +641,15 @@ export async function executeContactEnrichmentApolloRun(
       apollo_organization_resolution: apollo.organizationResolution,
       reason: apollo.reason,
     };
+    // providers_used solo se marca cuando hubo un intento real de llamada a
+    // Apollo (network error / respuesta de error del proveedor). El caso
+    // "no conectado" (sin credenciales) nunca llegó a intentar la llamada —
+    // paridad con el missing_api_key de Lusha, que tampoco marca providers_used.
+    const apolloProviderCallAttempted = apollo.reason !== APOLLO_NOT_CONNECTED_REASON;
     await updateRun(runId, {
       status: 'failed',
       summary: buildSummary(prevSummary, 0, apolloBlock),
+      ...(apolloProviderCallAttempted ? { providers_used: ['apollo'] } : {}),
     });
     if (step) {
       await finishStep(step.id, {
@@ -1010,10 +1019,13 @@ export async function executeContactEnrichmentApolloRun(
       contact_completion: completionSummary,
       reason: `Error al escribir candidatos: ${writeResult.error}`,
     };
+    // Apollo ya ejecutó people_search (y opcionalmente person_match) con éxito
+    // antes de este fallo de escritura — siempre marca providers_used.
     await updateRun(runId, {
       status: 'failed',
       estimated_cost_usd: estimatedCostUsd,
       summary: buildSummary(prevSummary, 0, apolloBlock),
+      providers_used: ['apollo'],
     });
     if (step) {
       await finishStep(step.id, {
@@ -1167,10 +1179,14 @@ export async function executeContactEnrichmentApolloRun(
     no_actionable_contacts_found: noActionableContactsFound,
   };
 
+  // Apollo ejecutó people_search con éxito (con o sin candidatos insertados) —
+  // siempre marca providers_used, paridad con el 'lusha' que Lusha ya persiste
+  // en su propia rama de éxito.
   await updateRun(runId, {
     status: finalStatus,
     estimated_cost_usd: estimatedCostUsd,
     summary: buildSummary(prevSummary, insertedCount, apolloBlock, summaryFlags),
+    providers_used: ['apollo'],
   });
 
   // Terminaliza agent_runs (Hito 17B.4X.7C.3B.2): tanto 'completed' como

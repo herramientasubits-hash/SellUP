@@ -65,6 +65,11 @@ describe('resolveAccountRunProviderLabel', () => {
     assert.equal(resolveAccountRunProviderLabel(run), 'Lusha');
   });
 
+  it('falls back to Apollo when providersUsed is empty and intendedProvider is apollo (17B.4X.7C.3F historical trace)', () => {
+    const run = baseRun({ providersUsed: [], intendedProvider: 'apollo' });
+    assert.equal(resolveAccountRunProviderLabel(run), 'Apollo');
+  });
+
   it('falls back to "Sin proveedor" when neither is set', () => {
     const run = baseRun({ providersUsed: [], intendedProvider: null });
     assert.equal(resolveAccountRunProviderLabel(run), 'Sin proveedor');
