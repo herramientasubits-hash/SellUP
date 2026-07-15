@@ -212,7 +212,7 @@ describe('runGtRgaeSnapshotWriter — apply', () => {
     });
 
     const upsertOpts = snapshotCalls[0]!.opts as { onConflict: string; ignoreDuplicates: boolean };
-    assert.equal(upsertOpts.onConflict, 'source_key,country_code,source_year,normalized_tax_id');
+    assert.equal(upsertOpts.onConflict, 'source_key,country_code,source_year,record_identity_key');
     assert.equal(upsertOpts.ignoreDuplicates, false);
   });
 
@@ -311,7 +311,7 @@ describe('runGtRgaeSnapshotWriter — record identity shadow (EC4D5.C2)', () => 
     assert.equal(result.rowsWritten, 0);
   });
 
-  it('onConflict sigue siendo el grain fiscal viejo (OLD_TAX_GRAIN_ON_CONFLICT)', async () => {
+  it('onConflict usa el grain de identidad de registro (RECORD_IDENTITY_ON_CONFLICT — APP-D4)', async () => {
     const candidates = makeCandidates(2);
     const { admin, snapshotCalls } = makeFakeAdmin();
 
@@ -323,8 +323,8 @@ describe('runGtRgaeSnapshotWriter — record identity shadow (EC4D5.C2)', () => 
     });
 
     const upsertOpts = snapshotCalls[0]!.opts as { onConflict: string };
-    assert.equal(upsertOpts.onConflict, 'source_key,country_code,source_year,normalized_tax_id');
-    assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,normalized_tax_id');
+    assert.equal(upsertOpts.onConflict, 'source_key,country_code,source_year,record_identity_key');
+    assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,record_identity_key');
   });
 });
 
@@ -369,14 +369,14 @@ describe('runGtRgaeSnapshotWriter — record_identity_key boundary (APP-B P2B)',
     assert.equal(validation.reason, 'missing_value');
   });
 
-  it('el boundary P2B no usa RECORD_IDENTITY_ON_CONFLICT y conserva OLD_TAX_GRAIN_ON_CONFLICT', () => {
+  it('el boundary P2B sigue activo y el writer usa RECORD_IDENTITY_ON_CONFLICT (APP-D4)', () => {
     const source = readFileSync(
       new URL('../gt-rgae-snapshot-writer.ts', import.meta.url),
       'utf-8',
     );
     assert.ok(source.includes('validateRecordIdentityKey'));
-    assert.ok(source.includes('OLD_TAX_GRAIN_ON_CONFLICT'));
-    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(!source.includes('OLD_TAX_GRAIN_ON_CONFLICT'));
   });
 });
 

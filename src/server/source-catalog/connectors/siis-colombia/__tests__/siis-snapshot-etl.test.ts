@@ -582,20 +582,24 @@ describe('record_identity_key shadow write (APP-A P2A)', () => {
     assert.equal(idA.recordIdentityKey, idB.recordIdentityKey);
   });
 
-  it('upsert onConflict target remains the legacy tax grain (unchanged by shadow write)', () => {
+  it('upsert onConflict target uses the record identity grain (APP-D4 cut over)', () => {
     const source = readFileSync(
       new URL('../siis-snapshot-etl.ts', import.meta.url),
       'utf-8',
     );
-    assert.ok(
-      source.includes(
-        "onConflict: 'source_key,country_code,source_year,normalized_tax_id'",
-      ),
-      'debe conservar el conflict target viejo (OLD_TAX_GRAIN_ON_CONFLICT)',
+    assert.match(
+      source,
+      /import\s*\{[^}]*\bRECORD_IDENTITY_ON_CONFLICT\b[^}]*\}\s*from\s*['"].*record-identity['"]/,
     );
     assert.ok(
-      !source.includes("onConflict: 'source_key,country_code,source_year,record_identity_key'"),
-      'no debe activar RECORD_IDENTITY_ON_CONFLICT (P2B) en este hito',
+      source.includes('onConflict: RECORD_IDENTITY_ON_CONFLICT'),
+      'debe usar RECORD_IDENTITY_ON_CONFLICT en el upsert',
+    );
+    assert.ok(
+      !source.includes(
+        "onConflict: 'source_key,country_code,source_year,normalized_tax_id'",
+      ),
+      'no debe conservar el literal legado (OLD_TAX_GRAIN_ON_CONFLICT)',
     );
   });
 });
@@ -628,12 +632,12 @@ describe('record_identity_key boundary (APP-B P2B)', () => {
     assert.equal(validation.reason, 'missing_value');
   });
 
-  it('the P2B boundary source does not use RECORD_IDENTITY_ON_CONFLICT', () => {
+  it('the P2B boundary is intact and the writer uses RECORD_IDENTITY_ON_CONFLICT (APP-D4)', () => {
     const source = readFileSync(
       new URL('../siis-snapshot-etl.ts', import.meta.url),
       'utf-8',
     );
-    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('RECORD_IDENTITY_ON_CONFLICT'));
     assert.ok(source.includes('validateRecordIdentityKey'));
   });
 });

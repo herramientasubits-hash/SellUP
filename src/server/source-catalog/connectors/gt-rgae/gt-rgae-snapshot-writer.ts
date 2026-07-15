@@ -22,7 +22,7 @@
  *   Coverage NO se escribe si hubo fallo parcial.
  *   Retry recomendado: re-run completo (idempotencia por onConflict).
  *
- * Conflict key: (source_key, country_code, source_year, normalized_tax_id)
+ * Conflict key: (source_key, country_code, source_year, record_identity_key)
  *
  * Hito: Centroamérica.7G.3 — snapshot write path.
  */
@@ -37,7 +37,7 @@ import type { GtRgaeSnapshotRow, GtRgaeCoverageSummaryPayload } from './gt-rgae-
 import {
   deriveTaxRecordIdentity,
   validateRecordIdentityKey,
-  OLD_TAX_GRAIN_ON_CONFLICT,
+  RECORD_IDENTITY_ON_CONFLICT,
 } from '../../record-identity';
 import type { RecordIdentityKey, RecordIdentityUnavailableReason } from '../../record-identity';
 
@@ -99,7 +99,7 @@ export type GtRgaeSnapshotWriterResult = {
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
-const CONFLICT_TARGET = OLD_TAX_GRAIN_ON_CONFLICT;
+const CONFLICT_TARGET = RECORD_IDENTITY_ON_CONFLICT;
 const BATCH_SIZE = 50;
 
 // ─── Helpers internos ──────────────────────────────────────────────────────────

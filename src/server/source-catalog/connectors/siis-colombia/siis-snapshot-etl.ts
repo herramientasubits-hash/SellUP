@@ -14,7 +14,11 @@ import * as XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
 import { downloadSiisExcel, SIIS_CONFIRMED_YEARS } from './siis-client';
 import type { SiisCompanyFinancialRecord } from './types';
-import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../record-identity';
+import {
+  deriveTaxRecordIdentity,
+  validateRecordIdentityKey,
+  RECORD_IDENTITY_ON_CONFLICT,
+} from '../../record-identity';
 
 // ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -515,7 +519,7 @@ export async function runSiisSnapshotEtl(
 
       const { error: upsertErr } = await sb!
         .from('source_company_snapshots')
-        .upsert(allowedRows, { onConflict: 'source_key,country_code,source_year,normalized_tax_id' });
+        .upsert(allowedRows, { onConflict: RECORD_IDENTITY_ON_CONFLICT });
 
       if (upsertErr) {
         errors.push(`Batch upsert error at offset ${i}: ${upsertErr.message}`);
