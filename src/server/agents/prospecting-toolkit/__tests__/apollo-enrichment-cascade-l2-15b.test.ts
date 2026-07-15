@@ -200,7 +200,10 @@ describe('L2.15-B-C: Cascade ON, domain present → organization_enrichment log 
     await runApolloOrganizationsSearch(
       { query: 'lms colombia', industry: 'Educación', subindustries: ['Formación Corporativa'] },
       3,
-      { batchId: 'test-batch-001' },
+      // Q3F-5AU.16: organizationEnrichmentUnitCostUsd simulates incremental-search.ts
+      // having resolved live provider_pricing_config pricing (migration 079) and
+      // threaded it through the round usage context.
+      { batchId: 'test-batch-001', organizationEnrichmentUnitCostUsd: 0.00875 },
       deps,
     );
 
@@ -396,7 +399,9 @@ describe('L2.15-B-G-pricing: organization_enrichment logs correct pricing (migra
     await runApolloOrganizationsSearch(
       { query: 'test', industry: 'Educación' },
       3,
-      { batchId: 'pricing-test-001' },
+      // Q3F-5AU.16: live pricing (migration 079) is now threaded via context
+      // instead of read from a hardcode inside the provider.
+      { batchId: 'pricing-test-001', organizationEnrichmentUnitCostUsd: 0.00875 },
       deps,
     );
 
@@ -423,7 +428,7 @@ describe('L2.15-B-G-pricing: organization_enrichment logs correct pricing (migra
     await runApolloOrganizationsSearch(
       { query: 'test', industry: 'Educación' },
       3,
-      { batchId: 'pricing-test-002' },
+      { batchId: 'pricing-test-002', organizationEnrichmentUnitCostUsd: 0.00875 },
       deps,
     );
 

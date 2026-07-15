@@ -703,7 +703,18 @@ export async function runApolloOrganizationsSearch(
   let enrichedMapped: WebSearchResult[] = mapped;
   let enrichmentCascadeMeta: ApolloEnrichmentCascadeMeta;
   if (isApolloOrganizationEnrichmentCascadeEnabled()) {
-    const maxEnrichments = resolveApolloMaxEnrichmentsPerRun();
+    // Q3F-5AU.16: true run-level cap. perCallCap is this invocation's own
+    // ceiling; remainingRunBudget is what incremental-search.ts (via
+    // web-search-tool.ts) says is left for the whole wizard execution across
+    // ALL rounds/queries. Absent remainingEnrichmentBudget (older callers that
+    // never wire usageContext.remainingEnrichmentBudget) falls back to
+    // perCallCap — identical to pre-Q3F-5AU.16 behavior.
+    const perCallCap = resolveApolloMaxEnrichmentsPerRun();
+    const remainingRunBudget =
+      typeof usageContext?.remainingEnrichmentBudget === 'number'
+        ? Math.max(0, usageContext.remainingEnrichmentBudget)
+        : perCallCap;
+    const maxEnrichments = Math.max(0, Math.min(perCallCap, remainingRunBudget));
     const cascadeResult = await runApolloOrganizationEnrichmentCascade(
       mapped,
       maxEnrichments,
@@ -801,7 +812,13 @@ export async function runApolloOrganizationsSearch(
   // ── Usage logging: organization_enrichment (one log per real API call) ────────
   // Emite un log separado por cada enrichment real intentado (success o failure).
   // Skips por missing_domain o cap_reached no generan log (sin llamada real).
-  // Pricing: 0.00875 USD/crédito — mismo contrato Apollo que organizations_search (migration 079).
+  // Q3F-5AU.16: el costo ya NO usa APOLLO_ORGANIZATIONS_UNIT_COST_USD (ese
+  // hardcode sigue siendo la fuente de verdad solo para organizations_search).
+  // organization_enrichment usa el unit cost vivo de provider_pricing_config,
+  // resuelto una vez por wizard execution y pasado vía usageContext. Si no hay
+  // pricing vivo, estimated_cost_usd queda null (SQL NULL — costo desconocido,
+  // nunca 0 fabricado) en lugar de un valor inventado.
+  const organizationEnrichmentUnitCostUsd = usageContext?.organizationEnrichmentUnitCostUsd ?? null;
   for (const entry of enrichmentCascadeMeta.entries) {
     const wasRealCall = entry.enriched || entry.skip_reason === 'enrichment_failed';
     if (!wasRealCall) continue;
@@ -819,7 +836,7 @@ export async function runApolloOrganizationsSearch(
       agent_run_id: usageContext?.agentRunId ?? undefined,
       credits_used: 1,
       results_returned: entry.enriched ? 1 : 0,
-      estimated_cost_usd: APOLLO_ORGANIZATIONS_UNIT_COST_USD,
+      estimated_cost_usd: organizationEnrichmentUnitCostUsd,
       status: enrichStatus,
       error_code: entry.enriched ? undefined : 'enrichment_failed',
       error_message: entry.error ? entry.error.slice(0, 200) : undefined,
@@ -829,7 +846,7 @@ export async function runApolloOrganizationsSearch(
         domain: entry.domain,
         fields_added: entry.fields_added ?? [],
         cascade_version: enrichmentCascadeMeta.cascade_version,
-        pricing_missing_warning: false,
+        pricing_missing_warning: organizationEnrichmentUnitCostUsd === null,
       },
     }));
   }

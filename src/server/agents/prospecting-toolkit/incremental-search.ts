@@ -34,8 +34,14 @@ import { writeProspectingCandidates, type LinkedInSearchOverride } from './candi
 import type { LinkedInSearchConfig } from './linkedin-company-search';
 import { createTavilyLinkedInSearchProvider } from './linkedin-company-search-tavily';
 import { createLinkedInUsageLoggerFn } from './tavily-usage-logging';
-import { loadActiveTavilyLinkedInCompanySearchPricing } from '@/modules/usage-tracking/provider-pricing';
-import { isLinkedInCompanySearchEnabled } from '@/lib/feature-flags.server';
+import {
+  loadActiveTavilyLinkedInCompanySearchPricing,
+  loadActiveApolloOrganizationEnrichmentPricing,
+} from '@/modules/usage-tracking/provider-pricing';
+import {
+  isLinkedInCompanySearchEnabled,
+  resolveApolloMaxEnrichmentsPerRun,
+} from '@/lib/feature-flags.server';
 import { resolveApolloMaxQueriesPerRun } from './apollo-cost-guardrails';
 import { parseAdditionalCriteriaTokens } from '@/modules/prospect-batches/chat-wizard-execution/wizard-context-normalizer';
 import { buildNoveltyIndex, evaluateCandidateNovelty } from './novelty-checker';
@@ -73,6 +79,19 @@ import type {
 import type { SearchStrategyV1 } from './types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
 import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
+
+/**
+ * Q3F-5AU.16: Apollo-only fields layered on top of TavilyUsageContext for the
+ * organization_enrichment run-level budget/pricing guard. Kept local to this
+ * file (never added to tavily-usage-logging.ts, which must stay
+ * provider-agnostic — see the "Anti-Apollo" guardrail test in
+ * tavily-usage-logging.test.ts). web-search-tool.ts reads these same fields
+ * back off the object via its own local intersection type.
+ */
+type ApolloRoundUsageContext = TavilyUsageContext & {
+  remainingEnrichmentBudget?: number;
+  organizationEnrichmentUnitCostUsd?: number | null;
+};
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -433,6 +452,42 @@ export async function runIncrementalProspectingSearch(
   const apolloGlobalCap = isApolloProvider ? resolveApolloMaxQueriesPerRun() : Infinity;
   let apolloQueriesExecutedTotal = 0;
 
+  // ─── Apollo organization_enrichment run-level budget (Q3F-5AU.16) ────────────
+  // Fix 1: AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN was previously applied per
+  // runApolloOrganizationsSearch call (per query), so N queries in one wizard
+  // execution could each enrich up to the cap independently — e.g. 3 queries ×
+  // 3 enrichments = 9 real enrichment calls. apolloEnrichmentsExecutedTotal
+  // accumulates real attempts (from apollo_enrichment_attempted_count_total,
+  // reported by web-search-tool.ts) across ALL rounds/queries so the true max
+  // per wizard execution equals resolveApolloMaxEnrichmentsPerRun().
+  //
+  // Fix 2: runtime pricing guard. organization_enrichment must have a live,
+  // active provider_pricing_config row before any real enrichment call is
+  // allowed. Resolved once per wizard execution (not per round/query) since
+  // pricing does not change mid-run. If missing, the budget is forced to 0 for
+  // the entire execution — no enrichOrg call, no fabricated cost line.
+  let organizationEnrichmentUnitCostUsd: number | null = null;
+  if (isApolloProvider) {
+    try {
+      const pricing = await loadActiveApolloOrganizationEnrichmentPricing();
+      organizationEnrichmentUnitCostUsd = pricing?.unitCostUsd ?? null;
+    } catch {
+      organizationEnrichmentUnitCostUsd = null;
+    }
+    if (organizationEnrichmentUnitCostUsd === null) {
+      console.warn(
+        '[organization_enrichment] No active provider_pricing_config row for ' +
+          'apollo/organization_enrichment/per_credit. Real Apollo organization ' +
+          'enrichment calls are blocked for this run (enrichment budget forced ' +
+          'to 0) to avoid logging a fabricated cost. Confirm migration 079 is applied.',
+      );
+    }
+  }
+  const apolloEnrichmentGlobalCap = isApolloProvider
+    ? (organizationEnrichmentUnitCostUsd === null ? 0 : resolveApolloMaxEnrichmentsPerRun())
+    : Number.POSITIVE_INFINITY;
+  let apolloEnrichmentsExecutedTotal = 0;
+
   // ─── L2.8: diagnósticos Apollo por ronda ─────────────────────────────────────
   // Recolecta metadata de trazabilidad del web search output de cada ronda Apollo.
   // Se propaga a extraBatchMetadata para que el batch sea diagnosticable.
@@ -671,8 +726,20 @@ export async function runIncrementalProspectingSearch(
     // Record query texts used this round for deduplication across rounds
     (queryOverrides ?? []).forEach(q => usedQueryTexts.add(q));
 
-    const roundUsageContext: TavilyUsageContext | null = input.usageInputContext
-      ? { ...input.usageInputContext, roundNumber: round }
+    // Q3F-5AU.16: remainingEnrichmentBudget/organizationEnrichmentUnitCostUsd
+    // are Apollo-only additions to the round usage context — undefined for
+    // every other provider, preserving Tavily/mock behavior exactly.
+    const roundUsageContext: ApolloRoundUsageContext | null = input.usageInputContext
+      ? {
+          ...input.usageInputContext,
+          roundNumber: round,
+          ...(isApolloProvider
+            ? {
+                remainingEnrichmentBudget: Math.max(0, apolloEnrichmentGlobalCap - apolloEnrichmentsExecutedTotal),
+                organizationEnrichmentUnitCostUsd,
+              }
+            : {}),
+        }
       : null;
 
     // L2.7: tokens del criterio adicional para providers estructurados (Apollo).
@@ -703,7 +770,15 @@ export async function runIncrementalProspectingSearch(
     // rawCount = post-gate count (puede ser 0 aunque Apollo devolvió N orgs).
     if (isApolloProvider) {
       const wsMeta = pipelineOutput.webSearch.metadata as Record<string, unknown> | undefined;
-      if (wsMeta && typeof wsMeta === 'object') apolloRoundDiagnostics.push(wsMeta);
+      if (wsMeta && typeof wsMeta === 'object') {
+        apolloRoundDiagnostics.push(wsMeta);
+        // Q3F-5AU.16: acumular intentos reales de organization_enrichment de
+        // esta ronda (todas sus queries) hacia el true run-level cap.
+        const attemptedThisRound = wsMeta['apollo_enrichment_attempted_count_total'];
+        if (typeof attemptedThisRound === 'number') {
+          apolloEnrichmentsExecutedTotal += attemptedThisRound;
+        }
+      }
     }
 
     // ── Track actual queries executed (Hito v1.3) ─────────────────────────────

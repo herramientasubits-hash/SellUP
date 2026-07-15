@@ -36,6 +36,22 @@ export type ApolloOrgsUsageContext = {
   batchId?: string | null;
   agentRunId?: string | null;
   triggeredByUserId?: string | null;
+  /**
+   * Q3F-5AU.16: remaining Apollo organization_enrichment budget for the
+   * current wizard execution (true run-level cap, accumulated across all
+   * rounds/queries in incremental-search.ts). Absent → the provider falls
+   * back to its own per-call cap (resolveApolloMaxEnrichmentsPerRun()),
+   * preserving pre-Q3F-5AU.16 behavior.
+   */
+  remainingEnrichmentBudget?: number;
+  /**
+   * Q3F-5AU.16: live provider_pricing_config unit cost for
+   * apollo/organization_enrichment/per_credit, resolved once per wizard
+   * execution. null means pricing is missing — real enrichment calls are
+   * blocked upstream (remainingEnrichmentBudget forced to 0) rather than
+   * logging a fabricated cost.
+   */
+  organizationEnrichmentUnitCostUsd?: number | null;
 };
 
 export type ApolloOrgsUsageLogResult =

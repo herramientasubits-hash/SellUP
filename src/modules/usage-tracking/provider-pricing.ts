@@ -97,6 +97,51 @@ export async function loadActiveTavilyLinkedInCompanySearchPricing(): Promise<Ac
 }
 
 /**
+ * Carga la configuración activa de pricing per_credit para Apollo
+ * (Q3F-5AU.16). Misma disciplina null-safe que loadActiveTavilyPerCreditPricing:
+ * nunca inventa un fallback 0. Retorna null si no hay fila activa, la fila no
+ * es per_credit, el costo no es un número finito no negativo, o la query falla.
+ */
+async function loadActiveApolloPerCreditPricing(
+  operationKey: string,
+): Promise<ActivePricingConfig | null> {
+  try {
+    const admin = getAdminClient();
+    const { data, error } = await admin
+      .from('provider_pricing_config')
+      .select('unit, unit_cost_usd')
+      .eq('provider_key', 'apollo')
+      .eq('operation_key', operationKey)
+      .eq('unit', 'per_credit')
+      .eq('is_active', true)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const unitCostUsd = Number(data.unit_cost_usd);
+    if (!Number.isFinite(unitCostUsd) || unitCostUsd < 0) return null;
+
+    return { unitCostUsd, unit: 'per_credit' };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Carga la configuración activa de pricing Apollo para operation_key=
+ * 'organization_enrichment' (Q3F-5AU.16, migration 079: apollo/
+ * organization_enrichment/per_credit, unit_cost_usd 0.00875000 en
+ * producción). Retorna null si no hay pricing activo — el caller (guardrail
+ * de runtime en incremental-search.ts) trata null como "pricing faltante" y
+ * bloquea las llamadas reales de enrichment en lugar de asumir costo 0.
+ */
+export async function loadActiveApolloOrganizationEnrichmentPricing(): Promise<ActivePricingConfig | null> {
+  return loadActiveApolloPerCreditPricing('organization_enrichment');
+}
+
+/**
  * Carga la configuración activa de pricing per_credit para Lusha
  * (Agente 2A · 17B.4X.5). Misma disciplina null-safe que
  * loadActiveTavilyPerCreditPricing: nunca inventa un fallback 0. Un

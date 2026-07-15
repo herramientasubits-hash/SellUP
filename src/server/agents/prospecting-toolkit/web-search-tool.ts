@@ -40,6 +40,7 @@ import {
   TavilyPricingUnavailableError,
   type TavilyUsageDeps,
   type DispatchUsageContext,
+  type TavilyUsageContext,
 } from './tavily-usage-logging';
 import { loadActiveTavilyMultiQueryPricing } from '@/modules/usage-tracking/provider-pricing';
 import { evaluateTavilyBudgetAlertOnly } from '@/modules/budgets/tavily-budget-alert';
@@ -71,6 +72,21 @@ const MAX_QUERIES_LIMIT = 10;
 // Este cap es por invocación de runMultiQueryWebSearch.
 // El cap GLOBAL por ejecución wizard se aplica en incremental-search.ts.
 // No afecta Tavily ni otros providers.
+
+// ── Q3F-5AU.16 (kept local — never added to tavily-usage-logging.ts, which
+// must stay provider-agnostic; see the "Anti-Apollo" guardrail test) ─────────
+// The two round-usage-context fields below travel as plain extra properties on
+// the TavilyUsageContext/DispatchUsageContext object at runtime (attached by
+// incremental-search.ts only when the provider is apollo_organizations); these
+// local intersection types just let this file read/write them safely.
+type ApolloRoundUsageContext = TavilyUsageContext & {
+  remainingEnrichmentBudget?: number;
+  organizationEnrichmentUnitCostUsd?: number | null;
+};
+type ApolloDispatchUsageContext = DispatchUsageContext & {
+  remainingEnrichmentBudget?: number;
+  organizationEnrichmentUnitCostUsd?: number | null;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -230,6 +246,9 @@ export async function runMultiQueryWebSearch(
 
   // ── Paso 0: Validar pricing antes de ejecutar queries (solo ruta instrumentada) ─
   const usageContext = input.usageContext ?? null;
+  // Q3F-5AU.16: read-only view exposing the Apollo-only extra fields (see the
+  // ApolloRoundUsageContext note above `MAX_QUERIES_LIMIT`).
+  const apolloUsageContext = usageContext as ApolloRoundUsageContext | null;
   let activePricing = null;
 
   if (usageContext) {
@@ -254,6 +273,19 @@ export async function runMultiQueryWebSearch(
   // L2.9: lista de diagnostics detallados por query para incluir en baseMetadata
   const apolloDiagnosticsList: unknown[] = [];
 
+  // ── Q3F-5AU.16: true run-level Apollo organization_enrichment budget ──────
+  // A single runMultiQueryWebSearch invocation can dispatch several Apollo
+  // queries (the incremental-search.ts global query cap allows up to
+  // AGENT1_APOLLO_MAX_QUERIES_PER_RUN queries in one round). Each query's
+  // dispatch to apollo-organizations-search-provider.ts previously received
+  // the same uncapped per-call enrichment budget, so N queries could each
+  // enrich up to the cap independently (the root cause of the 3×3=9 bug).
+  // apolloEnrichmentBudgetRemaining is decremented after every query using
+  // the real attempted_count the provider reports, so query 2's budget
+  // reflects what query 1 already spent. Tavily/mock are never touched.
+  let apolloEnrichmentBudgetRemaining = apolloUsageContext?.remainingEnrichmentBudget;
+  let apolloEnrichmentAttemptedTotal = 0;
+
   for (const query of queries) {
     const searchInput: WebSearchInput = {
       query: sanitizeQuery(query),
@@ -269,8 +301,18 @@ export async function runMultiQueryWebSearch(
       ...(input.additionalCriteriaTokens && input.additionalCriteriaTokens.length > 0 ? { additionalCriteriaTokens: input.additionalCriteriaTokens } : {}),
     };
 
-    const dispatchContext: DispatchUsageContext | undefined = usageContext
-      ? { batchId: usageContext.batchId, triggeredByUserId: usageContext.triggeredByUserId, agentRunId: usageContext.agentRunId ?? undefined }
+    const dispatchContext: ApolloDispatchUsageContext | undefined = usageContext
+      ? {
+          batchId: usageContext.batchId,
+          triggeredByUserId: usageContext.triggeredByUserId,
+          agentRunId: usageContext.agentRunId ?? undefined,
+          ...(provider === 'apollo_organizations'
+            ? {
+                remainingEnrichmentBudget: apolloEnrichmentBudgetRemaining,
+                organizationEnrichmentUnitCostUsd: apolloUsageContext?.organizationEnrichmentUnitCostUsd,
+              }
+            : {}),
+        }
       : undefined;
     const raw = await dispatch(provider, searchInput, maxResultsPerQuery, dispatchContext);
 
@@ -295,6 +337,18 @@ export async function runMultiQueryWebSearch(
       // L2.9: preservar diagnostics detallados del provider para propagación al batch
       const diagFromQuery = rawMeta?.['apollo_result_diagnostics'];
       if (diagFromQuery !== undefined) apolloDiagnosticsList.push(diagFromQuery);
+
+      // Q3F-5AU.16: descontar del budget lo que esta query realmente intentó,
+      // para que la siguiente query del mismo round reciba el remanente real.
+      const cascadeMeta = rawMeta?.['apollo_enrichment_cascade'] as
+        | { attempted_count?: number }
+        | undefined;
+      const attemptedThisQuery =
+        typeof cascadeMeta?.attempted_count === 'number' ? cascadeMeta.attempted_count : 0;
+      apolloEnrichmentAttemptedTotal += attemptedThisQuery;
+      if (typeof apolloEnrichmentBudgetRemaining === 'number') {
+        apolloEnrichmentBudgetRemaining = Math.max(0, apolloEnrichmentBudgetRemaining - attemptedThisQuery);
+      }
     }
 
     const validRaw = raw.results.filter((r) => {
@@ -381,6 +435,10 @@ export async function runMultiQueryWebSearch(
         : apolloDiagnosticsList.length > 1
         ? { apollo_result_diagnostics: apolloDiagnosticsList }
         : {}),
+      // Q3F-5AU.16: total de intentos reales de organization_enrichment en esta
+      // invocación (todas las queries del round), para que incremental-search.ts
+      // acumule el true run-level cap entre rondas.
+      apollo_enrichment_attempted_count_total: apolloEnrichmentAttemptedTotal,
     } : {}),
   };
 
