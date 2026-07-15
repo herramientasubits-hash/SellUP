@@ -84,12 +84,25 @@ export type EnrichmentSkipReason =
   | 'enrichment_failed'
   | 'cascade_disabled';
 
+/**
+ * Q3F-5AU.12: raw (pre-sanitization) industry fields from a successful
+ * enrichment, transported for downstream raw-label-observation capture.
+ * Intentionally narrow — no name, domain, LinkedIn URL, or any other
+ * enrichment field is carried here.
+ */
+export type ApolloIndustryRawFields = {
+  industry?: string | null;
+  industries?: string[] | null;
+};
+
 export type EnrichmentEntryMeta = {
   domain: string | null;
   enriched: boolean;
   skip_reason?: EnrichmentSkipReason;
   fields_added?: string[];
   error?: string;
+  /** Q3F-5AU.12: only present when enriched=true. */
+  rawIndustryFields?: ApolloIndustryRawFields;
 };
 
 /** Metadata completa de la operación de cascade — segura para logs. */
@@ -319,11 +332,15 @@ export async function runApolloOrganizationEnrichmentCascade(
       const enrichResult = await enrichFn({ domain });
 
       if (enrichResult.success && enrichResult.data) {
+        const rawIndustryFields: ApolloIndustryRawFields = {
+          industry: enrichResult.data.industry ?? null,
+          industries: enrichResult.data.industries ?? null,
+        };
         const sanitized = sanitizeEnrichmentProfile(enrichResult.data);
         const { updated, fieldsAdded } = mergeEnrichmentIntoResult(result, sanitized);
         enrichedCount++;
         enrichedDomainsSample.push(domain);
-        entries.push({ domain, enriched: true, fields_added: fieldsAdded });
+        entries.push({ domain, enriched: true, fields_added: fieldsAdded, rawIndustryFields });
         updatedResults.push(updated);
       } else {
         const errMsg = enrichResult.error?.message ?? 'enrichment_returned_no_data';

@@ -42,6 +42,7 @@ import {
   runApolloOrganizationEnrichmentCascade,
   buildDisabledCascadeMeta,
   type ApolloEnrichmentCascadeMeta,
+  type ApolloIndustryRawFields,
 } from '../apollo-organization-enrichment-cascade';
 import {
   buildApolloOrgsUsageKey,
@@ -831,6 +832,44 @@ export async function runApolloOrganizationsSearch(
         pricing_missing_warning: false,
       },
     }));
+  }
+
+  // ── Q3F-5AU.12: best-effort raw industry label capture from Apollo
+  // Organization Enrichment ────────────────────────────────────────────────
+  // Reuses the same ingestion boundary and capture helper as Q3F-5AU.7
+  // (organizations_search); only the operationKey differs. This never
+  // triggers a new enrichment call — it only reads rawIndustryFields already
+  // carried on enrichmentCascadeMeta.entries for entries the cascade already
+  // enriched under its own feature flag. captureIndustryLabels never throws
+  // by contract; the try/catch is defense in depth so a future regression
+  // there still can't affect results, ranking, scoring, or usage logging.
+  const enrichedIndustryObservations: ApolloIndustryRawFields[] = enrichmentCascadeMeta.entries
+    .filter((entry) => entry.enriched && entry.rawIndustryFields !== undefined)
+    .map((entry) => entry.rawIndustryFields as ApolloIndustryRawFields);
+  const enrichmentRawIndustryLabels = ingestApolloOrganizationIndustryRawLabels(enrichedIndustryObservations);
+  if (enrichmentRawIndustryLabels.length > 0) {
+    const captureEnrichmentIndustryLabels = deps?.captureIndustryLabels ?? captureProviderIndustryRawLabelObservations;
+    try {
+      await captureEnrichmentIndustryLabels({
+        sourceVocabularyKey: 'apollo_organization_industry',
+        providerKey: 'apollo',
+        operationKey: 'organization_enrichment',
+        labels: enrichmentRawIndustryLabels.map((label) => ({
+          rawLabel: label.rawLabel,
+          normalizedLookupKey: normalizeClassificationValue(label.rawLabel),
+        })),
+        countryCode: input.countryCode ?? null,
+        requestedIndustry: input.industry ?? null,
+        agentRunId: usageContext?.agentRunId ?? null,
+        sourceContext: {
+          operation: 'apollo_organization_enrichment',
+          resultCount: enrichedIndustryObservations.length,
+        },
+      });
+    } catch {
+      // Best-effort observability only — never let capture failures affect
+      // the Apollo organizations search flow.
+    }
   }
 
   const usageMeta: ApolloOrganizationsUsageMetadata = {
