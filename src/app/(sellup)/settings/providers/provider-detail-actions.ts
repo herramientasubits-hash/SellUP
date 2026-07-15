@@ -9,6 +9,10 @@ import {
   updateAiProviderCredential,
   disconnectAiProvider,
   syncAnthropicModels,
+  updateAIProviderStatus,
+  updateAIModelStatus,
+  addModelPricing,
+  setActiveConfig,
 } from '@/modules/ai-config/actions';
 import {
   getAiProviderDetail,
@@ -179,6 +183,65 @@ export async function syncAnthropicModelsForPanel(): Promise<ActionResult> {
       ? `Modelos verificados: ${result.models_checked.length} · nuevos: ${result.models_added.length} · no disponibles: ${result.models_marked_unavailable.length}`
       : undefined;
     return { ok: result.success, message, error: result.error };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
+  }
+}
+
+/** Thin panel wrapper around the existing updateAIProviderStatus() server action — no new backend logic. */
+export async function updateAiProviderStatusForPanel(
+  providerId: string,
+  newStatus: 'active' | 'inactive',
+): Promise<ActionResult> {
+  try {
+    const result = await updateAIProviderStatus(providerId, newStatus);
+    return { ok: result.success, error: result.error };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
+  }
+}
+
+/** Thin panel wrapper around the existing updateAIModelStatus() server action — no new backend logic. */
+export async function updateAiModelStatusForPanel(
+  modelId: string,
+  newStatus: 'active' | 'inactive',
+): Promise<ActionResult> {
+  try {
+    const result = await updateAIModelStatus(modelId, newStatus);
+    return { ok: result.success, error: result.error };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
+  }
+}
+
+/** Thin panel wrapper around the existing addModelPricing() server action — no new backend logic. */
+export async function addAiModelPricingForPanel(
+  modelId: string,
+  inputCost: number,
+  outputCost: number,
+  currency: string = 'USD',
+): Promise<ActionResult> {
+  try {
+    const result = await addModelPricing(modelId, inputCost, outputCost, currency);
+    return { ok: result.success, error: result.error };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
+  }
+}
+
+/**
+ * Thin panel wrapper around the existing setActiveConfig() server action — no new backend logic.
+ * This changes the GLOBAL active IA provider/model used by future AI executions across SellUp,
+ * not just a setting local to this provider's panel. Callers must present copy that makes this
+ * global effect explicit (see "Usar como modelo base global" in the sidepanel).
+ */
+export async function setAiActiveConfigForPanel(
+  providerId: string,
+  modelId: string,
+): Promise<ActionResult> {
+  try {
+    const result = await setActiveConfig(providerId, modelId);
+    return { ok: result.success, error: result.error };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' };
   }

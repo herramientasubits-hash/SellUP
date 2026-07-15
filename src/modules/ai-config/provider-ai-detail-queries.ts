@@ -30,6 +30,7 @@ export interface AiModelWithPricing {
 }
 
 export interface AiProviderDetailResult {
+  providerId: string;
   providerKey: string;
   providerName: string;
   providerStatus: string;
@@ -141,6 +142,7 @@ export async function getAiProviderDetail(
     });
 
     return {
+      providerId: provider.id as string,
       providerKey: key,
       providerName: provider.name as string,
       providerStatus: (provider.status as string) ?? 'inactive',

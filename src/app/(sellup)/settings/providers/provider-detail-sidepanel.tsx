@@ -53,6 +53,10 @@ import {
   updateAiProviderCredentialForPanel,
   disconnectAiProviderForPanel,
   syncAnthropicModelsForPanel,
+  updateAiProviderStatusForPanel,
+  updateAiModelStatusForPanel,
+  addAiModelPricingForPanel,
+  setAiActiveConfigForPanel,
   loadProspectingProviderConnectionForPanel,
   testProspectingProviderConnectionForPanel,
   updateProspectingProviderCredentialForPanel,
@@ -685,7 +689,57 @@ function formatPricePerMillion(value: number, currency: string): string {
   return `${currency} ${value.toFixed(2)} / 1M tok`;
 }
 
-function AiModelRow({ model }: { model: AiModelWithPricing }) {
+function AiModelRow({
+  model,
+  providerId,
+  onRefresh,
+}: {
+  model: AiModelWithPricing;
+  providerId: string;
+  onRefresh: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [showPricingForm, setShowPricingForm] = useState(false);
+  const [inputCost, setInputCost] = useState('');
+  const [outputCost, setOutputCost] = useState('');
+
+  const handleToggleStatus = () => {
+    const nextStatus = model.status === 'active' ? 'inactive' : 'active';
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await updateAiModelStatusForPanel(model.id, nextStatus);
+      setFeedback({ ok: r.ok, msg: r.error ?? (r.ok ? 'Estado del modelo actualizado' : 'Error al actualizar estado') });
+      if (r.ok) onRefresh();
+    });
+  };
+
+  const handleSavePricing = () => {
+    const input = parseFloat(inputCost);
+    const output = parseFloat(outputCost);
+    if (!Number.isFinite(input) || !Number.isFinite(output)) return;
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await addAiModelPricingForPanel(model.id, input, output);
+      setFeedback({ ok: r.ok, msg: r.error ?? (r.ok ? 'Tarifa registrada' : 'Error al registrar tarifa') });
+      if (r.ok) {
+        setShowPricingForm(false);
+        setInputCost('');
+        setOutputCost('');
+        onRefresh();
+      }
+    });
+  };
+
+  const handleUseAsGlobalBase = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      const r = await setAiActiveConfigForPanel(providerId, model.id);
+      setFeedback({ ok: r.ok, msg: r.error ?? (r.ok ? 'Modelo base global actualizado' : 'Error al actualizar configuración global') });
+      if (r.ok) onRefresh();
+    });
+  };
+
   return (
     <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5 space-y-1.5">
       <div className="flex items-center justify-between gap-2">
@@ -711,6 +765,56 @@ function AiModelRow({ model }: { model: AiModelWithPricing }) {
       ) : (
         <p className="text-[10px] text-muted-foreground/50">Sin tarifa vigente configurada.</p>
       )}
+
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        <Button size="sm" variant="outline" disabled={isPending} onClick={handleToggleStatus} className="h-6 text-[10px] px-2">
+          {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+          {model.status === 'active' ? 'Desactivar modelo' : 'Activar modelo'}
+        </Button>
+        <Button size="sm" variant="outline" disabled={isPending} onClick={() => setShowPricingForm((v) => !v)} className="h-6 text-[10px] px-2">
+          {model.latestPricing ? 'Actualizar tarifa' : 'Agregar tarifa'}
+        </Button>
+        {!model.isActiveGlobalModel && (
+          <Button size="sm" variant="outline" disabled={isPending} onClick={handleUseAsGlobalBase} className="h-6 text-[10px] px-2">
+            Usar como modelo base global
+          </Button>
+        )}
+      </div>
+
+      {showPricingForm && (
+        <div className="rounded-lg border border-border/40 bg-background px-3 py-2 space-y-2">
+          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium">Costo por millón de tokens</p>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              step="0.0001"
+              value={inputCost}
+              onChange={(e) => setInputCost(e.target.value)}
+              placeholder="Input (USD)"
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-su-brand/40"
+            />
+            <input
+              type="number"
+              step="0.0001"
+              value={outputCost}
+              onChange={(e) => setOutputCost(e.target.value)}
+              placeholder="Output (USD)"
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-su-brand/40"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={isPending || !inputCost || !outputCost} onClick={handleSavePricing} className="h-6 text-[10px] px-2">
+              {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              Guardar tarifa
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => { setShowPricingForm(false); setInputCost(''); setOutputCost(''); }} className="h-6 text-[10px] px-2">
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <InlineFeedback feedback={feedback} />
     </div>
   );
 }
@@ -743,10 +847,23 @@ function TabConfiguracionIA({
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [syncPending, startSyncTransition] = useTransition();
   const [syncFeedback, setSyncFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [statusPending, startStatusTransition] = useTransition();
+  const [statusFeedback, setStatusFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const opType = getProviderOperationalType(row.providerKey);
   const opBadge = OPERATIONAL_TYPE_BADGE[opType];
   const isAnthropic = row.providerKey.toLowerCase() === 'anthropic';
+
+  const handleToggleProviderStatus = () => {
+    if (!aiProviderDetail) return;
+    const nextStatus = aiProviderDetail.providerStatus === 'active' ? 'inactive' : 'active';
+    setStatusFeedback(null);
+    startStatusTransition(async () => {
+      const r = await updateAiProviderStatusForPanel(aiProviderDetail.providerId, nextStatus);
+      setStatusFeedback({ ok: r.ok, msg: r.error ?? (r.ok ? 'Estado del proveedor actualizado' : 'Error al actualizar estado') });
+      if (r.ok) onRefresh();
+    });
+  };
 
   // Sync when server re-renders with fresh initial state (after router.refresh())
   useEffect(() => {
@@ -891,6 +1008,30 @@ function TabConfiguracionIA({
           </div>
       </div>
 
+      {/* Estado del proveedor IA */}
+      {aiProviderDetail && (
+        <div>
+          <SectionHeader icon={<Power className="h-3.5 w-3.5" />} label="Estado del proveedor IA" />
+          <SectionCard>
+            <InfoRow
+              label="Estado"
+              value={
+                <span className={aiProviderDetail.providerStatus === 'active' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}>
+                  {aiProviderDetail.providerStatus === 'active' ? 'Activo' : 'Inactivo'}
+                </span>
+              }
+            />
+          </SectionCard>
+          <div className="pt-2">
+            <Button size="sm" variant="outline" disabled={statusPending} onClick={handleToggleProviderStatus} className="h-7 text-xs">
+              {statusPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Power className="h-3 w-3 mr-1" />}
+              {aiProviderDetail.providerStatus === 'active' ? 'Desactivar proveedor' : 'Activar proveedor'}
+            </Button>
+            <InlineFeedback feedback={statusFeedback} />
+          </div>
+        </div>
+      )}
+
       {/* Modelos y tarifas */}
       <div>
         <SectionHeader icon={<Cpu className="h-3.5 w-3.5" />} label="Modelos y tarifas" />
@@ -921,7 +1062,7 @@ function TabConfiguracionIA({
               )}
               <div className="space-y-1.5">
                 {aiProviderDetail.models.map((m) => (
-                  <AiModelRow key={m.id} model={m} />
+                  <AiModelRow key={m.id} model={m} providerId={aiProviderDetail.providerId} onRefresh={onRefresh} />
                 ))}
               </div>
             </>
