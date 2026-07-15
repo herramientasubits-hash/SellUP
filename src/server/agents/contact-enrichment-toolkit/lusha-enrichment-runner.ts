@@ -51,6 +51,7 @@ import {
   claimContactEnrichmentAttemptForExecution,
   type ClaimExecutionResult,
 } from './contact-enrichment-execution-claim';
+import { buildRoutingObservation } from './routing-observation-wiring';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -1402,12 +1403,30 @@ export async function executeContactEnrichmentLushaRun(
       );
       const prospectErrorCostFields = buildLushaRunCostSummaryFields([prospectErrorCostComponent]);
 
+      // Routing observation (17B.4X.7C.4C): a real Lusha call failed
+      // technically — observe-only, never triggers an automatic fallback.
+      const prospectErrorRoutingObservation = buildRoutingObservation({
+        actualProvider: 'lusha',
+        attemptOrder: run.attempt_order ?? 1,
+        providerCallAttempted: true,
+        technicalOutcome: 'technical_failure',
+        reviewableCandidateCount: 0,
+        evaluatedAt: new Date().toISOString(),
+        evidence: {
+          runStatus: 'failed',
+          insertedCandidatesCount: 0,
+          duplicatesSkippedCount: 0,
+          providerErrorPresent: true,
+        },
+      });
+
       await admin
         .from('contact_enrichment_runs')
         .update({
           status: 'failed',
           providers_used: ['lusha'],
           estimated_cost_usd: prospectErrorCostFields.known_cost_subtotal_usd,
+          ...(prospectErrorRoutingObservation ? prospectErrorRoutingObservation.runColumns : {}),
           summary: {
             provider: 'lusha',
             search_status: prospectResult.status,
@@ -1421,6 +1440,9 @@ export async function executeContactEnrichmentLushaRun(
             candidates_created: 0,
             totalCandidates: 0,
             ...prospectErrorCostFields,
+            ...(prospectErrorRoutingObservation
+              ? { routing_observation: prospectErrorRoutingObservation.summaryBlock }
+              : {}),
             hito: '17B.4W',
           },
         })
@@ -1520,12 +1542,30 @@ export async function executeContactEnrichmentLushaRun(
         }),
       );
 
+      // Routing observation (17B.4X.7C.4C): Lusha responded successfully with
+      // zero prospecting results — zero_reviewable_candidates signal.
+      const prospectZeroRoutingObservation = buildRoutingObservation({
+        actualProvider: 'lusha',
+        attemptOrder: run.attempt_order ?? 1,
+        providerCallAttempted: true,
+        technicalOutcome: 'technical_success',
+        reviewableCandidateCount: 0,
+        evaluatedAt: new Date().toISOString(),
+        evidence: {
+          runStatus: 'completed',
+          insertedCandidatesCount: 0,
+          duplicatesSkippedCount: 0,
+          providerErrorPresent: false,
+        },
+      });
+
       await admin
         .from('contact_enrichment_runs')
         .update({
           status: 'ready_for_review',
           providers_used: ['lusha'],
           estimated_cost_usd: noResultsCostFields.known_cost_subtotal_usd,
+          ...(prospectZeroRoutingObservation ? prospectZeroRoutingObservation.runColumns : {}),
           summary: {
             totalCandidates: 0,
             candidates_created: 0,
@@ -1533,6 +1573,9 @@ export async function executeContactEnrichmentLushaRun(
             search_status: prospectResult.status,
             discovery_mode: 'company_first_discovery',
             ...noResultsCostFields,
+            ...(prospectZeroRoutingObservation
+              ? { routing_observation: prospectZeroRoutingObservation.summaryBlock }
+              : {}),
             hito: '17B.4W',
           },
         })
@@ -1833,12 +1876,31 @@ export async function executeContactEnrichmentLushaRun(
       });
     }
 
+    // Routing observation (17B.4X.7C.4C): reviewableCandidateCount mirrors
+    // what a human can actually review — inserted pending_review candidates,
+    // whether zero because of no results, low relevance, or duplicates.
+    const prospectSuccessRoutingObservation = buildRoutingObservation({
+      actualProvider: 'lusha',
+      attemptOrder: run.attempt_order ?? 1,
+      providerCallAttempted: true,
+      technicalOutcome: 'technical_success',
+      reviewableCandidateCount: prospectCandidatesCreated,
+      evaluatedAt: new Date().toISOString(),
+      evidence: {
+        runStatus: 'ready_for_review',
+        insertedCandidatesCount: prospectCandidatesCreated,
+        duplicatesSkippedCount: prospectDuplicatesSkipped,
+        providerErrorPresent: false,
+      },
+    });
+
     await admin
       .from('contact_enrichment_runs')
       .update({
         status: 'ready_for_review',
         providers_used: ['lusha'],
         estimated_cost_usd: prospectSuccessCostFields.known_cost_subtotal_usd,
+        ...(prospectSuccessRoutingObservation ? prospectSuccessRoutingObservation.runColumns : {}),
         summary: {
           totalCandidates: prospectCandidatesCreated,
           candidates_created: prospectCandidatesCreated,
@@ -1847,6 +1909,9 @@ export async function executeContactEnrichmentLushaRun(
           credits_used: prospectTotalCredits,
           discovery_mode: 'company_first_discovery',
           ...prospectSuccessCostFields,
+          ...(prospectSuccessRoutingObservation
+            ? { routing_observation: prospectSuccessRoutingObservation.summaryBlock }
+            : {}),
           hito: '17B.4W',
         },
       })
@@ -1969,12 +2034,29 @@ export async function executeContactEnrichmentLushaRun(
     const searchErrorCostComponent = lushaSearchUnknownCostComponent();
     const searchErrorCostFields = buildLushaRunCostSummaryFields([searchErrorCostComponent]);
 
+    // Routing observation (17B.4X.7C.4C): real Lusha search call failed technically.
+    const searchErrorRoutingObservation = buildRoutingObservation({
+      actualProvider: 'lusha',
+      attemptOrder: run.attempt_order ?? 1,
+      providerCallAttempted: true,
+      technicalOutcome: 'technical_failure',
+      reviewableCandidateCount: 0,
+      evaluatedAt: new Date().toISOString(),
+      evidence: {
+        runStatus: 'failed',
+        insertedCandidatesCount: 0,
+        duplicatesSkippedCount: 0,
+        providerErrorPresent: true,
+      },
+    });
+
     await admin
       .from('contact_enrichment_runs')
       .update({
         status: 'failed',
         providers_used: ['lusha'],
         estimated_cost_usd: searchErrorCostFields.known_cost_subtotal_usd,
+        ...(searchErrorRoutingObservation ? searchErrorRoutingObservation.runColumns : {}),
         summary: {
           provider: 'lusha',
           search_status: searchResult.status,
@@ -1987,6 +2069,9 @@ export async function executeContactEnrichmentLushaRun(
           candidates_created: 0,
           totalCandidates: 0,
           ...searchErrorCostFields,
+          ...(searchErrorRoutingObservation
+            ? { routing_observation: searchErrorRoutingObservation.summaryBlock }
+            : {}),
           hito: '17B.4U',
         },
       })
@@ -2065,18 +2150,38 @@ export async function executeContactEnrichmentLushaRun(
       lushaSearchUnknownCostComponent(),
     ]);
 
+    // Routing observation (17B.4X.7C.4C): Lusha search succeeded with zero results.
+    const searchZeroRoutingObservation = buildRoutingObservation({
+      actualProvider: 'lusha',
+      attemptOrder: run.attempt_order ?? 1,
+      providerCallAttempted: true,
+      technicalOutcome: 'technical_success',
+      reviewableCandidateCount: 0,
+      evaluatedAt: new Date().toISOString(),
+      evidence: {
+        runStatus: 'completed',
+        insertedCandidatesCount: 0,
+        duplicatesSkippedCount: 0,
+        providerErrorPresent: false,
+      },
+    });
+
     await admin
       .from('contact_enrichment_runs')
       .update({
         status: 'ready_for_review',
         providers_used: ['lusha'],
         estimated_cost_usd: searchNoResultsCostFields.known_cost_subtotal_usd,
+        ...(searchZeroRoutingObservation ? searchZeroRoutingObservation.runColumns : {}),
         summary: {
           totalCandidates: 0,
           candidates_created: 0,
           raw_results: rawResultsCount,
           search_status: searchResult.status,
           ...searchNoResultsCostFields,
+          ...(searchZeroRoutingObservation
+            ? { routing_observation: searchZeroRoutingObservation.summaryBlock }
+            : {}),
           hito: '17B.4K',
         },
       })
@@ -2307,12 +2412,30 @@ export async function executeContactEnrichmentLushaRun(
   }
 
   // 10. Update run → ready_for_review
+  // Routing observation (17B.4X.7C.4C): reviewableCandidateCount mirrors what
+  // a human can actually review — inserted pending_review candidates.
+  const directSearchSuccessRoutingObservation = buildRoutingObservation({
+    actualProvider: 'lusha',
+    attemptOrder: run.attempt_order ?? 1,
+    providerCallAttempted: true,
+    technicalOutcome: 'technical_success',
+    reviewableCandidateCount: candidatesCreated,
+    evaluatedAt: new Date().toISOString(),
+    evidence: {
+      runStatus: 'ready_for_review',
+      insertedCandidatesCount: candidatesCreated,
+      duplicatesSkippedCount: duplicatesSkipped,
+      providerErrorPresent: false,
+    },
+  });
+
   await admin
     .from('contact_enrichment_runs')
     .update({
       status: 'ready_for_review',
       providers_used: ['lusha'],
       estimated_cost_usd: runCostFields.known_cost_subtotal_usd,
+      ...(directSearchSuccessRoutingObservation ? directSearchSuccessRoutingObservation.runColumns : {}),
       summary: {
         totalCandidates: candidatesCreated,
         candidates_created: candidatesCreated,
@@ -2320,6 +2443,9 @@ export async function executeContactEnrichmentLushaRun(
         raw_results: rawResultsCount,
         credits_used: totalCreditsUsed,
         ...runCostFields,
+        ...(directSearchSuccessRoutingObservation
+          ? { routing_observation: directSearchSuccessRoutingObservation.summaryBlock }
+          : {}),
         hito: '17B.4K',
       },
     })

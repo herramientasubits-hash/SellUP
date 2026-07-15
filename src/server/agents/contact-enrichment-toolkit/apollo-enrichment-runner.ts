@@ -54,6 +54,7 @@ import {
   type ApolloBudgetCheckMeta,
 } from '@/modules/budgets/apollo-budget-alert';
 import { claimContactEnrichmentAttemptForExecution } from './contact-enrichment-execution-claim';
+import { buildRoutingObservation } from './routing-observation-wiring';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
 const APOLLO_OPERATION_KEY = 'people_search';
@@ -84,6 +85,13 @@ export interface ContactEnrichmentRunRow {
    * omitirlo sin romper — writeCandidates simplemente no hace el check.
    */
   account_id?: string | null;
+  /**
+   * Legacy/bulk runs have no attempt_order (NULL — migration 086); only
+   * request-linked runs set 1/2. Routing observation (17B.4X.7C.4C) treats a
+   * missing value as attempt 1 — every production caller today creates at
+   * most one real attempt per run.
+   */
+  attempt_order?: number | null;
 }
 
 /**
@@ -153,6 +161,11 @@ export interface RunPatch {
   summary?: Record<string, unknown>;
   estimated_cost_usd?: number;
   providers_used?: string[];
+  /** Routing observation columns (17B.4X.7C.4C, migration 091) — set only when a real Apollo call was attempted. */
+  routing_mode?: string;
+  provider_attempt_role?: string;
+  fallback_reason?: string;
+  routing_policy_version?: string;
 }
 
 // ── Dependency injection (para tests) ──────────────────────────
@@ -205,7 +218,7 @@ async function defaultLoadRun(runId: string): Promise<ContactEnrichmentRunRow | 
   const admin = getAdminClient();
   const { data, error } = await admin
     .from('contact_enrichment_runs')
-    .select('id, agent_run_id, company_name, company_domain, company_country_code, status, summary')
+    .select('id, agent_run_id, company_name, company_domain, company_country_code, status, summary, attempt_order')
     .eq('id', runId)
     .single();
   if (error || !data) return null;
@@ -219,6 +232,10 @@ async function defaultUpdateRun(runId: string, patch: RunPatch): Promise<void> {
   if (patch.summary !== undefined) payload.summary = patch.summary;
   if (patch.estimated_cost_usd !== undefined) payload.estimated_cost_usd = patch.estimated_cost_usd;
   if (patch.providers_used !== undefined) payload.providers_used = patch.providers_used;
+  if (patch.routing_mode !== undefined) payload.routing_mode = patch.routing_mode;
+  if (patch.provider_attempt_role !== undefined) payload.provider_attempt_role = patch.provider_attempt_role;
+  if (patch.fallback_reason !== undefined) payload.fallback_reason = patch.fallback_reason;
+  if (patch.routing_policy_version !== undefined) payload.routing_policy_version = patch.routing_policy_version;
   await admin.from('contact_enrichment_runs').update(payload).eq('id', runId);
 }
 
@@ -669,10 +686,27 @@ export async function executeContactEnrichmentApolloRun(
     // "no conectado" (sin credenciales) nunca llegó a intentar la llamada —
     // paridad con el missing_api_key de Lusha, que tampoco marca providers_used.
     const apolloProviderCallAttempted = apollo.reason !== APOLLO_NOT_CONNECTED_REASON;
+    const errorRoutingObservation = buildRoutingObservation({
+      actualProvider: 'apollo',
+      attemptOrder: run.attempt_order ?? 1,
+      providerCallAttempted: apolloProviderCallAttempted,
+      technicalOutcome: 'technical_failure',
+      reviewableCandidateCount: 0,
+      evaluatedAt: searchedAt,
+      evidence: {
+        runStatus: 'failed',
+        insertedCandidatesCount: 0,
+        duplicatesSkippedCount: 0,
+        providerErrorPresent: true,
+      },
+    });
     await updateRun(runId, {
       status: 'failed',
-      summary: buildSummary(prevSummary, 0, apolloBlock),
+      summary: buildSummary(prevSummary, 0, apolloBlock, {
+        ...(errorRoutingObservation ? { routing_observation: errorRoutingObservation.summaryBlock } : {}),
+      }),
       ...(apolloProviderCallAttempted ? { providers_used: ['apollo'] } : {}),
+      ...(errorRoutingObservation ? errorRoutingObservation.runColumns : {}),
     });
     if (step) {
       await finishStep(step.id, {
@@ -1050,11 +1084,31 @@ export async function executeContactEnrichmentApolloRun(
     };
     // Apollo ya ejecutó people_search (y opcionalmente person_match) con éxito
     // antes de este fallo de escritura — siempre marca providers_used.
+    // Routing observation: Apollo itself succeeded technically, so this is
+    // NOT a provider_error signal — technical_unknown avoids misattributing
+    // our own write failure to Apollo (17B.4X.7C.4C).
+    const writeErrorRoutingObservation = buildRoutingObservation({
+      actualProvider: 'apollo',
+      attemptOrder: run.attempt_order ?? 1,
+      providerCallAttempted: true,
+      technicalOutcome: 'technical_unknown',
+      reviewableCandidateCount: 0,
+      evaluatedAt: searchedAt,
+      evidence: {
+        runStatus: 'failed',
+        insertedCandidatesCount: 0,
+        duplicatesSkippedCount: dedup.exactDuplicateCount,
+        providerErrorPresent: false,
+      },
+    });
     await updateRun(runId, {
       status: 'failed',
       estimated_cost_usd: estimatedCostUsd,
-      summary: buildSummary(prevSummary, 0, apolloBlock),
+      summary: buildSummary(prevSummary, 0, apolloBlock, {
+        ...(writeErrorRoutingObservation ? { routing_observation: writeErrorRoutingObservation.summaryBlock } : {}),
+      }),
       providers_used: ['apollo'],
+      ...(writeErrorRoutingObservation ? writeErrorRoutingObservation.runColumns : {}),
     });
     if (step) {
       await finishStep(step.id, {
@@ -1213,11 +1267,33 @@ export async function executeContactEnrichmentApolloRun(
   // Apollo ejecutó people_search con éxito (con o sin candidatos insertados) —
   // siempre marca providers_used, paridad con el 'lusha' que Lusha ya persiste
   // en su propia rama de éxito.
+  // Routing observation (17B.4X.7C.4C): zero_reviewable_candidates covers
+  // BOTH "no relevant profiles" and "all actionable profiles were
+  // duplicates" — insertedCount===0 either way. The pure evaluator has no
+  // separate only_duplicates signal in V1 (see § 6 of the hito prompt).
+  const successRoutingObservation = buildRoutingObservation({
+    actualProvider: 'apollo',
+    attemptOrder: run.attempt_order ?? 1,
+    providerCallAttempted: true,
+    technicalOutcome: 'technical_success',
+    reviewableCandidateCount: insertedCount,
+    evaluatedAt: searchedAt,
+    evidence: {
+      runStatus: finalStatus,
+      insertedCandidatesCount: insertedCount,
+      duplicatesSkippedCount: dedup.exactDuplicateCount,
+      providerErrorPresent: false,
+    },
+  });
   await updateRun(runId, {
     status: finalStatus,
     estimated_cost_usd: estimatedCostUsd,
-    summary: buildSummary(prevSummary, insertedCount, apolloBlock, summaryFlags),
+    summary: buildSummary(prevSummary, insertedCount, apolloBlock, {
+      ...summaryFlags,
+      ...(successRoutingObservation ? { routing_observation: successRoutingObservation.summaryBlock } : {}),
+    }),
     providers_used: ['apollo'],
+    ...(successRoutingObservation ? successRoutingObservation.runColumns : {}),
   });
 
   // Terminaliza agent_runs (Hito 17B.4X.7C.3B.2): tanto 'completed' como

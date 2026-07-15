@@ -22,10 +22,16 @@ export interface ClaimableRunRow {
   company_country_code: string | null;
   status: ContactEnrichmentRunStatus;
   summary: Record<string, unknown>;
+  /**
+   * NULL/absent for legacy/bulk runs (migration 086) — request-linked runs
+   * set 1/2. Optional so existing in-memory test harnesses that construct
+   * this row by hand don't need updating for routing observation (17B.4X.7C.4C).
+   */
+  attempt_order?: number | null;
 }
 
 const CLAIM_SELECT =
-  'id, agent_run_id, account_id, company_name, company_domain, company_country_code, status, summary';
+  'id, agent_run_id, account_id, company_name, company_domain, company_country_code, status, summary, attempt_order';
 
 export type ClaimExecutionResult =
   | { status: 'claimed'; row: ClaimableRunRow }
