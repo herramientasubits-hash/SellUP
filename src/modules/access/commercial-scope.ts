@@ -20,7 +20,7 @@
 // themselves (safe fallback).
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { collectGroupSubtreeIds } from './group-tree';
 import {
   classifyRole,
@@ -28,18 +28,10 @@ import {
   type CommercialScope,
 } from './commercial-scope-logic';
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 const ACTIVE_USER_STATUS = 'active';
 
 function getAdminClient() {
-  if (!SUPABASE_SERVICE_KEY) {
-    throw new Error('Supabase service credentials not configured');
-  }
-  return createAdminClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  return createSupabaseAdminClient();
 }
 
 type AdminClient = ReturnType<typeof getAdminClient>;

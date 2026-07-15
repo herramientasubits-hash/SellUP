@@ -10,20 +10,12 @@
 //  self       → showScopeFilters = false (no meaningful team-dimension to pick).
 //  scope off  → same as admin (all users; flag governs data enforcement elsewhere).
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { resolveCommercialScope } from './commercial-scope';
 import { flattenOrgGroups } from './group-tree';
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 function getAdminClient() {
-  if (!SUPABASE_SERVICE_KEY) {
-    throw new Error('Supabase service credentials not configured');
-  }
-  return createAdminClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  return createSupabaseAdminClient();
 }
 
 // Human-readable role labels (mirrors what roles are seeded in migration 001).
