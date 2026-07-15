@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "test:supabase-env-guard": "node --import tsx --test src/lib/supabase/__tests__/env-guard.server.test.ts",
     "test:commercial-scope": "node --import tsx --test src/modules/access/__tests__/commercial-scope-logic.test.ts",
     "test:industry-mapping-draft": "node --import tsx --test src/modules/industry-mapping/__tests__/mapping-draft-guard.test.ts src/modules/industry-mapping/__tests__/mapping-draft-snapshot-service.test.ts src/modules/industry-mapping/__tests__/mapping-draft-concept-service.test.ts src/modules/industry-mapping/__tests__/mapping-draft-association-service.test.ts",
     "test:industry-mapping-publication": "node --import tsx --test src/modules/industry-mapping/__tests__/mapping-publication-validator.test.ts src/modules/industry-mapping/__tests__/mapping-publication-service.test.ts",
