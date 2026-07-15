@@ -270,7 +270,7 @@ describe('runFedesoftSnapshotEtl (commit flow)', () => {
     assert.ok(upsertCallCount >= 3, `Expected >= 3 upsert calls (BATCH_SIZE=100), got ${upsertCallCount}`);
   });
 
-  it('upserts with the shared OLD_TAX_GRAIN_ON_CONFLICT target and returns shadow counts', async () => {
+  it('upserts with the shared RECORD_IDENTITY_ON_CONFLICT target and returns shadow counts', async () => {
     upsertCallCount = 0;
     const capturedOnConflict: unknown[] = [];
     const capturedRows: Array<Record<string, unknown>> = [];
@@ -292,7 +292,7 @@ describe('runFedesoftSnapshotEtl (commit flow)', () => {
     };
 
     const { runFedesoftSnapshotEtl } = await import('../fedesoft-snapshot-etl');
-    const { OLD_TAX_GRAIN_ON_CONFLICT } = await import('../../../record-identity');
+    const { RECORD_IDENTITY_ON_CONFLICT } = await import('../../../record-identity');
     const result = await runFedesoftSnapshotEtl(MOCK_SOURCE_YEAR, {
       dryRun: false,
       sb: mockSb,
@@ -300,8 +300,8 @@ describe('runFedesoftSnapshotEtl (commit flow)', () => {
 
     assert.equal(result.ok, true);
     assert.ok(capturedOnConflict.length > 0);
-    assert.ok(capturedOnConflict.every((v) => v === OLD_TAX_GRAIN_ON_CONFLICT));
-    assert.equal(OLD_TAX_GRAIN_ON_CONFLICT, 'source_key,country_code,source_year,normalized_tax_id');
+    assert.ok(capturedOnConflict.every((v) => v === RECORD_IDENTITY_ON_CONFLICT));
+    assert.equal(RECORD_IDENTITY_ON_CONFLICT, 'source_key,country_code,source_year,record_identity_key');
 
     // fakeCompanies: 2 with NIT (no directoryId → tax:<nit>), 2 without NIT (name: fallback → unavailable)
     assert.equal(result.recordIdentityResolved, 2);

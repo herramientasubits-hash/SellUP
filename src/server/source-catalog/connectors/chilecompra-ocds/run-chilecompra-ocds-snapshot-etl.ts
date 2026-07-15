@@ -4,7 +4,7 @@
  * Lee licitaciones/adjudicaciones OCDS y agrega proveedores adjudicados por RUT/año
  * en source_company_snapshots. ETL offline; no se ejecuta en wizard ni en Agent 1.
  *
- * Único: (source_key, country_code, source_year, normalized_tax_id)
+ * Conflict target: (source_key, country_code, source_year, record_identity_key)
  * → 1 fila por proveedor por año, no 1 fila por OCID.
  *
  * Reglas clave:
@@ -28,7 +28,11 @@ import {
 import type { FetchAwardResult } from './chilecompra-ocds-client';
 import { normalizeRut, resolveBuyer, collectUnspsc } from './normalizers';
 import type { OcdsRelease, OcdsAward } from './types';
-import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../record-identity';
+import {
+  deriveTaxRecordIdentity,
+  validateRecordIdentityKey,
+  RECORD_IDENTITY_ON_CONFLICT,
+} from '../../record-identity';
 
 const ETL_VERSION = 'v1.16CL-D.2';
 const BATCH_SIZE = 100;
@@ -760,7 +764,7 @@ export async function runChileCompraOcdsSnapshotEtl(
         const { error: upsertErr } = await sb
           .from('source_company_snapshots')
           .upsert(allowedRows, {
-            onConflict: 'source_key,country_code,source_year,normalized_tax_id',
+            onConflict: RECORD_IDENTITY_ON_CONFLICT,
           });
         if (upsertErr) {
           errors.push(`Batch upsert error at offset ${i}: ${upsertErr.message}`);

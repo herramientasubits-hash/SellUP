@@ -300,10 +300,10 @@ describe('P2B identity boundary (EC4D5.E)', () => {
     assert.equal(validateRecordIdentityKey(row.record_identity_key).valid, false);
   });
 
-  it('el ETL referencia validateRecordIdentityKey y no usa RECORD_IDENTITY_ON_CONFLICT', () => {
+  it('el ETL referencia validateRecordIdentityKey y usa RECORD_IDENTITY_ON_CONFLICT (APP-D1 cutover)', () => {
     const source = readFileSync(new URL('../fedesoft-snapshot-etl.ts', import.meta.url), 'utf-8');
     assert.ok(source.includes('validateRecordIdentityKey'));
-    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
-    assert.ok(source.includes('OLD_TAX_GRAIN_ON_CONFLICT'));
+    assert.ok(source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(!source.includes('OLD_TAX_GRAIN_ON_CONFLICT'));
   });
 });

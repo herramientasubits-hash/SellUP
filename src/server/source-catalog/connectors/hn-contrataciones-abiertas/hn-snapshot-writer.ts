@@ -16,7 +16,7 @@
  *   - Coverage summary escrito solo si rowsWritten > 0
  *   - Admin client creado solo después de validación (nunca en dry-run)
  *
- * Conflict key: (source_key, country_code, source_year, normalized_tax_id)
+ * Conflict key: (source_key, country_code, source_year, record_identity_key)
  *
  * Hito Centroamérica.8C.4B
  */
@@ -24,7 +24,7 @@
 import type { HnOcdsCandidate } from './hn-ocds-types';
 import { mapCandidatesToSnapshot } from './hn-snapshot-mapper';
 import type { HnSnapshotRow } from './hn-snapshot-mapper';
-import { validateRecordIdentityKey } from '../../record-identity';
+import { validateRecordIdentityKey, RECORD_IDENTITY_ON_CONFLICT } from '../../record-identity';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ export type HnCoverageSummaryPayload = {
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
-const CONFLICT_TARGET = 'source_key,country_code,source_year,normalized_tax_id' as const;
+const CONFLICT_TARGET = RECORD_IDENTITY_ON_CONFLICT;
 const BATCH_SIZE = 50;
 
 // ─── Invariant validation ─────────────────────────────────────────────────────

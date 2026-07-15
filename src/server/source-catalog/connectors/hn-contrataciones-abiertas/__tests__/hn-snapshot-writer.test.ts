@@ -98,7 +98,7 @@ describe('runHnSnapshotWriter — dry-run', () => {
 
   it('conflictsTarget correcto', async () => {
     const result = await runHnSnapshotWriter([makeCandidate()], { sourceYear: 2024 });
-    assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,normalized_tax_id');
+    assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,record_identity_key');
   });
 
   it('excluidos contabilizados', async () => {
@@ -265,7 +265,7 @@ describe('runHnSnapshotWriter — apply branch', () => {
       dryRun: false,
       supabaseAdmin: admin,
     });
-    assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,normalized_tax_id');
+    assert.equal(result.conflictsTarget, 'source_key,country_code,source_year,record_identity_key');
   });
 
   it('coverage summary refleja rowsWritten (no rowsPrepared)', async () => {
@@ -575,17 +575,17 @@ describe('record_identity_key boundary (APP-B P2B)', () => {
     assert.equal(calls.length, 0);
   });
 
-  it('the P2B boundary source keeps the old onConflict target and does not reference RECORD_IDENTITY_ON_CONFLICT', () => {
+  it('the P2B boundary source is cut over to RECORD_IDENTITY_ON_CONFLICT (APP-D1) and drops the legacy literal', () => {
     const source = readFileSync(
       new URL('../hn-snapshot-writer.ts', import.meta.url),
       'utf-8',
     );
     assert.ok(
-      source.includes(
+      !source.includes(
         "'source_key,country_code,source_year,normalized_tax_id' as const",
       ),
     );
-    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('RECORD_IDENTITY_ON_CONFLICT'));
     assert.ok(source.includes('validateRecordIdentityKey'));
   });
 });

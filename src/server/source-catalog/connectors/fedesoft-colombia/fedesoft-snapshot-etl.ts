@@ -5,7 +5,7 @@ import type { FedesoftCompany, FedesoftConnectorResult, FedesoftMatchSource } fr
 import {
   buildRecordIdentityKey,
   deriveTaxRecordIdentity,
-  OLD_TAX_GRAIN_ON_CONFLICT,
+  RECORD_IDENTITY_ON_CONFLICT,
   validateRecordIdentityKey,
 } from '../../record-identity';
 import type { RecordIdentityResult, RecordIdentityUnavailableReason } from '../../record-identity';
@@ -369,7 +369,7 @@ export async function runFedesoftSnapshotEtl(
       const { error: upsertErr } = await sb!
         .from('source_company_snapshots')
         .upsert(batch, {
-          onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
+          onConflict: RECORD_IDENTITY_ON_CONFLICT,
         });
 
       if (upsertErr) {
