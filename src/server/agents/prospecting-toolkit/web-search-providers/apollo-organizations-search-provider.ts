@@ -500,6 +500,20 @@ export async function runApolloOrganizationsSearch(
   const searchFn = deps?.searchOrgs ?? searchApolloOrganizations;
   const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;
 
+  // Q3F-5AU.10S: usage logging failures (e.g. FK violation on batch_id) must
+  // stay visible in metadata instead of being silently swallowed. Mirrors the
+  // usage_logging_failed pattern already used for Tavily (web-search-tool.ts).
+  // Never throws in production — a logging failure must not block real
+  // results that already cost real Apollo credits.
+  let usageLoggingFailed = false;
+  const usageLoggingErrors: string[] = [];
+  function trackLogResult(result: Awaited<ReturnType<typeof logFn>>): void {
+    if (result.kind === 'failed') {
+      usageLoggingFailed = true;
+      usageLoggingErrors.push(result.error.slice(0, 200));
+    }
+  }
+
   // ── Construir params estructurados Apollo (v1.16K-AA) ───────────────────────
   // Usa q_keywords (búsqueda libre) en lugar de q_organization_name (nombre exacto).
   // organization_locations recibe el país como filtro estructurado.
@@ -529,7 +543,7 @@ export async function runApolloOrganizationsSearch(
       status: 'error',
     };
 
-    await logFn({
+    trackLogResult(await logFn({
       usage_key: usageKey,
       provider_key: 'apollo',
       operation_key: 'organizations_search',
@@ -544,7 +558,7 @@ export async function runApolloOrganizationsSearch(
       duration_ms: Date.now() - startMs,
       triggered_by: usageContext?.triggeredByUserId ?? undefined,
       metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, 'error', apolloParamsSanitized),
-    });
+    }));
 
     return {
       provider: 'apollo_organizations',
@@ -554,7 +568,14 @@ export async function runApolloOrganizationsSearch(
       skipped: true,
       skipReason: 'apollo_fetch_exception',
       estimatedCostUsd: 0,
-      metadata: { dry_run: false, provider_mode: 'real_limited', usage: usageMeta },
+      metadata: {
+        dry_run: false,
+        provider_mode: 'real_limited',
+        usage: usageMeta,
+        ...(usageLoggingFailed
+          ? { usage_logging_failed: true, usage_logging_errors: usageLoggingErrors }
+          : {}),
+      },
     };
   }
 
@@ -578,7 +599,7 @@ export async function runApolloOrganizationsSearch(
       status: usageStatus,
     };
 
-    await logFn({
+    trackLogResult(await logFn({
       usage_key: usageKey,
       provider_key: 'apollo',
       operation_key: 'organizations_search',
@@ -595,7 +616,7 @@ export async function runApolloOrganizationsSearch(
       duration_ms: Date.now() - startMs,
       triggered_by: usageContext?.triggeredByUserId ?? undefined,
       metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, usageStatus, apolloParamsSanitized),
-    });
+    }));
 
     const skipReason = isQuota
       ? 'apollo_quota_exceeded'
@@ -611,7 +632,14 @@ export async function runApolloOrganizationsSearch(
       skipped: true,
       skipReason,
       estimatedCostUsd: 0,
-      metadata: { dry_run: false, provider_mode: 'real_limited', usage: usageMeta },
+      metadata: {
+        dry_run: false,
+        provider_mode: 'real_limited',
+        usage: usageMeta,
+        ...(usageLoggingFailed
+          ? { usage_logging_failed: true, usage_logging_errors: usageLoggingErrors }
+          : {}),
+      },
     };
   }
 
@@ -747,7 +775,7 @@ export async function runApolloOrganizationsSearch(
   };
 
   // ── Usage logging: organizations_search ──────────────────────────────────────
-  await logFn({
+  trackLogResult(await logFn({
     usage_key: usageKey,
     provider_key: 'apollo',
     operation_key: 'organizations_search',
@@ -767,7 +795,7 @@ export async function runApolloOrganizationsSearch(
       // L2.15: cascade meta — visible en DB para auditoría
       apollo_enrichment_cascade: enrichmentCascadeMeta,
     },
-  });
+  }));
 
   // ── Usage logging: organization_enrichment (one log per real API call) ────────
   // Emite un log separado por cada enrichment real intentado (success o failure).
@@ -782,7 +810,7 @@ export async function runApolloOrganizationsSearch(
       ? `organization_enrichment:${usageContext.batchId}:${entry.domain ?? 'unknown'}`
       : `organization_enrichment:no_batch:${entry.domain ?? 'unknown'}:${startMs}`;
 
-    await logFn({
+    trackLogResult(await logFn({
       usage_key: enrichUsageKey,
       provider_key: 'apollo',
       operation_key: 'organization_enrichment',
@@ -802,7 +830,7 @@ export async function runApolloOrganizationsSearch(
         cascade_version: enrichmentCascadeMeta.cascade_version,
         pricing_missing_warning: false,
       },
-    });
+    }));
   }
 
   const usageMeta: ApolloOrganizationsUsageMetadata = {
@@ -839,6 +867,11 @@ export async function runApolloOrganizationsSearch(
       apollo_raw_result_samples_sanitized: rawResultSamples,
       // L2.15: metadata del enrichment cascade (enabled=false cuando flag OFF)
       apollo_enrichment_cascade: enrichmentCascadeMeta,
+      // Q3F-5AU.10S: real Apollo results were returned even if usage logging
+      // failed (e.g. FK violation on batch_id) — never block results on this.
+      ...(usageLoggingFailed
+        ? { usage_logging_failed: true, usage_logging_errors: usageLoggingErrors }
+        : {}),
     },
   };
 }

@@ -298,6 +298,76 @@ describe('D. Usage logging', () => {
     process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
     assert.equal(logs.length, 0);
   });
+
+  it('usageContext.batchId=null se propaga como undefined al log (no FK inválida)', async () => {
+    const { logs, logFn } = makeLogCapture();
+    const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchSuccess([makeOrg()]), logUsage: logFn };
+
+    const out = await runApolloOrganizationsSearch(
+      { query: 'test' },
+      5,
+      { batchId: null, agentRunId: 'run-001' },
+      deps,
+    );
+
+    assert.equal(logs[0].batch_id, undefined, 'batchId null no debe forzar un UUID inventado');
+    assert.equal(out.resultsCount, 1, 'resultados intactos con batchId null');
+  });
+});
+
+// ─── G. Usage logging failure visibility (Q3F-5AU.10S) ──────────────────────
+
+describe('G. Usage logging failure visibility (Q3F-5AU.10S)', () => {
+  before(() => { process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true'; });
+  after(() => { delete process.env.ENABLE_APOLLO_COMPANY_SEARCH; });
+
+  it('logFn failed en el path de éxito → metadata.usage_logging_failed=true, resultados intactos', async () => {
+    const orgs = [makeOrg({ id: 'o1', name: 'Alpha Corp' })];
+    const failingLogFn = async () => ({ kind: 'failed' as const, error: 'insert or update on table violates foreign key constraint' });
+    const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchSuccess(orgs), logUsage: failingLogFn };
+
+    const out = await runApolloOrganizationsSearch({ query: 'test' }, 5, { batchId: 'nonexistent-uuid' }, deps);
+
+    assert.equal(out.skipped, false, 'logging failure no debe bloquear resultados reales');
+    assert.equal(out.resultsCount, 1);
+    const meta = out.metadata as Record<string, unknown>;
+    assert.equal(meta.usage_logging_failed, true);
+    assert.ok(Array.isArray(meta.usage_logging_errors));
+    assert.ok((meta.usage_logging_errors as string[]).length >= 1);
+  });
+
+  it('logFn logged (sin falla) → metadata.usage_logging_failed ausente', async () => {
+    const { logFn } = makeLogCapture();
+    const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchSuccess([makeOrg()]), logUsage: logFn };
+
+    const out = await runApolloOrganizationsSearch({ query: 'test' }, 5, undefined, deps);
+
+    const meta = out.metadata as Record<string, unknown>;
+    assert.equal(meta.usage_logging_failed, undefined);
+    assert.equal(meta.usage_logging_errors, undefined);
+  });
+
+  it('logFn failed en el path de excepción de búsqueda → metadata.usage_logging_failed=true', async () => {
+    const failingLogFn = async () => ({ kind: 'failed' as const, error: 'db unreachable' });
+    const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchException(), logUsage: failingLogFn };
+
+    const out = await runApolloOrganizationsSearch({ query: 'test' }, 5, undefined, deps);
+
+    assert.equal(out.skipReason, 'apollo_fetch_exception');
+    const meta = out.metadata as Record<string, unknown>;
+    assert.equal(meta.usage_logging_failed, true);
+  });
+
+  it('logFn failed en el path de error API (quota) → metadata.usage_logging_failed=true', async () => {
+    const failingLogFn = async () => ({ kind: 'failed' as const, error: 'db unreachable' });
+    const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchError(429), logUsage: failingLogFn };
+
+    const out = await runApolloOrganizationsSearch({ query: 'test' }, 5, undefined, deps);
+
+    assert.equal(out.skipReason, 'apollo_quota_exceeded');
+    const meta = out.metadata as Record<string, unknown>;
+    assert.equal(meta.usage_logging_failed, true);
+  });
 });
 
 // ─── E. Errores controlados ───────────────────────────────────────────────────

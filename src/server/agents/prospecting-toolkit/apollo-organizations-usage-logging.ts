@@ -19,7 +19,19 @@ import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
-/** Contexto opcional de trazabilidad. Se pasa desde el orchestrator cuando disponible. */
+/**
+ * Contexto opcional de trazabilidad. Se pasa desde el orchestrator cuando disponible.
+ *
+ * Q3F-5AU.10S — contrato congelado de batchId:
+ *   - batchId DEBE ser prospect_batches.id (UUID real y existente) o null.
+ *   - NUNCA usar batchId como etiqueta humana/de test (ej. crypto.randomUUID()
+ *     inventado) — provider_usage_logs.batch_id tiene FK a prospect_batches(id);
+ *     un UUID bien formado pero inexistente viola la FK y el insert falla.
+ *   - Para llamadas controladas/de diagnóstico sin prospect_batch real, pasar
+ *     batchId: null explícitamente. buildApolloOrgsUsageKey() y
+ *     realLogApolloOrgsUsage() ya soportan este caso (usage_key con sufijo
+ *     "no_batch", batch_id NULL en el insert — ON DELETE SET NULL en la FK).
+ */
 export type ApolloOrgsUsageContext = {
   batchId?: string | null;
   agentRunId?: string | null;
