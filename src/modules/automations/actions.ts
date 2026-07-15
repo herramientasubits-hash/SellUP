@@ -1,16 +1,11 @@
 'use server';
 
 import { createClient as createSupabaseServerClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type { SystemAutomation, AutomationExecutionMode, AutomationsSummary } from './types';
 
 function getAdminSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
+  return createSupabaseAdminClient();
 }
 
 async function getAdminInternalUserId(): Promise<{ id: string | null; error?: string }> {

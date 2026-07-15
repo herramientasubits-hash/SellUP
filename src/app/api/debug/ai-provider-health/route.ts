@@ -5,17 +5,12 @@
  * Available only in development (NODE_ENV !== 'production').
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { hasAiProviderCredential } from '@/server/services/ai-connection';
 
 function getAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(url, key);
+  return createSupabaseAdminClient();
 }
 
 export async function GET(request: NextRequest) {

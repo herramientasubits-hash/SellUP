@@ -14,7 +14,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { hasLushaApiKey } from '@/server/services/lusha-connection';
 import { hasSamuApiKey } from '@/server/services/samu-connection';
@@ -31,16 +31,8 @@ import type {
   AdminActivityEvent,
 } from './types';
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 function getAdminSupabase() {
-  if (!SUPABASE_SERVICE_KEY) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  return createSupabaseAdminClient();
 }
 
 async function assertAdmin(): Promise<boolean> {

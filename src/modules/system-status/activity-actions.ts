@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type {
   ActivityUser,
   ActivityViewerContext,
@@ -10,16 +10,8 @@ import type {
   PlatformActivityResult,
 } from './types';
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 function getAdminClient() {
-  if (!SUPABASE_SERVICE_KEY) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  return createSupabaseAdminClient();
 }
 
 // ─── Auth label maps ─────────────────────────────────────────────
