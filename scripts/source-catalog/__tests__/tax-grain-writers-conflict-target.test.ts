@@ -9,8 +9,11 @@
  * facts together prove the conflict target used at runtime is exactly the
  * one expected for each source.
  *
- * APP-D4 cuts cr_sicop over to RECORD_IDENTITY_ON_CONFLICT; do_dgcp
- * (bulk + snapshot) stays on OLD_TAX_GRAIN_ON_CONFLICT until its own hito.
+ * APP-D4 cut cr_sicop over to RECORD_IDENTITY_ON_CONFLICT. APP-D5 cuts both
+ * do_dgcp entrypoints (bulk + snapshot) over in the same commit, since they
+ * share one source_key and must not diverge mid-migration. rd_dgii_bulk
+ * (a separate module, not a CLI entrypoint here) stays legacy until its
+ * own hito.
  */
 
 import assert from 'node:assert/strict';
@@ -24,11 +27,13 @@ import {
   validateRecordIdentityKey,
 } from '../../../src/server/source-catalog/record-identity';
 
-const LEGACY_SCRIPTS = ['run-dgcp-rd-bulk-etl.ts', 'run-dgcp-rd-snapshot-etl.ts'] as const;
+const CUT_OVER_SCRIPTS = [
+  'run-sicop-cr-snapshot-etl.ts',
+  'run-dgcp-rd-bulk-etl.ts',
+  'run-dgcp-rd-snapshot-etl.ts',
+] as const;
 
-const CUT_OVER_SCRIPTS = ['run-sicop-cr-snapshot-etl.ts'] as const;
-
-const ALL_SCRIPTS = [...LEGACY_SCRIPTS, ...CUT_OVER_SCRIPTS] as const;
+const ALL_SCRIPTS = CUT_OVER_SCRIPTS;
 
 function readScript(name: string): string {
   return fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
@@ -47,32 +52,7 @@ describe('Conflict target constants — valores sin cambios', () => {
   });
 });
 
-describe('DGCP RD bulk / DGCP RD snapshot — onConflict via constante compartida (legacy)', () => {
-  for (const scriptName of LEGACY_SCRIPTS) {
-    it(`${scriptName} importa OLD_TAX_GRAIN_ON_CONFLICT del módulo compartido`, () => {
-      const source = readScript(scriptName);
-      // Nota (APP-B P2B): el import ahora también trae validateRecordIdentityKey
-      // en el mismo statement (ver describe de más abajo), por eso el regex
-      // tolera nombres adicionales dentro de las llaves en vez de exigir un
-      // import de un solo nombre.
-      assert.match(
-        source,
-        /import\s*\{[^}]*\bOLD_TAX_GRAIN_ON_CONFLICT\b[^}]*\}\s*from\s*['"].*record-identity['"]/,
-      );
-    });
-
-    it(`${scriptName} usa OLD_TAX_GRAIN_ON_CONFLICT en el upsert (no un literal duplicado)`, () => {
-      const source = readScript(scriptName);
-      assert.match(source, /onConflict:\s*OLD_TAX_GRAIN_ON_CONFLICT/);
-      assert.doesNotMatch(
-        source,
-        /onConflict:\s*['"]source_key,country_code,source_year,normalized_tax_id['"]/,
-      );
-    });
-  }
-});
-
-describe('SICOP CR — onConflict via constante compartida (APP-D4 cut over)', () => {
+describe('SICOP CR / DGCP RD bulk / DGCP RD snapshot — onConflict via constante compartida (cut over)', () => {
   for (const scriptName of CUT_OVER_SCRIPTS) {
     it(`${scriptName} importa RECORD_IDENTITY_ON_CONFLICT del módulo compartido`, () => {
       const source = readScript(scriptName);
@@ -119,18 +99,6 @@ describe('DGCP RD bulk / DGCP RD snapshot / SICOP CR — record_identity_key bou
         /import\s*\{[^}]*validateRecordIdentityKey[^}]*\}\s*from\s*['"].*record-identity['"]/,
       );
       assert.match(source, /validateRecordIdentityKey\(/);
-    });
-  }
-
-  for (const scriptName of LEGACY_SCRIPTS) {
-    it(`${scriptName} no usa RECORD_IDENTITY_ON_CONFLICT`, () => {
-      const source = readScript(scriptName);
-      assert.doesNotMatch(source, /RECORD_IDENTITY_ON_CONFLICT/);
-    });
-
-    it(`${scriptName} sigue conservando OLD_TAX_GRAIN_ON_CONFLICT (el boundary no cambia el conflict target)`, () => {
-      const source = readScript(scriptName);
-      assert.match(source, /onConflict:\s*OLD_TAX_GRAIN_ON_CONFLICT/);
     });
   }
 

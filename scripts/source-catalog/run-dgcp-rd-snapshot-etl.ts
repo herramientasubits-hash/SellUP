@@ -34,7 +34,7 @@ import {
   DGCP_COUNTRY_CODE,
 } from '../../src/server/source-catalog/connectors/dgcp-rd/dgcp-rd-snapshot-builder';
 import {
-  OLD_TAX_GRAIN_ON_CONFLICT,
+  RECORD_IDENTITY_ON_CONFLICT,
   validateRecordIdentityKey,
 } from '../../src/server/source-catalog/record-identity';
 
@@ -294,7 +294,7 @@ async function main(): Promise<void> {
       const { error: upsertErr } = await sb
         .from('source_company_snapshots')
         .upsert(allowedRows, {
-          onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
+          onConflict: RECORD_IDENTITY_ON_CONFLICT,
         });
 
       if (upsertErr) {
