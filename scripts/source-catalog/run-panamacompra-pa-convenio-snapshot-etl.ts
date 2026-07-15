@@ -55,7 +55,7 @@ import {
 } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanamaProviderEntry } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-snapshot-builder';
 import type { PanaNormalizedProvider } from '../../src/server/source-catalog/connectors/panamacompra-pa/panamacompra-pa-normalizer';
-import { OLD_TAX_GRAIN_ON_CONFLICT, validateRecordIdentityKey } from '../../src/server/source-catalog/record-identity';
+import { RECORD_IDENTITY_ON_CONFLICT, validateRecordIdentityKey } from '../../src/server/source-catalog/record-identity';
 import type { RecordIdentityUnavailableReason } from '../../src/server/source-catalog/record-identity';
 
 // ─── Guardrails piloto ─────────────────────────────────────────────────────────
@@ -340,7 +340,7 @@ async function upsertSnapshots(admin: any, snapshots: ReturnType<typeof buildPan
   const { error, count } = await admin
     .from('source_company_snapshots')
     .upsert(allowedRows, {
-      onConflict: OLD_TAX_GRAIN_ON_CONFLICT,
+      onConflict: RECORD_IDENTITY_ON_CONFLICT,
       ignoreDuplicates: false,
       count: 'exact',
     });

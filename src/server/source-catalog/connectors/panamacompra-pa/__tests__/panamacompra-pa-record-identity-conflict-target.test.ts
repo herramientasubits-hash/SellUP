@@ -1,20 +1,20 @@
 /**
- * Static conflict-target guard — EC4D5.C3 native-record writer (PanamaCompra Convenio).
+ * Static conflict-target guard — EC4D5.APP-D3 native-record cutover (PanamaCompra Convenio).
  *
  * run-panamacompra-pa-convenio-snapshot-etl.ts is a CLI entrypoint (main()
  * calls process.exit and does network/file I/O), so importing it directly in
  * a test triggers a live network call. Instead, this asserts the script
- * imports and uses the shared OLD_TAX_GRAIN_ON_CONFLICT constant instead of a
- * hardcoded duplicate literal, never uses RECORD_IDENTITY_ON_CONFLICT, and
- * that the legacy tax grain string itself is unchanged — together these prove
- * the conflict target used at runtime is exactly what it was before EC4D5.C3.
+ * imports and uses the shared RECORD_IDENTITY_ON_CONFLICT constant instead of
+ * a hardcoded duplicate literal, never uses OLD_TAX_GRAIN_ON_CONFLICT or the
+ * legacy literal as a conflict target — together these prove the conflict
+ * target used at runtime is the record identity grain after APP-D3.
  */
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { OLD_TAX_GRAIN_ON_CONFLICT, validateRecordIdentityKey } from '../../../record-identity';
+import { RECORD_IDENTITY_ON_CONFLICT, validateRecordIdentityKey } from '../../../record-identity';
 import { derivePanamaRecordIdentity } from '../panamacompra-pa-snapshot-builder';
 
 function readScript(): string {
@@ -24,33 +24,41 @@ function readScript(): string {
   );
 }
 
-describe('OLD_TAX_GRAIN_ON_CONFLICT — value unchanged', () => {
-  it('sigue siendo el grain fiscal legado', () => {
-    assert.equal(OLD_TAX_GRAIN_ON_CONFLICT, 'source_key,country_code,source_year,normalized_tax_id');
+describe('RECORD_IDENTITY_ON_CONFLICT — value unchanged', () => {
+  it('sigue siendo el grain de identidad de registro', () => {
+    assert.equal(RECORD_IDENTITY_ON_CONFLICT, 'source_key,country_code,source_year,record_identity_key');
   });
 });
 
 describe('run-panamacompra-pa-convenio-snapshot-etl — onConflict via constante compartida', () => {
-  it('importa OLD_TAX_GRAIN_ON_CONFLICT del módulo compartido', () => {
+  it('importa RECORD_IDENTITY_ON_CONFLICT del módulo compartido', () => {
     const source = readScript();
     assert.match(
       source,
-      /import\s*\{[^}]*\bOLD_TAX_GRAIN_ON_CONFLICT\b[^}]*\}\s*from\s*['"].*record-identity['"]/,
+      /import\s*\{[^}]*\bRECORD_IDENTITY_ON_CONFLICT\b[^}]*\}\s*from\s*['"].*record-identity['"]/,
     );
   });
 
-  it('usa OLD_TAX_GRAIN_ON_CONFLICT en el upsert (no un literal duplicado)', () => {
+  it('usa RECORD_IDENTITY_ON_CONFLICT en el upsert (no un literal duplicado)', () => {
     const source = readScript();
-    assert.match(source, /onConflict:\s*OLD_TAX_GRAIN_ON_CONFLICT/);
+    assert.match(source, /onConflict:\s*RECORD_IDENTITY_ON_CONFLICT/);
+    assert.doesNotMatch(
+      source,
+      /onConflict:\s*['"]source_key,country_code,source_year,record_identity_key['"]/,
+    );
+  });
+
+  it('no usa OLD_TAX_GRAIN_ON_CONFLICT', () => {
+    const source = readScript();
+    assert.doesNotMatch(source, /OLD_TAX_GRAIN_ON_CONFLICT/);
+  });
+
+  it('no usa el literal legacy del grain fiscal como conflict target', () => {
+    const source = readScript();
     assert.doesNotMatch(
       source,
       /onConflict:\s*['"]source_key,country_code,source_year,normalized_tax_id['"]/,
     );
-  });
-
-  it('no usa RECORD_IDENTITY_ON_CONFLICT', () => {
-    const source = readScript();
-    assert.doesNotMatch(source, /RECORD_IDENTITY_ON_CONFLICT/);
   });
 });
 
