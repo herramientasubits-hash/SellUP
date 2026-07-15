@@ -76,6 +76,14 @@ export interface ContactEnrichmentRunRow {
   company_country_code: string | null;
   status: ContactEnrichmentRunStatus;
   summary: Record<string, unknown>;
+  /**
+   * account_id de la cuenta SellUp (17B.4X.7C.3H.3 — necesario para el
+   * check de candidatos pending_review de otros runs de la misma cuenta).
+   * Optional: el claim atómico (ClaimableRunRow, superset) siempre lo trae;
+   * harnesses de test que construyen ContactEnrichmentRunRow a mano pueden
+   * omitirlo sin romper — writeCandidates simplemente no hace el check.
+   */
+  account_id?: string | null;
 }
 
 /**
@@ -105,6 +113,12 @@ export interface ApolloEnrichmentRunResult {
   rejectedByRelevance: number;
   /** Apollo trajo perfiles pero ninguno pasó el filtro de revisión. */
   noReviewableContactsFound: boolean;
+  /**
+   * Candidatos omitidos por coincidir con un pending_review de OTRO run de
+   * la misma cuenta (17B.4X.7C.3H.3). No incluye exact_duplicate contra
+   * contacts oficiales/HubSpot — eso sigue en duplicatesSkipped/exactDuplicates.
+   */
+  existingPendingDuplicatesSkipped: number;
   /** Candidatos a los que se intentó completar datos vía people/match. */
   completionAttempted: number;
   /** Candidatos cuyos datos se completaron con éxito. */
@@ -165,6 +179,7 @@ export interface ApolloEnrichmentRunnerDeps {
   writeCandidates?: (
     runId: string,
     candidates: DeduplicatedContact[],
+    options?: { accountId?: string | null },
   ) => Promise<WriteCandidatesResult>;
   loadApolloUnitCost?: () => Promise<number>;
   /** Completa selectivamente un candidato vía people/match (Hito 17A.3C). */
@@ -322,6 +337,12 @@ interface ApolloEnrichmentSummaryBlock {
   duplicates_skipped_count: number;
   exact_duplicates_count: number;
   possible_duplicates_count: number;
+  /**
+   * Candidatos omitidos por coincidir con un pending_review de OTRO run de
+   * la misma cuenta (17B.4X.7C.3H.3) — email, LinkedIn, source_contact_id o
+   * nombre+cuenta. No se re-inserta la fila existente ni se aprueba nada.
+   */
+  existing_pending_duplicates_skipped_count: number;
   estimated_cost_usd: number;
   /** Metadata por capa de búsqueda (fallback). Sin payload crudo. */
   search_attempts: ApolloSearchAttemptSummary[];
@@ -354,6 +375,7 @@ function emptyRunResult(
     evaluatedCount: 0,
     rejectedByRelevance: 0,
     noReviewableContactsFound: false,
+    existingPendingDuplicatesSkipped: 0,
     completionAttempted: 0,
     completionCompleted: 0,
     actionableContactsCount: 0,
@@ -635,6 +657,7 @@ export async function executeContactEnrichmentApolloRun(
       duplicates_skipped_count: 0,
       exact_duplicates_count: 0,
       possible_duplicates_count: 0,
+      existing_pending_duplicates_skipped_count: 0,
       estimated_cost_usd: 0,
       search_attempts: toAttemptSummaries(apollo.attempts),
       search_guardrail: apollo.searchGuardrail,
@@ -707,6 +730,7 @@ export async function executeContactEnrichmentApolloRun(
       duplicates_skipped_count: 0,
       exact_duplicates_count: 0,
       possible_duplicates_count: 0,
+      existing_pending_duplicates_skipped_count: 0,
       estimated_cost_usd: 0,
       search_attempts: toAttemptSummaries(apollo.attempts),
       reason: apollo.reason,
@@ -998,7 +1022,11 @@ export async function executeContactEnrichmentApolloRun(
   const estimatedCostUsd = Number((totalCredits * unitCost).toFixed(6));
 
   // 10. Escribir candidatos accionables (no_match + possible_duplicate).
-  const writeResult = await writeCandidates(runId, dedup.toInsert);
+  //     accountId habilita el check cross-run contra pending_review de otros
+  //     runs de la misma cuenta (17B.4X.7C.3H.3).
+  const writeResult = await writeCandidates(runId, dedup.toInsert, {
+    accountId: run.account_id ?? null,
+  });
 
   // 10a. Error de escritura → failed controlado (créditos ya gastados se reportan).
   if (writeResult.error) {
@@ -1011,6 +1039,7 @@ export async function executeContactEnrichmentApolloRun(
       duplicates_skipped_count: dedup.exactDuplicateCount,
       exact_duplicates_count: dedup.exactDuplicateCount,
       possible_duplicates_count: dedup.possibleDuplicateCount,
+      existing_pending_duplicates_skipped_count: writeResult.skippedExistingPending ?? 0,
       estimated_cost_usd: estimatedCostUsd,
       search_attempts: toAttemptSummaries(apollo.attempts),
       search_guardrail: apollo.searchGuardrail,
@@ -1076,6 +1105,7 @@ export async function executeContactEnrichmentApolloRun(
       normalizedCount: normalized.length,
       evaluatedCount: relevanceFilter.evaluated_count,
       rejectedByRelevance,
+      existingPendingDuplicatesSkipped: writeResult.skippedExistingPending ?? 0,
       completionAttempted: completionSummary.attempted_count,
       completionCompleted: completionSummary.completed_count,
       actionableContactsCount: actionableContacts.length,
@@ -1165,6 +1195,7 @@ export async function executeContactEnrichmentApolloRun(
     duplicates_skipped_count: dedup.exactDuplicateCount,
     exact_duplicates_count: dedup.exactDuplicateCount,
     possible_duplicates_count: dedup.possibleDuplicateCount,
+    existing_pending_duplicates_skipped_count: writeResult.skippedExistingPending ?? 0,
     estimated_cost_usd: estimatedCostUsd,
     search_attempts: toAttemptSummaries(apollo.attempts),
     search_guardrail: apollo.searchGuardrail,
@@ -1218,6 +1249,7 @@ export async function executeContactEnrichmentApolloRun(
         actionable_after_completion_count: actionableContacts.length,
         exact_duplicates_count: dedup.exactDuplicateCount,
         possible_duplicates_count: dedup.possibleDuplicateCount,
+        existing_pending_duplicates_skipped_count: writeResult.skippedExistingPending ?? 0,
       },
     });
   }
@@ -1234,6 +1266,7 @@ export async function executeContactEnrichmentApolloRun(
     evaluatedCount: relevanceFilter.evaluated_count,
     rejectedByRelevance,
     noReviewableContactsFound,
+    existingPendingDuplicatesSkipped: writeResult.skippedExistingPending ?? 0,
     completionAttempted: completionSummary.attempted_count,
     completionCompleted: completionSummary.completed_count,
     actionableContactsCount: actionableContacts.length,

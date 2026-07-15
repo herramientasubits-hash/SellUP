@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 
 import { writeContactCandidates } from '../contact-candidate-writer';
 import type { DeduplicatedContact } from '../contact-deduplicator';
+import type { PendingCandidateRecord } from '../pending-candidate-cross-run-check';
 
 function makeDeduped(overrides: Partial<DeduplicatedContact> = {}): DeduplicatedContact {
   return {
@@ -88,5 +89,173 @@ describe('writeContactCandidates', () => {
     });
     assert.equal(result.inserted, 0);
     assert.equal(called, false);
+  });
+});
+
+// ── Hito 17B.4X.7C.3H.3 — dedup cross-run contra pending_review ──────────
+
+describe('writeContactCandidates — cross-run pending duplicate check', () => {
+  function makePendingExisting(overrides: Partial<PendingCandidateRecord> = {}): PendingCandidateRecord {
+    return {
+      id: 'existing-pending-1',
+      email: 'ana@corp.com',
+      linkedinUrl: 'https://linkedin.com/in/analopez',
+      sourceContactId: 'apollo-1',
+      source: 'apollo',
+      fullName: 'Ana López',
+      title: 'HR Manager',
+      ...overrides,
+    };
+  }
+
+  it('A. email cross-run duplicado (misma cuenta) → no inserta, cuenta skippedExistingPending, no llama insertRows', async () => {
+    let insertCalled = false;
+    const result = await writeContactCandidates(
+      'run-2',
+      [makeDeduped({ email: 'ana@corp.com', linkedinUrl: null, sourceContactId: null })],
+      {
+        accountId: 'account-1',
+        loadExistingPendingCandidates: async () => [makePendingExisting({ fullName: 'Ana Distinta' })],
+        insertRows: async () => {
+          insertCalled = true;
+          return {};
+        },
+      },
+    );
+    assert.equal(result.inserted, 0);
+    assert.equal(result.skippedExistingPending, 1);
+    assert.equal(insertCalled, false);
+  });
+
+  it('B. linkedin_url cross-run duplicado (misma cuenta) → no inserta', async () => {
+    const result = await writeContactCandidates(
+      'run-2',
+      [makeDeduped({ email: null, linkedinUrl: 'https://linkedin.com/in/analopez/', sourceContactId: null })],
+      {
+        accountId: 'account-1',
+        loadExistingPendingCandidates: async () => [makePendingExisting({ email: null, fullName: 'Otro Nombre' })],
+        insertRows: async () => ({}),
+      },
+    );
+    assert.equal(result.inserted, 0);
+    assert.equal(result.skippedExistingPending, 1);
+  });
+
+  it('C. source_contact_id cross-run duplicado (mismo proveedor) → no inserta', async () => {
+    const result = await writeContactCandidates(
+      'run-2',
+      [makeDeduped({ email: null, linkedinUrl: null, sourceContactId: 'apollo-1', source: 'apollo' })],
+      {
+        accountId: 'account-1',
+        loadExistingPendingCandidates: async () => [
+          makePendingExisting({ email: null, linkedinUrl: null, fullName: 'Otro Nombre' }),
+        ],
+        insertRows: async () => ({}),
+      },
+    );
+    assert.equal(result.inserted, 0);
+    assert.equal(result.skippedExistingPending, 1);
+  });
+
+  it('D. full_name + cuenta (fallback) cross-run duplicado, title compatible → no inserta', async () => {
+    const result = await writeContactCandidates(
+      'run-2',
+      [
+        makeDeduped({
+          email: null,
+          linkedinUrl: null,
+          sourceContactId: null,
+          fullName: 'Ana López',
+          title: 'HR Manager',
+        }),
+      ],
+      {
+        accountId: 'account-1',
+        loadExistingPendingCandidates: async () => [
+          makePendingExisting({ email: null, linkedinUrl: null, sourceContactId: null }),
+        ],
+        insertRows: async () => ({}),
+      },
+    );
+    assert.equal(result.inserted, 0);
+    assert.equal(result.skippedExistingPending, 1);
+  });
+
+  it('E. diferente cuenta (loadExistingPendingCandidates no retorna nada para esa cuenta) → SÍ inserta', async () => {
+    let insertedRows: unknown[] = [];
+    const result = await writeContactCandidates(
+      'run-2',
+      [makeDeduped({ email: 'ana@corp.com' })],
+      {
+        accountId: 'account-DIFERENTE',
+        // El query real está scoped por account_id — para account-DIFERENTE no hay
+        // pending candidates de account-1, así que retorna vacío.
+        loadExistingPendingCandidates: async () => [],
+        insertRows: async (rows) => {
+          insertedRows = rows;
+          return {};
+        },
+      },
+    );
+    assert.equal(result.inserted, 1);
+    assert.equal(result.skippedExistingPending, 0);
+    assert.equal(insertedRows.length, 1);
+  });
+
+  it('accountId ausente (empresa HubSpot-only / manual, V1) → NO consulta pending candidates, inserta normalmente', async () => {
+    let loadCalled = false;
+    const result = await writeContactCandidates('run-2', [makeDeduped({ email: 'ana@corp.com' })], {
+      accountId: null,
+      loadExistingPendingCandidates: async () => {
+        loadCalled = true;
+        return [makePendingExisting()];
+      },
+      insertRows: async () => ({}),
+    });
+    assert.equal(loadCalled, false, 'no debe consultar pending candidates sin accountId (alcance V1)');
+    assert.equal(result.inserted, 1);
+    assert.equal(result.skippedExistingPending, 0);
+  });
+
+  it('G. candidato genuinamente nuevo (misma cuenta, sin match) → sí inserta', async () => {
+    const result = await writeContactCandidates(
+      'run-2',
+      [makeDeduped({ email: 'nueva@corp.com', linkedinUrl: null, sourceContactId: null, fullName: 'Persona Nueva' })],
+      {
+        accountId: 'account-1',
+        loadExistingPendingCandidates: async () => [makePendingExisting()],
+        insertRows: async () => ({}),
+      },
+    );
+    assert.equal(result.inserted, 1);
+    assert.equal(result.skippedExistingPending, 0);
+  });
+
+  it('mezcla: 1 duplicado cross-run + 1 nuevo → solo el nuevo se inserta', async () => {
+    let insertedRows: Array<Record<string, unknown>> = [];
+    const result = await writeContactCandidates(
+      'run-2',
+      [
+        makeDeduped({ email: 'ana@corp.com', linkedinUrl: null, sourceContactId: null, fullName: 'Ana López' }),
+        makeDeduped({
+          email: 'nueva@corp.com',
+          linkedinUrl: null,
+          sourceContactId: null,
+          fullName: 'Persona Nueva',
+        }),
+      ],
+      {
+        accountId: 'account-1',
+        loadExistingPendingCandidates: async () => [makePendingExisting({ fullName: 'Ana Distinta' })],
+        insertRows: async (rows) => {
+          insertedRows = rows as unknown as Array<Record<string, unknown>>;
+          return {};
+        },
+      },
+    );
+    assert.equal(result.inserted, 1);
+    assert.equal(result.skippedExistingPending, 1);
+    assert.equal(insertedRows.length, 1);
+    assert.equal(insertedRows[0]?.email, 'nueva@corp.com');
   });
 });

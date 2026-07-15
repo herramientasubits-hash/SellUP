@@ -4,6 +4,11 @@
 
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { DeduplicatedContact } from './contact-deduplicator';
+import {
+  findMatchingPendingCandidate,
+  readPendingCandidatesForSameAccount,
+  type PendingCandidateRecord,
+} from './pending-candidate-cross-run-check';
 
 function getAdminClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,6 +20,13 @@ function getAdminClient(): SupabaseClient {
 export interface WriteCandidatesResult {
   inserted: number;
   skippedNoName: number;
+  /**
+   * Omitidos por coincidir con un candidato pending_review de otro run de la
+   * misma cuenta (17B.4X.7C.3H.3). Optional para no romper stubs de test
+   * preexistentes que devuelven WriteCandidatesResult sin este campo —
+   * los llamadores deben tratar undefined como 0.
+   */
+  skippedExistingPending?: number;
   error?: string;
 }
 
@@ -62,6 +74,17 @@ function toRow(runId: string, candidate: DeduplicatedContact): CandidateRow {
 
 export interface ContactCandidateWriterDeps {
   insertRows?: (rows: CandidateRow[]) => Promise<{ error?: string }>;
+  /**
+   * account_id de la cuenta SellUp del run actual (17B.4X.7C.3H.3). Cuando
+   * está presente, se consulta contact_enrichment_candidates de OTROS runs
+   * de la misma cuenta para evitar insertar un pending_review duplicado.
+   * null/undefined (empresa HubSpot-only o manual) → el check se omite (V1).
+   */
+  accountId?: string | null;
+  loadExistingPendingCandidates?: (
+    accountId: string,
+    runId: string,
+  ) => Promise<PendingCandidateRecord[]>;
 }
 
 async function defaultInsertRows(rows: CandidateRow[]): Promise<{ error?: string }> {
@@ -80,21 +103,46 @@ export async function writeContactCandidates(
   candidates: DeduplicatedContact[],
   deps: ContactCandidateWriterDeps = {},
 ): Promise<WriteCandidatesResult> {
-  const { insertRows = defaultInsertRows } = deps;
+  const {
+    insertRows = defaultInsertRows,
+    accountId = null,
+    loadExistingPendingCandidates = readPendingCandidatesForSameAccount,
+  } = deps;
 
-  const valid = candidates.filter((c) => c.fullName && c.fullName.trim().length > 0);
-  const skippedNoName = candidates.length - valid.length;
+  const named = candidates.filter((c) => c.fullName && c.fullName.trim().length > 0);
+  const skippedNoName = candidates.length - named.length;
+
+  if (named.length === 0) {
+    return { inserted: 0, skippedNoName, skippedExistingPending: 0 };
+  }
+
+  // 17B.4X.7C.3H.3 — evita insertar un pending_review duplicado de otro run
+  // de la misma cuenta. V1: solo cuando accountId está presente.
+  const existingPending: PendingCandidateRecord[] = accountId
+    ? await loadExistingPendingCandidates(accountId, runId)
+    : [];
+
+  const valid: DeduplicatedContact[] = [];
+  let skippedExistingPending = 0;
+  for (const candidate of named) {
+    const match = findMatchingPendingCandidate(candidate, existingPending);
+    if (match) {
+      skippedExistingPending += 1;
+      continue;
+    }
+    valid.push(candidate);
+  }
 
   if (valid.length === 0) {
-    return { inserted: 0, skippedNoName };
+    return { inserted: 0, skippedNoName, skippedExistingPending };
   }
 
   const rows = valid.map((c) => toRow(runId, c));
   const { error } = await insertRows(rows);
 
   if (error) {
-    return { inserted: 0, skippedNoName, error };
+    return { inserted: 0, skippedNoName, skippedExistingPending, error };
   }
 
-  return { inserted: rows.length, skippedNoName };
+  return { inserted: rows.length, skippedNoName, skippedExistingPending };
 }
