@@ -74,3 +74,36 @@ export interface CreateInitialContactEnrichmentAttemptInput {
   intendedProvider: IntendedProvider;
   triggeredBy: string;
 }
+
+// ── Routing telemetry foundation (17B.4X.7C.4B) ──────────────────────────
+//
+// Labels persisted on contact_enrichment_runs (migration 091) describing HOW
+// a provider was selected for an attempt. No automatic routing exists yet —
+// every attempt created today, through any path (legacy startContactEnrichmentRun,
+// bulk, or the request-linked create_contact_enrichment_attempt RPC), is a
+// human picking a provider through the wizard, with no fallback ever
+// considered. MANUAL_ROUTING_TELEMETRY_COLUMNS is the single source of truth
+// for those column values — keep it in sync with the SQL literals in
+// migration 091's create_contact_enrichment_attempt body.
+
+export type RoutingMode = 'manual' | 'observed' | 'automatic';
+
+export type ProviderAttemptRole = 'primary' | 'fallback' | 'manual';
+
+export type FallbackReason =
+  | 'provider_error'
+  | 'zero_reviewable_candidates'
+  | 'only_duplicates'
+  | 'budget_guardrail'
+  | 'not_applicable';
+
+/** Every attempt created today is manual — no routing policy evaluates it. */
+export const MANUAL_ROUTING_TELEMETRY_COLUMNS: {
+  routing_mode: RoutingMode;
+  provider_attempt_role: ProviderAttemptRole;
+  fallback_reason: FallbackReason;
+} = {
+  routing_mode: 'manual',
+  provider_attempt_role: 'manual',
+  fallback_reason: 'not_applicable',
+};

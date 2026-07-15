@@ -6,6 +6,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { createAgentRun, createAgentRunStep, finishAgentRunStep } from '@/modules/usage-tracking/logging';
 import type { Agent2AInput, ContactEnrichmentRunResult, CompanyCandidate } from '@/modules/contact-enrichment/types';
 import { readExistingContactsForCompany } from './existing-contacts-reader';
+import { MANUAL_ROUTING_TELEMETRY_COLUMNS } from '@/modules/contact-enrichment/request-attempt-types';
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -140,6 +141,7 @@ export async function startContactEnrichmentRun(
       },
       estimated_cost_usd: 0,
       bulk_run_id: bulkRunId ?? null,
+      ...MANUAL_ROUTING_TELEMETRY_COLUMNS,
     })
     .select('id')
     .single();
