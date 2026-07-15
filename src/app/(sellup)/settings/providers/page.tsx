@@ -6,8 +6,6 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { BudgetSummaryCards } from '../budget-credits/budget-summary-cards';
 import { BudgetProvidersTable } from '../budget-credits/budget-providers-table';
-import { ProvidersTabs } from './providers-tabs';
-import { AiSettingsSection } from '../ai/ai-settings-section';
 import {
   getApolloConnection,
   getLushaConnection,
@@ -15,16 +13,9 @@ import {
 import { getAllAIProviders } from '@/modules/ai-config/actions';
 import type { ProspectingConnectionPanelState, AiConnectionPanelState } from './provider-detail-actions';
 
-interface PageProps {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
-export default async function ProvidersConsumptionPage({ searchParams }: PageProps) {
+export default async function ProvidersConsumptionPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
-
-  const resolved = await searchParams;
-  const defaultTab = typeof resolved.tab === 'string' ? resolved.tab : null;
 
   const [summary, rules, apolloConn, lushaConn, aiProviders] = await Promise.all([
     getAdminBudgetSummary(),
@@ -87,33 +78,20 @@ export default async function ProvidersConsumptionPage({ searchParams }: PagePro
         backHref="/settings"
       />
 
-      <ProvidersTabs
-        defaultTab={defaultTab}
-        consumoContent={
-          <div className="space-y-8">
-            <BudgetSummaryCards providers={summary.providers} />
-            <SurfaceCard>
-              <div className="p-1">
-                <BudgetProvidersTable
-                  providers={summary.providers}
-                  resolvedAt={summary.resolvedAt}
-                  allRules={rules}
-                  providerConnectionStates={providerConnectionStates}
-                  aiProviderConnectionStates={aiProviderConnectionStates}
-                />
-              </div>
-            </SurfaceCard>
+      <div className="space-y-8">
+        <BudgetSummaryCards providers={summary.providers} />
+        <SurfaceCard>
+          <div className="p-1">
+            <BudgetProvidersTable
+              providers={summary.providers}
+              resolvedAt={summary.resolvedAt}
+              allRules={rules}
+              providerConnectionStates={providerConnectionStates}
+              aiProviderConnectionStates={aiProviderConnectionStates}
+            />
           </div>
-        }
-        iaContent={
-          <div className="space-y-6">
-            <p className="text-sm text-muted-foreground">
-              Administra proveedores LLM, modelos activos, tarifas por millón de tokens y configuración de conexión.
-            </p>
-            <AiSettingsSection />
-          </div>
-        }
-      />
+        </SurfaceCard>
+      </div>
     </div>
   );
 }
