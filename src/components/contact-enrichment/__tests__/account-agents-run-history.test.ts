@@ -22,6 +22,7 @@ import assert from 'node:assert/strict';
 import {
   ACCOUNT_RUN_STATUS_BADGE,
   buildContactEnrichmentRunDetailHref,
+  classifyAccountRunHistoryItem,
   formatContactEnrichmentRunDateTime,
   resolveAccountRunProviderLabel,
   resolveAccountRunStatusBadge,
@@ -118,5 +119,78 @@ describe('formatContactEnrichmentRunDateTime', () => {
 
   it('formats a real ISO timestamp without throwing', () => {
     assert.doesNotThrow(() => formatContactEnrichmentRunDateTime('2026-07-10T12:00:00.000Z'));
+  });
+});
+
+describe('classifyAccountRunHistoryItem (Hito 17B.4X.7C.3G)', () => {
+  it('classifies a Lusha run as primary', () => {
+    const run = baseRun({ providersUsed: ['lusha'], intendedProvider: 'lusha', candidateCount: 2 });
+    assert.equal(classifyAccountRunHistoryItem(run), 'primary');
+  });
+
+  it('classifies an Apollo run with empty providersUsed but intendedProvider=apollo as primary', () => {
+    const run = baseRun({
+      providersUsed: [],
+      intendedProvider: 'apollo',
+      candidateCount: 0,
+      totalCreditsUsed: 0,
+      estimatedCostUsd: 0,
+    });
+    assert.equal(classifyAccountRunHistoryItem(run), 'primary');
+  });
+
+  it('classifies a fully empty legacy run (no provider, no candidates, no cost, no credits) as legacy', () => {
+    const run = baseRun({
+      providersUsed: [],
+      intendedProvider: null,
+      candidateCount: 0,
+      totalCreditsUsed: 0,
+      estimatedCostUsd: 0,
+    });
+    assert.equal(classifyAccountRunHistoryItem(run), 'legacy');
+  });
+
+  it('classifies a legacy-looking run with totalCreditsUsed=null as legacy (null treated as zero)', () => {
+    const run = baseRun({
+      providersUsed: [],
+      intendedProvider: null,
+      candidateCount: 0,
+      totalCreditsUsed: null,
+      estimatedCostUsd: 0,
+    });
+    assert.equal(classifyAccountRunHistoryItem(run), 'legacy');
+  });
+
+  it('classifies a no-provider run with candidates as primary (activity signal overrides)', () => {
+    const run = baseRun({
+      providersUsed: [],
+      intendedProvider: null,
+      candidateCount: 1,
+      totalCreditsUsed: 0,
+      estimatedCostUsd: 0,
+    });
+    assert.equal(classifyAccountRunHistoryItem(run), 'primary');
+  });
+
+  it('classifies a no-provider run with totalCreditsUsed > 0 as primary (activity signal overrides)', () => {
+    const run = baseRun({
+      providersUsed: [],
+      intendedProvider: null,
+      candidateCount: 0,
+      totalCreditsUsed: 3,
+      estimatedCostUsd: 0,
+    });
+    assert.equal(classifyAccountRunHistoryItem(run), 'primary');
+  });
+
+  it('classifies a no-provider run with estimatedCostUsd > 0 as primary (a doubtful run defaults to primary)', () => {
+    const run = baseRun({
+      providersUsed: [],
+      intendedProvider: null,
+      candidateCount: 0,
+      totalCreditsUsed: 0,
+      estimatedCostUsd: 0.008,
+    });
+    assert.equal(classifyAccountRunHistoryItem(run), 'primary');
   });
 });

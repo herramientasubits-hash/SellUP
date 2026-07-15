@@ -66,6 +66,27 @@ export function resolveAccountRunStatusBadge(status: string): { label: string; c
   return ACCOUNT_RUN_STATUS_BADGE[status] ?? ACCOUNT_RUN_STATUS_BADGE.pending;
 }
 
+export type AccountRunHistoryClassification = 'primary' | 'legacy';
+
+/** Pure — classifies a run as "primary" (modern/relevant, always shown in
+ *  the main list) or "legacy" (noisy/historical, grouped and collapsed by
+ *  default). A run is only "legacy" when every relevant signal is absent
+ *  (no provider, no candidates, no cost, no credits) — any doubt resolves
+ *  to "primary" so nothing gets hidden by mistake (Hito 17B.4X.7C.3G). */
+export function classifyAccountRunHistoryItem(
+  run: AccountContactEnrichmentRun,
+): AccountRunHistoryClassification {
+  const isLegacy =
+    resolveAccountRunProviderLabel(run) === 'Sin proveedor' &&
+    run.intendedProvider == null &&
+    run.providersUsed.length === 0 &&
+    run.candidateCount === 0 &&
+    (run.totalCreditsUsed ?? 0) === 0 &&
+    run.estimatedCostUsd === 0;
+
+  return isLegacy ? 'legacy' : 'primary';
+}
+
 /** Pure — kept as the single source of truth for the read-only run viewer
  *  route path. Not rendered as a navigation control from this tab anymore
  *  (see Hito 17B.4X.7C.3E.4) — the route stays available for direct
@@ -231,7 +252,53 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
   );
 }
 
+/** Collapsed by default (Hito 17B.4X.7C.3G) — groups legacy/noisy runs out
+ *  of the primary list without deleting or permanently hiding them; "Ver
+ *  detalle" inside stays fully functional once expanded. */
+function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
+  const [expanded, setExpanded] = React.useState(false);
+
+  return (
+    <div className="rounded-lg border border-dashed border-border/60 bg-muted/10">
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-xs font-semibold text-foreground">Runs antiguos o reemplazados</p>
+          <p className="text-[11px] text-muted-foreground">
+            Ejecuciones históricas de versiones anteriores del flujo. Se conservan para trazabilidad.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant="outline" className="text-[10px] border-border bg-muted/30 text-muted-foreground">
+            {runs.length} {runs.length === 1 ? 'run' : 'runs'}
+          </Badge>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setExpanded((current) => !current)}
+            aria-expanded={expanded}
+            className="h-7 shrink-0 gap-1 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
+            {expanded ? 'Ocultar' : 'Ver'}
+          </Button>
+        </div>
+      </div>
+      {expanded && (
+        <div className="space-y-2 border-t border-border/50 px-4 pb-4 pt-3">
+          {runs.map((run) => (
+            <RunCard key={run.id} run={run} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichmentRun[] }) {
+  const primaryRuns = runs.filter((run) => classifyAccountRunHistoryItem(run) === 'primary');
+  const legacyRuns = runs.filter((run) => classifyAccountRunHistoryItem(run) === 'legacy');
+
   return (
     <SurfaceCard className="space-y-4">
       <SurfaceCardHeader
@@ -246,10 +313,24 @@ export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichme
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {runs.map((run) => (
-            <RunCard key={run.id} run={run} />
-          ))}
+        <div className="space-y-4">
+          {legacyRuns.length > 0 && (
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+              Runs recientes
+            </p>
+          )}
+          {primaryRuns.length > 0 ? (
+            <div className="space-y-2">
+              {primaryRuns.map((run) => (
+                <RunCard key={run.id} run={run} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No hay runs recientes — todos los runs de esta cuenta son históricos (ver abajo).
+            </p>
+          )}
+          {legacyRuns.length > 0 && <LegacyRunGroup runs={legacyRuns} />}
         </div>
       )}
     </SurfaceCard>
