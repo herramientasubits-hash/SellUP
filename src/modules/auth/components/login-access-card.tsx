@@ -49,7 +49,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
         </h1>
       </div>
 
-      <Card className="border-border/40 shadow-xl shadow-black/[0.06]">
+      <Card className="border-border/60 shadow-lg shadow-black/[0.06]">
         <CardContent className="space-y-7 px-7 py-7">
           {/* Encabezado */}
           <div className="space-y-2">
@@ -84,7 +84,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
           <Separator className="bg-border/40" />
 
           {/* Nota de seguridad */}
-          <p className="text-center text-[11px] leading-relaxed text-muted-foreground/60">
+          <p className="text-center text-xs leading-relaxed text-muted-foreground">
             El acceso está destinado exclusivamente al equipo autorizado de
             operación comercial.
           </p>
