@@ -382,11 +382,10 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                       </div>
                     </td>
 
-                    {/* Tipo */}
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${OPERATIONAL_TYPE_BADGE[opType]}`}>
-                        {OPERATIONAL_TYPE_LABEL[opType]}
-                      </span>
+                    {/* Tipo — texto plano (categoría); el badge de color queda
+                        para Estado y Alerta (Design Refresh v10) */}
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                      {OPERATIONAL_TYPE_LABEL[opType]}
                     </td>
 
                     {/* Estado */}
