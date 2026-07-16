@@ -41,10 +41,22 @@ import {
   normalizeHondurasRtn,
   maskRtn,
 } from '../source-catalog/connectors/hn-contrataciones-abiertas/hn-rtn-normalizer';
+import {
+  readLatestTaxGrainSnapshotByTaxId,
+  readTaxGrainSnapshotByTaxId,
+  type SnapshotIdentityRow,
+  type SnapshotReadClient,
+} from '../source-catalog/snapshot-read/snapshot-read-contract';
 
-const SNAPSHOT_TABLE = 'source_company_snapshots';
 const SOURCE_KEY = 'hn_contrataciones_abiertas';
 const COUNTRY_CODE = 'HN';
+
+/**
+ * Columns this reader projects. Includes source_year (required by the
+ * latest-year cardinality-aware lookup) and raw_data (guardrail source).
+ */
+const SNAPSHOT_SELECT_COLUMNS =
+  'source_year, legal_name, normalized_tax_id, priority_score, signals, raw_data';
 
 // ── Safe semantic literals ───────────────────────────────────────────────────
 // These NEVER come from the DB row; they are emitted only after guardrails pass.
@@ -73,6 +85,7 @@ export type HnContratacionesLookupReason =
   | 'environment_unavailable'
   | 'query_error'
   | 'not_found'
+  | 'cardinality_violation'
   | 'snapshot_guardrail_violation';
 
 /**
@@ -246,41 +259,56 @@ export async function lookupHnContratacionesByRtn(
     };
   }
 
+  // Not-found envelope shared across the several outcomes below so the external
+  // result shape stays identical to the pre-migration reader.
+  function notFound(reason: HnContratacionesLookupReason): HnContratacionesLookupNotFound {
+    return {
+      found: false,
+      normalized_rtn: normalizedRtn,
+      masked_rtn: maskedRtn,
+      reason,
+    };
+  }
+
   try {
-    let query = sb
-      .from(SNAPSHOT_TABLE)
-      .select('source_year, legal_name, normalized_tax_id, priority_score, signals, raw_data')
-      .eq('source_key', SOURCE_KEY)
-      .eq('country_code', COUNTRY_CODE)
-      .eq('normalized_tax_id', normalizedRtn);
+    const client = sb as unknown as SnapshotReadClient<SnapshotIdentityRow>;
 
-    if (input.year != null) {
-      query = query.eq('source_year', input.year);
-    } else {
-      query = query.order('source_year', { ascending: false });
+    // Migrated to the cardinality-aware contract (EC4D5.APP-C4A): exact year
+    // uses the source_year-pinned lookup, latest year uses the desc-ordered
+    // lookup. Neither does `.limit(1).maybeSingle()`; 2 rows for one RTN within
+    // a source_year surface as a cardinality violation, never a silent pick.
+    const result =
+      input.year != null
+        ? await readTaxGrainSnapshotByTaxId({
+            client,
+            sourceKey: SOURCE_KEY,
+            countryCode: COUNTRY_CODE,
+            sourceYear: input.year,
+            normalizedTaxId: normalizedRtn,
+            selectColumns: SNAPSHOT_SELECT_COLUMNS,
+          })
+        : await readLatestTaxGrainSnapshotByTaxId({
+            client,
+            sourceKey: SOURCE_KEY,
+            countryCode: COUNTRY_CODE,
+            normalizedTaxId: normalizedRtn,
+            selectColumns: SNAPSHOT_SELECT_COLUMNS,
+          });
+
+    if (result.status === 'RECORD_IDENTITY_NOT_FOUND') {
+      return notFound('not_found');
+    }
+    if (result.status === 'IDENTITY_UNAVAILABLE') {
+      return notFound('invalid_rtn');
+    }
+    if (
+      result.status === 'SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION' ||
+      result.status === 'MULTI_RECORD_SAME_FISCAL_IDENTITY'
+    ) {
+      return notFound('cardinality_violation');
     }
 
-    const { data, error } = await query.limit(1).maybeSingle();
-
-    if (error) {
-      return {
-        found: false,
-        normalized_rtn: normalizedRtn,
-        masked_rtn: maskedRtn,
-        reason: 'query_error',
-      };
-    }
-
-    if (!data) {
-      return {
-        found: false,
-        normalized_rtn: normalizedRtn,
-        masked_rtn: maskedRtn,
-        reason: 'not_found',
-      };
-    }
-
-    const row = data as Record<string, unknown>;
+    const row = result.row as Record<string, unknown>;
     const rawData = (row['raw_data'] as Record<string, unknown>) ?? {};
 
     const guardrail = verifyGuardrails(rawData);
@@ -337,15 +365,11 @@ export async function lookupHnContratacionesByRtn(
 
       reason: null,
     };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Log masked RTN only — never the full identifier
-    void msg; // consumed for type safety; caller receives generic error
-    return {
-      found: false,
-      normalized_rtn: normalizedRtn,
-      masked_rtn: maskedRtn,
-      reason: 'query_error',
-    };
+  } catch {
+    // A DB/transport failure surfaces as SnapshotReadQueryError from the
+    // contract (or any other thrown error): map to the generic query_error
+    // reason. The masked RTN — never the full identifier — is all the caller
+    // receives; internal error text is deliberately not propagated.
+    return notFound('query_error');
   }
 }

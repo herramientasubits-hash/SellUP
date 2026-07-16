@@ -25,10 +25,23 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  SnapshotReadQueryError,
+  readLatestTaxGrainSnapshotByTaxId,
+  readTaxGrainSnapshotByTaxId,
+  type SnapshotIdentityRow,
+  type SnapshotReadClient,
+} from '../source-catalog/snapshot-read/snapshot-read-contract';
 
-const SNAPSHOT_TABLE = 'source_company_snapshots';
 const SOURCE_KEY = 'cr_sicop';
 const COUNTRY_CODE = 'CR';
+
+/**
+ * Columns this reader projects. Includes source_year, required by the
+ * latest-year cardinality-aware lookup.
+ */
+const SNAPSHOT_SELECT_COLUMNS =
+  'source_year, legal_name, normalized_tax_id, priority_score, signals, raw_data';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -146,77 +159,9 @@ export async function lookupCostaRicaSicopByCedula(
     };
   }
 
-  try {
-    let query = sb
-      .from(SNAPSHOT_TABLE)
-      .select('source_year, legal_name, normalized_tax_id, priority_score, signals, raw_data')
-      .eq('source_key', SOURCE_KEY)
-      .eq('country_code', COUNTRY_CODE)
-      .eq('normalized_tax_id', normalizedCedula);
-
-    if (input.year != null) {
-      query = query.eq('source_year', input.year);
-    } else {
-      query = query.order('source_year', { ascending: false });
-    }
-
-    const { data, error } = await query.limit(1).maybeSingle();
-
-    if (error) {
-      return {
-        matched: false,
-        source_year: null,
-        legal_name: null,
-        normalized_tax_id: normalizedCedula,
-        priority_score: null,
-        total_records_year: null,
-        datasets_seen: null,
-        last_event_date: null,
-        raw_data: null,
-        reason: 'snapshot_query_error',
-      };
-    }
-
-    if (!data) {
-      return {
-        matched: false,
-        source_year: null,
-        legal_name: null,
-        normalized_tax_id: normalizedCedula,
-        priority_score: null,
-        total_records_year: null,
-        datasets_seen: null,
-        last_event_date: null,
-        raw_data: null,
-        reason: 'no_snapshot_match_by_cedula',
-      };
-    }
-
-    const row = data as Record<string, unknown>;
-    const rawData = (row.raw_data as Record<string, unknown>) ?? {};
-    const signals = (row.signals as Record<string, unknown>) ?? {};
-
-    const totalRecordsYear =
-      toNum(signals.total_records_year) ?? toNum(rawData.total_records_year);
-    const datasetsSeen =
-      toStrArray(signals.datasets_seen) ?? toStrArray(rawData.datasets_seen);
-    const lastEventDate =
-      toStr(signals.last_event_date) ?? toStr(rawData.last_event_date);
-
-    return {
-      matched: true,
-      source_year: toNum(row.source_year),
-      legal_name: toStr(row.legal_name),
-      normalized_tax_id: toStr(row.normalized_tax_id) ?? normalizedCedula,
-      priority_score: toNum(row.priority_score),
-      total_records_year: totalRecordsYear,
-      datasets_seen: datasetsSeen,
-      last_event_date: lastEventDate,
-      raw_data: rawData,
-      reason: null,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  // No-match envelope shared across the several outcomes below so the external
+  // result shape stays identical to the pre-migration reader.
+  function noMatch(reason: string): CrSicopLookupResult {
     return {
       matched: false,
       source_year: null,
@@ -227,7 +172,77 @@ export async function lookupCostaRicaSicopByCedula(
       datasets_seen: null,
       last_event_date: null,
       raw_data: null,
-      reason: `lookup_error: ${msg.slice(0, 200)}`,
+      reason,
     };
+  }
+
+  try {
+    const client = sb as unknown as SnapshotReadClient<SnapshotIdentityRow>;
+
+    // Migrated to the cardinality-aware contract (EC4D5.APP-C4A): exact year
+    // uses the source_year-pinned lookup, latest year uses the desc-ordered
+    // lookup. Neither does `.limit(1).maybeSingle()`; 2 rows for one cédula
+    // within a source_year surface as a cardinality violation, never a silent
+    // pick.
+    const result =
+      input.year != null
+        ? await readTaxGrainSnapshotByTaxId({
+            client,
+            sourceKey: SOURCE_KEY,
+            countryCode: COUNTRY_CODE,
+            sourceYear: input.year,
+            normalizedTaxId: normalizedCedula,
+            selectColumns: SNAPSHOT_SELECT_COLUMNS,
+          })
+        : await readLatestTaxGrainSnapshotByTaxId({
+            client,
+            sourceKey: SOURCE_KEY,
+            countryCode: COUNTRY_CODE,
+            normalizedTaxId: normalizedCedula,
+            selectColumns: SNAPSHOT_SELECT_COLUMNS,
+          });
+
+    switch (result.status) {
+      case 'RECORD_IDENTITY_NOT_FOUND':
+        return noMatch('no_snapshot_match_by_cedula');
+      case 'IDENTITY_UNAVAILABLE':
+        return noMatch('invalid_cedula_format');
+      case 'SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION':
+      case 'MULTI_RECORD_SAME_FISCAL_IDENTITY':
+        return noMatch('snapshot_cardinality_violation');
+      case 'FOUND': {
+        const row = result.row as Record<string, unknown>;
+        const rawData = (row.raw_data as Record<string, unknown>) ?? {};
+        const signals = (row.signals as Record<string, unknown>) ?? {};
+
+        const totalRecordsYear =
+          toNum(signals.total_records_year) ?? toNum(rawData.total_records_year);
+        const datasetsSeen =
+          toStrArray(signals.datasets_seen) ?? toStrArray(rawData.datasets_seen);
+        const lastEventDate =
+          toStr(signals.last_event_date) ?? toStr(rawData.last_event_date);
+
+        return {
+          matched: true,
+          source_year: toNum(row.source_year),
+          legal_name: toStr(row.legal_name),
+          normalized_tax_id: toStr(row.normalized_tax_id) ?? normalizedCedula,
+          priority_score: toNum(row.priority_score),
+          total_records_year: totalRecordsYear,
+          datasets_seen: datasetsSeen,
+          last_event_date: lastEventDate,
+          raw_data: rawData,
+          reason: null,
+        };
+      }
+    }
+  } catch (err) {
+    // A DB/transport failure surfaces as SnapshotReadQueryError from the
+    // contract; preserve the pre-migration `snapshot_query_error` reason for it.
+    if (err instanceof SnapshotReadQueryError) {
+      return noMatch('snapshot_query_error');
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return noMatch(`lookup_error: ${msg.slice(0, 200)}`);
   }
 }
