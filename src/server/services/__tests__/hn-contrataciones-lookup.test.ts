@@ -1,61 +1,36 @@
 /**
- * Tests — hn-contrataciones-lookup.ts — Centroamérica.8C.5B
+ * Tests — hn-contrataciones-lookup.ts — Centroamérica.8C.5B + EC4D5.APP-C4A
  *
  * Verifica:
  * - Normalización de RTN (bare, prefijos, espacios, guiones, null, longitudes, letras, X-ONCAE)
- * - Query scope: source_key fijo, country_code fijo
- * - Año explícito usa eq source_year; sin año usa order DESC + limit 1 + maybeSingle
+ * - Query scope: source_key fijo, country_code fijo (fila correcta seleccionada)
  * - Found: fixture completo → found=true + campos correctos
  * - Found: contrato explícito 8C.5B.1 (guardrails + provenance + sin raw_data)
- * - Not found: data=null, error=null → found=false, reason='not_found'
+ * - Not found: 0 filas → found=false, reason='not_found'
  * - Query error → found=false, reason='query_error', sin error raw al caller
  * - Guardrail violation: uno por cada uno de los 8 invariantes (incl. source)
- * - Signals malformed → found=true, procurement_signals=null (si raw_data OK)
- * - Count negativo → count=null (hardening local 8C.5B.1)
+ * - Signals malformed → found=true, procurement_signals endurecidos
  * - Environment: falta service role → found=false, reason='environment_unavailable'
+ * - Migración APP-C4A al contrato cardinality-aware:
+ *   · 2 filas mismo tax/source/year → cardinality_violation (no pick arbitrario)
+ *   · latest-year con 2 años distintos → escoge el más reciente
+ *   · latest-year con 2 filas mismo año → cardinality_violation
+ *   · el reader ya NO usa .limit(1).maybeSingle
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { lookupHnContratacionesByRtn } from '../hn-contrataciones-lookup';
 import {
-  lookupHnContratacionesByRtn,
-} from '../hn-contrataciones-lookup';
+  createFakeSnapshotSupabaseClient,
+  type FakeSnapshotRow,
+} from '../../source-catalog/snapshot-read/__tests__/snapshot-read-fake-supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-interface MockOptions {
-  row?: Record<string, unknown> | null;
-  error?: { message: string } | null;
-  captureEqs?: string[];
-  captureYearMode?: { yearEqCalled: boolean; orderCalled: boolean };
-}
-
-function makeMock(opts: MockOptions = {}) {
-  const row = opts.row !== undefined ? opts.row : null;
-  const error = opts.error ?? null;
-
-  const chain: Record<string, unknown> = {};
-  chain['from'] = () => chain;
-  chain['select'] = () => chain;
-  chain['eq'] = (field: string, val: unknown) => {
-    if (opts.captureEqs) {
-      opts.captureEqs.push(String(val));
-    }
-    if (opts.captureYearMode && field === 'source_year') {
-      opts.captureYearMode.yearEqCalled = true;
-    }
-    return chain;
-  };
-  chain['order'] = () => {
-    if (opts.captureYearMode) {
-      opts.captureYearMode.orderCalled = true;
-    }
-    return chain;
-  };
-  chain['limit'] = () => chain;
-  chain['maybeSingle'] = async () => ({ data: row, error });
-  return chain as unknown as import('@supabase/supabase-js').SupabaseClient;
-}
+const SOURCE_KEY = 'hn_contrataciones_abiertas';
+const COUNTRY_CODE = 'HN';
+const SAMPLE_RTN = '05010109034' + '123'; // 14 digits
 
 const VALID_RAW_DATA = {
   source_type: 'procurement_signal',
@@ -76,61 +51,63 @@ const VALID_SIGNALS = {
   latest_date: '2024-09-15',
 };
 
-const SAMPLE_RTN = '05010109034' + '123'; // 14 digits
-const SAMPLE_ROW: Record<string, unknown> = {
-  source_year: 2024,
-  legal_name: 'EMPRESA HONDUREÑA SA DE CV',
-  normalized_tax_id: SAMPLE_RTN,
-  priority_score: 60,
-  signals: VALID_SIGNALS,
-  raw_data: VALID_RAW_DATA,
-};
+function row(overrides: Partial<FakeSnapshotRow> = {}): FakeSnapshotRow {
+  return {
+    source_key: SOURCE_KEY,
+    country_code: COUNTRY_CODE,
+    source_year: 2024,
+    normalized_tax_id: SAMPLE_RTN,
+    legal_name: 'EMPRESA HONDUREÑA SA DE CV',
+    priority_score: 60,
+    signals: VALID_SIGNALS,
+    raw_data: VALID_RAW_DATA,
+    record_identity_key: null,
+    ...overrides,
+  };
+}
+
+function rowWithRawData(rawDataOverride: Record<string, unknown>): FakeSnapshotRow {
+  return row({ raw_data: { ...VALID_RAW_DATA, ...rawDataOverride } });
+}
+
+function fakeClient(rows: readonly FakeSnapshotRow[]): SupabaseClient {
+  return createFakeSnapshotSupabaseClient(rows) as unknown as SupabaseClient;
+}
 
 // ── Normalización RTN ─────────────────────────────────────────────────────────
 
 describe('normalización RTN — bare válido', () => {
   it('acepta 14 dígitos sin prefijo', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row()]));
     assert.equal(r.found, true);
   });
 });
 
 describe('normalización RTN — prefijo HN-RTN-', () => {
   it('strip del prefijo HN-RTN- y busca los 14 dígitos', async () => {
-    const captured: string[] = [];
-    const sb = makeMock({ row: SAMPLE_ROW, captureEqs: captured });
-    await lookupHnContratacionesByRtn({ rtn: `HN-RTN-${SAMPLE_RTN}` }, sb);
-    assert.ok(
-      captured.includes(SAMPLE_RTN),
-      `normalized_tax_id ${SAMPLE_RTN} debe haberse buscado, captured=${JSON.stringify(captured)}`,
-    );
+    const r = await lookupHnContratacionesByRtn({ rtn: `HN-RTN-${SAMPLE_RTN}` }, fakeClient([row()]));
+    assert.equal(r.found, true);
   });
 });
 
 describe('normalización RTN — prefijo HN-RTN:', () => {
   it('strip del prefijo HN-RTN: y busca los 14 dígitos', async () => {
-    const captured: string[] = [];
-    const sb = makeMock({ row: SAMPLE_ROW, captureEqs: captured });
-    await lookupHnContratacionesByRtn({ rtn: `HN-RTN:${SAMPLE_RTN}` }, sb);
-    assert.ok(captured.includes(SAMPLE_RTN));
+    const r = await lookupHnContratacionesByRtn({ rtn: `HN-RTN:${SAMPLE_RTN}` }, fakeClient([row()]));
+    assert.equal(r.found, true);
   });
 });
 
 describe('normalización RTN — espacios y guiones', () => {
   it('strip de espacios y guiones intermedios', async () => {
     const rtnWithSpaces = SAMPLE_RTN.slice(0, 4) + ' ' + SAMPLE_RTN.slice(4, 8) + '-' + SAMPLE_RTN.slice(8);
-    const captured: string[] = [];
-    const sb = makeMock({ row: SAMPLE_ROW, captureEqs: captured });
-    await lookupHnContratacionesByRtn({ rtn: rtnWithSpaces }, sb);
-    assert.ok(captured.includes(SAMPLE_RTN));
+    const r = await lookupHnContratacionesByRtn({ rtn: rtnWithSpaces }, fakeClient([row()]));
+    assert.equal(r.found, true);
   });
 });
 
 describe('normalización RTN — null', () => {
   it('retorna found=false reason=invalid_rtn para null', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: null }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: null }, fakeClient([row()]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'invalid_rtn');
   });
@@ -138,8 +115,7 @@ describe('normalización RTN — null', () => {
 
 describe('normalización RTN — empty string', () => {
   it('retorna found=false reason=invalid_rtn para empty string', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: '' }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: '' }, fakeClient([row()]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'invalid_rtn');
   });
@@ -147,8 +123,7 @@ describe('normalización RTN — empty string', () => {
 
 describe('normalización RTN — 13 dígitos (longitud incorrecta)', () => {
   it('retorna found=false reason=invalid_rtn para RTN de 13 dígitos', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: '0501010903412' }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: '0501010903412' }, fakeClient([row()]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'invalid_rtn');
   });
@@ -156,8 +131,7 @@ describe('normalización RTN — 13 dígitos (longitud incorrecta)', () => {
 
 describe('normalización RTN — 15 dígitos (longitud incorrecta)', () => {
   it('retorna found=false reason=invalid_rtn para RTN de 15 dígitos', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: '050101090341234' }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: '050101090341234' }, fakeClient([row()]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'invalid_rtn');
   });
@@ -165,8 +139,7 @@ describe('normalización RTN — 15 dígitos (longitud incorrecta)', () => {
 
 describe('normalización RTN — letras no numéricas', () => {
   it('retorna found=false reason=invalid_rtn cuando hay letras', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: '0501010903412AB' }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: '0501010903412AB' }, fakeClient([row()]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'invalid_rtn');
   });
@@ -174,8 +147,7 @@ describe('normalización RTN — letras no numéricas', () => {
 
 describe('normalización RTN — X-ONCAE legacy', () => {
   it('retorna found=false reason=invalid_rtn para X-ONCAE-SUPPLIERS-HC1', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: 'X-ONCAE-SUPPLIERS-HC1' }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: 'X-ONCAE-SUPPLIERS-HC1' }, fakeClient([row()]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'invalid_rtn');
   });
@@ -184,37 +156,19 @@ describe('normalización RTN — X-ONCAE legacy', () => {
 // ── Query scope ───────────────────────────────────────────────────────────────
 
 describe('query scope — source_key y country_code fijos', () => {
-  it('busca source_key=hn_contrataciones_abiertas y country_code=HN', async () => {
-    const captured: string[] = [];
-    const sb = makeMock({ row: SAMPLE_ROW, captureEqs: captured });
-    await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
-    assert.ok(
-      captured.includes('hn_contrataciones_abiertas'),
-      'debe usar source_key=hn_contrataciones_abiertas',
-    );
-    assert.ok(captured.includes('HN'), 'debe usar country_code=HN');
-  });
-});
-
-// ── Año explícito vs implícito ─────────────────────────────────────────────────
-
-describe('año explícito — usa eq source_year', () => {
-  it('cuando se pasa year usa eq en lugar de order', async () => {
-    const yearMode = { yearEqCalled: false, orderCalled: false };
-    const sb = makeMock({ row: SAMPLE_ROW, captureYearMode: yearMode });
-    await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN, year: 2024 }, sb);
-    assert.equal(yearMode.yearEqCalled, true, 'debe usar eq source_year');
-    assert.equal(yearMode.orderCalled, false, 'no debe usar order cuando hay year');
-  });
-});
-
-describe('sin año — usa order DESC + limit 1 + maybeSingle', () => {
-  it('cuando no se pasa year usa order y no eq en source_year', async () => {
-    const yearMode = { yearEqCalled: false, orderCalled: false };
-    const sb = makeMock({ row: SAMPLE_ROW, captureYearMode: yearMode });
-    await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
-    assert.equal(yearMode.orderCalled, true, 'debe usar order');
-    assert.equal(yearMode.yearEqCalled, false, 'no debe usar eq source_year cuando no hay year');
+  it('selecciona solo la fila HN/hn_contrataciones_abiertas del RTN', async () => {
+    const client = fakeClient([
+      row(),
+      // Decoys under other source_key / country / tax must not be selected.
+      row({ source_key: 'cr_sicop', country_code: 'CR', legal_name: 'DECOY CR' }),
+      row({ normalized_tax_id: '99999999999999', legal_name: 'DECOY RTN' }),
+    ]);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, client);
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.equal(r.legal_name, 'EMPRESA HONDUREÑA SA DE CV');
+    assert.equal(r.source_key, SOURCE_KEY);
+    assert.equal(r.country_code, COUNTRY_CODE);
   });
 });
 
@@ -222,10 +176,9 @@ describe('sin año — usa order DESC + limit 1 + maybeSingle', () => {
 
 describe('found — fixture completo', () => {
   it('retorna found=true con todos los campos correctos', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row()]));
     assert.equal(r.found, true);
-    if (!r.found) return; // type narrowing
+    if (!r.found) return;
     assert.equal(r.source_year, 2024);
     assert.equal(r.legal_name, 'EMPRESA HONDUREÑA SA DE CV');
     assert.equal(r.normalized_rtn, SAMPLE_RTN);
@@ -236,8 +189,7 @@ describe('found — fixture completo', () => {
   });
 
   it('expone los guardrails semánticos explícitamente (8C.5B.1)', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row()]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.equal(r.source_key, 'hn_contrataciones_abiertas');
@@ -251,8 +203,7 @@ describe('found — fixture completo', () => {
   });
 
   it('expone provenance explícita construida desde literales validados', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row()]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.equal(r.provenance.snapshot_source, 'ocp_registry_jsonl');
@@ -261,16 +212,14 @@ describe('found — fixture completo', () => {
   });
 
   it('NO expone raw_data en el resultado público found=true', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row()]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.equal('raw_data' in r, false, 'raw_data no debe ser parte del contrato público');
   });
 
   it('retorna procurement_signals correctos', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row()]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.ok(r.procurement_signals, 'debe retornar procurement_signals');
@@ -282,8 +231,7 @@ describe('found — fixture completo', () => {
   });
 
   it('masked_rtn NO contiene el RTN completo', async () => {
-    const sb = makeMock({ row: SAMPLE_ROW });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row()]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.notEqual(r.masked_rtn, SAMPLE_RTN);
@@ -292,10 +240,9 @@ describe('found — fixture completo', () => {
 
 // ── Not found ─────────────────────────────────────────────────────────────────
 
-describe('not found — data=null, error=null', () => {
+describe('not found — 0 filas', () => {
   it('retorna found=false reason=not_found cuando no hay fila', async () => {
-    const sb = makeMock({ row: null });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'not_found');
     if (r.found) return;
@@ -307,11 +254,24 @@ describe('not found — data=null, error=null', () => {
 
 describe('query error', () => {
   it('retorna found=false reason=query_error sin propagar error raw', async () => {
-    const sb = makeMock({ row: null, error: { message: 'DB error internal' } });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+    const erroringClient = {
+      from: () => ({
+        select: () => {
+          const q: Record<string, unknown> = {};
+          q.eq = () => q;
+          q.order = () => q;
+          q.limit = () => q;
+          q.maybeSingle = async () => ({ data: null, error: { code: 'XX000', message: 'DB error internal' } });
+          q.then = (onf: (v: { data: null; error: { code: string; message: string } }) => unknown) =>
+            Promise.resolve({ data: null, error: { code: 'XX000', message: 'DB error internal' } }).then(onf);
+          return q;
+        },
+      }),
+    } as unknown as SupabaseClient;
+
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, erroringClient);
     assert.equal(r.found, false);
     assert.equal(r.reason, 'query_error');
-    // El mensaje de error interno no debe llegar al caller
     const resultStr = JSON.stringify(r);
     assert.ok(!resultStr.includes('DB error internal'), 'error raw no debe propagarse al caller');
   });
@@ -319,80 +279,65 @@ describe('query error', () => {
 
 // ── Guardrail violations ──────────────────────────────────────────────────────
 
-function makeRowWithRawData(rawDataOverride: Record<string, unknown>): Record<string, unknown> {
-  return {
-    ...SAMPLE_ROW,
-    raw_data: { ...VALID_RAW_DATA, ...rawDataOverride },
-  };
-}
-
 describe('guardrail — source_type incorrecto', () => {
-  it('retorna found=false reason=snapshot_guardrail_violation cuando source_type no es procurement_signal', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ source_type: 'legal_registry' }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('found=false reason=snapshot_guardrail_violation cuando source_type no es procurement_signal', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ source_type: 'legal_registry' })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
   });
 });
 
 describe('guardrail — tax_identifier_type incorrecto', () => {
-  it('retorna snapshot_guardrail_violation cuando tax_identifier_type no es RTN', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ tax_identifier_type: 'NIT' }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('snapshot_guardrail_violation cuando tax_identifier_type no es RTN', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ tax_identifier_type: 'NIT' })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
   });
 });
 
 describe('guardrail — legal_validation_status incorrecto', () => {
-  it('retorna snapshot_guardrail_violation cuando legal_validation_status no es not_applicable', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ legal_validation_status: 'validated' }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('snapshot_guardrail_violation cuando legal_validation_status no es not_applicable', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ legal_validation_status: 'validated' })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
   });
 });
 
 describe('guardrail — human_review_required incorrecto', () => {
-  it('retorna snapshot_guardrail_violation cuando human_review_required no es true', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ human_review_required: false }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('snapshot_guardrail_violation cuando human_review_required no es true', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ human_review_required: false })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
   });
 });
 
 describe('guardrail — post_approval_enabled incorrecto', () => {
-  it('retorna snapshot_guardrail_violation cuando post_approval_enabled no es false', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ post_approval_enabled: true }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('snapshot_guardrail_violation cuando post_approval_enabled no es false', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ post_approval_enabled: true })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
   });
 });
 
 describe('guardrail — matching_automatic_enabled incorrecto', () => {
-  it('retorna snapshot_guardrail_violation cuando matching_automatic_enabled no es false', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ matching_automatic_enabled: true }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('snapshot_guardrail_violation cuando matching_automatic_enabled no es false', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ matching_automatic_enabled: true })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
   });
 });
 
 describe('guardrail — legal_entity_hint incorrecto', () => {
-  it('retorna snapshot_guardrail_violation cuando legal_entity_hint no es likely_legal_entity', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ legal_entity_hint: 'unknown_or_person_natural_risk' }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('snapshot_guardrail_violation cuando legal_entity_hint no es likely_legal_entity', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ legal_entity_hint: 'unknown_or_person_natural_risk' })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
   });
 });
 
 describe('guardrail — source incorrecto (8C.5B.1)', () => {
-  it('retorna snapshot_guardrail_violation cuando source no es ocp_registry_jsonl', async () => {
-    const sb = makeMock({ row: makeRowWithRawData({ source: 'some_other_source' }) });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('snapshot_guardrail_violation cuando source no es ocp_registry_jsonl', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([rowWithRawData({ source: 'some_other_source' })]));
     assert.equal(r.found, false);
     assert.equal(r.reason, 'snapshot_guardrail_violation');
     if (r.found) return;
@@ -403,22 +348,17 @@ describe('guardrail — source incorrecto (8C.5B.1)', () => {
 // ── Signals malformed (raw_data OK) ──────────────────────────────────────────
 
 describe('signals malformed — null signals', () => {
-  it('retorna found=true con procurement_signals=null cuando signals es null', async () => {
-    const sb = makeMock({ row: { ...SAMPLE_ROW, signals: null } });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('found=true con procurement_signals presente cuando signals es null', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row({ signals: null })]));
     assert.equal(r.found, true);
     if (!r.found) return;
-    // null signals → empty object fallback → all fields null
     assert.ok(r.procurement_signals !== undefined);
   });
 });
 
 describe('signals malformed — awards_count es string', () => {
-  it('retorna found=true con awards_count=null cuando es string', async () => {
-    const sb = makeMock({
-      row: { ...SAMPLE_ROW, signals: { ...VALID_SIGNALS, awards_count: 'siete' } },
-    });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('found=true con awards_count=null cuando es string', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row({ signals: { ...VALID_SIGNALS, awards_count: 'siete' } })]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.ok(r.procurement_signals);
@@ -427,11 +367,8 @@ describe('signals malformed — awards_count es string', () => {
 });
 
 describe('signals malformed — total_award_amount es string', () => {
-  it('retorna found=true con total_award_amount=null cuando es string', async () => {
-    const sb = makeMock({
-      row: { ...SAMPLE_ROW, signals: { ...VALID_SIGNALS, total_award_amount: 'mucho' } },
-    });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('found=true con total_award_amount=null cuando es string', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row({ signals: { ...VALID_SIGNALS, total_award_amount: 'mucho' } })]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.ok(r.procurement_signals);
@@ -440,26 +377,19 @@ describe('signals malformed — total_award_amount es string', () => {
 });
 
 describe('signals malformed — count negativo (8C.5B.1)', () => {
-  it('retorna found=true con awards_count=null cuando el count es negativo', async () => {
-    const sb = makeMock({
-      row: { ...SAMPLE_ROW, signals: { ...VALID_SIGNALS, awards_count: -3 } },
-    });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('found=true con awards_count=null cuando el count es negativo', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row({ signals: { ...VALID_SIGNALS, awards_count: -3 } })]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.ok(r.procurement_signals);
     assert.equal(r.procurement_signals.awards_count, null);
-    // otros counts válidos permanecen intactos
     assert.equal(r.procurement_signals.tenders_count, 3);
   });
 });
 
 describe('signals malformed — latest_date es número (inválido)', () => {
-  it('retorna found=true con latest_date=null cuando es número', async () => {
-    const sb = makeMock({
-      row: { ...SAMPLE_ROW, signals: { ...VALID_SIGNALS, latest_date: 20240915 } },
-    });
-    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, sb);
+  it('found=true con latest_date=null cuando es número', async () => {
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, fakeClient([row({ signals: { ...VALID_SIGNALS, latest_date: 20240915 } })]));
     assert.equal(r.found, true);
     if (!r.found) return;
     assert.ok(r.procurement_signals);
@@ -467,10 +397,48 @@ describe('signals malformed — latest_date es número (inválido)', () => {
   });
 });
 
+// ── Cardinality violation + latest year (APP-C4A) ────────────────────────────
+
+describe('cardinality violation', () => {
+  it('exact year: 2 filas mismo tax/source/year → cardinality_violation (sin pick)', async () => {
+    const client = fakeClient([
+      row({ source_year: 2024, record_identity_key: 'a', legal_name: 'A' }),
+      row({ source_year: 2024, record_identity_key: 'b', legal_name: 'B' }),
+    ]);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN, year: 2024 }, client);
+    assert.equal(r.found, false);
+    assert.equal(r.reason, 'cardinality_violation');
+  });
+
+  it('latest-year: 2 filas del año más reciente → cardinality_violation', async () => {
+    const client = fakeClient([
+      row({ source_year: 2024, record_identity_key: 'a' }),
+      row({ source_year: 2024, record_identity_key: 'b' }),
+    ]);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, client);
+    assert.equal(r.found, false);
+    assert.equal(r.reason, 'cardinality_violation');
+  });
+});
+
+describe('latest year selection', () => {
+  it('escoge el source_year más reciente cuando no se pasa year', async () => {
+    const client = fakeClient([
+      row({ source_year: 2022, legal_name: 'VIEJO' }),
+      row({ source_year: 2024, legal_name: 'NUEVO' }),
+    ]);
+    const r = await lookupHnContratacionesByRtn({ rtn: SAMPLE_RTN }, client);
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.equal(r.source_year, 2024);
+    assert.equal(r.legal_name, 'NUEVO');
+  });
+});
+
 // ── Environment unavailable ───────────────────────────────────────────────────
 
 describe('environment — falta SUPABASE_SERVICE_ROLE_KEY', () => {
-  it('retorna found=false reason=environment_unavailable cuando no hay service role', async () => {
+  it('found=false reason=environment_unavailable cuando no hay service role', async () => {
     const savedKey = process.env['SUPABASE_SERVICE_ROLE_KEY'];
     delete process.env['SUPABASE_SERVICE_ROLE_KEY'];
     try {
@@ -482,5 +450,18 @@ describe('environment — falta SUPABASE_SERVICE_ROLE_KEY', () => {
         process.env['SUPABASE_SERVICE_ROLE_KEY'] = savedKey;
       }
     }
+  });
+});
+
+// ── static: reader no longer uses .limit(1).maybeSingle ──────────────────────
+
+describe('hn-contrataciones-lookup — migrated off .limit(1).maybeSingle', () => {
+  it('reader code (comments stripped) contains neither maybeSingle nor .limit(1)', () => {
+    const raw = readFileSync(new URL('../hn-contrataciones-lookup.ts', import.meta.url), 'utf8');
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    assert.ok(!code.includes('maybeSingle'), 'reader must not call maybeSingle directly');
+    assert.ok(!code.includes('.limit(1)'), 'reader must not call .limit(1) directly');
   });
 });
