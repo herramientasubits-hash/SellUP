@@ -53,33 +53,16 @@ function displayName(user: { email: string; full_name: string | null } | null): 
 
 // ─── Sub-components ──────────────────────────────────────────────
 
-function SourceBadge({ source }: { source: AdminActivitySource }) {
-  const map: Record<AdminActivitySource, { label: string; classes: string }> = {
-    users: {
-      label: 'Usuarios',
-      classes: 'border-su-brand/20 bg-su-brand-soft text-su-brand',
-    },
-    integrations: {
-      label: 'Integraciones',
-      classes: 'border-amber-500/20 bg-amber-500/10 text-amber-500',
-    },
-    ai: {
-      label: 'IA',
-      classes: 'border-violet-500/20 bg-violet-500/10 text-violet-500',
-    },
-  };
-  const cfg = map[source];
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cfg.classes}`}
-    >
-      {cfg.label}
-    </span>
-  );
-}
+// Design Refresh v2: el icono de categoría lleva un tinte sutil por fuente.
+// Así el color señala la categoría sin necesidad del badge uppercase repetido.
+const SOURCE_ICON_TINT: Record<AdminActivitySource, string> = {
+  users: 'bg-su-brand-soft text-su-brand',
+  integrations: 'bg-amber-500/10 text-amber-500',
+  ai: 'bg-violet-500/10 text-violet-500',
+};
 
 function SourceIcon({ source }: { source: AdminActivitySource }) {
-  const iconClass = 'h-3 w-3 text-muted-foreground';
+  const iconClass = 'h-3 w-3';
   if (source === 'users') return <Users className={iconClass} />;
   if (source === 'integrations') return <Link2 className={iconClass} />;
   return <Cpu className={iconClass} />;
@@ -348,15 +331,14 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
           <ul className="divide-y divide-border/40">
             {events.map((event) => (
               <li key={event.id} className="flex items-start gap-3 px-5 py-3.5 transition-colors hover:bg-muted/20">
-                {/* Source icon */}
-                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted/40">
+                {/* Source icon — tinte por categoría (reemplaza el badge de fila) */}
+                <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${SOURCE_ICON_TINT[event.source]}`}>
                   <SourceIcon source={event.source} />
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-foreground">{event.label}</span>
-                    <SourceBadge source={event.source} />
                   </div>
 
                   {/* Description */}

@@ -16,9 +16,6 @@ import {
   CONNECTION_MODE_LABELS,
   operationalStatusBadgeClass,
   operationalStatusDotClass,
-  sellupUseBadgeClass,
-  aiFlowStatusBadgeClass,
-  connectionModeBadgeClass,
 } from '@/modules/source-catalog/labels';
 import { filterTab, type TabId } from '@/modules/source-catalog/filter-tab';
 import { SourceDetailDrawer } from './source-detail-drawer';
@@ -219,14 +216,14 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           <DataTableColumnHeader column={column} title="Uso en SellUp" />
         ),
         cell: ({ row }) => (
-          <span
-            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${sellupUseBadgeClass(row.original.sellupUse)}`}
-          >
+          // Design Refresh v2: texto plano — la única columna con badge de color
+          // por fila es "Estado fuente". Categorías (uso/flujo/conexión) van planas.
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {SELLUP_USE_LABELS[row.original.sellupUse]}
           </span>
         ),
-        size: 180,
-        minSize: 155,
+        size: 170,
+        minSize: 140,
         meta: {
           label: 'Uso en SellUp',
           popoverTitle: 'Uso en SellUp',
@@ -243,13 +240,11 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           <DataTableColumnHeader column={column} title="Estado flujo IA" />
         ),
         cell: ({ row }) => (
-          <span
-            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${aiFlowStatusBadgeClass(row.original.aiFlowStatus)}`}
-          >
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {AI_FLOW_STATUS_LABELS[row.original.aiFlowStatus]}
           </span>
         ),
-        size: 180,
+        size: 170,
         minSize: 140,
         meta: {
           label: 'Estado flujo IA',
@@ -267,13 +262,11 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           <DataTableColumnHeader column={column} title="Conexión" />
         ),
         cell: ({ row }) => (
-          <span
-            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${connectionModeBadgeClass(row.original.connectionMode)}`}
-          >
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {CONNECTION_MODE_LABELS[row.original.connectionMode]}
           </span>
         ),
-        size: 180,
+        size: 170,
         minSize: 140,
         meta: {
           label: 'Conexión',
