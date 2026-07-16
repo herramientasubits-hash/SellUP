@@ -1,0 +1,40 @@
+name: Automatic Routing Tests
+
+# Safety gate for Agent 2A automatic contact-enrichment routing (5B/5C).
+# Runs the critical routing/fallback test suite on every PR and on pushes to
+# main so regressions in Apollo -> Lusha fallback behavior are caught in CI.
+# No provider credentials, Supabase env vars, or feature flags are used: the
+# suite is fully deterministic and makes no external calls.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: automatic-routing-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  automatic-routing:
+    name: Automatic routing safety tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run automatic routing safety tests
+        run: npm run test:agent2a:automatic-routing
