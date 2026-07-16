@@ -18,6 +18,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { runProspectingPipeline } from "./prospecting-pipeline";
 import { buildNoveltyIndex, evaluateCandidateNovelty, buildRecentIdentityKeySet } from "./novelty-checker";
 import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
+import { buildProspectCandidateIdentityKey } from "./prospect-candidate-identity-key";
 import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
 import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-url-quality-gate";
 import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate";
@@ -273,23 +274,45 @@ const ACTIVE_STATUSES_FOR_GUARD = [
 ];
 
 /**
+ * Estado observable del prefetch del Active Duplicate Guard (Q3F-5AW.2 Phase 1).
+ *
+ *   - 'ok'       → el prefetch corrió sin errores (aunque haya 0 filas).
+ *   - 'degraded' → el prefetch falló/degradó y el guard opera fail-open con []
+ *                  (menor cobertura). Se deja observable en metadata; NO bloquea.
+ */
+export type ActiveCandidateGuardStatus = 'ok' | 'degraded';
+
+/** Motivo de la degradación del prefetch, cuando aplica. */
+export type ActiveCandidateGuardReason = 'prefetch_failed' | 'query_error' | null;
+
+export interface ActiveCandidateGuardPrefetch {
+  records: ActiveCandidateRecord[];
+  status: ActiveCandidateGuardStatus;
+  reason: ActiveCandidateGuardReason;
+}
+
+/**
  * Carga candidatos activos relevantes desde Supabase para el Active Duplicate Guard.
  *
  * Hace dos consultas acotadas:
  *   1. Por dominio exacto (para detectar same_active_domain cross-country)
  *   2. Por country_code (para detectar same_inferred_identity dentro del país)
  *
- * Diseñado para degradar silenciosamente si la query falla o si el cliente
- * no soporta el método (e.g., fake admin en tests) — retorna [] en ese caso.
+ * Diseñado para degradar de forma segura (fail-open) si la query falla o si el
+ * cliente no soporta el método (e.g., fake admin en tests): retorna records=[]
+ * y, a diferencia de antes, señala status='degraded' + reason para que el fallo
+ * quede OBSERVABLE en metadata (Q3F-5AW.2 Phase 1). El comportamiento funcional
+ * es idéntico al anterior: el guard sigue tolerando la degradación sin bloquear.
  */
-async function fetchActiveCandidatesForGuard(
+export async function fetchActiveCandidatesForGuard(
   admin: SupabaseClient,
   batchDomains: string[],
   countryCode: string | null,
-): Promise<ActiveCandidateRecord[]> {
+): Promise<ActiveCandidateGuardPrefetch> {
   try {
     const result: ActiveCandidateRecord[] = [];
     const seenIds = new Set<string>();
+    let sawQueryError = false;
 
     function mapRow(row: Record<string, unknown>): ActiveCandidateRecord {
       const meta = (row['metadata'] ?? {}) as Record<string, unknown>;
@@ -306,13 +329,14 @@ async function fetchActiveCandidatesForGuard(
 
     // Primary: by domain (catches same_active_domain globally, cross-country)
     if (batchDomains.length > 0) {
-      const { data: byDomain } = await (admin as ReturnType<typeof import('@supabase/supabase-js').createClient>)
+      const { data: byDomain, error: byDomainError } = await (admin as ReturnType<typeof import('@supabase/supabase-js').createClient>)
         .from('prospect_candidates')
         .select('id, name, domain, normalized_name, metadata, status')
         .in('status', ACTIVE_STATUSES_FOR_GUARD)
         .in('domain', batchDomains)
         .limit(500);
 
+      if (byDomainError) sawQueryError = true;
       if (Array.isArray(byDomain)) {
         for (const row of byDomain as Record<string, unknown>[]) {
           const rec = mapRow(row);
@@ -326,13 +350,14 @@ async function fetchActiveCandidatesForGuard(
 
     // Secondary: by country (catches same_inferred_identity within country, bounded)
     if (countryCode) {
-      const { data: byCountry } = await (admin as ReturnType<typeof import('@supabase/supabase-js').createClient>)
+      const { data: byCountry, error: byCountryError } = await (admin as ReturnType<typeof import('@supabase/supabase-js').createClient>)
         .from('prospect_candidates')
         .select('id, name, domain, normalized_name, metadata, status')
         .in('status', ACTIVE_STATUSES_FOR_GUARD)
         .eq('country_code', countryCode)
         .limit(500);
 
+      if (byCountryError) sawQueryError = true;
       if (Array.isArray(byCountry)) {
         for (const row of byCountry as Record<string, unknown>[]) {
           const rec = mapRow(row);
@@ -344,10 +369,13 @@ async function fetchActiveCandidatesForGuard(
       }
     }
 
-    return result;
+    if (sawQueryError) {
+      return { records: result, status: 'degraded', reason: 'query_error' };
+    }
+    return { records: result, status: 'ok', reason: null };
   } catch {
-    // Non-critical: guard degrades gracefully if prefetch fails
-    return [];
+    // Non-critical: guard degrades gracefully (fail-open) if prefetch throws.
+    return { records: [], status: 'degraded', reason: 'prefetch_failed' };
   }
 }
 
@@ -932,6 +960,9 @@ export async function writeProspectingCandidates(
     skippedCount: 0,
     possibleDuplicateCount: 0,
     samples: [] as DuplicateGuardSample[],
+    // Q3F-5AW.2 (Phase 1) — observabilidad del prefetch fail-open del guard.
+    prefetchStatus: 'ok' as ActiveCandidateGuardStatus,
+    prefetchReason: null as ActiveCandidateGuardReason,
   };
 
   // ICP size gate batch tracking (v1.16I)
@@ -1466,11 +1497,17 @@ export async function writeProspectingCandidates(
   const guardBatchDomains = toPersist
     .map((e) => e.domain)
     .filter((d): d is string => d !== null && d.length > 0);
-  const activeCandidatesForGuard = await fetchActiveCandidatesForGuard(
+  const guardPrefetch = await fetchActiveCandidatesForGuard(
     admin,
     guardBatchDomains,
     countryCode ?? null,
   );
+  const activeCandidatesForGuard = guardPrefetch.records;
+  // Q3F-5AW.2 (Phase 1) — deja observable si el prefetch del guard degradó
+  // (fail-open). No cambia el comportamiento: el guard sigue tolerando []
+  // sin bloquear; solo se registra para diagnóstico.
+  duplicateGuardData.prefetchStatus = guardPrefetch.status;
+  duplicateGuardData.prefetchReason = guardPrefetch.reason;
 
   // ── Pre-Pass: Controlled LinkedIn Search (v1.15.2) ────────────────────────
   // Pre-compute LinkedIn enrichments for all candidates in toPersist.
@@ -1960,10 +1997,24 @@ export async function writeProspectingCandidates(
           }
       : baseFitBreakdown;
 
+    // Q3F-5AW.2 (Phase 1) — identidad canónica determinística para el candidato.
+    // Se persiste en la columna nullable identity_key. NO se usa ON CONFLICT ni
+    // unique index todavía; es aditivo/observable. NULL si no hay identidad
+    // suficiente (nunca bloquea el insert).
+    // Los candidatos web de Agente 1 no traen identificador fiscal (candidateInsert
+    // tampoco setea tax_identifier), así que la clave se compone de dominio → nombre.
+    const candidateIdentityKey = buildProspectCandidateIdentityKey({
+      name: persistedName,
+      domain: domain ?? null,
+      website: candidate.website ?? null,
+      countryCode: candidate.countryCode ?? null,
+    });
+
     const candidateInsert = {
       batch_id: batchId,
       name: persistedName,
       normalized_name: normalizeName(persistedName),
+      identity_key: candidateIdentityKey,
       website: candidate.website ?? null,
       domain: domain ?? null,
       country: candidate.country,
@@ -2421,6 +2472,9 @@ export async function writeProspectingCandidates(
       skipped_count: duplicateGuardData.skippedCount,
       possible_duplicate_count: duplicateGuardData.possibleDuplicateCount,
       samples: duplicateGuardData.samples.slice(0, 10),
+      // Q3F-5AW.2 (Phase 1) — observabilidad del prefetch fail-open (no bloquea).
+      active_candidate_guard_status: duplicateGuardData.prefetchStatus,
+      active_candidate_guard_reason: duplicateGuardData.prefetchReason,
     };
 
     const finalMetadata = {

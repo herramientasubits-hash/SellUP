@@ -98,3 +98,111 @@ export function sanitizeHubSpotErrorMessage(err: unknown): string {
     .replace(/(api[_-]?key["':=\s]*)[^\s,"']+/gi, '$1[REDACTED]')
     .slice(0, 200);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Q3F-5AW.2 (Phase 1) — Idempotencia + update condicional optimista
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Estos helpers reducen el riesgo de doble conversión del mismo candidate.id:
+//   1. isCandidateAlreadyConverted — corta la aprobación temprano cuando el
+//      candidato ya fue convertido (status + converted_account_id presentes).
+//   2. applyOptimisticCandidateConversionUpdate — hace el UPDATE final condicionado
+//      al status esperado (.eq('status', expectedStatus)); si afecta 0 filas,
+//      relee y resuelve idempotentemente o reporta conflicto de concurrencia.
+//
+// Todo es read/write pero con cliente INYECTADO, así que es unit-testable sin
+// Supabase real ni servicios externos. No construye el CandidateApprovalResult
+// (eso vive en actions.ts) para no crear un ciclo de imports.
+
+/** Estado del status del schema DB que marca conversión completada. */
+export const CONVERTED_TO_ACCOUNT_STATUS = 'converted_to_account';
+
+export interface ApprovalCandidateState {
+  status?: string | null;
+  converted_account_id?: string | null;
+}
+
+/**
+ * true si el candidato ya está convertido a cuenta (status === converted_to_account
+ * y converted_account_id no vacío). Es la condición de corte idempotente: cuando es
+ * true no se debe crear una segunda cuenta ni llamar a HubSpot.
+ */
+export function isCandidateAlreadyConverted(
+  candidate: ApprovalCandidateState | null | undefined,
+): boolean {
+  if (!candidate) return false;
+  const accId = candidate.converted_account_id;
+  return (
+    candidate.status === CONVERTED_TO_ACCOUNT_STATUS &&
+    typeof accId === 'string' &&
+    accId.trim().length > 0
+  );
+}
+
+export type OptimisticConversionOutcome =
+  | 'updated'
+  | 'idempotent_success'
+  | 'concurrency_conflict';
+
+export interface OptimisticConversionResult {
+  outcome: OptimisticConversionOutcome;
+  /** Cuenta ya asociada cuando outcome === 'idempotent_success'. */
+  accountId: string | null;
+  /** true si el UPDATE aplicó la condición optimista sobre status. */
+  statusConditionApplied: boolean;
+}
+
+/**
+ * Aplica el UPDATE final del candidato condicionado al status esperado.
+ *
+ * - Si afecta ≥1 fila → outcome 'updated' (esta operación ganó la carrera).
+ * - Si afecta 0 filas → relee el candidato:
+ *     * ya convertido           → 'idempotent_success' (no crear segunda cuenta).
+ *     * cualquier otro estado   → 'concurrency_conflict' (error controlado).
+ *
+ * El cliente se inyecta; no abre secretos ni llama proveedores.
+ */
+export async function applyOptimisticCandidateConversionUpdate(
+  supabase: Pick<SupabaseClient, 'from'>,
+  params: {
+    candidateId: string;
+    expectedStatus?: string | null;
+    updates: Record<string, unknown>;
+  },
+): Promise<OptimisticConversionResult> {
+  const { candidateId, expectedStatus, updates } = params;
+  const statusConditionApplied =
+    typeof expectedStatus === 'string' && expectedStatus.length > 0;
+
+  let query = supabase
+    .from('prospect_candidates')
+    .update(updates as never)
+    .eq('id', candidateId);
+  if (statusConditionApplied) {
+    query = query.eq('status', expectedStatus as string);
+  }
+
+  const { data: updatedRows } = await query.select('id');
+
+  if (Array.isArray(updatedRows) && updatedRows.length > 0) {
+    return { outcome: 'updated', accountId: null, statusConditionApplied };
+  }
+
+  // 0 filas actualizadas: otra operación cambió el status. Releer y resolver.
+  const { data: reread } = await supabase
+    .from('prospect_candidates')
+    .select('status, converted_account_id')
+    .eq('id', candidateId)
+    .single();
+
+  const state = (reread ?? null) as ApprovalCandidateState | null;
+  if (isCandidateAlreadyConverted(state)) {
+    return {
+      outcome: 'idempotent_success',
+      accountId: (state as ApprovalCandidateState).converted_account_id as string,
+      statusConditionApplied,
+    };
+  }
+
+  return { outcome: 'concurrency_conflict', accountId: null, statusConditionApplied };
+}
