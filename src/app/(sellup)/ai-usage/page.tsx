@@ -153,14 +153,14 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
             {['Agente', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo/aprobado'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/40">
           {agents.map((a) => {
             const effectiveness =
               a.total_results_generated > 0
@@ -255,14 +255,14 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
             {['Proveedor', 'Medición', 'Llamadas', 'Cantidad', 'Resultados', 'Costo est.', 'Último uso'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/40">
           {providers.map((p) => (
             <tr key={p.provider_key}>
               <td className="py-3 pr-4">
@@ -324,14 +324,14 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
             {['Fecha', 'Proveedor', 'Operación', 'Estado', 'Cred./Tokens', 'Costo est.'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/40">
           {logs.map((log) => {
             const quantity =
               log.credits_used != null && Number(log.credits_used) > 0
@@ -436,7 +436,9 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           ),
           sub: 'USD acumulado',
           icon: DollarSign,
-          accent: 'text-su-brand',
+          // Design Refresh v9: valor neutro. El color en un número se reserva
+          // para señal semántica real (errores) — el chip de icono ya da contexto.
+          accent: 'text-foreground',
           iconBg: 'bg-su-brand-soft',
         },
         {
@@ -482,7 +484,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           value: String(summary.running_executions),
           sub: 'agentes activos',
           icon: CheckCircle2,
-          accent: summary.running_executions > 0 ? 'text-su-brand' : 'text-muted-foreground',
+          accent: 'text-foreground',
           iconBg: summary.running_executions > 0 ? 'bg-su-brand-soft' : 'bg-muted/40',
         },
       ];
@@ -665,14 +667,14 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                     {['Usuario', 'Ejecuciones', 'Llamadas', 'Proveedores', 'Costo est.', 'Último uso'].map((h) => (
                       <th
                         key={h}
-                        className={`pb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                        className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
                       >
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/20">
+                <tbody className="divide-y divide-border/40">
                   {userConsumption.map((u) => {
                     const hasActivity = u.executions + u.provider_calls > 0;
                     return (
