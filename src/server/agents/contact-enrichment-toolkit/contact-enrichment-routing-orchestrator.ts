@@ -21,7 +21,11 @@
 // two concurrent orchestrator calls for the same request race safely at the
 // database layer; the loser observes 'already_exists' and never calls Lusha.
 
-import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import {
+  assertAutomaticRoutingEnvironmentIsSafe,
+  UnsafeSupabaseEnvironmentError,
+} from '@/lib/supabase/env-guard.server';
 import {
   resolveApolloProviderCallAttemptedV1,
   deriveApolloTechnicalOutcomeV1,
@@ -52,13 +56,6 @@ import type {
   ProviderAttemptRole,
 } from '@/modules/contact-enrichment/request-attempt-types';
 import type { ContactEnrichmentRunStatus } from '@/modules/contact-enrichment/types';
-
-function getAdminClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase service credentials not configured');
-  return createAdminClient(url, key);
-}
 
 // ── Telemetry shapes (automatic mode) ────────────────────────────────────
 
@@ -130,7 +127,7 @@ function buildSummaryBlock(args: {
 async function defaultLoadExistingAttemptProviderAndStatus(
   attemptId: string,
 ): Promise<ExistingAttemptProviderAndStatus | null> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from('contact_enrichment_runs')
     .select('intended_provider, status')
@@ -192,7 +189,7 @@ async function defaultRunLushaAttempt(attemptId: string, triggeredBy: string): P
 }
 
 async function defaultReadRunSummary(attemptId: string): Promise<Record<string, unknown>> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from('contact_enrichment_runs')
     .select('summary')
@@ -214,7 +211,7 @@ async function defaultWriteRoutingTelemetry(
   columns: AutomaticRoutingRunColumnsV1,
   summaryPatch: AutomaticRoutingSummaryBlockV1,
 ): Promise<void> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const currentSummary = await defaultReadRunSummary(attemptId);
   await admin
     .from('contact_enrichment_runs')
@@ -232,6 +229,7 @@ async function defaultWriteRoutingTelemetry(
 
 export type AutomaticRoutingOutcomeV1 =
   | 'automatic_routing_disabled'
+  | 'unsafe_environment'
   | 'invalid_policy'
   | 'attempt1_rejected'
   | 'attempt1_provider_not_called'
@@ -264,6 +262,14 @@ export interface AutomaticRoutingOrchestratorResult {
 
 export interface AutomaticRoutingOrchestratorDeps {
   getConfig?: () => ContactEnrichmentRoutingConfigV1;
+  /**
+   * Fail-closed environment guard. Throws UnsafeSupabaseEnvironmentError when
+   * automatic routing is enabled but the environment is missing config or a
+   * non-production environment resolves to the production Supabase project.
+   * Default reads process.env; injectable so tests exercise it without
+   * mutating global env state.
+   */
+  assertEnvironmentSafe?: (automaticRoutingEnabled: boolean) => void;
   resolveAttempt1?: (
     requestId: string,
     provider: RoutingProviderKey,
@@ -324,12 +330,28 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
     runLushaAttempt = defaultRunLushaAttempt,
     estimateFallbackCostUsd = () => null,
     writeRoutingTelemetry = defaultWriteRoutingTelemetry,
+    assertEnvironmentSafe = (automaticRoutingEnabled: boolean) =>
+      assertAutomaticRoutingEnvironmentIsSafe(automaticRoutingEnabled, process.env),
   } = deps;
 
   const config = getConfig();
 
   if (!config.automaticRoutingEnabled) {
     return notEngagedResult('automatic_routing_disabled', false, 'automatic_routing_disabled');
+  }
+
+  // GAP-3 fail-closed guard: automatic routing is enabled, so refuse to touch
+  // Supabase or any provider unless the environment is a safe, fully-configured,
+  // isolated one. This runs BEFORE policy building, admin-client construction,
+  // attempt creation, provider calls, and any telemetry write — a Preview or
+  // misconfigured environment that resolves to the production Supabase project
+  // (or lacks credentials) rejects here without side effects.
+  try {
+    assertEnvironmentSafe(config.automaticRoutingEnabled);
+  } catch (error) {
+    const reason =
+      error instanceof UnsafeSupabaseEnvironmentError ? error.reason : 'unsafe_environment';
+    return notEngagedResult('unsafe_environment', true, reason);
   }
 
   const policyResult = buildContactEnrichmentRoutingPolicyFromConfig(config);

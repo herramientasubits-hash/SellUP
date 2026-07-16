@@ -104,6 +104,10 @@ function harness(
 
   const deps: AutomaticRoutingOrchestratorDeps = {
     getConfig: () => config,
+    // Treat the environment as safe: the GAP-3 fail-closed env guard is
+    // covered directly in contact-enrichment-routing-orchestrator.test.ts.
+    // These core-mapping tests must not depend on process.env being set.
+    assertEnvironmentSafe: () => {},
     resolveAttempt1: async () => {
       calls.resolveAttempt1 += 1;
       return { outcome: 'execute', attemptId: 'attempt-1' };
