@@ -95,7 +95,7 @@ export function AutomationModeControl({
           className="h-8 w-[140px] text-xs"
           aria-label={`Modo de ejecución para ${automationName}`}
         >
-          <SelectValue />
+          <SelectValue>{EXECUTION_MODE_LABELS[mode]}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="manual" className="text-xs">

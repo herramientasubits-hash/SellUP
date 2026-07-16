@@ -403,8 +403,11 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
     }
   }
 
+  // Design Refresh v1: badge solo cuando hay alerta real de duplicidad.
+  // El caso común ("Sin coincidencias") va como texto plano — un badge verde
+  // por fila convertía la columna en ruido permanente.
   let primaryDupLabel = 'Sin verificar';
-  let primaryDupStyle = 'bg-muted text-muted-foreground/60';
+  let primaryDupStyle: string | null = null;
 
   if (sellupStatus === 'duplicate' || hsStatus === 'match') {
     primaryDupLabel = 'Duplicado confirmado';
@@ -414,7 +417,6 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
     primaryDupStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
   } else if (sellupStatus === 'no_match' || hsStatus === 'no_match') {
     primaryDupLabel = 'Sin coincidencias';
-    primaryDupStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
   }
 
   let sellupTooltipLabel = 'SellUp: sin verificar';
@@ -434,9 +436,15 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger render={
-            <Badge className={`${primaryDupStyle} border-0 text-[10px] font-semibold w-fit py-0.5 cursor-help`}>
-              {primaryDupLabel}
-            </Badge>
+            primaryDupStyle ? (
+              <Badge className={`${primaryDupStyle} border-0 text-[10px] font-semibold w-fit py-0.5 cursor-help`}>
+                {primaryDupLabel}
+              </Badge>
+            ) : (
+              <span className="w-fit cursor-help text-xs text-muted-foreground">
+                {primaryDupLabel}
+              </span>
+            )
           } />
           <TooltipContent className="text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2.5 rounded-xl shadow-md z-[70] space-y-1">
             <p className="font-semibold text-xs border-b border-border/40 pb-1 mb-1">Detalle de Duplicidad</p>
@@ -541,15 +549,17 @@ function QualityCell({ candidate }: { candidate: Row }) {
     if (!candidate.industry && !(candidate.metadata?.enrichment as Record<string, unknown> | undefined)?.sector_description) missingFields.push('industry');
   }
 
+  // Design Refresh v1: la celda dejó de usar badge — un punto de color + texto
+  // plano reduce el ruido (máx. un badge de color por fila: el de Estado).
   let completenessText = 'Información completa';
-  let completenessStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+  let completenessDot = 'bg-emerald-500';
   if (missingFields.length > 0) {
     if (missingFields.length >= 3 && !candidate.website && !candidate.tax_identifier) {
       completenessText = 'Sin evidencia';
-      completenessStyle = 'bg-muted text-muted-foreground';
+      completenessDot = 'bg-border';
     } else {
       completenessText = `${missingFields.length} ${missingFields.length === 1 ? 'dato pendiente' : 'datos pendientes'}`;
-      completenessStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      completenessDot = 'bg-amber-500';
     }
   }
 
@@ -586,20 +596,13 @@ function QualityCell({ candidate }: { candidate: Row }) {
       <Tooltip>
         <TooltipTrigger render={
           <div className="flex flex-col gap-1 w-fit cursor-help">
-            <Badge className={`${completenessStyle} border-0 text-[10px] font-semibold w-fit py-0.5`}>
+            <span className="flex items-center gap-1.5 text-xs text-foreground/85">
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${completenessDot}`} />
               {completenessText}
-            </Badge>
-            <span className="text-[10px] text-muted-foreground/70 flex items-center gap-1 font-medium leading-none">
-              {confidenceText}
             </span>
-            <span className={`text-[10px] flex items-center gap-1 font-medium leading-none ${
-              fiscalStatusKey === 'validated'
-                ? 'text-emerald-600/80 dark:text-emerald-400/80'
-                : fiscalStatusKey === 'to_review'
-                ? 'text-amber-600/80 dark:text-amber-400/80'
-                : 'text-muted-foreground/60'
-            }`}>
-              {fiscalText}
+            <span className="text-[11px] leading-none text-muted-foreground/80">
+              {confidenceText}
+              {fiscalStatusKey !== 'none' && ` · ${fiscalText}`}
             </span>
           </div>
         } />
@@ -689,7 +692,7 @@ function StatusCell({ candidate }: { candidate: Row }) {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger render={
-            <span className="text-[10px] text-muted-foreground/70 cursor-help hover:text-foreground font-medium transition-colors">
+            <span className="text-[11px] text-muted-foreground/80 cursor-help hover:text-foreground font-medium transition-colors">
               {evalText}
             </span>
           } />
@@ -841,7 +844,8 @@ export function ProspectsDataTableClient({
             c.source_primary === 'datos_gob_cl' ||
             c.country_code === 'CL' ||
             (c.source_primary as string) === 'cl_res';
-          const location = [c.country ?? c.country_code, c.city].filter(Boolean).join(' · ');
+          // El país ya tiene columna propia — aquí solo ciudad para no duplicar señal
+          const location = c.city ?? null;
           const domain = c.website ? extractDomainFromUrl(c.website) : null;
 
           return (
@@ -858,12 +862,12 @@ export function ProspectsDataTableClient({
                   {c.name}
                 </button>
                 {isChileOfficialCandidate ? (
-                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
+                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-[10px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                     <ShieldCheck className="h-2.5 w-2.5" />
                     Fuente oficial Chile
                   </Badge>
                 ) : isStructuredCandidate(c) ? (
-                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
+                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-[10px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                     <ShieldCheck className="h-2.5 w-2.5" />
                     {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
                   </Badge>
