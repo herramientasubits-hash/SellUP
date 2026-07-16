@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:supabase-env-guard": "node --import tsx --test src/lib/supabase/__tests__/env-guard.server.test.ts",
+    "test:supabase-env-guard": "node --import tsx --test src/lib/supabase/__tests__/env-guard.server.test.ts src/lib/supabase/__tests__/admin-client-fail-closed.test.ts src/lib/supabase/__tests__/migrated-fallback-guard.test.ts",
     "test:batch1-supabase-fallback-migration": "node --experimental-test-module-mocks --import tsx --test src/lib/supabase/__tests__/batch1-fallback-migration-static.test.ts src/modules/system-status/__tests__/activity-actions.test.ts src/modules/system-status/__tests__/actions.test.ts src/modules/automations/__tests__/actions.test.ts src/app/api/debug/ai-provider-health/__tests__/route.test.ts",
     "test:commercial-scope": "node --import tsx --test src/modules/access/__tests__/commercial-scope-logic.test.ts",
     "test:batch2a-access-scope-supabase-fallback-migration": "node --import tsx --test src/modules/access/__tests__/batch2a-fallback-migration-static.test.ts src/modules/access/__tests__/commercial-scope-logic.test.ts",
