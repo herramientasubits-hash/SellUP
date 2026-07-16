@@ -45,10 +45,21 @@ import {
   normalizeGuatemalaNit,
   maskGuatemalaNit,
 } from '../source-catalog/connectors/gt-rgae/gt-nit-normalizer';
+import {
+  readLatestTaxGrainSnapshotByTaxId,
+  readTaxGrainSnapshotByTaxId,
+  type SnapshotIdentityRow,
+  type SnapshotReadClient,
+} from '../source-catalog/snapshot-read/snapshot-read-contract';
 
-const SNAPSHOT_TABLE = 'source_company_snapshots';
 const SOURCE_KEY = 'gt_rgae_proveedores';
 const COUNTRY_CODE = 'GT';
+
+/**
+ * Columns this reader projects out of source_company_snapshots. Includes
+ * source_year, required by the latest-year cardinality-aware lookup.
+ */
+const SNAPSHOT_SELECT_COLUMNS = 'source_year, legal_name, normalized_tax_id, raw_data';
 
 // ── Safe semantic literals ───────────────────────────────────────────────────
 // These NEVER come from the DB row; they are emitted only after guardrails pass.
@@ -242,33 +253,39 @@ export async function lookupGtRgaeByNit(
   }
 
   try {
-    let query = sb
-      .from(SNAPSHOT_TABLE)
-      .select('source_year, legal_name, normalized_tax_id, raw_data')
-      .eq('source_key', SOURCE_KEY)
-      .eq('country_code', COUNTRY_CODE)
-      .eq('normalized_tax_id', normalizedNit);
+    const client = sb as unknown as SnapshotReadClient<SnapshotIdentityRow>;
 
-    if (input.sourceYear != null) {
-      query = query.eq('source_year', input.sourceYear);
-    } else {
-      query = query.order('source_year', { ascending: false });
-    }
+    // Migrated to the cardinality-aware contract (EC4D5.APP-C4B). The prior
+    // hand-rolled `.limit(2)` + same-latest-year guardrail is now delegated to
+    // the shared TAX_GRAIN lookups (exact year vs desc-ordered latest year),
+    // which never `.limit(1).maybeSingle()`. This wrapper stays thin: it maps
+    // the contract's cardinality violation back to the existing
+    // `duplicate_same_year_row` guardrail reason and still enforces GT RGAE's
+    // own raw_data guardrails on the FOUND row via safe literals below.
+    const result =
+      input.sourceYear != null
+        ? await readTaxGrainSnapshotByTaxId({
+            client,
+            sourceKey: SOURCE_KEY,
+            countryCode: COUNTRY_CODE,
+            sourceYear: input.sourceYear,
+            normalizedTaxId: normalizedNit,
+            selectColumns: SNAPSHOT_SELECT_COLUMNS,
+          })
+        : await readLatestTaxGrainSnapshotByTaxId({
+            client,
+            sourceKey: SOURCE_KEY,
+            countryCode: COUNTRY_CODE,
+            normalizedTaxId: normalizedNit,
+            selectColumns: SNAPSHOT_SELECT_COLUMNS,
+          });
 
-    const { data, error } = await query.limit(2);
-
-    if (error) {
-      return {
-        found: false,
-        normalizedNit,
-        maskedNit,
-        reason: 'query_error',
-      };
-    }
-
-    const rows = (data ?? []) as Record<string, unknown>[];
-
-    if (rows.length === 0) {
+    if (
+      result.status === 'RECORD_IDENTITY_NOT_FOUND' ||
+      result.status === 'IDENTITY_UNAVAILABLE'
+    ) {
+      // IDENTITY_UNAVAILABLE is unreachable here (normalizedNit is validated),
+      // but treated as a no-match rather than a silent fall-through.
       return {
         found: false,
         normalizedNit,
@@ -277,25 +294,22 @@ export async function lookupGtRgaeByNit(
       };
     }
 
-    // Cardinality guardrail: when no explicit sourceYear is passed, the query
-    // orders by source_year DESC — a second row at the SAME latest year as the
-    // first is an anomaly the snapshot contract forbids (0 duplicate groups
-    // observed for source_key+country_code+source_year+normalized_tax_id).
-    if (rows.length > 1) {
-      const firstYear = rows[0]?.['source_year'];
-      const secondYear = rows[1]?.['source_year'];
-      if (firstYear === secondYear) {
-        return {
-          found: false,
-          normalizedNit,
-          maskedNit,
-          reason: 'snapshot_guardrail_violation',
-          guardrailField: 'duplicate_same_year_row',
-        };
-      }
+    if (
+      result.status === 'SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION' ||
+      result.status === 'MULTI_RECORD_SAME_FISCAL_IDENTITY'
+    ) {
+      // Two+ rows for the same NIT within one source_year — the anomaly the
+      // snapshot contract forbids. Preserve the pre-migration guardrail reason.
+      return {
+        found: false,
+        normalizedNit,
+        maskedNit,
+        reason: 'snapshot_guardrail_violation',
+        guardrailField: 'duplicate_same_year_row',
+      };
     }
 
-    const row = rows[0]!;
+    const row = result.row as Record<string, unknown>;
     const rawData = (row['raw_data'] as Record<string, unknown>) ?? {};
 
     const guardrail = verifyGuardrails(rawData);
