@@ -662,17 +662,17 @@ function DetailRow({
   label: string;
   children: React.ReactNode;
 }) {
+  // Design Refresh v6: layout horizontal (label izquierda / valor derecha),
+  // consistente con el drawer de Empresa.
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground/50" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+    <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+        <dt className="text-[11px] font-medium text-muted-foreground/80">
           {label}
         </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
       </div>
+      <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
     </div>
   );
 }
