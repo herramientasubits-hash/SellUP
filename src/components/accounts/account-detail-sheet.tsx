@@ -150,7 +150,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         open={open}
         onOpenChange={(v) => !v && onClose()}
         side="right"
-        className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
+        className="w-full sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]"
         icon={<Building2 className="h-5 w-5 text-su-brand" />}
         title={
           data ? (

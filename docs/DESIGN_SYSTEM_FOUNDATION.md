@@ -174,16 +174,18 @@ SellUp aplica `stroke-width: 1.75` a los íconos `lucide-react` y SVGs dentro de
 
 ### Radios
 
-Escala alineada con `plantilla-proyectos-shadcn` (UBITS): `sm 10 · md 14 · lg 20 · xl 28 · 2xl 32 · 3xl 42 · 4xl 56`.
+Escala operativa **Design Refresh v1** (Julio 2026): `sm 6 · md 8 (base) · lg 12 · xl 16 · 2xl 20 · 3xl 24 · 4xl 32`.
+
+> La escala anterior (`sm 10 · md 14 · lg 20 · xl 28 · 2xl 32`) inflaba cards y contenedores de datos; con listas y tablas dentro se veían "globo". La escala nueva mantiene la nitidez operativa. `rounded-full` sigue reservado para pills, badges y avatares.
 
 | Uso | Token / clase | Valor |
 |---|---|---|
-| Base (`--radius`) | `0.875rem` | 14px |
-| Componentes pequeños (badges, pills) | `rounded-full` | 9999px |
-| Inputs, botones | `rounded-md` | 14px |
-| Botones pill, chips, toggles | `rounded-lg` | 20px |
-| Cards, paneles | `rounded-xl` | 28px |
-| Modal, sheet | `rounded-2xl` | 32px |
+| Base (`--radius`) | `0.5rem` | 8px |
+| Componentes pequeños (badges, pills, avatares) | `rounded-full` | 9999px |
+| Inputs, botones | `rounded-md` | 8px |
+| Botones pill, chips, toggles, dropdowns | `rounded-lg` | 12px |
+| Cards, paneles | `rounded-xl` | 16px |
+| Modal, sheet | `rounded-2xl` | 20px |
 
 ### Sombras
 
@@ -779,7 +781,14 @@ El footer cambia según `loadMode`:
 - [ ] Verificar: `npm run lint`, `npm run typecheck`, `npm run build` pasan.
 - [ ] Commit con prefijo `refactor:` y mensaje claro.
 
-### 10.11 Prohibiciones
+### 10.11 Reglas de densidad y color (Design Refresh v1)
+
+- **Máximo un badge de color por fila.** El badge de color se reserva para la señal más importante de la fila (típicamente el estado/salud). Las demás categorías van como **texto plano** (`text-muted-foreground`) o, si necesitan señal ligera, un **punto de color + texto** (`h-1.5 w-1.5 rounded-full` + label). Varias columnas de badges de colores distintos en la misma fila convierten el color en ruido y le quitan semántica.
+- **Un valor por defecto no es un badge.** Un estado que es idéntico en todas las filas de la vista (p. ej. "Por revisar" en el tab de candidatos) va como texto plano, no como badge repetido.
+- **Celdas de máximo 2 líneas.** Evitar apilar 3+ microlíneas de `text-[10px]` (nombre + email + LinkedIn + teléfono). Mover lo secundario a iconos o al detalle en el drawer/side panel.
+- **Microtexto mínimo `text-[11px]`** en celdas de datos; reservar `text-[10px]` para overlines y badges de conteo.
+
+### 10.11.1 Prohibiciones
 
 - ❌ Crear tablas nuevas con `<Table>` shadcn directo — usar `<DataTable>`.
 - ❌ Definir `useState` por filtro — usar faceted filters declarativos.
@@ -879,18 +888,18 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 ### 11.4 Reglas
 
-- **Variante de tabs:** siempre `variant="line"` (estilo subrayado) dentro de un drawer. `default` (con fondo `bg-muted`) se reserva para settings y formularios.
+- **Variante de tabs:** siempre `variant="segmented"` dentro de un drawer (estándar de facto: los 4 drawers de detalle —fuente, cuenta, contacto, candidato— lo usan). `default` (con fondo `bg-muted`) se reserva para settings y formularios.
 - **Tab por defecto:** el que tenga el contenido más crítico / informativo. Para una entidad con info + relación, `Información` va primero.
 - **Badge de conteo:** incluir en el trigger cuando aplique (`Lotes 5`, `Actividad 12`). Estilo: `rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground`.
 - **Tabs opcionales:** si la entidad solo tiene `Información` (sin datos relacionados), omitir el wrapper `Tabs` y renderizar el contenido directo. No forzar un único tab "decorativo".
-- **Ancho del drawer:** `!w-[80vw] !max-w-[80vw] sm:!max-w-[80vw]` para detail views con tablas; `!w-[480px]` o `!w-[560px]` para detail views simples.
+- **Ancho del drawer:** para detail views con tablas usar un ancho acotado con tope — p. ej. `sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]` — para evitar un lienzo vacío en pantallas anchas; `sm:w-[480px]` o `sm:w-[560px]` para detail views simples. Evitar `!w-[90vw]` salvo que el contenido lo justifique.
 - **Footer del drawer:** acciones de copia (Copiar key/ID) y enlaces externos (Abrir URL). **Nunca** un "Abrir página completa".
 - **Datos del tab:** pre-cargar server-side y pasar como prop. No `useEffect` ni flash de loading al cambiar de tab.
 
 ### 11.5 Prohibiciones
 
 - ❌ Botón "Abrir página completa" o equivalente — el drawer contiene todo.
-- ❌ `Tabs` con `variant="default"` dentro de un drawer (rompe la jerarquía visual).
+- ❌ `Tabs` con `variant="default"` o `variant="line"` dentro de un drawer (usar `segmented`).
 - ❌ Drawer con un solo tab — renderizar el contenido directo sin Tabs.
 - ❌ Fetch de datos al cambiar de tab — pre-cargar todo y pasar como prop.
 - ❌ Links a rutas externas para ver "más detalle" de un item del tab — abrir un sub-drawer o un popover.
