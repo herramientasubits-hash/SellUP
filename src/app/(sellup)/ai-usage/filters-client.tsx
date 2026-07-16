@@ -223,7 +223,7 @@ export function FiltersClient({
         value={currentPeriod || 'all'}
         onValueChange={(v) => setParam('period', v)}
       >
-        <SelectTrigger className="h-8 w-[160px] text-xs">
+        <SelectTrigger className="h-8 w-[172px] text-xs">
           <SelectValue placeholder="Período">{periodTriggerLabel}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -241,7 +241,7 @@ export function FiltersClient({
           value={currentProvider || 'all'}
           onValueChange={(v) => setParam('provider', v)}
         >
-          <SelectTrigger className="h-8 w-[160px] text-xs">
+          <SelectTrigger className="h-8 w-[172px] text-xs">
             <SelectValue placeholder="Proveedor">{providerTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -263,7 +263,7 @@ export function FiltersClient({
           value={currentAgent || 'all'}
           onValueChange={(v) => setParam('agent', v)}
         >
-          <SelectTrigger className="h-8 w-[200px] text-xs">
+          <SelectTrigger className="h-8 w-[172px] text-xs">
             <SelectValue placeholder="Agente">{agentTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -285,7 +285,7 @@ export function FiltersClient({
           value={currentStatus || 'all'}
           onValueChange={(v) => setParam('status', v)}
         >
-          <SelectTrigger className="h-8 w-[140px] text-xs">
+          <SelectTrigger className="h-8 w-[172px] text-xs">
             <SelectValue placeholder="Estado" className="capitalize">
               {statusTriggerLabel}
             </SelectValue>
@@ -306,7 +306,7 @@ export function FiltersClient({
       {/* Rol (perfil del usuario) */}
       {options.roles.length > 0 && (
         <Select value={currentRole || 'all'} onValueChange={onRoleChange}>
-          <SelectTrigger className="h-8 w-[170px] text-xs">
+          <SelectTrigger className="h-8 w-[172px] text-xs">
             <SelectValue placeholder="Rol">{roleTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -325,7 +325,7 @@ export function FiltersClient({
       {/* Grupo (estructura organizacional real) */}
       {options.groups.length > 0 && (
         <Select value={currentGroupId || 'all'} onValueChange={onGroupChange}>
-          <SelectTrigger className="h-8 w-[190px] text-xs">
+          <SelectTrigger className="h-8 w-[172px] text-xs">
             <SelectValue placeholder="Grupo">{groupTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -349,7 +349,7 @@ export function FiltersClient({
           value={currentUser || 'all'}
           onValueChange={(v) => setParam('user', v)}
         >
-          <SelectTrigger className="h-8 w-[180px] text-xs">
+          <SelectTrigger className="h-8 w-[172px] text-xs">
             <SelectValue placeholder="Usuario">{userTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -365,7 +365,7 @@ export function FiltersClient({
         </Select>
       ) : (
         <Select disabled value="none">
-          <SelectTrigger className="h-8 w-[180px] text-xs opacity-50 cursor-not-allowed">
+          <SelectTrigger className="h-8 w-[172px] text-xs opacity-50 cursor-not-allowed">
             <SelectValue placeholder="Sin usuarios" />
           </SelectTrigger>
         </Select>
