@@ -41,7 +41,11 @@ import {
   RD_DGII_RNC_TXT_ZIP_URL,
 } from './types';
 import { normalizeDominicanRnc } from './normalizers';
-import { deriveTaxRecordIdentity, validateRecordIdentityKey } from '../../record-identity';
+import {
+  deriveTaxRecordIdentity,
+  validateRecordIdentityKey,
+  RECORD_IDENTITY_ON_CONFLICT,
+} from '../../record-identity';
 import type { RecordIdentityKey } from '../../record-identity';
 
 const inflateRawAsync = promisify(inflateRaw);
@@ -432,7 +436,7 @@ export async function upsertChunk(
   rows: SnapshotRow[],
 ): Promise<{ upserted: number; error: string | null }> {
   const { error } = await supabase.from(SNAPSHOT_TABLE).upsert(rows as unknown[], {
-    onConflict: 'source_key,country_code,source_year,normalized_tax_id',
+    onConflict: RECORD_IDENTITY_ON_CONFLICT,
     ignoreDuplicates: false,
   });
 

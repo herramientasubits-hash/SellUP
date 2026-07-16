@@ -42,7 +42,7 @@ import {
 import {
   deriveTaxRecordIdentity,
   validateRecordIdentityKey,
-  OLD_TAX_GRAIN_ON_CONFLICT,
+  RECORD_IDENTITY_ON_CONFLICT,
 } from '../../../record-identity';
 
 // ── 1. Strict integer parsing ──────────────────────────────────────────────────
@@ -525,7 +525,7 @@ describe('record_identity_key shadow write (APP-A P2A)', () => {
     assert.equal(row1.normalized_tax_id, row2.normalized_tax_id);
   });
 
-  it('upsertChunk keeps the old tax-grain onConflict target (unchanged by shadow write)', async () => {
+  it('upsertChunk uses RECORD_IDENTITY_ON_CONFLICT as the conflict target (APP-D6 cutover)', async () => {
     const upsertCalls: Array<{ rows: unknown[]; options: Record<string, unknown> }> = [];
 
     const fakeSupabase = {
@@ -558,12 +558,12 @@ describe('record_identity_key shadow write (APP-A P2A)', () => {
 
     assert.equal(result.error, null);
     assert.equal(upsertCalls.length, 1);
-    assert.equal(upsertCalls[0]!.options['onConflict'], OLD_TAX_GRAIN_ON_CONFLICT);
+    assert.equal(upsertCalls[0]!.options['onConflict'], RECORD_IDENTITY_ON_CONFLICT);
     assert.equal(
       upsertCalls[0]!.options['onConflict'],
-      'source_key,country_code,source_year,normalized_tax_id',
+      'source_key,country_code,source_year,record_identity_key',
     );
-    // row still carries record_identity_key as a shadow column, not as the conflict target
+    // row still carries record_identity_key, which is now also the conflict target
     assert.equal((upsertCalls[0]!.rows[0] as { record_identity_key: unknown }).record_identity_key, 'tax:101000001');
   });
 
@@ -617,21 +617,19 @@ describe('record_identity_key boundary (APP-B P2B)', () => {
     assert.equal(validation.reason, 'missing_value');
   });
 
-  it('the P2B boundary source keeps the old onConflict target and does not reference RECORD_IDENTITY_ON_CONFLICT', () => {
+  it('the P2B boundary source uses RECORD_IDENTITY_ON_CONFLICT and no longer references the old tax-grain literal (APP-D6 cutover)', () => {
     const source = readFileSync(
       new URL('../import-rd-dgii-snapshot.ts', import.meta.url),
       'utf-8',
     );
     assert.ok(
-      source.includes(
+      !source.includes(
         "onConflict: 'source_key,country_code,source_year,normalized_tax_id'",
       ),
-      'debe conservar el conflict target viejo (OLD_TAX_GRAIN_ON_CONFLICT)',
+      'no debe conservar el conflict target viejo (OLD_TAX_GRAIN_ON_CONFLICT)',
     );
-    assert.ok(
-      !source.includes("onConflict: 'source_key,country_code,source_year,record_identity_key'"),
-    );
-    assert.ok(!source.includes('RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('onConflict: RECORD_IDENTITY_ON_CONFLICT'));
+    assert.ok(source.includes('RECORD_IDENTITY_ON_CONFLICT'));
     assert.ok(source.includes('validateRecordIdentityKey'));
   });
 });
