@@ -1,7 +1,9 @@
 'use client';
 
 import * as React from 'react';
+import { XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import {
   Sheet,
   SheetContent,
@@ -10,6 +12,7 @@ import {
   SheetDescription,
   SheetFooter,
   SheetTrigger,
+  SheetClose,
 } from '@/components/ui/sheet';
 
 export interface DrawerShellProps {
@@ -25,8 +28,10 @@ export interface DrawerShellProps {
   description?: React.ReactNode;
   /** Custom icon container for header */
   icon?: React.ReactNode;
-  /** Actions shown right-aligned in the header (badges, buttons, kebab).
-   *  Vertically centered; space for the close button is reserved automatically. */
+  /** Small badge/indicator shown inline right after the title (e.g. estado). */
+  titleBadge?: React.ReactNode;
+  /** Actions shown right-aligned in the header (buttons, kebab). The close
+   *  button is rendered inline at the end of this row, at the same level. */
   headerActions?: React.ReactNode;
   /** Drawer body content */
   children?: React.ReactNode;
@@ -86,6 +91,7 @@ export function DrawerShell({
   title,
   description,
   icon,
+  titleBadge,
   headerActions,
   children,
   footer,
@@ -98,6 +104,7 @@ export function DrawerShell({
   loading = false,
 }: DrawerShellProps) {
   const sizeClass = sideSizeClasses[side][size];
+  const hasHeader = Boolean(title || description || icon);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -105,13 +112,14 @@ export function DrawerShell({
       <SheetContent
         side={side}
         className={cn('flex flex-col gap-0 overflow-hidden !bg-background', sizeClass, className)}
-        showCloseButton={showCloseButton}
+        // Con header propio renderizamos el botón de cierre inline (misma fila
+        // que las acciones). Sin header, dejamos el cierre por defecto del Sheet.
+        showCloseButton={hasHeader ? false : showCloseButton}
       >
-        {/* Header — icon + title/description a la izquierda, acciones a la
-            derecha (slot dedicado), todo centrado verticalmente. El pr-14
-            reserva espacio para el botón de cierre (absolute top-3 right-3). */}
-        {(title || description || icon) && (
-          <SheetHeader className="shrink-0 border-b border-border/50 bg-muted/20 pb-5 pl-7 pr-14 pt-6">
+        {/* Header — icon + título (+ badge inline) a la izquierda; acciones y
+            botón de cierre a la derecha, todo en la misma fila y centrado. */}
+        {hasHeader && (
+          <SheetHeader className="shrink-0 border-b border-border/50 bg-muted/20 px-7 pb-5 pt-6">
             <div className="flex items-center gap-3">
               {icon && (
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
@@ -119,19 +127,38 @@ export function DrawerShell({
                 </div>
               )}
               <div className="min-w-0 flex-1 space-y-0.5">
-                {title && (
-                  <SheetTitle className="truncate text-base font-semibold leading-tight">
-                    {title}
-                  </SheetTitle>
-                )}
+                <div className="flex min-w-0 items-center gap-2">
+                  {title && (
+                    <SheetTitle className="truncate text-base font-semibold leading-tight">
+                      {title}
+                    </SheetTitle>
+                  )}
+                  {titleBadge && <span className="shrink-0">{titleBadge}</span>}
+                </div>
                 {description && (
                   <SheetDescription className="text-xs text-muted-foreground/70">
                     {description}
                   </SheetDescription>
                 )}
               </div>
-              {headerActions && (
-                <div className="flex shrink-0 items-center gap-2">{headerActions}</div>
+              {(headerActions || showCloseButton) && (
+                <div className="flex shrink-0 items-center gap-2">
+                  {headerActions}
+                  {showCloseButton && (
+                    <SheetClose
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label="Cerrar"
+                        />
+                      }
+                    >
+                      <XIcon className="h-4 w-4" />
+                    </SheetClose>
+                  )}
+                </div>
               )}
             </div>
           </SheetHeader>

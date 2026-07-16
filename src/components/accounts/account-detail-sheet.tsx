@@ -154,15 +154,19 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         icon={<Building2 className="h-5 w-5 text-su-brand" />}
         title={data ? data.account.name : 'Cargando cuenta...'}
         description={data ? (data.account.legal_name || undefined) : undefined}
+        titleBadge={
+          data ? (
+            <Badge
+              variant="outline"
+              className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
+            >
+              {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
+            </Badge>
+          ) : undefined
+        }
         headerActions={
           data ? (
             <>
-              <Badge
-                variant="outline"
-                className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
-              >
-                {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
-              </Badge>
               <AccountEnrichContactsButton
                 preloadedCompany={{
                   name: data.account.name,
