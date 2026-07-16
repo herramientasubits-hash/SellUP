@@ -51,15 +51,18 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Radius — alineado con plantilla-proyectos-shadcn (UBITS)
-     sm 10px · md 14px (base) · lg 20px · xl 28px · 2xl 32px · 3xl 42px · 4xl 56px */
-  --radius-sm: 0.625rem;
-  --radius-md: 0.875rem;
-  --radius-lg: 1.25rem;
-  --radius-xl: 1.75rem;
-  --radius-2xl: 2rem;
-  --radius-3xl: 2.625rem;
-  --radius-4xl: 3.5rem;
+  /* Radius — escala operativa Design Refresh v1.
+     La escala anterior (sm 10 · md 14 · lg 20 · xl 28 · 2xl 32) inflaba cards y
+     contenedores de datos; con listas/tablas dentro se veían "globo".
+     Nueva escala: sm 6px · md 8px (base) · lg 12px · xl 16px · 2xl 20px · 3xl 24px · 4xl 32px.
+     rounded-full se mantiene para pills, badges y avatares. */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
+  --radius-4xl: 2rem;
 
   /* SellUp — tokens semánticos de marca */
   --color-su-brand: var(--su-brand);
@@ -145,8 +148,8 @@
   --chart-4: oklch(0.55 0.12 200);
   --chart-5: oklch(0.65 0.10 170);
 
-  /* Radius — 14px to match template */
-  --radius: 0.875rem;
+  /* Radius base — 8px (Design Refresh v1: inputs y botones nítidos) */
+  --radius: 0.5rem;
 
   /* Sidebar — UBITS surface-nav (#111827) — deep navy */
   --sidebar: oklch(0.210 0.032 265);
@@ -208,9 +211,11 @@
   --secondary: oklch(0.279 0.037 260);
   --secondary-foreground: oklch(0.949 0.002 248);
 
-  /* Muted — UBITS #151c2e */
+  /* Muted — UBITS #151c2e.
+     muted-foreground subido de 0.658 → 0.72 (Design Refresh v1): el texto
+     secundario era casi ilegible sobre fondos navy profundos. */
   --muted: oklch(0.229 0.037 267);
-  --muted-foreground: oklch(0.658 0.012 257);
+  --muted-foreground: oklch(0.72 0.012 257);
 
   /* Accent — UBITS #2a3449 (hover/active) */
   --accent: oklch(0.326 0.040 265);
@@ -224,9 +229,10 @@
   --warning: oklch(0.808 0.158 72);
   --success: oklch(0.720 0.165 142);
 
-  /* Borders — UBITS #3d4555 */
-  --border: oklch(0.390 0.029 264);
-  --input: oklch(0.397 0.024 263);
+  /* Borders — subidos ligeramente (0.39 → 0.42) para que las superficies
+     dark recuperen definición; muchos usos van con /30-/60 de opacidad. */
+  --border: oklch(0.42 0.029 264);
+  --input: oklch(0.42 0.024 263);
   --ring: oklch(0.564 0.221 266 / 50%);
 
   /* Charts — luminous in dark */
@@ -644,22 +650,24 @@
   }
   .su-table thead {
     background: color-mix(in oklab, var(--muted) 50%, transparent);
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   }
   .su-table thead th {
-    height: 2.5rem;
+    /* Design Refresh v1: header 11px→12px, tracking 0.06→0.04em, altura 40→44px.
+       El microtexto uppercase comprimido hacía ver las tablas "de juguete". */
+    height: 2.75rem;
     padding: 0 0.75rem;
     text-align: left;
     vertical-align: middle;
     font-weight: 600;
     color: var(--muted-foreground);
     white-space: nowrap;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
   }
   .su-table tbody tr {
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 30%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
     transition: background-color 0.15s ease;
   }
   .su-table tbody tr:last-child {
@@ -672,7 +680,8 @@
     background: color-mix(in oklab, var(--su-brand) 8%, transparent);
   }
   .su-table tbody td {
-    padding: 0.75rem;
+    /* Más aire vertical (12px → 14px) para que las filas respiren */
+    padding: 0.875rem 0.75rem;
     vertical-align: middle;
     overflow: hidden;
   }
