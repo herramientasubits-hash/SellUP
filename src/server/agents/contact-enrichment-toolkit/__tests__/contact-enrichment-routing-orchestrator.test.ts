@@ -18,6 +18,15 @@ import type { ContactEnrichmentRoutingConfigV1 } from '@/modules/contact-enrichm
 import { CONTACT_ENRICHMENT_ROUTING_V1_AUTOMATIC_POLICY_VERSION } from '@/modules/contact-enrichment-routing/routing-config.server';
 import type { AttemptCreationResult } from '@/modules/contact-enrichment/request-attempt-types';
 import { APOLLO_NOT_CONNECTED_REASON } from '../apollo-people-adapter';
+import {
+  assertAutomaticRoutingEnvironmentIsSafe,
+  PRODUCTION_SUPABASE_HOST,
+} from '@/lib/supabase/env-guard.server';
+
+/** Real GAP-3 guard bound to a caller-supplied env-like object — no process.env mutation. */
+function envGuardFor(env: Record<string, string | undefined>): (enabled: boolean) => void {
+  return (enabled: boolean) => assertAutomaticRoutingEnvironmentIsSafe(enabled, env);
+}
 
 const EVALUATED_AT = '2026-07-15T00:00:00.000Z';
 
@@ -88,6 +97,7 @@ interface RecordedCalls {
   isFallbackAvailable: number;
   createFallback: number;
   runLusha: number;
+  assertEnvironmentSafe: number;
   writeTelemetry: Array<{ attemptId: string; columns: unknown; summary: unknown }>;
 }
 
@@ -101,11 +111,19 @@ function harness(
     isFallbackAvailable: 0,
     createFallback: 0,
     runLusha: 0,
+    assertEnvironmentSafe: 0,
     writeTelemetry: [],
   };
 
   const deps: AutomaticRoutingOrchestratorDeps = {
     getConfig: () => config,
+    // Default: treat the environment as safe. The GAP-3 env guard is
+    // exercised directly against the real assert with simulated env in the
+    // dedicated "environment guard" describe block below — routing-logic
+    // tests must not depend on process.env being configured.
+    assertEnvironmentSafe: () => {
+      calls.assertEnvironmentSafe += 1;
+    },
     resolveAttempt1: async () => {
       calls.resolveAttempt1 += 1;
       return { outcome: 'execute', attemptId: 'attempt-1' };
@@ -156,6 +174,8 @@ describe('runAutomaticContactEnrichmentFallbackForRequest', () => {
     assert.equal(calls.createFallback, 0);
     assert.equal(calls.runLusha, 0);
     assert.equal(calls.writeTelemetry.length, 0);
+    // Flag-off is a no-op that returns BEFORE the environment guard runs.
+    assert.equal(calls.assertEnvironmentSafe, 0);
   });
 
   it('B — Apollo success with reviewable candidates: no fallback, no attempt_order=2', async () => {
@@ -350,6 +370,7 @@ describe('runAutomaticContactEnrichmentFallbackForRequest', () => {
 
     const makeDeps = (): AutomaticRoutingOrchestratorDeps => ({
       getConfig: () => config,
+      assertEnvironmentSafe: () => {},
       resolveAttempt1: async () => ({ outcome: 'execute', attemptId: 'attempt-1' }),
       runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
       isFallbackProviderAvailable: async () => true,
@@ -489,5 +510,108 @@ describe('runAutomaticContactEnrichmentFallbackForRequest', () => {
 
     assert.equal(result.outcome, 'invalid_policy');
     assert.equal(calls.resolveAttempt1, 0);
+  });
+});
+
+describe('runAutomaticContactEnrichmentFallbackForRequest — GAP-3 environment guard', () => {
+  const PROD_URL = `https://${PRODUCTION_SUPABASE_HOST}`;
+
+  it('flag ON + unsafe env (Preview resolving to production Supabase): rejects before any effect', async () => {
+    const config = baseConfig();
+    const { deps, calls } = harness(config, {
+      assertEnvironmentSafe: envGuardFor({
+        VERCEL_ENV: 'preview',
+        NEXT_PUBLIC_SUPABASE_URL: PROD_URL,
+        SUPABASE_SERVICE_ROLE_KEY: 'fake-service-role-key',
+      }),
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(
+      { requestId: 'req-1', triggeredBy: 'user-1', evaluatedAt: EVALUATED_AT },
+      deps,
+    );
+
+    assert.equal(result.outcome, 'unsafe_environment');
+    assert.equal(result.automaticRoutingEnabled, true);
+    assert.equal(result.blockedReason, 'non_production_environment_targets_production_supabase');
+    assert.equal(result.attempt1, null);
+    assert.equal(result.attempt2, null);
+    assert.equal(result.fallbackExecuted, false);
+    // Nothing effectful ran: no attempt resolution, no provider calls, no telemetry.
+    assert.equal(calls.resolveAttempt1, 0);
+    assert.equal(calls.runApollo, 0);
+    assert.equal(calls.createFallback, 0);
+    assert.equal(calls.runLusha, 0);
+    assert.equal(calls.writeTelemetry.length, 0);
+  });
+
+  it('flag ON + missing Supabase URL: rejects before any effect', async () => {
+    const config = baseConfig();
+    const { deps, calls } = harness(config, {
+      assertEnvironmentSafe: envGuardFor({
+        SUPABASE_SERVICE_ROLE_KEY: 'fake-service-role-key',
+      }),
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(
+      { requestId: 'req-1', triggeredBy: 'user-1', evaluatedAt: EVALUATED_AT },
+      deps,
+    );
+
+    assert.equal(result.outcome, 'unsafe_environment');
+    assert.equal(result.blockedReason, 'missing_supabase_url');
+    assert.equal(calls.resolveAttempt1, 0);
+    assert.equal(calls.runApollo, 0);
+    assert.equal(calls.createFallback, 0);
+    assert.equal(calls.runLusha, 0);
+    assert.equal(calls.writeTelemetry.length, 0);
+  });
+
+  it('flag ON + missing service role key: rejects before any effect', async () => {
+    const config = baseConfig();
+    const { deps, calls } = harness(config, {
+      assertEnvironmentSafe: envGuardFor({
+        NEXT_PUBLIC_SUPABASE_URL: 'https://preview-project.supabase.co',
+      }),
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(
+      { requestId: 'req-1', triggeredBy: 'user-1', evaluatedAt: EVALUATED_AT },
+      deps,
+    );
+
+    assert.equal(result.outcome, 'unsafe_environment');
+    assert.equal(result.blockedReason, 'missing_service_role_key');
+    assert.equal(calls.resolveAttempt1, 0);
+    assert.equal(calls.runApollo, 0);
+    assert.equal(calls.createFallback, 0);
+    assert.equal(calls.runLusha, 0);
+    assert.equal(calls.writeTelemetry.length, 0);
+  });
+
+  it('flag ON + safe env (isolated non-production project, real guard): fallback proceeds with mocked deps', async () => {
+    const config = baseConfig();
+    const { deps, calls } = harness(config, {
+      // Real guard, but pointed at a non-production, fully-configured project:
+      // it passes, and the existing zero-reviewable→fallback logic runs.
+      assertEnvironmentSafe: envGuardFor({
+        NEXT_PUBLIC_SUPABASE_URL: 'https://preview-project.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'fake-service-role-key',
+      }),
+      runApolloAttempt: async () => {
+        calls.runApollo += 1;
+        return apolloResult({ candidatesCreated: 0, providerStatus: 'success' });
+      },
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(
+      { requestId: 'req-1', triggeredBy: 'user-1', evaluatedAt: EVALUATED_AT },
+      deps,
+    );
+
+    assert.equal(result.outcome, 'fallback_executed');
+    assert.equal(result.fallbackExecuted, true);
+    assert.equal(calls.createFallback, 1);
+    assert.equal(calls.runLusha, 1);
   });
 });
