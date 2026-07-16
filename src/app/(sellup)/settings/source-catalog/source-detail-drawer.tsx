@@ -432,7 +432,7 @@ export function SourceDetailDrawer({
     >
       {isRues ? (
         <Tabs defaultValue="info" className="w-full">
-          <TabsList variant="segmented" className="mx-7 mt-4">
+          <TabsList variant="segmented" className="mb-2">
             <TabsTrigger value="info"><Info className="h-4 w-4" /> Información</TabsTrigger>
             <TabsTrigger value="batches">
               <Layers className="h-4 w-4" /> Lotes
