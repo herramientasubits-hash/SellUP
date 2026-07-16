@@ -271,8 +271,10 @@ export function SelectableUsersList({
         </div>
       )}
 
-      {/* User rows */}
-      <div className="space-y-2">
+      {/* User rows — Design Refresh v2: lista cohesiva con filas divididas
+          (antes eran cards individuales flotantes, inconsistente con el resto
+          de tablas de la app). */}
+      <div className="overflow-hidden rounded-xl border border-border/60 bg-card divide-y divide-border/40">
         {users.map(user => {
           const statusBadge = getStatusBadge(user.access_status);
           const isSelected = selectedIds.includes(user.id);
@@ -280,8 +282,8 @@ export function SelectableUsersList({
           return (
             <div
               key={user.id}
-              className={`flex items-center gap-3 rounded-xl border bg-card p-4 transition-colors ${
-                isSelected ? 'border-su-brand/40 bg-su-brand-soft/20' : 'border-border/50 hover:border-border/80'
+              className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+                isSelected ? 'bg-su-brand-soft/25' : 'hover:bg-muted/30'
               }`}
             >
             {isAdmin && bulkActions.length > 0 && (
