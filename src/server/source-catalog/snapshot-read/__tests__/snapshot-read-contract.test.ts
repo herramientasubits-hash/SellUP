@@ -23,6 +23,7 @@ import {
   DEFAULT_SNAPSHOT_SELECT_COLUMNS,
   SnapshotReadQueryError,
   probeNativeSnapshotsByTaxId,
+  readLatestTaxGrainSnapshotByTaxId,
   readSnapshotByRecordIdentityKey,
   readTaxGrainSnapshotByTaxId,
   type SnapshotReadClient,
@@ -54,6 +55,7 @@ function row(overrides: Partial<FakeSnapshotRow> = {}): FakeSnapshotRow {
 interface QueryCallLog {
   selectColumns: string[];
   eq: Array<[string, unknown]>;
+  order: Array<[string, boolean]>;
   limit: number[];
   maybeSingleCalls: number;
 }
@@ -63,7 +65,13 @@ function createSpyClient(rows: readonly FakeSnapshotRow[]): {
   log: QueryCallLog;
 } {
   const fake = createFakeSnapshotSupabaseClient(rows);
-  const log: QueryCallLog = { selectColumns: [], eq: [], limit: [], maybeSingleCalls: 0 };
+  const log: QueryCallLog = {
+    selectColumns: [],
+    eq: [],
+    order: [],
+    limit: [],
+    maybeSingleCalls: 0,
+  };
 
   function wrap(
     underlying: ReturnType<ReturnType<typeof createFakeSnapshotSupabaseClient>['from']>,
@@ -72,6 +80,12 @@ function createSpyClient(rows: readonly FakeSnapshotRow[]): {
       eq(column, value) {
         log.eq.push([column, value]);
         underlying.eq(column, value);
+        return wrapped;
+      },
+      order(column, options) {
+        const ascending = options?.ascending ?? true;
+        log.order.push([column, ascending]);
+        underlying.order(column, { ascending });
         return wrapped;
       },
       limit(count) {
@@ -117,6 +131,7 @@ function createErroringClient(
 ): SnapshotReadClient<FakeSnapshotRow> {
   const query: SnapshotReadFilterableQuery<FakeSnapshotRow> = {
     eq: () => query,
+    order: () => query,
     limit: () => query,
     maybeSingle: async () => ({ data: null, error }),
     then<TResult1 = SnapshotReadListResponse<FakeSnapshotRow>, TResult2 = never>(
@@ -397,6 +412,178 @@ describe('readTaxGrainSnapshotByTaxId', () => {
     if (result.status === 'FOUND') {
       assert.equal(result.row.record_identity_key, 'tax:2026');
     }
+  });
+});
+
+// ── 2b. readLatestTaxGrainSnapshotByTaxId ────────────────────────────────────
+
+describe('readLatestTaxGrainSnapshotByTaxId', () => {
+  it('L1: TAX_GRAIN con 0 filas → RECORD_IDENTITY_NOT_FOUND', async () => {
+    const { client } = createSpyClient([]);
+    const result = await readLatestTaxGrainSnapshotByTaxId({
+      client,
+      sourceKey: TAX_SOURCE,
+      countryCode: COUNTRY,
+      normalizedTaxId: TAX_ID,
+    });
+    assert.equal(result.status, 'RECORD_IDENTITY_NOT_FOUND');
+  });
+
+  it('L2: TAX_GRAIN con 1 fila → FOUND', async () => {
+    const { client } = createSpyClient([
+      row({ source_year: 2026, record_identity_key: 'tax:only' }),
+    ]);
+    const result = await readLatestTaxGrainSnapshotByTaxId({
+      client,
+      sourceKey: TAX_SOURCE,
+      countryCode: COUNTRY,
+      normalizedTaxId: TAX_ID,
+    });
+    assert.equal(result.status, 'FOUND');
+    if (result.status === 'FOUND') {
+      assert.equal(result.row.record_identity_key, 'tax:only');
+    }
+  });
+
+  it('L3: dos filas de años distintos → FOUND con el año más reciente', async () => {
+    const { client } = createSpyClient([
+      row({ source_year: 2025, record_identity_key: 'tax:2025' }),
+      row({ source_year: 2027, record_identity_key: 'tax:2027' }),
+    ]);
+    const result = await readLatestTaxGrainSnapshotByTaxId({
+      client,
+      sourceKey: TAX_SOURCE,
+      countryCode: COUNTRY,
+      normalizedTaxId: TAX_ID,
+    });
+    assert.equal(result.status, 'FOUND');
+    if (result.status === 'FOUND') {
+      assert.equal(result.row.source_year, 2027);
+      assert.equal(result.row.record_identity_key, 'tax:2027');
+    }
+  });
+
+  it('L3b: tres filas con año más reciente único → FOUND ese año (duplicado en año viejo es irrelevante)', async () => {
+    const { client } = createSpyClient([
+      row({ source_year: 2025, record_identity_key: 'tax:2025-a' }),
+      row({ source_year: 2025, record_identity_key: 'tax:2025-b' }),
+      row({ source_year: 2027, record_identity_key: 'tax:2027' }),
+    ]);
+    const result = await readLatestTaxGrainSnapshotByTaxId({
+      client,
+      sourceKey: TAX_SOURCE,
+      countryCode: COUNTRY,
+      normalizedTaxId: TAX_ID,
+    });
+    assert.equal(result.status, 'FOUND');
+    if (result.status === 'FOUND') {
+      assert.equal(result.row.source_year, 2027);
+    }
+  });
+
+  it('L4: dos filas del mismo source_year → SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION', async () => {
+    const { client } = createSpyClient([
+      row({ source_year: 2027, record_identity_key: 'tax:a' }),
+      row({ source_year: 2027, record_identity_key: 'tax:b' }),
+    ]);
+    const result = await readLatestTaxGrainSnapshotByTaxId({
+      client,
+      sourceKey: TAX_SOURCE,
+      countryCode: COUNTRY,
+      normalizedTaxId: TAX_ID,
+    });
+    assert.equal(result.status, 'SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION');
+    if (result.status === 'SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION') {
+      assert.equal(result.sourceKey, TAX_SOURCE);
+      assert.equal(result.countryCode, COUNTRY);
+      assert.equal(result.sourceYear, 2027);
+      assert.equal(result.normalizedTaxId, TAX_ID);
+      assert.equal(result.recordCount, 2);
+    }
+  });
+
+  it('L5: NATIVE_RECORD_GRAIN pasado al latest lookup → fail-closed (throw)', async () => {
+    const { client } = createSpyClient([]);
+    await assert.rejects(
+      () =>
+        readLatestTaxGrainSnapshotByTaxId({
+          client,
+          sourceKey: NATIVE_SOURCE,
+          countryCode: 'PA',
+          normalizedTaxId: TAX_ID,
+        }),
+      (err: unknown) =>
+        err instanceof SnapshotReadQueryError && /non-TAX_GRAIN/.test(err.message),
+    );
+  });
+
+  it('L6: source_key desconocido → fail-closed (throw)', async () => {
+    const { client } = createSpyClient([]);
+    await assert.rejects(
+      () =>
+        readLatestTaxGrainSnapshotByTaxId({
+          client,
+          sourceKey: 'unregistered_source',
+          countryCode: COUNTRY,
+          normalizedTaxId: TAX_ID,
+        }),
+      /Unknown source family/,
+    );
+  });
+
+  it('L7: normalizedTaxId vacío/null → IDENTITY_UNAVAILABLE (missing_tax_id), sin query', async () => {
+    for (const bad of ['', '   ', null, undefined]) {
+      const { client, log } = createSpyClient([]);
+      const result = await readLatestTaxGrainSnapshotByTaxId({
+        client,
+        sourceKey: TAX_SOURCE,
+        countryCode: COUNTRY,
+        normalizedTaxId: bad,
+      });
+      assert.equal(result.status, 'IDENTITY_UNAVAILABLE');
+      if (result.status === 'IDENTITY_UNAVAILABLE') {
+        assert.equal(result.reason, 'missing_tax_id');
+      }
+      assert.equal(log.selectColumns.length, 0);
+    }
+  });
+
+  it('L8/L9/L10: usa order(source_year desc) + limit(2), nunca maybeSingle, sin fijar source_year', async () => {
+    const { client, log } = createSpyClient([
+      row({ source_year: 2026, record_identity_key: 'tax:k' }),
+    ]);
+    await readLatestTaxGrainSnapshotByTaxId({
+      client,
+      sourceKey: TAX_SOURCE,
+      countryCode: COUNTRY,
+      normalizedTaxId: TAX_ID,
+    });
+    // order by source_year descending
+    assert.deepEqual(log.order, [['source_year', false]]);
+    // limit(2) probe, never limit(1).maybeSingle()
+    assert.deepEqual(log.limit, [2]);
+    assert.equal(log.maybeSingleCalls, 0);
+    // filters by source_key/country_code/normalized_tax_id but NOT source_year
+    assert.deepEqual(log.eq, [
+      ['source_key', TAX_SOURCE],
+      ['country_code', COUNTRY],
+      ['normalized_tax_id', TAX_ID],
+    ]);
+    assert.ok(!log.eq.some(([column]) => column === 'source_year'));
+  });
+
+  it('L11: error DB/PostgREST → throw SnapshotReadQueryError (no NOT_FOUND)', async () => {
+    const client = createErroringClient({ code: 'XX000', message: 'boom' });
+    await assert.rejects(
+      () =>
+        readLatestTaxGrainSnapshotByTaxId({
+          client,
+          sourceKey: TAX_SOURCE,
+          countryCode: COUNTRY,
+          normalizedTaxId: TAX_ID,
+        }),
+      (err: unknown) => err instanceof SnapshotReadQueryError && err.code === 'XX000',
+    );
   });
 });
 

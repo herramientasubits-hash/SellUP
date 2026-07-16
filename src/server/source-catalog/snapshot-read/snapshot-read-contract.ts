@@ -58,8 +58,8 @@ export const MAX_REPORTED_RECORD_IDENTITY_KEYS = 25;
 // ── Minimal PostgREST client surface ────────────────────────────────────────
 // Structural subset of the supabase-js query builder that both the real client
 // and the APP-C2 fake satisfy. Intentionally tiny: only what these contracts
-// call. `order` is NOT part of the surface — these lookups pin an exact
-// source_year, they never "pick most recent".
+// call. `order` exists solely for the latest-year TAX_GRAIN lookup (APP-C3B),
+// which sorts by source_year desc; the source_year-pinned lookups never use it.
 
 /** PostgREST-shaped error. Only truthiness (and `code`) is load-bearing here. */
 export interface SnapshotReadPostgrestError {
@@ -82,6 +82,10 @@ export interface SnapshotReadSingleResponse<TRow> {
 export interface SnapshotReadFilterableQuery<TRow>
   extends PromiseLike<SnapshotReadListResponse<TRow>> {
   eq(column: string, value: unknown): SnapshotReadFilterableQuery<TRow>;
+  order(
+    column: string,
+    options?: { ascending?: boolean },
+  ): SnapshotReadFilterableQuery<TRow>;
   limit(count: number): SnapshotReadFilterableQuery<TRow>;
   maybeSingle(): Promise<SnapshotReadSingleResponse<TRow>>;
 }
@@ -141,6 +145,19 @@ export interface ReadTaxGrainSnapshotByTaxIdParams<TRow> extends CommonSnapshotK
   readonly selectColumns?: string;
 }
 
+/**
+ * Latest-year TAX_GRAIN lookup: deliberately has NO `sourceYear`. It resolves
+ * the most recent source_year for a fiscal id within (source_key,
+ * country_code), which is why it cannot extend CommonSnapshotKey.
+ */
+export interface ReadLatestTaxGrainSnapshotByTaxIdParams<TRow> {
+  readonly client: SnapshotReadClient<TRow>;
+  readonly sourceKey: string;
+  readonly countryCode: string;
+  readonly normalizedTaxId: string | null | undefined;
+  readonly selectColumns?: string;
+}
+
 export interface ProbeNativeSnapshotsByTaxIdParams<TRow> extends CommonSnapshotKey {
   readonly client: SnapshotReadClient<TRow>;
   readonly normalizedTaxId: string | null | undefined;
@@ -173,6 +190,12 @@ function throwOnQueryError(
       { code: error.code, context },
     );
   }
+}
+
+/** Reads a finite numeric source_year off a row, or null if unusable. */
+function readNumericSourceYear(row: SnapshotIdentityRow): number | null {
+  const value = row.source_year;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function collectBoundedRecordIdentityKeys<TRow extends SnapshotIdentityRow>(
@@ -327,6 +350,123 @@ export async function readTaxGrainSnapshotByTaxId<
     normalizedTaxId: normalized,
     recordCount: data.length,
   };
+}
+
+// ── 2b. latest-year tax-grain lookup by normalized tax id ───────────────────
+
+/**
+ * Reads the TAX_GRAIN snapshot row for a normalized tax id at its MOST RECENT
+ * source_year within (source_key, country_code). Fails closed if `sourceKey`
+ * is not TAX_GRAIN.
+ *
+ * This is the safe replacement for the legacy
+ * `order('source_year', desc).limit(1).maybeSingle()` "latest available year"
+ * pattern. It orders by source_year desc and probes with `.limit(2)` (NEVER
+ * `.limit(1).maybeSingle()`):
+ *
+ * - The two most-recent rows share the same source_year → the latest year is
+ *   ambiguous, i.e. more than one row for the fiscal id within that year. That
+ *   is a TAX_GRAIN family invariant violation, reported as such — never an
+ *   arbitrary silent pick.
+ * - They differ → `data[0]` is unambiguously the latest year, returned FOUND.
+ *
+ * `selectColumns` must include `source_year` (the default `*` does). If it is
+ * absent from both probed rows the contract throws rather than guess.
+ */
+export async function readLatestTaxGrainSnapshotByTaxId<
+  TRow extends SnapshotIdentityRow = SnapshotIdentityRow,
+>(
+  params: ReadLatestTaxGrainSnapshotByTaxIdParams<TRow>,
+): Promise<SnapshotReadResult<TRow>> {
+  const {
+    client,
+    sourceKey,
+    countryCode,
+    normalizedTaxId,
+    selectColumns = DEFAULT_SNAPSHOT_SELECT_COLUMNS,
+  } = params;
+
+  const family = getSourceFamily(sourceKey);
+  if (family !== 'TAX_GRAIN') {
+    throw new SnapshotReadQueryError(
+      `readLatestTaxGrainSnapshotByTaxId called for non-TAX_GRAIN source "${sourceKey}" (${family})`,
+      { context: { sourceKey, family } },
+    );
+  }
+
+  const normalized = normalizeRecordIdentityPart(normalizedTaxId);
+  if (normalized === null) {
+    return { status: 'IDENTITY_UNAVAILABLE', reason: 'missing_tax_id' };
+  }
+
+  const { data, error } = await client
+    .from(SNAPSHOT_TABLE)
+    .select(selectColumns)
+    .eq('source_key', sourceKey)
+    .eq('country_code', countryCode)
+    .eq('normalized_tax_id', normalized)
+    .order('source_year', { ascending: false })
+    .limit(2);
+
+  throwOnQueryError(error, {
+    lookup: 'readLatestTaxGrainSnapshotByTaxId',
+    sourceKey,
+    countryCode,
+    normalizedTaxId: normalized,
+  });
+
+  if (data === null) {
+    throw new SnapshotReadQueryError('Snapshot read returned no data and no error', {
+      context: {
+        lookup: 'readLatestTaxGrainSnapshotByTaxId',
+        sourceKey,
+        countryCode,
+        normalizedTaxId: normalized,
+      },
+    });
+  }
+
+  if (data.length === 0) {
+    return { status: 'RECORD_IDENTITY_NOT_FOUND' };
+  }
+
+  if (data.length === 1) {
+    return { status: 'FOUND', row: data[0] };
+  }
+
+  // Two rows probed, already ordered by source_year desc.
+  const latestYear = readNumericSourceYear(data[0]);
+  const runnerUpYear = readNumericSourceYear(data[1]);
+
+  if (latestYear === null || runnerUpYear === null) {
+    throw new SnapshotReadQueryError(
+      'readLatestTaxGrainSnapshotByTaxId cannot determine source_year for the latest row',
+      {
+        context: {
+          lookup: 'readLatestTaxGrainSnapshotByTaxId',
+          sourceKey,
+          countryCode,
+          normalizedTaxId: normalized,
+          hint: 'selectColumns must include source_year',
+        },
+      },
+    );
+  }
+
+  if (latestYear === runnerUpYear) {
+    // Ambiguous latest year: >1 row for the fiscal id within the most recent
+    // source_year. Report the violation, never pick arbitrarily.
+    return {
+      status: 'SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION',
+      sourceKey,
+      countryCode,
+      sourceYear: latestYear,
+      normalizedTaxId: normalized,
+      recordCount: data.length,
+    };
+  }
+
+  return { status: 'FOUND', row: data[0] };
 }
 
 // ── 3. native-grain multiplicity probe by normalized tax id ─────────────────
