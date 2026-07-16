@@ -224,9 +224,11 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                     <div className="grid gap-4 md:grid-cols-2">
                       <SurfaceCard>
                         <SurfaceCardHeader title="Datos de la empresa" />
+                        {/* Design Refresh v4: todos los campos siempre visibles
+                            (— si faltan) para una ficha consistente y menos vacía. */}
                         <dl className="space-y-3">
-                          {data.account.website && (
-                            <DetailRow icon={Globe} label="Sitio web">
+                          <DetailRow icon={Globe} label="Sitio web">
+                            {data.account.website ? (
                               <a
                                 href={data.account.website}
                                 target="_blank"
@@ -235,33 +237,29 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                               >
                                 {data.account.domain ?? data.account.website}
                               </a>
-                            </DetailRow>
-                          )}
-                          {(data.account.country ?? data.account.city) && (
-                            <DetailRow icon={MapPin} label="Ubicación">
-                              {[data.account.city, data.account.region, data.account.country]
-                                .filter(Boolean)
-                                .join(', ')}
-                            </DetailRow>
-                          )}
-                          {data.account.industry && (
-                            <DetailRow icon={Briefcase} label="Industria">
-                              {data.account.industry}
-                            </DetailRow>
-                          )}
-                          {data.account.company_size && (
-                            <DetailRow icon={Users} label="Tamaño">
-                              {data.account.company_size}
-                            </DetailRow>
-                          )}
-                          {data.account.tax_identifier && (
-                            <DetailRow
-                              icon={Hash}
-                              label={data.account.tax_identifier_type ?? 'ID fiscal'}
-                            >
-                              {data.account.tax_identifier}
-                            </DetailRow>
-                          )}
+                            ) : (
+                              <EmptyValue />
+                            )}
+                          </DetailRow>
+                          <DetailRow icon={MapPin} label="Ubicación">
+                            {[data.account.city, data.account.region, data.account.country]
+                              .filter(Boolean)
+                              .join(', ') || <EmptyValue />}
+                          </DetailRow>
+                          <DetailRow icon={Briefcase} label="Industria">
+                            {data.account.industry || <EmptyValue />}
+                          </DetailRow>
+                          <DetailRow icon={Users} label="Tamaño">
+                            {data.account.company_size || <EmptyValue />}
+                          </DetailRow>
+                          <DetailRow
+                            icon={Hash}
+                            label={data.account.tax_identifier_type ?? 'ID fiscal'}
+                          >
+                            {data.account.tax_identifier
+                              ? <span className="font-mono text-xs">{data.account.tax_identifier}</span>
+                              : <EmptyValue />}
+                          </DetailRow>
                           <DetailRow icon={Tag} label="Fuente">
                             <Badge variant="outline" className="text-[10px]">
                               {SOURCE_LABELS[data.account.source as AccountSource]}
@@ -278,9 +276,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                         <dl className="space-y-3">
                           <DetailRow icon={User} label="Owner">
                             {data.account.owner?.full_name ??
-                              data.account.owner?.email ?? (
-                                <span className="text-muted-foreground/50">Sin asignar</span>
-                              )}
+                              data.account.owner?.email ?? <EmptyValue>Sin asignar</EmptyValue>}
                           </DetailRow>
                           <DetailRow icon={Tag} label="Estado pipeline">
                             <span
@@ -289,17 +285,20 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                               {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
                             </span>
                           </DetailRow>
-                          {data.account.hubspot_company_id && (
-                            <DetailRow icon={Globe} label="HubSpot ID">
-                              <span className="font-mono text-xs">
-                                {data.account.hubspot_company_id}
-                              </span>
-                            </DetailRow>
-                          )}
+                          <DetailRow icon={Users} label="Contactos">
+                            {data.contacts.length > 0
+                              ? `${data.contacts.length}`
+                              : <EmptyValue />}
+                          </DetailRow>
+                          <DetailRow icon={Globe} label="HubSpot ID">
+                            {data.account.hubspot_company_id
+                              ? <span className="font-mono text-xs">{data.account.hubspot_company_id}</span>
+                              : <EmptyValue />}
+                          </DetailRow>
                         </dl>
                         {data.account.notes && (
                           <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                               Notas
                             </p>
                             <p className="text-xs text-muted-foreground leading-relaxed">
@@ -309,6 +308,55 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                         )}
                       </SurfaceCard>
                     </div>
+
+                    {/* Actividad reciente — llena el Resumen y da contexto sin
+                        cambiar de tab. Usa el mismo auditLog del tab Actividad. */}
+                    <SurfaceCard>
+                      <SurfaceCardHeader
+                        title="Actividad reciente"
+                        actions={
+                          data.auditLog.length > 3 ? (
+                            <span className="text-[11px] text-muted-foreground/70">
+                              {data.auditLog.length} eventos
+                            </span>
+                          ) : undefined
+                        }
+                      />
+                      {data.auditLog.length === 0 ? (
+                        <div className="flex flex-col items-center gap-2 py-8 text-center">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
+                            <Activity className="h-4 w-4 text-muted-foreground/40" />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Sin actividad registrada todavía.
+                          </p>
+                        </div>
+                      ) : (
+                        <ol className="space-y-3">
+                          {data.auditLog.slice(0, 4).map((entry) => {
+                            const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
+                            return (
+                              <li key={entry.id} className="flex items-start gap-3">
+                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
+                                  <Icon className="h-3.5 w-3.5 text-muted-foreground/70" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-foreground">
+                                    {AUDIT_ACTION_LABELS[entry.action_type]}
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground/70">
+                                    {entry.actor
+                                      ? `${entry.actor.full_name ?? entry.actor.email} · `
+                                      : ''}
+                                    {formatDate(entry.created_at)}
+                                  </p>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      )}
+                    </SurfaceCard>
                   </TabsContent>
 
                   {/* Contactos */}
@@ -423,4 +471,9 @@ function DetailRow({
       <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
     </div>
   );
+}
+
+/** Valor vacío consistente para campos sin dato (— o texto custom). */
+function EmptyValue({ children }: { children?: React.ReactNode }) {
+  return <span className="text-muted-foreground/40">{children ?? '—'}</span>;
 }
