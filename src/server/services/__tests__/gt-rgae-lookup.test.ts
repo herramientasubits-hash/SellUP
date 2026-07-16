@@ -19,7 +19,13 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { lookupGtRgaeByNit } from '../gt-rgae-lookup';
+import {
+  createFakeSnapshotSupabaseClient,
+  type FakeSnapshotRow,
+} from '../../source-catalog/snapshot-read/__tests__/snapshot-read-fake-supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -415,5 +421,94 @@ describe('environment — falta SUPABASE_SERVICE_ROLE_KEY', () => {
         process.env['SUPABASE_SERVICE_ROLE_KEY'] = savedKey;
       }
     }
+  });
+});
+
+// ── EC4D5.APP-C4B — cardinality-aware snapshot contract (faithful fake) ────────
+// The custom mock above never filters by eq/order; these cases use the shared
+// APP-C2 fake, which reproduces PostgREST filter→order→limit→cardinality, so
+// the contract's exact-year and latest-year probes are exercised faithfully.
+
+function fakeRow(overrides: Partial<FakeSnapshotRow> = {}): FakeSnapshotRow {
+  return {
+    source_key: 'gt_rgae_proveedores',
+    country_code: 'GT',
+    source_year: 2025,
+    normalized_tax_id: SAMPLE_NIT,
+    legal_name: 'EMPRESA GUATEMALTECA SOCIEDAD ANONIMA',
+    raw_data: VALID_RAW_DATA,
+    record_identity_key: null,
+    ...overrides,
+  };
+}
+
+function fakeClient(rows: readonly FakeSnapshotRow[]): SupabaseClient {
+  return createFakeSnapshotSupabaseClient(rows) as unknown as SupabaseClient;
+}
+
+describe('APP-C4B — snapshot contract via faithful fake', () => {
+  it('0 filas → not_found', async () => {
+    const r = await lookupGtRgaeByNit({ nit: SAMPLE_NIT }, fakeClient([]));
+    assert.equal(r.found, false);
+    assert.equal(r.reason, 'not_found');
+  });
+
+  it('1 fila → found con guardrails y shape externo', async () => {
+    const r = await lookupGtRgaeByNit({ nit: SAMPLE_NIT }, fakeClient([fakeRow()]));
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.equal(r.sourceYear, 2025);
+    assert.equal(r.supplierName, 'EMPRESA GUATEMALTECA SOCIEDAD ANONIMA');
+    assert.equal(r.legalValidationStatus, 'not_applicable');
+    assert.equal('raw_data' in r, false);
+  });
+
+  it('exact year: 2 filas mismo tax/source/year → snapshot_guardrail_violation', async () => {
+    const client = fakeClient([
+      fakeRow({ source_year: 2025, record_identity_key: 'a' }),
+      fakeRow({ source_year: 2025, record_identity_key: 'b' }),
+    ]);
+    const r = await lookupGtRgaeByNit({ nit: SAMPLE_NIT, sourceYear: 2025 }, client);
+    assert.equal(r.found, false);
+    assert.equal(r.reason, 'snapshot_guardrail_violation');
+    if (r.found) return;
+    assert.equal(r.guardrailField, 'duplicate_same_year_row');
+  });
+
+  it('latest-year: 2 años distintos → escoge el más reciente', async () => {
+    const client = fakeClient([
+      fakeRow({ source_year: 2023, record_identity_key: 'old' }),
+      fakeRow({ source_year: 2025, record_identity_key: 'new' }),
+      fakeRow({ source_year: 2024, record_identity_key: 'mid' }),
+    ]);
+    const r = await lookupGtRgaeByNit({ nit: SAMPLE_NIT }, client);
+    assert.equal(r.found, true);
+    if (!r.found) return;
+    assert.equal(r.sourceYear, 2025);
+  });
+
+  it('latest-year: 2 filas del mismo año → snapshot_guardrail_violation', async () => {
+    const client = fakeClient([
+      fakeRow({ source_year: 2025, record_identity_key: 'a' }),
+      fakeRow({ source_year: 2025, record_identity_key: 'b' }),
+    ]);
+    const r = await lookupGtRgaeByNit({ nit: SAMPLE_NIT }, client);
+    assert.equal(r.found, false);
+    assert.equal(r.reason, 'snapshot_guardrail_violation');
+    if (r.found) return;
+    assert.equal(r.guardrailField, 'duplicate_same_year_row');
+  });
+});
+
+// ── static: reader no longer uses .limit(1).maybeSingle ──────────────────────
+
+describe('gt-rgae-lookup — migrated off .limit(1).maybeSingle', () => {
+  it('reader code (comments stripped) contains neither maybeSingle nor .limit(1)', () => {
+    const raw = readFileSync(new URL('../gt-rgae-lookup.ts', import.meta.url), 'utf8');
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    assert.ok(!code.includes('maybeSingle'), 'reader must not call maybeSingle directly');
+    assert.ok(!code.includes('.limit(1)'), 'reader must not call .limit(1) directly');
   });
 });
