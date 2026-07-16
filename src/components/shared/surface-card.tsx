@@ -21,10 +21,10 @@ export function SurfaceCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border transition-all duration-200",
+        "rounded-xl border transition-all duration-200",
         elevated
           ? "border-su-border-strong/60 bg-su-surface-elevated shadow-md shadow-black/[0.05]"
-          : "border-border/50 bg-card shadow-[0_1px_3px_0_rgb(0_0_0/0.03),0_1px_2px_-1px_rgb(0_0_0/0.03)]",
+          : "border-border/60 bg-card shadow-[0_1px_3px_0_rgb(0_0_0/0.03),0_1px_2px_-1px_rgb(0_0_0/0.03)]",
         "hover:shadow-[0_4px_12px_0_rgb(0_0_0/0.05),0_1px_3px_-1px_rgb(0_0_0/0.04)]",
         "hover:border-border/70",
         onClick && "cursor-pointer hover:border-su-brand/30",

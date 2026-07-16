@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Link2, Search, Bot, Users, Activity, HardDrive, Database, Layers } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
+import { SurfaceCard } from "@/components/shared/surface-card";
 import { isCurrentUserAdmin, getUsersSummary, hasActiveAccess } from "@/modules/access/actions";
 import { getUserDriveConnection } from "@/modules/drive/actions";
 
@@ -91,13 +91,26 @@ export default async function SettingsPage() {
           const isPendingUsersSection = section.href === '/settings/users';
           const pendingCount = isPendingUsersSection && summary ? summary.pending : 0;
 
+          // Design Refresh v1: icono anclado a la izquierda del contenido
+          // (antes flotaba huérfano bajo el header) y sin pill "Funcional"
+          // repetido — el estado normal no se anuncia, solo las excepciones.
           const CardContent = (
-            <>
-              <SurfaceCardHeader
-                title={section.title}
-                description={section.description}
-                actions={
-                  <div className="flex items-center gap-2">
+            <div className="flex items-start gap-4">
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                  section.status === 'Funcional'
+                    ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
+                    : 'bg-accent/60 text-muted-foreground/40 group-hover:bg-su-brand/10 group-hover:text-su-brand/60'
+                }`}
+              >
+                <section.icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-sm font-semibold leading-tight text-foreground">
+                    {section.title}
+                  </h2>
+                  <div className="flex shrink-0 items-center gap-2">
                     {pendingCount > 0 && (
                       <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-500">
                         {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
@@ -108,43 +121,19 @@ export default async function SettingsPage() {
                         {section.badge}
                       </span>
                     )}
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
-                        section.status === 'Funcional'
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                          : 'border-border/40 bg-muted/30 text-muted-foreground/60'
-                      }`}
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          section.status === 'Funcional'
-                            ? 'bg-emerald-500'
-                            : 'bg-muted-foreground/25'
-                        }`}
-                      />
-                      {section.status}
-                    </span>
+                    {section.status !== 'Funcional' && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
+                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
+                        {section.status}
+                      </span>
+                    )}
                   </div>
-                }
-              />
-              <div className="flex items-center gap-3">
-                <div
-                  className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
-                    section.status === 'Funcional'
-                      ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
-                      : 'bg-accent/60 text-muted-foreground/40 group-hover:bg-su-brand/10 group-hover:text-su-brand/60'
-                  }`}
-                >
-                  <section.icon className="h-4 w-4" />
                 </div>
-                {section.status !== 'Funcional' && (
-                  <div className="flex-1 space-y-2">
-                    <div className="h-1.5 w-3/4 rounded-full su-skeleton" />
-                    <div className="h-1.5 w-1/2 rounded-full su-skeleton" />
-                  </div>
-                )}
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {section.description}
+                </p>
               </div>
-            </>
+            </div>
           );
 
           if (section.href) {
@@ -168,29 +157,33 @@ export default async function SettingsPage() {
         {isActive && (
           <Link href="/settings/my-drive">
             <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
-              <SurfaceCardHeader
-                title="Mi Google Drive"
-                description="Conecta tu Drive para guardar propuestas, business cases y archivos generados por SellUp en tu propio espacio de trabajo."
-                actions={
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
-                      driveConnected
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                        : 'border-border/40 bg-muted/30 text-muted-foreground/60'
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        driveConnected ? 'bg-emerald-500' : 'bg-muted-foreground/25'
-                      }`}
-                    />
-                    {driveConnected ? 'Conectado' : 'No conectado'}
-                  </span>
-                }
-              />
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl transition-colors bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20">
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand transition-colors group-hover:bg-su-brand/20">
                   <HardDrive className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="text-sm font-semibold leading-tight text-foreground">
+                      Mi Google Drive
+                    </h2>
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                        driveConnected
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                          : 'border-border/40 bg-muted/30 text-muted-foreground/60'
+                      }`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          driveConnected ? 'bg-emerald-500' : 'bg-muted-foreground/25'
+                        }`}
+                      />
+                      {driveConnected ? 'Conectado' : 'No conectado'}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Conecta tu Drive para guardar propuestas, business cases y archivos generados por SellUp en tu propio espacio de trabajo.
+                  </p>
                 </div>
               </div>
             </SurfaceCard>

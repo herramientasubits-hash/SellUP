@@ -3,30 +3,28 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { SurfaceCard } from "@/components/shared/surface-card";
 
+// Design Refresh v1: sin overlays de gradiente sobre la card (lavaban la
+// superficie) — la identidad de cada macroestado la da solo la barra de acento.
 const PIPELINE_STATES = [
   {
     label: "Preparación inicial",
-    count: "—",
-    gradient: "from-muted/60 to-muted/30",
-    accent: "bg-muted-foreground/20",
+    count: 0,
+    accent: "bg-muted-foreground/30",
   },
   {
     label: "Listos para profundizar",
-    count: "—",
-    gradient: "from-su-brand/10 to-su-brand/5",
-    accent: "bg-su-brand/30",
-  },
-  {
-    label: "Inteligencia lista",
-    count: "—",
-    gradient: "from-su-brand/15 to-su-accent-cool/10",
+    count: 0,
     accent: "bg-su-brand/50",
   },
   {
+    label: "Inteligencia lista",
+    count: 0,
+    accent: "bg-su-brand/80",
+  },
+  {
     label: "Preparados para contacto",
-    count: "—",
-    gradient: "from-su-success/10 to-su-brand/10",
-    accent: "bg-su-success/50",
+    count: 0,
+    accent: "bg-su-success/70",
   },
 ];
 
@@ -41,28 +39,21 @@ export default function PipelinePage() {
       {/* Kanban column cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {PIPELINE_STATES.map((state, i) => (
-          <SurfaceCard
-            key={state.label}
-            className="group relative min-h-[180px] overflow-hidden"
-          >
-            {/* Subtle gradient overlay */}
-            <div
-              className={`absolute inset-0 bg-gradient-to-br ${state.gradient} rounded-2xl opacity-60 transition-opacity group-hover:opacity-100`}
-            />
-            <div className="relative space-y-4">
+          <SurfaceCard key={state.label} className="group min-h-[170px]">
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground/70">
+                <p className="text-xs font-semibold text-foreground/80">
                   {state.label}
                 </p>
-                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-card/60 text-[10px] font-bold text-muted-foreground/40">
+                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-muted/60 text-[10px] font-bold text-muted-foreground">
                   {i + 1}
                 </span>
               </div>
               <div className={`h-1 w-full rounded-full ${state.accent}`} />
-              <p className="text-3xl font-bold tracking-tight text-muted-foreground/25">
+              <p className="text-3xl font-bold tracking-tight text-foreground/85 tabular-nums">
                 {state.count}
               </p>
-              <p className="text-[11px] text-muted-foreground/40">
+              <p className="text-[11px] text-muted-foreground/70">
                 Sin cuentas todavía
               </p>
             </div>

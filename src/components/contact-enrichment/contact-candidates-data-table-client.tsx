@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Mail, Phone, Link2, Building2, Globe, UserSearch } from 'lucide-react';
+import { Link2, Building2, Globe, UserSearch } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { DataTable, DataTableColumnHeader, type DataTableBulkAction } from '@/components/data-table';
@@ -37,12 +37,14 @@ const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
   insufficient_data: 'Datos insuficientes',
 };
 
-const RELEVANCE_STYLES: Record<ContactRelevanceStatus, string> = {
-  high_relevance: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  medium_relevance: 'bg-su-brand-soft text-su-brand',
-  low_relevance: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  not_relevant: 'bg-muted text-muted-foreground',
-  insufficient_data: 'bg-muted text-muted-foreground',
+// Design Refresh v1: la relevancia se muestra como punto de color + texto
+// plano (sin badge) — máximo un elemento de color fuerte por fila.
+const RELEVANCE_DOTS: Record<ContactRelevanceStatus, string> = {
+  high_relevance: 'bg-emerald-500',
+  medium_relevance: 'bg-su-brand',
+  low_relevance: 'bg-amber-500',
+  not_relevant: 'bg-border',
+  insufficient_data: 'bg-border',
 };
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -63,32 +65,19 @@ function toPercent(score: number | undefined): string | null {
   return `${Math.round(normalized)}%`;
 }
 
-function extractDomain(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const normalized = url.startsWith('http') ? url : `https://${url}`;
-    return new URL(normalized).hostname.replace(/^www\./, '').toLowerCase();
-  } catch {
-    return url;
-  }
-}
-
 // ── Cells ───────────────────────────────────────────────────────
 
 function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
-  const domain = extractDomain(candidate.linkedin_url);
+  // Design Refresh v1: 2 líneas máximo. LinkedIn pasa a icono junto al nombre;
+  // el canal secundario (email > teléfono) va en una sola línea legible.
+  // El detalle completo vive en el side panel del candidato.
+  const secondary = candidate.email ?? candidate.phone ?? null;
   return (
-    <div className="min-w-0 max-w-[260px] space-y-1">
-      <p className="text-sm font-semibold text-foreground line-clamp-2">
-        {candidate.full_name || 'Sin nombre'}
-      </p>
-      <div className="flex flex-col gap-0.5">
-        {candidate.email && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/80">
-            <Mail className="h-2.5 w-2.5 shrink-0" />
-            <span className="truncate">{candidate.email}</span>
-          </span>
-        )}
+    <div className="min-w-0 max-w-[260px] space-y-0.5">
+      <div className="flex items-center gap-1.5">
+        <p className="truncate text-sm font-semibold text-foreground">
+          {candidate.full_name || 'Sin nombre'}
+        </p>
         {candidate.linkedin_url && (
           <a
             href={
@@ -98,19 +87,17 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
             }
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
+            aria-label="Perfil de LinkedIn"
+            className="shrink-0 text-su-brand transition-colors hover:text-su-brand/70"
+            onClick={(e) => e.stopPropagation()}
           >
-            <Link2 className="h-2.5 w-2.5 shrink-0" />
-            <span className="truncate max-w-[160px]">{domain ?? 'LinkedIn'}</span>
+            <Link2 className="h-3 w-3" />
           </a>
         )}
-        {candidate.phone && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/80">
-            <Phone className="h-2.5 w-2.5 shrink-0" />
-            <span className="truncate">{candidate.phone}</span>
-          </span>
-        )}
       </div>
+      {secondary && (
+        <p className="truncate text-[11px] text-muted-foreground">{secondary}</p>
+      )}
     </div>
   );
 }
@@ -125,18 +112,13 @@ function RelevanceCell({ candidate }: { candidate: PendingContactCandidate }) {
   }
 
   return (
-    <div className="flex flex-col gap-0.5 w-fit">
-      <Badge
-        className={`${RELEVANCE_STYLES[status]} border-0 text-[10px] font-semibold w-fit py-0.5`}
-      >
-        {RELEVANCE_LABELS[status] ?? status}
-      </Badge>
+    <span className="flex w-fit items-center gap-1.5 text-xs text-foreground/85">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RELEVANCE_DOTS[status]}`} />
+      {RELEVANCE_LABELS[status] ?? status}
       {scoreLabel && (
-        <span className="text-[10px] text-muted-foreground/70 tabular-nums">
-          Score {scoreLabel}
-        </span>
+        <span className="tabular-nums text-muted-foreground/80">· {scoreLabel}</span>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -260,7 +242,7 @@ export function ContactCandidatesDataTableClient({
                 <span className="truncate">{c.company_name ?? 'Sin empresa'}</span>
               </span>
               {c.company_domain && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80">
                   <Globe className="h-2.5 w-2.5 shrink-0" />
                   <span className="truncate max-w-[160px]">{c.company_domain}</span>
                 </span>
@@ -325,9 +307,8 @@ export function ContactCandidatesDataTableClient({
         accessorKey: 'status',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
         cell: () => (
-          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold py-0.5">
-            Por revisar
-          </Badge>
+          // Todas las filas de este tab comparten estado — texto plano, sin badge
+          <span className="text-xs text-muted-foreground">Por revisar</span>
         ),
         size: 120,
         minSize: 100,

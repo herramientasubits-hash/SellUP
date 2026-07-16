@@ -15,13 +15,14 @@ function FeatureCard({ label, desc }: FeatureCardProps) {
   return (
     <div className="group flex-1 rounded-2xl px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[rgba(91,127,255,0.08)]"
       style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.06)',
+        // Editorial context: hardcoded for brand expression.
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(255,255,255,0.10)',
       }}
     >
       <div className="mb-2 h-0.5 w-6 rounded-full bg-[#5b7eff]/50 transition-all duration-300 group-hover:w-10 group-hover:bg-[#5b7eff]/80" />
       <p className="text-sm font-semibold leading-snug text-white/90">{label}</p>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/45">{desc}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-white/60">{desc}</p>
     </div>
   );
 }
