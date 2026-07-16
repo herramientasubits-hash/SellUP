@@ -25,6 +25,9 @@ export interface DrawerShellProps {
   description?: React.ReactNode;
   /** Custom icon container for header */
   icon?: React.ReactNode;
+  /** Actions shown right-aligned in the header (badges, buttons, kebab).
+   *  Vertically centered; space for the close button is reserved automatically. */
+  headerActions?: React.ReactNode;
   /** Drawer body content */
   children?: React.ReactNode;
   /** Custom footer content (replaces actions) */
@@ -83,6 +86,7 @@ export function DrawerShell({
   title,
   description,
   icon,
+  headerActions,
   children,
   footer,
   actions,
@@ -103,23 +107,32 @@ export function DrawerShell({
         className={cn('flex flex-col gap-0 overflow-hidden !bg-background', sizeClass, className)}
         showCloseButton={showCloseButton}
       >
-        {/* Header section with optional icon */}
+        {/* Header — icon + title/description a la izquierda, acciones a la
+            derecha (slot dedicado), todo centrado verticalmente. El pr-14
+            reserva espacio para el botón de cierre (absolute top-3 right-3). */}
         {(title || description || icon) && (
-          <SheetHeader className="shrink-0 border-b border-border/50 bg-muted/20 px-7 pb-5 pt-6">
-            <div className="flex items-start gap-3">
+          <SheetHeader className="shrink-0 border-b border-border/50 bg-muted/20 pb-5 pl-7 pr-14 pt-6">
+            <div className="flex items-center gap-3">
               {icon && (
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
                   {icon}
                 </div>
               )}
-              <div className="space-y-0.5 flex-1 min-w-0">
-                {title && <SheetTitle className="text-base font-semibold">{title}</SheetTitle>}
+              <div className="min-w-0 flex-1 space-y-0.5">
+                {title && (
+                  <SheetTitle className="truncate text-base font-semibold leading-tight">
+                    {title}
+                  </SheetTitle>
+                )}
                 {description && (
                   <SheetDescription className="text-xs text-muted-foreground/70">
                     {description}
                   </SheetDescription>
                 )}
               </div>
+              {headerActions && (
+                <div className="flex shrink-0 items-center gap-2">{headerActions}</div>
+              )}
             </div>
           </SheetHeader>
         )}

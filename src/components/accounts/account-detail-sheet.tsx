@@ -152,39 +152,37 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         side="right"
         className="w-full sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]"
         icon={<Building2 className="h-5 w-5 text-su-brand" />}
-        title={
-          data ? (
-            <div className="flex items-center justify-between gap-4 mr-6">
-              <span className="truncate">{data.account.name}</span>
-              <div className="flex items-center gap-2 shrink-0">
-                <Badge
-                  variant="outline"
-                  className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
-                >
-                  {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
-                </Badge>
-                <AccountEnrichContactsButton
-                  preloadedCompany={{
-                    name: data.account.name,
-                    domain: data.account.domain,
-                    country: data.account.country,
-                    countryCode: data.account.country_code,
-                    sellupAccountId: data.account.id,
-                    hubspotCompanyId: data.account.hubspot_company_id,
-                  }}
-                  disabled={data.account.pipeline_status === 'archived'}
-                  onRequestOpen={onRequestEnrich}
-                />
-                <AccountDetailActions
-                  accountId={data.account.id}
-                  currentStatus={data.account.pipeline_status}
-                  users={data.users}
-                />
-              </div>
-            </div>
-          ) : 'Cargando cuenta...'
-        }
+        title={data ? data.account.name : 'Cargando cuenta...'}
         description={data ? (data.account.legal_name || undefined) : undefined}
+        headerActions={
+          data ? (
+            <>
+              <Badge
+                variant="outline"
+                className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
+              >
+                {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
+              </Badge>
+              <AccountEnrichContactsButton
+                preloadedCompany={{
+                  name: data.account.name,
+                  domain: data.account.domain,
+                  country: data.account.country,
+                  countryCode: data.account.country_code,
+                  sellupAccountId: data.account.id,
+                  hubspotCompanyId: data.account.hubspot_company_id,
+                }}
+                disabled={data.account.pipeline_status === 'archived'}
+                onRequestOpen={onRequestEnrich}
+              />
+              <AccountDetailActions
+                accountId={data.account.id}
+                currentStatus={data.account.pipeline_status}
+                users={data.users}
+              />
+            </>
+          ) : undefined
+        }
       >
         {loading || !data ? (
           <div className="flex items-center justify-center py-20">
