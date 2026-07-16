@@ -191,8 +191,10 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
           </div>
         ) : (
+          // Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
+          // sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más).
           <Tabs defaultValue="resumen">
-                  <TabsList variant="segmented" className="mx-7 mt-4">
+                  <TabsList variant="segmented" className="mb-2">
                     <TabsTrigger value="resumen"><Building2 className="h-4 w-4" /> Resumen</TabsTrigger>
                     <TabsTrigger value="contactos"><Users className="h-4 w-4" /> Contactos</TabsTrigger>
                     <TabsTrigger value="inteligencia"><Brain className="h-4 w-4" /> Inteligencia</TabsTrigger>
@@ -407,17 +409,18 @@ function DetailRow({
   label: string;
   children: React.ReactNode;
 }) {
+  // Design Refresh v3: label en fila horizontal (label a la izquierda, valor a
+  // la derecha) para una lectura más tabular y ordenada; contraste del label
+  // subido de /50 a /70.
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground/50" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+    <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+        <dt className="text-[11px] font-medium text-muted-foreground/80">
           {label}
         </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
       </div>
+      <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
     </div>
   );
 }
