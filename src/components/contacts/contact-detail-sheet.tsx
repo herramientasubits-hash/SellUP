@@ -137,38 +137,40 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       side="right"
       className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
       icon={<User className="h-5 w-5 text-su-brand" />}
-      title={
+      title={contact ? contact.full_name : 'Cargando contacto...'}
+      titleBadge={
         contact ? (
-          <div className="flex items-center justify-between gap-4 mr-6">
-            <span className="truncate">{contact.full_name}</span>
-            <div className="flex items-center gap-2 shrink-0">
-              {contact.is_primary && (
-                <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                  Primario
-                </div>
-              )}
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
+            >
+              {CONTACT_STATUS_LABELS[contact.contact_status]}
+            </Badge>
+            {contact.is_primary && (
+              <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                Primario
+              </div>
+            )}
+            {contact.role_in_account && (
               <Badge
                 variant="outline"
-                className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
+                className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
               >
-                {CONTACT_STATUS_LABELS[contact.contact_status]}
+                {ROLE_LABELS[contact.role_in_account as ContactRole]}
               </Badge>
-              {contact.role_in_account && (
-                <Badge
-                  variant="outline"
-                  className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-                >
-                  {ROLE_LABELS[contact.role_in_account as ContactRole]}
-                </Badge>
-              )}
-              <ContactRowActions
-                contact={contact}
-                onActionComplete={() => loadData(contact.id)}
-              />
-            </div>
+            )}
           </div>
-        ) : 'Cargando contacto...'
+        ) : undefined
+      }
+      headerActions={
+        contact ? (
+          <ContactRowActions
+            contact={contact}
+            onActionComplete={() => loadData(contact.id)}
+          />
+        ) : undefined
       }
       description={
         contact ? (

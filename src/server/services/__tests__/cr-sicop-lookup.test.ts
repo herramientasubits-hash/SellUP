@@ -1,22 +1,56 @@
 /**
- * Tests — cr-sicop-lookup.ts — Centroamérica.4F
+ * Tests — cr-sicop-lookup.ts — Centroamérica.4F + EC4D5.APP-C4A
  *
  * Verifica:
  * - Normalización de cédula jurídica
  * - Guard de persona jurídica vs física
  * - Query local source_company_snapshots (source_key=cr_sicop, country_code=CR)
- * - matched / not_found / snapshot_unavailable
- * - Que NO se llama datos.go.cr ni Hacienda CR
+ * - matched / not_found / snapshot_unavailable / query_error
+ * - Migración APP-C4A a contrato cardinality-aware:
+ *   · 0 filas → no match (reason preservada)
+ *   · 1 fila → match (shape externo preservado)
+ *   · 2 filas mismo tax/source/year → cardinality violation (no pick arbitrario)
+ *   · latest-year con 2 años distintos → escoge el más reciente
+ *   · latest-year con 2 filas mismo año → cardinality violation
+ *   · el reader ya NO usa .limit(1).maybeSingle
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   normalizeCostaRicaCedulaForSicop,
   isLikelyCostaRicaLegalEntity,
   lookupCostaRicaSicopByCedula,
 } from '../cr-sicop-lookup';
-import type { CrSicopLookupResult } from '../cr-sicop-lookup';
+import {
+  createFakeSnapshotSupabaseClient,
+  type FakeSnapshotRow,
+} from '../../source-catalog/snapshot-read/__tests__/snapshot-read-fake-supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+const SOURCE_KEY = 'cr_sicop';
+const COUNTRY_CODE = 'CR';
+const CEDULA = '3101123456';
+
+function row(overrides: Partial<FakeSnapshotRow> = {}): FakeSnapshotRow {
+  return {
+    source_key: SOURCE_KEY,
+    country_code: COUNTRY_CODE,
+    source_year: 2024,
+    normalized_tax_id: CEDULA,
+    legal_name: 'EMPRESA TEST SA',
+    priority_score: 50,
+    signals: { total_records_year: 5, datasets_seen: ['ofertas_2024'], last_event_date: '2024-06-01' },
+    raw_data: { source_type: 'procurement_signal' },
+    record_identity_key: null,
+    ...overrides,
+  };
+}
+
+function fakeClient(rows: readonly FakeSnapshotRow[]): SupabaseClient {
+  return createFakeSnapshotSupabaseClient(rows) as unknown as SupabaseClient;
+}
 
 // ── normalizeCostaRicaCedulaForSicop ─────────────────────────────────────────
 
@@ -74,101 +108,107 @@ describe('isLikelyCostaRicaLegalEntity', () => {
   });
 });
 
-// ── lookupCostaRicaSicopByCedula — matched ────────────────────────────────────
+// ── invalid cédula (early return, no query) ──────────────────────────────────
 
-describe('lookupCostaRicaSicopByCedula — matched', () => {
-  it('queries source_key=cr_sicop and country_code=CR', async () => {
-    const captured: Record<string, unknown>[] = [];
+describe('lookupCostaRicaSicopByCedula — invalid cédula', () => {
+  it('returns invalid_cedula_format for empty cédula', async () => {
+    const result = await lookupCostaRicaSicopByCedula({ cedula: '' }, fakeClient([]));
+    assert.equal(result.matched, false);
+    assert.equal(result.reason, 'invalid_cedula_format');
+  });
+});
 
-    const mockSb = {
-      from: (table: string) => {
-        captured.push({ table });
-        return {
-          select: () => ({
-            eq: (_f: string, v: string) => {
-              captured.push({ eq: v });
-              return {
-                eq: (_f2: string, v2: string) => {
-                  captured.push({ eq: v2 });
-                  return {
-                    eq: (_f3: string, v3: string) => {
-                      captured.push({ eq: v3 });
-                      return {
-                        order: () => ({
-                          limit: () => ({
-                            maybeSingle: async () => ({
-                              data: {
-                                source_year: 2024,
-                                legal_name: 'EMPRESA TEST SA',
-                                normalized_tax_id: '3101123456',
-                                priority_score: 50,
-                                signals: { total_records_year: 5, datasets_seen: ['ofertas_2024'], last_event_date: '2024-06-01' },
-                                raw_data: { source_type: 'procurement_signal' },
-                              },
-                              error: null,
-                            }),
-                          }),
-                        }),
-                      };
-                    },
-                  };
-                },
-              };
-            },
-          }),
-        };
-      },
-    } as unknown as import('@supabase/supabase-js').SupabaseClient;
+// ── matched (1 fila) — shape externo preservado ──────────────────────────────
 
-    const result = await lookupCostaRicaSicopByCedula({ cedula: '3101123456' }, mockSb);
+describe('lookupCostaRicaSicopByCedula — matched (1 row)', () => {
+  it('queries source_key=cr_sicop / country_code=CR and returns matched with signals', async () => {
+    // Decoys under other source_key / country / tax must not be selected.
+    const client = fakeClient([
+      row(),
+      row({ source_key: 'do_dgcp', country_code: 'DO', normalized_tax_id: CEDULA, legal_name: 'OTRA' }),
+      row({ normalized_tax_id: '3999999999', legal_name: 'NO MATCH' }),
+    ]);
+
+    const result = await lookupCostaRicaSicopByCedula({ cedula: '3-101-123456' }, client);
 
     assert.equal(result.matched, true);
     assert.equal(result.source_year, 2024);
     assert.equal(result.legal_name, 'EMPRESA TEST SA');
-    assert.equal(result.normalized_tax_id, '3101123456');
+    assert.equal(result.normalized_tax_id, CEDULA);
     assert.equal(result.total_records_year, 5);
     assert.deepEqual(result.datasets_seen, ['ofertas_2024']);
     assert.equal(result.last_event_date, '2024-06-01');
+    assert.deepEqual(result.raw_data, { source_type: 'procurement_signal' });
     assert.equal(result.reason, null);
-
-    // Verify source_key and country_code were queried
-    assert.ok(captured.some((c) => c.eq === 'cr_sicop'), 'debe buscar source_key=cr_sicop');
-    assert.ok(captured.some((c) => c.eq === 'CR'), 'debe buscar country_code=CR');
-    assert.ok(captured.some((c) => c.eq === '3101123456'), 'debe buscar normalized_tax_id');
   });
 });
 
-// ── lookupCostaRicaSicopByCedula — not_found ──────────────────────────────────
+// ── not_found (0 filas) — reason preservada ──────────────────────────────────
 
-describe('lookupCostaRicaSicopByCedula — not_found', () => {
-  it('returns matched=false when no row exists', async () => {
-    const mockSb = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              eq: () => ({
-                order: () => ({
-                  limit: () => ({
-                    maybeSingle: async () => ({ data: null, error: null }),
-                  }),
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    } as unknown as import('@supabase/supabase-js').SupabaseClient;
-
-    const result = await lookupCostaRicaSicopByCedula({ cedula: '3999999999' }, mockSb);
-
+describe('lookupCostaRicaSicopByCedula — not_found (0 rows)', () => {
+  it('returns matched=false reason=no_snapshot_match_by_cedula when no row exists', async () => {
+    const result = await lookupCostaRicaSicopByCedula({ cedula: '3999999999' }, fakeClient([]));
     assert.equal(result.matched, false);
     assert.equal(result.reason, 'no_snapshot_match_by_cedula');
     assert.equal(result.source_year, null);
   });
 });
 
-// ── lookupCostaRicaSicopByCedula — snapshot_unavailable ───────────────────────
+// ── cardinality violation (2 filas mismo tax/source/year) ────────────────────
+
+describe('lookupCostaRicaSicopByCedula — cardinality violation', () => {
+  it('exact year: 2 rows same tax/source/year → no arbitrary pick, cardinality violation', async () => {
+    const client = fakeClient([
+      row({ source_year: 2024, record_identity_key: 'a', legal_name: 'A' }),
+      row({ source_year: 2024, record_identity_key: 'b', legal_name: 'B' }),
+    ]);
+    const result = await lookupCostaRicaSicopByCedula({ cedula: CEDULA, year: 2024 }, client);
+    assert.equal(result.matched, false);
+    assert.equal(result.reason, 'snapshot_cardinality_violation');
+    // Must not leak either arbitrary row.
+    assert.equal(result.legal_name, null);
+    assert.equal(result.source_year, null);
+  });
+
+  it('latest-year: 2 rows within the most recent year → cardinality violation', async () => {
+    const client = fakeClient([
+      row({ source_year: 2024, record_identity_key: 'a' }),
+      row({ source_year: 2024, record_identity_key: 'b' }),
+    ]);
+    const result = await lookupCostaRicaSicopByCedula({ cedula: CEDULA }, client);
+    assert.equal(result.matched, false);
+    assert.equal(result.reason, 'snapshot_cardinality_violation');
+  });
+});
+
+// ── latest-year selection (años distintos) ───────────────────────────────────
+
+describe('lookupCostaRicaSicopByCedula — latest year selection', () => {
+  it('picks the most recent source_year when year is omitted', async () => {
+    const client = fakeClient([
+      row({ source_year: 2023, legal_name: 'VIEJO' }),
+      row({ source_year: 2025, legal_name: 'NUEVO' }),
+      row({ source_year: 2024, legal_name: 'MEDIO' }),
+    ]);
+    const result = await lookupCostaRicaSicopByCedula({ cedula: CEDULA }, client);
+    assert.equal(result.matched, true);
+    assert.equal(result.source_year, 2025);
+    assert.equal(result.legal_name, 'NUEVO');
+  });
+
+  it('exact year filters to that year even when others exist', async () => {
+    const client = fakeClient([
+      row({ source_year: 2023, legal_name: 'VIEJO' }),
+      row({ source_year: 2025, legal_name: 'NUEVO' }),
+    ]);
+    const result = await lookupCostaRicaSicopByCedula({ cedula: CEDULA, year: 2023 }, client);
+    assert.equal(result.matched, true);
+    assert.equal(result.source_year, 2023);
+    assert.equal(result.legal_name, 'VIEJO');
+  });
+});
+
+// ── snapshot_unavailable ─────────────────────────────────────────────────────
 
 describe('lookupCostaRicaSicopByCedula — no supabase client', () => {
   it('returns snapshot_unavailable when service_role key absent', async () => {
@@ -185,31 +225,41 @@ describe('lookupCostaRicaSicopByCedula — no supabase client', () => {
   });
 });
 
-// ── lookupCostaRicaSicopByCedula — query error ────────────────────────────────
+// ── query error (DB error surfaces as snapshot_query_error) ───────────────────
 
 describe('lookupCostaRicaSicopByCedula — query error', () => {
-  it('returns matched=false with reason=snapshot_query_error on DB error', async () => {
-    const mockSb = {
+  it('returns matched=false reason=snapshot_query_error on DB error', async () => {
+    // Minimal client whose thenable rejects into the contract's error path.
+    const erroringClient = {
       from: () => ({
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              eq: () => ({
-                order: () => ({
-                  limit: () => ({
-                    maybeSingle: async () => ({ data: null, error: new Error('DB error') }),
-                  }),
-                }),
-              }),
-            }),
-          }),
-        }),
+        select: () => {
+          const q: Record<string, unknown> = {};
+          q.eq = () => q;
+          q.order = () => q;
+          q.limit = () => q;
+          q.maybeSingle = async () => ({ data: null, error: { code: 'XX000', message: 'DB error' } });
+          q.then = (onf: (v: { data: null; error: { code: string; message: string } }) => unknown) =>
+            Promise.resolve({ data: null, error: { code: 'XX000', message: 'DB error' } }).then(onf);
+          return q;
+        },
       }),
-    } as unknown as import('@supabase/supabase-js').SupabaseClient;
+    } as unknown as SupabaseClient;
 
-    const result = await lookupCostaRicaSicopByCedula({ cedula: '3101123456' }, mockSb);
-
+    const result = await lookupCostaRicaSicopByCedula({ cedula: '3101123456' }, erroringClient);
     assert.equal(result.matched, false);
     assert.equal(result.reason, 'snapshot_query_error');
+  });
+});
+
+// ── static: reader no longer uses .limit(1).maybeSingle ──────────────────────
+
+describe('cr-sicop-lookup — migrated off .limit(1).maybeSingle', () => {
+  it('reader code (comments stripped) contains neither maybeSingle nor .limit(1)', () => {
+    const raw = readFileSync(new URL('../cr-sicop-lookup.ts', import.meta.url), 'utf8');
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    assert.ok(!code.includes('maybeSingle'), 'reader must not call maybeSingle directly');
+    assert.ok(!code.includes('.limit(1)'), 'reader must not call .limit(1) directly');
   });
 });
