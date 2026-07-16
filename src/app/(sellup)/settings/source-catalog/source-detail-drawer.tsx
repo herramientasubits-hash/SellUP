@@ -142,59 +142,39 @@ export function SourceDetailDrawer({
       <div className="grid gap-4 md:grid-cols-2">
         <SurfaceCard>
           <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Información general</h2>
-          <dl className="space-y-3 text-sm">
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Key</dt>
-              <dd className="font-mono text-foreground break-all">{source.key}</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">País</dt>
-              <dd className="text-foreground">{countryLabels}</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Uso en SellUp</dt>
-              <dd>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sellupUseBadgeClass(source.sellupUse)}`}>
-                  {SELLUP_USE_LABELS[source.sellupUse]}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Estado flujo IA</dt>
-              <dd>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}>
-                  {AI_FLOW_STATUS_LABELS[source.aiFlowStatus]}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Conexión</dt>
-              <dd>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${connectionModeBadgeClass(source.connectionMode)}`}>
-                  {CONNECTION_MODE_LABELS[source.connectionMode]}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Siguiente acción</dt>
-              <dd className="text-foreground">{source.nextAction}</dd>
-            </div>
+          {/* Design Refresh v6: filas horizontales (label izquierda / valor a la
+              derecha) consistentes con los drawers de Empresa y Contacto. */}
+          <dl className="space-y-2.5 text-sm">
+            <SourceInfoRow label="Key">
+              <span className="font-mono break-all">{source.key}</span>
+            </SourceInfoRow>
+            <SourceInfoRow label="País">{countryLabels}</SourceInfoRow>
+            <SourceInfoRow label="Uso en SellUp">
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sellupUseBadgeClass(source.sellupUse)}`}>
+                {SELLUP_USE_LABELS[source.sellupUse]}
+              </span>
+            </SourceInfoRow>
+            <SourceInfoRow label="Estado flujo IA">
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}>
+                {AI_FLOW_STATUS_LABELS[source.aiFlowStatus]}
+              </span>
+            </SourceInfoRow>
+            <SourceInfoRow label="Conexión">
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${connectionModeBadgeClass(source.connectionMode)}`}>
+                {CONNECTION_MODE_LABELS[source.connectionMode]}
+              </span>
+            </SourceInfoRow>
+            <SourceInfoRow label="Siguiente acción">{source.nextAction}</SourceInfoRow>
             {source.sectors.length > 0 && (
-              <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Sectores</dt>
-                <dd className="text-foreground">{source.sectors.join(', ')}</dd>
-              </div>
+              <SourceInfoRow label="Sectores">{source.sectors.join(', ')}</SourceInfoRow>
             )}
             {source.url && (
-              <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">URL</dt>
-                <dd>
-                  <Link href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-su-brand hover:underline break-all">
-                    {source.url}
-                    <ExternalLink className="h-3 w-3 shrink-0" />
-                  </Link>
-                </dd>
-              </div>
+              <SourceInfoRow label="URL">
+                <Link href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-su-brand hover:underline break-all">
+                  {source.url}
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                </Link>
+              </SourceInfoRow>
             )}
           </dl>
         </SurfaceCard>
@@ -511,6 +491,20 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Design Refresh v6: fila horizontal label/valor para el drawer de fuente.
+// Label fijo a la izquierda; valor alineado a la derecha (envuelve para textos
+// largos como "Siguiente acción" o URL). Consistente con Empresa y Contacto.
+function SourceInfoRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <dt className="shrink-0 min-w-[116px] pt-0.5 text-[11px] font-medium text-muted-foreground/80">
+        {label}
+      </dt>
+      <dd className="min-w-0 flex-1 text-right text-foreground">{children}</dd>
     </div>
   );
 }
