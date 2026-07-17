@@ -194,12 +194,14 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
               aria-pressed={isSelected}
               className={[
                 'flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-all',
-                isSelected && !isComingSoon
-                  ? 'border-su-brand bg-su-brand-soft/40 shadow-sm'
-                  : 'border-border bg-card hover:border-su-brand/40 hover:bg-muted/40',
+                // Design Refresh v13: 'coming_soon' claramente inerte — borde
+                // punteado, fondo muted y SIN hover (antes conservaba el hover
+                // azul de las activas y parecía clickeable).
                 isComingSoon
-                  ? 'cursor-default opacity-60'
-                  : 'cursor-pointer',
+                  ? 'cursor-default border-dashed border-border/70 bg-muted/20'
+                  : isSelected
+                  ? 'cursor-pointer border-su-brand bg-su-brand-soft/40 shadow-sm'
+                  : 'cursor-pointer border-border bg-card hover:border-su-brand/40 hover:bg-muted/40',
               ].join(' ')}
             >
               <div
@@ -207,6 +209,8 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                   'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                   isSelected && !isComingSoon
                     ? 'bg-su-brand-soft'
+                    : isComingSoon
+                    ? 'bg-muted/50'
                     : 'bg-muted',
                 ].join(' ')}
               >
@@ -215,6 +219,8 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                     'h-4 w-4',
                     isSelected && !isComingSoon
                       ? 'text-su-brand'
+                      : isComingSoon
+                      ? 'text-muted-foreground/40'
                       : 'text-muted-foreground',
                   ].join(' ')}
                   aria-hidden
@@ -222,17 +228,27 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">
+                  <span
+                    className={[
+                      'text-sm font-medium',
+                      isComingSoon ? 'text-muted-foreground' : 'text-foreground',
+                    ].join(' ')}
+                  >
                     {def.label}
                   </span>
                   {isComingSoon && (
-                    <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    <span className="flex items-center gap-1 rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
                       <Clock className="h-2.5 w-2.5" aria-hidden />
                       Próximamente
                     </span>
                   )}
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+                <p
+                  className={[
+                    'mt-0.5 text-xs leading-relaxed',
+                    isComingSoon ? 'text-muted-foreground/60' : 'text-muted-foreground',
+                  ].join(' ')}
+                >
                   {def.description}
                 </p>
               </div>
