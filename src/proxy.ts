@@ -24,6 +24,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/health|api/debug-slack|api/integrations/slack/oauth/callback|api/integrations/samu/webhook|api/cron/enrich|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/health|api/integrations/slack/oauth/callback|api/integrations/samu/webhook|api/cron/enrich|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
