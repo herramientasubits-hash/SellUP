@@ -24,6 +24,8 @@ import { lookupTaxIdentifierForCandidate, type TaxIdentifierLookupMetadata } fro
 import {
   findExistingAccountForCandidate,
   sanitizeHubSpotErrorMessage,
+  isCandidateAlreadyConverted,
+  applyOptimisticCandidateConversionUpdate,
   type ExistingAccountMatchBy,
 } from './approval-idempotency';
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
@@ -1615,6 +1617,27 @@ export async function approveAndConvertCandidateAction(
     };
   }
 
+  // Q3F-5AW.2 (Phase 1) — Corte idempotente: si el candidato ya fue convertido a
+  // cuenta (status + converted_account_id), devolver éxito idempotente SIN crear
+  // una segunda cuenta ni llamar a HubSpot. Cubre la re-aprobación secuencial.
+  if (isCandidateAlreadyConverted(candidate)) {
+    return {
+      success: true,
+      sellup: {
+        approved: true,
+        account_created: false,
+        account_id: candidate.converted_account_id as string,
+        status: 'approved',
+      },
+      hubspot: { attempted: false, action: 'not_required' },
+      message:
+        'Candidato ya convertido a cuenta; se devuelve el resultado idempotente sin crear una nueva cuenta.',
+    };
+  }
+
+  // Q3F-5AW.2 (Phase 1) — status original para el UPDATE condicional optimista.
+  const originalCandidateStatus = (candidate.status as string | null | undefined) ?? null;
+
   // 2. Guardia server-side: rechaza si duplicate_status bloquea la aprobación
   if (candidate.duplicate_status) {
     const blockMsg = APPROVE_BLOCK_MESSAGES[candidate.duplicate_status as DuplicateStatus];
@@ -2052,10 +2075,44 @@ export async function approveAndConvertCandidateAction(
       : 'approved';
   }
 
-  await supabase
-    .from('prospect_candidates')
-    .update(candidateUpdates)
-    .eq('id', id);
+  // Q3F-5AW.2 (Phase 1) — UPDATE condicional optimista sobre el status esperado.
+  // Evita la doble conversión concurrente del mismo candidate.id: solo una
+  // operación puede transicionar el status; el resto detecta 0 filas y resuelve
+  // idempotentemente (o reporta conflicto de concurrencia controlado).
+  const conversionUpdate = await applyOptimisticCandidateConversionUpdate(supabase, {
+    candidateId: id,
+    expectedStatus: originalCandidateStatus,
+    updates: candidateUpdates,
+  });
+
+  if (conversionUpdate.outcome === 'idempotent_success') {
+    return {
+      success: true,
+      sellup: {
+        approved: true,
+        account_created: false,
+        account_id: conversionUpdate.accountId ?? undefined,
+        status: 'approved',
+      },
+      hubspot: { attempted: false, action: 'not_required' },
+      message:
+        'Este candidato ya había sido convertido por otra operación; se devuelve el resultado idempotente sin registrar una segunda conversión.',
+    };
+  }
+
+  if (conversionUpdate.outcome === 'concurrency_conflict') {
+    return {
+      success: false,
+      sellup: { approved: false, account_created: false, status: 'failed' },
+      hubspot: {
+        attempted: false,
+        action: 'failed',
+        error: 'Conflicto de concurrencia al aprobar el candidato',
+      },
+      message:
+        'Otra operación cambió el estado de este candidato mientras se aprobaba. Recárgalo e inténtalo de nuevo.',
+    };
+  }
 
   // 6. Registrar logs de auditoría
   try {
