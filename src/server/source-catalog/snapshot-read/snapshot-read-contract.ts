@@ -165,6 +165,19 @@ export interface ProbeNativeSnapshotsByTaxIdParams<TRow> extends CommonSnapshotK
   readonly selectColumns?: string;
 }
 
+/**
+ * Latest-year NATIVE_RECORD_GRAIN probe: deliberately has NO `sourceYear`. It
+ * resolves the MOST RECENT source_year for a fiscal id within (source_key,
+ * country_code), which is why it cannot extend CommonSnapshotKey.
+ */
+export interface ProbeLatestNativeSnapshotsByTaxIdParams<TRow> {
+  readonly client: SnapshotReadClient<TRow>;
+  readonly sourceKey: string;
+  readonly countryCode: string;
+  readonly normalizedTaxId: string | null | undefined;
+  readonly selectColumns?: string;
+}
+
 // ── internal helpers ────────────────────────────────────────────────────────
 
 function baseIdentityQuery<TRow>(
@@ -558,4 +571,126 @@ export async function probeNativeSnapshotsByTaxId<
     recordCount: data.length,
     recordIdentityKeys: collectBoundedRecordIdentityKeys(data),
   };
+}
+
+// ── 3b. native-grain latest-year multiplicity probe by normalized tax id ─────
+
+/**
+ * Probes NATIVE_RECORD_GRAIN snapshots for a normalized tax id at its MOST
+ * RECENT source_year within (source_key, country_code). Fails closed if
+ * `sourceKey` is not NATIVE_RECORD_GRAIN.
+ *
+ * This is the native-family counterpart of readLatestTaxGrainSnapshotByTaxId
+ * and the safe replacement for the legacy "use the latest available year"
+ * reader shape (`order('source_year', desc).limit(1)`) on native sources whose
+ * caller passes NO `sourceYear`. It orders by source_year desc and probes with
+ * `.limit(2)` (NEVER `.limit(1).maybeSingle()`):
+ *
+ * - The two most-recent rows differ in source_year → `data[0]` is unambiguously
+ *   the latest year, returned FOUND. A duplicate in an OLDER year is irrelevant
+ *   to "latest available year".
+ * - They share the same source_year → the same fiscal id legitimately maps to
+ *   more than one record within the most recent year. For NATIVE_RECORD_GRAIN
+ *   that is not an invariant breach but genuine multiplicity, reported as
+ *   MULTI_RECORD_SAME_FISCAL_IDENTITY (with bounded recordIdentityKeys) — never
+ *   an arbitrary silent pick.
+ *
+ * `selectColumns` must include `source_year` (the default `*` does). If it is
+ * absent from both probed rows the contract throws rather than guess.
+ */
+export async function probeLatestNativeSnapshotsByTaxId<
+  TRow extends SnapshotIdentityRow = SnapshotIdentityRow,
+>(
+  params: ProbeLatestNativeSnapshotsByTaxIdParams<TRow>,
+): Promise<SnapshotReadResult<TRow>> {
+  const {
+    client,
+    sourceKey,
+    countryCode,
+    normalizedTaxId,
+    selectColumns = DEFAULT_SNAPSHOT_SELECT_COLUMNS,
+  } = params;
+
+  const family = getSourceFamily(sourceKey);
+  if (family !== 'NATIVE_RECORD_GRAIN') {
+    throw new SnapshotReadQueryError(
+      `probeLatestNativeSnapshotsByTaxId called for non-NATIVE_RECORD_GRAIN source "${sourceKey}" (${family})`,
+      { context: { sourceKey, family } },
+    );
+  }
+
+  const normalized = normalizeRecordIdentityPart(normalizedTaxId);
+  if (normalized === null) {
+    return { status: 'IDENTITY_UNAVAILABLE', reason: 'missing_tax_id' };
+  }
+
+  const { data, error } = await client
+    .from(SNAPSHOT_TABLE)
+    .select(selectColumns)
+    .eq('source_key', sourceKey)
+    .eq('country_code', countryCode)
+    .eq('normalized_tax_id', normalized)
+    .order('source_year', { ascending: false })
+    .limit(2);
+
+  throwOnQueryError(error, {
+    lookup: 'probeLatestNativeSnapshotsByTaxId',
+    sourceKey,
+    countryCode,
+    normalizedTaxId: normalized,
+  });
+
+  if (data === null) {
+    throw new SnapshotReadQueryError('Snapshot read returned no data and no error', {
+      context: {
+        lookup: 'probeLatestNativeSnapshotsByTaxId',
+        sourceKey,
+        countryCode,
+        normalizedTaxId: normalized,
+      },
+    });
+  }
+
+  if (data.length === 0) {
+    return { status: 'RECORD_IDENTITY_NOT_FOUND' };
+  }
+
+  if (data.length === 1) {
+    return { status: 'FOUND', row: data[0] };
+  }
+
+  // Two rows probed, already ordered by source_year desc.
+  const latestYear = readNumericSourceYear(data[0]);
+  const runnerUpYear = readNumericSourceYear(data[1]);
+
+  if (latestYear === null || runnerUpYear === null) {
+    throw new SnapshotReadQueryError(
+      'probeLatestNativeSnapshotsByTaxId cannot determine source_year for the latest row',
+      {
+        context: {
+          lookup: 'probeLatestNativeSnapshotsByTaxId',
+          sourceKey,
+          countryCode,
+          normalizedTaxId: normalized,
+          hint: 'selectColumns must include source_year',
+        },
+      },
+    );
+  }
+
+  if (latestYear === runnerUpYear) {
+    // Ambiguous latest year: >1 native record for the fiscal id within the most
+    // recent source_year. Report the multiplicity, never pick arbitrarily.
+    return {
+      status: 'MULTI_RECORD_SAME_FISCAL_IDENTITY',
+      sourceKey,
+      countryCode,
+      sourceYear: latestYear,
+      normalizedTaxId: normalized,
+      recordCount: data.length,
+      recordIdentityKeys: collectBoundedRecordIdentityKeys(data),
+    };
+  }
+
+  return { status: 'FOUND', row: data[0] };
 }
