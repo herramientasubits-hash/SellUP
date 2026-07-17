@@ -1445,7 +1445,7 @@ Para el spike técnico de Perú.3N:
 | Rotación automática de credenciales | Media | No hay rotación automatizada para tokens de larga vida (Slack bot token, HubSpot Private App token). La renovación es manual. |
 | Expiración de credenciales | Baja | No hay campo `expires_at` en las tablas de conexión. |
 | `SLACK_CLIENT_SECRET` en env + Vault | Baja | El client secret de Slack puede venir tanto de env como de Vault. Duplicación potencial. |
-| Debug routes en producción | Baja-Media | Existen `/api/debug/ai-provider-health` y `/api/debug/ai-fallback-diagnosis`. Verificar que estén protegidas o desactivadas en producción. |
+| Debug routes en producción | Baja | Nota histórica: H4.1 (merge `3c8b561`) eliminó `/api/debug-slack` y `/api/debug/ai-fallback-diagnosis`. `/api/debug/ai-provider-health` sigue viva pero queda diferida, protegida por auth/env gate y pendiente de decisión separada. |
 
 ---
 
