@@ -30,7 +30,10 @@ const tabsListVariants = cva(
       variant: {
         default: "bg-muted",
         line: "gap-1 bg-transparent",
-        segmented: "gap-1 rounded-full border border-border/40 bg-muted/30 p-1 h-10",
+        // segmented: pill activo azul sin "track" (antes tenía fondo muted/30 +
+        // borde que rodeaba los tabs y se veía como un contorno/halo alrededor
+        // del pill). Ahora el activo flota limpio y los inactivos son texto.
+        segmented: "gap-1 bg-transparent p-0 h-9",
       },
     },
     defaultVariants: {
