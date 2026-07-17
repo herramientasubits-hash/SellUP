@@ -22,6 +22,7 @@ import {
 import {
   DEFAULT_SNAPSHOT_SELECT_COLUMNS,
   SnapshotReadQueryError,
+  probeLatestNativeSnapshotsByTaxId,
   probeNativeSnapshotsByTaxId,
   readLatestTaxGrainSnapshotByTaxId,
   readSnapshotByRecordIdentityKey,
@@ -719,6 +720,183 @@ describe('probeNativeSnapshotsByTaxId', () => {
     });
     assert.deepEqual(log.limit, [2]);
     assert.equal(result.status, 'MULTI_RECORD_SAME_FISCAL_IDENTITY');
+  });
+});
+
+// ── 3b. probeLatestNativeSnapshotsByTaxId ────────────────────────────────────
+
+describe('probeLatestNativeSnapshotsByTaxId', () => {
+  it('LN1: NATIVE_RECORD_GRAIN con 0 filas → RECORD_IDENTITY_NOT_FOUND', async () => {
+    const { client } = createSpyClient([]);
+    const result = await probeLatestNativeSnapshotsByTaxId({
+      client,
+      sourceKey: NATIVE_SOURCE,
+      countryCode: 'PA',
+      normalizedTaxId: '155-1-1',
+    });
+    assert.equal(result.status, 'RECORD_IDENTITY_NOT_FOUND');
+  });
+
+  it('LN2: NATIVE_RECORD_GRAIN con 1 fila → FOUND', async () => {
+    const { client } = createSpyClient([
+      nativeRow({ source_year: 2026, record_identity_key: 'provider:only' }),
+    ]);
+    const result = await probeLatestNativeSnapshotsByTaxId({
+      client,
+      sourceKey: NATIVE_SOURCE,
+      countryCode: 'PA',
+      normalizedTaxId: '155-1-1',
+    });
+    assert.equal(result.status, 'FOUND');
+    if (result.status === 'FOUND') {
+      assert.equal(result.row.record_identity_key, 'provider:only');
+    }
+  });
+
+  it('LN3: dos filas de años distintos → FOUND con el año más reciente', async () => {
+    const { client } = createSpyClient([
+      nativeRow({ source_year: 2025, record_identity_key: 'provider:2025' }),
+      nativeRow({ source_year: 2027, record_identity_key: 'provider:2027' }),
+    ]);
+    const result = await probeLatestNativeSnapshotsByTaxId({
+      client,
+      sourceKey: NATIVE_SOURCE,
+      countryCode: 'PA',
+      normalizedTaxId: '155-1-1',
+    });
+    assert.equal(result.status, 'FOUND');
+    if (result.status === 'FOUND') {
+      assert.equal(result.row.source_year, 2027);
+      assert.equal(result.row.record_identity_key, 'provider:2027');
+    }
+  });
+
+  it('LN3b: duplicado en año viejo es irrelevante → FOUND el año más reciente', async () => {
+    const { client } = createSpyClient([
+      nativeRow({ source_year: 2025, record_identity_key: 'provider:2025-a' }),
+      nativeRow({ source_year: 2025, record_identity_key: 'provider:2025-b' }),
+      nativeRow({ source_year: 2027, record_identity_key: 'provider:2027' }),
+    ]);
+    const result = await probeLatestNativeSnapshotsByTaxId({
+      client,
+      sourceKey: NATIVE_SOURCE,
+      countryCode: 'PA',
+      normalizedTaxId: '155-1-1',
+    });
+    assert.equal(result.status, 'FOUND');
+    if (result.status === 'FOUND') {
+      assert.equal(result.row.source_year, 2027);
+    }
+  });
+
+  it('LN4: dos filas del mismo source_year → MULTI_RECORD_SAME_FISCAL_IDENTITY con keys acotadas', async () => {
+    const { client } = createSpyClient([
+      nativeRow({ source_year: 2027, record_identity_key: 'provider:a' }),
+      nativeRow({ source_year: 2027, record_identity_key: 'provider:b' }),
+    ]);
+    const result = await probeLatestNativeSnapshotsByTaxId({
+      client,
+      sourceKey: NATIVE_SOURCE,
+      countryCode: 'PA',
+      normalizedTaxId: '155-1-1',
+    });
+    assert.equal(result.status, 'MULTI_RECORD_SAME_FISCAL_IDENTITY');
+    if (result.status === 'MULTI_RECORD_SAME_FISCAL_IDENTITY') {
+      assert.equal(result.sourceKey, NATIVE_SOURCE);
+      assert.equal(result.countryCode, 'PA');
+      assert.equal(result.sourceYear, 2027);
+      assert.equal(result.normalizedTaxId, '155-1-1');
+      assert.equal(result.recordCount, 2);
+      assert.deepEqual([...(result.recordIdentityKeys ?? [])].sort(), [
+        'provider:a',
+        'provider:b',
+      ]);
+    }
+  });
+
+  it('LN5: TAX_GRAIN pasado al latest native probe → fail-closed (throw)', async () => {
+    const { client } = createSpyClient([]);
+    await assert.rejects(
+      () =>
+        probeLatestNativeSnapshotsByTaxId({
+          client,
+          sourceKey: TAX_SOURCE,
+          countryCode: COUNTRY,
+          normalizedTaxId: TAX_ID,
+        }),
+      (err: unknown) =>
+        err instanceof SnapshotReadQueryError &&
+        /non-NATIVE_RECORD_GRAIN/.test(err.message),
+    );
+  });
+
+  it('LN6: source_key desconocido → fail-closed (throw)', async () => {
+    const { client } = createSpyClient([]);
+    await assert.rejects(
+      () =>
+        probeLatestNativeSnapshotsByTaxId({
+          client,
+          sourceKey: 'unregistered_source',
+          countryCode: 'PA',
+          normalizedTaxId: '155-1-1',
+        }),
+      /Unknown source family/,
+    );
+  });
+
+  it('LN7: normalizedTaxId vacío/null → IDENTITY_UNAVAILABLE (missing_tax_id), sin query', async () => {
+    for (const bad of ['', '   ', null, undefined]) {
+      const { client, log } = createSpyClient([]);
+      const result = await probeLatestNativeSnapshotsByTaxId({
+        client,
+        sourceKey: NATIVE_SOURCE,
+        countryCode: 'PA',
+        normalizedTaxId: bad,
+      });
+      assert.equal(result.status, 'IDENTITY_UNAVAILABLE');
+      if (result.status === 'IDENTITY_UNAVAILABLE') {
+        assert.equal(result.reason, 'missing_tax_id');
+      }
+      assert.equal(log.selectColumns.length, 0);
+    }
+  });
+
+  it('LN8/LN9/LN10: usa order(source_year desc) + limit(2), nunca maybeSingle, sin fijar source_year', async () => {
+    const { client, log } = createSpyClient([
+      nativeRow({ source_year: 2026, record_identity_key: 'provider:k' }),
+    ]);
+    await probeLatestNativeSnapshotsByTaxId({
+      client,
+      sourceKey: NATIVE_SOURCE,
+      countryCode: 'PA',
+      normalizedTaxId: '155-1-1',
+    });
+    // order by source_year descending
+    assert.deepEqual(log.order, [['source_year', false]]);
+    // limit(2) probe, never limit(1).maybeSingle()
+    assert.deepEqual(log.limit, [2]);
+    assert.equal(log.maybeSingleCalls, 0);
+    // filters by source_key/country_code/normalized_tax_id but NOT source_year
+    assert.deepEqual(log.eq, [
+      ['source_key', NATIVE_SOURCE],
+      ['country_code', 'PA'],
+      ['normalized_tax_id', '155-1-1'],
+    ]);
+    assert.ok(!log.eq.some(([column]) => column === 'source_year'));
+  });
+
+  it('LN12: error DB/PostgREST → throw SnapshotReadQueryError (no NOT_FOUND)', async () => {
+    const client = createErroringClient({ code: 'XX000', message: 'boom' });
+    await assert.rejects(
+      () =>
+        probeLatestNativeSnapshotsByTaxId({
+          client,
+          sourceKey: NATIVE_SOURCE,
+          countryCode: 'PA',
+          normalizedTaxId: '155-1-1',
+        }),
+      (err: unknown) => err instanceof SnapshotReadQueryError && err.code === 'XX000',
+    );
   });
 });
 
