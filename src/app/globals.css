@@ -101,31 +101,32 @@
    Source of truth: plantilla-proyectos-shadcn (tokens.css) → oklch converted
 ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* Background — cool blue-tinted near-white (#f8faff) */
-  --background: oklch(0.985 0.007 269);
-  --foreground: oklch(0.345 0.027 255);
+  /* Design Refresh v14: fondos neutros (menos tinte azul). Off-white casi
+     neutro y texto gris neutro; el azul queda solo en su-brand/acentos. */
+  --background: oklch(0.985 0.002 269);
+  --foreground: oklch(0.345 0.008 255);
 
   /* Cards / surfaces — pure white with cool undertone */
   --card: oklch(1 0 90);
-  --card-foreground: oklch(0.345 0.027 255);
+  --card-foreground: oklch(0.345 0.008 255);
   --popover: oklch(1 0 90);
-  --popover-foreground: oklch(0.345 0.027 255);
+  --popover-foreground: oklch(0.345 0.008 255);
 
   /* Primary — always mirrors su-brand token */
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  /* Secondary — UBITS surface-muted (#ebf1ff) */
-  --secondary: oklch(0.958 0.020 267);
-  --secondary-foreground: oklch(0.345 0.027 255);
+  /* Secondary — gris muy claro neutro */
+  --secondary: oklch(0.955 0.004 267);
+  --secondary-foreground: oklch(0.345 0.008 255);
 
-  /* Muted — same as secondary for shadcn compat */
-  --muted: oklch(0.958 0.020 267);
-  --muted-foreground: oklch(0.500 0.020 256);
+  /* Muted — igual que secondary para compat shadcn */
+  --muted: oklch(0.955 0.004 267);
+  --muted-foreground: oklch(0.500 0.007 256);
 
-  /* Accent — UBITS blue-tinted hover (#dce4f0) */
-  --accent: oklch(0.916 0.018 258);
-  --accent-foreground: oklch(0.345 0.027 255);
+  /* Accent — gris claro hover neutro */
+  --accent: oklch(0.915 0.005 258);
+  --accent-foreground: oklch(0.345 0.008 255);
 
   /* Destructive — UBITS negative (#e9343c) */
   --destructive: oklch(0.612 0.216 24);
@@ -165,10 +166,10 @@
   --su-brand: oklch(0.530 0.233 262);            /* #0c5bef UBITS brand */
   --su-brand-soft: oklch(0.530 0.233 262 / 8%);
   --su-brand-foreground: oklch(0.99 0 0);
-  --su-surface: oklch(0.979 0.010 267);          /* #f5f8ff surface-subtle */
+  --su-surface: oklch(0.979 0.003 267);          /* gris muy claro neutro */
   --su-surface-elevated: oklch(1 0 90);
-  --su-border-subtle: oklch(0.916 0.018 258);
-  --su-border-strong: oklch(0.689 0.013 264);    /* #979ba3 */
+  --su-border-subtle: oklch(0.915 0.005 258);
+  --su-border-strong: oklch(0.689 0.005 264);
 
   /* Accent spectrum — aligned with UBITS semantic states */
   --su-accent-warm: oklch(0.612 0.216 24);       /* negative */
@@ -193,32 +194,34 @@
    Source of truth: plantilla-proyectos-shadcn (globals.css .dark)
 ───────────────────────────────────────────────────────────────────────────── */
 .dark {
-  /* Background — UBITS #020617 (near-black) */
-  --background: oklch(0.129 0.041 265);
+  /* Design Refresh v14: superficies neutras negro/gris (sin tinte azul).
+     Se mantiene la luminosidad de cada capa pero se baja el croma (~0.04 → ~0.005)
+     para quitar el navy. El azul queda solo en su-brand/acentos. */
+  --background: oklch(0.135 0.004 265);
   --foreground: oklch(0.949 0.002 248);
 
-  /* Cards — UBITS #0f172a (deep navy) */
-  --card: oklch(0.208 0.040 266);
+  /* Cards — gris muy oscuro neutro */
+  --card: oklch(0.205 0.005 266);
   --card-foreground: oklch(0.949 0.002 248);
-  --popover: oklch(0.307 0.031 258);
+  --popover: oklch(0.255 0.005 258);
   --popover-foreground: oklch(0.949 0.002 248);
 
   /* Primary — always mirrors su-brand token */
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  /* Secondary — UBITS #1e293b */
-  --secondary: oklch(0.279 0.037 260);
+  /* Secondary — gris oscuro neutro */
+  --secondary: oklch(0.265 0.005 260);
   --secondary-foreground: oklch(0.949 0.002 248);
 
-  /* Muted — UBITS #151c2e.
-     muted-foreground subido de 0.658 → 0.72 (Design Refresh v1): el texto
-     secundario era casi ilegible sobre fondos navy profundos. */
-  --muted: oklch(0.229 0.037 267);
-  --muted-foreground: oklch(0.72 0.012 257);
+  /* Muted — gris neutro.
+     muted-foreground en 0.72 (Design Refresh v1) para legibilidad del texto
+     secundario sobre fondos oscuros. */
+  --muted: oklch(0.225 0.005 267);
+  --muted-foreground: oklch(0.72 0.006 257);
 
-  /* Accent — UBITS #2a3449 (hover/active) */
-  --accent: oklch(0.326 0.040 265);
+  /* Accent — gris hover/active neutro */
+  --accent: oklch(0.315 0.006 265);
   --accent-foreground: oklch(0.949 0.002 248);
 
   /* Destructive — lighter red for dark visibility */
@@ -229,10 +232,9 @@
   --warning: oklch(0.808 0.158 72);
   --success: oklch(0.720 0.165 142);
 
-  /* Borders — subidos ligeramente (0.39 → 0.42) para que las superficies
-     dark recuperen definición; muchos usos van con /30-/60 de opacidad. */
-  --border: oklch(0.42 0.029 264);
-  --input: oklch(0.42 0.024 263);
+  /* Borders — gris neutro (sin tinte azul); mantienen definición de superficie. */
+  --border: oklch(0.40 0.005 264);
+  --input: oklch(0.40 0.005 263);
   --ring: oklch(0.564 0.221 266 / 50%);
 
   /* Charts — luminous in dark */
@@ -242,24 +244,24 @@
   --chart-4: oklch(0.60 0.13 200);
   --chart-5: oklch(0.68 0.11 170);
 
-  /* Sidebar — deepest layer, slight contrast vs background */
-  --sidebar: oklch(0.155 0.035 265);
+  /* Sidebar — capa más profunda, gris/negro neutro */
+  --sidebar: oklch(0.160 0.004 265);
   --sidebar-foreground: oklch(0.949 0.002 248);
   --sidebar-primary: oklch(0.564 0.221 266);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.279 0.037 260);
+  --sidebar-accent: oklch(0.265 0.005 260);
   --sidebar-accent-foreground: oklch(0.949 0.002 248);
-  --sidebar-border: oklch(0.390 0.029 264);
+  --sidebar-border: oklch(0.380 0.005 264);
   --sidebar-ring: oklch(0.564 0.221 266 / 45%);
 
   /* SellUp semantic tokens */
   --su-brand: oklch(0.564 0.221 266);            /* #3865f5 UBITS dark brand */
   --su-brand-soft: oklch(0.564 0.221 266 / 12%);
   --su-brand-foreground: oklch(0.99 0 0);
-  --su-surface: oklch(0.208 0.040 266);
-  --su-surface-elevated: oklch(0.279 0.037 260);
-  --su-border-subtle: oklch(0.390 0.029 264);
-  --su-border-strong: oklch(0.449 0.021 264);    /* #4f5561 */
+  --su-surface: oklch(0.205 0.005 266);
+  --su-surface-elevated: oklch(0.265 0.005 260);
+  --su-border-subtle: oklch(0.380 0.005 264);
+  --su-border-strong: oklch(0.445 0.006 264);
 
   /* Accent spectrum */
   --su-accent-warm: oklch(0.626 0.193 23);
