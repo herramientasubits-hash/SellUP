@@ -35,7 +35,7 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
                 className={cn(
                   "relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
                   isActive
-                    ? "bg-su-brand/15 text-white"
+                    ? "bg-white/10 text-white"
                     : "text-sidebar-foreground/55 hover:bg-white/[0.05] hover:text-sidebar-foreground/85",
                 )}
               >
@@ -63,7 +63,7 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
       className={cn(
         "group relative flex items-center gap-3 py-2.5 pl-3.5 pr-3 text-[0.8125rem] font-medium transition-all duration-200",
         isActive
-          ? "bg-su-brand/15 text-white"
+          ? "bg-white/10 text-white"
           : "text-sidebar-foreground/60 hover:bg-white/[0.04] hover:text-sidebar-foreground",
       )}
     >
@@ -94,7 +94,7 @@ export function MobileNavLink({ item }: NavLinkProps) {
           className={cn(
             "relative flex items-center gap-3 px-3.5 py-2.5 text-[0.8125rem] font-medium transition-all duration-200",
             isActive
-              ? "bg-su-brand/15 text-su-brand"
+              ? "bg-accent text-foreground"
               : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
           )}
         >

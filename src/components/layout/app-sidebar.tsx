@@ -85,12 +85,12 @@ export function AppSidebar({
                 <DropdownMenuTrigger
                   className={cn(
                     "group flex items-center justify-center rounded-full p-0.5 transition-all",
-                    "hover:ring-2 hover:ring-su-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-su-brand/50",
-                    "data-[popup-open]:ring-2 data-[popup-open]:ring-su-brand/40",
+                    "hover:ring-2 hover:ring-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25",
+                    "data-[popup-open]:ring-2 data-[popup-open]:ring-white/20",
                   )}
                   aria-label={`Cuenta de ${displayName}`}
                 >
-                  <Avatar className="h-8 w-8 ring-2 ring-sidebar-border/60 transition-all group-hover:ring-su-brand/50">
+                  <Avatar className="h-8 w-8 ring-2 ring-sidebar-border/60 transition-all group-hover:ring-white/25">
                     <AvatarImage src={avatarUrl} alt={displayName} />
                     <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[10px] font-bold text-white">
                       {initials}
