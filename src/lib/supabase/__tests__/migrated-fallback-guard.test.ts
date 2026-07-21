@@ -43,6 +43,7 @@ const MIGRATED_FILES = [
   'src/modules/ai-config/provider-ai-detail-queries.ts',
   'src/server/services/migo-connection.ts',
   'src/server/services/tavily-connection.ts',
+  'src/server/services/apollo-connection.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';
