@@ -29,11 +29,23 @@ describe('adaptEcScvsRows', () => {
     assert.equal(result.candidates[0]?.normalizedRuc, '1790013731001');
   });
 
-  it('excluye filas con RUC ausente', () => {
+  it('no incluye filas con RUC ausente en candidates (keyed-by-RUC)', () => {
     const result = adaptEcScvsRows([row({ ruc: null })]);
     assert.equal(result.stats.missingRucRows, 1);
     assert.equal(result.stats.acceptedPreDedupRows, 0);
     assert.equal(result.candidates.length, 0);
+  });
+
+  it('EC-SCVS-2: RETIENE filas con RUC ausente en missingRucCandidates (no las descarta)', () => {
+    const result = adaptEcScvsRows([row({ ruc: null, expediente: '999' })]);
+    assert.equal(result.missingRucCandidates.length, 1);
+    const retained = result.missingRucCandidates[0]!;
+    assert.equal(retained.expediente, '999');
+    assert.equal(retained.rawRuc, null);
+    assert.equal(retained.normalizedRuc, '');
+    // No contamina los buckets keyed-by-RUC usados por los profilers.
+    assert.equal(result.candidates.length, 0);
+    assert.equal(result.invalidCandidates.length, 0);
   });
 
   it('separa filas con RUC en formato inválido', () => {
