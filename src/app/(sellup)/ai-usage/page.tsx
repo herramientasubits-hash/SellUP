@@ -33,6 +33,20 @@ import type { AgentStat, ProviderStat, ProviderUsageLog } from '@/modules/usage-
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 import { CostValue } from '@/components/shared/cost-value';
 
+// Q3F-5AY.7B — post-backfill UI parity.
+//
+// This route reads live admin data (prospect_batches → prospect_candidates →
+// provider_usage_logs) whose values change out-of-band from deploys — e.g. the
+// Q3F-5AY.7 backfill populated prospect_candidates.record_origin directly in the
+// DB with no code change. Dynamic rendering alone (from awaiting searchParams)
+// does NOT keep the underlying reads fresh: fetches can still be served from the
+// Data Cache, so the "Fuente de clasificación" panel kept showing the stale
+// pre-backfill state (Persistido 0 / Derivado 182). `force-dynamic` renders per
+// request AND forces every fetch to `no-store` (Next 16 route segment config),
+// guaranteeing the persisted classification is reflected. Matches the repo's
+// convention for live admin surfaces (see settings/source-catalog). No DB write.
+export const dynamic = 'force-dynamic';
+
 // ============================================================
 // Display helpers
 // ============================================================
