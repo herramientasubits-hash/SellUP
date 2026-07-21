@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import {
   Bot,
   Plug,
@@ -14,6 +15,11 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { FiltersClient } from './filters-client';
+import {
+  Agent1EffectivenessPanel,
+  Agent1EffectivenessPanelSkeleton,
+} from './agent1-effectiveness-panel';
+import type { Agent1EffectivenessFilters } from '@/modules/agent1-effectiveness';
 import {
   getAiUsageSummary,
   getAgentStats,
@@ -79,6 +85,24 @@ function formatDate(isoDate: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * Maps the shared /ai-usage period filter to the Agent 1 read-model's dateFrom
+ * (prospect_batches.created_at). 'all'/unset → no lower bound. Only the two
+ * filters that map cleanly (period → date range, provider → providerKey) are
+ * forwarded; user/role/group/agent/status don't apply to the batch model and
+ * are intentionally left for a later milestone.
+ */
+function periodToDateFrom(period: UsageFilters['period']): string | undefined {
+  const now = Date.now();
+  if (period === '7d') return new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  if (period === '30d') return new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+  if (period === 'current_month') {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
+  }
+  return undefined;
 }
 
 // ============================================================
@@ -394,6 +418,13 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     groupId: typeof params.groupId === 'string' ? params.groupId : undefined,
   };
 
+  // Agent 1 effectiveness read model uses a batch-scoped filter shape. Forward
+  // only the cleanly-mapping filters (date range + provider).
+  const agent1Filters: Agent1EffectivenessFilters = {
+    dateFrom: periodToDateFrom(filters.period),
+    providerKey: filters.provider,
+  };
+
   const [summary, agentStats, providerStats, recentLogs, filterOptions, userConsumption] =
     await Promise.all([
       getAiUsageSummary(filters),
@@ -578,6 +609,13 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             />
           ))}
         </div>
+      )}
+
+      {/* ── Efectividad Agente 1 (read model) ───────────────── */}
+      {!isRestricted && (
+        <Suspense fallback={<Agent1EffectivenessPanelSkeleton />}>
+          <Agent1EffectivenessPanel filters={agent1Filters} />
+        </Suspense>
       )}
 
       {/* ── Sección 1: Consumo por agente ───────────────────── */}
