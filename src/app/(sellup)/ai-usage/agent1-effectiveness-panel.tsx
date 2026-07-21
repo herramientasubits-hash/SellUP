@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Plug,
+  Sparkles,
+  Filter,
 } from 'lucide-react';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getAgent1EffectivenessPanel } from '@/modules/agent1-effectiveness';
@@ -19,6 +21,13 @@ import type {
   Agent1EffectivenessFilters,
   Agent1EffectivenessSummary,
   Agent1CostCompletenessFlag,
+  CleanProductionSummary,
+  CleanProductionWarning,
+  OriginBreakdown,
+  RejectionReasonBreakdown,
+  ClassificationSourceBreakdown,
+  RecordOrigin,
+  RejectionReason,
 } from '@/modules/agent1-effectiveness';
 
 // ============================================================
@@ -60,6 +69,58 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 function providerDisplayName(providerKey: string): string {
   return PROVIDER_DISPLAY_NAMES[providerKey] ?? providerKey;
 }
+
+// ============================================================
+// Clean-production label maps (Q3F-5AY.5)
+// ============================================================
+
+/** Origins EXCLUDED from clean production (everything except 'production'). */
+const NON_PRODUCTION_ORIGINS: ReadonlyArray<Exclude<RecordOrigin, 'production'>> = [
+  'smoke_test',
+  'qa',
+  'historical_cleanup',
+  'import',
+  'synthetic',
+  'unknown',
+];
+
+const RECORD_ORIGIN_LABELS: Record<RecordOrigin, string> = {
+  production: 'Producción',
+  smoke_test: 'Smoke test',
+  qa: 'QA',
+  historical_cleanup: 'Limpieza histórica',
+  import: 'Importación',
+  synthetic: 'Sintético',
+  unknown: 'Desconocido',
+};
+
+const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
+  test_record: 'Registro de prueba',
+  cleanup_record: 'Registro de limpieza',
+  duplicate: 'Duplicado',
+  unknown: 'Desconocido',
+  outside_icp: 'Fuera de ICP',
+  existing_account: 'Cuenta existente',
+  insufficient_data: 'Datos insuficientes',
+  invalid_company: 'Empresa inválida',
+  provider_noise: 'Ruido de proveedor',
+  marketplace_or_directory: 'Marketplace o directorio',
+  geographic_mismatch: 'Desajuste geográfico',
+  industry_mismatch: 'Desajuste de industria',
+  do_not_use: 'No usar',
+  no_longer_relevant: 'Ya no relevante',
+  other: 'Otro',
+};
+
+/** Human-readable text for each clean-production warning code (never hidden data). */
+const CLEAN_PRODUCTION_WARNING_LABELS: Record<CleanProductionWarning, string> = {
+  unknown_origin_present:
+    'Hay candidatos con origen desconocido; se excluyen de producción limpia por defecto.',
+  high_unknown_discarded_share:
+    'Proporción alta de candidatos con origen desconocido: la producción limpia puede subrepresentar el corpus real.',
+  clean_cost_attribution_is_batch_level:
+    'Costo limpio no disponible: la atribución actual de costo es a nivel de lote.',
+};
 
 // ============================================================
 // Completeness flag → badge config (non-alarmist)
@@ -290,11 +351,227 @@ function ProviderBreakdownTable({
 }
 
 // ============================================================
+// Clean-production section (Q3F-5AY.5)
+// ============================================================
+
+/** Small count chip for origin / rejection breakdowns. */
+function BreakdownChip({
+  label,
+  count,
+  tone = 'neutral',
+}: {
+  label: string;
+  count: number;
+  tone?: 'neutral' | 'brand' | 'warn';
+}) {
+  const toneClasses =
+    tone === 'brand'
+      ? 'border-su-brand/30 bg-su-brand-soft text-su-brand'
+      : tone === 'warn'
+        ? 'border-amber-500/30 bg-amber-500/10 text-amber-500'
+        : 'border-border/40 bg-muted/20 text-muted-foreground';
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${toneClasses}`}
+    >
+      {label}
+      <span className="font-mono font-semibold">{count.toLocaleString('es-ES')}</span>
+    </span>
+  );
+}
+
+function OriginBreakdownChips({ breakdown }: { breakdown: OriginBreakdown }) {
+  // Production first (brand), then non-production origins with any count.
+  const entries: Array<{ origin: RecordOrigin; count: number }> = [
+    { origin: 'production', count: breakdown.production },
+    ...NON_PRODUCTION_ORIGINS.map((origin) => ({ origin, count: breakdown[origin] })),
+  ];
+  const visible = entries.filter((e) => e.origin === 'production' || e.count > 0);
+
+  if (visible.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Sin candidatos clasificados en este alcance.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {visible.map(({ origin, count }) => (
+        <BreakdownChip
+          key={origin}
+          label={RECORD_ORIGIN_LABELS[origin]}
+          count={count}
+          tone={origin === 'production' ? 'brand' : origin === 'unknown' ? 'warn' : 'neutral'}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RejectionBreakdownChips({ breakdown }: { breakdown: RejectionReasonBreakdown }) {
+  const entries = (Object.entries(breakdown) as Array<[RejectionReason, number]>)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (entries.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Sin motivos de rechazo clasificados en este alcance.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {entries.map(([reason, count]) => (
+        <BreakdownChip
+          key={reason}
+          label={REJECTION_REASON_LABELS[reason] ?? reason}
+          count={count}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CleanProductionSection({
+  cleanProduction,
+  originBreakdown,
+  rejectionReasonBreakdown,
+  classificationSourceBreakdown,
+  classificationWarnings,
+}: {
+  cleanProduction: CleanProductionSummary;
+  originBreakdown: OriginBreakdown;
+  rejectionReasonBreakdown: RejectionReasonBreakdown;
+  classificationSourceBreakdown: ClassificationSourceBreakdown;
+  classificationWarnings: CleanProductionWarning[];
+}) {
+  const { funnel, rates, excludedFromCleanProductionCount, unknownOriginCount, cleanCostUsd } =
+    cleanProduction;
+
+  return (
+    <div className="space-y-5 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 p-4">
+      {/* Header + scope badge */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-su-brand-soft">
+            <Sparkles className="h-3.5 w-3.5 text-su-brand" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Producción limpia</p>
+            <p className="text-[11px] text-muted-foreground">
+              Solo candidatos de origen productivo real.
+            </p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+          <Filter className="h-3 w-3" />
+          Excluye QA, smoke, cleanup e import
+        </span>
+      </div>
+
+      {/* Clean funnel */}
+      <div>
+        <SectionLabel>Funnel limpio</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <StatCell label="Candidatos limpios" value={formatInt(funnel.persistedCandidatesCount)} mono />
+          <StatCell label="Pendientes" value={formatInt(funnel.pendingCandidatesCount)} mono />
+          <StatCell label="Aprobados" value={formatInt(funnel.approvedCandidatesCount)} mono />
+          <StatCell label="Rechazados" value={formatInt(funnel.rejectedCandidatesCount)} mono />
+          <StatCell label="Convertidos" value={formatInt(funnel.convertedAccountsCount)} mono />
+          <StatCell label="Excluidos" value={formatInt(excludedFromCleanProductionCount)} mono />
+        </div>
+      </div>
+
+      {/* Clean rates */}
+      <div>
+        <SectionLabel>Tasas limpias (sobre candidatos limpios)</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <StatCell label="Aprobación limpia" value={formatRate(rates.approvalRate)} mono />
+          <StatCell label="Rechazo limpio" value={formatRate(rates.rejectionRate)} mono />
+          <StatCell label="Conversión limpia" value={formatRate(rates.conversionRate)} mono />
+        </div>
+      </div>
+
+      {/* Clean cost caveat */}
+      <div>
+        <SectionLabel>Costo limpio (USD)</SectionLabel>
+        {cleanCostUsd === null ? (
+          <PanelMessage tone="info">
+            Costo limpio no disponible: la atribución actual de costo es a nivel de lote.
+          </PanelMessage>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <StatCell label="Costo limpio" value={formatUsd(cleanCostUsd, 2)} mono />
+          </div>
+        )}
+      </div>
+
+      {/* Origin breakdown */}
+      <div>
+        <SectionLabel>Desglose por origen</SectionLabel>
+        <OriginBreakdownChips breakdown={originBreakdown} />
+      </div>
+
+      {/* Rejection reason breakdown */}
+      <div>
+        <SectionLabel>Motivos de rechazo</SectionLabel>
+        <RejectionBreakdownChips breakdown={rejectionReasonBreakdown} />
+      </div>
+
+      {/* Classification source breakdown */}
+      <div>
+        <SectionLabel>Fuente de clasificación</SectionLabel>
+        <div className="flex flex-wrap gap-2">
+          <BreakdownChip label="Persistido" count={classificationSourceBreakdown.persisted} />
+          <BreakdownChip
+            label="Derivado en runtime"
+            count={classificationSourceBreakdown.derived_runtime}
+          />
+          {unknownOriginCount > 0 && (
+            <BreakdownChip label="Origen desconocido" count={unknownOriginCount} tone="warn" />
+          )}
+        </div>
+      </div>
+
+      {/* Classification warnings */}
+      {classificationWarnings.length > 0 && (
+        <div className="space-y-1.5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          {classificationWarnings.map((code) => (
+            <div key={code} className="flex items-start gap-2">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {CLEAN_PRODUCTION_WARNING_LABELS[code] ?? code}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // Summary body (funnel + rates + cost + provider breakdown)
 // ============================================================
 
 function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
-  const { funnel, rates, cost, warnings, costCompletenessFlag, providerBreakdown } = summary;
+  const {
+    funnel,
+    rates,
+    cost,
+    warnings,
+    costCompletenessFlag,
+    providerBreakdown,
+    cleanProduction,
+    originBreakdown,
+    rejectionReasonBreakdown,
+    classificationSourceBreakdown,
+    classificationWarnings,
+  } = summary;
 
   return (
     <div className="space-y-6">
@@ -321,7 +598,7 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
 
       {/* Funnel */}
       <div>
-        <SectionLabel>Funnel</SectionLabel>
+        <SectionLabel>Funnel · histórico total</SectionLabel>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
           <StatCell label="Lotes" value={formatInt(funnel.batchesCount)} mono />
           <StatCell label="Persistidos" value={formatInt(funnel.persistedCandidatesCount)} mono />
@@ -345,7 +622,7 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
 
       {/* Cost */}
       <div>
-        <SectionLabel>Costo (USD)</SectionLabel>
+        <SectionLabel>Costo histórico total (USD)</SectionLabel>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
           <StatCell label="Costo total" value={formatUsd(cost.totalProviderCostUsd, 2)} mono />
           <StatCell label="Créditos" value={formatInt(cost.totalProviderCredits)} mono />
@@ -366,6 +643,15 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
           />
         </div>
       </div>
+
+      {/* Clean production (Q3F-5AY.5) */}
+      <CleanProductionSection
+        cleanProduction={cleanProduction}
+        originBreakdown={originBreakdown}
+        rejectionReasonBreakdown={rejectionReasonBreakdown}
+        classificationSourceBreakdown={classificationSourceBreakdown}
+        classificationWarnings={classificationWarnings}
+      />
 
       {/* Provider breakdown */}
       <div>
