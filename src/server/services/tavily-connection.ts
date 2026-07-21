@@ -12,25 +12,13 @@
  *   La UI debe advertir esto claramente antes de ejecutar el test.
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const TAVILY_VAULT_SECRET_NAME = 'sellup_tavily_api_key';
 
 const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 const TEST_QUERY = 'UBITS Colombia educacion corporativa';
 const REQUEST_TIMEOUT_MS = 15_000;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
 
 export interface TavilyConnectionTestResult {
   success: boolean;
@@ -47,7 +35,7 @@ export interface TavilyConnectionTestResult {
 export async function storeTavilyApiKey(
   apiKey: string
 ): Promise<{ success: boolean; vaultSecretId?: string; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('upsert_vault_secret', {
@@ -70,7 +58,7 @@ export async function storeTavilyApiKey(
 }
 
 export async function removeTavilyApiKey(): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     await admin.rpc('delete_vault_secret', { p_name: TAVILY_VAULT_SECRET_NAME });
@@ -82,7 +70,7 @@ export async function removeTavilyApiKey(): Promise<{ success: boolean; error?: 
 }
 
 export async function hasTavilyApiKey(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data } = await admin.rpc('has_vault_secret', {
@@ -103,9 +91,9 @@ export async function hasTavilyApiKey(): Promise<boolean> {
  * como fallback de desarrollo local.
  */
 export async function getTavilyApiKey(): Promise<string | null> {
-  const admin = getAdminSupabase();
-
   try {
+    const admin = createSupabaseAdminClient();
+
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
       p_name: TAVILY_VAULT_SECRET_NAME,
     });
