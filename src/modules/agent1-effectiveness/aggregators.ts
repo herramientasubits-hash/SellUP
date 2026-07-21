@@ -4,6 +4,14 @@
 // read-only summary. Pure — no client, no provider calls, no writes. Tolerates
 // empty arrays, nulls, unknown statuses, and cost-less rows without throwing.
 
+import {
+  deriveRecordOriginClassification,
+  type ClassifiableBatch,
+  type ClassifiableCandidate,
+  type ClassificationSource,
+  type RecordOrigin,
+  type RejectionReason,
+} from './classification';
 import { computeCostCompleteness, type UsageCostSignal } from './cost-completeness';
 import type {
   Agent1BatchRow,
@@ -16,6 +24,12 @@ import type {
   Agent1EffectivenessSummary,
   Agent1ProviderEffectivenessBreakdown,
   Agent1UsageRow,
+  CleanProductionSummary,
+  CleanProductionWarning,
+  ClassificationSourceBreakdown,
+  EffectiveCandidateClassification,
+  OriginBreakdown,
+  RejectionReasonBreakdown,
 } from './types';
 
 // ── Candidate status buckets (schema: migration 040) ───────────────────────────
@@ -171,6 +185,220 @@ export function buildCostSummary(
   };
 }
 
+// ── Q3F-5AY.4 — Clean production classification ─────────────────────────────────────
+
+const CLEAN_PRODUCTION_ORIGIN: RecordOrigin = 'production';
+const UNKNOWN_ORIGIN: RecordOrigin = 'unknown';
+
+/** Every record origin, in a stable order — used to zero-fill OriginBreakdown. */
+const ALL_RECORD_ORIGINS: readonly RecordOrigin[] = [
+  'production',
+  'smoke_test',
+  'qa',
+  'historical_cleanup',
+  'import',
+  'unknown',
+  'synthetic',
+];
+
+const RECORD_ORIGIN_SET: ReadonlySet<string> = new Set<string>(ALL_RECORD_ORIGINS);
+
+const REJECTION_REASON_SET: ReadonlySet<string> = new Set<string>([
+  'test_record',
+  'cleanup_record',
+  'duplicate',
+  'unknown',
+  'outside_icp',
+  'existing_account',
+  'insufficient_data',
+  'invalid_company',
+  'provider_noise',
+  'marketplace_or_directory',
+  'geographic_mismatch',
+  'industry_mismatch',
+  'do_not_use',
+  'no_longer_relevant',
+  'other',
+]);
+
+const CLASSIFICATION_SOURCE_SET: ReadonlySet<string> = new Set<string>([
+  'writer',
+  'derived_metadata',
+  'derived_source_primary',
+  'derived_review_notes',
+  'derived_batch',
+  'manual',
+  'derived_status',
+  'unknown',
+]);
+
+/**
+ * Threshold above which an 'unknown'-origin share (of all classified candidates)
+ * is flagged as suspicious. Kept conservative: >50% unknown means the scope is
+ * mostly unclassifiable and clean-production numbers should be read with care.
+ */
+const HIGH_UNKNOWN_SHARE = 0.5;
+
+function trimmedString(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Zero-filled origin breakdown with every origin key present. */
+function emptyOriginBreakdown(): OriginBreakdown {
+  const out = {} as OriginBreakdown;
+  for (const origin of ALL_RECORD_ORIGINS) out[origin] = 0;
+  return out;
+}
+
+function toClassifiableCandidate(c: Agent1CandidateRow): ClassifiableCandidate {
+  return {
+    status: c.status,
+    duplicate_status: c.duplicateStatus,
+    source_primary: c.sourcePrimary ?? null,
+    review_notes: c.reviewNotes ?? null,
+    metadata: c.metadata ?? null,
+    reviewed_by: c.reviewedBy ?? null,
+  };
+}
+
+function toClassifiableBatch(b: Agent1BatchRow | undefined): ClassifiableBatch | undefined {
+  if (!b) return undefined;
+  if (b.source == null && b.name == null && b.metadata == null) return undefined;
+  return { source: b.source ?? null, name: b.name ?? null, metadata: b.metadata ?? null };
+}
+
+/**
+ * Resolves the EFFECTIVE classification for a candidate. Persisted columns win
+ * when present and valid (Q3F-5AY.4 §3); otherwise the pure runtime classifier
+ * derives it. Never mutates inputs, never throws.
+ */
+export function resolveCandidateClassification(
+  candidate: Agent1CandidateRow,
+  batch?: Agent1BatchRow,
+): EffectiveCandidateClassification {
+  const persistedOrigin = trimmedString(candidate.recordOrigin);
+  if (persistedOrigin && RECORD_ORIGIN_SET.has(persistedOrigin)) {
+    const persistedReason = trimmedString(candidate.rejectionReason);
+    const persistedSource = trimmedString(candidate.classificationSource);
+    return {
+      effectiveRecordOrigin: persistedOrigin as RecordOrigin,
+      effectiveRejectionReason:
+        persistedReason && REJECTION_REASON_SET.has(persistedReason)
+          ? (persistedReason as RejectionReason)
+          : null,
+      effectiveClassificationSource:
+        persistedSource && CLASSIFICATION_SOURCE_SET.has(persistedSource)
+          ? (persistedSource as ClassificationSource)
+          : 'manual',
+      classificationResolutionSource: 'persisted',
+    };
+  }
+
+  const derived = deriveRecordOriginClassification(
+    toClassifiableCandidate(candidate),
+    toClassifiableBatch(batch),
+  );
+  return {
+    effectiveRecordOrigin: derived.recordOrigin,
+    effectiveRejectionReason: derived.rejectionReason,
+    effectiveClassificationSource: derived.classificationSource,
+    classificationResolutionSource: 'derived_runtime',
+  };
+}
+
+/** Builds the per-candidate effective classifications, resolving batch context by id. */
+export function resolveClassifications(
+  batches: readonly Agent1BatchRow[],
+  candidates: readonly Agent1CandidateRow[],
+): EffectiveCandidateClassification[] {
+  const batchById = new Map<string, Agent1BatchRow>();
+  for (const b of batches) batchById.set(b.id, b);
+  return candidates.map((c) => resolveCandidateClassification(c, batchById.get(c.batchId)));
+}
+
+export function buildOriginBreakdown(
+  classifications: readonly EffectiveCandidateClassification[],
+): OriginBreakdown {
+  const out = emptyOriginBreakdown();
+  for (const c of classifications) out[c.effectiveRecordOrigin] += 1;
+  return out;
+}
+
+export function buildRejectionReasonBreakdown(
+  classifications: readonly EffectiveCandidateClassification[],
+): RejectionReasonBreakdown {
+  const out: RejectionReasonBreakdown = {};
+  for (const c of classifications) {
+    const reason = c.effectiveRejectionReason;
+    if (reason == null) continue;
+    out[reason] = (out[reason] ?? 0) + 1;
+  }
+  return out;
+}
+
+export function buildClassificationSourceBreakdown(
+  classifications: readonly EffectiveCandidateClassification[],
+): ClassificationSourceBreakdown {
+  let persisted = 0;
+  let derivedRuntime = 0;
+  for (const c of classifications) {
+    if (c.classificationResolutionSource === 'persisted') persisted += 1;
+    else derivedRuntime += 1;
+  }
+  return { persisted, derived_runtime: derivedRuntime };
+}
+
+/**
+ * Builds the clean-production view: funnel/rates over candidates whose effective
+ * origin is 'production', plus excluded-by-origin accounting. Cost is left null
+ * (batch-level attribution only). Never invents precision.
+ */
+export function buildCleanProduction(
+  batches: readonly Agent1BatchRow[],
+  candidates: readonly Agent1CandidateRow[],
+  classifications: readonly EffectiveCandidateClassification[],
+): CleanProductionSummary {
+  const cleanCandidates: Agent1CandidateRow[] = [];
+  const excludedByOrigin = emptyOriginBreakdown();
+  let excludedCount = 0;
+  let unknownOriginCount = 0;
+
+  candidates.forEach((candidate, i) => {
+    const origin = classifications[i]?.effectiveRecordOrigin ?? UNKNOWN_ORIGIN;
+    if (origin === UNKNOWN_ORIGIN) unknownOriginCount += 1;
+    if (origin === CLEAN_PRODUCTION_ORIGIN) {
+      cleanCandidates.push(candidate);
+    } else {
+      excludedCount += 1;
+      excludedByOrigin[origin] += 1;
+    }
+  });
+
+  const funnel = buildFunnel(batches, cleanCandidates);
+  const rates = buildRates(funnel);
+
+  const warnings: CleanProductionWarning[] = [];
+  if (unknownOriginCount > 0) warnings.push('unknown_origin_present');
+  if (
+    candidates.length > 0 &&
+    safeRate(unknownOriginCount, candidates.length)! > HIGH_UNKNOWN_SHARE
+  ) {
+    warnings.push('high_unknown_discarded_share');
+  }
+  // Clean per-candidate cost is never attributed in Phase 1; always disclose it.
+  warnings.push('clean_cost_attribution_is_batch_level');
+
+  return {
+    funnel,
+    rates,
+    excludedFromCleanProductionCount: excludedCount,
+    excludedByOrigin,
+    unknownOriginCount,
+    cleanCostUsd: null,
+    classificationWarnings: warnings,
+  };
+}
+
 // ── Top-level aggregator ────────────────────────────────────────────────────────────
 
 export function aggregateAgent1Effectiveness(
@@ -204,6 +432,14 @@ export function aggregateAgent1Effectiveness(
     completeness.suspiciousZeroCostRows,
   );
 
+  // Q3F-5AY.4 — effective classification + clean-production view. Purely additive:
+  // the all-scope funnel/rates/cost above are unchanged.
+  const classifications = resolveClassifications(batches, candidates);
+  const originBreakdown = buildOriginBreakdown(classifications);
+  const rejectionReasonBreakdown = buildRejectionReasonBreakdown(classifications);
+  const classificationSourceBreakdown = buildClassificationSourceBreakdown(classifications);
+  const cleanProduction = buildCleanProduction(batches, candidates, classifications);
+
   return {
     filters,
     funnel,
@@ -212,5 +448,10 @@ export function aggregateAgent1Effectiveness(
     providerBreakdown,
     costCompletenessFlag: completeness.flag,
     warnings: completeness.warnings,
+    originBreakdown,
+    rejectionReasonBreakdown,
+    classificationSourceBreakdown,
+    cleanProduction,
+    classificationWarnings: cleanProduction.classificationWarnings,
   };
 }

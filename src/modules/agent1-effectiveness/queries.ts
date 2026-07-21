@@ -76,6 +76,8 @@ interface RawBatchRow {
   industry: string | null;
   created_by: string | null;
   created_at: string | null;
+  source: string | null;
+  name: string | null;
   metadata: unknown;
 }
 
@@ -84,6 +86,16 @@ interface RawCandidateRow {
   status: string | null;
   duplicate_status: string | null;
   converted_account_id: string | null;
+  // Q3F-5AY.4 — persisted classification columns (migration 093, all NULL today).
+  record_origin: string | null;
+  rejection_reason: string | null;
+  classification_source: string | null;
+  classification_confidence: number | string | null;
+  // Raw signals for the runtime fallback classifier when persisted cols are NULL.
+  source_primary: string | null;
+  review_notes: string | null;
+  reviewed_by: string | null;
+  metadata: unknown;
 }
 
 interface RawUsageRow {
@@ -104,7 +116,7 @@ async function fetchBatchRows(
 ): Promise<RawBatchRow[]> {
   let query = admin
     .from('prospect_batches')
-    .select('id, status, country_code, industry, created_by, created_at, metadata');
+    .select('id, status, country_code, industry, created_by, created_at, source, name, metadata');
 
   if (filters.batchId) query = query.eq('id', filters.batchId);
   if (filters.createdBy) query = query.eq('created_by', filters.createdBy);
@@ -125,7 +137,9 @@ async function fetchCandidateRows(
   if (batchIds.length === 0) return [];
   const { data, error } = await admin
     .from('prospect_candidates')
-    .select('batch_id, status, duplicate_status, converted_account_id')
+    .select(
+      'batch_id, status, duplicate_status, converted_account_id, record_origin, rejection_reason, classification_source, classification_confidence, source_primary, review_notes, reviewed_by, metadata',
+    )
     .in('batch_id', batchIds)
     .limit(MAX_ROWS);
   if (error) throw new Error(`agent1-effectiveness: failed to load prospect_candidates: ${error.message}`);
@@ -179,6 +193,9 @@ export async function fetchAgent1EffectivenessEvidence(
     createdAt: b.created_at,
     generatedCandidateCount: readGeneratedCandidateCount(b.metadata),
     adaptiveResultStatus: readAdaptiveResultStatus(b.metadata),
+    source: b.source,
+    name: b.name,
+    metadata: asRecord(b.metadata),
   }));
 
   const candidates: Agent1CandidateRow[] = candidateRows.map((c) => ({
@@ -186,6 +203,14 @@ export async function fetchAgent1EffectivenessEvidence(
     status: c.status,
     duplicateStatus: c.duplicate_status,
     convertedAccountId: c.converted_account_id,
+    recordOrigin: c.record_origin,
+    rejectionReason: c.rejection_reason,
+    classificationSource: c.classification_source,
+    classificationConfidence: toNullableInteger(c.classification_confidence),
+    sourcePrimary: c.source_primary,
+    reviewNotes: c.review_notes,
+    reviewedBy: c.reviewed_by,
+    metadata: asRecord(c.metadata),
   }));
 
   const usageLogs: Agent1UsageRow[] = usageRows.map((u) => ({
