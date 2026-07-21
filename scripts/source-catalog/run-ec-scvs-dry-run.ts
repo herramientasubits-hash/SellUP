@@ -1,21 +1,50 @@
 /**
  * EC SCVS — Dry-run desde CSV local
  *
- * Valida el pipeline completo en memoria: lectura CSV → normalización RUC →
- * adapter (sin dedup) → profiling de duplicados y anomalías.
+ * Valida el pipeline completo en memoria en dos etapas:
+ *   1) Profiling (EC.3 / EC.3B): lectura CSV → normalización RUC → adapter
+ *      (sin dedup) → profiling de duplicados, anomalías y expediente.
+ *   2) Writer-path (EC-SCVS-3B-R): buildEcScvsSnapshotRows →
+ *      runEcScvsSnapshotImport(dryRun=true) → resumen local de cobertura/calidad.
  *
- * NO escribe en Supabase. NO crea snapshots. NO crea coverage.
- * NO descarga automáticamente — requiere --local-file.
+ * NO escribe en Supabase. NO crea snapshots. NO crea coverage (el summary es
+ * SOLO en memoria, nunca persistido). NO crea cliente Supabase. NO lee
+ * env/secrets. NO descarga automáticamente — requiere --local-file. NO existe
+ * modo apply/write/commit/upsert/import: es dry-run only.
  *
  * Uso:
  *   node --import tsx scripts/source-catalog/run-ec-scvs-dry-run.ts \
- *     --local-file "/ABSOLUTE/PATH/TO/bi_compania.csv"
+ *     --local-file "/ABSOLUTE/PATH/TO/bi_compania.csv" \
+ *     --source-year 2025 \
+ *     [--source-file-name bi_compania.csv] \
+ *     [--source-downloaded-at 2026-07-21] \
+ *     [--import-batch-id <id>]
+ *
+ * Inputs:
+ *   --local-file          (obligatorio) ruta absoluta al CSV bi_compania.csv.
+ *   --source-year         (obligatorio) año de la fuente, entero positivo.
+ *   --source-file-name    (opcional) metadata de procedencia.
+ *   --source-downloaded-at(opcional) metadata de procedencia.
+ *   --import-batch-id     (opcional) metadata de procedencia.
+ *
+ * Métricas a revisar (go/no-go antes de un import real futuro):
+ *   - snapshot_accepted vs rejected (missing_expediente, duplicate identity).
+ *   - writer dry-run: status=dry_run, upserts=0, batches=0.
+ *   - rows con/sin normalized_tax_id válido; rows con/sin legal_name.
+ *   - duplicate RUC groups (INFORMATIVO) vs duplicate record_identity_key
+ *     (BLOQUEANTE): el RUC nunca es identidad.
+ *   - distribución por provincia / tipo / pro_codigo (top N).
+ *
+ * Advertencias:
+ *   - Este script NO escribe en la base de datos.
+ *   - Este script NO es un import de producción.
+ *   - bi_compania.csv es un registro societario; NO valida SRI ni estado legal.
  *
  * Fuente: SCVS Ecuador — bi_compania.csv (appscvsmovil.supercias.gob.ec).
  * Semántica: official_company_registry (NO government_supplier_registry).
  * NO implica validación SRI ni validación legal.
  *
- * Hito: Catálogo.EC.3 — dry-run duplicate profiling.
+ * Hito: Catálogo.EC.3 (profiling) + EC-SCVS-3B-R (writer-path dry-run summary).
  */
 
 import * as path from 'node:path';
@@ -33,35 +62,17 @@ import {
   profileDuplicateExpedienteGroups,
   crossReferenceRucExpedienteCollisions,
 } from '../../src/server/source-catalog/connectors/ec-scvs/ec-scvs-expediente-profiler';
-
-interface EcScvsDryRunArgs {
-  localFile: string;
-}
-
-function parseArgs(argv: string[]): EcScvsDryRunArgs {
-  let localFile: string | null = null;
-
-  for (let i = 0; i < argv.length; i++) {
-    const cur = argv[i]!;
-    if (cur === '--local-file' && i + 1 < argv.length) {
-      localFile = argv[i + 1]!;
-      i++;
-    } else if (cur.startsWith('--local-file=')) {
-      localFile = cur.slice('--local-file='.length);
-    }
-  }
-
-  if (!localFile || localFile.trim() === '') {
-    throw new Error('local_file_required: --local-file=<absolute path> is required');
-  }
-
-  return { localFile };
-}
+import {
+  parseEcScvsDryRunArgs,
+  summarizeEcScvsDryRunWriterPath,
+  type EcScvsDryRunArgs,
+  type EcScvsDryRunDistribution,
+} from '../../src/server/source-catalog/connectors/ec-scvs/ec-scvs-dry-run-summary';
 
 async function main() {
   let args: EcScvsDryRunArgs;
   try {
-    args = parseArgs(process.argv.slice(2));
+    args = parseEcScvsDryRunArgs(process.argv.slice(2));
   } catch (err) {
     console.error(`[error] ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
@@ -76,7 +87,8 @@ async function main() {
   console.log(`  source_key:    ec_scvs`);
   console.log(`  country_code:  EC`);
   console.log(`  file:          ${basename}`);
-  console.log(`  mode:          ✓  DRY-RUN (sin escrituras DB)`);
+  console.log(`  source_year:   ${args.sourceYear}`);
+  console.log(`  mode:          ✓  DRY-RUN (sin escrituras DB, sin cliente Supabase)`);
   console.log('');
   console.log('  Guardrail semántico:');
   console.log('  bi_compania.csv es un registro societario, NO valida SRI ni estado legal.');
@@ -84,7 +96,7 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════════════\n');
 
   // ── 1. Leer CSV ───────────────────────────────────────────────────────────
-  console.log(`[1/5] Leyendo CSV local: ${basename}`);
+  console.log(`[1/6] Leyendo CSV local: ${basename}`);
   const readResult = await readEcScvsCsv(args.localFile);
 
   if (!readResult.ok) {
@@ -101,11 +113,11 @@ async function main() {
   console.log(`      Filas malformadas (column count mismatch): ${readResult.malformedRowCount}`);
 
   // ── 2. Adapter (sin dedup) ────────────────────────────────────────────────
-  console.log('\n[2/5] Normalizando RUC (sin deduplicar)...');
+  console.log('\n[2/6] Normalizando RUC (sin deduplicar)...');
   const { candidates, invalidCandidates, stats } = adaptEcScvsRows(readResult.rows);
 
   // ── 3. Anomaly profiling (raw non-numeric RUC) ───────────────────────────
-  console.log('\n[3/5] Perfilando anomalías de identificador (raw non-numeric)...');
+  console.log('\n[3/6] Perfilando anomalías de identificador (raw non-numeric)...');
   const anomalyCounts: Record<EcScvsAnomalyClass, number> = {
     A_PUNCTUATION_ONLY_RECOVERABLE: 0,
     B_ALPHABETIC_CONTAMINATION: 0,
@@ -124,7 +136,7 @@ async function main() {
   }
 
   // ── 4. Duplicate profiling ────────────────────────────────────────────────
-  console.log('\n[4/5] Perfilando grupos de RUC duplicado...');
+  console.log('\n[4/6] Perfilando grupos de RUC duplicado...');
   const duplicateProfile = profileDuplicateRucGroups(candidates);
 
   // ── Summary ───────────────────────────────────────────────────────────────
@@ -174,7 +186,7 @@ async function main() {
   }
 
   // ── 5. Catálogo.EC.3B — Expediente identity profiling (experimental) ─────
-  console.log('\n[5/5] Perfilando "expediente" como candidato a source-record identity...');
+  console.log('\n[5/6] Perfilando "expediente" como candidato a source-record identity...');
 
   const expedienteGlobal = profileExpedienteGlobal(readResult.rows);
   const expedienteCardinality = profileExpedienteRucCardinality(readResult.rows);
@@ -254,11 +266,82 @@ async function main() {
     `\n  SCVS_EXPEDIENTE_RESOLVES_RUC_COLLISIONS=${rucExpedienteCrossRef.resolvesRucCollisions} (unresolved_groups=${rucExpedienteCrossRef.totalUnresolvedGroups}, unresolved_excess_rows=${rucExpedienteCrossRef.totalUnresolvedExcessRows})`,
   );
 
+  // ── 6. EC-SCVS-3B-R — Writer-path dry-run summary ────────────────────────
+  console.log('\n[6/6] Ejercitando writer-path en dry-run (build → import dryRun=true)...');
+
+  const writerSummary = await summarizeEcScvsDryRunWriterPath({
+    rows: readResult.rows,
+    sourceYear: args.sourceYear,
+    ...(args.sourceFileName !== undefined ? { sourceFileName: args.sourceFileName } : {}),
+    ...(args.sourceDownloadedAt !== undefined
+      ? { sourceDownloadedAt: args.sourceDownloadedAt }
+      : {}),
+    ...(args.importBatchId !== undefined ? { importBatchId: args.importBatchId } : {}),
+  });
+
+  console.log('\n─── EC-SCVS-3B-R — Writer-path dry-run summary ─────────────────────\n');
+  const writerRows: Array<[string, string | number]> = [
+    ['source_year', writerSummary.sourceYear],
+    ['total_raw_rows', writerSummary.totalRawRows],
+    ['', ''],
+    ['snapshot_accepted_rows', writerSummary.snapshotAcceptedRows],
+    ['snapshot_rejected_rows', writerSummary.snapshotRejectedRows],
+    ['rejected_missing_expediente', writerSummary.rejectedMissingExpediente],
+    ['rejected_duplicate_record_identity', writerSummary.rejectedDuplicateRecordIdentity],
+    ['', ''],
+    ['writer_status', writerSummary.writerStatus],
+    ['writer_dry_run', String(writerSummary.writerDryRun)],
+    ['writer_valid_rows', writerSummary.writerValidRows],
+    ['writer_rejected_rows', writerSummary.writerRejectedRows],
+    ['writer_upserted_rows', writerSummary.writerUpsertedRows],
+    ['writer_batches', writerSummary.writerBatches],
+    ['', ''],
+    ['rows_with_valid_normalized_tax_id', writerSummary.rowsWithValidNormalizedTaxId],
+    ['rows_without_valid_normalized_tax_id', writerSummary.rowsWithoutValidNormalizedTaxId],
+    ['rows_with_legal_name', writerSummary.rowsWithLegalName],
+    ['rows_without_legal_name', writerSummary.rowsWithoutLegalName],
+    ['distinct_record_identity_keys', writerSummary.distinctRecordIdentityKeys],
+    ['distinct_normalized_tax_ids', writerSummary.distinctNormalizedTaxIds],
+    ['', ''],
+    ['duplicate_ruc_groups (informativo)', writerSummary.duplicateRucGroupsInformative],
+    ['duplicate_ruc_rows_excess (informativo)', writerSummary.duplicateRucRowsExcessInformative],
+    [
+      'duplicate_record_identity_groups (BLOQUEANTE)',
+      writerSummary.duplicateRecordIdentityGroupsBlocking,
+    ],
+  ];
+  for (const [k, v] of writerRows) {
+    if (k === '') {
+      console.log('');
+      continue;
+    }
+    console.log(`  ${String(k).padEnd(46)} ${v}`);
+  }
+
+  const printDistribution = (label: string, dist: EcScvsDryRunDistribution) => {
+    console.log(
+      `\n  ${label} — distinct=${dist.distinctValues} null_or_empty=${dist.nullOrEmptyCount} (top ${writerSummary.topN})`,
+    );
+    if (dist.top.length === 0) {
+      console.log('    (sin valores)');
+      return;
+    }
+    for (const entry of dist.top) {
+      console.log(`    ${entry.key.padEnd(30)} ${entry.count}`);
+    }
+  };
+
+  console.log('\n─── EC-SCVS-3B-R — Distribuciones de cobertura (top N) ─────────────');
+  printDistribution('provincia', writerSummary.provinceDistribution);
+  printDistribution('tipo', writerSummary.typeDistribution);
+  printDistribution('pro_codigo', writerSummary.proCodigoDistribution);
+
   console.log('\n═══════════════════════════════════════════════════════════════════');
-  console.log('  ✓ DRY-RUN completado (EC.3 + EC.3B profiling).');
-  console.log('  DB writes:      0');
-  console.log('  Snapshot writes: 0');
-  console.log('  Coverage writes: 0');
+  console.log('  ✓ DRY-RUN completado (EC.3 + EC.3B profiling + EC-SCVS-3B-R writer-path).');
+  console.log(`  DB writes:       ${writerSummary.dbWrites}`);
+  console.log(`  Snapshot writes: ${writerSummary.snapshotWrites}`);
+  console.log(`  Coverage writes: 0  (coverage_persisted=${String(writerSummary.coveragePersisted)})`);
+  console.log('  Advertencia: este script NO escribe DB y NO es un import de producción.');
   console.log('═══════════════════════════════════════════════════════════════════\n');
 }
 
