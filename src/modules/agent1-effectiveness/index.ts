@@ -6,7 +6,8 @@
 //   → provider_usage_logs (cost), joined conceptually by batch_id.
 // No agent_runs as canonical source. No writes, no migrations, no UI.
 
-export { getAgent1EffectivenessSummary } from './actions';
+export { getAgent1EffectivenessSummary, getAgent1EffectivenessPanel } from './actions';
+export type { Agent1EffectivenessPanelResult } from './actions';
 export { fetchAgent1EffectivenessEvidence } from './queries';
 export {
   aggregateAgent1Effectiveness,
