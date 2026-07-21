@@ -60,6 +60,14 @@ export interface EcScvsSnapshotRawData {
   tax_validation_status: 'not_applicable';
   human_review_required: true;
 
+  /**
+   * SCVS no reporta estado societario. Marcador neutro de listado preservado
+   * en raw_data para trazabilidad. NO es una columna de
+   * `source_company_snapshots` (la tabla no tiene columna `status`): vivir en
+   * raw_data evita que el payload envíe una columna inexistente en el apply.
+   */
+  source_status: 'active_or_listed';
+
   // Campos crudos tal como los reporta la fuente (sin validación legal/fiscal).
   expediente: string | null;
   ruc: string | null;
@@ -87,8 +95,6 @@ export interface EcScvsSnapshotRow {
   normalized_tax_id: string | null;
   /** nombre trim/normalizado o null. NUNCA es identidad. */
   legal_name: string | null;
-  /** SCVS no reporta estado societario — marcador neutro de listado. */
-  status: 'active_or_listed';
   raw_data: EcScvsSnapshotRawData;
   /** Siempre `expediente:<trim>` en filas aceptadas (invariante del builder). */
   record_identity_key: RecordIdentityKey;
@@ -207,6 +213,7 @@ export function buildEcScvsSnapshotRows(
       legal_validation_status: 'not_applicable',
       tax_validation_status: 'not_applicable',
       human_review_required: true,
+      source_status: 'active_or_listed',
       expediente: row.expediente,
       ruc: row.ruc,
       nombre: row.nombre,
@@ -230,7 +237,6 @@ export function buildEcScvsSnapshotRows(
       tax_id: row.ruc,
       normalized_tax_id: normalizedTaxId,
       legal_name: normalizeLegalName(row.nombre),
-      status: 'active_or_listed',
       raw_data: rawData,
       record_identity_key: recordIdentityKey,
     });

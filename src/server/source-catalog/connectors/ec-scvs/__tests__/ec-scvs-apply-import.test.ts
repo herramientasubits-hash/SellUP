@@ -579,6 +579,7 @@ describe('runEcScvsApplyImport — salida segura', () => {
       'applyRejectedRows',
       'applyBatches',
       'applyErrors',
+      'applyErrorDetails',
       'conflictTarget',
       'clientCreated',
     ]);
@@ -633,5 +634,163 @@ describe('EC-SCVS-6C — invariantes estáticas', () => {
     assert.ok(writerSource.includes('RECORD_IDENTITY_ON_CONFLICT'));
     // El writer no crea cliente Supabase.
     assert.ok(!writerSource.includes('createSupabaseAdminClient'));
+  });
+});
+
+// ─── EC-SCVS-6E — reporte seguro de errores de apply ─────────────────────────
+
+describe('EC-SCVS-6E — apply error reporting seguro', () => {
+  // Error de apply que reproduce el fallo diagnosticado (PGRST204), SIN datos de
+  // fila (el proveedor pone valores en `details`, que nunca incluimos).
+  const SCHEMA_ERROR = {
+    batchIndex: 0,
+    offset: 0,
+    code: 'PGRST204',
+    message: "Could not find the 'status' column of 'source_company_snapshots' in the schema cache",
+    hint: null as string | null,
+  };
+
+  function failingApplyResult(): EcScvsSnapshotImportResult {
+    return makeImportResult({
+      status: 'failed',
+      dryRun: false,
+      upsertedRows: 0,
+      batches: 1,
+      errors: [SCHEMA_ERROR],
+    });
+  }
+
+  function depsWithFailingApply(logs?: string[]): EcScvsApplyImportDeps {
+    const client = makeClientSpy();
+    const { runImport } = makeRunImportSpy({ applyResult: failingApplyResult() });
+    const deps: EcScvsApplyImportDeps = {
+      readCsv: async () => makeCsvReadResult(),
+      runImport,
+      createSupabaseClient: client.factory,
+    };
+    if (logs) deps.log = (m) => logs.push(m);
+    return deps;
+  }
+
+  it('11. el reporte seguro incluye code y message del error de batch', async () => {
+    const outcome = await runEcScvsApplyImport(baseArgs(), depsWithFailingApply());
+    assert.equal(outcome.ok, true);
+    if (!outcome.ok) return;
+
+    assert.equal(outcome.report.applyErrors, 1);
+    assert.equal(outcome.report.applyErrorDetails.length, 1);
+    const detail = outcome.report.applyErrorDetails[0]!;
+    assert.equal(detail.batchIndex, 0);
+    assert.equal(detail.code, 'PGRST204');
+    assert.match(detail.message, /Could not find the 'status' column/);
+    assert.equal(detail.hint, null);
+  });
+
+  it('12/13/14. el reporte seguro no incluye payload/RUC/secrets', async () => {
+    const logs: string[] = [];
+    const outcome = await runEcScvsApplyImport(baseArgs(), depsWithFailingApply(logs));
+    assert.equal(outcome.ok, true);
+    if (!outcome.ok) return;
+
+    // 12. El reporte (deliverable seguro) no arrastra keys de payload de fila.
+    const reportJson = JSON.stringify(outcome.report);
+    for (const needle of ['expediente', 'raw_data', 'normalized_tax_id']) {
+      assert.ok(!reportJson.includes(needle), `el reporte no debe incluir payload: "${needle}"`);
+    }
+
+    // 13/14. Ni el reporte ni los logs incluyen RUC completo ni secrets.
+    const combined = reportJson + '\n' + logs.join('\n');
+    assert.ok(!combined.includes(SAMPLE_RUC), 'no debe incluir RUC completo');
+    for (const needle of [
+      'service_role',
+      'SUPABASE_SERVICE_ROLE_KEY',
+      'supabase.co',
+      'apikey',
+      'Bearer ',
+    ]) {
+      assert.ok(!combined.includes(needle), `no debe incluir "${needle}"`);
+    }
+  });
+
+  it('el detalle de error trunca mensajes excesivamente largos', async () => {
+    const longMessage = 'x'.repeat(5000);
+    const applyResult = makeImportResult({
+      status: 'failed',
+      dryRun: false,
+      upsertedRows: 0,
+      batches: 1,
+      errors: [{ batchIndex: 0, offset: 0, code: 'PGRST000', message: longMessage }],
+    });
+    const client = makeClientSpy();
+    const { runImport } = makeRunImportSpy({ applyResult });
+    const deps: EcScvsApplyImportDeps = {
+      readCsv: async () => makeCsvReadResult(),
+      runImport,
+      createSupabaseClient: client.factory,
+    };
+
+    const outcome = await runEcScvsApplyImport(baseArgs(), deps);
+    assert.equal(outcome.ok, true);
+    if (!outcome.ok) return;
+    const detail = outcome.report.applyErrorDetails[0]!;
+    assert.ok(detail.message.length < longMessage.length, 'el mensaje debe truncarse');
+    assert.match(detail.message, /truncated/);
+  });
+
+  it('15. mantiene el gate source_year=2026 (2025 aborta antes de cualquier IO)', () => {
+    assert.throws(
+      () => parseEcScvsApplyImportArgs([...VALID_ARGV.slice(0, 2), '--source-year', '2025', ...VALID_ARGV.slice(4)]),
+      /source_year_must_be_2026/,
+    );
+  });
+
+  it('16. mantiene el gate de frase de confirmación exacta', () => {
+    assert.throws(
+      () =>
+        parseEcScvsApplyImportArgs([
+          '--local-file',
+          '/abs/x.csv',
+          '--source-year',
+          '2026',
+          '--source-file-name',
+          'bi_compania.csv',
+          '--confirm',
+          'EC-SCVS PRODUCTION IMPORT',
+        ]),
+      /confirmation_mismatch/,
+    );
+  });
+
+  it('17. el orden dry-run → create_client → apply se mantiene con el reporte de errores', async () => {
+    const order: string[] = [];
+    const client = makeClientSpy(order);
+    const { runImport } = makeRunImportSpy({ order, applyResult: failingApplyResult() });
+    const deps: EcScvsApplyImportDeps = {
+      readCsv: async () => makeCsvReadResult(),
+      runImport,
+      createSupabaseClient: client.factory,
+    };
+
+    const outcome = await runEcScvsApplyImport(baseArgs(), deps);
+    assert.equal(outcome.ok, true);
+    assert.deepEqual(order, ['import:dry_run', 'create_client', 'import:apply']);
+  });
+
+  it('18. no crea cliente Supabase cuando el gate pre-apply falla', async () => {
+    const client = makeClientSpy();
+    const { runImport } = makeRunImportSpy({
+      dryRunResult: makeImportResult({
+        errors: [{ batchIndex: 0, offset: 0, message: 'boom', code: 'PGRST000' }],
+      }),
+    });
+    const deps: EcScvsApplyImportDeps = {
+      readCsv: async () => makeCsvReadResult(),
+      runImport,
+      createSupabaseClient: client.factory,
+    };
+
+    const outcome = await runEcScvsApplyImport(baseArgs(), deps);
+    assert.equal(outcome.ok, false);
+    assert.equal(client.count(), 0);
   });
 });
