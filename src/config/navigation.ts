@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Building2,
   Users,
+  ClipboardList,
   BrainCircuit,
   Settings,
 } from "lucide-react";
@@ -82,6 +83,16 @@ export const mainNavItems: NavItem[] = [
     title: "Contactos",
     href: "/contacts",
     icon: Users,
+  },
+  {
+    title: "Revisión de prospectos",
+    href: "/prospect-batches/review",
+    icon: ClipboardList,
+    // The pending-review queue reads via the admin (service-role) client and
+    // gates the route/data to admins today (Q3F-5AZ.2A, read-only). Mirror that
+    // gate in the sidebar so non-admins never see a dead-end "sin permisos"
+    // view — role-scoped access is a later milestone.
+    access: "adminOnly",
   },
   {
     title: "Uso de IA y costos",
