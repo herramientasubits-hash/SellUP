@@ -150,6 +150,7 @@
     "test:agent2a:migo-connection": "node --import tsx --test src/server/services/__tests__/migo-connection.test.ts",
     "test:agent2a:tavily-connection": "node --import tsx --test src/server/services/__tests__/tavily-connection.test.ts",
     "test:agent2a:apollo-connection": "node --import tsx --test src/server/services/__tests__/apollo-connection.test.ts",
+    "test:agent2a:samu-connection": "node --import tsx --test src/server/services/__tests__/samu-connection.test.ts",
     "test:agent2a:candidate-review": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-review-core.test.ts",
     "test:agent2a:routing-observation-evaluator": "node --import tsx --test src/modules/contact-enrichment-routing/__tests__/policy-validation.test.ts src/modules/contact-enrichment-routing/__tests__/attempt-input-validation.test.ts src/modules/contact-enrichment-routing/__tests__/signal-derivation.test.ts src/modules/contact-enrichment-routing/__tests__/observation-evaluator.test.ts",
     "test:agent2a:routing-config-contract": "node --import tsx --test src/modules/contact-enrichment-routing/__tests__/routing-config.test.ts",
