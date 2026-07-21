@@ -106,10 +106,12 @@ describe('RD.1A4.T2 — trigger non-regression CO/PE/CL', () => {
     assert.equal(result.triggered, true);
   });
 
-  it('MX still skipped', async () => {
+  it('MX now supported via DENUE name-context → triggered=true, status=queued', async () => {
     const result = await triggerPostApprovalEnrichment(makeTriggerParams('MX', 'ABC123456'));
-    assert.equal(result.triggered, false);
-    assert.equal(result.meta.reason, 'country_not_supported_for_post_approval_source_enrichment');
+    assert.equal(result.triggered, true);
+    assert.equal(result.meta.status, 'queued');
+    // MX runs DENUE live API in the worker directly — no CO adapter source keys queued
+    assert.deepEqual(result.meta.source_keys, []);
   });
 });
 
