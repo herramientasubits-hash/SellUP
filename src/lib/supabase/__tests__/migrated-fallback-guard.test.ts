@@ -42,6 +42,7 @@ const MIGRATED_FILES = [
   'src/server/agents/contact-enrichment-toolkit/contact-enrichment-routing-orchestrator.ts',
   'src/modules/ai-config/provider-ai-detail-queries.ts',
   'src/server/services/migo-connection.ts',
+  'src/server/services/tavily-connection.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';
