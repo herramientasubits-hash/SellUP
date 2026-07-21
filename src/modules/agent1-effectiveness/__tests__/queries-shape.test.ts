@@ -50,6 +50,31 @@ describe('queries — no write/RPC operations (static scan)', () => {
   });
 });
 
+describe('queries — Q3F-5AY.4 classification columns selected (static scan)', () => {
+  it('selects the persisted migration-093 classification columns', () => {
+    for (const col of [
+      'record_origin',
+      'rejection_reason',
+      'classification_source',
+      'classification_confidence',
+    ]) {
+      assert.ok(QUERIES_SRC.includes(col), `queries.ts must select ${col}`);
+    }
+  });
+
+  it('selects the raw signals the runtime fallback classifier needs', () => {
+    for (const col of ['source_primary', 'review_notes', 'metadata']) {
+      assert.ok(QUERIES_SRC.includes(col), `queries.ts must select ${col}`);
+    }
+  });
+
+  it('still performs no write/RPC after adding the new columns', () => {
+    for (const token of ['.insert(', '.update(', '.delete(', '.upsert(', '.rpc(']) {
+      assert.equal(QUERIES_SRC.includes(token), false, `queries.ts must not call ${token}`);
+    }
+  });
+});
+
 describe('queries — fail closed without credentials', () => {
   it('throws when Supabase service credentials are absent', async () => {
     const prevUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
