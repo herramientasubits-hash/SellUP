@@ -1,9 +1,4 @@
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const MIGO_VAULT_SECRET_NAME = 'sellup_source_pe_migo_api_api_key';
 
@@ -11,13 +6,6 @@ const MIGO_API_BASE = 'https://api.migo.pe';
 const MIGO_API_PATH = '/api/v1/ruc';
 const TEST_RUC = '20100047218';
 const REQUEST_TIMEOUT_MS = 15_000;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
 
 export interface MigoConnectionTestResult {
   success: boolean;
@@ -32,7 +20,7 @@ export interface MigoConnectionTestResult {
 export async function storeMigoApiKey(
   apiKey: string
 ): Promise<{ success: boolean; vaultSecretId?: string; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('upsert_vault_secret', {
@@ -55,7 +43,7 @@ export async function storeMigoApiKey(
 }
 
 export async function removeMigoApiKey(): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     await admin.rpc('delete_vault_secret', { p_name: MIGO_VAULT_SECRET_NAME });
@@ -67,7 +55,7 @@ export async function removeMigoApiKey(): Promise<{ success: boolean; error?: st
 }
 
 export async function hasMigoApiKey(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data } = await admin.rpc('has_vault_secret', {
@@ -81,7 +69,7 @@ export async function hasMigoApiKey(): Promise<boolean> {
 
 export async function getMigoApiKey(): Promise<string | null> {
   try {
-    const admin = getAdminSupabase();
+    const admin = createSupabaseAdminClient();
 
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
       p_name: MIGO_VAULT_SECRET_NAME,
