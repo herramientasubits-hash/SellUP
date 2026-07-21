@@ -134,6 +134,15 @@ export interface EcScvsAdapterStats {
 export interface EcScvsAdapterResult {
   candidates: EcScvsNormalizedCandidate[];
   invalidCandidates: EcScvsNormalizedCandidate[];
+  /**
+   * EC-SCVS-2: filas con RUC ausente RETENIDAS (antes se descartaban en un
+   * contador). En NATIVE_RECORD_GRAIN una fila con expediente válido y sin RUC
+   * puede ser admisible aguas abajo (snapshot builder). No entran en
+   * `candidates` (keyed-by-RUC para profiling de duplicados) para no contaminar
+   * los profilers; se exponen aparte para que el builder pueda snapshotearlas.
+   * normalizedRuc queda '' porque no hay RUC normalizable.
+   */
+  missingRucCandidates: EcScvsNormalizedCandidate[];
   stats: EcScvsAdapterStats;
 }
 

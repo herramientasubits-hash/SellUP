@@ -45,6 +45,7 @@ export function adaptEcScvsRows(rows: EcScvsRawRow[]): EcScvsAdapterResult {
 
   const candidates: EcScvsNormalizedCandidate[] = [];
   const invalidCandidates: EcScvsNormalizedCandidate[] = [];
+  const missingRucCandidates: EcScvsNormalizedCandidate[] = [];
   const rucCounts = new Map<string, number>();
 
   for (let i = 0; i < rows.length; i++) {
@@ -52,7 +53,21 @@ export function adaptEcScvsRows(rows: EcScvsRawRow[]): EcScvsAdapterResult {
     const rucResult = normalizeEcuadorRuc(row.ruc);
 
     if (rucResult.status === 'missing') {
+      // EC-SCVS-2: retener en vez de descartar. En NATIVE_RECORD_GRAIN una
+      // fila con expediente válido y sin RUC puede ser admisible en el
+      // snapshot builder. NO entra en candidates (keyed-by-RUC) para no
+      // contaminar el profiling de duplicados.
       stats.missingRucRows++;
+      missingRucCandidates.push({
+        sourceRowIndex: i,
+        expediente: row.expediente,
+        rawRuc: row.ruc,
+        normalizedRuc: '',
+        sourceReportedName: normalizeWhitespace(row.nombre),
+        companyType: normalizeNullableWhitespace(row.tipo),
+        provinceCode: normalizeNullableWhitespace(row.pro_codigo),
+        province: normalizeNullableWhitespace(row.provincia),
+      });
       continue;
     }
 
@@ -99,5 +114,5 @@ export function adaptEcScvsRows(rows: EcScvsRawRow[]): EcScvsAdapterResult {
   stats.duplicateRucGroups = duplicateRucGroups;
   stats.duplicateRowsExcess = duplicateRowsExcess;
 
-  return { candidates, invalidCandidates, stats };
+  return { candidates, invalidCandidates, missingRucCandidates, stats };
 }
