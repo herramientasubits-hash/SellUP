@@ -8,19 +8,7 @@
  * Naming convention del secreto en Vault: sellup_prospecting_apollo_api_key
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const APOLLO_VAULT_SECRET_NAME = 'sellup_prospecting_apollo_api_key';
 
@@ -41,7 +29,7 @@ export interface ApolloHealthCheckResult {
 export async function storeApolloApiKey(
   apiKey: string
 ): Promise<{ success: boolean; vaultSecretId?: string; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('upsert_vault_secret', {
@@ -67,7 +55,7 @@ export async function storeApolloApiKey(
  * Elimina la API Key de Apollo de Vault.
  */
 export async function removeApolloApiKey(): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     await admin.rpc('delete_vault_secret', { p_name: APOLLO_VAULT_SECRET_NAME });
@@ -82,7 +70,7 @@ export async function removeApolloApiKey(): Promise<{ success: boolean; error?: 
  * Verifica si existe API Key almacenada en Vault para Apollo.
  */
 export async function hasApolloApiKey(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data } = await admin.rpc('has_vault_secret', {
@@ -100,7 +88,7 @@ export async function hasApolloApiKey(): Promise<boolean> {
  * NUNCA retornar al frontend. NUNCA loggear el valor.
  */
 export async function getApolloApiKey(): Promise<string | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
