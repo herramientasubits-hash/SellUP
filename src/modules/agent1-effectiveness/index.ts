@@ -16,6 +16,13 @@ export {
   buildCostSummary,
   buildProviderBreakdown,
   safeRate,
+  // Q3F-5AY.4 — clean production classification helpers (pure).
+  resolveCandidateClassification,
+  resolveClassifications,
+  buildOriginBreakdown,
+  buildRejectionReasonBreakdown,
+  buildClassificationSourceBreakdown,
+  buildCleanProduction,
 } from './aggregators';
 export {
   computeCostCompleteness,
@@ -36,6 +43,14 @@ export type {
   Agent1EffectivenessCostSummary,
   Agent1ProviderEffectivenessBreakdown,
   Agent1CostCompletenessFlag,
+  // Q3F-5AY.4 — clean production classification shapes.
+  ClassificationResolutionSource,
+  EffectiveCandidateClassification,
+  OriginBreakdown,
+  RejectionReasonBreakdown,
+  ClassificationSourceBreakdown,
+  CleanProductionWarning,
+  CleanProductionSummary,
 } from './types';
 export type { UsageCostSignal, CostCompletenessInput, CostCompletenessResult } from './cost-completeness';
 // Q3F-5AY.2 — Record origin classifier (pure).
