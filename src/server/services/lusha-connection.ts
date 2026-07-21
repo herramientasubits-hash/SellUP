@@ -10,7 +10,7 @@
  * Naming convention del secreto en Vault: sellup_prospecting_lusha_api_key
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { createHash } from 'crypto';
 
 export const LUSHA_VAULT_SECRET_NAME = 'sellup_prospecting_lusha_api_key';
@@ -41,16 +41,10 @@ export type LushaCredentialResolution =
 
 // ── Admin client ───────────────────────────────────────────────────────────────
 
-// NOTE: reads env at call time (not module level) so Vercel runtime values are
-// always used, regardless of when this module was first bundled.
-function getAdminSupabase() {
-  const url =
-    process.env['NEXT_PUBLIC_SUPABASE_URL'] ||
-    'https://lrdruowtadwbdulndlph.supabase.co';
-  const key = process.env['SUPABASE_SERVICE_ROLE_KEY'];
-  if (!key) throw new Error('enrichment_configuration_unavailable');
-  return createAdminClient(url, key);
-}
+// Uses the shared fail-closed factory (createSupabaseAdminClient), which reads
+// env at call time via the env-guard and throws UnsafeSupabaseEnvironmentError
+// instead of ever falling back to a hardcoded production project. Credential
+// resolution below catches that throw and preserves the LUSHA_API_KEY fallback.
 
 function fp(secret: string): string {
   return createHash('sha256').update(secret).digest('hex').slice(0, 8);
@@ -67,9 +61,9 @@ export async function resolveLushaCredential(): Promise<LushaCredentialResolutio
   const lushaEnvFallback = process.env['LUSHA_API_KEY']?.trim() || null;
 
   // A. Admin client
-  let admin: ReturnType<typeof getAdminSupabase>;
+  let admin: ReturnType<typeof createSupabaseAdminClient>;
   try {
-    admin = getAdminSupabase();
+    admin = createSupabaseAdminClient();
   } catch {
     if (lushaEnvFallback) {
       return {
@@ -148,7 +142,7 @@ export interface LushaHealthCheckResult {
 export async function storeLushaApiKey(
   apiKey: string
 ): Promise<{ success: boolean; vaultSecretId?: string; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('upsert_vault_secret', {
@@ -174,7 +168,7 @@ export async function storeLushaApiKey(
  * Elimina la API Key de Lusha de Vault.
  */
 export async function removeLushaApiKey(): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     await admin.rpc('delete_vault_secret', { p_name: LUSHA_VAULT_SECRET_NAME });
@@ -189,7 +183,7 @@ export async function removeLushaApiKey(): Promise<{ success: boolean; error?: s
  * Verifica si existe API Key almacenada en Vault para Lusha.
  */
 export async function hasLushaApiKey(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data } = await admin.rpc('has_vault_secret', {
