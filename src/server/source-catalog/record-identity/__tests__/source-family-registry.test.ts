@@ -23,7 +23,11 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'co_siis',
 ] as const;
 
-const NATIVE_RECORD_GRAIN_SOURCE_KEYS = ['pa_panamacompra_convenio', 'co_fedesoft'] as const;
+const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
+  'pa_panamacompra_convenio',
+  'co_fedesoft',
+  'ec_scvs',
+] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────
 
@@ -47,8 +51,8 @@ describe('getSourceFamily', () => {
     );
   });
 
-  it('ec_scvs is not registered yet (future native record grain, no writer)', () => {
-    assert.throws(() => getSourceFamily('ec_scvs'), /Unknown source family/);
+  it('ec_scvs → NATIVE_RECORD_GRAIN (expediente-native identity, not fiscal)', () => {
+    assert.equal(getSourceFamily('ec_scvs'), 'NATIVE_RECORD_GRAIN');
   });
 
   it('empty string throws fail-closed', () => {
@@ -59,7 +63,7 @@ describe('getSourceFamily', () => {
 // ── registry shape ───────────────────────────────────────────────────────────
 
 describe('SOURCE_FAMILY_BY_SOURCE_KEY', () => {
-  it('registers exactly the 9 active source_keys', () => {
+  it('registers exactly the 10 active source_keys', () => {
     const registered = Object.keys(SOURCE_FAMILY_BY_SOURCE_KEY).sort();
     const expected = [...TAX_GRAIN_SOURCE_KEYS, ...NATIVE_RECORD_GRAIN_SOURCE_KEYS].sort();
     assert.deepEqual(registered, expected);
@@ -98,6 +102,10 @@ describe('isTaxGrainSource / isNativeRecordGrainSource', () => {
 
   it('co_fedesoft is NOT TAX_GRAIN', () => {
     assert.equal(isTaxGrainSource('co_fedesoft'), false);
+  });
+
+  it('ec_scvs is NOT TAX_GRAIN', () => {
+    assert.equal(isTaxGrainSource('ec_scvs'), false);
   });
 
   it('helpers also fail closed on unknown source_key', () => {
