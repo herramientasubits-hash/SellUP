@@ -46,6 +46,7 @@ const MIGRATED_FILES = [
   'src/server/services/apollo-connection.ts',
   'src/server/services/samu-connection.ts',
   'src/server/services/lusha-connection.ts',
+  'src/server/services/lusha-credential-diagnostics.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';

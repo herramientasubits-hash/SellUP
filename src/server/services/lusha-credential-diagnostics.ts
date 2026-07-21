@@ -1,14 +1,25 @@
 /**
- * Lusha Credential Diagnostics — 17B.4P
+ * Lusha Credential Diagnostics — 17B.4P (H5.9B admin-factory migration)
  *
  * Diagnóstico server-only para resolución de credenciales Lusha.
  * No expone secretos. No llama Lusha. No crea candidatos ni contactos.
  * Registra evidencia segura: stage, checks booleanos, detalles sanitizados.
+ *
+ * H5.9B: el stage B ya no construye el admin client inline con un fallback
+ * hardcodeado a producción. Usa la factory fail-closed createSupabaseAdminClient(),
+ * que lee env vía el env-guard y lanza UnsafeSupabaseEnvironmentError en vez de
+ * caer a un proyecto Supabase de producción. La inspección raw de env del stage A
+ * se mantiene independiente de la factory para preservar el contrato diagnóstico
+ * (hasSupabaseUrl / hasServiceRoleKey / longitudes / host / fallback LUSHA_API_KEY).
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import {
+  UnsafeSupabaseEnvironmentError,
+  type SupabaseEnvUnsafeReason,
+} from '@/lib/supabase/env-guard.server';
 import { LUSHA_VAULT_SECRET_NAME, resolveLushaCredential } from './lusha-connection';
 import { isLushaContactEnrichmentEnabled } from '@/lib/feature-flags.server';
 
@@ -86,6 +97,26 @@ function sanitizeExceptionMessage(msg: string): string {
   return msg.replace(/[A-Za-z0-9_\-.]{21,}/g, '[REDACTED]').slice(0, 200);
 }
 
+/**
+ * Maps an env-guard fail-closed reason (or a generic client-creation failure)
+ * to an actionable, secret-free recommendation. Always returns a non-empty
+ * string so the admin_client stage never surfaces a blank recommendation.
+ */
+function adminClientFailureRecommendation(
+  reason: SupabaseEnvUnsafeReason | null,
+): string {
+  switch (reason) {
+    case 'missing_supabase_url':
+      return 'NEXT_PUBLIC_SUPABASE_URL no está configurada en el runtime. Agregarla en Variables de Entorno de Vercel. El env-guard falla de forma segura (fail-closed) en vez de caer a un proyecto Supabase de producción hardcodeado.';
+    case 'missing_service_role_key':
+      return 'SUPABASE_SERVICE_ROLE_KEY no está disponible en el runtime. Agregarla en Variables de Entorno de Vercel.';
+    case 'non_production_environment_targets_production_supabase':
+      return 'Un entorno no-productivo resolvió NEXT_PUBLIC_SUPABASE_URL al proyecto Supabase de producción. El env-guard falló de forma segura (fail-closed) y no creó un cliente admin apuntando a producción desde un entorno no-prod. Verificar NEXT_PUBLIC_SUPABASE_URL / VERCEL_ENV.';
+    default:
+      return 'No se pudo crear cliente admin de Supabase. Verificar que SUPABASE_SERVICE_ROLE_KEY sea un JWT válido y que NEXT_PUBLIC_SUPABASE_URL apunte al proyecto correcto.';
+  }
+}
+
 // ── Main diagnostic ───────────────────────────────────────────────────────────
 
 export async function diagnoseLushaCredentialResolution(
@@ -104,10 +135,11 @@ export async function diagnoseLushaCredentialResolution(
   };
   const safeDetails: LushaCredentialDiagnosticResult['safeDetails'] = {};
 
-  // ── A. Env check ─────────────────────────────────────────────────────────
-  const supabaseUrl =
-    process.env['NEXT_PUBLIC_SUPABASE_URL'] ||
-    'https://lrdruowtadwbdulndlph.supabase.co';
+  // ── A. Env check (raw inspection — independent of the admin factory) ───────
+  // Read env directly (no hardcoded production fallback) so the diagnostic
+  // reports the true runtime state. The admin client itself is built in stage B
+  // via the fail-closed factory; this stage only inspects env for evidence.
+  const supabaseUrl = process.env['NEXT_PUBLIC_SUPABASE_URL'];
   const serviceRoleKey = process.env['SUPABASE_SERVICE_ROLE_KEY'];
   const lushaEnvFallback = process.env['LUSHA_API_KEY'];
 
@@ -144,13 +176,21 @@ export async function diagnoseLushaCredentialResolution(
     };
   }
 
-  // ── B. Admin client ───────────────────────────────────────────────────────
-  let admin: ReturnType<typeof createAdminClient>;
+  // ── B. Admin client (fail-closed factory) ─────────────────────────────────
+  // createSupabaseAdminClient() reads env via the env-guard and throws
+  // UnsafeSupabaseEnvironmentError (never falls back to a hardcoded production
+  // project) when config is missing or a non-prod environment resolves to the
+  // production project. We catch that throw, record the exception name/reason
+  // as safe evidence, and — mirroring the runner's resolveLushaCredential —
+  // preserve the LUSHA_API_KEY env fallback path when a fallback exists.
+  let admin: ReturnType<typeof createSupabaseAdminClient>;
   try {
-    admin = createAdminClient(supabaseUrl, serviceRoleKey!);
+    admin = createSupabaseAdminClient();
     checks.adminClientCreated = true;
   } catch (err: unknown) {
-    const name = err instanceof Error ? err.constructor.name : 'UnknownError';
+    const reason =
+      err instanceof UnsafeSupabaseEnvironmentError ? err.reason : null;
+    const name = err instanceof Error ? err.name : 'UnknownError';
     const msg = err instanceof Error ? err.message : String(err);
     safeDetails.exceptionName = name;
     safeDetails.exceptionMessage = sanitizeExceptionMessage(msg);
@@ -163,7 +203,7 @@ export async function diagnoseLushaCredentialResolution(
         checks,
         safeDetails,
         recommendation:
-          'No se pudo crear cliente admin de Supabase. Credencial Lusha resuelta desde LUSHA_API_KEY (env fallback).',
+          'No se pudo crear cliente admin de Supabase (env-guard fail-closed). Credencial Lusha resuelta desde LUSHA_API_KEY (env fallback).',
       };
     }
 
@@ -172,8 +212,7 @@ export async function diagnoseLushaCredentialResolution(
       stage: 'admin_client',
       checks,
       safeDetails,
-      recommendation:
-        'No se pudo crear cliente admin de Supabase. Verificar que SUPABASE_SERVICE_ROLE_KEY sea un JWT válido.',
+      recommendation: adminClientFailureRecommendation(reason),
     };
   }
 

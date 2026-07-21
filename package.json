@@ -161,6 +161,7 @@
     "test:agent2a:lusha-17b4k": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4k.test.ts",
     "test:agent2a:lusha-17b4r": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4r.test.ts",
     "test:agent2a:lusha": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4g.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4h.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4k.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/lusha-people-adapter.test.ts",
+    "test:agent2a:lusha-credential-diagnostics": "node --import tsx --test src/server/services/__tests__/lusha-credential-diagnostics.test.ts",
     "test:agent2a:lusha-diag-17b4q": "node --import tsx --test src/components/contact-enrichment/__tests__/lusha-credential-diagnostic-card-17b4q.test.ts",
     "test:agent2a:lusha-17b4s": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4s.test.ts",
     "test:agent2a:lusha-17b4w2": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/lusha-enrichment-runner-17b4w2.test.ts",
