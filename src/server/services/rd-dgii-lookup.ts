@@ -16,10 +16,21 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  SnapshotReadQueryError,
+  readLatestTaxGrainSnapshotByTaxId,
+  type SnapshotIdentityRow,
+  type SnapshotReadClient,
+} from '../source-catalog/snapshot-read/snapshot-read-contract';
 
-const SNAPSHOT_TABLE = 'source_company_snapshots';
 const SOURCE_KEY = 'rd_dgii_bulk' as const;
 const COUNTRY_CODE = 'DO' as const;
+
+/**
+ * Columns this reader projects out of source_company_snapshots. Includes
+ * source_year, required by the latest-year cardinality-aware lookup.
+ */
+const SNAPSHOT_SELECT_COLUMNS = 'source_year, legal_name, normalized_tax_id, raw_data';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -186,23 +197,9 @@ export async function lookupDominicanDgiiByRnc(
     };
   }
 
-  const { data, error } = await supabase
-    .from(SNAPSHOT_TABLE)
-    .select(
-      'source_year, legal_name, normalized_tax_id, raw_data',
-    )
-    .eq('source_key', SOURCE_KEY)
-    .eq('country_code', COUNTRY_CODE)
-    .eq('normalized_tax_id', normalized)
-    .order('source_year', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`rd_dgii_lookup_db_error: ${error.message}`);
-  }
-
-  if (!data) {
+  // `not_found`-shaped envelope, shared so the external result shape stays
+  // byte-identical to the pre-migration reader across the several outcomes.
+  function notFound(reason: string): RdDgiiLookupResult {
     return {
       matched: false,
       source_year: null,
@@ -217,28 +214,69 @@ export async function lookupDominicanDgiiByRnc(
       raw_data: null,
       legal_validation_status: 'not_found',
       skip_reason: null,
-      reason: 'no_snapshot_match_by_rnc',
+      reason,
     };
   }
 
-  const raw = (data.raw_data as Record<string, unknown> | null) ?? {};
+  // Migrated to the cardinality-aware contract (EC4D5.APP-C4B). This reader has
+  // no exact-year input, so it always resolves the most recent source_year via
+  // the desc-ordered lookup — which probes with `.limit(2)` (NEVER
+  // `.limit(1).maybeSingle()`) and surfaces 2 rows within the latest year as a
+  // cardinality violation instead of an arbitrary silent pick. A DB/transport
+  // failure surfaces as SnapshotReadQueryError, preserved here as the original
+  // thrown `rd_dgii_lookup_db_error`.
+  const client = supabase as unknown as SnapshotReadClient<SnapshotIdentityRow>;
 
-  return {
-    matched: true,
-    source_year: typeof data.source_year === 'number' ? data.source_year : null,
-    legal_name: typeof data.legal_name === 'string' ? data.legal_name : null,
-    trade_name: typeof raw.trade_name === 'string' ? raw.trade_name : null,
-    normalized_rnc: normalized,
-    taxpayer_status: typeof raw.taxpayer_status === 'string' ? raw.taxpayer_status : null,
-    normalized_status: typeof raw.normalized_status === 'string' ? raw.normalized_status : null,
-    is_active_taxpayer: typeof raw.is_active_taxpayer === 'boolean' ? raw.is_active_taxpayer : null,
-    economic_activity_text:
-      typeof raw.economic_activity_text === 'string' ? raw.economic_activity_text : null,
-    registration_date:
-      typeof raw.registration_date === 'string' ? raw.registration_date : null,
-    raw_data: raw,
-    legal_validation_status: 'matched',
-    skip_reason: null,
-    reason: null,
-  };
+  let result;
+  try {
+    result = await readLatestTaxGrainSnapshotByTaxId({
+      client,
+      sourceKey: SOURCE_KEY,
+      countryCode: COUNTRY_CODE,
+      normalizedTaxId: normalized,
+      selectColumns: SNAPSHOT_SELECT_COLUMNS,
+    });
+  } catch (err) {
+    if (err instanceof SnapshotReadQueryError) {
+      throw new Error(`rd_dgii_lookup_db_error: ${err.message}`);
+    }
+    throw err;
+  }
+
+  switch (result.status) {
+    case 'RECORD_IDENTITY_NOT_FOUND':
+      return notFound('no_snapshot_match_by_rnc');
+    case 'IDENTITY_UNAVAILABLE':
+      // Unreachable in practice: `normalized` is a validated 9-digit RNC here.
+      // Kept observable rather than a silent fall-through.
+      return notFound('no_snapshot_match_by_rnc');
+    case 'SOURCE_FAMILY_CARDINALITY_INVARIANT_VIOLATION':
+    case 'MULTI_RECORD_SAME_FISCAL_IDENTITY':
+      // Two+ rows for the same RNC within the latest source_year: refuse to
+      // pick one. Observable via reason; not a normal not_found.
+      return notFound('snapshot_cardinality_violation');
+    case 'FOUND': {
+      const data = result.row as Record<string, unknown>;
+      const raw = (data.raw_data as Record<string, unknown> | null) ?? {};
+
+      return {
+        matched: true,
+        source_year: typeof data.source_year === 'number' ? data.source_year : null,
+        legal_name: typeof data.legal_name === 'string' ? data.legal_name : null,
+        trade_name: typeof raw.trade_name === 'string' ? raw.trade_name : null,
+        normalized_rnc: normalized,
+        taxpayer_status: typeof raw.taxpayer_status === 'string' ? raw.taxpayer_status : null,
+        normalized_status: typeof raw.normalized_status === 'string' ? raw.normalized_status : null,
+        is_active_taxpayer: typeof raw.is_active_taxpayer === 'boolean' ? raw.is_active_taxpayer : null,
+        economic_activity_text:
+          typeof raw.economic_activity_text === 'string' ? raw.economic_activity_text : null,
+        registration_date:
+          typeof raw.registration_date === 'string' ? raw.registration_date : null,
+        raw_data: raw,
+        legal_validation_status: 'matched',
+        skip_reason: null,
+        reason: null,
+      };
+    }
+  }
 }

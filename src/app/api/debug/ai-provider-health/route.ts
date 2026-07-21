@@ -3,6 +3,10 @@
  *
  * Safe diagnostic endpoint. Returns provider health status without exposing API keys.
  * Available only in development (NODE_ENV !== 'production').
+ *
+ * Acceso: admin-only (is_admin RPC + sesión autenticada), en paridad con
+ * /api/debug/agent1-apollo-config. No devuelve valores de credenciales, solo
+ * presencia. No llama providers externos. No escribe en la base de datos.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
@@ -22,6 +26,14 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+
+  const { data: isAdmin } = await supabase.rpc('is_admin', {
+    p_auth_user_id: user.id,
+  });
+
+  if (!isAdmin) {
+    return NextResponse.json({ error: 'Acceso restringido a administradores' }, { status: 403 });
   }
 
   const providerParam = request.nextUrl.searchParams.get('provider') ?? 'anthropic';

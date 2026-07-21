@@ -315,7 +315,6 @@ function TabResumen({
   onNavigate: (tab: SidepanelInitialTab) => void;
 }) {
   const opType = getProviderOperationalType(row.providerKey);
-  const msBadge = MEASUREMENT_STATUS_BADGE[ms];
   const opBadge = OPERATIONAL_TYPE_BADGE[opType];
 
   // Sync signal: prefer syncLogs[0] over row fields
@@ -383,6 +382,8 @@ function TabResumen({
     <div className="space-y-4">
       {/* 1. Estado operativo */}
       <div className="grid md:grid-cols-2 gap-4">
+        {/* Design Refresh v10: sin duplicar Estado (header), Contexto
+            (descripción) ni el error de sync (va en 'Salud del proveedor'). */}
         <SectionCard>
           <InfoRow
             label="Tipo"
@@ -392,26 +393,8 @@ function TabResumen({
               </span>
             }
           />
-          <InfoRow
-            label="Estado"
-            value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
-                {MEASUREMENT_STATUS_LABEL[ms]}
-              </span>
-            }
-          />
-          <InfoRow
-            label="Contexto"
-            value={<span className="text-muted-foreground">{getProviderOperationalContext(row.providerKey)}</span>}
-          />
           {syncedAt && (
             <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />
-          )}
-          {row.quotaSyncError && (
-            <InfoRow
-              label="Error de sync"
-              value={<span className="text-destructive text-[10px] leading-relaxed">{row.quotaSyncError}</span>}
-            />
           )}
         </SectionCard>
 
@@ -543,9 +526,6 @@ function TabResumen({
               </span>
             }
           />
-          {syncedAt && (
-            <InfoRow label="Fecha sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />
-          )}
           {syncErrorMsg && (
             <InfoRow
               label="Error"
@@ -3515,7 +3495,6 @@ export function ProviderDetailSidepanel({
   onActiveTabChange,
 }: ProviderDetailSidepanelProps) {
   const ms: MeasurementStatus = provider?.measurementStatus ?? 'prepared';
-  const opType = provider ? getProviderOperationalType(provider.providerKey) : null;
   const msBadge = MEASUREMENT_STATUS_BADGE[ms];
 
   const [detailData, setDetailData] = useState<SidepanelDetailData | null>(null);
@@ -3577,19 +3556,14 @@ export function ProviderDetailSidepanel({
       open={open}
       onOpenChange={(v) => { if (!v) onClose(); }}
       size="workspace"
-      title={
-        <div className="flex items-center gap-2 flex-wrap">
-          <span>{provider?.displayName ?? provider?.providerKey ?? 'Proveedor'}</span>
-          {opType && (
-            <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${OPERATIONAL_TYPE_BADGE[opType]}`}>
-              {OPERATIONAL_TYPE_LABEL[opType]}
-            </span>
-          )}
-          <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${msBadge.className}`}>
+      title={provider?.displayName ?? provider?.providerKey ?? 'Proveedor'}
+      titleBadge={
+        <div className="flex items-center gap-1.5">
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
             {MEASUREMENT_STATUS_LABEL[ms]}
           </span>
           {hasAttention && (
-            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
               Atención
             </span>
           )}
@@ -3597,42 +3571,35 @@ export function ProviderDetailSidepanel({
       }
       description={provider ? getProviderOperationalContext(provider.providerKey) : ''}
       icon={<Activity className="h-4 w-4 text-su-brand" />}
-      footer={
-        <div className="shrink-0 flex items-center justify-end border-t border-border/50 bg-muted/20 px-6 py-3">
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Cerrar
-          </Button>
-        </div>
-      }
     >
       {provider && (
         <Tabs
           value={activeTab}
           onValueChange={(v) => navigateToTab(v as SidepanelInitialTab)}
         >
-          <TabsList className="w-full grid grid-cols-6 mb-5 h-auto">
-            <TabsTrigger value="resumen" className="text-[11px] gap-1 py-1.5">
-              <Activity className="h-3 w-3" />
+          <TabsList variant="segmented" className="mb-5">
+            <TabsTrigger value="resumen">
+              <Activity className="h-4 w-4" />
               Resumen
             </TabsTrigger>
-            <TabsTrigger value="configuracion" className="text-[11px] gap-1 py-1.5">
-              <Settings className="h-3 w-3" />
+            <TabsTrigger value="configuracion">
+              <Settings className="h-4 w-4" />
               Config.
             </TabsTrigger>
-            <TabsTrigger value="consumo" className="text-[11px] gap-1 py-1.5">
-              <BarChart2 className="h-3 w-3" />
+            <TabsTrigger value="consumo">
+              <BarChart2 className="h-4 w-4" />
               Consumo
             </TabsTrigger>
-            <TabsTrigger value="presupuesto" className="text-[11px] gap-1 py-1.5">
-              <DollarSign className="h-3 w-3" />
+            <TabsTrigger value="presupuesto">
+              <DollarSign className="h-4 w-4" />
               Presupuesto
             </TabsTrigger>
-            <TabsTrigger value="efectividad" className="text-[11px] gap-1 py-1.5">
-              <TrendingUp className="h-3 w-3" />
+            <TabsTrigger value="efectividad">
+              <TrendingUp className="h-4 w-4" />
               Efectividad
             </TabsTrigger>
-            <TabsTrigger value="logs" className="text-[11px] gap-1 py-1.5">
-              <ScrollText className="h-3 w-3" />
+            <TabsTrigger value="logs">
+              <ScrollText className="h-4 w-4" />
               Logs
             </TabsTrigger>
           </TabsList>
