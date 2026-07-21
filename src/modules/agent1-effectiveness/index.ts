@@ -38,3 +38,15 @@ export type {
   Agent1CostCompletenessFlag,
 } from './types';
 export type { UsageCostSignal, CostCompletenessInput, CostCompletenessResult } from './cost-completeness';
+// Q3F-5AY.2 — Record origin classifier (pure).
+export { deriveRecordOriginClassification } from './classification';
+export type {
+  RecordOrigin,
+  RejectionReason,
+  ClassificationSource,
+  MatchedRule,
+  ClassificationWarning,
+  RecordOriginClassification,
+  ClassifiableCandidate,
+  ClassifiableBatch,
+} from './classification';
