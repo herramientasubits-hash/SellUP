@@ -16,9 +16,9 @@
  * silently classified. Never default a new source to TAX_GRAIN — classify
  * it here explicitly when its writer lands.
  *
- * ec_scvs is intentionally NOT registered yet: it has no snapshot writer.
- * When it lands it is expected to be NATIVE_RECORD_GRAIN (future native
- * record family), and must be added here explicitly at that point.
+ * ec_scvs (SCVS Ecuador) is registered as NATIVE_RECORD_GRAIN: its physical
+ * row identity is the provider-native `expediente`, not a fiscal id. RUC may
+ * later be stored as normalized_tax_id but never defines the record identity.
  */
 
 export type SourceFamily = 'TAX_GRAIN' | 'NATIVE_RECORD_GRAIN';
@@ -33,6 +33,7 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   co_siis: 'TAX_GRAIN',
   pa_panamacompra_convenio: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
+  ec_scvs: 'NATIVE_RECORD_GRAIN',
 };
 
 export function getSourceFamily(sourceKey: string): SourceFamily {
