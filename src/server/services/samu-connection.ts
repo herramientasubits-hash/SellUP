@@ -10,21 +10,9 @@
  * Vault secret name: sellup_samu_api_key
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const SAMU_VAULT_SECRET_NAME = 'sellup_samu_api_key';
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
 
 export interface SamuHealthCheckResult {
   success: boolean;
@@ -40,7 +28,7 @@ export interface SamuHealthCheckResult {
 export async function storeSamuApiKey(
   apiKey: string
 ): Promise<{ success: boolean; vaultSecretId?: string; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('upsert_vault_secret', {
@@ -63,7 +51,7 @@ export async function storeSamuApiKey(
 }
 
 export async function removeSamuApiKey(): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     await admin.rpc('delete_vault_secret', { p_name: SAMU_VAULT_SECRET_NAME });
@@ -75,7 +63,7 @@ export async function removeSamuApiKey(): Promise<{ success: boolean; error?: st
 }
 
 export async function hasSamuApiKey(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data } = await admin.rpc('has_vault_secret', {
@@ -93,7 +81,7 @@ export async function hasSamuApiKey(): Promise<boolean> {
  * NUNCA retornar al frontend. NUNCA loggear el valor.
  */
 export async function getSamuApiKey(): Promise<string | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
