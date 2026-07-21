@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Building2,
   ExternalLink,
@@ -13,10 +14,23 @@ import {
   Copy,
   Sparkles,
   Clock,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 // Import pure helpers directly from the aggregators/types modules (not the
 // package barrel) so the client bundle never pulls in server-only actions or
 // the Supabase query layer that the barrel also re-exports.
@@ -28,11 +42,26 @@ import {
   groupByBatch,
   batchLabel,
 } from '@/modules/prospect-review/aggregators';
+import { formatSourceLabel, formatClassificationLabel } from '@/modules/prospect-review/label-format';
+// Server action lives in its own 'use server' module; importing it directly
+// keeps the heavy server dependency graph out of this client bundle.
+import { approvePendingReviewCandidateAction } from '@/modules/prospect-review/approve-actions';
 import type {
   ConfidenceBand,
   PendingReviewCandidate,
   PendingReviewBatch,
 } from '@/modules/prospect-review/types';
+
+// Friendly messages for each typed rejection reason from the approve action.
+const APPROVE_ERROR_MESSAGES: Record<string, string> = {
+  not_allowed: 'No tienes permisos para aprobar candidatos.',
+  not_found: 'El candidato ya no está disponible. Actualiza la cola.',
+  not_clean_production: 'Este candidato no pertenece a la cola de producción limpia.',
+  status_conflict: 'El estado del candidato cambió. Actualiza la cola e inténtalo de nuevo.',
+  duplicate_blocked: 'No se puede aprobar: la duplicidad bloquea la aprobación.',
+  needs_duplicate_confirmation: 'Este candidato requiere confirmar el posible duplicado.',
+  unexpected_error: 'Ocurrió un error inesperado. Inténtalo de nuevo.',
+};
 
 // ── Presentation helpers (no data invented) ──────────────────────────────────
 
@@ -146,8 +175,8 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-const DEFERRED_ACTIONS = [
-  { label: 'Aprobar', icon: CheckCircle2 },
+// Only these remain disabled in this hito — Approve is now wired up.
+const DISABLED_ACTIONS = [
   { label: 'Descartar', icon: XCircle },
   { label: 'Marcar duplicado', icon: Copy },
   { label: 'Enviar a enriquecimiento', icon: Sparkles },
@@ -158,10 +187,14 @@ function CandidateDetail({
   candidate,
   batch,
   nowISO,
+  onApprove,
+  approving,
 }: {
   candidate: PendingReviewCandidate;
   batch: PendingReviewBatch | undefined;
   nowISO: string;
+  onApprove: () => void;
+  approving: boolean;
 }) {
   const href = externalHref(candidate.website, candidate.domain);
   const host = hostname(candidate.website, candidate.domain);
@@ -240,9 +273,11 @@ function CandidateDetail({
             <HubspotBadge candidate={candidate} />
           </span>
         </DetailRow>
-        <DetailRow label="Fuente">{candidate.sourcePrimary ?? '—'}</DetailRow>
+        <DetailRow label="Fuente">{formatSourceLabel(candidate.sourcePrimary)}</DetailRow>
         <DetailRow label="Origen del registro">{candidate.recordOrigin ?? '—'}</DetailRow>
-        <DetailRow label="Clasificación">{candidate.classificationSource ?? '—'}</DetailRow>
+        <DetailRow label="Clasificación">
+          {formatClassificationLabel(candidate.classificationSource)}
+        </DetailRow>
         <DetailRow label="Lote de origen">{batchLabel(candidate.batchId ?? '', batch)}</DetailRow>
         <DetailRow label="Antigüedad">{formatAge(age)}</DetailRow>
         <DetailRow label="Estado de revisión">
@@ -252,17 +287,23 @@ function CandidateDetail({
         </DetailRow>
       </div>
 
-      {/* Deferred actions notice */}
+      {/* Actions */}
       <div className="rounded-xl border border-su-brand/20 bg-su-brand/5 p-3">
-        <div className="mb-2 flex items-start gap-2">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Las acciones de revisión se habilitarán en el siguiente hito. Esta vista es solo de
-            lectura.
-          </p>
-        </div>
         <div className="flex flex-wrap gap-2">
-          {DEFERRED_ACTIONS.map((a) => (
+          <Button
+            size="sm"
+            onClick={onApprove}
+            disabled={approving}
+            className="bg-su-brand text-white hover:bg-su-brand/90"
+          >
+            {approving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            )}
+            Aprobar
+          </Button>
+          {DISABLED_ACTIONS.map((a) => (
             <Button
               key={a.label}
               variant="outline"
@@ -276,7 +317,14 @@ function CandidateDetail({
             </Button>
           ))}
         </div>
-        <p className="mt-2 text-[10px] text-muted-foreground/70">Disponible en siguiente fase.</p>
+        <div className="mt-2 flex items-start gap-2">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Aprobar cambia el estado a <strong className="font-medium text-foreground">aprobado</strong>{' '}
+            sin convertir a cuenta ni enviar a HubSpot. El resto de acciones se habilitarán en el
+            siguiente hito.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -297,12 +345,45 @@ export function ReviewQueueClient({
   totalPending,
   nowISO,
 }: ReviewQueueClientProps) {
+  const router = useRouter();
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [approving, setApproving] = React.useState(false);
 
   const selected = React.useMemo(
     () => candidates.find((c) => c.id === selectedId) ?? null,
     [candidates, selectedId],
   );
+
+  // A possible-duplicate / HubSpot-matched candidate needs a strong warning and
+  // an explicit server-side confirmation flag before it can be approved.
+  const selectedNeedsWarning = selected != null && isPossibleDuplicate(selected);
+
+  async function doApprove() {
+    if (!selected) return;
+    setApproving(true);
+    try {
+      const result = await approvePendingReviewCandidateAction(selected.id, {
+        confirmPossibleDuplicate: selectedNeedsWarning,
+      });
+      if (result.ok) {
+        toast.success(
+          result.status === 'idempotent_success'
+            ? `"${selected.name ?? 'Candidato'}" ya estaba aprobado`
+            : `"${selected.name ?? 'Candidato'}" aprobado`,
+        );
+        setConfirmOpen(false);
+        setSelectedId(null);
+        router.refresh();
+      } else {
+        toast.error(APPROVE_ERROR_MESSAGES[result.reason] ?? APPROVE_ERROR_MESSAGES.unexpected_error);
+      }
+    } catch {
+      toast.error(APPROVE_ERROR_MESSAGES.unexpected_error);
+    } finally {
+      setApproving(false);
+    }
+  }
 
   const groups = React.useMemo(() => groupByBatch(candidates), [candidates]);
 
@@ -459,9 +540,54 @@ export function ReviewQueueClient({
             candidate={selected}
             batch={selected.batchId ? batchesById[selected.batchId] : undefined}
             nowISO={nowISO}
+            approving={approving}
+            onApprove={() => setConfirmOpen(true)}
           />
         )}
       </DrawerShell>
+
+      {/* Approve confirmation — always shown in this first version */}
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!approving) setConfirmOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Aprobar candidato</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vas a aprobar{' '}
+              <strong className="font-medium text-foreground">
+                {selected?.name ?? 'este candidato'}
+              </strong>
+              . Cambiará a estado <strong className="font-medium text-foreground">aprobado</strong>.
+              No se convierte a cuenta ni se envía a HubSpot.
+            </AlertDialogDescription>
+            {selectedNeedsWarning && (
+              <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-600 dark:text-amber-500">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="text-xs">
+                  Este candidato tiene posible coincidencia. Revisa antes de aprobar.
+                </span>
+              </div>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={approving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void doApprove();
+              }}
+              disabled={approving}
+            >
+              {approving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Aprobar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
