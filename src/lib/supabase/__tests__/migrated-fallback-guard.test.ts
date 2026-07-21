@@ -44,6 +44,7 @@ const MIGRATED_FILES = [
   'src/server/services/migo-connection.ts',
   'src/server/services/tavily-connection.ts',
   'src/server/services/apollo-connection.ts',
+  'src/server/services/samu-connection.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';
