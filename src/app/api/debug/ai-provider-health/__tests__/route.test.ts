@@ -53,6 +53,38 @@ describe('ai-provider-health route — admin client wiring (post 17B.4X.7C.5D.3A
   });
 });
 
+describe('ai-provider-health route — admin gate (parity with agent1-apollo-config)', () => {
+  it('calls the is_admin RPC with the authenticated user id', () => {
+    assert.match(
+      source,
+      /supabase\.rpc\(\s*['"]is_admin['"]\s*,\s*\{\s*p_auth_user_id:\s*user\.id/,
+    );
+  });
+
+  it('returns 403 for authenticated non-admin users', () => {
+    assert.match(source, /if\s*\(!isAdmin\)/);
+    assert.match(source, /Acceso restringido a administradores/);
+  });
+
+  it('gates admin before instantiating the service-role client', () => {
+    const adminCheckIdx = source.indexOf('if (!isAdmin)');
+    const getAdminCallIdx = source.indexOf('const admin = getAdmin()');
+    assert.ok(adminCheckIdx !== -1, 'expected admin gate');
+    assert.ok(getAdminCallIdx !== -1, 'expected getAdmin() call');
+    assert.ok(
+      adminCheckIdx < getAdminCallIdx,
+      'admin gate must run before the diagnostic reads (getAdmin)',
+    );
+  });
+
+  it('checks authentication (401) before the admin gate (403)', () => {
+    const authIdx = source.indexOf("status: 401");
+    const adminCheckIdx = source.indexOf('if (!isAdmin)');
+    assert.ok(authIdx !== -1 && adminCheckIdx !== -1);
+    assert.ok(authIdx < adminCheckIdx, '401 auth check must precede admin gate');
+  });
+});
+
 function withNodeEnv(value: string | undefined, fn: () => Promise<void>) {
   const env = process.env as Record<string, string | undefined>;
   const saved = env.NODE_ENV;
