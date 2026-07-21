@@ -168,10 +168,11 @@ export default async function PendingReviewQueuePage({ searchParams }: PageProps
       <div className="flex items-start gap-3 rounded-xl border border-su-brand/20 bg-su-brand/5 px-4 py-3">
         <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Cola de revisión de <strong className="font-medium text-foreground">solo lectura</strong>.
-          Muestra los candidatos de producción del Agente 1 en estado{' '}
-          <strong className="font-medium text-foreground">por revisar</strong>. Las acciones de
-          aprobación, descarte y enriquecimiento se habilitarán en el siguiente hito.
+          Cola de revisión de candidatos de producción del Agente 1 en estado{' '}
+          <strong className="font-medium text-foreground">por revisar</strong>. Ya puedes{' '}
+          <strong className="font-medium text-foreground">aprobar</strong> un candidato (sin
+          convertir a cuenta ni enviar a HubSpot). Descarte, duplicado y enriquecimiento se
+          habilitarán en el siguiente hito.
         </p>
       </div>
 
