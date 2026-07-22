@@ -34,6 +34,7 @@ import { enrichBatchCandidatesWithWebAndAI } from './prospecting-toolkit/officia
 import { buildApolloLinkedInEnrichment } from './prospecting-toolkit/apollo-linkedin-enrichment';
 import type { LinkedInEnrichmentMetadata } from './prospecting-toolkit/types';
 import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
+import { enrichEcBatchWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-ec-batch-with-validated-sources';
 import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 
 // ============================================================
@@ -1787,6 +1788,36 @@ export async function runProspectGenerationAgent(
       status: 'success',
       duration_ms: Date.now() - startedAt,
     });
+
+    // ─── EC-SCVS-7: Ecuador post-discovery validated-source enrichment ───────────
+    // Ecuador flows through the commercial (Apollo) path, so it never reaches the
+    // Colombia-only post-discovery block (nor the CO/MX tax-resolution dispatcher,
+    // which guards EC out by design). Route EC candidates through the generic
+    // validated-source enrichment helper here so the ec_scvs adapter is actually
+    // invoked at runtime. EC only — CO/MX/CL keep their existing paths untouched.
+    // Snapshot-backed and fail-soft: a failure here never fails the batch.
+    if (countryCode === 'EC') {
+      try {
+        const ecEnrich = await enrichEcBatchWithValidatedSources(admin, batch.id);
+        if (ecEnrich.candidatesProcessed > 0 || ecEnrich.errors.length > 0) {
+          console.info('[agent-1] EC SCVS validated-source enrichment completed', {
+            batchId: batch.id,
+            candidatesProcessed: ecEnrich.candidatesProcessed,
+            sourcesApplied: ecEnrich.sourcesApplied,
+            matched: ecEnrich.matchedCount,
+            ambiguous: ecEnrich.ambiguousCount,
+            noMatch: ecEnrich.noMatchCount,
+            skipped: ecEnrich.skippedCount,
+            errors: ecEnrich.errorCount,
+          });
+        }
+      } catch (ecErr: unknown) {
+        console.warn(
+          '[agent-1] EC SCVS enrichment failed (non-blocking):',
+          ecErr instanceof Error ? ecErr.message : ecErr,
+        );
+      }
+    }
 
     let structuredSourceBatchResult: ProspectGenerationResult['structuredSourceBatch'] = undefined;
 
