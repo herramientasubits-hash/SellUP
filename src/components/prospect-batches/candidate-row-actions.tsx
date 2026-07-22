@@ -91,6 +91,19 @@ interface CandidateRowActionsProps {
    * verbatim.
    */
   onDiscardOverride?: () => void;
+  /**
+   * Q3F-5AZ.2G-2 — safe mark-duplicate override for the Prospectos surface.
+   *
+   * When provided, the row-menu "Marcar como duplicado" entry NO LONGER opens
+   * the local duplicate dialog that calls the legacy `markCandidateDuplicate`
+   * directly (which runs under `requireActiveUser`, not the Prospectos admin
+   * gate). It instead delegates to this callback, which the Prospectos data
+   * table wires to open the detail drawer with its inline duplicate confirmation
+   * armed — the admin-gated `markDuplicatePendingReviewCandidateAction` path.
+   * Left undefined elsewhere (e.g. prospect-batches), the legacy behaviour is
+   * preserved verbatim.
+   */
+  onMarkDuplicateOverride?: () => void;
 }
 
 export function CandidateRowActions({
@@ -98,6 +111,7 @@ export function CandidateRowActions({
   onBeforeAction,
   onApproveOverride,
   onDiscardOverride,
+  onMarkDuplicateOverride,
 }: CandidateRowActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
@@ -418,9 +432,14 @@ export function CandidateRowActions({
             )}
             <DropdownMenuSeparator />
             {canMarkDuplicate && (
-              <DropdownMenuItem onClick={handleMarkDuplicateClick}>
+              // Q3F-5AZ.2G-2: in Prospectos (onMarkDuplicateOverride set) this
+              // opens the safe drawer confirmation instead of the legacy dialog
+              // that calls markCandidateDuplicate directly. handleMarkDuplicateClick
+              // — the only path to the legacy markCandidateDuplicate — is
+              // unreachable in that mode.
+              <DropdownMenuItem onClick={onMarkDuplicateOverride ?? handleMarkDuplicateClick}>
                 <GitMerge className="mr-2 h-3.5 w-3.5 text-amber-500" />
-                Marcar como duplicado…
+                Marcar como duplicado{onMarkDuplicateOverride ? '' : '…'}
               </DropdownMenuItem>
             )}
             {canDiscard && (
