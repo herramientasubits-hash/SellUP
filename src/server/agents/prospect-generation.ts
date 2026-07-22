@@ -1037,7 +1037,7 @@ export async function runProspectGenerationAgent(
       }
 
       // ─── Post-Discovery Enrichment — tax resolution + validated sources (non-blocking) ─
-      if (countryCode === 'CO' || countryCode === 'MX' || countryCode === 'CL') {
+      if (countryCode === 'CO' || countryCode === 'MX' || countryCode === 'CL' || countryCode === 'EC') {
         try {
           const enrichResult = await enrichBatchCandidatesWithTaxResolution(
             admin,
