@@ -166,14 +166,14 @@ export const ecScvsEnrichmentAdapter: SourceEnrichmentAdapter = {
         return buildErrorResult('snapshot_unavailable (SUPABASE_SERVICE_ROLE_KEY not configured)');
       }
 
-      // Probe for RUC matches in latest year (NATIVE_RECORD_GRAIN)
-
-      const snapshotReadClient: SnapshotReadClient<SnapshotIdentityRow> = {
-        from: (tableName: string) => supabase.from(tableName),
-      };
-
+      // Probe for RUC matches in latest year (NATIVE_RECORD_GRAIN).
+      // Cast through `unknown` to the minimal contract surface — mirrors every
+      // other snapshot reader (e.g. siis-enrichment-adapter). The direct cast
+      // short-circuits the structural check between supabase-js's deeply generic
+      // PostgrestQueryBuilder and SnapshotReadClient, which otherwise triggers
+      // "Type instantiation is excessively deep and possibly infinite" (TS2589).
       const probeResult = await probeLatestNativeSnapshotsByTaxId({
-        client: snapshotReadClient,
+        client: supabase as unknown as SnapshotReadClient<SnapshotIdentityRow>,
         sourceKey: SOURCE_KEY,
         countryCode: COUNTRY_CODE,
         normalizedTaxId: normalizedRuc,
