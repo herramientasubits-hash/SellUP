@@ -1,4 +1,4 @@
-export { DataTable, type DataTableBulkAction, type DataTableContextMenuConfig } from "./data-table";
+export { DataTable, type DataTableBulkAction, type DataTableContextMenuConfig, type DataTableHandle } from "./data-table";
 export { DataTableColumnHeader } from "./data-table-column-header";
 export { DataTableColumnPopover, type DataTableColumnFilterOption, type DataTableColumnMeta } from "./data-table-column-popover";
 export { DataTablePagination } from "./data-table-pagination";
