@@ -1069,7 +1069,16 @@ export function ProspectsDataTableClient({
       {
         id: 'actions',
         header: () => <span className="sr-only">Acciones</span>,
-        cell: ({ row }) => <CandidateRowActions candidate={row.original} />,
+        // Q3F-5AZ.2D-1-HF1 — the row menu "Aprobar" must never trigger the
+        // legacy convert-and-approve here. onApproveOverride redirects it to the
+        // same safe drawer confirmation used by the context menu / selection bar
+        // (approvePendingReviewCandidateAction — no account, no HubSpot).
+        cell: ({ row }) => (
+          <CandidateRowActions
+            candidate={row.original}
+            onApproveOverride={() => openCandidateDetail(row.original, { approveIntent: true })}
+          />
+        ),
         size: 48,
         minSize: 48,
         enableSorting: false,
@@ -1078,7 +1087,7 @@ export function ProspectsDataTableClient({
         meta: { label: 'Acciones', disableFilter: true, disableSort: true },
       },
     ],
-    [],
+    [openCandidateDetail],
   );
 
   // ── Context menu ──────────────────────────────────────────────

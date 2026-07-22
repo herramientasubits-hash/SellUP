@@ -66,9 +66,25 @@ const SOURCE_LABELS: Record<string, string> = {
 interface CandidateRowActionsProps {
   candidate: ProspectCandidate;
   onBeforeAction?: () => void;
+  /**
+   * Q3F-5AZ.2D-1-HF1 — safe-approve override for the Prospectos surface.
+   *
+   * When provided, the row-menu "Aprobar" entry NO LONGER runs the legacy
+   * convert-and-approve flow (`approveAndConvertCandidateAction`, which creates
+   * an account and may trigger HubSpot). It instead delegates to this callback,
+   * which the Prospectos data table wires to open the detail drawer with its
+   * inline confirmation armed — the already-validated
+   * `approvePendingReviewCandidateAction` path. Left undefined elsewhere (e.g.
+   * prospect-batches), the legacy behaviour is preserved verbatim.
+   */
+  onApproveOverride?: () => void;
 }
 
-export function CandidateRowActions({ candidate, onBeforeAction }: CandidateRowActionsProps) {
+export function CandidateRowActions({
+  candidate,
+  onBeforeAction,
+  onApproveOverride,
+}: CandidateRowActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
   // Discard
@@ -366,9 +382,13 @@ export function CandidateRowActions({ candidate, onBeforeAction }: CandidateRowA
                   </TooltipContent>
                 </Tooltip>
               ) : (
-                <DropdownMenuItem onClick={handleApproveClick}>
+                // Q3F-5AZ.2D-1-HF1: in Prospectos (onApproveOverride set) this
+                // opens the safe drawer confirmation instead of the legacy
+                // convert-and-approve flow. handleApproveClick — the only path to
+                // approveAndConvertCandidateAction — is unreachable in that mode.
+                <DropdownMenuItem onClick={onApproveOverride ?? handleApproveClick}>
                   <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-500" />
-                  Aprobar{isPossibleDuplicate ? '…' : ''}
+                  Aprobar{!onApproveOverride && isPossibleDuplicate ? '…' : ''}
                 </DropdownMenuItem>
               )
             )}
