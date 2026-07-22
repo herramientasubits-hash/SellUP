@@ -20,22 +20,24 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { storeUserDriveRefreshToken } from '@/server/services/google-drive-connection';
 import { createSellUpDriveFolder } from '@/server/services/google-drive-api';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+// The service-role client used below for state validation, internal-user
+// lookup, audit logging and connection persistence is built via the shared
+// fail-closed factory (createSupabaseAdminClient), which reads the env-guard
+// and throws UnsafeSupabaseEnvironmentError when config is missing or a
+// non-production environment resolves to production. It replaces the previous
+// inline getAdminClient() that fell back to process.env.NEXT_PUBLIC_SUPABASE_URL
+// (no hardcoded prod host here) and threw a generic misconfiguration error.
+// The admin client is on the critical path: if it cannot be built the request
+// fails (previously an uncaught Error, now UnsafeSupabaseEnvironmentError) —
+// there is no silent fallback. OAuth behavior, token exchange, Drive folder
+// creation, state validation, redirects and credential storage are unchanged.
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
-
-function getAdminClient() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required');
-  }
-  return createAdminClient(SUPABASE_URL, serviceKey);
-}
 
 function errorRedirect(message: string): NextResponse {
   const url = new URL('/settings/my-drive', APP_BASE_URL);
@@ -51,7 +53,7 @@ async function getActiveInternalUserId(
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const { data: internalUser } = await admin
     .from('internal_users')
     .select('id')
@@ -82,7 +84,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // 2. Validar state contra user_drive_audit (ventana 10 minutos)
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
   const { data: auditRow } = await admin
