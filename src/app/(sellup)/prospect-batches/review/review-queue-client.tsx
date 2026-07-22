@@ -347,7 +347,12 @@ export function ReviewQueueClient({
 }: ReviewQueueClientProps) {
   const router = useRouter();
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  // Single source of truth for the approve confirmation. When it is non-null the
+  // dialog is open and holds the exact candidate being approved — fully
+  // decoupled from `selectedId` (the drawer) so the dialog never depends on the
+  // drawer staying mounted underneath it (Q3F-5AZ.2C-HF2).
+  const [approveTarget, setApproveTarget] =
+    React.useState<PendingReviewCandidate | null>(null);
   const [approving, setApproving] = React.useState(false);
 
   const selected = React.useMemo(
@@ -355,25 +360,49 @@ export function ReviewQueueClient({
     [candidates, selectedId],
   );
 
+  // The approve confirmation is a single controlled dialog, rendered once,
+  // never per row / per batch / inside the drawer. `approveTarget` alone drives
+  // whether it is open.
+  const approveDialogOpen = approveTarget != null;
+
   // A possible-duplicate / HubSpot-matched candidate needs a strong warning and
   // an explicit server-side confirmation flag before it can be approved.
-  const selectedNeedsWarning = selected != null && isPossibleDuplicate(selected);
+  const approveNeedsWarning = approveTarget != null && isPossibleDuplicate(approveTarget);
+
+  // Open the confirmation for a candidate. Closing the read-only drawer here
+  // guarantees a single overlay is ever visible: the previous split state
+  // (`confirmOpen` + `selectedId`) left the drawer open *below* the dialog, so
+  // Cancel closed the top layer but the drawer remained — read by users as a
+  // stacked / residual modal. One overlay at a time removes that entirely.
+  function openApproveDialog(candidate: PendingReviewCandidate) {
+    if (approving) return; // guard against double-click / double-open
+    setSelectedId(null);
+    setApproveTarget(candidate);
+  }
+
+  // Close and clear the target. Every dismissal path (Cancel button, Escape,
+  // backdrop click via onOpenChange) routes through here, so they all resolve
+  // to the exact same clean state: no dialog, no target, no residual layer.
+  function closeApproveDialog() {
+    if (approving) return;
+    setApproveTarget(null);
+  }
 
   async function doApprove() {
-    if (!selected) return;
+    if (!approveTarget) return;
+    const target = approveTarget;
     setApproving(true);
     try {
-      const result = await approvePendingReviewCandidateAction(selected.id, {
-        confirmPossibleDuplicate: selectedNeedsWarning,
+      const result = await approvePendingReviewCandidateAction(target.id, {
+        confirmPossibleDuplicate: isPossibleDuplicate(target),
       });
       if (result.ok) {
         toast.success(
           result.status === 'idempotent_success'
-            ? `"${selected.name ?? 'Candidato'}" ya estaba aprobado`
-            : `"${selected.name ?? 'Candidato'}" aprobado`,
+            ? `"${target.name ?? 'Candidato'}" ya estaba aprobado`
+            : `"${target.name ?? 'Candidato'}" aprobado`,
         );
-        setConfirmOpen(false);
-        setSelectedId(null);
+        setApproveTarget(null);
         router.refresh();
       } else {
         toast.error(APPROVE_ERROR_MESSAGES[result.reason] ?? APPROVE_ERROR_MESSAGES.unexpected_error);
@@ -541,16 +570,22 @@ export function ReviewQueueClient({
             batch={selected.batchId ? batchesById[selected.batchId] : undefined}
             nowISO={nowISO}
             approving={approving}
-            onApprove={() => setConfirmOpen(true)}
+            onApprove={() => openApproveDialog(selected)}
           />
         )}
       </DrawerShell>
 
-      {/* Approve confirmation — always shown in this first version */}
+      {/*
+        Approve confirmation — a SINGLE controlled dialog, rendered once here
+        (outside every map / batch / drawer). `approveTarget` is the only source
+        of truth for whether it is open, and Escape / backdrop dismiss route
+        through the same `closeApproveDialog` as the Cancel button so no state
+        can drift out of sync and leave a residual overlay.
+      */}
       <AlertDialog
-        open={confirmOpen}
+        open={approveDialogOpen}
         onOpenChange={(open) => {
-          if (!approving) setConfirmOpen(open);
+          if (!open) closeApproveDialog();
         }}
       >
         <AlertDialogContent>
@@ -559,12 +594,12 @@ export function ReviewQueueClient({
             <AlertDialogDescription>
               Vas a aprobar{' '}
               <strong className="font-medium text-foreground">
-                {selected?.name ?? 'este candidato'}
+                {approveTarget?.name ?? 'este candidato'}
               </strong>
               . Cambiará a estado <strong className="font-medium text-foreground">aprobado</strong>.
               No se convierte a cuenta ni se envía a HubSpot.
             </AlertDialogDescription>
-            {selectedNeedsWarning && (
+            {approveNeedsWarning && (
               <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-600 dark:text-amber-500">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span className="text-xs">
@@ -577,15 +612,16 @@ export function ReviewQueueClient({
             {/*
               This alert-dialog is built on Base UI: AlertDialogCancel renders a
               plain <button> and does NOT auto-close like the Radix primitive
-              would. The dialog is fully controlled via `confirmOpen`, so Cancel
-              must reset that state itself. Without this handler the modal opened
-              but never closed. `disabled={approving}` already blocks the click
-              mid-request, so no extra guard is needed here.
+              would. The dialog is fully controlled via `approveTarget`, so Cancel
+              must clear that target itself (via closeApproveDialog) — this both
+              closes the dialog and removes the single overlay completely, leaving
+              no residual layer. `disabled={approving}` blocks the click
+              mid-request.
             */}
             <AlertDialogCancel
               type="button"
               disabled={approving}
-              onClick={() => setConfirmOpen(false)}
+              onClick={closeApproveDialog}
             >
               Cancelar
             </AlertDialogCancel>
