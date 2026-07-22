@@ -156,6 +156,7 @@
     "test:agent2a:lusha-connection": "node --import tsx --test src/server/services/__tests__/lusha-connection.test.ts",
     "test:agent2a:ai-connection": "node --import tsx --test src/server/services/__tests__/ai-connection.test.ts",
     "test:agent2a:google-cse-connection": "node --import tsx --test src/server/services/__tests__/google-cse-connection.test.ts",
+    "test:agent2a:hubspot-connection": "node --import tsx --test src/server/services/__tests__/hubspot-connection.test.ts",
     "test:agent2a:candidate-review": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-review-core.test.ts",
     "test:agent2a:routing-observation-evaluator": "node --import tsx --test src/modules/contact-enrichment-routing/__tests__/policy-validation.test.ts src/modules/contact-enrichment-routing/__tests__/attempt-input-validation.test.ts src/modules/contact-enrichment-routing/__tests__/signal-derivation.test.ts src/modules/contact-enrichment-routing/__tests__/observation-evaluator.test.ts",
     "test:agent2a:routing-config-contract": "node --import tsx --test src/modules/contact-enrichment-routing/__tests__/routing-config.test.ts",
