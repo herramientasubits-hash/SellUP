@@ -458,6 +458,15 @@ interface CandidateDetailSheetProps {
   initialDiscardIntent?: boolean;
   /** Called once the discard intent above has been applied. */
   onDiscardIntentConsumed?: () => void;
+  /**
+   * Q3F-5AZ.2G-2 — opened via row menu / context menu / selection action bar
+   * "Marcar duplicado": lands on the Validación tab and arms the inline
+   * MARK-DUPLICATE confirmation (only when the candidate is actually eligible).
+   * Never marks directly.
+   */
+  initialDuplicateIntent?: boolean;
+  /** Called once the duplicate intent above has been applied. */
+  onDuplicateIntentConsumed?: () => void;
 }
 
 export function CandidateDetailSheet({
@@ -469,6 +478,8 @@ export function CandidateDetailSheet({
   onApproveIntentConsumed,
   initialDiscardIntent = false,
   onDiscardIntentConsumed,
+  initialDuplicateIntent = false,
+  onDuplicateIntentConsumed,
 }: CandidateDetailSheetProps) {
   const router = useRouter();
 
@@ -505,7 +516,11 @@ export function CandidateDetailSheet({
     // Row menu / context menu / selection bar "Aprobar" or "Descartar" lands
     // directly on Validación so the reviewer sees the status context next to
     // the action.
-    setActiveTab(initialApproveIntent || initialDiscardIntent ? 'validacion' : 'empresa');
+    setActiveTab(
+      initialApproveIntent || initialDiscardIntent || initialDuplicateIntent
+        ? 'validacion'
+        : 'empresa',
+    );
     setShowAllNeeds(false);
     setShowAllAngles(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -897,6 +912,8 @@ export function CandidateDetailSheet({
             onApproveIntentConsumed={onApproveIntentConsumed}
             discardAutoConfirm={initialDiscardIntent}
             onDiscardIntentConsumed={onDiscardIntentConsumed}
+            duplicateAutoConfirm={initialDuplicateIntent}
+            onDuplicateIntentConsumed={onDuplicateIntentConsumed}
           />
         }
       >

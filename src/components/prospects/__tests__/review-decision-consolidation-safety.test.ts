@@ -226,10 +226,10 @@ describe('UX2 — action hierarchy', () => {
     assert.ok(ACTIONS_SRC.includes('@/components/ui/dropdown-menu'), 'must reuse the shared dropdown');
   });
 
-  it('keeps the auxiliary copy about approve/discard being available (Q3F-5AZ.2G-1)', () => {
+  it('keeps the auxiliary copy about approve/discard/duplicate being available (Q3F-5AZ.2G-2)', () => {
     assert.ok(
-      ACTIONS_SRC.includes('Puedes aprobar o descartar este prospecto'),
-      'expected the auxiliary "puedes aprobar o descartar" copy',
+      ACTIONS_SRC.includes('Puedes aprobar, descartar o marcar como duplicado este prospecto'),
+      'expected the auxiliary "puedes aprobar, descartar o marcar como duplicado" copy',
     );
   });
 

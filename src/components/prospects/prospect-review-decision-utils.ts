@@ -10,6 +10,7 @@ import {
   type ApproveRejectReason,
 } from '@/modules/prospect-review/approve-eligibility';
 import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
+import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
 
 /**
  * Minimal candidate shape this view needs. Kept structural (not the full
@@ -100,6 +101,20 @@ export const DISCARD_ERROR_MESSAGES: Record<string, string> = {
   unexpected_error: 'El prospecto no pudo descartarse. Actualiza la vista e intenta de nuevo.',
 };
 
+// Friendly copy for each typed rejection reason surfaced by the mark-duplicate
+// wrapper (Q3F-5AZ.2G-2). The generic failure copy matches the hito's required
+// error toast; specific reasons give the reviewer a clearer next step.
+export const DUPLICATE_ERROR_MESSAGES: Record<string, string> = {
+  not_allowed: 'No tienes permisos para marcar prospectos como duplicados.',
+  not_found: 'El prospecto ya no está disponible. Actualiza la lista.',
+  not_clean_production: 'Este prospecto no pertenece a la cola de producción limpia.',
+  status_conflict: 'El prospecto ya cambió de estado. Actualiza la vista.',
+  duplicate_failed:
+    'No se pudo marcar el prospecto como duplicado. Actualiza la vista e intenta de nuevo.',
+  unexpected_error:
+    'No se pudo marcar el prospecto como duplicado. Actualiza la vista e intenta de nuevo.',
+};
+
 export interface ReviewDecisionView {
   /** Set when the candidate is in a read-only terminal state. */
   terminal: TerminalStatusCopy | null;
@@ -107,6 +122,8 @@ export interface ReviewDecisionView {
   canApprove: boolean;
   /** True when the Descartar action may be invoked right now (Q3F-5AZ.2G-1). */
   canDiscard: boolean;
+  /** True when the "Marcar duplicado" action may be invoked right now (Q3F-5AZ.2G-2). */
+  canMarkDuplicate: boolean;
   /** Populated when not approvable but not terminal either. */
   blockReason: string | null;
   isPossibleDuplicate: boolean;
@@ -134,9 +151,17 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
   });
   const canDiscard = discardDecision.decision === 'discard';
 
+  // Q3F-5AZ.2G-2 — mark-duplicate eligibility mirrors discard: only a clean
+  // production needs_review row can be classified as a duplicate from here.
+  const duplicateDecision = evaluateDuplicateEligibility({
+    status: candidate.status,
+    recordOrigin: candidate.recordOrigin ?? null,
+  });
+  const canMarkDuplicate = duplicateDecision.decision === 'mark_duplicate';
+
   const terminal = TERMINAL_STATUS[candidate.status] ?? null;
   if (terminal) {
-    return { terminal, canApprove: false, canDiscard, blockReason: null, isPossibleDuplicate, hasHubspotMatch, needsWarning };
+    return { terminal, canApprove: false, canDiscard, canMarkDuplicate, blockReason: null, isPossibleDuplicate, hasHubspotMatch, needsWarning };
   }
 
   const { status } = candidate;
@@ -168,5 +193,5 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
     blockReason = 'El estado del candidato no permite aprobación en este momento.';
   }
 
-  return { terminal: null, canApprove, canDiscard, blockReason, isPossibleDuplicate, hasHubspotMatch, needsWarning };
+  return { terminal: null, canApprove, canDiscard, canMarkDuplicate, blockReason, isPossibleDuplicate, hasHubspotMatch, needsWarning };
 }

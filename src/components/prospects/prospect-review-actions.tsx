@@ -57,6 +57,7 @@ import {
   resolveReviewDecisionView,
   APPROVE_ERROR_MESSAGES,
   DISCARD_ERROR_MESSAGES,
+  DUPLICATE_ERROR_MESSAGES,
   type ReviewDecisionCandidate,
 } from './prospect-review-decision-utils';
 import {
@@ -64,6 +65,7 @@ import {
   type ConvertApproveHubSpotStatus,
 } from '@/modules/prospect-review/approve-and-convert-actions';
 import { discardPendingReviewCandidateAction } from '@/modules/prospect-review/discard-actions';
+import { markDuplicatePendingReviewCandidateAction } from '@/modules/prospect-review/duplicate-actions';
 
 // Copy shared by every not-yet-available action (tooltip + menu hint).
 // Exported so the Prospectos selection action bar (prospects-data-table-client.tsx)
@@ -110,14 +112,26 @@ interface ProspectReviewActionsProps {
   discardAutoConfirm?: boolean;
   /** Called once the discard auto-confirm intent has been applied (or found ineligible). */
   onDiscardIntentConsumed?: () => void;
+  /**
+   * Arm the inline MARK-DUPLICATE confirmation on mount (row menu / context menu
+   * / selection bar intent). Q3F-5AZ.2G-2 — mirrors `autoConfirm` for duplicate.
+   */
+  duplicateAutoConfirm?: boolean;
+  /** Called once the duplicate auto-confirm intent has been applied (or found ineligible). */
+  onDuplicateIntentConsumed?: () => void;
 }
 
 // Future secondary action kept VISIBLE alongside Aprobar (disabled for now).
 export const DISCARD_ACTION = { label: 'Descartar', icon: XCircle } as const;
 
-// Future actions grouped under the "Más acciones" dropdown (all disabled).
-export const MORE_ACTIONS = [
-  { label: 'Marcar duplicado', icon: Copy },
+// Q3F-5AZ.2G-2 — "Marcar duplicado" is now an ENABLED action (inside "Más
+// acciones") for an eligible candidate. Exported so the Prospectos selection
+// action bar (prospects-data-table-client.tsx) can reuse the exact same
+// copy/icon and stay visually consistent with this footer.
+export const MARK_DUPLICATE_ACTION = { label: 'Marcar duplicado', icon: Copy } as const;
+
+// Remaining future actions still grouped under "Más acciones", all disabled.
+export const FUTURE_MORE_ACTIONS = [
   { label: 'Enviar a enriquecimiento', icon: Sparkles },
   { label: 'Mantener en revisión', icon: Clock },
 ] as const;
@@ -128,6 +142,8 @@ export function ProspectReviewActions({
   onApproveIntentConsumed,
   discardAutoConfirm = false,
   onDiscardIntentConsumed,
+  duplicateAutoConfirm = false,
+  onDuplicateIntentConsumed,
 }: ProspectReviewActionsProps) {
   const router = useRouter();
   const [confirming, setConfirming] = React.useState(false);
@@ -136,6 +152,10 @@ export function ProspectReviewActions({
   // approve one; only one panel is ever shown at a time (see render below).
   const [discardConfirming, setDiscardConfirming] = React.useState(false);
   const [discarding, setDiscarding] = React.useState(false);
+  // Q3F-5AZ.2G-2 — the mark-duplicate inline confirmation is a third mutually
+  // exclusive mode; only one of approve/discard/duplicate panels shows at a time.
+  const [duplicateConfirming, setDuplicateConfirming] = React.useState(false);
+  const [markingDuplicate, setMarkingDuplicate] = React.useState(false);
 
   const view = resolveReviewDecisionView(candidate);
 
@@ -146,6 +166,8 @@ export function ProspectReviewActions({
     setApproving(false);
     setDiscardConfirming(false);
     setDiscarding(false);
+    setDuplicateConfirming(false);
+    setMarkingDuplicate(false);
   }, [candidate.id]);
 
   // Arm the inline APPROVE confirmation when opened via row menu / context menu /
@@ -173,6 +195,19 @@ export function ProspectReviewActions({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discardAutoConfirm, candidate.id]);
+
+  // Arm the inline MARK-DUPLICATE confirmation when opened via row menu /
+  // context menu / selection action bar — only when the candidate is genuinely
+  // markable. Never marks directly; the human still confirms inline.
+  React.useEffect(() => {
+    if (duplicateAutoConfirm && view.canMarkDuplicate) {
+      setDuplicateConfirming(true);
+    }
+    if (duplicateAutoConfirm) {
+      onDuplicateIntentConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duplicateAutoConfirm, candidate.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   async function doApprove() {
@@ -228,6 +263,32 @@ export function ProspectReviewActions({
       toast.error(DISCARD_ERROR_MESSAGES.unexpected_error);
     } finally {
       setDiscarding(false);
+    }
+  }
+
+  async function doMarkDuplicate() {
+    if (markingDuplicate) return;
+    setMarkingDuplicate(true);
+    try {
+      const result = await markDuplicatePendingReviewCandidateAction(candidate.id, {
+        source: 'prospectos_drawer',
+      });
+      if (result.ok) {
+        toast.success('Prospecto marcado como duplicado.');
+        setDuplicateConfirming(false);
+        // Server components refetch: the drawer receives the updated candidate
+        // and re-renders this zone (null — terminal) and the status info card
+        // in the "Marcado como duplicado" state.
+        router.refresh();
+      } else {
+        toast.error(
+          DUPLICATE_ERROR_MESSAGES[result.reason] ?? DUPLICATE_ERROR_MESSAGES.unexpected_error,
+        );
+      }
+    } catch {
+      toast.error(DUPLICATE_ERROR_MESSAGES.unexpected_error);
+    } finally {
+      setMarkingDuplicate(false);
     }
   }
 
@@ -319,6 +380,40 @@ export function ProspectReviewActions({
             </Button>
           </div>
         </div>
+      ) : duplicateConfirming ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">¿Marcar prospecto como duplicado?</p>
+            <p className="text-xs text-muted-foreground">
+              Este prospecto saldrá de la revisión como duplicado. No se creará empresa en SellUp ni
+              se sincronizará con HubSpot.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={doMarkDuplicate}
+              disabled={markingDuplicate}
+              className="bg-amber-500 text-white hover:bg-amber-500/90"
+            >
+              {markingDuplicate ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+              Confirmar duplicado
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={() => setDuplicateConfirming(false)}
+              disabled={markingDuplicate}
+            >
+              Cancelar
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -359,7 +454,23 @@ export function ProspectReviewActions({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-56">
-                {MORE_ACTIONS.map((a) => (
+                {/* Q3F-5AZ.2G-2 — "Marcar duplicado" is enabled for an eligible
+                    candidate; clicking it arms the inline duplicate confirmation
+                    (it never marks directly). Disabled (with the future-action
+                    hint) for an ineligible candidate. */}
+                <DropdownMenuItem
+                  disabled={!view.canMarkDuplicate}
+                  title={view.canMarkDuplicate ? undefined : FUTURE_ACTION_HINT}
+                  onClick={() => setDuplicateConfirming(true)}
+                >
+                  <MARK_DUPLICATE_ACTION.icon className="h-3.5 w-3.5" />
+                  <span className="flex-1">{MARK_DUPLICATE_ACTION.label}</span>
+                  {!view.canMarkDuplicate && (
+                    <span className="text-[10px] text-muted-foreground">{FUTURE_ACTION_HINT}</span>
+                  )}
+                </DropdownMenuItem>
+                {/* Remaining future actions stay disabled. */}
+                {FUTURE_MORE_ACTIONS.map((a) => (
                   <DropdownMenuItem key={a.label} disabled title={FUTURE_ACTION_HINT}>
                     <a.icon className="h-3.5 w-3.5" />
                     <span className="flex-1">{a.label}</span>
@@ -371,8 +482,8 @@ export function ProspectReviewActions({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Puedes aprobar o descartar este prospecto. Las demás acciones se habilitarán en próximos
-            hitos.
+            Puedes aprobar, descartar o marcar como duplicado este prospecto. Las demás acciones se
+            habilitarán en próximos hitos.
           </p>
         </div>
       )}
