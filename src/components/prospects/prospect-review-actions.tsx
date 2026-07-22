@@ -1,6 +1,7 @@
 'use client';
 
 // Q3F-5AZ.2D-1-UX1 — Prospectos drawer action zone.
+// Q3F-5AZ.2D-1-UX2 — action HIERARCHY (visual reorder only).
 //
 // The operative "Aprobar" surface, relocated out of the Validación tab content
 // and into the drawer's own action zone (rendered as a sticky footer via
@@ -10,10 +11,16 @@
 // `approvePendingReviewCandidateAction` (Q3F-5AZ.2C) verbatim — no new
 // action, no conversion, no HubSpot, no providers.
 //
-// Only "Aprobar" is enabled. Descartar / Marcar duplicado / Enviar a
-// enriquecimiento / Mantener en revisión render disabled ("Disponible en
-// siguiente fase") in the same action zone — future actions, present
-// context, no functionality yet.
+// UX2 reorders the presentation so the zone reads as a hierarchy instead of a
+// flat row of equal-weight buttons:
+//   - Aprobar        → primary, enabled only when the candidate is eligible.
+//   - Descartar      → secondary/destructive, VISIBLE but disabled (future).
+//   - Más acciones ▼ → dropdown holding the remaining future actions
+//                       (Marcar duplicado / Enviar a enriquecimiento /
+//                       Mantener en revisión), all disabled.
+// Every non-approve action stays disabled ("Disponible en siguiente fase") —
+// UX2 is a visual reorder ONLY: no new action is implemented and the approve
+// logic is untouched.
 //
 // Confirmation is INLINE (a panel inside this action zone), NOT a modal
 // stacked over the drawer — this deliberately avoids the overlay-stacking
@@ -25,15 +32,24 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, XCircle, Copy, Sparkles, Clock, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   resolveReviewDecisionView,
   APPROVE_ERROR_MESSAGES,
   type ReviewDecisionCandidate,
 } from './prospect-review-decision-utils';
 import { approvePendingReviewCandidateAction } from '@/modules/prospect-review/approve-actions';
+
+// Copy shared by every not-yet-available action (tooltip + menu hint).
+const FUTURE_ACTION_HINT = 'Disponible en siguiente fase';
 
 interface ProspectReviewActionsProps {
   candidate: ReviewDecisionCandidate;
@@ -43,9 +59,11 @@ interface ProspectReviewActionsProps {
   onApproveIntentConsumed?: () => void;
 }
 
-// Actions not yet available in this hito — rendered disabled for context.
-const DISABLED_ACTIONS = [
-  { label: 'Descartar', icon: XCircle },
+// Future secondary action kept VISIBLE alongside Aprobar (disabled for now).
+const DISCARD_ACTION = { label: 'Descartar', icon: XCircle } as const;
+
+// Future actions grouped under the "Más acciones" dropdown (all disabled).
+const MORE_ACTIONS = [
   { label: 'Marcar duplicado', icon: Copy },
   { label: 'Enviar a enriquecimiento', icon: Sparkles },
   { label: 'Mantener en revisión', icon: Clock },
@@ -158,30 +176,55 @@ export function ProspectReviewActions({
           </div>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => setConfirming(true)}
-            disabled={!view.canApprove}
-            title={view.canApprove ? undefined : 'No disponible para este candidato'}
-            className="bg-su-brand text-white hover:bg-su-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Aprobar
-          </Button>
-          {DISABLED_ACTIONS.map((a) => (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Primary — the only enabled action, and only when eligible. */}
             <Button
-              key={a.label}
+              size="sm"
+              onClick={() => setConfirming(true)}
+              disabled={!view.canApprove}
+              title={view.canApprove ? undefined : 'No disponible para este candidato'}
+              className="bg-su-brand text-white hover:bg-su-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Aprobar
+            </Button>
+
+            {/* Secondary/destructive — visible but disabled until a later hito. */}
+            <Button
               variant="outline"
               size="sm"
               disabled
-              title="Disponible en siguiente fase"
-              className="cursor-not-allowed opacity-60"
+              title={FUTURE_ACTION_HINT}
+              className="cursor-not-allowed text-destructive opacity-60 disabled:opacity-60"
             >
-              <a.icon className="h-3.5 w-3.5" />
-              {a.label}
+              <DISCARD_ACTION.icon className="h-3.5 w-3.5" />
+              {DISCARD_ACTION.label}
             </Button>
-          ))}
+
+            {/* Remaining future actions collapsed into a small menu. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger>
+                <Button variant="ghost" size="sm" className="text-muted-foreground">
+                  Más acciones
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-56">
+                {MORE_ACTIONS.map((a) => (
+                  <DropdownMenuItem key={a.label} disabled title={FUTURE_ACTION_HINT}>
+                    <a.icon className="h-3.5 w-3.5" />
+                    <span className="flex-1">{a.label}</span>
+                    <span className="text-[10px] text-muted-foreground">{FUTURE_ACTION_HINT}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Por ahora solo puedes aprobar. Las demás acciones se habilitarán en próximos hitos.
+          </p>
         </div>
       )}
     </div>
