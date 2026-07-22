@@ -9,12 +9,12 @@
  *      "Aprobar" bulk action) always clears the table row selection first,
  *      which hides the floating bar.
  *   2. The selection action bar mirrors the side panel footer hierarchy:
- *      Aprobar (enabled only for a single selection) → Descartar (visible,
- *      disabled) → "Más acciones" (dropdown, all entries disabled) →
- *      Abrir sitios web.
- *   3. No bulk approve: selecting 2+ rows disables "Aprobar" with the
- *      "Aprobación masiva pendiente" hint; Descartar / Más acciones stay
- *      disabled regardless of selection size.
+ *      Aprobar (enabled only for a single selection) → Descartar (Q3F-5AZ.2G-1:
+ *      enabled for a single eligible selection) → "Más acciones" (dropdown, all
+ *      entries disabled) → Abrir sitios web.
+ *   3. No bulk approve / no bulk discard: selecting 2+ rows disables both
+ *      "Aprobar" and "Descartar"; "Más acciones" stays disabled regardless of
+ *      selection size.
  *   4. "Aprobar" from the bar never approves directly — it only opens the
  *      side panel with the approve intent armed (asserted via the mocked
  *      CandidateDetailSheet's `initialApproveIntent` prop); the real inline
@@ -88,7 +88,12 @@ mock.module('next/navigation', {
   },
 });
 
-let detailSheetProps: { open: boolean; candidateName?: string; initialApproveIntent?: boolean } = {
+let detailSheetProps: {
+  open: boolean;
+  candidateName?: string;
+  initialApproveIntent?: boolean;
+  initialDiscardIntent?: boolean;
+} = {
   open: false,
 };
 
@@ -98,17 +103,19 @@ mock.module('@/components/prospect-batches/candidate-detail-sheet', {
       candidate: { name: string } | null;
       open: boolean;
       initialApproveIntent?: boolean;
+      initialDiscardIntent?: boolean;
     }) => {
       detailSheetProps = {
         open: props.open,
         candidateName: props.candidate?.name,
         initialApproveIntent: props.initialApproveIntent,
+        initialDiscardIntent: props.initialDiscardIntent,
       };
       return props.open
         ? React.createElement(
             'div',
             { 'data-testid': 'detail-sheet-stub' },
-            `open:${props.candidate?.name}:approveIntent=${String(props.initialApproveIntent)}`,
+            `open:${props.candidate?.name}:approveIntent=${String(props.initialApproveIntent)}:discardIntent=${String(props.initialDiscardIntent)}`,
           )
         : null;
     },
@@ -250,7 +257,7 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
 });
 
 describe('ProspectsDataTableClient — selection bar action hierarchy (matches side panel footer)', () => {
-  it('shows Ver detalle, Aprobar (enabled), Descartar (disabled), Más acciones, Abrir sitios web for a single selection', () => {
+  it('shows Ver detalle, Aprobar (enabled), Descartar (enabled for single eligible), Más acciones, Abrir sitios web for a single selection', () => {
     renderTable();
     selectRowCheckbox(0);
 
@@ -260,12 +267,33 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     assert.ok(aprobarBtn);
     assert.equal(aprobarBtn.disabled, false, 'Aprobar must be enabled for exactly one selected row');
 
+    // Q3F-5AZ.2G-1 — Descartar is now enabled for a single eligible row.
     const descartarBtn = screen.getByText('Descartar').closest('button') as HTMLButtonElement;
     assert.ok(descartarBtn, 'Descartar must be visible in the bar');
-    assert.equal(descartarBtn.disabled, true, 'Descartar must stay disabled');
+    assert.equal(
+      descartarBtn.disabled,
+      false,
+      'Descartar must be enabled for exactly one eligible selected row',
+    );
 
     assert.ok(screen.getByText('Más acciones'), '"Más acciones" trigger must be visible');
     assert.ok(screen.getByText('Abrir sitios web'));
+  });
+
+  it('Descartar from the bar (single eligible) clears the selection, hides the bar, and arms the discard intent (never discards directly)', () => {
+    renderTable();
+    selectRowCheckbox(0);
+
+    fireEvent.click(screen.getByText('Descartar'));
+
+    assert.equal(detailSheetProps.open, true, 'side panel must open');
+    assert.equal(detailSheetProps.initialDiscardIntent, true, 'discard intent must be armed');
+    assert.equal(detailSheetProps.initialApproveIntent, false, 'approve intent must NOT be armed');
+    assert.equal(
+      screen.queryByText('Seleccionados'),
+      null,
+      'selection bar must be gone once "Descartar" opens the side panel',
+    );
   });
 
   it('groups Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión inside "Más acciones", all disabled', async () => {

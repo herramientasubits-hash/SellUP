@@ -50,6 +50,7 @@ import {
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
 import { TERMINAL_STATUS } from '@/components/prospects/prospect-review-decision-utils';
+import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
 import {
   FUTURE_ACTION_HINT,
   DISCARD_ACTION,
@@ -219,6 +220,19 @@ function getDisplayStatusStyle(candidate: Row): string {
 // shows the entry — real eligibility is evaluated once the drawer opens.
 function isTerminalApprovalStatus(status: string): boolean {
   return status in TERMINAL_STATUS;
+}
+
+// Q3F-5AZ.2G-1 — a row is discardable only when it is a clean-production
+// candidate still in needs_review. The row menu / context menu / selection bar
+// use this to offer "Descartar" only where the safe wrapper will actually act;
+// the drawer re-evaluates the same policy before arming its confirmation.
+function isDiscardEligible(candidate: Row): boolean {
+  return (
+    evaluateDiscardEligibility({
+      status: candidate.status,
+      recordOrigin: candidate.record_origin ?? null,
+    }).decision === 'discard'
+  );
 }
 
 function getDisplayStatusKey(candidate: Row): string {
@@ -755,6 +769,10 @@ export function ProspectsDataTableClient({
   // opens the drawer with the inline confirmation armed instead of a normal
   // detail view. Cleared once the drawer applies it (or on any normal open).
   const [approveIntent, setApproveIntent] = React.useState(false);
+  // Q3F-5AZ.2G-1 — the same entry points can open the drawer with the inline
+  // DISCARD confirmation armed. Approve and discard intents are mutually
+  // exclusive per open.
+  const [discardIntent, setDiscardIntent] = React.useState(false);
 
   // Q3F-5AZ.2E-1-UX1 — the side panel and the selection action bar must never
   // both be visible: opening the detail (from a row click, the row menu, the
@@ -764,12 +782,16 @@ export function ProspectsDataTableClient({
   // close, it also never reappears once the drawer is dismissed.
   const dataTableRef = React.useRef<DataTableHandle>(null);
 
-  const openCandidateDetail = React.useCallback((row: Row, options?: { approveIntent?: boolean }) => {
-    dataTableRef.current?.clearSelection();
-    setDetailCandidate(row);
-    setApproveIntent(options?.approveIntent ?? false);
-    setDetailOpen(true);
-  }, []);
+  const openCandidateDetail = React.useCallback(
+    (row: Row, options?: { approveIntent?: boolean; discardIntent?: boolean }) => {
+      dataTableRef.current?.clearSelection();
+      setDetailCandidate(row);
+      setApproveIntent(options?.approveIntent ?? false);
+      setDiscardIntent(options?.discardIntent ?? false);
+      setDetailOpen(true);
+    },
+    [],
+  );
 
   // ── Orchestrator polling (sourceId batch enrichment) ──────────
   const [batchStats, setBatchStats] = React.useState<{
@@ -1091,6 +1113,10 @@ export function ProspectsDataTableClient({
           <CandidateRowActions
             candidate={row.original}
             onApproveOverride={() => openCandidateDetail(row.original, { approveIntent: true })}
+            // Q3F-5AZ.2G-1 — three-dot "Descartar" must never call the legacy
+            // discardCandidate directly on the Prospectos surface. It opens the
+            // safe drawer confirmation (admin gate + eligibility, then delegation).
+            onDiscardOverride={() => openCandidateDetail(row.original, { discardIntent: true })}
           />
         ),
         size: 48,
@@ -1127,6 +1153,20 @@ export function ProspectsDataTableClient({
               },
             ]
           : []),
+        // Q3F-5AZ.2G-1 — "Descartar" opens the drawer with the inline discard
+        // confirmation armed (never discards directly). Offered only when the
+        // row is genuinely discardable (needs_review, clean-production).
+        ...(isDiscardEligible(row)
+          ? [
+              {
+                id: 'discard',
+                label: DISCARD_ACTION.label,
+                icon: DISCARD_ACTION.icon,
+                variant: 'destructive' as const,
+                onClick: () => openCandidateDetail(row, { discardIntent: true }),
+              },
+            ]
+          : []),
         ...(row.website
           ? [
               {
@@ -1152,10 +1192,11 @@ export function ProspectsDataTableClient({
   // ── Bulk actions ──────────────────────────────────────────────
   // Q3F-5AZ.2E-1-UX1 — the selection action bar mirrors the side panel
   // footer's hierarchy exactly (same copy/icons via prospect-review-actions.tsx):
-  //   Ver detalle → Aprobar (primary) → Descartar (visible, disabled) →
-  //   Más acciones (dropdown, all disabled) → Abrir sitios web.
-  // Descartar and every "Más acciones" entry are always disabled — no new
-  // action is implemented here, only the visual grouping.
+  //   Ver detalle → Aprobar (primary) → Descartar → Más acciones (dropdown,
+  //   all disabled) → Abrir sitios web.
+  // Q3F-5AZ.2G-1 — Descartar is now enabled for exactly one eligible row (opens
+  // the drawer's discard confirmation); 2+ selected or an ineligible row keeps
+  // it disabled. Every "Más acciones" entry stays disabled (no new action).
   const bulkActions = React.useMemo<DataTableBulkAction<Row>[]>(
     () => [
       {
@@ -1177,13 +1218,22 @@ export function ProspectsDataTableClient({
         onClick: (rows) => openCandidateDetail(rows[0], { approveIntent: true }),
       },
       {
+        // Q3F-5AZ.2G-1 — single-selection discard: exactly one eligible row
+        // opens the drawer with the discard confirmation armed. Bulk discard is
+        // explicitly out of scope, so 2+ selected rows keep it disabled; a
+        // single ineligible row is disabled too.
         id: 'discard',
         label: DISCARD_ACTION.label,
         icon: DISCARD_ACTION.icon,
         variant: 'destructive',
-        disabled: () => true,
-        disabledLabel: () => FUTURE_ACTION_HINT,
-        onClick: () => {},
+        disabled: (rows) => rows.length !== 1 || !isDiscardEligible(rows[0]),
+        disabledLabel: (rows) =>
+          rows.length > 1 ? 'Descarte masivo pendiente' : undefined,
+        onClick: (rows) => {
+          if (rows.length === 1 && isDiscardEligible(rows[0])) {
+            openCandidateDetail(rows[0], { discardIntent: true });
+          }
+        },
       },
       {
         id: 'more-actions',
@@ -1322,6 +1372,7 @@ export function ProspectsDataTableClient({
           if (!open) {
             setDetailCandidate(null);
             setApproveIntent(false);
+            setDiscardIntent(false);
           }
         }}
         onCandidateUpdated={(updated) => {
@@ -1329,6 +1380,8 @@ export function ProspectsDataTableClient({
         }}
         initialApproveIntent={approveIntent}
         onApproveIntentConsumed={() => setApproveIntent(false)}
+        initialDiscardIntent={discardIntent}
+        onDiscardIntentConsumed={() => setDiscardIntent(false)}
       />
     </>
   );

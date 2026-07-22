@@ -449,6 +449,15 @@ interface CandidateDetailSheetProps {
   initialApproveIntent?: boolean;
   /** Called once the approve intent above has been applied. */
   onApproveIntentConsumed?: () => void;
+  /**
+   * Q3F-5AZ.2G-1 — opened via row menu / context menu / selection action bar
+   * "Descartar": lands on the Validación tab and arms the inline DISCARD
+   * confirmation (only when the candidate is actually eligible). Never
+   * discards directly.
+   */
+  initialDiscardIntent?: boolean;
+  /** Called once the discard intent above has been applied. */
+  onDiscardIntentConsumed?: () => void;
 }
 
 export function CandidateDetailSheet({
@@ -458,6 +467,8 @@ export function CandidateDetailSheet({
   onCandidateUpdated,
   initialApproveIntent = false,
   onApproveIntentConsumed,
+  initialDiscardIntent = false,
+  onDiscardIntentConsumed,
 }: CandidateDetailSheetProps) {
   const router = useRouter();
 
@@ -491,9 +502,10 @@ export function CandidateDetailSheet({
     setIsApprovingTaxId(false);
     setApproveTaxIdError(null);
     setConfirmDialogData(null);
-    // Row menu / context menu / selection bar "Aprobar" lands directly on
-    // Validación so the reviewer sees the status context next to the action.
-    setActiveTab(initialApproveIntent ? 'validacion' : 'empresa');
+    // Row menu / context menu / selection bar "Aprobar" or "Descartar" lands
+    // directly on Validación so the reviewer sees the status context next to
+    // the action.
+    setActiveTab(initialApproveIntent || initialDiscardIntent ? 'validacion' : 'empresa');
     setShowAllNeeds(false);
     setShowAllAngles(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -883,6 +895,8 @@ export function CandidateDetailSheet({
             }}
             autoConfirm={initialApproveIntent}
             onApproveIntentConsumed={onApproveIntentConsumed}
+            discardAutoConfirm={initialDiscardIntent}
+            onDiscardIntentConsumed={onDiscardIntentConsumed}
           />
         }
       >

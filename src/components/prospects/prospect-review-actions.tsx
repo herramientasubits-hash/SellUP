@@ -21,21 +21,26 @@
 // UX2 reorders the presentation so the zone reads as a hierarchy instead of a
 // flat row of equal-weight buttons:
 //   - Aprobar        → primary, enabled only when the candidate is eligible.
-//   - Descartar      → secondary/destructive, VISIBLE but disabled (future).
+//   - Descartar      → secondary/destructive. Q3F-5AZ.2G-1 ENABLES it for an
+//                       eligible (needs_review, clean-production) candidate;
+//                       disabled otherwise. Discarding removes the prospect from
+//                       review WITHOUT creating an empresa and WITHOUT touching
+//                       HubSpot/providers/AI, through the SAFE server wrapper
+//                       `discardPendingReviewCandidateAction`.
 //   - Más acciones ▼ → dropdown holding the remaining future actions
 //                       (Marcar duplicado / Enviar a enriquecimiento /
-//                       Mantener en revisión), all disabled.
-// Every non-approve action stays disabled ("Disponible en siguiente fase") —
-// UX2 is a visual reorder ONLY: no new action is implemented and the approve
-// logic is untouched.
+//                       Mantener en revisión), all still disabled.
 //
 // Confirmation is INLINE (a panel inside this action zone), NOT a modal
 // stacked over the drawer — this deliberately avoids the overlay-stacking
 // class of bugs that Q3F-5AZ.2C-HF1/HF2/HF3 chased in the AlertDialog path.
+// Approve and discard each have their own inline confirmation; only one is
+// ever shown at a time.
 //
-// `autoConfirm` lets row-menu / context-menu / selection-bar entry points
-// open this drawer with the confirmation already armed (only when the
-// candidate is actually eligible) instead of approving directly.
+// `autoConfirm` / `discardAutoConfirm` let row-menu / context-menu /
+// selection-bar entry points open this drawer with the approve / discard
+// confirmation already armed (only when the candidate is actually eligible)
+// instead of acting directly.
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
@@ -51,12 +56,14 @@ import {
 import {
   resolveReviewDecisionView,
   APPROVE_ERROR_MESSAGES,
+  DISCARD_ERROR_MESSAGES,
   type ReviewDecisionCandidate,
 } from './prospect-review-decision-utils';
 import {
   approveAndConvertPendingReviewCandidateAction,
   type ConvertApproveHubSpotStatus,
 } from '@/modules/prospect-review/approve-and-convert-actions';
+import { discardPendingReviewCandidateAction } from '@/modules/prospect-review/discard-actions';
 
 // Copy shared by every not-yet-available action (tooltip + menu hint).
 // Exported so the Prospectos selection action bar (prospects-data-table-client.tsx)
@@ -92,10 +99,17 @@ function resolveSuccessMessage(
 
 interface ProspectReviewActionsProps {
   candidate: ReviewDecisionCandidate;
-  /** Arm the inline confirmation on mount (row menu / selection bar intent). */
+  /** Arm the inline APPROVE confirmation on mount (row menu / selection bar intent). */
   autoConfirm?: boolean;
-  /** Called once the auto-confirm intent has been applied (or found ineligible). */
+  /** Called once the approve auto-confirm intent has been applied (or found ineligible). */
   onApproveIntentConsumed?: () => void;
+  /**
+   * Arm the inline DISCARD confirmation on mount (row menu / context menu /
+   * selection bar intent). Q3F-5AZ.2G-1 — mirrors `autoConfirm` for discard.
+   */
+  discardAutoConfirm?: boolean;
+  /** Called once the discard auto-confirm intent has been applied (or found ineligible). */
+  onDiscardIntentConsumed?: () => void;
 }
 
 // Future secondary action kept VISIBLE alongside Aprobar (disabled for now).
@@ -112,21 +126,29 @@ export function ProspectReviewActions({
   candidate,
   autoConfirm = false,
   onApproveIntentConsumed,
+  discardAutoConfirm = false,
+  onDiscardIntentConsumed,
 }: ProspectReviewActionsProps) {
   const router = useRouter();
   const [confirming, setConfirming] = React.useState(false);
   const [approving, setApproving] = React.useState(false);
+  // Q3F-5AZ.2G-1 — the discard inline confirmation is a separate mode from the
+  // approve one; only one panel is ever shown at a time (see render below).
+  const [discardConfirming, setDiscardConfirming] = React.useState(false);
+  const [discarding, setDiscarding] = React.useState(false);
 
   const view = resolveReviewDecisionView(candidate);
 
-  // Reset the inline confirmation whenever the drawer swaps to another candidate.
+  // Reset both inline confirmations whenever the drawer swaps to another candidate.
   /* eslint-disable react-hooks/set-state-in-effect */
   React.useEffect(() => {
     setConfirming(false);
     setApproving(false);
+    setDiscardConfirming(false);
+    setDiscarding(false);
   }, [candidate.id]);
 
-  // Arm the inline confirmation when opened via row menu / context menu /
+  // Arm the inline APPROVE confirmation when opened via row menu / context menu /
   // selection action bar — only when the candidate is genuinely approvable.
   // Never approves directly; the human still confirms inline.
   React.useEffect(() => {
@@ -138,6 +160,19 @@ export function ProspectReviewActions({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoConfirm, candidate.id]);
+
+  // Arm the inline DISCARD confirmation when opened via row menu / context menu /
+  // selection action bar — only when the candidate is genuinely discardable.
+  // Never discards directly; the human still confirms inline.
+  React.useEffect(() => {
+    if (discardAutoConfirm && view.canDiscard) {
+      setDiscardConfirming(true);
+    }
+    if (discardAutoConfirm) {
+      onDiscardIntentConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discardAutoConfirm, candidate.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   async function doApprove() {
@@ -167,6 +202,32 @@ export function ProspectReviewActions({
       toast.error(APPROVE_ERROR_MESSAGES.unexpected_error);
     } finally {
       setApproving(false);
+    }
+  }
+
+  async function doDiscard() {
+    if (discarding) return;
+    setDiscarding(true);
+    try {
+      const result = await discardPendingReviewCandidateAction(candidate.id, {
+        source: 'prospectos_drawer',
+      });
+      if (result.ok) {
+        toast.success('Prospecto descartado.');
+        setDiscardConfirming(false);
+        // Server components refetch: the drawer receives the updated candidate
+        // and re-renders this zone (null — terminal) and the status info card
+        // in the "Descartado" state.
+        router.refresh();
+      } else {
+        toast.error(
+          DISCARD_ERROR_MESSAGES[result.reason] ?? DISCARD_ERROR_MESSAGES.unexpected_error,
+        );
+      }
+    } catch {
+      toast.error(DISCARD_ERROR_MESSAGES.unexpected_error);
+    } finally {
+      setDiscarding(false);
     }
   }
 
@@ -224,6 +285,40 @@ export function ProspectReviewActions({
             </Button>
           </div>
         </div>
+      ) : discardConfirming ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">¿Descartar prospecto?</p>
+            <p className="text-xs text-muted-foreground">
+              Este prospecto saldrá de la revisión y no se creará como empresa en SellUp. Podrás
+              conservar trazabilidad del descarte.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={doDiscard}
+              disabled={discarding}
+            >
+              {discarding ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5" />
+              )}
+              Confirmar descarte
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={() => setDiscardConfirming(false)}
+              disabled={discarding}
+            >
+              Cancelar
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -239,13 +334,17 @@ export function ProspectReviewActions({
               Aprobar
             </Button>
 
-            {/* Secondary/destructive — visible but disabled until a later hito. */}
+            {/* Secondary/destructive — Q3F-5AZ.2G-1 enables Descartar for an
+                eligible (needs_review, clean-production) candidate. Clicking it
+                arms the inline discard confirmation; it never discards directly.
+                Disabled (with the future-action hint) otherwise. */}
             <Button
               variant="outline"
               size="sm"
-              disabled
-              title={FUTURE_ACTION_HINT}
-              className="cursor-not-allowed text-destructive opacity-60 disabled:opacity-60"
+              onClick={() => setDiscardConfirming(true)}
+              disabled={!view.canDiscard}
+              title={view.canDiscard ? undefined : FUTURE_ACTION_HINT}
+              className="text-destructive disabled:cursor-not-allowed disabled:opacity-60"
             >
               <DISCARD_ACTION.icon className="h-3.5 w-3.5" />
               {DISCARD_ACTION.label}
@@ -272,7 +371,8 @@ export function ProspectReviewActions({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Por ahora solo puedes aprobar. Las demás acciones se habilitarán en próximos hitos.
+            Puedes aprobar o descartar este prospecto. Las demás acciones se habilitarán en próximos
+            hitos.
           </p>
         </div>
       )}

@@ -90,6 +90,13 @@ mock.module('@/modules/prospect-review/approve-and-convert-actions', {
       mockApprove(...args),
   },
 });
+// The action zone also imports the discard wrapper; mock it so importing the
+// component pulls NO server-only deps and there is no real discard.
+mock.module('@/modules/prospect-review/discard-actions', {
+  namedExports: {
+    discardPendingReviewCandidateAction: async () => ({ ok: true, status: 'discarded' }),
+  },
+});
 mock.module('next/navigation', {
   namedExports: {
     useRouter: () => ({ refresh: mockRefresh, push: () => {}, replace: () => {} }),
@@ -181,11 +188,18 @@ describe('ProspectReviewActions — action hierarchy (UX2)', () => {
     assert.equal(btn!.disabled, false);
   });
 
-  it('shows Descartar as a visible, disabled action OUTSIDE the menu', () => {
+  it('shows Descartar as a visible action OUTSIDE the menu (Q3F-5AZ.2G-1 enabled for eligible)', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     const btn = buttonByText('Descartar');
     assert.ok(btn, 'Descartar must be visible outside the menu');
-    assert.equal(btn!.disabled, true, 'Descartar must stay disabled');
+    assert.equal(btn!.disabled, false, 'Descartar must be enabled for an eligible candidate');
+  });
+
+  it('keeps Descartar disabled with the future-action hint for an INELIGIBLE candidate', () => {
+    render(<ProspectReviewActions candidate={candidate({ status: 'generated' })} />);
+    const btn = buttonByText('Descartar');
+    assert.ok(btn, 'Descartar must be visible outside the menu');
+    assert.equal(btn!.disabled, true, 'Descartar must stay disabled when not discardable');
     assert.equal(btn!.getAttribute('title'), 'Disponible en siguiente fase');
   });
 
@@ -194,11 +208,11 @@ describe('ProspectReviewActions — action hierarchy (UX2)', () => {
     assert.ok(buttonByText('Más acciones'), '"Más acciones" trigger must be visible');
   });
 
-  it('keeps the auxiliary copy explaining only Aprobar is available for now', () => {
+  it('keeps the auxiliary copy explaining approve/discard are available (Q3F-5AZ.2G-1)', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     assert.ok(
       screen.getByText(
-        /Por ahora solo puedes aprobar\. Las demás acciones se habilitarán en próximos hitos\./i,
+        /Puedes aprobar o descartar este prospecto\. Las demás acciones se habilitarán en próximos\s+hitos\./i,
       ),
     );
   });

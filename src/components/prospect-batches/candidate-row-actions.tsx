@@ -78,12 +78,26 @@ interface CandidateRowActionsProps {
    * prospect-batches), the legacy behaviour is preserved verbatim.
    */
   onApproveOverride?: () => void;
+  /**
+   * Q3F-5AZ.2G-1 — safe-discard override for the Prospectos surface.
+   *
+   * When provided, the row-menu "Descartar" entry NO LONGER opens the local
+   * reason dialog that calls the legacy `discardCandidate` directly (which runs
+   * under `requireActiveUser`, not the Prospectos admin gate). It instead
+   * delegates to this callback, which the Prospectos data table wires to open
+   * the detail drawer with its inline discard confirmation armed — the
+   * admin-gated `discardPendingReviewCandidateAction` path. Left undefined
+   * elsewhere (e.g. prospect-batches), the legacy behaviour is preserved
+   * verbatim.
+   */
+  onDiscardOverride?: () => void;
 }
 
 export function CandidateRowActions({
   candidate,
   onBeforeAction,
   onApproveOverride,
+  onDiscardOverride,
 }: CandidateRowActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
@@ -410,8 +424,14 @@ export function CandidateRowActions({
               </DropdownMenuItem>
             )}
             {canDiscard && (
+              // Q3F-5AZ.2G-1: in Prospectos (onDiscardOverride set) this opens
+              // the safe drawer confirmation instead of the legacy reason dialog
+              // that calls discardCandidate directly. handleDiscard — the only
+              // path to the legacy discardCandidate — is unreachable in that mode.
               <DropdownMenuItem
-                onClick={() => { onBeforeAction?.(); setDiscardOpen(true); }}
+                onClick={
+                  onDiscardOverride ?? (() => { onBeforeAction?.(); setDiscardOpen(true); })
+                }
                 className="text-destructive focus:text-destructive"
               >
                 <XCircle className="mr-2 h-3.5 w-3.5" />
