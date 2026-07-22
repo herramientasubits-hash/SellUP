@@ -190,6 +190,34 @@ describe('selection action bar — single-selection Aprobar, bulk approve out of
   });
 });
 
+// ── Q3F-5AZ.2D-1-UX2 ──────────────────────────────────────────────────────────
+// Visual action hierarchy: Aprobar (primary) + Descartar (visible, disabled)
+// on the first line, the remaining future actions collapsed into a disabled
+// "Más acciones" dropdown. Reorder ONLY — no new action, approve untouched.
+describe('UX2 — action hierarchy is presentation-only', () => {
+  it('collapses the secondary future actions into a dropdown menu', () => {
+    assert.ok(ACTIONS_SRC.includes('Más acciones'), 'expected a "Más acciones" trigger');
+    assert.ok(ACTIONS_SRC.includes('DropdownMenu'), 'expected the shared DropdownMenu component');
+    assert.ok(ACTIONS_SRC.includes('@/components/ui/dropdown-menu'), 'must reuse the shared dropdown');
+  });
+
+  it('keeps the auxiliary copy about only Aprobar being available', () => {
+    assert.ok(
+      ACTIONS_SRC.includes('Por ahora solo puedes aprobar'),
+      'expected the auxiliary "solo puedes aprobar" copy',
+    );
+  });
+
+  it('does not enable any new action (approve stays the single reachable action)', () => {
+    // No new server action / DB write / convert token was introduced by the reorder.
+    for (const token of ['approveAndConvert', 'convertCandidate', "'use server'", '.insert(', '.update(']) {
+      assert.equal(ACTIONS_SRC.includes(token), false, `reorder must not introduce ${token}`);
+    }
+    // Still the single validated approve action, imported once.
+    assert.equal(ACTIONS_SRC.split('approvePendingReviewCandidateAction').length - 1 >= 1, true);
+  });
+});
+
 // ── Q3F-5AZ.2D-1-HF1 ──────────────────────────────────────────────────────────
 // The shared three-dot row-menu (CandidateRowActions) is neutralized on the
 // Prospectos surface: its "Aprobar" entry is redirected to the safe drawer
