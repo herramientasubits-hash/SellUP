@@ -49,6 +49,7 @@ import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-blo
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 import { PeruMigoLegalValidationBlock } from './peru-migo-legal-validation-block';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
+import { ReviewDecisionSection } from '@/components/prospects/review-decision-section';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 
@@ -1840,6 +1841,21 @@ export function CandidateDetailSheet({
 
           {/* Tab 2: Validación */}
           <TabsContent value="validacion" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+            {/* Q3F-5AZ.2D-1 — Decisión de revisión. Consolidated approve surface:
+                the human-review approve action now lives here inside the official
+                Prospectos drawer instead of the standalone review queue. */}
+            <ReviewDecisionSection
+              candidate={{
+                id: candidate.id,
+                name: candidate.name,
+                status: candidate.status,
+                recordOrigin: candidate.record_origin,
+                duplicateStatus: candidate.duplicate_status,
+                matchedHubspotCompanyId: candidate.matched_hubspot_company_id,
+                reviewedAt: candidate.reviewed_at,
+              }}
+            />
+
             {/* Estado de Duplicidad */}
             <SurfaceCard>
               <SurfaceCardHeader title="Verificación de Duplicidad" description="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM." />

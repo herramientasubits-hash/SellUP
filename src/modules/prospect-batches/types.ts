@@ -168,6 +168,10 @@ export interface ProspectCandidate {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // Q3F-5AY.3 record-origin classification (migration 093). Nullable — legacy
+  // rows predate the backfill. Returned by `select('*')` list queries; the
+  // approve action re-reads it server-side as the authoritative gate.
+  record_origin: string | null;
   // ── Campos de candidatos estructurados (fuentes oficiales) ───
   review_status: ReviewStatus | null;
   review_flags: ReviewFlag[] | null;
