@@ -69,6 +69,12 @@ export interface DataTableBulkAction<TData> {
    * one selected row, "Abrir URLs" only when at least one row has a URL).
    */
   disabled?: (rows: TData[]) => boolean;
+  /**
+   * Optional tooltip copy shown while the button is disabled (e.g. "Aprobación
+   * masiva pendiente" when more than one row is selected). Returning
+   * `undefined` renders no tooltip.
+   */
+  disabledLabel?: (rows: TData[]) => string | undefined;
   confirm?: {
     title: string;
     description: (rows: TData[]) => string;

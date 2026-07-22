@@ -18,6 +18,7 @@ import {
   ChevronsUpDown,
   ListFilter,
   Calendar,
+  CheckCircle2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,7 @@ import {
 } from '@/components/data-table';
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
+import { TERMINAL_STATUS } from '@/components/prospects/prospect-review-decision-utils';
 import {
   LATAM_COUNTRIES,
   INDUSTRIES,
@@ -204,6 +206,13 @@ function getDisplayStatusStyle(candidate: Row): string {
   if (validationMeta && !hasDuplicate) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
   if (candidate.status === 'needs_review' || candidate.status === 'generated' || candidate.status === 'normalized') return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
   return STATUS_STYLES[candidate.status] ?? 'bg-muted text-muted-foreground';
+}
+
+// Row menu / context menu "Aprobar": hidden only for unambiguous terminal
+// states (approved/discarded/duplicate/converted). Any other status still
+// shows the entry — real eligibility is evaluated once the drawer opens.
+function isTerminalApprovalStatus(status: string): boolean {
+  return status in TERMINAL_STATUS;
 }
 
 function getDisplayStatusKey(candidate: Row): string {
@@ -736,6 +745,16 @@ export function ProspectsDataTableClient({
 
   const [detailCandidate, setDetailCandidate] = React.useState<Row | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  // Q3F-5AZ.2D-1-UX1 — row menu / context menu / selection bar "Aprobar"
+  // opens the drawer with the inline confirmation armed instead of a normal
+  // detail view. Cleared once the drawer applies it (or on any normal open).
+  const [approveIntent, setApproveIntent] = React.useState(false);
+
+  const openCandidateDetail = React.useCallback((row: Row, options?: { approveIntent?: boolean }) => {
+    setDetailCandidate(row);
+    setApproveIntent(options?.approveIntent ?? false);
+    setDetailOpen(true);
+  }, []);
 
   // ── Orchestrator polling (sourceId batch enrichment) ──────────
   const [batchStats, setBatchStats] = React.useState<{
@@ -1050,7 +1069,16 @@ export function ProspectsDataTableClient({
       {
         id: 'actions',
         header: () => <span className="sr-only">Acciones</span>,
-        cell: ({ row }) => <CandidateRowActions candidate={row.original} />,
+        // Q3F-5AZ.2D-1-HF1 — the row menu "Aprobar" must never trigger the
+        // legacy convert-and-approve here. onApproveOverride redirects it to the
+        // same safe drawer confirmation used by the context menu / selection bar
+        // (approvePendingReviewCandidateAction — no account, no HubSpot).
+        cell: ({ row }) => (
+          <CandidateRowActions
+            candidate={row.original}
+            onApproveOverride={() => openCandidateDetail(row.original, { approveIntent: true })}
+          />
+        ),
         size: 48,
         minSize: 48,
         enableSorting: false,
@@ -1059,7 +1087,7 @@ export function ProspectsDataTableClient({
         meta: { label: 'Acciones', disableFilter: true, disableSort: true },
       },
     ],
-    [],
+    [openCandidateDetail],
   );
 
   // ── Context menu ──────────────────────────────────────────────
@@ -1070,11 +1098,21 @@ export function ProspectsDataTableClient({
           id: 'view',
           label: 'Ver detalle',
           icon: Info,
-          onClick: () => {
-            setDetailCandidate(row);
-            setDetailOpen(true);
-          },
+          onClick: () => openCandidateDetail(row),
         },
+        // "Aprobar" never approves directly from the menu — it opens the
+        // drawer with the inline confirmation armed; real eligibility is
+        // evaluated there. Hidden only for unambiguous terminal states.
+        ...(!isTerminalApprovalStatus(row.status)
+          ? [
+              {
+                id: 'approve',
+                label: 'Aprobar',
+                icon: CheckCircle2,
+                onClick: () => openCandidateDetail(row, { approveIntent: true }),
+              },
+            ]
+          : []),
         ...(row.website
           ? [
               {
@@ -1094,7 +1132,7 @@ export function ProspectsDataTableClient({
           : []),
       ],
     }),
-    [],
+    [openCandidateDetail],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -1105,10 +1143,18 @@ export function ProspectsDataTableClient({
         label: 'Ver detalle',
         icon: Info,
         disabled: (rows) => rows.length !== 1,
-        onClick: (rows) => {
-          setDetailCandidate(rows[0]);
-          setDetailOpen(true);
-        },
+        onClick: (rows) => openCandidateDetail(rows[0]),
+      },
+      {
+        id: 'approve',
+        label: 'Aprobar',
+        icon: CheckCircle2,
+        // Bulk approve is explicitly out of scope: exactly one selected row
+        // opens the drawer with the confirmation armed; 2+ stays disabled.
+        disabled: (rows) => rows.length !== 1,
+        disabledLabel: (rows) =>
+          rows.length > 1 ? 'Aprobación masiva pendiente' : undefined,
+        onClick: (rows) => openCandidateDetail(rows[0], { approveIntent: true }),
       },
       {
         id: 'open-websites',
@@ -1128,7 +1174,7 @@ export function ProspectsDataTableClient({
         },
       },
     ],
-    [],
+    [openCandidateDetail],
   );
 
   const isSourceFiltered = !!sourceId;
@@ -1199,10 +1245,7 @@ export function ProspectsDataTableClient({
         enableColumnReorder
         initialPageSize={20}
         fillHeight
-        onRowClick={(row) => {
-          setDetailCandidate(row);
-          setDetailOpen(true);
-        }}
+        onRowClick={(row) => openCandidateDetail(row)}
         rowClickable
         settingsExtraSections={
           scopeFilterOptions && !sourceId ? (
@@ -1236,11 +1279,14 @@ export function ProspectsDataTableClient({
         onOpenChange={(open) => {
           if (!open) {
             setDetailCandidate(null);
+            setApproveIntent(false);
           }
         }}
         onCandidateUpdated={(updated) => {
           setDetailCandidate(updated);
         }}
+        initialApproveIntent={approveIntent}
+        onApproveIntentConsumed={() => setApproveIntent(false)}
       />
     </>
   );

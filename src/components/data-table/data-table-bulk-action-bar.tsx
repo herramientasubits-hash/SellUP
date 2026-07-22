@@ -103,7 +103,8 @@ export function DataTableBulkActionBar<TData>({
         {actions.map((action) => {
           const Icon = action.icon;
           const isDisabled = action.loading || (action.disabled?.(selectedRows) ?? false);
-          return (
+          const disabledLabel = isDisabled ? action.disabledLabel?.(selectedRows) : undefined;
+          const button = (
             <button
               key={action.id}
               type="button"
@@ -124,6 +125,15 @@ export function DataTableBulkActionBar<TData>({
               ) : null}
               {action.label}
             </button>
+          );
+
+          if (!disabledLabel) return button;
+
+          return (
+            <Tooltip key={action.id}>
+              <TooltipTrigger render={button} />
+              <TooltipContent side="top">{disabledLabel}</TooltipContent>
+            </Tooltip>
           );
         })}
 

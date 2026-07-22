@@ -49,7 +49,8 @@ import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-blo
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 import { PeruMigoLegalValidationBlock } from './peru-migo-legal-validation-block';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
-import { ReviewDecisionSection } from '@/components/prospects/review-decision-section';
+import { ReviewStatusInfo } from '@/components/prospects/review-status-info';
+import { ProspectReviewActions } from '@/components/prospects/prospect-review-actions';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 
@@ -439,6 +440,15 @@ interface CandidateDetailSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCandidateUpdated?: (updated: ProspectCandidateWithReviewer) => void;
+  /**
+   * Opened via row menu / context menu / selection action bar "Aprobar":
+   * lands on the Validación tab and arms the inline confirmation in the
+   * action zone (only when the candidate is actually eligible). Never
+   * approves directly.
+   */
+  initialApproveIntent?: boolean;
+  /** Called once the approve intent above has been applied. */
+  onApproveIntentConsumed?: () => void;
 }
 
 export function CandidateDetailSheet({
@@ -446,6 +456,8 @@ export function CandidateDetailSheet({
   open,
   onOpenChange,
   onCandidateUpdated,
+  initialApproveIntent = false,
+  onApproveIntentConsumed,
 }: CandidateDetailSheetProps) {
   const router = useRouter();
 
@@ -479,9 +491,12 @@ export function CandidateDetailSheet({
     setIsApprovingTaxId(false);
     setApproveTaxIdError(null);
     setConfirmDialogData(null);
-    setActiveTab('empresa');
+    // Row menu / context menu / selection bar "Aprobar" lands directly on
+    // Validación so the reviewer sees the status context next to the action.
+    setActiveTab(initialApproveIntent ? 'validacion' : 'empresa');
     setShowAllNeeds(false);
     setShowAllAngles(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidate?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -853,6 +868,21 @@ export function CandidateDetailSheet({
               <span className="text-[10px] text-muted-foreground/60">{sourcePrimaryLabel}</span>
             ) : null}
           </div>
+        }
+        footer={
+          <ProspectReviewActions
+            candidate={{
+              id: candidate.id,
+              name: candidate.name,
+              status: candidate.status,
+              recordOrigin: candidate.record_origin,
+              duplicateStatus: candidate.duplicate_status,
+              matchedHubspotCompanyId: candidate.matched_hubspot_company_id,
+              reviewedAt: candidate.reviewed_at,
+            }}
+            autoConfirm={initialApproveIntent}
+            onApproveIntentConsumed={onApproveIntentConsumed}
+          />
         }
       >
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -1841,10 +1871,10 @@ export function CandidateDetailSheet({
 
           {/* Tab 2: Validación */}
           <TabsContent value="validacion" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
-            {/* Q3F-5AZ.2D-1 — Decisión de revisión. Consolidated approve surface:
-                the human-review approve action now lives here inside the official
-                Prospectos drawer instead of the standalone review queue. */}
-            <ReviewDecisionSection
+            {/* Q3F-5AZ.2D-1-UX1 — Estado de revisión (informational only). The
+                operative "Aprobar" action moved to the drawer's action zone
+                (sticky footer, below) so it's available regardless of tab. */}
+            <ReviewStatusInfo
               candidate={{
                 id: candidate.id,
                 name: candidate.name,
