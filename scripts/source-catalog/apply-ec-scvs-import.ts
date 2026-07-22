@@ -141,6 +141,20 @@ async function main(): Promise<void> {
     console.log(`  ${String(k).padEnd(28)} ${v}`);
   }
 
+  // ── Detalle sanitizado de errores (solo si hubo) ───────────────────────────
+  // Nunca imprime raw rows, request body, RUC completos, keys ni env: solo
+  // code/message/hint acotados por batch (ver sanitizeBatchError).
+  if (r.applyErrorDetails.length > 0) {
+    console.log('\n─── apply_errors_detail (sanitizado) ───────────────────────────────');
+    for (const e of r.applyErrorDetails) {
+      const code = e.code ?? 'unknown';
+      console.log(`  - batch=${e.batchIndex} offset=${e.offset} code=${code} message="${e.message}"`);
+      if (e.hint !== null) {
+        console.log(`      hint="${e.hint}"`);
+      }
+    }
+  }
+
   console.log('\n─── Advertencias ───────────────────────────────────────────────────');
   console.log('  - ~18 filas sin RUC esperado es admisible (identidad = expediente).');
   console.log('  - duplicate RUC es informativo; nunca es identidad de registro.');
