@@ -48,6 +48,7 @@ const MIGRATED_FILES = [
   'src/server/services/lusha-connection.ts',
   'src/server/services/lusha-credential-diagnostics.ts',
   'src/server/services/ai-connection.ts',
+  'src/server/services/google-cse-connection.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';
@@ -92,22 +93,27 @@ describe('H2 — migrated files never reintroduce a hardcoded Supabase fallback'
   }
 });
 
-describe('H2 — ai-connection.ts drops the legacy misconfiguration error', () => {
-  // The pre-migration ai-connection.ts threw `enrichment_configuration_unavailable`
-  // from its inline getAdminSupabase(). The fail-closed factory now throws
-  // UnsafeSupabaseEnvironmentError instead, so the legacy string must not survive
-  // (as code or as a live throw) in the migrated file.
-  it('does not reintroduce the enrichment_configuration_unavailable error', () => {
-    const source = readFileSync(
-      path.join(repoRoot, 'src/server/services/ai-connection.ts'),
-      'utf8',
-    );
-    assert.equal(
-      source.includes('enrichment_configuration_unavailable'),
-      false,
-      'ai-connection.ts must not carry the legacy enrichment_configuration_unavailable error',
-    );
-  });
+describe('H2 — files drop the legacy enrichment_configuration_unavailable error', () => {
+  // The pre-migration ai-connection.ts and google-cse-connection.ts both threw
+  // `enrichment_configuration_unavailable` from their inline getAdminSupabase().
+  // The fail-closed factory now throws UnsafeSupabaseEnvironmentError instead, so
+  // the legacy string must not survive (as code or as a live throw) in either
+  // migrated file.
+  const LEGACY_ERROR_FILES = [
+    'src/server/services/ai-connection.ts',
+    'src/server/services/google-cse-connection.ts',
+  ] as const;
+
+  for (const relPath of LEGACY_ERROR_FILES) {
+    it(`${relPath} does not reintroduce the enrichment_configuration_unavailable error`, () => {
+      const source = readFileSync(path.join(repoRoot, relPath), 'utf8');
+      assert.equal(
+        source.includes('enrichment_configuration_unavailable'),
+        false,
+        `${relPath} must not carry the legacy enrichment_configuration_unavailable error`,
+      );
+    });
+  }
 });
 
 describe('H2 — protected set stays explicit (allowlist discipline)', () => {
