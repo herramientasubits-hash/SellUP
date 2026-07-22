@@ -13,24 +13,18 @@
  * para facilitar rotación individual de cada una.
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Uses the shared fail-closed factory (createSupabaseAdminClient), which reads
+// resolveSupabaseServiceRoleEnv and throws UnsafeSupabaseEnvironmentError when
+// config is missing or a non-production environment resolves to production.
+// This replaces the previous inline admin client that fell back to a hardcoded
+// production host and threw a generic misconfiguration error. Env is now read
+// at call time by the factory, not once at import time.
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const GOOGLE_CSE_API_KEY_VAULT_NAME = 'sellup_google_cse_api_key';
 export const GOOGLE_CSE_CX_VAULT_NAME = 'sellup_google_cse_cx';
 
 const INTEGRATION_KEY = 'google_cse';
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
 
 export interface GoogleCSECredentials {
   apiKey: string;
@@ -58,7 +52,7 @@ export async function storeGoogleCSECredentials(
   apiKey: string,
   cx: string
 ): Promise<{ success: boolean; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { error: keyError } = await admin.rpc('upsert_vault_secret', {
@@ -97,7 +91,7 @@ export async function storeGoogleCSECredentials(
  * Elimina ambas credenciales de Google CSE de Vault.
  */
 export async function removeGoogleCSECredentials(): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     await admin.rpc('delete_vault_secret', { p_name: GOOGLE_CSE_API_KEY_VAULT_NAME });
@@ -113,7 +107,7 @@ export async function removeGoogleCSECredentials(): Promise<{ success: boolean; 
  * Verifica si ambas credenciales están almacenadas en Vault.
  */
 export async function hasGoogleCSECredentials(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const [{ data: hasKey }, { data: hasCx }] = await Promise.all([
@@ -135,7 +129,7 @@ export async function hasGoogleCSECredentials(): Promise<boolean> {
  * fallback de desarrollo local únicamente.
  */
 export async function getGoogleCSECredentials(): Promise<GoogleCSECredentials | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const [{ data: apiKey }, { data: cx }] = await Promise.all([
