@@ -47,13 +47,23 @@ function AlertDialogContent({
   className,
   size = "default",
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Viewport> & {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Popup> & {
   size?: "default" | "sm";
 }) {
+  // Base UI anatomy is `Portal > Backdrop + Viewport > Popup`. The `Popup` is the
+  // actual interactive dialog surface: it owns the focus trap, the `alertdialog`
+  // role, AND the open/close transition lifecycle (Base UI observes the Popup's
+  // animation to know when a close has completed so it can unmount the overlay).
+  // Rendering the content directly inside `Viewport` (a `role="presentation"`
+  // positioning container) with no `Popup` left that lifecycle without an anchor:
+  // setting `open={false}` began the close but Base UI never detected completion,
+  // so the overlay never unmounted — the dialog (and its Cancel button) appeared
+  // "stuck open". This is why the earlier state-only hotfixes had no effect. Mirror
+  // the working `dialog.tsx` structure and render the content in `Popup`.
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
-      <AlertDialogPrimitive.Viewport
+      <AlertDialogPrimitive.Popup
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
