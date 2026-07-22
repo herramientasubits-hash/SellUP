@@ -9,7 +9,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import {
   getUserDriveRefreshToken,
   removeUserDriveRefreshToken,
@@ -19,16 +19,6 @@ import {
   testDriveConnection,
 } from '@/server/services/google-drive-api';
 import type { UserDriveConnection, DriveConnectionStats, DriveAuditEventType } from './types';
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-
-function getAdminClient() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required');
-  }
-  return createAdminClient(SUPABASE_URL, serviceKey);
-}
 
 // -------------------------------------------------------
 // Helpers internos
@@ -41,7 +31,7 @@ async function getCurrentActiveUserId(): Promise<string | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const { data: internalUser } = await admin
     .from('internal_users')
     .select('id')
@@ -58,7 +48,7 @@ async function logDriveAudit(
   metadata?: Record<string, unknown>
 ): Promise<void> {
   try {
-    await getAdminClient()
+    await createSupabaseAdminClient()
       .from('user_drive_audit')
       .insert({ internal_user_id: internalUserId, event_type: eventType, metadata: metadata ?? null });
   } catch {
@@ -74,7 +64,7 @@ export async function getUserDriveConnection(): Promise<UserDriveConnection | nu
   const userId = await getCurrentActiveUserId();
   if (!userId) return null;
 
-  const { data } = await getAdminClient()
+  const { data } = await createSupabaseAdminClient()
     .from('user_drive_connections')
     .select('*')
     .eq('internal_user_id', userId)
@@ -104,7 +94,7 @@ export async function testUserDriveConnection(): Promise<{
   const tokenResult = await getGoogleDriveAccessToken(refreshToken);
   if (!tokenResult.success) {
     const now = new Date().toISOString();
-    await getAdminClient()
+    await createSupabaseAdminClient()
       .from('user_drive_connections')
       .update({
         connection_status: 'error',
@@ -123,7 +113,7 @@ export async function testUserDriveConnection(): Promise<{
   const now = new Date().toISOString();
 
   if (!testResult.success) {
-    await getAdminClient()
+    await createSupabaseAdminClient()
       .from('user_drive_connections')
       .update({
         connection_status: 'error',
@@ -137,7 +127,7 @@ export async function testUserDriveConnection(): Promise<{
     return { success: false, message: 'La conexión a Drive falló. Reconecta tu cuenta.' };
   }
 
-  await getAdminClient()
+  await createSupabaseAdminClient()
     .from('user_drive_connections')
     .update({
       connection_status: 'connected',
@@ -180,7 +170,7 @@ export async function disconnectUserDrive(): Promise<{
 // -------------------------------------------------------
 
 export async function getDriveConnectionStats(): Promise<DriveConnectionStats | null> {
-  const { data, error } = await getAdminClient().rpc('get_drive_connection_stats');
+  const { data, error } = await createSupabaseAdminClient().rpc('get_drive_connection_stats');
   if (error || !data || !Array.isArray(data) || data.length === 0) return null;
 
   const row = data[0] as { total_connected: string; total_disconnected: string; total_error: string };
@@ -213,7 +203,7 @@ export async function getAuthorizedDriveClientForUser(
     return { success: false, error: tokenResult.error };
   }
 
-  const { data: conn } = await getAdminClient()
+  const { data: conn } = await createSupabaseAdminClient()
     .from('user_drive_connections')
     .select('drive_folder_id')
     .eq('internal_user_id', internalUserId)
