@@ -1,9 +1,11 @@
-// Q3F-5AZ.2C-HF1 — Approve confirmation "Cancelar" must close the modal.
+// Q3F-5AZ.2C-HF1 / HF2 — Approve confirmation "Cancelar" must close the modal
+// cleanly, leaving no residual overlay.
 //
 // The approve confirmation is an @base-ui alert-dialog whose Cancel button is a
-// plain <button> (no auto-close like the Radix primitive). The dialog is fully
-// controlled via the `confirmOpen` state, so Cancel must reset it explicitly.
-// Before the fix the modal opened but never closed on Cancel.
+// plain <button> (no auto-close like the Radix primitive). HF1 wired Cancel to
+// close the dialog. HF2 collapsed the split state (`confirmOpen` + `selectedId`)
+// into a single source of truth (`approveTarget`) so Cancel routes through
+// `closeApproveDialog`, which both closes the dialog AND clears the target.
 //
 // Rendering the client requires a DOM + React runtime that this node:test
 // suite does not set up, so — matching the existing approve-action-safety
@@ -50,10 +52,10 @@ describe('approve confirmation — Cancel closes the modal', () => {
     assert.ok(cancel.includes('type="button"'), 'Cancel must be type="button"');
   });
 
-  it('Cancel closes the controlled dialog by resetting confirmOpen', () => {
+  it('Cancel closes the controlled dialog via closeApproveDialog', () => {
     assert.ok(
-      cancel.includes('setConfirmOpen(false)'),
-      'Cancel must call setConfirmOpen(false) to close the modal',
+      cancel.includes('onClick={closeApproveDialog}'),
+      'Cancel must call closeApproveDialog to close the modal and clear the target',
     );
   });
 
@@ -80,14 +82,14 @@ describe('approve confirmation — Confirm still approves (regression guard)', (
     assert.ok(action.includes('doApprove'), 'Confirm must still call doApprove');
   });
 
-  it('doApprove closes the modal on success', () => {
+  it('doApprove clears the target after a successful approve', () => {
     assert.ok(
       CLIENT_SRC.includes('async function doApprove'),
       'doApprove handler must exist',
     );
     assert.ok(
-      CLIENT_SRC.includes('setConfirmOpen(false)'),
-      'doApprove must close the modal after a successful approve',
+      CLIENT_SRC.includes('setApproveTarget(null)'),
+      'doApprove must clear the approve target after a successful approve',
     );
   });
 });
