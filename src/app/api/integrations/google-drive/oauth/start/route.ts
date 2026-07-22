@@ -18,25 +18,28 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { randomBytes } from 'crypto';
+
+// The service-role client used below for the active internal-user lookup and
+// for persisting the OAuth-start audit row is built via the shared fail-closed
+// factory (createSupabaseAdminClient), which reads the env-guard and throws
+// UnsafeSupabaseEnvironmentError when config is missing or a non-production
+// environment resolves to production. It replaces the previous inline
+// getAdminClient() that fell back to process.env.NEXT_PUBLIC_SUPABASE_URL (no
+// hardcoded prod host here) and threw a generic misconfiguration error. The
+// admin client is on this route's path: if it cannot be built the request
+// fails (previously an uncaught Error, now UnsafeSupabaseEnvironmentError) —
+// there is no silent fallback. OAuth-start behavior, the Google authorize URL,
+// scopes, params, state generation, audit event type and redirects are all
+// unchanged.
 
 export const dynamic = 'force-dynamic';
 
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-
-function getAdminClient() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required');
-  }
-  return createAdminClient(SUPABASE_URL, serviceKey);
-}
 
 async function getActiveInternalUserId(
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -46,7 +49,7 @@ async function getActiveInternalUserId(
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const { data: internalUser } = await admin
     .from('internal_users')
     .select('id')
@@ -83,7 +86,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
   const state = randomBytes(16).toString('hex');
 
   // Persistir state en user_drive_audit
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const { error: auditError } = await admin.from('user_drive_audit').insert({
     internal_user_id: userId,
     event_type: 'drive_oauth_started',
