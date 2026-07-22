@@ -122,6 +122,23 @@ export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
     description:
       'INAPI Chile — señal contextual de propiedad intelectual (marcas y patentes). Enriquecimiento post-discovery por nombre (razón social). No contiene RUT. No reemplaza cl_res. Solo señal contextual para revisión humana.',
   },
+  {
+    sourceKey: 'ec_scvs',
+    countryCodes: ['EC'],
+    capabilities: [
+      'enrichment_after_discovery',
+      'tax_id_validation',
+      'commercial_signals',
+      'prioritization',
+    ],
+    wizardUsage: 'post_discovery_enrichment',
+    requiresSnapshot: true,
+    canRunLive: false,
+    adapterKey: 'ec_scvs',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'SCVS Ecuador — señales comerciales y validación RUC para empresas ecuatorianas registradas en Superintendencia de Compañías. Solo desde snapshot/cache. No es fuente de discovery principal. Detección observable de múltiples expedientes por RUC (no selección arbitraria).',
+  },
 ];
 
 /**
