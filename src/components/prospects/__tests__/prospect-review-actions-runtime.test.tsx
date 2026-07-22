@@ -62,21 +62,32 @@ let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 
 // ── Boundary mocks: server action, router, toast (no network, no DB) ──────────
-type ApproveResult =
-  | { ok: true; status: 'approved' | 'idempotent_success' }
+// Q3F-5AZ.2E-1: the action zone now calls the SAFE convert wrapper
+// (approveAndConvertPendingReviewCandidateAction), which is mocked here so there
+// is NO network, NO DB, NO account creation and NO HubSpot call in the test.
+type ConvertOptions = {
+  confirmPossibleDuplicate?: boolean;
+  confirmHubSpotMatch?: boolean;
+  source?: string;
+};
+type ConvertResult =
+  | {
+      ok: true;
+      status: 'converted_to_account' | 'idempotent_success';
+      accountId?: string;
+      hubSpotStatus?: string;
+    }
   | { ok: false; reason: string };
 
-const mockApprove =
-  mock.fn<(id: string, opts?: { confirmPossibleDuplicate?: boolean }) => Promise<ApproveResult>>(
-    async () => ({ ok: true, status: 'approved' }),
-  );
+const mockApprove = mock.fn<(id: string, opts?: ConvertOptions) => Promise<ConvertResult>>(
+  async () => ({ ok: true, status: 'converted_to_account', accountId: 'acc-1', hubSpotStatus: 'created' }),
+);
 const mockRefresh = mock.fn<() => void>();
 
-mock.module('@/modules/prospect-review/approve-actions', {
+mock.module('@/modules/prospect-review/approve-and-convert-actions', {
   namedExports: {
-    approvePendingReviewCandidateAction: (
-      ...args: [string, { confirmPossibleDuplicate?: boolean }?]
-    ) => mockApprove(...args),
+    approveAndConvertPendingReviewCandidateAction: (...args: [string, ConvertOptions?]) =>
+      mockApprove(...args),
   },
 });
 mock.module('next/navigation', {
@@ -214,25 +225,38 @@ describe('ProspectReviewActions — action hierarchy (UX2)', () => {
   });
 });
 
-describe('ProspectReviewActions — inline confirmation flow', () => {
+describe('ProspectReviewActions — inline confirmation flow (approve + create empresa)', () => {
   it('clicking Aprobar opens the inline confirmation (no action yet)', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(approveButton()!);
-    assert.ok(screen.getByText('¿Confirmas aprobar este prospecto?'));
-    assert.ok(screen.getByText(/No se creará cuenta ni se enviará a HubSpot/i));
+    assert.ok(screen.getByText('¿Aprobar y crear empresa?'));
     assert.equal(mockApprove.mock.callCount(), 0);
+  });
+
+  it('the confirmation copy mentions creating the empresa in SellUp + best-effort HubSpot', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(approveButton()!);
+    assert.ok(screen.getByText(/creará la empresa en SellUp/i));
+    assert.ok(screen.getByText(/sincronizarla con\s+HubSpot según la configuración disponible/i));
+    assert.ok(screen.getByText(/No se creará oportunidad ni propuesta/i));
+  });
+
+  it('the confirmation copy does NOT contain the old "no account / no HubSpot" claim', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(approveButton()!);
+    assert.equal(screen.queryByText(/No se creará cuenta ni se enviará a HubSpot/i), null);
   });
 
   it('Cancelar closes the inline confirmation and calls no action', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(approveButton()!);
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
-    assert.equal(screen.queryByText('¿Confirmas aprobar este prospecto?'), null);
+    assert.equal(screen.queryByText('¿Aprobar y crear empresa?'), null);
     assert.equal(mockApprove.mock.callCount(), 0);
     assert.ok(approveButton());
   });
 
-  it('Confirmar aprobación calls the approve action exactly once with the candidate id', async () => {
+  it('Confirmar aprobación calls the convert wrapper exactly once with the candidate id + source', async () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(approveButton()!);
     fireEvent.click(screen.getByRole('button', { name: /Confirmar aprobación/ }));
@@ -240,8 +264,22 @@ describe('ProspectReviewActions — inline confirmation flow', () => {
     await waitFor(() => assert.equal(mockApprove.mock.callCount(), 1));
     const [id, opts] = mockApprove.mock.calls[0].arguments;
     assert.equal(id, 'cand-1');
-    assert.deepEqual(opts, { confirmPossibleDuplicate: false });
+    assert.deepEqual(opts, {
+      confirmPossibleDuplicate: false,
+      confirmHubSpotMatch: false,
+      source: 'prospectos_drawer',
+    });
     await waitFor(() => assert.equal(mockRefresh.mock.callCount(), 1));
+  });
+
+  it('carries confirmHubSpotMatch:true when the candidate has a matched HubSpot company', async () => {
+    render(<ProspectReviewActions candidate={candidate({ matchedHubspotCompanyId: 'hs-9' })} />);
+    fireEvent.click(approveButton()!);
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar aprobación/ }));
+
+    await waitFor(() => assert.equal(mockApprove.mock.callCount(), 1));
+    const [, opts] = mockApprove.mock.calls[0].arguments;
+    assert.equal(opts?.confirmHubSpotMatch, true);
   });
 });
 
@@ -251,7 +289,7 @@ describe('ProspectReviewActions — autoConfirm (row menu / context menu / selec
     render(
       <ProspectReviewActions candidate={candidate({})} autoConfirm onApproveIntentConsumed={onConsumed} />,
     );
-    assert.ok(screen.getByText('¿Confirmas aprobar este prospecto?'));
+    assert.ok(screen.getByText('¿Aprobar y crear empresa?'));
     assert.equal(mockApprove.mock.callCount(), 0, 'never approves directly');
     assert.equal(onConsumed.mock.callCount(), 1);
   });
@@ -265,14 +303,14 @@ describe('ProspectReviewActions — autoConfirm (row menu / context menu / selec
         onApproveIntentConsumed={onConsumed}
       />,
     );
-    assert.equal(screen.queryByText('¿Confirmas aprobar este prospecto?'), null);
+    assert.equal(screen.queryByText('¿Aprobar y crear empresa?'), null);
     assert.equal(approveButton()!.disabled, true);
     assert.equal(onConsumed.mock.callCount(), 1);
   });
 
   it('does not arm the confirmation when autoConfirm is false', () => {
     render(<ProspectReviewActions candidate={candidate({})} autoConfirm={false} />);
-    assert.equal(screen.queryByText('¿Confirmas aprobar este prospecto?'), null);
+    assert.equal(screen.queryByText('¿Aprobar y crear empresa?'), null);
   });
 });
 

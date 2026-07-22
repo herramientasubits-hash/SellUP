@@ -2,14 +2,21 @@
 
 // Q3F-5AZ.2D-1-UX1 — Prospectos drawer action zone.
 // Q3F-5AZ.2D-1-UX2 — action HIERARCHY (visual reorder only).
+// Q3F-5AZ.2E-1     — "Aprobar" now approves AND creates the empresa.
 //
 // The operative "Aprobar" surface, relocated out of the Validación tab content
 // and into the drawer's own action zone (rendered as a sticky footer via
 // `DrawerShell`'s `footer` prop) so it is available regardless of which tab
 // is active — the natural place for a per-prospect action, not a bespoke
-// content block. Reuses the ALREADY VALIDATED
-// `approvePendingReviewCandidateAction` (Q3F-5AZ.2C) verbatim — no new
-// action, no conversion, no HubSpot, no providers.
+// content block.
+//
+// Q3F-5AZ.2E-1 fixes the functional contract: approving now validates the
+// prospect, creates/links the SellUp account and best-effort syncs HubSpot,
+// through the SAFE server wrapper `approveAndConvertPendingReviewCandidateAction`
+// (admin gate + Prospectos eligibility, then delegates to the canonical
+// convert action). The client NEVER calls the legacy
+// `approveAndConvertCandidateAction` directly and NEVER imports HubSpot.
+// No opportunity/proposal is created; no bulk approve.
 //
 // UX2 reorders the presentation so the zone reads as a hierarchy instead of a
 // flat row of equal-weight buttons:
@@ -46,10 +53,39 @@ import {
   APPROVE_ERROR_MESSAGES,
   type ReviewDecisionCandidate,
 } from './prospect-review-decision-utils';
-import { approvePendingReviewCandidateAction } from '@/modules/prospect-review/approve-actions';
+import {
+  approveAndConvertPendingReviewCandidateAction,
+  type ConvertApproveHubSpotStatus,
+} from '@/modules/prospect-review/approve-and-convert-actions';
 
 // Copy shared by every not-yet-available action (tooltip + menu hint).
 const FUTURE_ACTION_HINT = 'Disponible en siguiente fase';
+
+/**
+ * Post-success toast copy. HubSpot is best-effort: the message only claims a
+ * HubSpot sync when the result confirms it, and otherwise makes clear the
+ * empresa was created in SellUp while HubSpot stayed pending / not configured.
+ */
+function resolveSuccessMessage(
+  status: 'converted_to_account' | 'idempotent_success',
+  hubSpotStatus?: ConvertApproveHubSpotStatus,
+): string {
+  if (status === 'idempotent_success') {
+    return 'Este prospecto ya estaba convertido en empresa.';
+  }
+  switch (hubSpotStatus) {
+    case 'created':
+    case 'linked_existing':
+      return 'Empresa creada desde prospecto.';
+    case 'skipped_not_configured':
+    case 'skipped_possible_match':
+      return 'Empresa creada en SellUp. HubSpot no se sincronizó porque no está configurado o requiere revisión.';
+    case 'failed_create':
+      return 'Empresa creada en SellUp. HubSpot no se pudo sincronizar.';
+    default:
+      return 'Empresa creada desde prospecto.';
+  }
+}
 
 interface ProspectReviewActionsProps {
   candidate: ReviewDecisionCandidate;
@@ -105,19 +141,19 @@ export function ProspectReviewActions({
     if (approving) return;
     setApproving(true);
     try {
-      const result = await approvePendingReviewCandidateAction(candidate.id, {
+      // The inline confirmation IS the explicit human confirmation, so a
+      // possible-duplicate / HubSpot-match candidate carries its confirm flag.
+      const result = await approveAndConvertPendingReviewCandidateAction(candidate.id, {
         confirmPossibleDuplicate: view.isPossibleDuplicate,
+        confirmHubSpotMatch: view.hasHubspotMatch,
+        source: 'prospectos_drawer',
       });
       if (result.ok) {
-        toast.success(
-          result.status === 'idempotent_success'
-            ? `"${candidate.name}" ya estaba aprobado`
-            : `Prospecto aprobado.`,
-        );
+        toast.success(resolveSuccessMessage(result.status, result.hubSpotStatus));
         setConfirming(false);
         // Server components refetch: the drawer receives the updated candidate
-        // and re-renders this zone (and the status info card) in the
-        // "Aprobado" state.
+        // and re-renders this zone (null — terminal) and the status info card
+        // in the "Convertido en cuenta" state with the "Ver empresa" CTA.
         router.refresh();
       } else {
         toast.error(
@@ -140,14 +176,24 @@ export function ProspectReviewActions({
       {confirming ? (
         <div className="rounded-xl border border-su-brand/30 bg-su-brand/5 p-3 space-y-3">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">¿Confirmas aprobar este prospecto?</p>
+            <p className="text-sm font-medium text-foreground">¿Aprobar y crear empresa?</p>
             <p className="text-xs text-muted-foreground">
-              No se creará cuenta ni se enviará a HubSpot.
+              Esto validará el prospecto, creará la empresa en SellUp e intentará sincronizarla con
+              HubSpot según la configuración disponible. No se creará oportunidad ni propuesta
+              todavía.
             </p>
-            {view.needsWarning && (
+            {view.hasHubspotMatch ? (
               <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                Este prospecto tiene posible coincidencia. Revisa antes de aprobar.
+                Este prospecto tiene una coincidencia de HubSpot. Al aprobar, SellUp intentará
+                vincular la empresa existente.
               </p>
+            ) : (
+              view.needsWarning && (
+                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  Este prospecto tiene posible coincidencia. Revisa antes de aprobar y crear
+                  empresa.
+                </p>
+              )
             )}
           </div>
           <div className="flex flex-wrap gap-2">

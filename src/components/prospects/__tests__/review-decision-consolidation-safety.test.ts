@@ -57,10 +57,14 @@ const ROW_ACTIONS_RAW = readFileSync(
 );
 const ROW_ACTIONS_SRC = stripLineComments(ROW_ACTIONS_RAW);
 
-describe('prospect-review-actions — reuses the validated action, no new action', () => {
-  it('imports approvePendingReviewCandidateAction (single source of truth)', () => {
-    assert.ok(ACTIONS_SRC.includes('approvePendingReviewCandidateAction'));
-    assert.ok(ACTIONS_SRC.includes('@/modules/prospect-review/approve-actions'));
+describe('prospect-review-actions — uses the SAFE convert wrapper (Q3F-5AZ.2E-1)', () => {
+  it('imports approveAndConvertPendingReviewCandidateAction (single safe destination)', () => {
+    assert.ok(ACTIONS_SRC.includes('approveAndConvertPendingReviewCandidateAction'));
+    assert.ok(ACTIONS_SRC.includes('@/modules/prospect-review/approve-and-convert-actions'));
+  });
+
+  it('no longer uses approvePendingReviewCandidateAction (approve-only) as the primary approve', () => {
+    assert.equal(ACTIONS_SRC.includes('approvePendingReviewCandidateAction'), false);
   });
 
   it("does not perform a direct DB write or define a 'use server' action", () => {
@@ -70,8 +74,9 @@ describe('prospect-review-actions — reuses the validated action, no new action
   });
 });
 
-describe('no conversion / HubSpot / providers across the relocated surfaces', () => {
-  const forbidden = [
+describe('convert stays server-side: client never touches the legacy convert / HubSpot / providers', () => {
+  // The purely-informational files must remain fully convert-free.
+  const forbiddenInfo = [
     'approveAndConvert',
     'convertCandidate',
     "from('accounts')",
@@ -85,16 +90,36 @@ describe('no conversion / HubSpot / providers across the relocated surfaces', ()
   for (const [label, src] of [
     ['prospect-review-decision-utils.ts', UTILS_SRC],
     ['review-status-info.tsx', STATUS_INFO_SRC],
-    ['prospect-review-actions.tsx', ACTIONS_SRC],
   ] as const) {
-    for (const token of forbidden) {
+    for (const token of forbiddenInfo) {
       it(`${label} does not reference "${token}"`, () => {
         assert.equal(src.includes(token), false, `${label} must not reference ${token}`);
       });
     }
   }
 
-  it('the new context-menu / bulk-action-bar Aprobar wiring does not call approveAndConvertCandidateAction directly', () => {
+  // The action zone MAY reference the safe wrapper, but must never reach the
+  // legacy convert action, HubSpot, accounts, or providers from the client.
+  const forbiddenClient = [
+    'approveAndConvertCandidateAction',
+    'convertCandidate',
+    "from('accounts')",
+    'createHubSpotCompany',
+    'syncToHubspot',
+    'apollo',
+    'tavily',
+    'lusha',
+    'runEnrichment',
+    '@/modules/prospect-batches/actions',
+    '@/server/hubspot',
+  ];
+  for (const token of forbiddenClient) {
+    it(`prospect-review-actions.tsx does not reference "${token}"`, () => {
+      assert.equal(ACTIONS_SRC.includes(token), false, `action zone must not reference ${token}`);
+    });
+  }
+
+  it('the context-menu / bulk-action-bar Aprobar wiring does not call the legacy convert directly', () => {
     assert.equal(TABLE_SRC.includes('approveAndConvertCandidateAction'), false);
   });
 });
@@ -208,13 +233,13 @@ describe('UX2 — action hierarchy is presentation-only', () => {
     );
   });
 
-  it('does not enable any new action (approve stays the single reachable action)', () => {
-    // No new server action / DB write / convert token was introduced by the reorder.
-    for (const token of ['approveAndConvert', 'convertCandidate', "'use server'", '.insert(', '.update(']) {
-      assert.equal(ACTIONS_SRC.includes(token), false, `reorder must not introduce ${token}`);
+  it('does not enable any new action (Aprobar stays the single reachable action)', () => {
+    // No legacy convert / DB write / server action leaked into the client zone.
+    for (const token of ['approveAndConvertCandidateAction', 'convertCandidate', "'use server'", '.insert(', '.update(']) {
+      assert.equal(ACTIONS_SRC.includes(token), false, `action zone must not introduce ${token}`);
     }
-    // Still the single validated approve action, imported once.
-    assert.equal(ACTIONS_SRC.split('approvePendingReviewCandidateAction').length - 1 >= 1, true);
+    // Aprobar routes through the single safe convert wrapper, imported once.
+    assert.ok(ACTIONS_SRC.includes('approveAndConvertPendingReviewCandidateAction'));
   });
 });
 

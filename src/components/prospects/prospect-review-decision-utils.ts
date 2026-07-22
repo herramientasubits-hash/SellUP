@@ -23,6 +23,8 @@ export interface ReviewDecisionCandidate {
   duplicateStatus?: string | null;
   matchedHubspotCompanyId?: string | null;
   reviewedAt?: string | null;
+  /** Populated once the prospect has been converted — enables the "Ver empresa" CTA. */
+  convertedAccountId?: string | null;
 }
 
 export interface TerminalStatusCopy {
@@ -34,10 +36,10 @@ export interface TerminalStatusCopy {
 // Terminal / non-actionable statuses render as a read-only state (no Aprobar).
 export const TERMINAL_STATUS: Record<string, TerminalStatusCopy> = {
   approved: {
-    label: 'Aprobado',
+    label: 'Aprobado sin empresa',
     description:
-      'Este prospecto fue aprobado como candidato válido. Aún no ha sido convertido en cuenta.',
-    className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+      'Este prospecto ya fue aprobado antes sin crear empresa. Requiere conversión desde un hito de remediación.',
+    className: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
   },
   discarded: {
     label: 'Descartado',
@@ -66,14 +68,22 @@ export const BLOCK_COPY: Record<ApproveRejectReason, string> = {
   needs_duplicate_confirmation: 'Requiere confirmar el posible duplicado antes de aprobar.',
 };
 
-// Friendly copy for each typed rejection reason surfaced by the approve action.
+// Friendly copy for each typed rejection reason surfaced by the approve /
+// approve+convert actions. Covers both the approve-only reasons and the
+// Q3F-5AZ.2E-1 convert-wrapper reasons (HubSpot-match confirm, approved-only
+// remediation, conversion failure).
 export const APPROVE_ERROR_MESSAGES: Record<string, string> = {
-  not_allowed: 'No tienes permisos para aprobar candidatos.',
-  not_found: 'El candidato ya no está disponible. Actualiza la lista.',
-  not_clean_production: 'Este candidato no pertenece a la cola de producción limpia.',
-  status_conflict: 'El estado del candidato cambió. Actualiza la lista e inténtalo de nuevo.',
-  duplicate_blocked: 'No se puede aprobar: la duplicidad bloquea la aprobación.',
-  needs_duplicate_confirmation: 'Este candidato requiere confirmar el posible duplicado.',
+  not_allowed: 'No tienes permisos para aprobar prospectos.',
+  not_found: 'El prospecto ya no está disponible. Actualiza la lista.',
+  not_clean_production: 'Este prospecto no pertenece a la cola de producción limpia.',
+  status_conflict: 'El prospecto ya cambió de estado. Actualiza la vista.',
+  approved_only_requires_remediation:
+    'Este prospecto ya fue aprobado antes sin crear empresa. Requiere conversión manual en un hito de remediación.',
+  duplicate_blocked: 'Este prospecto no se puede aprobar por una señal de duplicidad.',
+  needs_duplicate_confirmation: 'Este prospecto requiere confirmar el posible duplicado.',
+  needs_hubspot_match_confirmation:
+    'Este prospecto requiere confirmar la coincidencia de HubSpot antes de aprobar y crear empresa.',
+  conversion_failed: 'No se pudo crear la empresa desde el prospecto. Inténtalo de nuevo.',
   unexpected_error: 'Ocurrió un error inesperado. Inténtalo de nuevo.',
 };
 
