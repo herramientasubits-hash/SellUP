@@ -51,6 +51,8 @@ const MIGRATED_FILES = [
   'src/server/services/google-cse-connection.ts',
   'src/server/services/hubspot-connection.ts',
   'src/server/services/slack-connection.ts',
+  'src/app/api/integrations/slack/oauth/start/route.ts',
+  'src/app/api/integrations/slack/oauth/callback/route.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';
@@ -97,15 +99,18 @@ describe('H2 — migrated files never reintroduce a hardcoded Supabase fallback'
 
 describe('H2 — files drop the legacy enrichment_configuration_unavailable error', () => {
   // The pre-migration ai-connection.ts, google-cse-connection.ts, hubspot-connection.ts,
-  // and slack-connection.ts all threw `enrichment_configuration_unavailable` from their
-  // inline getAdminSupabase(). The fail-closed factory now throws
-  // UnsafeSupabaseEnvironmentError instead, so the legacy string must not survive
-  // (as code or as a live throw) in any migrated file.
+  // slack-connection.ts, and the two slack OAuth route handlers all threw
+  // `enrichment_configuration_unavailable` from their inline getAdminSupabase().
+  // The fail-closed factory now throws UnsafeSupabaseEnvironmentError instead, so
+  // the legacy string must not survive (as code or as a live throw) in any
+  // migrated file.
   const LEGACY_ERROR_FILES = [
     'src/server/services/ai-connection.ts',
     'src/server/services/google-cse-connection.ts',
     'src/server/services/hubspot-connection.ts',
     'src/server/services/slack-connection.ts',
+    'src/app/api/integrations/slack/oauth/start/route.ts',
+    'src/app/api/integrations/slack/oauth/callback/route.ts',
   ] as const;
 
   for (const relPath of LEGACY_ERROR_FILES) {

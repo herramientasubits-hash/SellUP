@@ -18,24 +18,12 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { storeSlackCredential, getSlackOAuthConfig, getSlackClientSecret } from '@/server/services/slack-connection';
 import type { SlackMetadata } from '@/modules/integrations/types';
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 const SUCCESS_REDIRECT = `${APP_BASE_URL}/settings/integrations/slack?connected=1`;
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
 
 async function getAdminInternalUserId(
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -45,7 +33,7 @@ async function getAdminInternalUserId(
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: internalUser } = await admin
     .from('internal_users')
@@ -83,7 +71,7 @@ async function persistSlackOAuth(
   const storeResult = await storeSlackCredential(botToken);
   if (!storeResult.success) return storeResult;
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -168,7 +156,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // 3. Validar state contra integration_audit
   //    El start route guarda el state en integration_audit (INSERT siempre funciona).
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   const { data: auditRow } = await admin
@@ -208,7 +196,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!actorId) {
     try {
-      await getAdminSupabase().from('integration_audit').insert({
+      await createSupabaseAdminClient().from('integration_audit').insert({
         integration_key: 'slack',
         event_type: 'oauth_failed',
         actor_user_id: '00000000-0000-0000-0000-000000000000',
@@ -278,7 +266,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // 7. Verificar respuesta de Slack
   if (!oauthData.ok) {
     const errCode = oauthData.error ?? 'unknown_error';
-    await getAdminSupabase().from('integration_audit').insert({
+    await createSupabaseAdminClient().from('integration_audit').insert({
       integration_key: 'slack',
       event_type: 'oauth_failed',
       actor_user_id: actorId,

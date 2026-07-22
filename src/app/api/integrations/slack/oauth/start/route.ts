@@ -9,7 +9,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { randomBytes } from 'crypto';
 import { getSlackOAuthConfig } from '@/server/services/slack-connection';
 
@@ -17,18 +17,6 @@ export const dynamic = 'force-dynamic';
 
 const SLACK_SCOPES =
   'channels:manage,chat:write,app_mentions:read,channels:history,im:write,im:history,users:read,users:read.email';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
 
 async function getAdminInternalUserId(
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -38,7 +26,7 @@ async function getAdminInternalUserId(
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: internalUser } = await admin
     .from('internal_users')
@@ -96,7 +84,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
 
   // 4. Persistir state en integration_audit — INSERT siempre funciona,
   //    evita el problema intermitente con UPDATE de metadata en connection row.
-  const adminClient = getAdminSupabase();
+  const adminClient = createSupabaseAdminClient();
   const { error: auditInsertError } = await adminClient
     .from('integration_audit')
     .insert({
