@@ -40,9 +40,21 @@ class ResizeObserverStub {
   (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver ?? ResizeObserverStub;
 
 import * as React from 'react';
-import { describe, it, before, beforeEach, afterEach } from 'node:test';
+import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ReviewDecisionCandidate } from '../prospect-review-decision-utils';
+
+// next/link needs the app-router context in jsdom; render it as a plain anchor.
+mock.module('next/link', {
+  defaultExport: ({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string;
+    children: React.ReactNode;
+  } & Record<string, unknown>) => React.createElement('a', { href, ...rest }, children),
+});
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -85,12 +97,12 @@ describe('ReviewStatusInfo — purely informational', () => {
     }
   });
 
-  it('shows the "Aprobado" pill with reviewedAt date for status approved', () => {
+  it('shows the approved-only backlog pill + remediation copy for status approved', () => {
     render(
       <ReviewStatusInfo candidate={candidate({ status: 'approved', reviewedAt: '2026-07-22T10:00:00Z' })} />,
     );
-    assert.ok(screen.getByText('Aprobado'));
-    assert.ok(screen.getByText(/Aún no ha sido convertido en cuenta/i));
+    assert.ok(screen.getByText('Aprobado sin empresa'));
+    assert.ok(screen.getByText(/aprobado antes sin crear empresa\. Requiere conversión/i));
     assert.ok(screen.getByText(/Aprobado el/i));
   });
 
@@ -104,6 +116,23 @@ describe('ReviewStatusInfo — purely informational', () => {
       render(<ReviewStatusInfo candidate={candidate({ status })} />);
       assert.ok(screen.getByText(label), `expected "${label}" for status ${status}`);
     }
+  });
+
+  it('shows a "Ver empresa" link for a converted candidate with an account id', () => {
+    render(
+      <ReviewStatusInfo
+        candidate={candidate({ status: 'converted_to_account', convertedAccountId: 'acc-77' })}
+      />,
+    );
+    const link = screen.getByRole('link', { name: /Ver empresa/i }) as HTMLAnchorElement;
+    assert.ok(link);
+    assert.equal(link.getAttribute('href'), '/accounts/acc-77');
+  });
+
+  it('falls back to "La empresa ya fue creada en SellUp." when no account id is present', () => {
+    render(<ReviewStatusInfo candidate={candidate({ status: 'converted_to_account' })} />);
+    assert.equal(screen.queryByRole('link', { name: /Ver empresa/i }), null);
+    assert.ok(screen.getByText(/La empresa ya fue creada en SellUp/i));
   });
 
   it('shows the block reason for a needs_review row that is not clean production', () => {

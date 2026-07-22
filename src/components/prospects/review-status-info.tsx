@@ -10,7 +10,8 @@
 // no buttons, no writes.
 
 import * as React from 'react';
-import { AlertTriangle, Info, ShieldCheck } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, Info, ShieldCheck, ArrowRightCircle } from 'lucide-react';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
   resolveReviewDecisionView,
@@ -22,8 +23,10 @@ interface ReviewStatusInfoProps {
 }
 
 const SECTION_TITLE = 'Estado de revisión';
+// Q3F-5AZ.2E-1 — approving now validates the prospect, creates the SellUp
+// account and best-effort syncs HubSpot (no opportunity/proposal yet).
 const SECTION_DESCRIPTION =
-  'Este prospecto requiere decisión humana antes de avanzar. Aprobar no convierte la empresa en cuenta ni la envía a HubSpot.';
+  'Este prospecto requiere decisión humana antes de avanzar. Aprobar valida el prospecto, crea la empresa en SellUp e intenta sincronizarla con HubSpot según la configuración disponible.';
 
 function StatePill({ label, className }: { label: string; className: string }) {
   return (
@@ -50,6 +53,21 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
               Aprobado el {new Date(candidate.reviewedAt).toLocaleString('es-CO')}
             </p>
           )}
+          {/* Q3F-5AZ.2E-1 — converted prospects link straight to their empresa. */}
+          {candidate.status === 'converted_to_account' &&
+            (candidate.convertedAccountId ? (
+              <Link
+                href={`/accounts/${candidate.convertedAccountId}`}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-su-brand hover:underline"
+              >
+                <ArrowRightCircle className="h-3.5 w-3.5" />
+                Ver empresa
+              </Link>
+            ) : (
+              <p className="text-[11px] text-muted-foreground/70">
+                La empresa ya fue creada en SellUp.
+              </p>
+            ))}
         </div>
       </SurfaceCard>
     );

@@ -1070,9 +1070,11 @@ export function ProspectsDataTableClient({
         id: 'actions',
         header: () => <span className="sr-only">Acciones</span>,
         // Q3F-5AZ.2D-1-HF1 — the row menu "Aprobar" must never trigger the
-        // legacy convert-and-approve here. onApproveOverride redirects it to the
-        // same safe drawer confirmation used by the context menu / selection bar
-        // (approvePendingReviewCandidateAction — no account, no HubSpot).
+        // shared legacy convert-and-approve directly. onApproveOverride redirects
+        // it to the same safe drawer confirmation used by the context menu /
+        // selection bar. Q3F-5AZ.2E-1: that confirmation now approves AND creates
+        // the empresa through the SAFE server wrapper (admin gate + eligibility,
+        // then delegation) — never the legacy action straight from a menu.
         cell: ({ row }) => (
           <CandidateRowActions
             candidate={row.original}

@@ -879,6 +879,7 @@ export function CandidateDetailSheet({
               duplicateStatus: candidate.duplicate_status,
               matchedHubspotCompanyId: candidate.matched_hubspot_company_id,
               reviewedAt: candidate.reviewed_at,
+              convertedAccountId: candidate.converted_account_id,
             }}
             autoConfirm={initialApproveIntent}
             onApproveIntentConsumed={onApproveIntentConsumed}
@@ -1883,6 +1884,7 @@ export function CandidateDetailSheet({
                 duplicateStatus: candidate.duplicate_status,
                 matchedHubspotCompanyId: candidate.matched_hubspot_company_id,
                 reviewedAt: candidate.reviewed_at,
+                convertedAccountId: candidate.converted_account_id,
               }}
             />
 
