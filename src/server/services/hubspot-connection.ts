@@ -6,24 +6,19 @@
  * La tabla external_integration_connections solo guarda vault_secret_id — nunca el secreto.
  *
  * Naming convention del secreto en Vault: sellup_integration_hubspot
+ *
+ * Uses the shared fail-closed factory (createSupabaseAdminClient), which reads
+ * resolveSupabaseServiceRoleEnv and throws UnsafeSupabaseEnvironmentError when
+ * config is missing or a non-production environment resolves to production.
+ * This replaces the previous inline admin client that fell back to a hardcoded
+ * production host and threw a generic misconfiguration error. Env is now read
+ * at call time by the factory, not once at import time.
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 const INTEGRATION_KEY = 'hubspot';
 const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
 
 export interface HubSpotTokenInfo {
   hubId: number;
@@ -74,7 +69,7 @@ export function computeHubSpotScopeReadiness(scopes: string[]): HubSpotScopeRead
 export async function storeHubSpotCredential(
   token: string
 ): Promise<{ success: boolean; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('upsert_vault_secret', {
@@ -114,10 +109,13 @@ export async function removeHubSpotCredential(): Promise<{
   success: boolean;
   error?: string;
 }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
-    await admin.rpc('delete_vault_secret', { p_name: VAULT_SECRET_NAME });
+    const { error: deleteError } = await admin.rpc('delete_vault_secret', {
+      p_name: VAULT_SECRET_NAME,
+    });
+    if (deleteError) throw deleteError;
 
     await admin
       .from('external_integration_connections')
@@ -140,7 +138,7 @@ export async function removeHubSpotCredential(): Promise<{
  * Verifica si existe credencial almacenada en Vault para HubSpot.
  */
 export async function hasHubSpotCredential(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data } = await admin.rpc('has_vault_secret', { p_name: VAULT_SECRET_NAME });
@@ -156,7 +154,7 @@ export async function hasHubSpotCredential(): Promise<boolean> {
  * NUNCA retornar al frontend. NUNCA loggear el valor.
  */
 async function getHubSpotToken(): Promise<string | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
