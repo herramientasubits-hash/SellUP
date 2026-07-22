@@ -9,19 +9,12 @@
  * Ejemplo: sellup_ai_openai, sellup_ai_google, sellup_ai_anthropic
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
+// Uses the shared fail-closed factory (createSupabaseAdminClient), which reads
+// resolveSupabaseServiceRoleEnv and throws UnsafeSupabaseEnvironmentError when
+// config is missing or a non-production environment resolves to production.
+// This replaces the previous inline admin client that fell back to a hardcoded
+// production host and threw a generic misconfiguration error.
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 /** Nombre canónico del secreto en Vault para un proveedor de IA. */
 function vaultSecretName(providerKey: string): string {
@@ -46,7 +39,7 @@ export async function storeAiProviderCredential(
   providerKey: string,
   apiKey: string
 ): Promise<{ success: boolean; vaultSecretId?: string; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   const secretName = vaultSecretName(providerKey);
 
   try {
@@ -87,7 +80,7 @@ export async function storeAiProviderCredential(
 export async function removeAiProviderCredential(
   providerKey: string
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   const secretName = vaultSecretName(providerKey);
 
   try {
@@ -114,7 +107,7 @@ export async function removeAiProviderCredential(
  * Usa la convención de nombres nueva: sellup_ai_{providerKey}
  */
 export async function hasAiProviderCredential(providerKey: string): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   const secretName = vaultSecretName(providerKey);
 
   try {
@@ -130,7 +123,7 @@ export async function hasAiProviderCredential(providerKey: string): Promise<bool
  * Útil para chequear convenciones alternativas de nombres (legacy, etc.).
  */
 export async function hasVaultSecretByRawName(rawName: string): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   try {
     const { data } = await admin.rpc('has_vault_secret', { p_name: rawName });
     return data === true;
@@ -147,7 +140,7 @@ export async function hasVaultSecretByRawName(rawName: string): Promise<boolean>
 export async function getVaultSecretByRawName(
   rawName: string
 ): Promise<{ success: boolean; apiKey?: string; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   try {
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', { p_name: rawName });
     if (error) throw error;
@@ -166,7 +159,7 @@ export async function getVaultSecretByRawName(
 export async function getAiProviderCredential(
   providerKey: string
 ): Promise<{ success: boolean; apiKey?: string; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   const secretName = vaultSecretName(providerKey);
 
   try {
