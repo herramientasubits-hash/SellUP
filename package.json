@@ -159,6 +159,7 @@
     "test:agent2a:hubspot-connection": "node --import tsx --test src/server/services/__tests__/hubspot-connection.test.ts",
     "test:agent2a:slack-connection": "node --import tsx --test src/server/services/__tests__/slack-connection.test.ts",
     "test:agent2a:slack-oauth-routes": "node --import tsx --experimental-test-module-mocks --test src/app/api/integrations/slack/oauth/__tests__/route.test.ts",
+    "test:agent2a:auth-callback": "node --import tsx --experimental-test-module-mocks --test src/app/auth/callback/__tests__/route.test.ts",
     "test:agent2a:candidate-review": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-review-core.test.ts",
     "test:agent2a:routing-observation-evaluator": "node --import tsx --test src/modules/contact-enrichment-routing/__tests__/policy-validation.test.ts src/modules/contact-enrichment-routing/__tests__/attempt-input-validation.test.ts src/modules/contact-enrichment-routing/__tests__/signal-derivation.test.ts src/modules/contact-enrichment-routing/__tests__/observation-evaluator.test.ts",
     "test:agent2a:routing-config-contract": "node --import tsx --test src/modules/contact-enrichment-routing/__tests__/routing-config.test.ts",

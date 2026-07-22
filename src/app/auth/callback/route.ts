@@ -1,17 +1,17 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { openSlackDMForUser } from '@/server/services/slack-connection';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
+// The Slack DM sidecar below builds a service-role client via the shared
+// fail-closed factory (createSupabaseAdminClient), which reads the env-guard
+// and throws UnsafeSupabaseEnvironmentError when config is missing or a
+// non-production environment resolves to production. It replaces the previous
+// inline admin client that fell back to a hardcoded production host and threw
+// a generic misconfiguration error. The throw is caught by
+// the existing Slack DM try/catch and never blocks login. The login-critical
+// path (exchangeCodeForSession, signOut, sync_internal_user, get_internal_user,
+// redirects) is unchanged and continues to use the request-scoped createClient.
 
 const AUTHORIZED_DOMAIN = 'ubits.co';
 
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
   const internalUserId = internalUserData as string | null;
   if (internalUserId) {
     try {
-      const admin = getAdminSupabase();
+      const admin = createSupabaseAdminClient();
       const { data: existingUser } = await admin
         .from('internal_users')
         .select('slack_dm_channel_id')
