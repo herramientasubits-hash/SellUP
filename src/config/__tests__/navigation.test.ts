@@ -84,3 +84,30 @@ describe('navigation visibility — getVisibleNavItems', () => {
     assert.deepEqual(hrefs(mainNavItems), before);
   });
 });
+
+describe('Q3F-5AZ.2D-1 — Prospectos review consolidated into Empresas', () => {
+  it('no longer exposes the standalone "Revisión de prospectos" sidebar entry', () => {
+    const titles = mainNavItems.map((i) => i.title);
+    const routes = mainNavItems.map((i) => i.href);
+    assert.ok(
+      !titles.includes('Revisión de prospectos'),
+      '"Revisión de prospectos" must not appear in the sidebar',
+    );
+    assert.ok(
+      !routes.includes('/prospect-batches/review'),
+      'the review-queue route must not be linked in the sidebar',
+    );
+  });
+
+  it('keeps Empresas as the official surface (Prospectos lives inside it)', () => {
+    // Prospectos is not a standalone module: it is reachable via /accounts and
+    // its ?tab=prospectos param, which is where review now happens.
+    const empresas = mainNavItems.find((i) => i.href === '/accounts');
+    assert.ok(empresas, 'Empresas (/accounts) must remain in the sidebar');
+    assert.equal(empresas?.title, 'Empresas');
+    // For every audience, /accounts stays visible.
+    for (const ctx of [adminCtx, sellerCtx, managerCtx, leadCtx]) {
+      assert.ok(hrefs(getVisibleNavItems(mainNavItems, ctx)).includes('/accounts'));
+    }
+  });
+});

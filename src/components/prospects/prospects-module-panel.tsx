@@ -172,8 +172,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               }
             />
             <MetricCard
-              title="Listos para aprobar"
-              description="Candidatos validados"
+              title="Sin bloqueos detectados"
+              description="Candidatos sin señales bloqueantes"
               value={kpis.readyForApproval}
               icon={
                 <div className="rounded-lg p-1.5 bg-emerald-500/10">
