@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Pin, X } from "lucide-react";
+import { ChevronDown, Loader2, Pin, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { DataTableBulkAction } from "./data-table";
 
 interface DataTableBulkActionBarProps<TData> {
@@ -62,7 +68,7 @@ export function DataTableBulkActionBar<TData>({
 
   const runAction = async (action: DataTableBulkAction<TData>) => {
     try {
-      await action.onClick(selectedRows);
+      await action.onClick?.(selectedRows);
       closeConfirm();
     } catch {
       // surface error in consumer; keep bar open so user can retry
@@ -101,6 +107,16 @@ export function DataTableBulkActionBar<TData>({
         <div className="h-5 w-px bg-zinc-700" />
 
         {actions.map((action) => {
+          if (action.items && action.items.length > 0) {
+            return (
+              <BulkActionDropdownGroup
+                key={action.id}
+                action={action}
+                selectedRows={selectedRows}
+              />
+            );
+          }
+
           const Icon = action.icon;
           const isDisabled = action.loading || (action.disabled?.(selectedRows) ?? false);
           const disabledLabel = isDisabled ? action.disabledLabel?.(selectedRows) : undefined;
@@ -214,5 +230,59 @@ export function DataTableBulkActionBar<TData>({
       </Dialog>
     </>,
     document.body,
+  );
+}
+
+/**
+ * Renders a bulk action with `items` as a dropdown trigger — each item is its
+ * own mini action with independent disabled/disabledLabel state, matching the
+ * side panel footer's "Más acciones" menu (§ prospect-review-actions.tsx).
+ */
+function BulkActionDropdownGroup<TData>({
+  action,
+  selectedRows,
+}: {
+  action: DataTableBulkAction<TData>;
+  selectedRows: TData[];
+}) {
+  const Icon = action.icon;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium",
+            "hover:bg-zinc-800 transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
+          )}
+        >
+          {Icon && <Icon className="h-3.5 w-3.5" />}
+          {action.label}
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-56">
+        {action.items!.map((item) => {
+          const ItemIcon = item.icon;
+          const isDisabled = item.loading || (item.disabled?.(selectedRows) ?? false);
+          const disabledLabel = isDisabled ? item.disabledLabel?.(selectedRows) : undefined;
+          return (
+            <DropdownMenuItem
+              key={item.id}
+              disabled={isDisabled}
+              title={disabledLabel}
+              onClick={() => void item.onClick?.(selectedRows)}
+            >
+              {ItemIcon && <ItemIcon className="h-3.5 w-3.5" />}
+              <span className="flex-1">{item.label}</span>
+              {disabledLabel && (
+                <span className="text-[10px] text-muted-foreground">{disabledLabel}</span>
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

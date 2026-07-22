@@ -61,7 +61,8 @@ export interface DataTableBulkAction<TData> {
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
   variant?: "default" | "destructive";
-  onClick: (rows: TData[]) => void | Promise<void>;
+  /** Ignored when `items` is set — a grouped action has no direct click target. */
+  onClick?: (rows: TData[]) => void | Promise<void>;
   loading?: boolean;
   /**
    * Optional predicate evaluated with the currently selected rows. Return
@@ -80,6 +81,18 @@ export interface DataTableBulkAction<TData> {
     description: (rows: TData[]) => string;
     confirmLabel?: string;
   };
+  /**
+   * When set, renders this action as a dropdown trigger instead of a button —
+   * each entry is its own mini bulk action (own disabled/disabledLabel/onClick).
+   * Used to group not-yet-available actions under a single "Más acciones"
+   * menu, matching the side panel footer hierarchy.
+   */
+  items?: DataTableBulkAction<TData>[];
+}
+
+export interface DataTableHandle {
+  /** Clears the current row selection (and, with it, hides the bulk action bar). */
+  clearSelection: () => void;
 }
 
 export interface DataTableContextMenuConfig<TData> {
@@ -176,41 +189,38 @@ const DEFAULT_SETTINGS: DataTableSettings = {
 
 const DEFAULT_PINNED = ["select", "reorder", "actions"];
 
-/**
- * DataTable<T> — composable data table built on TanStack Table v8.
- * Designed to consolidate the 15+ bespoke tables in the SellUp app.
- *
- * @see /docs/DESIGN_SYSTEM_FOUNDATION.md § 10 — DataTable system
- */
-export function DataTable<TData>({
-  columns,
-  data,
-  getRowId,
-  title,
-  description,
-  actions,
-  count,
-  enableRowSelection = false,
-  bulkActions = [],
-  contextMenu,
-  stickyHeader = false,
-  initialPageSize = 20,
-  pageSizeOptions = [10, 20, 50, 100],
-  enableColumnReorder = true,
-  pinnedColumnIds = DEFAULT_PINNED,
-  enableRowReorder = false,
-  onRowReorder,
-  manualSorting = false,
-  manualFiltering = false,
-  onRowClick,
-  rowClickable = false,
-  className,
-  emptyState,
-  loading = false,
-  hideToolbar = false,
-  settingsExtraSections,
-  fillHeight = false,
-}: DataTableProps<TData>) {
+function DataTableInner<TData>(
+  {
+    columns,
+    data,
+    getRowId,
+    title,
+    description,
+    actions,
+    count,
+    enableRowSelection = false,
+    bulkActions = [],
+    contextMenu,
+    stickyHeader = false,
+    initialPageSize = 20,
+    pageSizeOptions = [10, 20, 50, 100],
+    enableColumnReorder = true,
+    pinnedColumnIds = DEFAULT_PINNED,
+    enableRowReorder = false,
+    onRowReorder,
+    manualSorting = false,
+    manualFiltering = false,
+    onRowClick,
+    rowClickable = false,
+    className,
+    emptyState,
+    loading = false,
+    hideToolbar = false,
+    settingsExtraSections,
+    fillHeight = false,
+  }: DataTableProps<TData>,
+  ref: React.ForwardedRef<DataTableHandle>,
+) {
   const tableWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -334,7 +344,9 @@ export function DataTable<TData>({
   const selectedRows = table.getFilteredSelectedRowModel().rows.map((r) => r.original);
   const selectedCount = selectedRows.length;
 
-  const clearSelection = () => table.resetRowSelection();
+  const clearSelection = React.useCallback(() => table.resetRowSelection(), [table]);
+
+  React.useImperativeHandle(ref, () => ({ clearSelection }), [clearSelection]);
 
   // ── Auto-fit columns to wrapper width ──────────────────────────────────
   // `table-layout: fixed` + explicit pixel widths leaves the extra space as
@@ -584,6 +596,16 @@ export function DataTable<TData>({
     </div>
   );
 }
+
+/**
+ * DataTable<T> — composable data table built on TanStack Table v8.
+ * Designed to consolidate the 15+ bespoke tables in the SellUp app.
+ *
+ * @see /docs/DESIGN_SYSTEM_FOUNDATION.md § 10 — DataTable system
+ */
+export const DataTable = React.forwardRef(DataTableInner) as <TData>(
+  props: DataTableProps<TData> & { ref?: React.ForwardedRef<DataTableHandle> },
+) => ReturnType<typeof DataTableInner>;
 
 interface DataTableRowProps<TData> {
   row: Row<TData>;
