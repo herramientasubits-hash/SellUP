@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Building2,
   Users,
-  ClipboardList,
   BrainCircuit,
   Settings,
 } from "lucide-react";
@@ -84,16 +83,11 @@ export const mainNavItems: NavItem[] = [
     href: "/contacts",
     icon: Users,
   },
-  {
-    title: "Revisión de prospectos",
-    href: "/prospect-batches/review",
-    icon: ClipboardList,
-    // The pending-review queue reads via the admin (service-role) client and
-    // gates the route/data to admins today (Q3F-5AZ.2A, read-only). Mirror that
-    // gate in the sidebar so non-admins never see a dead-end "sin permisos"
-    // view — role-scoped access is a later milestone.
-    access: "adminOnly",
-  },
+  // Q3F-5AZ.2D-1 — "Revisión de prospectos" removed from the sidebar. Human
+  // review now lives inside the official Prospectos surface
+  // (/accounts?tab=prospectos → drawer → "Decisión de revisión"), so a second
+  // standalone module would compete with it. The /prospect-batches/review route
+  // still exists as an internal, unlinked temporary route (not deleted here).
   {
     title: "Uso de IA y costos",
     href: "/ai-usage",
