@@ -45,10 +45,16 @@ import {
   DataTableColumnHeader,
   type DataTableContextMenuItem,
   type DataTableBulkAction,
+  type DataTableHandle,
 } from '@/components/data-table';
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
 import { TERMINAL_STATUS } from '@/components/prospects/prospect-review-decision-utils';
+import {
+  FUTURE_ACTION_HINT,
+  DISCARD_ACTION,
+  MORE_ACTIONS,
+} from '@/components/prospects/prospect-review-actions';
 import {
   LATAM_COUNTRIES,
   INDUSTRIES,
@@ -750,7 +756,16 @@ export function ProspectsDataTableClient({
   // detail view. Cleared once the drawer applies it (or on any normal open).
   const [approveIntent, setApproveIntent] = React.useState(false);
 
+  // Q3F-5AZ.2E-1-UX1 — the side panel and the selection action bar must never
+  // both be visible: opening the detail (from a row click, the row menu, the
+  // context menu, or the selection bar itself) always clears the active table
+  // selection first, which hides the bar (DataTable renders it only while
+  // selectedCount > 0). Because selection is cleared on OPEN rather than on
+  // close, it also never reappears once the drawer is dismissed.
+  const dataTableRef = React.useRef<DataTableHandle>(null);
+
   const openCandidateDetail = React.useCallback((row: Row, options?: { approveIntent?: boolean }) => {
+    dataTableRef.current?.clearSelection();
     setDetailCandidate(row);
     setApproveIntent(options?.approveIntent ?? false);
     setDetailOpen(true);
@@ -872,10 +887,7 @@ export function ProspectsDataTableClient({
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => {
-                    setDetailCandidate(c);
-                    setDetailOpen(true);
-                  }}
+                  onClick={() => openCandidateDetail(c)}
                   className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded focus:text-su-brand transition-colors text-sm line-clamp-2"
                 >
                   {c.name}
@@ -1138,6 +1150,12 @@ export function ProspectsDataTableClient({
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
+  // Q3F-5AZ.2E-1-UX1 — the selection action bar mirrors the side panel
+  // footer's hierarchy exactly (same copy/icons via prospect-review-actions.tsx):
+  //   Ver detalle → Aprobar (primary) → Descartar (visible, disabled) →
+  //   Más acciones (dropdown, all disabled) → Abrir sitios web.
+  // Descartar and every "Más acciones" entry are always disabled — no new
+  // action is implemented here, only the visual grouping.
   const bulkActions = React.useMemo<DataTableBulkAction<Row>[]>(
     () => [
       {
@@ -1157,6 +1175,27 @@ export function ProspectsDataTableClient({
         disabledLabel: (rows) =>
           rows.length > 1 ? 'Aprobación masiva pendiente' : undefined,
         onClick: (rows) => openCandidateDetail(rows[0], { approveIntent: true }),
+      },
+      {
+        id: 'discard',
+        label: DISCARD_ACTION.label,
+        icon: DISCARD_ACTION.icon,
+        variant: 'destructive',
+        disabled: () => true,
+        disabledLabel: () => FUTURE_ACTION_HINT,
+        onClick: () => {},
+      },
+      {
+        id: 'more-actions',
+        label: 'Más acciones',
+        items: MORE_ACTIONS.map((action, index) => ({
+          id: `more-action-${index}`,
+          label: action.label,
+          icon: action.icon,
+          disabled: () => true,
+          disabledLabel: () => FUTURE_ACTION_HINT,
+          onClick: () => {},
+        })),
       },
       {
         id: 'open-websites',
@@ -1235,6 +1274,7 @@ export function ProspectsDataTableClient({
       )}
 
       <DataTable
+        ref={dataTableRef}
         columns={columns}
         data={rows}
         getRowId={(row) => row.id}

@@ -59,7 +59,10 @@ import {
 } from '@/modules/prospect-review/approve-and-convert-actions';
 
 // Copy shared by every not-yet-available action (tooltip + menu hint).
-const FUTURE_ACTION_HINT = 'Disponible en siguiente fase';
+// Exported so the Prospectos selection action bar (prospects-data-table-client.tsx)
+// can reuse the exact same copy/icons and stay visually consistent with this
+// footer (Q3F-5AZ.2E-1-UX1).
+export const FUTURE_ACTION_HINT = 'Disponible en siguiente fase';
 
 /**
  * Post-success toast copy. HubSpot is best-effort: the message only claims a
@@ -96,10 +99,10 @@ interface ProspectReviewActionsProps {
 }
 
 // Future secondary action kept VISIBLE alongside Aprobar (disabled for now).
-const DISCARD_ACTION = { label: 'Descartar', icon: XCircle } as const;
+export const DISCARD_ACTION = { label: 'Descartar', icon: XCircle } as const;
 
 // Future actions grouped under the "Más acciones" dropdown (all disabled).
-const MORE_ACTIONS = [
+export const MORE_ACTIONS = [
   { label: 'Marcar duplicado', icon: Copy },
   { label: 'Enviar a enriquecimiento', icon: Sparkles },
   { label: 'Mantener en revisión', icon: Clock },
