@@ -9,6 +9,7 @@ import {
   evaluateApproveEligibility,
   type ApproveRejectReason,
 } from '@/modules/prospect-review/approve-eligibility';
+import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
 
 /**
  * Minimal candidate shape this view needs. Kept structural (not the full
@@ -87,11 +88,25 @@ export const APPROVE_ERROR_MESSAGES: Record<string, string> = {
   unexpected_error: 'Ocurrió un error inesperado. Inténtalo de nuevo.',
 };
 
+// Friendly copy for each typed rejection reason surfaced by the discard wrapper
+// (Q3F-5AZ.2G-1). The generic failure copy matches the hito's required error
+// toast; specific reasons give the reviewer a clearer next step.
+export const DISCARD_ERROR_MESSAGES: Record<string, string> = {
+  not_allowed: 'No tienes permisos para descartar prospectos.',
+  not_found: 'El prospecto ya no está disponible. Actualiza la lista.',
+  not_clean_production: 'Este prospecto no pertenece a la cola de producción limpia.',
+  status_conflict: 'El prospecto ya cambió de estado. Actualiza la vista.',
+  discard_failed: 'El prospecto no pudo descartarse. Actualiza la vista e intenta de nuevo.',
+  unexpected_error: 'El prospecto no pudo descartarse. Actualiza la vista e intenta de nuevo.',
+};
+
 export interface ReviewDecisionView {
   /** Set when the candidate is in a read-only terminal state. */
   terminal: TerminalStatusCopy | null;
   /** True when the Aprobar action may be invoked right now. */
   canApprove: boolean;
+  /** True when the Descartar action may be invoked right now (Q3F-5AZ.2G-1). */
+  canDiscard: boolean;
   /** Populated when not approvable but not terminal either. */
   blockReason: string | null;
   isPossibleDuplicate: boolean;
@@ -111,9 +126,17 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
   const hasHubspotMatch = !!candidate.matchedHubspotCompanyId;
   const needsWarning = isPossibleDuplicate || hasHubspotMatch;
 
+  // Q3F-5AZ.2G-1 — discard eligibility is independent of the duplicate signal:
+  // a needs_review clean-production prospect can always be removed from review.
+  const discardDecision = evaluateDiscardEligibility({
+    status: candidate.status,
+    recordOrigin: candidate.recordOrigin ?? null,
+  });
+  const canDiscard = discardDecision.decision === 'discard';
+
   const terminal = TERMINAL_STATUS[candidate.status] ?? null;
   if (terminal) {
-    return { terminal, canApprove: false, blockReason: null, isPossibleDuplicate, hasHubspotMatch, needsWarning };
+    return { terminal, canApprove: false, canDiscard, blockReason: null, isPossibleDuplicate, hasHubspotMatch, needsWarning };
   }
 
   const { status } = candidate;
@@ -145,5 +168,5 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
     blockReason = 'El estado del candidato no permite aprobación en este momento.';
   }
 
-  return { terminal: null, canApprove, blockReason, isPossibleDuplicate, hasHubspotMatch, needsWarning };
+  return { terminal: null, canApprove, canDiscard, blockReason, isPossibleDuplicate, hasHubspotMatch, needsWarning };
 }

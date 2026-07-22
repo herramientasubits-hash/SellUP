@@ -124,15 +124,15 @@ describe('convert stays server-side: client never touches the legacy convert / H
   });
 });
 
-describe('action zone renders the four not-yet-available actions as disabled context', () => {
-  it('renders the disabled labels', () => {
+describe('action zone renders the remaining not-yet-available actions as disabled context', () => {
+  it('renders the action labels (Descartar now enabled — Q3F-5AZ.2G-1)', () => {
     for (const label of [
       'Descartar',
       'Marcar duplicado',
       'Enviar a enriquecimiento',
       'Mantener en revisión',
     ]) {
-      assert.ok(ACTIONS_SRC.includes(label), `expected disabled action label "${label}"`);
+      assert.ok(ACTIONS_SRC.includes(label), `expected action label "${label}"`);
     }
   });
 
@@ -215,31 +215,33 @@ describe('selection action bar — single-selection Aprobar, bulk approve out of
   });
 });
 
-// ── Q3F-5AZ.2D-1-UX2 ──────────────────────────────────────────────────────────
-// Visual action hierarchy: Aprobar (primary) + Descartar (visible, disabled)
-// on the first line, the remaining future actions collapsed into a disabled
-// "Más acciones" dropdown. Reorder ONLY — no new action, approve untouched.
-describe('UX2 — action hierarchy is presentation-only', () => {
+// ── Q3F-5AZ.2D-1-UX2 / Q3F-5AZ.2G-1 ──────────────────────────────────────────
+// Visual action hierarchy: Aprobar (primary) + Descartar (Q3F-5AZ.2G-1: enabled
+// for eligible) on the first line, the remaining future actions collapsed into
+// a disabled "Más acciones" dropdown. Approve stays untouched.
+describe('UX2 — action hierarchy', () => {
   it('collapses the secondary future actions into a dropdown menu', () => {
     assert.ok(ACTIONS_SRC.includes('Más acciones'), 'expected a "Más acciones" trigger');
     assert.ok(ACTIONS_SRC.includes('DropdownMenu'), 'expected the shared DropdownMenu component');
     assert.ok(ACTIONS_SRC.includes('@/components/ui/dropdown-menu'), 'must reuse the shared dropdown');
   });
 
-  it('keeps the auxiliary copy about only Aprobar being available', () => {
+  it('keeps the auxiliary copy about approve/discard being available (Q3F-5AZ.2G-1)', () => {
     assert.ok(
-      ACTIONS_SRC.includes('Por ahora solo puedes aprobar'),
-      'expected the auxiliary "solo puedes aprobar" copy',
+      ACTIONS_SRC.includes('Puedes aprobar o descartar este prospecto'),
+      'expected the auxiliary "puedes aprobar o descartar" copy',
     );
   });
 
-  it('does not enable any new action (Aprobar stays the single reachable action)', () => {
+  it('routes approve AND discard through safe wrappers, with no legacy/DB/server leak', () => {
     // No legacy convert / DB write / server action leaked into the client zone.
-    for (const token of ['approveAndConvertCandidateAction', 'convertCandidate', "'use server'", '.insert(', '.update(']) {
+    for (const token of ['approveAndConvertCandidateAction', 'convertCandidate', 'discardCandidate', "'use server'", '.insert(', '.update(']) {
       assert.equal(ACTIONS_SRC.includes(token), false, `action zone must not introduce ${token}`);
     }
     // Aprobar routes through the single safe convert wrapper, imported once.
     assert.ok(ACTIONS_SRC.includes('approveAndConvertPendingReviewCandidateAction'));
+    // Descartar routes through the single safe discard wrapper (Q3F-5AZ.2G-1).
+    assert.ok(ACTIONS_SRC.includes('discardPendingReviewCandidateAction'));
   });
 });
 
