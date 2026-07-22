@@ -48,6 +48,14 @@ const SHEET_SRC = readFileSync(
   join(SRC, 'components', 'prospect-batches', 'candidate-detail-sheet.tsx'),
   'utf8',
 );
+// Shared three-dot row-menu component (used by both Prospectos and the legacy
+// prospect-batches surface). Q3F-5AZ.2D-1-HF1 neutralizes its legacy convert
+// approve on the Prospectos surface via the onApproveOverride prop.
+const ROW_ACTIONS_RAW = readFileSync(
+  join(SRC, 'components', 'prospect-batches', 'candidate-row-actions.tsx'),
+  'utf8',
+);
+const ROW_ACTIONS_SRC = stripLineComments(ROW_ACTIONS_RAW);
 
 describe('prospect-review-actions — reuses the validated action, no new action', () => {
   it('imports approvePendingReviewCandidateAction (single source of truth)', () => {
@@ -179,5 +187,55 @@ describe('selection action bar — single-selection Aprobar, bulk approve out of
 
   it('shows the "Aprobación masiva pendiente" copy for 2+ selected rows', () => {
     assert.ok(TABLE_SRC.includes('Aprobación masiva pendiente'));
+  });
+});
+
+// ── Q3F-5AZ.2D-1-HF1 ──────────────────────────────────────────────────────────
+// The shared three-dot row-menu (CandidateRowActions) is neutralized on the
+// Prospectos surface: its "Aprobar" entry is redirected to the safe drawer
+// confirmation, so the legacy approveAndConvertCandidateAction (account
+// creation + HubSpot) can no longer be triggered from /accounts?tab=prospectos.
+describe('HF1 — three-dot row menu neutralized on the Prospectos surface', () => {
+  it('renders CandidateRowActions in Prospectos WITH the safe onApproveOverride prop', () => {
+    assert.ok(
+      /<CandidateRowActions[\s\S]*?onApproveOverride=/.test(TABLE_SRC),
+      'the Prospectos row-actions cell must pass onApproveOverride',
+    );
+  });
+
+  it('the override opens the drawer with approveIntent — it does not approve directly', () => {
+    assert.ok(
+      TABLE_SRC.includes('onApproveOverride={() => openCandidateDetail(row.original, { approveIntent: true })}'),
+      'onApproveOverride must open the detail drawer with the approve intent armed',
+    );
+  });
+
+  it('the Prospectos table never imports or calls approveAndConvertCandidateAction', () => {
+    assert.equal(TABLE_SRC.includes('approveAndConvertCandidateAction'), false);
+  });
+
+  it('CandidateRowActions exposes the onApproveOverride escape hatch', () => {
+    assert.ok(ROW_ACTIONS_SRC.includes('onApproveOverride'));
+  });
+
+  it('with the override set, the row-menu Aprobar uses it instead of the convert flow', () => {
+    // The enabled Aprobar entry must delegate to the override when present, so
+    // handleApproveClick (the only caller of approveAndConvertCandidateAction)
+    // is unreachable on the Prospectos surface.
+    assert.ok(
+      ROW_ACTIONS_SRC.includes('onClick={onApproveOverride ?? handleApproveClick}'),
+      'the enabled Aprobar entry must prefer onApproveOverride over handleApproveClick',
+    );
+  });
+
+  it('approveAndConvertCandidateAction stays reachable ONLY via handleApproveClick (legacy prospect-batches surface)', () => {
+    // Defense-in-depth: the convert action must have exactly one caller, and it
+    // must be the click handler that onApproveOverride bypasses. No other call
+    // site may exist in the shared component.
+    const convertCalls = ROW_ACTIONS_SRC.split('approveAndConvertCandidateAction(').length - 1;
+    assert.equal(convertCalls, 1, 'expected a single approveAndConvertCandidateAction call site');
+    const doApproveIdx = ROW_ACTIONS_SRC.indexOf('async function doApprove()');
+    const callIdx = ROW_ACTIONS_SRC.indexOf('approveAndConvertCandidateAction(');
+    assert.ok(doApproveIdx > -1 && callIdx > doApproveIdx, 'the call must live inside doApprove()');
   });
 });
