@@ -55,6 +55,56 @@ const EXPEDIENTE_NAMESPACE = 'expediente';
 /** Tamaño de batch por defecto (seguro para datasets grandes de registro). */
 const DEFAULT_BATCH_SIZE = 500;
 
+/**
+ * Columnas que este writer está autorizado a persistir en
+ * `source_company_snapshots`. Es un SUBCONJUNTO estricto de las columnas reales
+ * de la tabla — deliberadamente NO incluye una columna `status` (la tabla no la
+ * tiene) ni columnas gestionadas por la DB (`id`, `imported_at`).
+ *
+ * EC-SCVS-6E: el apply productivo falló con PGRST204 ("Could not find the
+ * 'status' column ...") porque el payload arrastraba una key top-level
+ * inexistente. El writer ahora construye el payload EXPLÍCITAMENTE desde este
+ * allowlist (ver `toPersistableSnapshotPayload`): cualquier key extra en la fila
+ * se descarta antes del upsert, aunque un builder futuro regrese.
+ */
+export const EC_SCVS_PERSISTABLE_COLUMNS = [
+  'source_key',
+  'country_code',
+  'source_year',
+  'tax_id',
+  'normalized_tax_id',
+  'legal_name',
+  'raw_data',
+  'record_identity_key',
+] as const;
+
+/** Payload persistible — exactamente las columnas permitidas, sin extras. */
+export type EcScvsPersistableSnapshot = Pick<
+  EcScvsSnapshotRow,
+  (typeof EC_SCVS_PERSISTABLE_COLUMNS)[number]
+>;
+
+/**
+ * Proyecta una fila de snapshot a SOLO las columnas persistibles permitidas.
+ * Construye un objeto nuevo (inmutable respecto a la entrada) y NUNCA copia
+ * keys fuera del allowlist — barrera defensiva contra columnas inexistentes
+ * (p.ej. `status`) que romperían el upsert con PGRST204.
+ */
+export function toPersistableSnapshotPayload(
+  row: EcScvsSnapshotRow,
+): EcScvsPersistableSnapshot {
+  return {
+    source_key: row.source_key,
+    country_code: row.country_code,
+    source_year: row.source_year,
+    tax_id: row.tax_id,
+    normalized_tax_id: row.normalized_tax_id,
+    legal_name: row.legal_name,
+    raw_data: row.raw_data,
+    record_identity_key: row.record_identity_key,
+  };
+}
+
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
 /** Interfaz mínima de cliente Supabase — inyectable en tests. Nunca se crea aquí. */
@@ -87,6 +137,13 @@ export interface EcScvsWriterBatchError {
   /** Offset (índice de la primera fila del batch) dentro de las filas aceptadas. */
   offset: number;
   message: string;
+  /**
+   * Código de error del proveedor (p.ej. PGRST204) si viene. Opcional para no
+   * romper llamadores/tests que construyen errores solo con `message`.
+   */
+  code?: string | null;
+  /** Hint del proveedor si viene (generalmente genérico, sin valores de fila). */
+  hint?: string | null;
 }
 
 export type EcScvsSnapshotImportStatus =
@@ -273,17 +330,18 @@ async function upsertAcceptedBatches(
     const batch = accepted.slice(offset, offset + batchSize);
     batches += 1;
 
+    // Proyecta cada fila a SOLO las columnas persistibles antes del upsert.
+    // Barrera defensiva: aunque una fila arrastre keys extra (p.ej. `status`),
+    // nunca llegan a la tabla — evita PGRST204 por columna inexistente.
+    const payload = batch.map(toPersistableSnapshotPayload);
+
     const { error } = await supabase
       .from('source_company_snapshots')
-      .upsert(batch, { onConflict: CONFLICT_TARGET, ignoreDuplicates: false });
+      .upsert(payload, { onConflict: CONFLICT_TARGET, ignoreDuplicates: false });
 
     if (error) {
-      const message =
-        typeof error === 'object' && error !== null && 'message' in error
-          ? String((error as { message: unknown }).message)
-          : String(error);
       // Fail-fast: no continuar silenciosamente. Registrar y detener.
-      errors.push({ batchIndex, offset, message });
+      errors.push(toBatchError(error, batchIndex, offset));
       break;
     }
 
@@ -291,6 +349,26 @@ async function upsertAcceptedBatches(
   }
 
   return { upsertedRows, batches, errors };
+}
+
+/**
+ * Extrae un error de batch estructurado del error del proveedor. Solo lee
+ * campos escalares conocidos (message/code/hint) — nunca copia el objeto de
+ * error completo ni el payload de la fila.
+ */
+function toBatchError(
+  error: unknown,
+  batchIndex: number,
+  offset: number,
+): EcScvsWriterBatchError {
+  if (typeof error === 'object' && error !== null) {
+    const obj = error as Record<string, unknown>;
+    const message = 'message' in obj ? String(obj.message) : String(error);
+    const code = 'code' in obj && obj.code != null ? String(obj.code) : null;
+    const hint = 'hint' in obj && obj.hint != null ? String(obj.hint) : null;
+    return { batchIndex, offset, message, code, hint };
+  }
+  return { batchIndex, offset, message: String(error), code: null, hint: null };
 }
 
 // ─── Writer ────────────────────────────────────────────────────────────────────

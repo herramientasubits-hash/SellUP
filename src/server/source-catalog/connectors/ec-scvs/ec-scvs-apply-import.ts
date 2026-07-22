@@ -38,6 +38,7 @@ import type {
   EcScvsSnapshotImportInput,
   EcScvsSnapshotImportResult,
   EcScvsSupabaseAdminLike,
+  EcScvsWriterBatchError,
 } from './ec-scvs-snapshot-writer';
 import type { EcScvsCsvReadResult } from './ec-scvs-csv-reader';
 import { EC_SCVS_EXPECTED_COLUMNS } from './ec-scvs-types';
@@ -65,6 +66,55 @@ export const EC_SCVS_APPLY_FORBIDDEN_FLAGS = ['--force', '--yes', '--unsafe'] as
 
 /** Batch size por defecto si el operador no especifica `--batch-size`. */
 export const EC_SCVS_APPLY_DEFAULT_BATCH_SIZE = 500;
+
+/** Longitud máxima de mensajes/hints en el reporte seguro (se truncan). */
+export const EC_SCVS_SAFE_ERROR_TEXT_MAX_LENGTH = 300;
+
+// ─── Reporte seguro de errores de batch ──────────────────────────────────────
+
+/**
+ * Detalle sanitizado de un error de batch para el reporte seguro. Expone SOLO
+ * escalares acotados: índice de batch, offset, código y mensaje/hint truncados.
+ *
+ * EC-SCVS-6E: cuando el apply falla (p.ej. PGRST204) el operador necesita ver
+ * `code`+`message` para diagnosticar sin re-ejecutar producción. Se OMITE
+ * deliberadamente el campo `details` del proveedor: en errores de datos suele
+ * contener valores de la fila (RUC), y este reporte nunca imprime RUC/payload.
+ */
+export interface EcScvsSafeBatchErrorDetail {
+  batchIndex: number;
+  offset: number;
+  code: string | null;
+  message: string;
+  hint: string | null;
+}
+
+/** Colapsa espacios y trunca a un máximo seguro para el reporte. */
+function truncateSafeText(value: string, maxLength: number): string {
+  const collapsed = value.replace(/\s+/g, ' ').trim();
+  return collapsed.length > maxLength
+    ? `${collapsed.slice(0, maxLength)}…[truncated]`
+    : collapsed;
+}
+
+/**
+ * Sanitiza un error de batch del writer a un detalle seguro. Nunca copia el
+ * payload de la fila ni campos no listados; trunca textos largos.
+ */
+export function sanitizeBatchError(
+  error: EcScvsWriterBatchError,
+): EcScvsSafeBatchErrorDetail {
+  return {
+    batchIndex: error.batchIndex,
+    offset: error.offset,
+    code: error.code ?? null,
+    message: truncateSafeText(error.message, EC_SCVS_SAFE_ERROR_TEXT_MAX_LENGTH),
+    hint:
+      error.hint != null
+        ? truncateSafeText(error.hint, EC_SCVS_SAFE_ERROR_TEXT_MAX_LENGTH)
+        : null,
+  };
+}
 
 // ─── Args ────────────────────────────────────────────────────────────────────
 
@@ -275,6 +325,11 @@ export interface EcScvsApplyImportReport {
   applyRejectedRows: number;
   applyBatches: number;
   applyErrors: number;
+  /**
+   * Detalles sanitizados de los errores de batch del apply (vacío si no hubo).
+   * Solo code/message/hint acotados — nunca payload, RUC ni secrets.
+   */
+  applyErrorDetails: EcScvsSafeBatchErrorDetail[];
 
   conflictTarget: string;
   clientCreated: boolean;
@@ -420,6 +475,7 @@ export async function runEcScvsApplyImport(
     applyRejectedRows: applyResult.rejectedRows,
     applyBatches: applyResult.batches,
     applyErrors: applyResult.errors.length,
+    applyErrorDetails: applyResult.errors.map(sanitizeBatchError),
 
     conflictTarget: applyResult.summary.conflictTarget,
     clientCreated: true,
