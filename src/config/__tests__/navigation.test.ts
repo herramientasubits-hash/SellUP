@@ -17,6 +17,7 @@ import {
   mainNavItems,
   canAccessNavItem,
   getVisibleNavItems,
+  PROSPECTOS_TAB_ROUTE,
   type NavAccessContext,
   type NavItem,
 } from '@/config/navigation';
@@ -109,5 +110,11 @@ describe('Q3F-5AZ.2D-1 — Prospectos review consolidated into Empresas', () => 
     for (const ctx of [adminCtx, sellerCtx, managerCtx, leadCtx]) {
       assert.ok(hrefs(getVisibleNavItems(mainNavItems, ctx)).includes('/accounts'));
     }
+  });
+
+  it('keeps PROSPECTOS_TAB_ROUTE pointing at the official Prospectos surface', () => {
+    // Q3F-5AZ.2F — the retired /prospect-batches/review route redirects here, so
+    // this canonical constant is the single source of truth for the surface.
+    assert.equal(PROSPECTOS_TAB_ROUTE, '/accounts?tab=prospectos');
   });
 });
