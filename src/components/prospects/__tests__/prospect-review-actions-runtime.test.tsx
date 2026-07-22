@@ -1,12 +1,14 @@
 /**
- * Q3F-5AZ.2D-1 — "Decisión de revisión" section RUNTIME contract (real render).
+ * Q3F-5AZ.2D-1-UX1 — Prospectos drawer action zone RUNTIME contract (real render).
  *
- * Renders the ACTUAL `ReviewDecisionSection` (the consolidated approve surface
- * now living inside the official Prospectos drawer) and drives the full inline
- * flow: state gating per candidate status → Aprobar → inline confirmation →
- * Cancelar / Confirmar. Boundary dependencies (server action, router, toast) are
- * mocked so there is NO network, NO DB, and NO real approval — the approve
- * action is asserted to be called at most once and only on explicit confirm.
+ * Renders the ACTUAL `ProspectReviewActions` (the action zone relocated out of
+ * the Validación tab content and into the drawer's sticky footer) and drives
+ * the full inline flow: state gating per candidate status → Aprobar → inline
+ * confirmation → Cancelar / Confirmar, plus the `autoConfirm` intent used by
+ * row menu / context menu / selection action bar entry points. Boundary
+ * dependencies (server action, router, toast) are mocked so there is NO
+ * network, NO DB, and NO real approval — the approve action is asserted to be
+ * called at most once and only on explicit confirm.
  */
 
 import { JSDOM } from 'jsdom';
@@ -51,7 +53,7 @@ for (const proto of [dom.window.HTMLElement.prototype, dom.window.Element.protot
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ReviewDecisionCandidate } from '../review-decision-section';
+import type { ReviewDecisionCandidate } from '../prospect-review-decision-utils';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -88,7 +90,7 @@ mock.module('sonner', {
   },
 });
 
-let ReviewDecisionSection: (typeof import('../review-decision-section'))['ReviewDecisionSection'];
+let ProspectReviewActions: (typeof import('../prospect-review-actions'))['ProspectReviewActions'];
 
 const BASE: ReviewDecisionCandidate = {
   id: 'cand-1',
@@ -106,7 +108,7 @@ function candidate(overrides: Partial<ReviewDecisionCandidate>): ReviewDecisionC
 
 before(async () => {
   ({ render, screen, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
-  ({ ReviewDecisionSection } = await import('../review-decision-section'));
+  ({ ProspectReviewActions } = await import('../prospect-review-actions'));
 });
 
 beforeEach(() => {
@@ -120,62 +122,40 @@ const approveButton = () =>
     | HTMLButtonElement
     | undefined;
 
-describe('ReviewDecisionSection — section + gating', () => {
-  it('renders the "Decisión de revisión" section header', () => {
-    render(<ReviewDecisionSection candidate={candidate({})} />);
-    assert.ok(screen.getByText('Decisión de revisión'));
-  });
-
+describe('ProspectReviewActions — gating', () => {
   it('enables Aprobar for needs_review + production + no blocking signals', () => {
-    render(<ReviewDecisionSection candidate={candidate({})} />);
+    render(<ProspectReviewActions candidate={candidate({})} />);
     const btn = approveButton();
     assert.ok(btn, 'Aprobar button must be present');
     assert.equal(btn!.disabled, false);
   });
 
   it('disables Aprobar for status generated', () => {
-    render(<ReviewDecisionSection candidate={candidate({ status: 'generated' })} />);
-    assert.equal(approveButton()!.disabled, true);
-    assert.ok(screen.getByText(/aún debe pasar a revisión/i));
-  });
-
-  it('disables Aprobar for status normalized', () => {
-    render(<ReviewDecisionSection candidate={candidate({ status: 'normalized' })} />);
+    render(<ProspectReviewActions candidate={candidate({ status: 'generated' })} />);
     assert.equal(approveButton()!.disabled, true);
   });
 
   it('disables Aprobar for a needs_review row that is not clean production', () => {
-    render(<ReviewDecisionSection candidate={candidate({ recordOrigin: 'sandbox' })} />);
+    render(<ProspectReviewActions candidate={candidate({ recordOrigin: 'sandbox' })} />);
     assert.equal(approveButton()!.disabled, true);
   });
 
-  it('shows the "Aprobado" state (no Aprobar button) for status approved', () => {
-    render(
-      <ReviewDecisionSection
-        candidate={candidate({ status: 'approved', reviewedAt: '2026-07-22T10:00:00Z' })}
-      />,
-    );
-    assert.ok(screen.getByText('Aprobado'));
-    assert.equal(approveButton(), undefined);
-    assert.ok(screen.getByText(/Aún no ha sido convertido en cuenta/i));
-    assert.ok(screen.getByText(/Aprobado el/i));
+  it('exact_duplicate hard-blocks approval', () => {
+    render(<ProspectReviewActions candidate={candidate({ duplicateStatus: 'exact_duplicate' })} />);
+    assert.equal(approveButton()!.disabled, true);
   });
 
-  it('shows read-only terminal states for discarded / duplicate / converted', () => {
-    for (const [status, label] of [
-      ['discarded', 'Descartado'],
-      ['duplicate', 'Marcado como duplicado'],
-      ['converted_to_account', 'Convertido en cuenta'],
-    ] as const) {
+  it('renders nothing for terminal states (approved / discarded / duplicate / converted)', () => {
+    for (const status of ['approved', 'discarded', 'duplicate', 'converted_to_account']) {
       cleanup();
-      render(<ReviewDecisionSection candidate={candidate({ status })} />);
-      assert.ok(screen.getByText(label), `expected "${label}" for status ${status}`);
-      assert.equal(approveButton(), undefined, `no Aprobar for ${status}`);
+      const { container } = render(<ProspectReviewActions candidate={candidate({ status })} />);
+      assert.equal(container.textContent, '', `expected no output for status ${status}`);
+      assert.equal(approveButton(), undefined);
     }
   });
 
   it('keeps Descartar / Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión disabled', () => {
-    render(<ReviewDecisionSection candidate={candidate({})} />);
+    render(<ProspectReviewActions candidate={candidate({})} />);
     for (const label of ['Descartar', 'Marcar duplicado', 'Enviar a enriquecimiento', 'Mantener en revisión']) {
       const btn = screen
         .getAllByRole('button')
@@ -186,9 +166,9 @@ describe('ReviewDecisionSection — section + gating', () => {
   });
 });
 
-describe('ReviewDecisionSection — inline confirmation flow', () => {
+describe('ProspectReviewActions — inline confirmation flow', () => {
   it('clicking Aprobar opens the inline confirmation (no action yet)', () => {
-    render(<ReviewDecisionSection candidate={candidate({})} />);
+    render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(approveButton()!);
     assert.ok(screen.getByText('¿Confirmas aprobar este prospecto?'));
     assert.ok(screen.getByText(/No se creará cuenta ni se enviará a HubSpot/i));
@@ -196,17 +176,16 @@ describe('ReviewDecisionSection — inline confirmation flow', () => {
   });
 
   it('Cancelar closes the inline confirmation and calls no action', () => {
-    render(<ReviewDecisionSection candidate={candidate({})} />);
+    render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(approveButton()!);
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     assert.equal(screen.queryByText('¿Confirmas aprobar este prospecto?'), null);
     assert.equal(mockApprove.mock.callCount(), 0);
-    // Aprobar is back.
     assert.ok(approveButton());
   });
 
   it('Confirmar aprobación calls the approve action exactly once with the candidate id', async () => {
-    render(<ReviewDecisionSection candidate={candidate({})} />);
+    render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(approveButton()!);
     fireEvent.click(screen.getByRole('button', { name: /Confirmar aprobación/ }));
 
@@ -218,25 +197,46 @@ describe('ReviewDecisionSection — inline confirmation flow', () => {
   });
 });
 
-describe('ReviewDecisionSection — strong warnings', () => {
-  it('shows a strong warning for a possible_duplicate candidate', () => {
-    render(<ReviewDecisionSection candidate={candidate({ duplicateStatus: 'possible_duplicate' })} />);
-    assert.ok(screen.getByText(/posible coincidencia\. Revisa antes de aprobar/i));
-    // Still approvable (with explicit confirm) — passes confirmPossibleDuplicate.
+describe('ProspectReviewActions — autoConfirm (row menu / context menu / selection bar intent)', () => {
+  it('arms the inline confirmation on mount when eligible, and consumes the intent once', () => {
+    const onConsumed = mock.fn<() => void>();
+    render(
+      <ProspectReviewActions candidate={candidate({})} autoConfirm onApproveIntentConsumed={onConsumed} />,
+    );
+    assert.ok(screen.getByText('¿Confirmas aprobar este prospecto?'));
+    assert.equal(mockApprove.mock.callCount(), 0, 'never approves directly');
+    assert.equal(onConsumed.mock.callCount(), 1);
+  });
+
+  it('does NOT arm the confirmation when the candidate is not eligible, but still consumes the intent', () => {
+    const onConsumed = mock.fn<() => void>();
+    render(
+      <ProspectReviewActions
+        candidate={candidate({ status: 'generated' })}
+        autoConfirm
+        onApproveIntentConsumed={onConsumed}
+      />,
+    );
+    assert.equal(screen.queryByText('¿Confirmas aprobar este prospecto?'), null);
+    assert.equal(approveButton()!.disabled, true);
+    assert.equal(onConsumed.mock.callCount(), 1);
+  });
+
+  it('does not arm the confirmation when autoConfirm is false', () => {
+    render(<ProspectReviewActions candidate={candidate({})} autoConfirm={false} />);
+    assert.equal(screen.queryByText('¿Confirmas aprobar este prospecto?'), null);
+  });
+});
+
+describe('ProspectReviewActions — strong warnings', () => {
+  it('still allows Aprobar for a possible_duplicate candidate (warning lives in the status info card)', () => {
+    render(<ProspectReviewActions candidate={candidate({ duplicateStatus: 'possible_duplicate' })} />);
     assert.equal(approveButton()!.disabled, false);
   });
 
-  it('shows a strong warning for a HubSpot-matched candidate', () => {
-    render(
-      <ReviewDecisionSection candidate={candidate({ matchedHubspotCompanyId: 'hs-123' })} />,
-    );
+  it('repeats the strong warning inside the inline confirmation for a possible_duplicate candidate', () => {
+    render(<ProspectReviewActions candidate={candidate({ duplicateStatus: 'possible_duplicate' })} />);
+    fireEvent.click(approveButton()!);
     assert.ok(screen.getByText(/posible coincidencia\. Revisa antes de aprobar/i));
-    assert.ok(screen.getByText(/Coincidencia con una empresa en HubSpot/i));
-  });
-
-  it('exact_duplicate hard-blocks approval', () => {
-    render(<ReviewDecisionSection candidate={candidate({ duplicateStatus: 'exact_duplicate' })} />);
-    assert.equal(approveButton()!.disabled, true);
-    assert.ok(screen.getByText(/duplicidad bloquea la aprobación/i));
   });
 });
