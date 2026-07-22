@@ -93,6 +93,7 @@ let detailSheetProps: {
   candidateName?: string;
   initialApproveIntent?: boolean;
   initialDiscardIntent?: boolean;
+  initialDuplicateIntent?: boolean;
 } = {
   open: false,
 };
@@ -104,18 +105,20 @@ mock.module('@/components/prospect-batches/candidate-detail-sheet', {
       open: boolean;
       initialApproveIntent?: boolean;
       initialDiscardIntent?: boolean;
+      initialDuplicateIntent?: boolean;
     }) => {
       detailSheetProps = {
         open: props.open,
         candidateName: props.candidate?.name,
         initialApproveIntent: props.initialApproveIntent,
         initialDiscardIntent: props.initialDiscardIntent,
+        initialDuplicateIntent: props.initialDuplicateIntent,
       };
       return props.open
         ? React.createElement(
             'div',
             { 'data-testid': 'detail-sheet-stub' },
-            `open:${props.candidate?.name}:approveIntent=${String(props.initialApproveIntent)}:discardIntent=${String(props.initialDiscardIntent)}`,
+            `open:${props.candidate?.name}:approveIntent=${String(props.initialApproveIntent)}:discardIntent=${String(props.initialDiscardIntent)}:duplicateIntent=${String(props.initialDuplicateIntent)}`,
           )
         : null;
     },
@@ -296,7 +299,7 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     );
   });
 
-  it('groups Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión inside "Más acciones", all disabled', async () => {
+  it('groups Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión inside "Más acciones" (Q3F-5AZ.2G-2: duplicate ENABLED for single eligible, others disabled)', async () => {
     renderTable();
     selectRowCheckbox(0);
 
@@ -306,7 +309,15 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
 
     fireEvent.click(screen.getByText('Más acciones'));
 
-    for (const label of ['Marcar duplicado', 'Enviar a enriquecimiento', 'Mantener en revisión']) {
+    // Marcar duplicado is enabled for a single eligible (needs_review + production) row.
+    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
+    assert.equal(
+      dup.getAttribute('aria-disabled') === 'true' || dup.hasAttribute('data-disabled'),
+      false,
+      'Marcar duplicado must be ENABLED for a single eligible selected row',
+    );
+
+    for (const label of ['Enviar a enriquecimiento', 'Mantener en revisión']) {
       const item = await screen.findByRole('menuitem', { name: new RegExp(label) });
       assert.ok(item, `expected "${label}" inside Más acciones`);
       assert.equal(
@@ -317,7 +328,26 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     }
   });
 
-  it('disables Aprobar with "Aprobación masiva pendiente" and keeps Descartar/Más acciones disabled for 2+ selected rows', () => {
+  it('Marcar duplicado from the bar (single eligible) clears selection, hides the bar, and arms the duplicate intent (never marks directly)', async () => {
+    renderTable();
+    selectRowCheckbox(0);
+
+    fireEvent.click(screen.getByText('Más acciones'));
+    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
+    fireEvent.click(dup);
+
+    assert.equal(detailSheetProps.open, true, 'side panel must open');
+    assert.equal(detailSheetProps.initialDuplicateIntent, true, 'duplicate intent must be armed');
+    assert.equal(detailSheetProps.initialApproveIntent, false, 'approve intent must NOT be armed');
+    assert.equal(detailSheetProps.initialDiscardIntent, false, 'discard intent must NOT be armed');
+    assert.equal(
+      screen.queryByText('Seleccionados'),
+      null,
+      'selection bar must be gone once "Marcar duplicado" opens the side panel',
+    );
+  });
+
+  it('disables Aprobar with "Aprobación masiva pendiente", keeps Descartar disabled, and keeps Marcar duplicado disabled for 2+ selected rows', async () => {
     renderTable();
     selectRowCheckbox(0);
     selectRowCheckbox(1);
@@ -329,6 +359,15 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     assert.equal(descartarBtn.disabled, true);
 
     assert.ok(screen.getByText('Más acciones'), '"Más acciones" must still render for multi-selection');
+
+    // No bulk duplicate: the sub-item stays disabled for 2+ selected rows.
+    fireEvent.click(screen.getByText('Más acciones'));
+    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
+    assert.equal(
+      dup.getAttribute('aria-disabled') === 'true' || dup.hasAttribute('data-disabled'),
+      true,
+      'Marcar duplicado must stay disabled for 2+ selected rows (no bulk duplicate)',
+    );
   });
 });
 

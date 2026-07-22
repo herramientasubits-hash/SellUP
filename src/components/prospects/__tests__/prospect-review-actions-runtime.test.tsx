@@ -208,16 +208,16 @@ describe('ProspectReviewActions — action hierarchy (UX2)', () => {
     assert.ok(buttonByText('Más acciones'), '"Más acciones" trigger must be visible');
   });
 
-  it('keeps the auxiliary copy explaining approve/discard are available (Q3F-5AZ.2G-1)', () => {
+  it('keeps the auxiliary copy explaining approve/discard/duplicate are available (Q3F-5AZ.2G-2)', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     assert.ok(
       screen.getByText(
-        /Puedes aprobar o descartar este prospecto\. Las demás acciones se habilitarán en próximos\s+hitos\./i,
+        /Puedes aprobar, descartar o marcar como duplicado este prospecto\. Las demás acciones se\s+habilitarán en próximos hitos\./i,
       ),
     );
   });
 
-  it('groups Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión inside "Más acciones", all disabled', async () => {
+  it('groups Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión inside "Más acciones" (Q3F-5AZ.2G-2: duplicate ENABLED for eligible, others disabled)', async () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
 
     // Not rendered until the menu is opened (they live inside the dropdown).
@@ -227,7 +227,16 @@ describe('ProspectReviewActions — action hierarchy (UX2)', () => {
 
     fireEvent.click(buttonByText('Más acciones')!);
 
-    for (const label of ['Marcar duplicado', 'Enviar a enriquecimiento', 'Mantener en revisión']) {
+    // Marcar duplicado is enabled for an eligible (needs_review + production) row.
+    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
+    assert.equal(
+      dup.getAttribute('aria-disabled') === 'true' || dup.hasAttribute('data-disabled'),
+      false,
+      'Marcar duplicado must be ENABLED inside the menu for an eligible candidate',
+    );
+
+    // The remaining future actions stay disabled.
+    for (const label of ['Enviar a enriquecimiento', 'Mantener en revisión']) {
       const item = await screen.findByRole('menuitem', { name: new RegExp(label) });
       assert.ok(item, `expected "${label}" inside Más acciones`);
       assert.equal(
@@ -236,6 +245,17 @@ describe('ProspectReviewActions — action hierarchy (UX2)', () => {
         `"${label}" must stay disabled inside the menu`,
       );
     }
+  });
+
+  it('keeps Marcar duplicado DISABLED inside "Más acciones" for an ineligible candidate', async () => {
+    render(<ProspectReviewActions candidate={candidate({ recordOrigin: 'sandbox' })} />);
+    fireEvent.click(buttonByText('Más acciones')!);
+    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
+    assert.equal(
+      dup.getAttribute('aria-disabled') === 'true' || dup.hasAttribute('data-disabled'),
+      true,
+      'Marcar duplicado must stay disabled when the candidate is not markable',
+    );
   });
 });
 

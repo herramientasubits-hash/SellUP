@@ -51,10 +51,12 @@ import { CandidateRowActions } from '@/components/prospect-batches/candidate-row
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
 import { TERMINAL_STATUS } from '@/components/prospects/prospect-review-decision-utils';
 import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
+import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
 import {
   FUTURE_ACTION_HINT,
   DISCARD_ACTION,
-  MORE_ACTIONS,
+  MARK_DUPLICATE_ACTION,
+  FUTURE_MORE_ACTIONS,
 } from '@/components/prospects/prospect-review-actions';
 import {
   LATAM_COUNTRIES,
@@ -232,6 +234,20 @@ function isDiscardEligible(candidate: Row): boolean {
       status: candidate.status,
       recordOrigin: candidate.record_origin ?? null,
     }).decision === 'discard'
+  );
+}
+
+// Q3F-5AZ.2G-2 — a row is markable as a duplicate only when it is a clean-
+// production candidate still in needs_review. The row menu / context menu /
+// selection bar use this to offer "Marcar duplicado" only where the safe
+// wrapper will actually act; the drawer re-evaluates the same policy before
+// arming its confirmation.
+function isMarkDuplicateEligible(candidate: Row): boolean {
+  return (
+    evaluateDuplicateEligibility({
+      status: candidate.status,
+      recordOrigin: candidate.record_origin ?? null,
+    }).decision === 'mark_duplicate'
   );
 }
 
@@ -773,6 +789,10 @@ export function ProspectsDataTableClient({
   // DISCARD confirmation armed. Approve and discard intents are mutually
   // exclusive per open.
   const [discardIntent, setDiscardIntent] = React.useState(false);
+  // Q3F-5AZ.2G-2 — the same entry points can open the drawer with the inline
+  // MARK-DUPLICATE confirmation armed. Approve / discard / duplicate intents are
+  // mutually exclusive per open.
+  const [duplicateIntent, setDuplicateIntent] = React.useState(false);
 
   // Q3F-5AZ.2E-1-UX1 — the side panel and the selection action bar must never
   // both be visible: opening the detail (from a row click, the row menu, the
@@ -783,11 +803,15 @@ export function ProspectsDataTableClient({
   const dataTableRef = React.useRef<DataTableHandle>(null);
 
   const openCandidateDetail = React.useCallback(
-    (row: Row, options?: { approveIntent?: boolean; discardIntent?: boolean }) => {
+    (
+      row: Row,
+      options?: { approveIntent?: boolean; discardIntent?: boolean; duplicateIntent?: boolean },
+    ) => {
       dataTableRef.current?.clearSelection();
       setDetailCandidate(row);
       setApproveIntent(options?.approveIntent ?? false);
       setDiscardIntent(options?.discardIntent ?? false);
+      setDuplicateIntent(options?.duplicateIntent ?? false);
       setDetailOpen(true);
     },
     [],
@@ -1117,6 +1141,13 @@ export function ProspectsDataTableClient({
             // discardCandidate directly on the Prospectos surface. It opens the
             // safe drawer confirmation (admin gate + eligibility, then delegation).
             onDiscardOverride={() => openCandidateDetail(row.original, { discardIntent: true })}
+            // Q3F-5AZ.2G-2 — three-dot "Marcar como duplicado" must never call the
+            // legacy markCandidateDuplicate directly on the Prospectos surface. It
+            // opens the safe drawer confirmation (admin gate + eligibility, then
+            // delegation).
+            onMarkDuplicateOverride={() =>
+              openCandidateDetail(row.original, { duplicateIntent: true })
+            }
           />
         ),
         size: 48,
@@ -1164,6 +1195,19 @@ export function ProspectsDataTableClient({
                 icon: DISCARD_ACTION.icon,
                 variant: 'destructive' as const,
                 onClick: () => openCandidateDetail(row, { discardIntent: true }),
+              },
+            ]
+          : []),
+        // Q3F-5AZ.2G-2 — "Marcar duplicado" opens the drawer with the inline
+        // duplicate confirmation armed (never marks directly). Offered only when
+        // the row is genuinely markable (needs_review, clean-production).
+        ...(isMarkDuplicateEligible(row)
+          ? [
+              {
+                id: 'mark-duplicate',
+                label: MARK_DUPLICATE_ACTION.label,
+                icon: MARK_DUPLICATE_ACTION.icon,
+                onClick: () => openCandidateDetail(row, { duplicateIntent: true }),
               },
             ]
           : []),
@@ -1238,14 +1282,33 @@ export function ProspectsDataTableClient({
       {
         id: 'more-actions',
         label: 'Más acciones',
-        items: MORE_ACTIONS.map((action, index) => ({
-          id: `more-action-${index}`,
-          label: action.label,
-          icon: action.icon,
-          disabled: () => true,
-          disabledLabel: () => FUTURE_ACTION_HINT,
-          onClick: () => {},
-        })),
+        items: [
+          {
+            // Q3F-5AZ.2G-2 — single-selection mark-duplicate: exactly one eligible
+            // row opens the drawer with the duplicate confirmation armed. Bulk
+            // duplicate is explicitly out of scope, so 2+ selected rows keep it
+            // disabled; a single ineligible row is disabled too.
+            id: 'mark-duplicate',
+            label: MARK_DUPLICATE_ACTION.label,
+            icon: MARK_DUPLICATE_ACTION.icon,
+            disabled: (rows) => rows.length !== 1 || !isMarkDuplicateEligible(rows[0]),
+            disabledLabel: (rows) =>
+              rows.length > 1 ? 'Marcar duplicado masivo pendiente' : FUTURE_ACTION_HINT,
+            onClick: (rows) => {
+              if (rows.length === 1 && isMarkDuplicateEligible(rows[0])) {
+                openCandidateDetail(rows[0], { duplicateIntent: true });
+              }
+            },
+          },
+          ...FUTURE_MORE_ACTIONS.map((action, index) => ({
+            id: `more-action-${index}`,
+            label: action.label,
+            icon: action.icon,
+            disabled: () => true,
+            disabledLabel: () => FUTURE_ACTION_HINT,
+            onClick: () => {},
+          })),
+        ],
       },
       {
         id: 'open-websites',
@@ -1373,6 +1436,7 @@ export function ProspectsDataTableClient({
             setDetailCandidate(null);
             setApproveIntent(false);
             setDiscardIntent(false);
+            setDuplicateIntent(false);
           }
         }}
         onCandidateUpdated={(updated) => {
@@ -1382,6 +1446,8 @@ export function ProspectsDataTableClient({
         onApproveIntentConsumed={() => setApproveIntent(false)}
         initialDiscardIntent={discardIntent}
         onDiscardIntentConsumed={() => setDiscardIntent(false)}
+        initialDuplicateIntent={duplicateIntent}
+        onDuplicateIntentConsumed={() => setDuplicateIntent(false)}
       />
     </>
   );
