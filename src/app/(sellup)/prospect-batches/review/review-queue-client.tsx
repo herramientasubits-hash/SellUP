@@ -574,7 +574,21 @@ export function ReviewQueueClient({
             )}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={approving}>Cancelar</AlertDialogCancel>
+            {/*
+              This alert-dialog is built on Base UI: AlertDialogCancel renders a
+              plain <button> and does NOT auto-close like the Radix primitive
+              would. The dialog is fully controlled via `confirmOpen`, so Cancel
+              must reset that state itself. Without this handler the modal opened
+              but never closed. `disabled={approving}` already blocks the click
+              mid-request, so no extra guard is needed here.
+            */}
+            <AlertDialogCancel
+              type="button"
+              disabled={approving}
+              onClick={() => setConfirmOpen(false)}
+            >
+              Cancelar
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
