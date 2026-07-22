@@ -10,28 +10,24 @@
  * Scopes requeridos (bot token):
  *   - channels:manage  → crear canales públicos
  *   - chat:write       → enviar mensajes al canal
+ *
+ * Uses the shared fail-closed factory (createSupabaseAdminClient), which reads
+ * resolveSupabaseServiceRoleEnv and throws UnsafeSupabaseEnvironmentError when
+ * config is missing or a non-production environment resolves to production.
+ * This replaces the previous inline admin client that fell back to a hardcoded
+ * production host and threw a generic misconfiguration error.
+ * Env is now read at call time by the factory, not once at import time.
+ * Slack API / OAuth / message behavior is unchanged by this migration.
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 const INTEGRATION_KEY = 'slack';
 const VAULT_SECRET_NAME = 'sellup_integration_slack_bot_token';
 const VAULT_CLIENT_SECRET_NAME = 'sellup_integration_slack_client_secret';
 
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
-
 async function getSlackIntegrationId(): Promise<string | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from('external_integrations')
     .select('id')
@@ -85,7 +81,7 @@ export interface SlackMessageResult {
 export async function storeSlackCredential(
   token: string
 ): Promise<{ success: boolean; error?: string; message?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('upsert_vault_secret', {
@@ -124,7 +120,7 @@ export async function removeSlackCredential(): Promise<{
   success: boolean;
   error?: string;
 }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     await admin.rpc('delete_vault_secret', { p_name: VAULT_SECRET_NAME });
@@ -150,7 +146,7 @@ export async function removeSlackCredential(): Promise<{
  * Verifica si existe un bot token almacenado en Vault para Slack.
  */
 export async function hasSlackCredential(): Promise<boolean> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data } = await admin.rpc('has_vault_secret', { p_name: VAULT_SECRET_NAME });
@@ -166,7 +162,7 @@ export async function hasSlackCredential(): Promise<boolean> {
  * NUNCA retornar al frontend. NUNCA loggear el valor.
  */
 async function getSlackToken(): Promise<string | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
@@ -199,7 +195,7 @@ export async function storeSlackOAuthConfig(
   clientSecret: string,
   redirectUri: string
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   console.log('[storeSlackOAuthConfig] storing config for clientId:', clientId ? 'SET' : 'MISSING');
 
@@ -264,7 +260,7 @@ export async function storeSlackOAuthConfig(
  * y verifica que el client_secret esté almacenado en Vault.
  */
 export async function getSlackOAuthConfig(): Promise<SlackOAuthConfig | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin
@@ -299,7 +295,7 @@ export async function getSlackOAuthConfig(): Promise<SlackOAuthConfig | null> {
  * NUNCA retornar al frontend. NUNCA loggear.
  */
 export async function getSlackClientSecret(): Promise<string | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
