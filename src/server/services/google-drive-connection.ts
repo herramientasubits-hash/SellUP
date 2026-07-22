@@ -7,17 +7,7 @@
  * Vault secret naming: sellup_user_drive_refresh_token_{internal_user_id}
  */
 
-import { createClient as createAdminClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-
-function getAdminClient() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required');
-  }
-  return createAdminClient(SUPABASE_URL, serviceKey);
-}
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 function vaultSecretName(internalUserId: string): string {
   return `sellup_user_drive_refresh_token_${internalUserId}`;
@@ -31,7 +21,7 @@ export async function storeUserDriveRefreshToken(
   internalUserId: string,
   refreshToken: string
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const name = vaultSecretName(internalUserId);
 
   const { data: vaultId, error: vaultError } = await admin.rpc('upsert_vault_secret', {
@@ -70,7 +60,7 @@ export async function storeUserDriveRefreshToken(
 export async function getUserDriveRefreshToken(
   internalUserId: string
 ): Promise<string | null> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const name = vaultSecretName(internalUserId);
 
   const { data, error } = await admin.rpc('get_vault_secret_decrypted', {
@@ -87,7 +77,7 @@ export async function getUserDriveRefreshToken(
 export async function hasUserDriveRefreshToken(
   internalUserId: string
 ): Promise<boolean> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const name = vaultSecretName(internalUserId);
 
   const { data } = await admin.rpc('has_vault_secret', { p_name: name });
@@ -100,7 +90,7 @@ export async function hasUserDriveRefreshToken(
 export async function removeUserDriveRefreshToken(
   internalUserId: string
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const name = vaultSecretName(internalUserId);
 
   const { error: vaultError } = await admin.rpc('delete_vault_secret', {
