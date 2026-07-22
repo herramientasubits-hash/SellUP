@@ -154,14 +154,62 @@ describe('ProspectReviewActions — gating', () => {
     }
   });
 
-  it('keeps Descartar / Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión disabled', () => {
+});
+
+// Q3F-5AZ.2D-1-UX2 — visual action hierarchy (reorder only, no new behavior).
+describe('ProspectReviewActions — action hierarchy (UX2)', () => {
+  const buttonByText = (text: string) =>
+    screen.queryAllByRole('button').find((b) => b.textContent?.trim() === text) as
+      | HTMLButtonElement
+      | undefined;
+
+  it('shows Aprobar as the primary visible action', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
-    for (const label of ['Descartar', 'Marcar duplicado', 'Enviar a enriquecimiento', 'Mantener en revisión']) {
-      const btn = screen
-        .getAllByRole('button')
-        .find((b) => b.textContent?.trim() === label) as HTMLButtonElement | undefined;
-      assert.ok(btn, `expected disabled action "${label}"`);
-      assert.equal(btn!.disabled, true, `"${label}" must stay disabled`);
+    const btn = approveButton();
+    assert.ok(btn, 'Aprobar must be visible as the primary action');
+    assert.equal(btn!.disabled, false);
+  });
+
+  it('shows Descartar as a visible, disabled action OUTSIDE the menu', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    const btn = buttonByText('Descartar');
+    assert.ok(btn, 'Descartar must be visible outside the menu');
+    assert.equal(btn!.disabled, true, 'Descartar must stay disabled');
+    assert.equal(btn!.getAttribute('title'), 'Disponible en siguiente fase');
+  });
+
+  it('shows the "Más acciones" trigger', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    assert.ok(buttonByText('Más acciones'), '"Más acciones" trigger must be visible');
+  });
+
+  it('keeps the auxiliary copy explaining only Aprobar is available for now', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    assert.ok(
+      screen.getByText(
+        /Por ahora solo puedes aprobar\. Las demás acciones se habilitarán en próximos hitos\./i,
+      ),
+    );
+  });
+
+  it('groups Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión inside "Más acciones", all disabled', async () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+
+    // Not rendered until the menu is opened (they live inside the dropdown).
+    for (const label of ['Marcar duplicado', 'Enviar a enriquecimiento', 'Mantener en revisión']) {
+      assert.equal(screen.queryByText(label), null, `"${label}" must live inside the menu, not the footer`);
+    }
+
+    fireEvent.click(buttonByText('Más acciones')!);
+
+    for (const label of ['Marcar duplicado', 'Enviar a enriquecimiento', 'Mantener en revisión']) {
+      const item = await screen.findByRole('menuitem', { name: new RegExp(label) });
+      assert.ok(item, `expected "${label}" inside Más acciones`);
+      assert.equal(
+        item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('data-disabled'),
+        true,
+        `"${label}" must stay disabled inside the menu`,
+      );
     }
   });
 });
