@@ -55,6 +55,7 @@ const MIGRATED_FILES = [
   'src/app/api/integrations/slack/oauth/callback/route.ts',
   'src/app/auth/callback/route.ts',
   'src/app/api/integrations/google-drive/oauth/callback/route.ts',
+  'src/app/api/integrations/google-drive/oauth/start/route.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';
