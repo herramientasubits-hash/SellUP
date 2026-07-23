@@ -95,6 +95,9 @@ export type AiFlowStatus =
   | 'signal_connected_read_only'
   | 'snapshot_persisted'
   | 'dry_run_validated'
+  // Piloto controlado: snapshot productivo cargado y adapter conectado, pero el
+  // flujo IA sigue en piloto controlado (NO live automático). Presentacional.
+  | 'controlled_pilot'
   | 'paused'
   | 'not_applicable'
   | 'pending_classification';
@@ -107,6 +110,9 @@ export type ConnectionMode =
   | 'credential_configured'
   | 'read_only_signal'
   | 'read_only_snapshot'
+  // Backend conectado: reader/adapter listos contra snapshot productivo, sin
+  // conexión live automática ni credenciales de usuario. Presentacional.
+  | 'backend_connected'
   | 'not_connected'
   | 'not_persisted'
   | 'not_applicable';
@@ -116,6 +122,9 @@ export type CatalogSourceOperationalStatus =
   | 'connection_required'
   | 'pending_validation'
   | 'dry_run_validated'
+  // Validada: fuente validada con snapshot productivo cargado. Estado intermedio
+  // entre pendiente y operativa-verificada; NO implica live/expansión.
+  | 'validated'
   | 'partial_snapshot'
   | 'manual_signal_only'
   | 'validation_only'

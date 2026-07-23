@@ -18,6 +18,7 @@ import {
   operationalStatusDotClass,
 } from '@/modules/source-catalog/labels';
 import { filterTab, type TabId } from '@/modules/source-catalog/filter-tab';
+import { getSourceActionPresentation } from '@/modules/source-catalog/action-presentation';
 import { SourceDetailDrawer } from './source-detail-drawer';
 
 type Props = {
@@ -322,37 +323,19 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           <DataTableColumnHeader column={column} title="Acción" />
         ),
         cell: ({ row }) => {
-          if (row.original.connectionMode === 'read_only_signal') {
-            return (
-              <button
-                type="button"
-                onClick={() => openDetail(row.original)}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-              >
-                Ver señales
-                <ArrowRight className="h-3 w-3" />
-              </button>
-            );
-          }
-          if (row.original.connectionMode === 'not_connected') {
-            return (
-              <button
-                type="button"
-                onClick={() => openDetail(row.original)}
-                className="inline-flex items-center gap-1 rounded-md border border-su-brand/30 bg-su-brand-soft px-2.5 py-1 text-xs font-medium text-su-brand hover:bg-su-brand hover:text-white transition-colors whitespace-nowrap"
-              >
-                Conectar
-                <ArrowRight className="h-3 w-3" />
-              </button>
-            );
-          }
+          const action = getSourceActionPresentation({
+            connectionMode: row.original.connectionMode,
+          });
+          // "Conectar" es la única acción con estilo primario porque inicia una
+          // conexión real; el resto son enlaces ghost que abren el detalle
+          // (solo lectura). Ninguna dispara una conexión.
+          const className =
+            action.kind === 'connect'
+              ? 'inline-flex items-center gap-1 rounded-md border border-su-brand/30 bg-su-brand-soft px-2.5 py-1 text-xs font-medium text-su-brand hover:bg-su-brand hover:text-white transition-colors whitespace-nowrap'
+              : 'inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap';
           return (
-            <button
-              type="button"
-              onClick={() => openDetail(row.original)}
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-            >
-              Ver detalle
+            <button type="button" onClick={() => openDetail(row.original)} className={className}>
+              {action.label}
               <ArrowRight className="h-3 w-3" />
             </button>
           );

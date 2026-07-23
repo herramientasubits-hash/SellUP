@@ -13,6 +13,7 @@ export const OPERATIONAL_STATUS_LABELS: Record<CatalogSourceOperationalStatus, s
   connection_required: 'Requiere conexión',
   pending_validation: 'Pendiente validación',
   dry_run_validated: 'Validación técnica completada',
+  validated: 'Validada',
   partial_snapshot: 'Snapshot parcial',
   manual_signal_only: 'Solo señal manual',
   validation_only: 'Solo validación',
@@ -122,6 +123,8 @@ export function operationalStatusBadgeClass(status: CatalogSourceOperationalStat
       return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
     case 'dry_run_validated':
       return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
+    case 'validated':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
     case 'partial_snapshot':
       return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
     case 'manual_signal_only':
@@ -192,6 +195,7 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   signal_connected_read_only: 'Señal conectada',
   snapshot_persisted: 'Snapshot persistido',
   dry_run_validated: 'Dry-run validado',
+  controlled_pilot: 'Piloto controlado',
   paused: 'Pausada',
   not_applicable: 'No aplica',
   pending_classification: 'Pendiente clasificación',
@@ -217,6 +221,8 @@ export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
       return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
     case 'dry_run_validated':
       return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
+    case 'controlled_pilot':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
     case 'paused':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'not_applicable':
@@ -236,6 +242,7 @@ export const CONNECTION_MODE_LABELS: Record<ConnectionMode, string> = {
   credential_configured: 'Credencial configurada',
   read_only_signal: 'Read-only',
   read_only_snapshot: 'Read-only snapshot',
+  backend_connected: 'Conectada backend',
   not_connected: 'No conectada',
   not_persisted: 'Sin persistencia',
   not_applicable: 'No aplica',
@@ -257,6 +264,8 @@ export function connectionModeBadgeClass(mode: ConnectionMode): string {
       return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
     case 'read_only_snapshot':
       return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
+    case 'backend_connected':
+      return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
     case 'not_connected':
       return 'border-border/40 bg-muted/30 text-muted-foreground';
     case 'not_persisted':
@@ -276,6 +285,8 @@ export function operationalStatusDotClass(status: CatalogSourceOperationalStatus
       return 'bg-su-brand';
     case 'dry_run_validated':
       return 'bg-violet-500';
+    case 'validated':
+      return 'bg-emerald-500';
     case 'partial_snapshot':
       return 'bg-teal-500';
     case 'manual_signal_only':
