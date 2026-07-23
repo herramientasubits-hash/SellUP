@@ -3,6 +3,7 @@
 // Función pura: sin red, sin DB. Segura para tests unitarios.
 
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
+import { pickBestApolloPhone, type ClassifiedPhone } from './phone-classification';
 
 // ── Normalización de cargo Apollo ─────────────────────────────────
 // Apollo a veces devuelve en el campo title una mezcla de cargo real,
@@ -123,9 +124,18 @@ function normalizeLinkedin(value: string | null | undefined): string | null {
   return cleaned.toLowerCase().replace(/\/+$/, '');
 }
 
-function pickPhone(person: ApolloPerson): string | null {
-  const first = person.phone_numbers?.find((p) => cleanString(p?.sanitized_number));
-  return cleanString(first?.sanitized_number) ?? null;
+/**
+ * Selecciona el mejor teléfono de Apollo conservando su tipo y fuente.
+ * El número escalar resultante mantiene el comportamiento previo (primer
+ * número no vacío, ahora priorizado por tipo: móvil personal > móvil >
+ * marcado directo > work > hq > other > unknown). Devuelve null si no hay
+ * ningún número utilizable.
+ *
+ * PHONE-3A: no revela teléfonos nuevos ni gasta créditos; solo preserva el
+ * `type` que Apollo ya entrega gratis en la búsqueda.
+ */
+function pickPhone(person: ApolloPerson): ClassifiedPhone | null {
+  return pickBestApolloPhone(person.phone_numbers);
 }
 
 function pickDepartment(person: ApolloPerson): string | null {
@@ -188,7 +198,8 @@ export function normalizeApolloPerson(
   const seniority = normalizeSeniority(person.seniority);
   const department = pickDepartment(person);
   const country = cleanString(person.country);
-  const phone = pickPhone(person);
+  const classifiedPhone = pickPhone(person);
+  const phone = classifiedPhone?.number ?? null;
 
   const confidence = computeConfidence({
     hasEmail: !!email,
@@ -233,6 +244,18 @@ export function normalizeApolloPerson(
         strategy: titleNorm.strategy,
         ...(titleNorm.separator !== undefined ? { separator: titleNorm.separator } : {}),
       },
+      // PHONE-3A: conserva el tipo/fuente que Apollo ya entrega en la búsqueda.
+      // Se omite cuando no hay teléfono utilizable (patrón aditivo, no obligatorio).
+      ...(classifiedPhone
+        ? {
+            phone: {
+              number: classifiedPhone.number,
+              type: classifiedPhone.type,
+              source: classifiedPhone.source,
+              raw_type: classifiedPhone.raw_type,
+            },
+          }
+        : {}),
     },
   };
 }
