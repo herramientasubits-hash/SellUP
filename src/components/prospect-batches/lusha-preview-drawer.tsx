@@ -69,6 +69,8 @@ export const LUSHA_PREVIEW_SEARCHTEXT_WARNING =
   'El criterio avanzado puede reducir mucho los resultados. Úsalo solo cuando quieras una búsqueda muy específica.';
 export const LUSHA_PREVIEW_NOT_SAVED_FOOTER =
   'Resultados no guardados. En un siguiente paso se podrá enviar a revisión humana.';
+/** Prefijo de trazabilidad del proveedor interno (Q3F-5BB.3D). */
+export const PROVIDER_TRACEABILITY_PREFIX = 'Fuente usada:';
 
 const SUB_INDUSTRY_NONE = '__none__';
 
@@ -103,9 +105,31 @@ const SECTOR_OPTIONS = getLushaSectorOptions();
 export interface LushaPreviewPanelProps {
   /** Inyectable para tests. Por defecto usa la server action real. */
   runPreview?: RunLushaPreview;
+  /**
+   * Q3F-5BB.3D — presentación configurable para usar el panel como proveedor
+   * interno del wizard (sin exponer "Lusha" como una elección de flujo). Los
+   * valores por defecto conservan el contrato read-only original del panel.
+   */
+  /** Descripción de la tarjeta de criterios. */
+  criteriaDescription?: string;
+  /** Etiqueta del botón de búsqueda explícito. */
+  runLabel?: string;
+  /** Etiqueta mientras la búsqueda está en curso. */
+  loadingLabel?: string;
+  /**
+   * Cuando se define, el resultado muestra "Fuente usada: {label}" como
+   * trazabilidad discreta (no como selector). Usado por el proveedor interno.
+   */
+  providerTraceabilityLabel?: string;
 }
 
-export function LushaPreviewPanel({ runPreview = previewLushaCompaniesAction }: LushaPreviewPanelProps) {
+export function LushaPreviewPanel({
+  runPreview = previewLushaCompaniesAction,
+  criteriaDescription = 'Fuente: Lusha · previsualización read-only.',
+  runLabel = 'Previsualizar en Lusha',
+  loadingLabel = 'Consultando Lusha…',
+  providerTraceabilityLabel,
+}: LushaPreviewPanelProps) {
   const [countryCode, setCountryCode] = React.useState('CO');
   const [sectorKey, setSectorKey] = React.useState<string>(SECTOR_OPTIONS[0]?.key ?? '');
   const [subIndustry, setSubIndustry] = React.useState<string>(SUB_INDUSTRY_NONE);
@@ -163,7 +187,7 @@ export function LushaPreviewPanel({ runPreview = previewLushaCompaniesAction }: 
       <SurfaceCard>
         <SurfaceCardHeader
           title="Criterios de búsqueda"
-          description="Fuente: Lusha · previsualización read-only."
+          description={criteriaDescription}
         />
         <div className="space-y-5">
           <Row>
@@ -282,26 +306,34 @@ export function LushaPreviewPanel({ runPreview = previewLushaCompaniesAction }: 
           {status === 'loading' ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Consultando Lusha…
+              {loadingLabel}
             </>
           ) : (
             <>
               <Search className="h-3.5 w-3.5" />
-              Previsualizar en Lusha
+              {runLabel}
             </>
           )}
         </Button>
       </div>
 
       {/* Resultado */}
-      {status === 'done' && result && <PreviewResult result={result} />}
+      {status === 'done' && result && (
+        <PreviewResult result={result} providerTraceabilityLabel={providerTraceabilityLabel} />
+      )}
     </div>
   );
 }
 
 // ── Result rendering ──────────────────────────────────────────────────────────
 
-function PreviewResult({ result }: { result: PreviewLushaCompaniesActionResult }) {
+function PreviewResult({
+  result,
+  providerTraceabilityLabel,
+}: {
+  result: PreviewLushaCompaniesActionResult;
+  providerTraceabilityLabel?: string;
+}) {
   if (!result.ok) {
     const isRate = result.status === 'rate_limited';
     return (
@@ -335,6 +367,14 @@ function PreviewResult({ result }: { result: PreviewLushaCompaniesActionResult }
             </Badge>
           </div>
         </div>
+        {providerTraceabilityLabel && (
+          <p
+            className="mt-3 text-[11px] text-muted-foreground"
+            data-testid="lusha-preview-provider-traceability"
+          >
+            {PROVIDER_TRACEABILITY_PREFIX} <span className="font-medium text-foreground">{providerTraceabilityLabel}</span>
+          </p>
+        )}
       </SurfaceCard>
 
       {status === 'empty' ? (

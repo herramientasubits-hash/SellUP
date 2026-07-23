@@ -1,60 +1,64 @@
 'use client';
 
 /**
- * Generation Source Section — Q3F-5BB.3C
+ * Prospect Criteria Section — Q3F-5BB.3D (replaces the Q3F-5BB.3C source tabs)
  *
  * Lives INSIDE the real "Generar con IA" wizard (see `generate-ai-batch-drawer`).
- * Lets the user pick the generation source without leaving the wizard:
- *   - "Búsqueda con IA": the existing, unchanged wizard body (`iaContent`).
- *   - "Lusha (previsualización)": the read-only Lusha preview (`LushaPreviewPanel`).
  *
- * The standalone "Previsualizar en Lusha" action was removed; Lusha is now a
- * source WITHIN the wizard, not a separate module.
+ * WHY THIS EXISTS (product decision, Q3F-5BB.3D):
+ *   Q3F-5BB.3C exposed the provider as a visible tab next to the IA search. The
+ *   user rejected that: the provider must NOT be a choice or a separate flow. It
+ *   is the internal/hidden provider that backs the normal "Empresas por
+ *   criterios" search. So there are NO source tabs here — just the normal
+ *   criteria form, which runs the provider under the hood when compatible.
+ *
+ * Behavior:
+ *   - Renders the normal "Empresas por criterios" criteria form.
+ *   - The internal provider is resolved by `resolveProspectDiscoveryProvider`.
+ *     When it resolves to 'lusha', the explicit search runs Lusha (read-only)
+ *     and the results show "Fuente usada: Lusha" as traceability only.
+ *     When it resolves to 'default_ai', no Lusha call is made and a discreet
+ *     note explains the internal provider does not cover those criteria.
  *
  * Safety (inherited from `LushaPreviewPanel`, unchanged):
- *   - NO auto-run: Lusha only fires on the explicit button click inside the panel.
- *     Switching the source tab does NOT call Lusha.
+ *   - NO auto-run: Lusha only fires on the explicit search button click.
  *   - Read-only: no persistence CTA (no create, no save, no send-to-review, no
  *     external integrations). page/size/credit guardrails live server-side.
  *   - Human labels (Colombia, Salud, Hospitals & Clinics) come from the panel.
- *
- * Isolated in its own file (imports only `LushaPreviewPanel` + UI primitives) so
- * its module graph stays light and unit-testable without the drawer/portal.
  */
 
 import * as React from 'react';
-import { Sparkles, Search } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Info } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   LushaPreviewPanel,
   type RunLushaPreview,
 } from '@/components/prospect-batches/lusha-preview-drawer';
+import { previewLushaCompaniesAction } from '@/modules/prospect-batches/lusha-preview-actions';
+import { resolveProspectDiscoveryProvider } from '@/modules/prospect-batches/prospect-discovery-provider';
 
 // ── Copy (exportado para tests de contrato de UI) ─────────────────────────────
 
-export const GENERATION_SOURCE_SECTION_TITLE = 'Fuente de generación';
-export const GENERATION_SOURCE_SECTION_DESCRIPTION =
-  'Elige cómo explorar empresas. La búsqueda con IA genera candidatas para revisión; Lusha solo previsualiza (nada se guarda todavía).';
-export const GENERATION_SOURCE_IA_LABEL = 'Búsqueda con IA';
-export const GENERATION_SOURCE_LUSHA_LABEL = 'Lusha (previsualización)';
-export const LUSHA_WIZARD_SECTION_TITLE = 'Previsualización Lusha';
-export const LUSHA_WIZARD_SECTION_DESCRIPTION =
-  'Consulta empresas reales en Lusha antes de guardar resultados. Nada se guarda todavía.';
+export const PROSPECT_CRITERIA_SECTION_TITLE = 'Empresas por criterios';
+export const PROSPECT_CRITERIA_SECTION_DESCRIPTION =
+  'Configura país, sector y tamaño. SellUp busca empresas candidatas con el proveedor configurado; nada se guarda todavía.';
+export const PROSPECT_CRITERIA_RUN_LABEL = 'Buscar empresas';
+export const PROSPECT_CRITERIA_LOADING_LABEL = 'Buscando empresas…';
+/** Trazabilidad discreta del proveedor interno mostrada en el resultado. */
+export const PROSPECT_CRITERIA_PROVIDER_LABEL = 'Lusha';
+/** Mostrado cuando los criterios no son compatibles con el proveedor interno. */
+export const PROSPECT_CRITERIA_PROVIDER_UNAVAILABLE =
+  'Estos criterios no son compatibles con el proveedor de descubrimiento configurado. Ajusta país o sector e inténtalo de nuevo.';
+
+/**
+ * Search type canónico de este flujo (companies-by-criteria). En el chat wizard
+ * corresponde al modo `exploratory`.
+ */
+const CRITERIA_SEARCH_TYPE = 'exploratory';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type GenerationSource = 'ia' | 'lusha';
-
-export interface GenerationSourceSectionProps {
-  /** Currently selected source. */
-  source: GenerationSource;
-  /** Called when the user switches source tabs. */
-  onSourceChange: (next: GenerationSource) => void;
-  /** The existing IA wizard body, rendered when source === 'ia'. */
-  iaContent: React.ReactNode;
-  /** Disables the switch (e.g. while an IA generation is running). */
-  disabled?: boolean;
+export interface ProspectCriteriaSectionProps {
   /**
    * Inyectable para tests. Reenviado a `LushaPreviewPanel`. Por defecto el panel
    * usa la server action real (`previewLushaCompaniesAction`).
@@ -62,89 +66,56 @@ export interface GenerationSourceSectionProps {
   runLushaPreview?: RunLushaPreview;
 }
 
-// ── Source tab ────────────────────────────────────────────────────────────────
-
-interface SourceTabProps {
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  testId: string;
-}
-
-function SourceTab({ active, disabled, onClick, icon, label, testId }: SourceTabProps) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      disabled={disabled}
-      onClick={onClick}
-      data-testid={testId}
-      className={cn(
-        'flex items-center justify-center gap-2 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors',
-        'disabled:cursor-not-allowed disabled:opacity-60',
-        active
-          ? 'border-su-brand bg-su-brand-soft text-su-brand'
-          : 'border-border text-muted-foreground hover:border-border hover:text-foreground',
-      )}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
 // ── Section ──────────────────────────────────────────────────────────────────
 
-export function GenerationSourceSection({
-  source,
-  onSourceChange,
-  iaContent,
-  disabled = false,
-  runLushaPreview,
-}: GenerationSourceSectionProps) {
-  return (
-    <div className="space-y-6" data-testid="generation-source-section">
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title={GENERATION_SOURCE_SECTION_TITLE}
-          description={GENERATION_SOURCE_SECTION_DESCRIPTION}
-        />
-        <div role="tablist" aria-label={GENERATION_SOURCE_SECTION_TITLE} className="grid grid-cols-2 gap-2">
-          <SourceTab
-            active={source === 'ia'}
-            disabled={disabled}
-            onClick={() => onSourceChange('ia')}
-            icon={<Sparkles className="h-3.5 w-3.5" />}
-            label={GENERATION_SOURCE_IA_LABEL}
-            testId="generation-source-ia"
-          />
-          <SourceTab
-            active={source === 'lusha'}
-            disabled={disabled}
-            onClick={() => onSourceChange('lusha')}
-            icon={<Search className="h-3.5 w-3.5" />}
-            label={GENERATION_SOURCE_LUSHA_LABEL}
-            testId="generation-source-lusha"
-          />
-        </div>
-      </SurfaceCard>
+export function ProspectCriteriaSection({ runLushaPreview }: ProspectCriteriaSectionProps) {
+  // The real Lusha action (or the injected spy in tests). The panel only calls
+  // this from the explicit search button click — never on mount/filter change.
+  const realRun: RunLushaPreview = runLushaPreview ?? previewLushaCompaniesAction;
 
-      {source === 'lusha' ? (
-        <div className="space-y-4" data-testid="generation-source-lusha-panel">
-          <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-foreground">{LUSHA_WIZARD_SECTION_TITLE}</h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {LUSHA_WIZARD_SECTION_DESCRIPTION}
-            </p>
-          </div>
-          <LushaPreviewPanel runPreview={runLushaPreview} />
-        </div>
-      ) : (
-        iaContent
-      )}
+  // Hidden-provider gate: resolve the discovery provider from the live criteria
+  // the user submitted. Only when it resolves to 'lusha' do we run Lusha. This
+  // is the single execution path — still explicit-click-only.
+  const gatedRun = React.useCallback<RunLushaPreview>(
+    async (input) => {
+      const decision = resolveProspectDiscoveryProvider({
+        // Section only mounts when ENABLE_LUSHA_PREVIEW is on (drawer-gated).
+        lushaPreviewEnabled: true,
+        searchType: CRITERIA_SEARCH_TYPE,
+        sectorKey: input.sectorKey,
+        countryCode: input.countryCode,
+      });
+      if (decision.provider !== 'lusha') {
+        return { ok: false, status: 'error', error: PROSPECT_CRITERIA_PROVIDER_UNAVAILABLE };
+      }
+      return realRun(input);
+    },
+    [realRun],
+  );
+
+  return (
+    <div className="space-y-6" data-testid="prospect-criteria-section">
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold text-foreground">{PROSPECT_CRITERIA_SECTION_TITLE}</h3>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {PROSPECT_CRITERIA_SECTION_DESCRIPTION}
+        </p>
+      </div>
+
+      <Alert>
+        <Info className="h-4 w-4" />
+        <AlertDescription className="text-xs" data-testid="prospect-criteria-readonly-notice">
+          Estos resultados todavía no se guardan en SellUp. Podrás enviar a revisión en un siguiente paso.
+        </AlertDescription>
+      </Alert>
+
+      <LushaPreviewPanel
+        runPreview={gatedRun}
+        criteriaDescription="Define país, sector y tamaño para explorar empresas candidatas."
+        runLabel={PROSPECT_CRITERIA_RUN_LABEL}
+        loadingLabel={PROSPECT_CRITERIA_LOADING_LABEL}
+        providerTraceabilityLabel={PROSPECT_CRITERIA_PROVIDER_LABEL}
+      />
     </div>
   );
 }

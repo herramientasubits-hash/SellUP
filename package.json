@@ -40,6 +40,7 @@
     "test:lusha-sector-mapping": "node --import tsx --test src/server/prospect-batches/__tests__/lusha-sector-mapping.test.ts",
     "test:lusha-preview": "node --import tsx --test src/server/prospect-batches/__tests__/lusha-preview.test.ts src/server/integrations/__tests__/lusha-company-prospecting-subindustry-searchtext.test.ts",
     "test:lusha-preview-ui": "node --experimental-test-module-mocks --import tsx --test src/components/prospect-batches/__tests__/lusha-preview-panel-runtime.test.tsx",
+    "test:lusha-hidden-provider": "node --experimental-test-module-mocks --import tsx --test src/modules/prospect-batches/__tests__/prospect-discovery-provider.test.ts src/components/prospect-batches/__tests__/generate-wizard-lusha-source-static.test.ts src/components/prospect-batches/__tests__/generate-wizard-lusha-source-runtime.test.tsx",
     "test:wizard-pilot-guardrails": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-pilot-guardrails.test.ts",
     "test:wizard-budget-integration": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-budget-integration.test.ts",
     "test:wizard-ui": "node --import tsx --test src/components/prospect-batches/chat-wizard/__tests__/wizard-execution-ui.test.ts src/components/prospect-batches/chat-wizard/__tests__/prospect-chat-wizard.test.ts src/components/prospect-batches/chat-wizard/__tests__/wizard-auto-validation.test.ts",
