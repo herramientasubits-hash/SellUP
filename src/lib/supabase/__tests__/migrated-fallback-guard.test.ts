@@ -59,6 +59,7 @@ const MIGRATED_FILES = [
   'src/server/services/google-drive-connection.ts',
   'src/modules/drive/actions.ts',
   'src/modules/integrations/actions.ts',
+  'src/modules/usage-tracking/actions.ts',
 ] as const;
 
 const PRODUCTION_HOST = 'lrdruowtadwbdulndlph.supabase.co';
