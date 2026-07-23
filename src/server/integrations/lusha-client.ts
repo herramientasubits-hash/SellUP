@@ -443,6 +443,13 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | unde
   return undefined;
 }
 
+/** Devuelve el valor como objeto plano, o null si no es un objeto usable. */
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 function buildRawShape(raw: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.keys(raw).map((k) => [k, typeof raw[k]])
@@ -1246,6 +1253,16 @@ export type LushaCompanyProspectingV3Filters = {
       technologiesCondition?: 'or' | 'and';
       /** IDs numéricos requeridos. Mapping desde labels pendiente. */
       mainIndustriesIds?: number[];
+      /**
+       * Sub-industrias numéricas — Q3F-5BB.2B confirmó que funcionan y aplican
+       * en AND con mainIndustriesIds. IDs desde el catálogo (Q3F-5BB.1B).
+       */
+      subIndustriesIds?: number[];
+      /**
+       * Búsqueda libre — Q3F-5BB.2B confirmó que funciona pero es frágil
+       * (colapsa resultados). Uso avanzado/opcional únicamente.
+       */
+      searchText?: string;
       intentTopics?: string[];
       names?: string[];
       // Q3F-5Y: sics rechazado ("property sics should not exist") — omitido.
@@ -1303,6 +1320,8 @@ export type LushaCompanyProspectingV3Company = {
   name?: string | null;
   domain?: string | null;
   country?: string | null;
+  /** ISO2 país si el response lo trae anidado (location.countryIso2). */
+  countryIso2?: string | null;
   industry?: string | null;
   /**
    * Escalar preferido: exact si viene en objeto, o número legacy.
@@ -1362,6 +1381,8 @@ function hasCompanyFilters(filters: LushaCompanyProspectingV3Filters | undefined
     if (include.revenues?.length) return true;
     if (include.technologies?.length) return true;
     if (include.mainIndustriesIds?.length) return true;
+    if (include.subIndustriesIds?.length) return true;
+    if (typeof include.searchText === 'string' && include.searchText.trim().length > 0) return true;
     if (include.intentTopics?.length) return true;
     if (include.names?.length) return true;
     // naics omitted — Q3F-5AA: rejected by API
@@ -1516,17 +1537,32 @@ export async function searchLushaCompaniesV3(input: {
 
     const results: LushaCompanyProspectingV3Company[] = items.map((c) => {
       const empCount = extractLushaEmployeeCountRaw(c['employeeCount']);
+      // Q3F-5BB.2 observó que país y linkedin llegan anidados en el response real
+      // (location.* y socialLinks.linkedin). La extracción anidada es un fallback
+      // aditivo: si el nivel raíz trae el valor se respeta, si no se busca dentro.
+      const location = asRecord(c['location']);
+      const social = asRecord(c['socialLinks']);
       return {
         id: typeof c['id'] === 'string' ? c['id'] : null,
         name: pickString(c, ['name', 'companyName']) ?? null,
         domain: pickString(c, ['domain', 'website']) ?? null,
-        country: pickString(c, ['country', 'countryCode']) ?? null,
+        country:
+          pickString(c, ['country', 'countryCode']) ??
+          (location ? pickString(location, ['country', 'countryName', 'name']) : undefined) ??
+          null,
+        countryIso2:
+          (location ? pickString(location, ['countryIso2', 'countryCode', 'iso2']) : undefined) ??
+          pickString(c, ['countryIso2']) ??
+          null,
         industry: pickString(c, ['industry', 'industryName']) ?? null,
         employeeCount: empCount.employeeCount,
         employeeCountExact: empCount.employeeCountExact,
         employeeCountMin: empCount.employeeCountMin,
         employeeCountMax: empCount.employeeCountMax,
-        linkedinUrl: pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ?? null,
+        linkedinUrl:
+          pickString(c, ['linkedinUrl', 'linkedin_url', 'linkedin']) ??
+          (social ? pickString(social, ['linkedin', 'linkedinUrl', 'linkedin_url']) : undefined) ??
+          null,
       };
     });
 
