@@ -69,6 +69,8 @@ export interface LushaCompanyIndustryFilter {
 
 interface LushaSectorDefinition {
   key: LushaSectorKey;
+  /** Etiqueta legible para UI (ES). */
+  label: string;
   /** main_industry_id confirmado en Q3F-5BB.1B. */
   mainIndustryId: number;
   /** Alias en español e inglés (se normalizan antes de comparar). */
@@ -84,6 +86,7 @@ interface LushaSectorDefinition {
 const SECTOR_CATALOG: readonly LushaSectorDefinition[] = [
   {
     key: 'healthcare',
+    label: 'Salud',
     mainIndustryId: 11, // Healthcare
     aliases: [
       'salud',
@@ -105,6 +108,7 @@ const SECTOR_CATALOG: readonly LushaSectorDefinition[] = [
   },
   {
     key: 'education',
+    label: 'Educación',
     mainIndustryId: 6, // Education
     aliases: [
       'educacion',
@@ -128,6 +132,7 @@ const SECTOR_CATALOG: readonly LushaSectorDefinition[] = [
   },
   {
     key: 'technology',
+    label: 'Tecnología',
     mainIndustryId: 17, // Technology, Information & Media
     aliases: [
       'tecnologia',
@@ -311,4 +316,66 @@ export function buildLushaCompanyIndustryFilter(
     return {};
   }
   return { mainIndustriesIds: [...mapping.mainIndustriesIds] };
+}
+
+// ─── Accesores públicos para UI (Q3F-5BB.3) ──────────────────────────────────
+
+/**
+ * Opción de sector lista para poblar un selector de UI. Deriva exclusivamente
+ * del catálogo confirmado (Q3F-5BB.1B). Puro y determinístico.
+ */
+export interface LushaSectorOption {
+  key: LushaSectorKey;
+  label: string;
+  mainIndustryId: number;
+  /** Palabras clave (normalizadas) para validar match de industria en preview. */
+  matchKeywords: string[];
+  /** Sub-industrias seleccionables. `id` va en subIndustriesIds. */
+  subIndustries: LushaSuggestedSubIndustry[];
+}
+
+/**
+ * Devuelve los sectores soportados por el preview de Lusha en orden estable
+ * (Salud, Educación, Tecnología). No inventa sectores ni IDs.
+ */
+export function getLushaSectorOptions(): LushaSectorOption[] {
+  return SECTOR_CATALOG.map((definition) => ({
+    key: definition.key,
+    label: definition.label,
+    mainIndustryId: definition.mainIndustryId,
+    matchKeywords: [...definition.aliases],
+    subIndustries: definition.suggestedSubIndustries.map((sub) => ({ ...sub })),
+  }));
+}
+
+/**
+ * Resuelve una opción de sector por su key canónica. Devuelve null si la key
+ * no pertenece al catálogo soportado.
+ */
+export function resolveLushaSectorOption(key: string | null | undefined): LushaSectorOption | null {
+  if (!key) return null;
+  const definition = SECTOR_CATALOG.find((entry) => entry.key === key);
+  if (!definition) return null;
+  return {
+    key: definition.key,
+    label: definition.label,
+    mainIndustryId: definition.mainIndustryId,
+    matchKeywords: [...definition.aliases],
+    subIndustries: definition.suggestedSubIndustries.map((sub) => ({ ...sub })),
+  };
+}
+
+/**
+ * Comprueba que una sub-industria pertenezca al sector indicado. Se usa para
+ * bloquear combinaciones inválidas (ej. sub de Educación con sector Salud)
+ * ANTES de construir el request POST. Puro.
+ */
+export function isSubIndustryValidForSector(
+  key: string | null | undefined,
+  subIndustryId: number | null | undefined,
+): boolean {
+  if (subIndustryId === null || subIndustryId === undefined) return false;
+  const option = resolveLushaSectorOption(key);
+  if (!option) return false;
+  return option.subIndustries.some((sub) => sub.id === subIndustryId);
 }
