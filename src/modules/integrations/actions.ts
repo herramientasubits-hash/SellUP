@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import {
   storeHubSpotCredential,
   removeHubSpotCredential,
@@ -47,16 +47,6 @@ import type {
   GoogleCSEMetadata,
 } from './types';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminSupabase() {
-  if (!supabaseServiceKey) {
-    throw new Error('enrichment_configuration_unavailable');
-  }
-  return createAdminClient(supabaseUrl, supabaseServiceKey);
-}
-
 // ============================================================
 // Helpers
 // ============================================================
@@ -93,7 +83,7 @@ async function logAuditEvent(
   actorId: string,
   metadata?: Record<string, unknown>
 ): Promise<void> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
   await admin.from('integration_audit').insert({
     integration_key: integrationKey,
     event_type: eventType,
@@ -107,7 +97,7 @@ async function logAuditEvent(
 // ============================================================
 
 export async function getAllIntegrations(): Promise<IntegrationWithConnection[]> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integrations } = await admin
     .from('external_integrations')
@@ -130,7 +120,7 @@ export async function getAllIntegrations(): Promise<IntegrationWithConnection[]>
 }
 
 export async function getHubSpotIntegration(): Promise<IntegrationWithConnection | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -181,7 +171,7 @@ export async function connectHubSpot(token: string): Promise<{
 
   await logAuditEvent('hubspot', 'credential_stored', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -253,7 +243,7 @@ export async function updateHubSpotCredential(newToken: string): Promise<{
 
   await logAuditEvent('hubspot', 'credential_updated', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -294,7 +284,7 @@ export async function testHubSpotConnectionAction(): Promise<{
   const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
   if (!actorId) return { success: false, error: authError };
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -375,7 +365,7 @@ export async function disconnectHubSpot(): Promise<{
 
   await removeHubSpotCredential();
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -411,7 +401,7 @@ export async function disconnectHubSpot(): Promise<{
 // ============================================================
 
 export async function getSlackIntegration(): Promise<IntegrationWithConnection | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -456,7 +446,7 @@ export async function completeSlackOAuth(
   const storeResult = await storeSlackCredential(botToken);
   if (!storeResult.success) return storeResult;
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -533,7 +523,7 @@ export async function testSlackConnectionAction(): Promise<{
   const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
   if (!actorId) return { success: false, error: authError };
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -626,7 +616,7 @@ export async function createSlackChannelAction(channelName: string): Promise<{
     return { success: false, error: 'El nombre del canal es requerido.' };
   }
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -689,7 +679,7 @@ export async function sendSlackTestMessageAction(): Promise<{
   const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
   if (!actorId) return { success: false, error: authError };
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -747,7 +737,7 @@ export async function disconnectSlack(): Promise<{
 
   await removeSlackCredential();
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -783,7 +773,7 @@ export async function disconnectSlack(): Promise<{
 // ============================================================
 
 export async function getSamuIntegration(): Promise<IntegrationWithConnection | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -834,7 +824,7 @@ export async function connectSamu(apiKey: string): Promise<{
 
   await logAuditEvent('samu_ia', 'samu_api_key_stored', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -905,7 +895,7 @@ export async function updateSamuApiKey(newApiKey: string): Promise<{
 
   await logAuditEvent('samu_ia', 'samu_api_key_updated', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -946,7 +936,7 @@ export async function testSamuConnectionAction(): Promise<{
   const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
   if (!actorId) return { success: false, error: authError };
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1022,7 +1012,7 @@ export async function disconnectSamu(): Promise<{
 
   await removeSamuApiKey();
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1058,7 +1048,7 @@ export async function disconnectSamu(): Promise<{
 // ============================================================
 
 export async function getTavilyIntegration(): Promise<IntegrationWithConnection | null> {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1109,7 +1099,7 @@ export async function connectTavily(apiKey: string): Promise<{
 
   await logAuditEvent('tavily', 'tavily_api_key_stored', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1180,7 +1170,7 @@ export async function updateTavilyApiKey(newApiKey: string): Promise<{
 
   await logAuditEvent('tavily', 'tavily_api_key_updated', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1222,7 +1212,7 @@ export async function testTavilyConnectionAction(): Promise<{
   const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
   if (!actorId) return { success: false, error: authError };
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1300,7 +1290,7 @@ export async function disconnectTavily(): Promise<{
 
   await removeTavilyApiKey();
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1381,7 +1371,7 @@ export async function configureSlackOAuthApp(
 export async function getGoogleCSEIntegration(): Promise<
   (IntegrationWithConnection & { cx_masked?: string }) | null
 > {
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1437,7 +1427,7 @@ export async function connectGoogleCSE(
 
   await logAuditEvent('google_cse', 'google_cse_credentials_stored', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1510,7 +1500,7 @@ export async function updateGoogleCSECredentials(
 
   await logAuditEvent('google_cse', 'google_cse_credentials_updated', actorId);
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1552,7 +1542,7 @@ export async function testGoogleCSEConnectionAction(): Promise<{
   const { id: actorId, error: authError } = await getAdminInternalUserId(supabase);
   if (!actorId) return { success: false, error: authError };
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
@@ -1629,7 +1619,7 @@ export async function disconnectGoogleCSE(): Promise<{
 
   await removeGoogleCSECredentials();
 
-  const admin = getAdminSupabase();
+  const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
     .from('external_integrations')
