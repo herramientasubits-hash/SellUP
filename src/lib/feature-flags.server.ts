@@ -179,3 +179,30 @@ export function resolveLushaSearchTimeoutMs(): number {
 export function isLushaPhoneRevealEnabled(): false {
   return false;
 }
+
+// ============================================================
+// Apollo Phone Reveal (Agente 2A · PHONE-3D.1)
+// ============================================================
+
+/** Flag name constant for explicit Apollo phone reveal (PHONE-3D.1). */
+export const APOLLO_PHONE_REVEAL_FLAG = 'ENABLE_APOLLO_PHONE_REVEAL';
+
+/**
+ * Returns true when ENABLE_APOLLO_PHONE_REVEAL is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false. This flag scaffolds the FUTURE explicit Apollo phone reveal.
+ * As of PHONE-3D.1 it gates nothing at runtime: no route, server action, runner
+ * or UI reads it, so enabling it has no effect and spends no credits. Automatic
+ * completion, the Apollo runner and the routing fallback continue to omit
+ * `reveal_phone_number` entirely (see contact-completion-adapter.buildMatchParams).
+ * Real reveal remains blocked pending the legal/product decision (Habeas Data /
+ * Ley 1581 / LOPDP). Unrelated to Lusha, whose phone reveal is hard-off
+ * (see isLushaPhoneRevealEnabled). Must not be enabled in any environment by
+ * this milestone.
+ */
+export function isApolloPhoneRevealEnabled(): boolean {
+  return (
+    process.env[APOLLO_PHONE_REVEAL_FLAG]?.trim().toLowerCase() === 'true'
+  );
+}
