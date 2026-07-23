@@ -58,6 +58,8 @@ import type {
   ContactSource,
   ContactCandidateCompanyConsistency,
   LushaPersonIdentityEvidenceV1,
+  PhoneType,
+  PhoneSource,
 } from '@/modules/contact-enrichment/types';
 import {
   IDENTITY_TONE_STYLES,
@@ -107,6 +109,58 @@ const DUPLICATE_LABELS: Record<ContactDuplicateStatus, string> = {
   possible_duplicate: 'Posible duplicado',
   exact_duplicate: 'Duplicado exacto',
 };
+
+// ── Teléfono: tipo y fuente (PHONE-3B) ───────────────────────────────────────
+// Etiquetas de solo lectura para visualizar el tipo/fuente del teléfono que
+// PHONE-3A conservó en `enrichment_metadata.phone`. Copy PRUDENTE: `personal_mobile`
+// se rotula como "posible personal" a propósito, sin prometer certeza sobre la
+// titularidad del número. Este hito NO revela teléfonos ni activa reveal alguno.
+
+const PHONE_TYPE_UNKNOWN_LABEL = 'Tipo desconocido';
+const PHONE_SOURCE_UNKNOWN_LABEL = 'Fuente desconocida';
+
+const PHONE_TYPE_LABELS: Record<PhoneType, string> = {
+  personal_mobile: 'Móvil / posible personal',
+  mobile: 'Móvil',
+  direct_dial: 'Directo corporativo',
+  work: 'Trabajo',
+  hq: 'Central / HQ',
+  other: 'Otro',
+  unknown: PHONE_TYPE_UNKNOWN_LABEL,
+};
+
+const PHONE_SOURCE_LABELS: Record<PhoneSource, string> = {
+  apollo_search: 'Apollo búsqueda',
+  apollo_reveal: 'Apollo reveal',
+  lusha_reveal: 'Lusha reveal',
+  provider_payload: 'Proveedor',
+  manual: 'Manual',
+  unknown: PHONE_SOURCE_UNKNOWN_LABEL,
+};
+
+/**
+ * Etiqueta del tipo de teléfono. Cualquier valor ausente, vacío, `unknown` o no
+ * reconocido cae a "Tipo desconocido" (estado explícito cuando hay teléfono
+ * pero no hay tipo claro).
+ */
+function resolvePhoneTypeLabel(type: string | null | undefined): string {
+  if (typeof type === 'string' && Object.prototype.hasOwnProperty.call(PHONE_TYPE_LABELS, type)) {
+    return PHONE_TYPE_LABELS[type as PhoneType];
+  }
+  return PHONE_TYPE_UNKNOWN_LABEL;
+}
+
+/**
+ * Etiqueta de la fuente del teléfono. Devuelve `null` cuando no hay fuente
+ * (para omitir el badge). Valores no reconocidos → "Fuente desconocida".
+ */
+function resolvePhoneSourceLabel(source: string | null | undefined): string | null {
+  if (typeof source !== 'string' || source.trim().length === 0) return null;
+  if (Object.prototype.hasOwnProperty.call(PHONE_SOURCE_LABELS, source)) {
+    return PHONE_SOURCE_LABELS[source as PhoneSource];
+  }
+  return PHONE_SOURCE_UNKNOWN_LABEL;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -296,6 +350,14 @@ export function ContactCandidateDetailSheet({
   const confidenceLabel = toPercent(candidate?.confidence);
   const apolloAttempt = candidate?.enrichment_metadata?.apollo_search_attempt ?? null;
   const matchedKeywords = relevance?.matched_keywords?.filter(Boolean) ?? [];
+
+  // Teléfono (PHONE-3B): solo VISUALIZA lo que PHONE-3A conservó. El número
+  // escalar sigue siendo la autoridad; la metadata solo aporta tipo/fuente.
+  const phoneMeta = candidate?.enrichment_metadata?.phone ?? null;
+  const phoneNumber = candidate?.phone ?? phoneMeta?.number ?? null;
+  const hasPhone = typeof phoneNumber === 'string' && phoneNumber.trim().length > 0;
+  const phoneTypeLabel = resolvePhoneTypeLabel(phoneMeta?.type);
+  const phoneSourceLabel = resolvePhoneSourceLabel(phoneMeta?.source);
   const companyConsistency =
     (candidate?.enrichment_metadata?.company_consistency as
       | ContactCandidateCompanyConsistency
@@ -500,7 +562,24 @@ export function ContactCandidateDetailSheet({
                 )}
               </DetailRow>
               <DetailRow icon={Phone} label="Teléfono">
-                {candidate.phone || <Fallback />}
+                {hasPhone ? (
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <span className="break-all">{phoneNumber}</span>
+                    <Badge className="border-0 bg-su-brand-soft text-su-brand text-[10px] font-semibold">
+                      {phoneTypeLabel}
+                    </Badge>
+                    {phoneSourceLabel && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] font-normal text-muted-foreground"
+                      >
+                        {phoneSourceLabel}
+                      </Badge>
+                    )}
+                  </span>
+                ) : (
+                  <Fallback />
+                )}
               </DetailRow>
             </dl>
           </SurfaceCard>
