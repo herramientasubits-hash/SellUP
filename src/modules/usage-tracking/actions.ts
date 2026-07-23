@@ -1,19 +1,20 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import type { UsageSummary, RecentUsageActivity } from './types';
 
 // ============================================================
 // Admin client (service_role for reads across RLS)
-// ============================================================
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase service credentials not configured');
-  return createAdminClient(url, key);
-}
-
+//
+// H5.19A — migrated off the inline service-role client helper to the
+// fail-closed createSupabaseAdminClient() factory (src/lib/supabase/admin).
+// The old inline helper read the Supabase env vars directly and threw a
+// generic Error on missing config; the factory now resolves through the
+// env-guard (getSupabaseServiceRoleEnv) and throws
+// UnsafeSupabaseEnvironmentError when config is missing or a non-production
+// environment resolves to the production Supabase project. This module never
+// had a hardcoded production fallback; behavior is otherwise unchanged and
+// still read-only.
 // ============================================================
 // Auth guard — admin only
 // ============================================================
@@ -75,7 +76,7 @@ export function aggregateUsageSummaryCost(
 
 export async function getUsageSummary(): Promise<UsageSummary> {
   await requireAdmin();
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
 
   const [runsResult, providerResult] = await Promise.all([
     admin
@@ -118,7 +119,7 @@ export async function getUsageSummary(): Promise<UsageSummary> {
 
 export async function getRecentUsageActivity(limit = 20): Promise<RecentUsageActivity> {
   await requireAdmin();
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
 
   const [runsResult, logsResult, qualityResult] = await Promise.all([
     admin
