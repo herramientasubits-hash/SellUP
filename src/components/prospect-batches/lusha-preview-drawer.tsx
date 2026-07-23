@@ -121,6 +121,22 @@ export interface LushaPreviewPanelProps {
    * trazabilidad discreta (no como selector). Usado por el proveedor interno.
    */
   providerTraceabilityLabel?: string;
+  /**
+   * Q3F-5BB.3E — Semillas iniciales de criterios. Usadas cuando el wizard
+   * conversacional ya recolectó país/sector/subindustria/criterio y solo falta
+   * el paso final de búsqueda. No cambian el contrato read-only ni el auto-run.
+   */
+  initialCountryCode?: string;
+  initialSectorKey?: string;
+  initialSubIndustryId?: number | null;
+  initialSearchText?: string | null;
+  /**
+   * Q3F-5BB.3E — Cuando true, oculta el formulario de criterios (país/sector/
+   * tamaño/avanzado) y muestra un recap read-only en su lugar. El wizard
+   * conversacional ya recolectó los criterios; este paso solo ejecuta la
+   * búsqueda explícita. El botón y los resultados no cambian.
+   */
+  lockCriteria?: boolean;
 }
 
 export function LushaPreviewPanel({
@@ -129,12 +145,21 @@ export function LushaPreviewPanel({
   runLabel = 'Previsualizar en Lusha',
   loadingLabel = 'Consultando Lusha…',
   providerTraceabilityLabel,
+  initialCountryCode,
+  initialSectorKey,
+  initialSubIndustryId,
+  initialSearchText,
+  lockCriteria = false,
 }: LushaPreviewPanelProps) {
-  const [countryCode, setCountryCode] = React.useState('CO');
-  const [sectorKey, setSectorKey] = React.useState<string>(SECTOR_OPTIONS[0]?.key ?? '');
-  const [subIndustry, setSubIndustry] = React.useState<string>(SUB_INDUSTRY_NONE);
+  const [countryCode, setCountryCode] = React.useState(initialCountryCode ?? 'CO');
+  const [sectorKey, setSectorKey] = React.useState<string>(
+    initialSectorKey ?? SECTOR_OPTIONS[0]?.key ?? '',
+  );
+  const [subIndustry, setSubIndustry] = React.useState<string>(
+    initialSubIndustryId != null ? String(initialSubIndustryId) : SUB_INDUSTRY_NONE,
+  );
   const [sizeBandKey, setSizeBandKey] = React.useState<string>(LUSHA_PREVIEW_DEFAULT_SIZE_BAND_KEY);
-  const [searchText, setSearchText] = React.useState('');
+  const [searchText, setSearchText] = React.useState(initialSearchText ?? '');
   const [status, setStatus] = React.useState<PanelStatus>('idle');
   const [result, setResult] = React.useState<PreviewLushaCompaniesActionResult | null>(null);
 
@@ -183,7 +208,17 @@ export function LushaPreviewPanel({
         </AlertDescription>
       </Alert>
 
-      {/* Filtros */}
+      {/* Recap read-only cuando los criterios ya fueron recolectados (wizard). */}
+      {lockCriteria && (
+        <LockedCriteriaRecap
+          countryCode={countryCode}
+          sectorKey={sectorKey}
+          searchText={searchText}
+        />
+      )}
+
+      {/* Filtros — ocultos cuando el wizard ya recolectó los criterios. */}
+      {!lockCriteria && (
       <SurfaceCard>
         <SurfaceCardHeader
           title="Criterios de búsqueda"
@@ -286,6 +321,7 @@ export function LushaPreviewPanel({
           </Accordion>
         </div>
       </SurfaceCard>
+      )}
 
       {/* Aviso de costo + botón explícito */}
       <div className="space-y-3">
@@ -322,6 +358,51 @@ export function LushaPreviewPanel({
         <PreviewResult result={result} providerTraceabilityLabel={providerTraceabilityLabel} />
       )}
     </div>
+  );
+}
+
+// ── Locked criteria recap (Q3F-5BB.3E) ───────────────────────────────────────
+// Shown at the wizard's final search step: the conversational wizard already
+// collected país/sector/criterio, so we recap them read-only instead of showing
+// the editable selectors again. Human labels only — no codes.
+
+function LockedCriteriaRecap({
+  countryCode,
+  sectorKey,
+  searchText,
+}: {
+  countryCode: string;
+  sectorKey: string;
+  searchText: string;
+}) {
+  const country = LATAM_COUNTRIES.find((c) => c.code === countryCode);
+  const countryLabel = country ? `${getFlagEmoji(country.code)} ${country.name}` : countryCode;
+  const sectorLabel = resolveLushaSectorOption(sectorKey)?.label ?? sectorKey;
+  const trimmedSearch = searchText.trim();
+
+  return (
+    <SurfaceCard>
+      <SurfaceCardHeader
+        title="Criterios de la búsqueda"
+        description="SellUp buscará empresas candidatas con estos criterios. Nada se guarda todavía."
+      />
+      <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm" data-testid="lusha-locked-criteria-recap">
+        <div>
+          <p className="text-xs text-muted-foreground">País</p>
+          <p className="font-medium text-foreground">{countryLabel}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Sector</p>
+          <p className="font-medium text-foreground">{sectorLabel}</p>
+        </div>
+        {trimmedSearch.length > 0 && (
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Criterio adicional</p>
+            <p className="font-medium text-foreground break-words">{trimmedSearch}</p>
+          </div>
+        )}
+      </div>
+    </SurfaceCard>
   );
 }
 
