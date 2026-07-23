@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
-import { LushaPreviewDrawer } from '@/components/prospect-batches/lusha-preview-drawer';
 import { resolveGenerateProspectsExperience } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
@@ -67,7 +66,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // Feature flags: read server-side only — never NEXT_PUBLIC_
   const enableChatWizard = process.env.ENABLE_PROSPECT_CHAT_WIZARD === 'true';
   const enableV2 = process.env.ENABLE_EXPLORATORY_SEARCH_FORM_V2 === 'true';
-  // Q3F-5BB.3 — Lusha read-only preview. OFF por defecto (activar en QA/prod).
+  // Q3F-5BB.3 / 5BB.3C — Lusha read-only preview lives INSIDE the "Generar con
+  // IA" wizard (no standalone button). OFF por defecto (activar en QA/prod).
   const enableLushaPreview = process.env.ENABLE_LUSHA_PREVIEW === 'true';
   // Execution only active when wizard is also active — flag parsed by the
   // canonical server-only helper (normalized: trim + toLowerCase).
@@ -148,8 +148,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} catalog={catalog} executionEnabled={wizardExecutionEnabled} />
-          {enableLushaPreview && <LushaPreviewDrawer />}
+          <GenerateAIBatchDrawer experience={experience} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

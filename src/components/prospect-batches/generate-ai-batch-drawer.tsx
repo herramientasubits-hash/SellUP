@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import { ExploratorySearchFormV2 } from '@/components/prospect-batches/exploratory-search-form-v2';
 import { ProspectChatWizard } from '@/components/prospect-batches/chat-wizard';
+import {
+  GenerationSourceSection,
+  type GenerationSource,
+} from '@/components/prospect-batches/generate-wizard-source-section';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { GenerateProspectsExperience } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -214,13 +218,22 @@ type GenerateAIBatchDrawerProps = {
   catalog?: ActiveIndustryCatalog | null;
   /** When true, the chat wizard will show the real generation CTA. Default false. */
   executionEnabled?: boolean;
+  /**
+   * Q3F-5BB.3C — When true, the wizard shows a "Fuente de generación" selector
+   * with a read-only Lusha preview source. Gated by ENABLE_LUSHA_PREVIEW upstream.
+   * Default false → wizard behaves exactly as before (IA only, no Lusha section).
+   */
+  lushaPreviewEnabled?: boolean;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, executionEnabled = false }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, executionEnabled = false, lushaPreviewEnabled = false }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
   const [result, setResult] = React.useState(EMPTY_RESULT);
+  // Q3F-5BB.3C — generation source ('ia' default). Only surfaced when
+  // lushaPreviewEnabled. Reset to 'ia' on close so re-opening starts on IA.
+  const [source, setSource] = React.useState<GenerationSource>('ia');
   const [progressSteps, setProgressSteps] = React.useState<string[]>([]);
   const typingStepIndex = React.useRef(0);
   const showTyping = React.useRef(false);
@@ -243,7 +256,27 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
     setForm(EMPTY_FORM);
     setResult(EMPTY_RESULT);
     setProgressSteps([]);
+    // Q3F-5BB.3C — clear source so any Lusha preview state unmounts and the
+    // wizard re-opens on the IA source. (LushaPreviewPanel state lives in the
+    // Sheet body, which unmounts on close.)
+    setSource('ia');
   }
+
+  // Q3F-5BB.3C — when Lusha preview is enabled, wrap the IA body in a source
+  // selector. Lusha lives WITHIN the wizard; when active the IA generation
+  // footer is suppressed (Lusha is read-only, no persistence CTA).
+  const lushaActive = lushaPreviewEnabled && source === 'lusha';
+  const renderBody = (iaContent: React.ReactNode): React.ReactNode =>
+    lushaPreviewEnabled ? (
+      <GenerationSourceSection
+        source={source}
+        onSourceChange={setSource}
+        disabled={drawer.generating}
+        iaContent={iaContent}
+      />
+    ) : (
+      iaContent
+    );
 
   function handleGoToBatch() {
     if (!result.generatedBatchId) return;
@@ -400,7 +433,9 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
         icon={<Sparkles className="h-4 w-4 text-su-brand" />}
         size="xl"
       >
-        <ProspectChatWizard catalog={catalog} onClose={handleClose} executionEnabled={executionEnabled} />
+        {renderBody(
+          <ProspectChatWizard catalog={catalog} onClose={handleClose} executionEnabled={executionEnabled} />
+        )}
       </DrawerShell>
     );
   }
@@ -421,7 +456,7 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
         icon={<Sparkles className="h-4 w-4 text-su-brand" />}
         size="xl"
       >
-        <ExploratorySearchFormV2 catalog={catalog} onClose={handleClose} />
+        {renderBody(<ExploratorySearchFormV2 catalog={catalog} onClose={handleClose} />)}
       </DrawerShell>
     );
   }
@@ -440,21 +475,25 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
       icon={<Sparkles className="h-4 w-4 text-su-brand" />}
       size="xl"
       footer={
-        <DrawerFooter
-          showPreflightResult={showPreflightResult}
-          generating={drawer.generating}
-          progressMsg={drawer.progressMsg}
-          canSubmit={canSubmit}
-          usefulCandidatesCount={result.usefulCandidatesCount}
-          sourceStrategy={result.sourceStrategy}
-          structuredBatchResult={result.structuredBatchResult}
-          generatedBatchId={result.generatedBatchId}
-          onClose={handleClose}
-          onGoToBatch={handleGoToBatch}
-          onNavigate={(id) => { handleClose(); router.push(`${PROSPECTOS_TAB_ROUTE}&sourceId=${id}`); }}
-        />
+        lushaActive ? undefined : (
+          <DrawerFooter
+            showPreflightResult={showPreflightResult}
+            generating={drawer.generating}
+            progressMsg={drawer.progressMsg}
+            canSubmit={canSubmit}
+            usefulCandidatesCount={result.usefulCandidatesCount}
+            sourceStrategy={result.sourceStrategy}
+            structuredBatchResult={result.structuredBatchResult}
+            generatedBatchId={result.generatedBatchId}
+            onClose={handleClose}
+            onGoToBatch={handleGoToBatch}
+            onNavigate={(id) => { handleClose(); router.push(`${PROSPECTOS_TAB_ROUTE}&sourceId=${id}`); }}
+          />
+        )
       }
     >
+      {renderBody(
+        <>
       {showPreflightResult ? (
         /* ── Resultado de generación ── */
         <div ref={resultPanelRef}>
@@ -602,6 +641,8 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
             onFormChange={set}
           />
         </form>
+      )}
+        </>
       )}
     </DrawerShell>
   );
