@@ -6,8 +6,10 @@
 // arrastra código de servidor al bundle del cliente.
 import type { LushaPersonIdentityEvidenceV1 } from '@/server/agents/contact-enrichment-toolkit/lusha-person-identity-evidence';
 import type { ApolloPersonIdentityObservationV1 } from '@/server/agents/contact-enrichment-toolkit/apollo-person-identity-observation';
+import type { PhoneType, PhoneSource } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
 
 export type { LushaPersonIdentityEvidenceV1, ApolloPersonIdentityObservationV1 };
+export type { PhoneType, PhoneSource };
 
 export type ContactEnrichmentRunStatus =
   | 'pending'
@@ -191,10 +193,28 @@ export interface ContactCandidateCompanyConsistency {
   explanation: string;
 }
 
+/**
+ * Metadata de teléfono conservada desde el proveedor (PHONE-3A). Aditiva y
+ * opcional: candidatos previos al hito no la tienen y el teléfono nunca es
+ * obligatorio. En PHONE-3A el único emisor es Apollo search (`apollo_search`),
+ * que entrega el tipo gratis sin reveal ni costo adicional.
+ */
+export interface ContactCandidatePhoneMetadata {
+  number?: string | null;
+  type?: PhoneType | string | null;
+  source?: PhoneSource | string | null;
+  raw_type?: string | null;
+}
+
 export interface ContactCandidateEnrichmentMetadata {
   relevance?: ContactCandidateRelevanceMetadata;
   apollo_search_attempt?: string | null;
   company_consistency?: ContactCandidateCompanyConsistency | null;
+  /**
+   * Tipo/fuente de teléfono conservado desde el payload del proveedor
+   * (PHONE-3A). Ausente cuando no hay teléfono utilizable. No obligatorio.
+   */
+  phone?: ContactCandidatePhoneMetadata | null;
   /**
    * Evidencia de consistencia de identidad de persona para candidatos Lusha
    * company-first (17B.4W.6). Ausente en candidatos legacy previos al hito.
