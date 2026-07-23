@@ -25,6 +25,7 @@ import type { MultiSelectOption } from '@/components/forms/multi-select';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { executeProspectWizardGenerationAction } from '@/modules/prospect-batches/chat-wizard-execution';
+import { resolveWizardLushaCriteria } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { WizardMessageList } from './wizard-message-list';
 import { WizardActiveStep } from './wizard-active-step';
 import {
@@ -57,9 +58,16 @@ type ProspectChatWizardProps = {
   catalog: ActiveIndustryCatalog;
   onClose: () => void;
   executionEnabled?: boolean;
+  /**
+   * Q3F-5BB.3E — When true, the final search step uses Lusha as a HIDDEN
+   * discovery provider (read-only) if the collected criteria are compatible.
+   * The conversational flow is identical either way; Lusha only backs the final
+   * "Buscar con IA" search. Gated by ENABLE_LUSHA_PREVIEW upstream. Default false.
+   */
+  lushaPreviewEnabled?: boolean;
 };
 
-export function ProspectChatWizard({ catalog, onClose, executionEnabled = false }: ProspectChatWizardProps) {
+export function ProspectChatWizard({ catalog, onClose, executionEnabled = false, lushaPreviewEnabled = false }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
     undefined,
@@ -189,6 +197,31 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false 
   }, [messages.length, messages, playMessageSound]);
 
   const progress = React.useMemo(() => getWizardProgress(state), [state]);
+
+  // ── Hidden Lusha provider decision for the final search step ────────────────
+  // Pure: classifies the collected criteria + builds the read-only Lusha input.
+  // NEVER runs Lusha — the explicit "Buscar con IA" click is the only trigger.
+  const lushaCriteria = React.useMemo(
+    () =>
+      resolveWizardLushaCriteria(
+        {
+          countryCode: state.countryCode,
+          industryId: state.industryId,
+          subindustryIds: state.subindustryIds,
+          additionalCriteriaRaw: state.additionalCriteriaRaw,
+        },
+        catalog,
+        lushaPreviewEnabled,
+      ),
+    [
+      state.countryCode,
+      state.industryId,
+      state.subindustryIds,
+      state.additionalCriteriaRaw,
+      catalog,
+      lushaPreviewEnabled,
+    ],
+  );
 
   // ── Catalog options derived for UI ────────────────────────────────────────
 
@@ -582,6 +615,8 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false 
                 executionEnabled={executionEnabled}
                 onExecute={handleExecute}
                 onEditSearch={handleEditSearch}
+                lushaPreviewEnabled={lushaPreviewEnabled}
+                lushaCriteria={lushaCriteria}
               />
             ) : (
               <WizardActiveStep

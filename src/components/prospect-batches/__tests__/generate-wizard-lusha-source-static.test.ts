@@ -1,18 +1,21 @@
 /**
- * Q3F-5BB.3D — Static wiring guard: Lusha is a HIDDEN provider (no source tabs).
+ * Q3F-5BB.3E — Static wiring guard: CONVERSATIONAL wizard restored; Lusha is a
+ * HIDDEN provider used ONLY at the final search step.
  *
- * Q3F-5BB.3C had shipped two visible source tabs ("Búsqueda con IA" /
- * "Lusha (previsualización)"). The user rejected that. This suite proves, as
- * source-text assertions, that:
- *   1. The visible source selector is gone: no "Fuente de generación" title, no
- *      tab labels, no role="tab" switch in the criteria section.
- *   2. "Generar con IA" stays the single entry point and still receives the
- *      lushaPreviewEnabled flag.
- *   3. The wizard drawer renders the hidden-provider criteria section (not a tab
- *      selector) when the flag is on, and suppresses the IA generation footer.
- *   4. The section reuses LushaPreviewPanel, resolves the provider via
- *      resolveProspectDiscoveryProvider, exposes NO persistence / HubSpot /
- *      enrichment CTA, and does NOT auto-run Lusha (no useEffect).
+ * Q3F-5BB.3D had (incorrectly) replaced the conversational "Generar con IA"
+ * wizard body with a FLAT criteria form (`ProspectCriteriaSection`). The user
+ * rejected that. This suite proves, as source-text assertions, that:
+ *   1. The conversational `ProspectChatWizard` is the wizard body again — the
+ *      flat form component and the `renderBody` body-swap are gone.
+ *   2. There are NO source tabs anywhere (no "Fuente de generación", no
+ *      "Búsqueda con IA" / "Lusha (previsualización)" tabs, no role="tab").
+ *   3. "Generar con IA" stays the single entry point; the flag is threaded down
+ *      to the conversational wizard.
+ *   4. The final search step wires Lusha as a hidden provider: the summary gates
+ *      `WizardLushaFinalSearch` on provider === 'lusha', that component reuses
+ *      `LushaPreviewPanel`, shows traceability only, exposes NO persistence /
+ *      HubSpot / enrichment CTA, and does NOT auto-run (no useEffect).
+ *   5. The criteria bridge + resolver are pure, side-effect-free modules.
  */
 
 import { readFileSync } from 'fs';
@@ -25,50 +28,65 @@ const ROOT = process.cwd();
 const FILES = {
   panel: join(ROOT, 'src/components/prospects/prospects-module-panel.tsx'),
   drawer: join(ROOT, 'src/components/prospect-batches/generate-ai-batch-drawer.tsx'),
-  sourceSection: join(ROOT, 'src/components/prospect-batches/generate-wizard-source-section.tsx'),
+  wizard: join(ROOT, 'src/components/prospect-batches/chat-wizard/prospect-chat-wizard.tsx'),
+  summary: join(ROOT, 'src/components/prospect-batches/chat-wizard/wizard-conversation-summary.tsx'),
+  finalSearch: join(ROOT, 'src/components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx'),
   lushaDrawerFile: join(ROOT, 'src/components/prospect-batches/lusha-preview-drawer.tsx'),
   resolver: join(ROOT, 'src/modules/prospect-batches/prospect-discovery-provider.ts'),
+  criteria: join(ROOT, 'src/modules/prospect-batches/wizard-lusha-criteria.ts'),
 };
 
 const sources = {
   panel: readFileSync(FILES.panel, 'utf-8'),
   drawer: readFileSync(FILES.drawer, 'utf-8'),
-  sourceSection: readFileSync(FILES.sourceSection, 'utf-8'),
+  wizard: readFileSync(FILES.wizard, 'utf-8'),
+  summary: readFileSync(FILES.summary, 'utf-8'),
+  finalSearch: readFileSync(FILES.finalSearch, 'utf-8'),
   lushaDrawerFile: readFileSync(FILES.lushaDrawerFile, 'utf-8'),
   resolver: readFileSync(FILES.resolver, 'utf-8'),
+  criteria: readFileSync(FILES.criteria, 'utf-8'),
 };
 
-describe('No visible source tabs remain (product decision Q3F-5BB.3D)', () => {
-  it('the criteria section exposes NO "Fuente de generación" selector', () => {
-    assert.doesNotMatch(sources.sourceSection, /Fuente de generación/);
+describe('Conversational wizard restored (product decision Q3F-5BB.3E)', () => {
+  it('the flat criteria form component is no longer imported by the drawer', () => {
+    assert.doesNotMatch(sources.drawer, /ProspectCriteriaSection/);
+    assert.doesNotMatch(sources.drawer, /generate-wizard-source-section/);
   });
 
-  it('the criteria section exposes NO "Búsqueda con IA" tab label', () => {
-    assert.doesNotMatch(sources.sourceSection, /Búsqueda con IA/);
+  it('the drawer no longer body-swaps the wizard via a renderBody helper', () => {
+    assert.doesNotMatch(sources.drawer, /renderBody/);
+    assert.doesNotMatch(sources.drawer, /lushaPreviewEnabled \? <ProspectCriteriaSection/);
   });
 
-  it('the criteria section exposes NO "Lusha (previsualización)" tab label', () => {
-    assert.doesNotMatch(sources.sourceSection, /Lusha \(previsualización\)/);
+  it('the drawer renders the conversational ProspectChatWizard as the body', () => {
+    assert.match(sources.drawer, /<ProspectChatWizard/);
   });
 
-  it('the criteria section has NO tab switch (no role="tab" / tablist)', () => {
-    assert.doesNotMatch(sources.sourceSection, /role="tab"/);
-    assert.doesNotMatch(sources.sourceSection, /role="tablist"/);
+  it('the drawer threads lushaPreviewEnabled into the conversational wizard', () => {
+    assert.match(sources.drawer, /<ProspectChatWizard[\s\S]*?lushaPreviewEnabled=\{lushaPreviewEnabled\}/);
   });
 
-  it('the drawer no longer imports the removed GenerationSourceSection tab component', () => {
-    assert.doesNotMatch(sources.drawer, /GenerationSourceSection/);
+  it('the drawer no longer suppresses the legacy footer on the flag', () => {
+    assert.doesNotMatch(sources.drawer, /lushaPreviewEnabled \? undefined/);
   });
 });
 
-describe('Standalone Lusha button stays removed; panel stays reusable', () => {
-  it('prospects-module-panel no longer references a standalone LushaPreviewDrawer', () => {
-    assert.doesNotMatch(sources.panel, /LushaPreviewDrawer/);
+describe('No visible source tabs remain (product decision)', () => {
+  it('no "Fuente de generación" selector in wizard/summary/final-search', () => {
+    assert.doesNotMatch(sources.wizard, /Fuente de generación/);
+    assert.doesNotMatch(sources.summary, /Fuente de generación/);
+    assert.doesNotMatch(sources.finalSearch, /Fuente de generación/);
   });
 
-  it('lusha-preview-drawer exports the reusable LushaPreviewPanel', () => {
-    assert.match(sources.lushaDrawerFile, /export function LushaPreviewPanel/);
-    assert.doesNotMatch(sources.lushaDrawerFile, /export function LushaPreviewDrawer/);
+  it('no "Búsqueda con IA" / "Lusha (previsualización)" tab labels', () => {
+    for (const src of [sources.wizard, sources.summary, sources.finalSearch]) {
+      assert.doesNotMatch(src, /Lusha \(previsualización\)/);
+    }
+  });
+
+  it('no tab switch (no role="tab" / tablist) in the final-search surface', () => {
+    assert.doesNotMatch(sources.finalSearch, /role="tab"/);
+    assert.doesNotMatch(sources.finalSearch, /role="tablist"/);
   });
 });
 
@@ -81,52 +99,72 @@ describe('"Generar con IA" remains the single entry point and receives the flag'
   it('the CTA copy "Generar con IA" is preserved in the wizard drawer', () => {
     assert.match(sources.drawer, /Generar con IA/);
   });
-});
 
-describe('Wizard drawer renders the hidden-provider criteria section on the flag', () => {
-  it('drawer imports ProspectCriteriaSection and gates it on lushaPreviewEnabled', () => {
-    assert.match(sources.drawer, /ProspectCriteriaSection/);
-    assert.match(sources.drawer, /lushaPreviewEnabled \? <ProspectCriteriaSection \/> : iaContent/);
+  it('prospects-module-panel no longer references a standalone LushaPreviewDrawer', () => {
+    assert.doesNotMatch(sources.panel, /LushaPreviewDrawer/);
   });
 
-  it('drawer suppresses the IA generation footer when the flag is on', () => {
-    assert.match(sources.drawer, /lushaPreviewEnabled \? undefined :/);
+  it('lusha-preview-drawer exports the reusable LushaPreviewPanel', () => {
+    assert.match(sources.lushaDrawerFile, /export function LushaPreviewPanel/);
+    assert.doesNotMatch(sources.lushaDrawerFile, /export function LushaPreviewDrawer/);
   });
 });
 
-describe('Criteria section is read-only, reuses the panel, and resolves the provider', () => {
-  it('reuses LushaPreviewPanel (no duplicated Lusha logic)', () => {
-    assert.match(sources.sourceSection, /LushaPreviewPanel/);
+describe('Final search step wires Lusha as a hidden provider', () => {
+  it('the summary gates the final Lusha search on provider === "lusha"', () => {
+    assert.match(sources.summary, /WizardLushaFinalSearch/);
+    assert.match(sources.summary, /lushaCriteria\.provider === 'lusha'/);
   });
 
-  it('resolves the internal provider via resolveProspectDiscoveryProvider', () => {
-    assert.match(sources.sourceSection, /resolveProspectDiscoveryProvider/);
+  it('the conversational wizard resolves the hidden provider decision', () => {
+    assert.match(sources.wizard, /resolveWizardLushaCriteria/);
+  });
+
+  it('the final-search component reuses LushaPreviewPanel (no duplicated Lusha logic)', () => {
+    assert.match(sources.finalSearch, /LushaPreviewPanel/);
+  });
+
+  it('the final-search CTA copy is "Buscar con IA"', () => {
+    assert.match(sources.finalSearch, /Buscar con IA/);
   });
 
   it('shows provider traceability only in results (no visible selector)', () => {
-    assert.match(sources.sourceSection, /providerTraceabilityLabel/);
+    assert.match(sources.finalSearch, /providerTraceabilityLabel/);
   });
 
-  it('does NOT auto-run: no useEffect / useLayoutEffect in the section', () => {
-    assert.doesNotMatch(sources.sourceSection, /useEffect/);
-    assert.doesNotMatch(sources.sourceSection, /useLayoutEffect/);
+  it('does NOT auto-run: no useEffect / useLayoutEffect in the final-search component', () => {
+    assert.doesNotMatch(sources.finalSearch, /useEffect/);
+    assert.doesNotMatch(sources.finalSearch, /useLayoutEffect/);
   });
 
-  it('exposes NO persistence / HubSpot / enrichment CTA', () => {
-    assert.doesNotMatch(sources.sourceSection, /HubSpot|hubspot/);
-    assert.doesNotMatch(sources.sourceSection, /enrich|Enrich/);
-    assert.doesNotMatch(sources.sourceSection, /Crear prospecto|Guardar|Aprobar|Enviar a HubSpot/);
-    assert.doesNotMatch(sources.sourceSection, /generateAIProspectBatch/);
+  it('exposes NO persistence / HubSpot / enrichment CTA in the final-search surface', () => {
+    assert.doesNotMatch(sources.finalSearch, /HubSpot|hubspot/);
+    assert.doesNotMatch(sources.finalSearch, /enrich|Enrich/);
+    assert.doesNotMatch(sources.finalSearch, /Crear prospecto|Guardar|Aprobar|Enviar a HubSpot/);
+    assert.doesNotMatch(sources.finalSearch, /generateAIProspectBatch/);
   });
 });
 
-describe('Provider resolver is a pure, side-effect-free module', () => {
-  it('does not import Apollo / Tavily / Supabase / HubSpot', () => {
+describe('Provider resolver + criteria bridge are pure, side-effect-free modules', () => {
+  it('resolver does not import Apollo / Tavily / Supabase / HubSpot', () => {
     assert.doesNotMatch(sources.resolver, /apollo|tavily|supabase|hubspot/i);
   });
 
-  it('does not read env vars or perform I/O directly', () => {
+  it('resolver does not read env vars or perform I/O directly', () => {
     assert.doesNotMatch(sources.resolver, /process\.env/);
     assert.doesNotMatch(sources.resolver, /fetch\(/);
+  });
+
+  it('criteria bridge does not import Apollo / Tavily / Supabase / HubSpot', () => {
+    assert.doesNotMatch(sources.criteria, /apollo|tavily|supabase|hubspot/i);
+  });
+
+  it('criteria bridge does not read env vars or perform I/O directly', () => {
+    assert.doesNotMatch(sources.criteria, /process\.env/);
+    assert.doesNotMatch(sources.criteria, /fetch\(/);
+  });
+
+  it('criteria bridge never runs Lusha (no server action import)', () => {
+    assert.doesNotMatch(sources.criteria, /previewLushaCompaniesAction/);
   });
 });

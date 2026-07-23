@@ -13,6 +13,8 @@ import type {
   EditableWizardStep,
 } from '@/modules/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
+import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
+import { WizardLushaFinalSearch } from './wizard-lusha-final-search';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +26,10 @@ type WizardConversationSummaryProps = {
   executionEnabled: boolean;
   onExecute: () => void;
   onEditSearch: () => void;
+  /** Q3F-5BB.3E — hidden Lusha provider gate for the final search step. */
+  lushaPreviewEnabled: boolean;
+  /** Q3F-5BB.3E — resolved provider decision + read-only Lusha input. */
+  lushaCriteria: WizardLushaCriteriaDecision;
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -36,6 +42,8 @@ export function WizardConversationSummary({
   executionEnabled,
   onExecute,
   onEditSearch,
+  lushaPreviewEnabled,
+  lushaCriteria,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -50,6 +58,8 @@ export function WizardConversationSummary({
         onExecute={onExecute}
         executionError={state.executionError}
         onEditSearch={onEditSearch}
+        lushaPreviewEnabled={lushaPreviewEnabled}
+        lushaCriteria={lushaCriteria}
       />
     );
   }
@@ -114,9 +124,24 @@ type ValidatedPanelProps = {
   onExecute: () => void;
   executionError: { code: string; message: string; retryable: boolean } | null;
   onEditSearch: () => void;
+  lushaPreviewEnabled: boolean;
+  lushaCriteria: WizardLushaCriteriaDecision;
 };
 
-function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, executionError, onEditSearch }: ValidatedPanelProps) {
+function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, executionError, onEditSearch, lushaPreviewEnabled, lushaCriteria }: ValidatedPanelProps) {
+  // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
+  // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
+  // (explicit click only, no persistence). Otherwise the existing IA generation
+  // (or the "not enabled yet" message) is preserved unchanged.
+  const useLushaFinalSearch =
+    lushaPreviewEnabled && lushaCriteria.provider === 'lusha' && lushaCriteria.input !== null;
+
+  const validBody = useLushaFinalSearch
+    ? 'Revisa los criterios y ejecuta la búsqueda. Los resultados son de solo lectura: nada se guarda todavía.'
+    : executionEnabled
+      ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
+      : 'La generación real todavía no está habilitada.';
+
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
       <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
@@ -129,9 +154,7 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
             La configuración es válida.
           </p>
           <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
-            {executionEnabled
-              ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
-              : 'La generación real todavía no está habilitada.'}
+            {validBody}
           </p>
         </div>
       </div>
@@ -143,7 +166,13 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
         </div>
       )}
 
-      {executionEnabled && (
+      {/* Hidden Lusha provider — final read-only search surface. */}
+      {useLushaFinalSearch && lushaCriteria.input && (
+        <WizardLushaFinalSearch input={lushaCriteria.input} />
+      )}
+
+      {/* Real IA generation — only when explicitly enabled and Lusha is not backing this search. */}
+      {!useLushaFinalSearch && executionEnabled && (
         <Button
           type="button"
           size="sm"
