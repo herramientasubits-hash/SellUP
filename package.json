@@ -190,7 +190,8 @@
     "test:agent2a:identity-override-ui-17b4w8a": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-sheet-identity-override-17b4w8a.test.tsx",
     "test:agent2a:account-run-history-legacy-grouping-17b4x7c3g": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/account-agents-run-history-legacy-grouping-17b4x7c3g.test.tsx",
     "test:agent2a:routing-wire1": "node --import tsx --test src/components/contact-enrichment/__tests__/contact-enrichment-wizard-routing-wire1.test.ts",
-    "test:agent2a:phone-badge-ui": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-badge.test.tsx src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-badge-static.test.ts"
+    "test:agent2a:phone-badge-ui": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-badge.test.tsx src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-badge-static.test.ts",
+    "test:agent2a:phone-metadata-contacts": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-review-phone-metadata-3c.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
