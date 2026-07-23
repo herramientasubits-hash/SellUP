@@ -1093,10 +1093,18 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'ec_scvs',
     name: 'SCVS / Supercias Ecuador',
+    // Estado operativo real (EC-SCVS): snapshot productivo cargado + adapter de
+    // enrichment conectado, pero el flujo IA sigue en piloto controlado. NO live
+    // automático y NO listo para expansión (siguiente hito: EC-SCVS-13B, segundo
+    // piloto live controlado). Enrichment post-discovery vía el adapter `ln`.
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'controlled_pilot',
+    connectionMode: 'backend_connected',
+    nextAction: 'Segundo piloto live controlado (EC-SCVS-13B)',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P0',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'validated',
     type: 'official_registry',
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'medium',
