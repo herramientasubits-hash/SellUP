@@ -1,9 +1,15 @@
 /**
- * Static offline guard — the new automatic-routing action stays dark
- * (Hito 17B.4X.7C.5C). This repo has no local live-Postgres/Apollo/Lusha
- * test harness, so "nothing else wires to it yet" is proven as a static
- * source-text assertion (same technique as run-viewer-no-provider-calls.test.ts
- * and contact-enrichment-routing-orchestrator.test.ts's scenario J).
+ * Static offline guard — AGENT2-ROUTING-WIRE-1.
+ *
+ * Originally (Hito 17B.4X.7C.5C) this file proved the automatic-routing action
+ * stayed dark: the wizard called only the manual per-provider actions. That
+ * decision is reversed by AGENT2-ROUTING-WIRE-1 — the wizard CTA now runs the
+ * automatic Apollo→Lusha router and the user no longer picks a provider. The
+ * assertions below are updated to lock the NEW contract: the wizard wires the
+ * automatic action and is fully decoupled from the manual per-provider request
+ * actions. This repo has no local live-Postgres/Apollo/Lusha harness, so the
+ * wiring is proven as a static source-text assertion (same technique as
+ * run-viewer-no-provider-calls.test.ts and the orchestrator test's scenario J).
  */
 
 import { readFileSync } from 'fs';
@@ -40,15 +46,15 @@ describe('Manual per-provider actions stay untouched by automatic routing', () =
   });
 });
 
-describe('UI stays on manual actions only', () => {
-  it('wizard does not import or call the automatic-routing action', () => {
-    assert.doesNotMatch(sources.wizard, /runAutomaticContactEnrichmentForRequestAction/);
-    assert.doesNotMatch(sources.wizard, /automatic-routing-action/);
+describe('Wizard CTA is wired to the automatic-routing action (AGENT2-ROUTING-WIRE-1)', () => {
+  it('wizard imports and calls the automatic-routing action', () => {
+    assert.match(sources.wizard, /runAutomaticContactEnrichmentForRequestAction/);
+    assert.match(sources.wizard, /automatic-routing-actions/);
   });
 
-  it('wizard still calls the manual per-provider actions', () => {
-    assert.match(sources.wizard, /runContactEnrichmentApolloForRequestAction/);
-    assert.match(sources.wizard, /runContactEnrichmentLushaForRequestAction/);
+  it('wizard no longer calls the manual per-provider request actions from the CTA', () => {
+    assert.doesNotMatch(sources.wizard, /runContactEnrichmentApolloForRequestAction/);
+    assert.doesNotMatch(sources.wizard, /runContactEnrichmentLushaForRequestAction/);
   });
 });
 
