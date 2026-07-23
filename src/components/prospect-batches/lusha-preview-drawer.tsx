@@ -24,7 +24,6 @@ import {
   Settings2,
   ExternalLink,
 } from 'lucide-react';
-import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -421,27 +420,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
   );
 }
 
-// ── Drawer wrapper ─────────────────────────────────────────────────────────────
-
-export function LushaPreviewDrawer() {
-  const [open, setOpen] = React.useState(false);
-
-  return (
-    <DrawerShell
-      open={open}
-      onOpenChange={setOpen}
-      trigger={
-        <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={() => setOpen(true)}>
-          <Search className="h-3.5 w-3.5" />
-          Previsualizar en Lusha
-        </Button>
-      }
-      title="Previsualizar empresas en Lusha"
-      description="Búsqueda read-only. Nada se guarda en SellUp."
-      icon={<Search className="h-4 w-4 text-su-brand" />}
-      size="xl"
-    >
-      <LushaPreviewPanel />
-    </DrawerShell>
-  );
-}
+// ── Note (Q3F-5BB.3C) ──────────────────────────────────────────────────────────
+// The standalone `LushaPreviewDrawer` was removed. Lusha preview now renders
+// INSIDE the "Generar con IA" wizard via `GenerationSourceSection`, which reuses
+// the `LushaPreviewPanel` exported above. No separate Prospectos action remains.
