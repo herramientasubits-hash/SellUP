@@ -27,7 +27,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { probeLatestNativeSnapshotsByTaxId } from '../../snapshot-read/snapshot-read-contract';
 import type { SnapshotReadClient, SnapshotIdentityRow } from '../../snapshot-read/snapshot-read-contract';
-import { normalizeEcuadorRuc } from './ec-ruc-normalizer';
+import { validateEcuadorRucForScvsLookup } from './ec-ruc-lookup-validator';
 import type {
   SourceEnrichmentAdapter,
   SourceEnrichmentInput,
@@ -57,6 +57,32 @@ function getAdminSupabase(): SupabaseClient | null {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) return null;
   return createClient(url, serviceKey);
+}
+
+/** Snapshot probe used to resolve a RUC. Kept as a type alias for injection. */
+type ProbeLatestNativeFn = typeof probeLatestNativeSnapshotsByTaxId;
+
+/**
+ * Injectable dependencies for the ec_scvs enrichment core. Defaults resolve the
+ * real admin Supabase client and the real snapshot probe; tests inject offline
+ * fakes so the matched / no_match / multiplicity / invalid-skip paths can be
+ * exercised without any network or production access.
+ */
+export interface EcScvsEnrichmentDeps {
+  /** Returns the snapshot read client, or null when it cannot be created. */
+  getClient?: () => SnapshotReadClient<SnapshotIdentityRow> | null;
+  /** The latest-year NATIVE_RECORD_GRAIN probe. */
+  probe?: ProbeLatestNativeFn;
+}
+
+/** Default client getter — the real admin Supabase client (see cast note below). */
+function defaultGetClient(): SnapshotReadClient<SnapshotIdentityRow> | null {
+  // Cast through `unknown` to the minimal contract surface — mirrors every other
+  // snapshot reader (e.g. siis-enrichment-adapter). The direct cast
+  // short-circuits the structural check between supabase-js's deeply generic
+  // PostgrestQueryBuilder and SnapshotReadClient, which otherwise triggers
+  // "Type instantiation is excessively deep and possibly infinite" (TS2589).
+  return getAdminSupabase() as unknown as SnapshotReadClient<SnapshotIdentityRow> | null;
 }
 
 // ─── Result builders ──────────────────────────────────────────────────────────
@@ -133,82 +159,97 @@ function buildErrorResult(reason: string): SourceEnrichmentOutput {
 
 // ─── Main enrichment adapter ──────────────────────────────────────────────────
 
+/**
+ * Core enrichment logic with injectable dependencies. The exported adapter wraps
+ * this with the real client + probe; tests inject offline fakes.
+ *
+ * Order of guards is load-bearing: the RUC is semantically validated BEFORE any
+ * client is created or probe is run, so a structurally/semantically invalid RUC
+ * (missing, all-zeros, impossible province, wrong length) is `skipped` and NEVER
+ * triggers a snapshot lookup (EC-SCVS-12FIX).
+ */
+export async function enrichEcScvsCandidate(
+  input: SourceEnrichmentInput,
+  deps: EcScvsEnrichmentDeps = {},
+): Promise<SourceEnrichmentOutput> {
+  const getClient = deps.getClient ?? defaultGetClient;
+  const probe = deps.probe ?? probeLatestNativeSnapshotsByTaxId;
+
+  const { countryCode, candidateTaxId } = input;
+
+  // Guard: EC only
+  if ((countryCode ?? '').toUpperCase() !== 'EC') {
+    return buildSkippedResult('not_ec_country');
+  }
+
+  // Guard: RUC required
+  if (!candidateTaxId || !candidateTaxId.trim()) {
+    return buildSkippedResult('missing_ruc');
+  }
+
+  const rawRuc = candidateTaxId.trim();
+
+  // Guard: RUC must be structurally AND semantically valid for lookup.
+  // Uses the lookup-specific validator (province + all-zeros checks) rather than
+  // the ingest normalizer, so invalid identifiers skip WITHOUT a snapshot lookup.
+  const rucValidation = validateEcuadorRucForScvsLookup(rawRuc);
+  if (!rucValidation.valid || !rucValidation.normalizedTaxId) {
+    return buildSkippedResult(`invalid_ruc_format: ${rucValidation.reason ?? 'invalid'}`);
+  }
+
+  const normalizedRuc = rucValidation.normalizedTaxId;
+
+  try {
+    const supabase = getClient();
+    if (!supabase) {
+      return buildErrorResult('snapshot_unavailable (SUPABASE_SERVICE_ROLE_KEY not configured)');
+    }
+
+    // Probe for RUC matches in latest year (NATIVE_RECORD_GRAIN).
+    const probeResult = await probe({
+      client: supabase,
+      sourceKey: SOURCE_KEY,
+      countryCode: COUNTRY_CODE,
+      normalizedTaxId: normalizedRuc,
+      selectColumns: SNAPSHOT_SELECT_COLUMNS,
+    });
+
+    // Handle probe results
+    if (probeResult.status === 'FOUND' && probeResult.row) {
+      // Single match found
+      return buildMatchedResult(probeResult.row);
+    }
+
+    if (probeResult.status === 'MULTI_RECORD_SAME_FISCAL_IDENTITY') {
+      // Multiple expedientes for same RUC — surface as ambiguous (human review)
+      return buildAmbiguousResult(
+        probeResult.recordCount,
+        probeResult.recordIdentityKeys ?? [],
+      );
+    }
+
+    if (probeResult.status === 'RECORD_IDENTITY_NOT_FOUND') {
+      // No snapshot records for this RUC
+      return buildNotFoundResult();
+    }
+
+    if (probeResult.status === 'IDENTITY_UNAVAILABLE') {
+      // RUC normalization failed or missing
+      return buildSkippedResult('identity_unavailable');
+    }
+
+    // Unexpected status
+    return buildErrorResult(`unexpected_probe_status: ${probeResult.status}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return buildErrorResult(msg);
+  }
+}
+
+// ─── Adapter (public) ─────────────────────────────────────────────────────────
+
 export const ecScvsEnrichmentAdapter: SourceEnrichmentAdapter = {
   sourceKey: SOURCE_KEY,
   supportedCapabilities: SUPPORTED_CAPABILITIES,
-
-  async enrichCandidate(input: SourceEnrichmentInput): Promise<SourceEnrichmentOutput> {
-    const { countryCode, candidateTaxId } = input;
-
-    // Guard: EC only
-    if ((countryCode ?? '').toUpperCase() !== 'EC') {
-      return buildSkippedResult('not_ec_country');
-    }
-
-    // Guard: RUC required
-    if (!candidateTaxId || !candidateTaxId.trim()) {
-      return buildSkippedResult('missing_ruc');
-    }
-
-    const rawRuc = candidateTaxId.trim();
-    const rucResult = normalizeEcuadorRuc(rawRuc);
-
-    // Guard: RUC must be valid format
-    if (rucResult.status !== 'valid' || !rucResult.normalized) {
-      return buildSkippedResult(`invalid_ruc_format: ${rucResult.status}`);
-    }
-
-    const normalizedRuc = rucResult.normalized;
-
-    try {
-      const supabase = getAdminSupabase();
-      if (!supabase) {
-        return buildErrorResult('snapshot_unavailable (SUPABASE_SERVICE_ROLE_KEY not configured)');
-      }
-
-      // Probe for RUC matches in latest year (NATIVE_RECORD_GRAIN).
-      // Cast through `unknown` to the minimal contract surface — mirrors every
-      // other snapshot reader (e.g. siis-enrichment-adapter). The direct cast
-      // short-circuits the structural check between supabase-js's deeply generic
-      // PostgrestQueryBuilder and SnapshotReadClient, which otherwise triggers
-      // "Type instantiation is excessively deep and possibly infinite" (TS2589).
-      const probeResult = await probeLatestNativeSnapshotsByTaxId({
-        client: supabase as unknown as SnapshotReadClient<SnapshotIdentityRow>,
-        sourceKey: SOURCE_KEY,
-        countryCode: COUNTRY_CODE,
-        normalizedTaxId: normalizedRuc,
-        selectColumns: SNAPSHOT_SELECT_COLUMNS,
-      });
-
-      // Handle probe results
-      if (probeResult.status === 'FOUND' && probeResult.row) {
-        // Single match found
-        return buildMatchedResult(probeResult.row);
-      }
-
-      if (probeResult.status === 'MULTI_RECORD_SAME_FISCAL_IDENTITY') {
-        // Multiple expedientes for same RUC — surface as ambiguous (human review)
-        return buildAmbiguousResult(
-          probeResult.recordCount,
-          probeResult.recordIdentityKeys ?? [],
-        );
-      }
-
-      if (probeResult.status === 'RECORD_IDENTITY_NOT_FOUND') {
-        // No snapshot records for this RUC
-        return buildNotFoundResult();
-      }
-
-      if (probeResult.status === 'IDENTITY_UNAVAILABLE') {
-        // RUC normalization failed or missing
-        return buildSkippedResult('identity_unavailable');
-      }
-
-      // Unexpected status
-      return buildErrorResult(`unexpected_probe_status: ${probeResult.status}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return buildErrorResult(msg);
-    }
-  },
+  enrichCandidate: (input: SourceEnrichmentInput) => enrichEcScvsCandidate(input),
 };

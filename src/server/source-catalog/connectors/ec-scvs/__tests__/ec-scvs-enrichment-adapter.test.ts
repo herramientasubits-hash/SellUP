@@ -16,8 +16,21 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ecScvsEnrichmentAdapter } from '../ec-scvs-enrichment-adapter';
+import {
+  ecScvsEnrichmentAdapter,
+  enrichEcScvsCandidate,
+  type EcScvsEnrichmentDeps,
+} from '../ec-scvs-enrichment-adapter';
 import type { SourceEnrichmentInput } from '../../../enrichment/types';
+import { probeLatestNativeSnapshotsByTaxId } from '../../../snapshot-read/snapshot-read-contract';
+import type {
+  SnapshotReadClient,
+  SnapshotIdentityRow,
+} from '../../../snapshot-read/snapshot-read-contract';
+import {
+  createFakeSnapshotSupabaseClient,
+  type FakeSnapshotRow,
+} from '../../../snapshot-read/__tests__/snapshot-read-fake-supabase';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -226,5 +239,182 @@ describe('ecScvsEnrichmentAdapter — integration safety', () => {
     assert.strictEqual(result.matchedBy, null);
     assert(typeof result.confidence === 'number');
     assert(typeof result.priorityBoost === 'number');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// EC-SCVS-12FIX — offline snapshot paths + invalid-RUC lookup gate
+//
+// Fully offline: an in-memory fake snapshot client is injected, so the
+// matched / no_match / multiplicity paths run WITHOUT any network or production
+// access. The invalid-RUC path is proven to skip WITHOUT touching the client or
+// the probe (the EC-SCVS-11B deviation).
+// ════════════════════════════════════════════════════════════════════════════
+
+const VALID_RUC = '1790013731001'; // Pichincha (17), suffix 001
+const VALID_RUC_ALT_SUFFIX = '1790013731099'; // suffix != 001, still valid
+const ALL_ZERO_RUC = '0000000000000';
+const BAD_PROVINCE_RUC = '2590013731001'; // province 25 (invalid)
+
+function ecRow(overrides: Partial<FakeSnapshotRow> = {}): FakeSnapshotRow {
+  return {
+    source_key: 'ec_scvs',
+    country_code: 'EC',
+    source_year: 2024,
+    normalized_tax_id: VALID_RUC,
+    record_identity_key: 'expediente:EC:000001',
+    raw_data: { secret_field: 'MUST_NOT_LEAK', razon_social: 'ACME EC' },
+    ...overrides,
+  };
+}
+
+/** Deps that route through a fake snapshot client + the REAL probe. */
+function depsWithRows(rows: readonly FakeSnapshotRow[]): EcScvsEnrichmentDeps {
+  const client = createFakeSnapshotSupabaseClient(rows);
+  return {
+    getClient: () => client as unknown as SnapshotReadClient<SnapshotIdentityRow>,
+    probe: probeLatestNativeSnapshotsByTaxId,
+  };
+}
+
+describe('EC-SCVS-12FIX — snapshot lookup outcomes (offline fake client)', () => {
+  it('valid RUC with no snapshot → no_match / no_snapshot_match_by_ruc', async () => {
+    // Snapshot has a DIFFERENT RUC, so the probed RUC has zero rows.
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: VALID_RUC }),
+      depsWithRows([ecRow({ normalized_tax_id: '0990012345001' })]),
+    );
+    assert.equal(result.status, 'no_match');
+    assert.equal(result.reason, 'no_snapshot_match_by_ruc');
+    assert.equal(result.confidence, 0);
+  });
+
+  it('valid RUC with exactly one expediente → matched', async () => {
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: VALID_RUC }),
+      depsWithRows([ecRow()]),
+    );
+    assert.equal(result.status, 'matched');
+    assert.equal(result.matchedBy, null);
+    assert.equal(result.confidence, 1);
+    assert.equal(result.signals?.['expediente_found'], true);
+  });
+
+  it('valid RUC with multiple expedientes (same latest year) → no_match / multiplicity / human review', async () => {
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: VALID_RUC }),
+      depsWithRows([
+        ecRow({ record_identity_key: 'expediente:EC:000001' }),
+        ecRow({ record_identity_key: 'expediente:EC:000002' }),
+      ]),
+    );
+    assert.equal(result.status, 'no_match');
+    assert.equal(result.signals?.['ruc_multiplicity'], 'multiple');
+    assert.equal(result.signals?.['human_review_required'], true);
+  });
+
+  it('valid RUC with a non-001 suffix is not rejected by the suffix (matches when present)', async () => {
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: VALID_RUC_ALT_SUFFIX }),
+      depsWithRows([ecRow({ normalized_tax_id: VALID_RUC_ALT_SUFFIX })]),
+    );
+    assert.equal(result.status, 'matched');
+  });
+});
+
+describe('EC-SCVS-12FIX — invalid RUC skips WITHOUT a lookup', () => {
+  function spyingDeps() {
+    let clientCalled = false;
+    let probeCalled = false;
+    const deps: EcScvsEnrichmentDeps = {
+      getClient: () => {
+        clientCalled = true;
+        // Return a client that would explode if actually queried.
+        return createFakeSnapshotSupabaseClient([
+          ecRow(),
+        ]) as unknown as SnapshotReadClient<SnapshotIdentityRow>;
+      },
+      probe: async () => {
+        probeCalled = true;
+        throw new Error('probe must not be called for an invalid RUC');
+      },
+    };
+    return {
+      deps,
+      wasClientCalled: () => clientCalled,
+      wasProbeCalled: () => probeCalled,
+    };
+  }
+
+  it('all-zero RUC → skipped / invalid_ruc_format and NEVER probes', async () => {
+    const spy = spyingDeps();
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: ALL_ZERO_RUC }),
+      spy.deps,
+    );
+    assert.equal(result.status, 'skipped');
+    assert(result.reason?.startsWith('invalid_ruc_format'));
+    assert.equal(result.confidence, 0);
+    assert.equal(spy.wasClientCalled(), false, 'client must not be created');
+    assert.equal(spy.wasProbeCalled(), false, 'probe must not run');
+  });
+
+  it('invalid province RUC → skipped / invalid_ruc_format and NEVER probes', async () => {
+    const spy = spyingDeps();
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: BAD_PROVINCE_RUC }),
+      spy.deps,
+    );
+    assert.equal(result.status, 'skipped');
+    assert(result.reason?.startsWith('invalid_ruc_format'));
+    assert.equal(spy.wasClientCalled(), false);
+    assert.equal(spy.wasProbeCalled(), false);
+  });
+
+  it('missing RUC → skipped / missing_ruc and NEVER probes', async () => {
+    const spy = spyingDeps();
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: null }),
+      spy.deps,
+    );
+    assert.equal(result.status, 'skipped');
+    assert.equal(result.reason, 'missing_ruc');
+    assert.equal(spy.wasClientCalled(), false);
+    assert.equal(spy.wasProbeCalled(), false);
+  });
+});
+
+describe('EC-SCVS-12FIX — output never leaks raw_data or the full RUC', () => {
+  it('matched output contains no raw_data and no full RUC', async () => {
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: VALID_RUC }),
+      depsWithRows([ecRow()]),
+    );
+    assert.equal(result.status, 'matched');
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes('MUST_NOT_LEAK'), false, 'raw_data leaked');
+    assert.equal(serialized.includes('raw_data'), false, 'raw_data key present');
+    assert.equal(serialized.includes(VALID_RUC), false, 'full RUC leaked');
+  });
+
+  it('no_match output contains no raw_data and no full RUC', async () => {
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: VALID_RUC }),
+      depsWithRows([ecRow({ normalized_tax_id: '0990012345001' })]),
+    );
+    assert.equal(result.status, 'no_match');
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes('MUST_NOT_LEAK'), false);
+    assert.equal(serialized.includes(VALID_RUC), false, 'full RUC leaked');
+  });
+
+  it('skipped (invalid) output contains no full RUC', async () => {
+    const result = await enrichEcScvsCandidate(
+      mockInput({ countryCode: 'EC', candidateTaxId: ALL_ZERO_RUC }),
+      depsWithRows([ecRow()]),
+    );
+    assert.equal(result.status, 'skipped');
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes(ALL_ZERO_RUC), false, 'full RUC leaked');
   });
 });
