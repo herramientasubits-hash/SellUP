@@ -19,6 +19,7 @@ import type {
   ContactSource as CandidateSource,
   ContactCandidateStatus,
   ContactDuplicateStatus,
+  ContactCandidatePhoneRevealAudit,
   PhoneType,
   PhoneSource,
 } from './types';
@@ -221,6 +222,21 @@ export interface CandidateRecord {
   company_domain: string | null;
   /** Código ISO-2 del país resuelto en el run (MX, CO, CL…). Puede ser null. */
   country_code: string | null;
+  /**
+   * Auditoría del futuro Apollo phone reveal (PHONE-3D.2). Campos aditivos y
+   * opcionales/nullable: los candidatos actuales no los tienen y este hito NO
+   * revela nada. El reveal real, el costo y la obligatoriedad de la base de
+   * tratamiento llegan en PHONE-3D.3/3D.4.
+   */
+  phone_reveal_status?: ContactCandidatePhoneRevealAudit['phone_reveal_status'];
+  phone_revealed_at?: ContactCandidatePhoneRevealAudit['phone_revealed_at'];
+  phone_revealed_by?: ContactCandidatePhoneRevealAudit['phone_revealed_by'];
+  phone_reveal_provider?: ContactCandidatePhoneRevealAudit['phone_reveal_provider'];
+  phone_reveal_cost_credits?: ContactCandidatePhoneRevealAudit['phone_reveal_cost_credits'];
+  phone_reveal_cost_usd?: ContactCandidatePhoneRevealAudit['phone_reveal_cost_usd'];
+  phone_reveal_error_code?: ContactCandidatePhoneRevealAudit['phone_reveal_error_code'];
+  phone_processing_basis?: ContactCandidatePhoneRevealAudit['phone_processing_basis'];
+  phone_processing_basis_note?: ContactCandidatePhoneRevealAudit['phone_processing_basis_note'];
 }
 
 export interface ContactInsertPayload {

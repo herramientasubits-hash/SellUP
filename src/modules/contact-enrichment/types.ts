@@ -206,6 +206,49 @@ export interface ContactCandidatePhoneMetadata {
   raw_type?: string | null;
 }
 
+// ── Auditoría de phone reveal (PHONE-3D.2) ──────────────────────
+// Vocabularios aprobados por legal/producto para el FUTURO Apollo phone reveal
+// (PHONE-3D.3 server action + PHONE-3D.4 UI modal). Espejo del vocabulario de
+// la migración 095_candidate_phone_reveal_audit.sql. En este hito NO se revela
+// nada: estos tipos solo describen las columnas aditivas y nullable.
+
+/** Estado del intento de reveal de teléfono. */
+export type PhoneRevealStatus =
+  | 'not_requested'
+  | 'revealed'
+  | 'no_phone_found'
+  | 'error';
+
+/** Proveedor usado para el reveal. Solo Apollo (sin fallback Lusha). */
+export type PhoneRevealProvider = 'apollo';
+
+/** Base de tratamiento (habeas data) registrada en el path de reveal. */
+export type PhoneProcessingBasis =
+  | 'legitimate_interest_b2b'
+  | 'consent_obtained'
+  | 'existing_business_relationship'
+  | 'customer_requested_contact'
+  | 'other_approved_basis';
+
+/**
+ * Traza de auditoría del reveal de teléfono en un candidato (PHONE-3D.2).
+ * Aditiva y opcional/nullable: los candidatos existentes no la tienen y el
+ * enforcement obligatorio (basis requerido, nota si `other_approved_basis`)
+ * será del futuro server action, no de filas legacy. El reveal real, el costo
+ * y la llamada a Apollo llegan en PHONE-3D.3/3D.4.
+ */
+export interface ContactCandidatePhoneRevealAudit {
+  phone_reveal_status?: PhoneRevealStatus | null;
+  phone_revealed_at?: string | null;
+  phone_revealed_by?: string | null;
+  phone_reveal_provider?: PhoneRevealProvider | null;
+  phone_reveal_cost_credits?: number | null;
+  phone_reveal_cost_usd?: number | null;
+  phone_reveal_error_code?: string | null;
+  phone_processing_basis?: PhoneProcessingBasis | null;
+  phone_processing_basis_note?: string | null;
+}
+
 export interface ContactCandidateEnrichmentMetadata {
   relevance?: ContactCandidateRelevanceMetadata;
   apollo_search_attempt?: string | null;

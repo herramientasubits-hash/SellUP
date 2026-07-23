@@ -159,11 +159,24 @@ describe('PHONE-3D.1 — no hay superficie de reveal (action/UI/migración)', ()
     assert.equal(/reveal_phone_number/.test(detailSheet), false);
   });
 
-  it('no existe migración 095', () => {
+  // La migración 095 (auditoría de phone reveal) la introduce PHONE-3D.2, no
+  // 3D.1. El invariante que le importa a 3D.1 es que ninguna migración active
+  // un reveal real: si 095 existe, debe ser puramente aditiva y NO ejecutar
+  // reveal (sin `reveal_phone_number`, sin DDL destructiva).
+  it('la migración 095 (si existe) no ejecuta reveal ni es destructiva', () => {
     const migrationsDir = join(repoRoot, 'supabase', 'migrations');
     if (!existsSync(migrationsDir)) return; // sin migraciones en disco → nada que activar
-    const has095 = readdirSync(migrationsDir).some((f) => /^095[_-]/.test(f));
-    assert.equal(has095, false, 'PHONE-3D.1 no debe crear la migración 095');
+    const file = readdirSync(migrationsDir).find((f) => /^095[_-]/.test(f));
+    if (!file) return; // 095 aún no creada → nada que verificar
+    const sql = readFileSync(join(migrationsDir, file), 'utf8');
+    assert.equal(
+      REVEAL_TRUE.test(sql),
+      false,
+      'ninguna migración debe activar reveal_phone_number',
+    );
+    assert.equal(/\bDROP\s+(TABLE|COLUMN)\b/i.test(sql), false);
+    assert.equal(/\bDELETE\s+FROM\b/i.test(sql), false);
+    assert.equal(/\bTRUNCATE\b/i.test(sql), false);
   });
 });
 
