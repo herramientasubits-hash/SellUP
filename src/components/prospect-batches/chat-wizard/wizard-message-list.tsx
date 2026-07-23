@@ -27,6 +27,20 @@ const EDITABLE_STEPS = new Set<string>([
   'requested_count',
 ]);
 
+// Q3F-5BB.3F — Once the conversation reaches the review/final phase, the inline
+// per-message "Editar" links clutter the transcript. Editing is offered instead
+// by the summary rows and the single "Editar búsqueda" action in the final
+// panel, so we suppress the inline links across all review-phase steps.
+const REVIEW_PHASE_STEPS = new Set<string>([
+  'summary',
+  'validating',
+  'validated',
+  'submitting',
+  'success',
+  'blocked',
+  'error',
+]);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function WizardMessageList({
@@ -54,7 +68,9 @@ export function WizardMessageList({
         }
         if (msg.role === 'user') {
           const canEdit =
-            EDITABLE_STEPS.has(msg.step) && msg.step !== currentStep;
+            EDITABLE_STEPS.has(msg.step) &&
+            msg.step !== currentStep &&
+            !REVIEW_PHASE_STEPS.has(currentStep);
           return (
             <UserMessage
               key={msg.id}

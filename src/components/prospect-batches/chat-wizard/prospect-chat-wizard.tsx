@@ -566,6 +566,13 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
       : getComposerPlaceholder(state.currentStep);
   const maxCriteriaChars = EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars;
 
+  // Q3F-5BB.3F — At the final review step the actions live in the panel footer
+  // ("Buscar con IA" / "Editar búsqueda" / "Comenzar de nuevo"). A disabled
+  // "La configuración ya fue validada" input would only read as a dead field,
+  // so we hide the composer once the configuration is validated (or done).
+  const hideComposer =
+    state.currentStep === 'validated' || state.currentStep === 'success';
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -634,17 +641,20 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
         )}
       </div>
 
-      {/* Sticky composer — spans full width by negating the drawer's px-7 padding */}
-      <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/30 mt-auto">
-        <WizardChatComposer
-          mode={composerMode}
-          value={criteriaText}
-          placeholder={composerPlaceholder}
-          maxLength={maxCriteriaChars}
-          onChange={setCriteriaText}
-          onSubmit={handleComposerSubmit}
-        />
-      </div>
+      {/* Sticky composer — spans full width by negating the drawer's px-7 padding.
+          Hidden at the final review step: actions move to the panel footer. */}
+      {!hideComposer && (
+        <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/30 mt-auto">
+          <WizardChatComposer
+            mode={composerMode}
+            value={criteriaText}
+            placeholder={composerPlaceholder}
+            maxLength={maxCriteriaChars}
+            onChange={setCriteriaText}
+            onSubmit={handleComposerSubmit}
+          />
+        </div>
+      )}
     </div>
   );
 }

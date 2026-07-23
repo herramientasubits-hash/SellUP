@@ -58,13 +58,14 @@ import {
   previewLushaCompaniesAction,
   type PreviewLushaCompaniesActionResult,
 } from '@/modules/prospect-batches/lusha-preview-actions';
+import type { WizardFinalRecap } from '@/modules/prospect-batches/wizard-final-summary';
 
 // ── Copy (exportado para tests de contrato de UI) ─────────────────────────────
 
 export const LUSHA_PREVIEW_READONLY_NOTICE =
-  'Preview read-only. Estos resultados todavía no se guardan en SellUp.';
+  'Vista previa de solo lectura. Estos resultados todavía no se guardan en SellUp.';
 export const LUSHA_PREVIEW_COST_NOTICE =
-  'Esta búsqueda consulta Lusha y puede consumir hasta 1 crédito. No guarda resultados en SellUp.';
+  'Esta búsqueda puede consumir hasta 1 crédito.';
 export const LUSHA_PREVIEW_SEARCHTEXT_WARNING =
   'El criterio avanzado puede reducir mucho los resultados. Úsalo solo cuando quieras una búsqueda muy específica.';
 export const LUSHA_PREVIEW_NOT_SAVED_FOOTER =
@@ -137,11 +138,18 @@ export interface LushaPreviewPanelProps {
    * búsqueda explícita. El botón y los resultados no cambian.
    */
   lockCriteria?: boolean;
+  /**
+   * Q3F-5BB.3F — Recap enriquecido para el paso final "Revisa tu búsqueda".
+   * Trae labels humanos resueltos por el wizard (sector, subindustria, tamaño,
+   * proveedor, costo) para mostrarlos en el recap read-only. Solo presentación:
+   * NO altera la request a Lusha. Cuando se define, reemplaza el recap mínimo.
+   */
+  lockedRecap?: WizardFinalRecap;
 }
 
 export function LushaPreviewPanel({
   runPreview = previewLushaCompaniesAction,
-  criteriaDescription = 'Fuente: Lusha · previsualización read-only.',
+  criteriaDescription = 'Proveedor configurado: Lusha.',
   runLabel = 'Previsualizar en Lusha',
   loadingLabel = 'Consultando Lusha…',
   providerTraceabilityLabel,
@@ -150,6 +158,7 @@ export function LushaPreviewPanel({
   initialSubIndustryId,
   initialSearchText,
   lockCriteria = false,
+  lockedRecap,
 }: LushaPreviewPanelProps) {
   const [countryCode, setCountryCode] = React.useState(initialCountryCode ?? 'CO');
   const [sectorKey, setSectorKey] = React.useState<string>(
@@ -200,13 +209,17 @@ export function LushaPreviewPanel({
 
   return (
     <div className="space-y-6" data-testid="lusha-preview-panel">
-      {/* Aviso read-only permanente */}
-      <Alert>
-        <Info className="h-4 w-4" />
-        <AlertDescription className="text-xs" data-testid="lusha-preview-readonly-notice">
-          {LUSHA_PREVIEW_READONLY_NOTICE}
-        </AlertDescription>
-      </Alert>
+      {/* Aviso read-only permanente — solo en el modo editable. En el paso final
+          del wizard (lockCriteria) el estado read-only vive dentro del recap, así
+          evitamos un tercer banner redundante. */}
+      {!lockCriteria && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription className="text-xs" data-testid="lusha-preview-readonly-notice">
+            {LUSHA_PREVIEW_READONLY_NOTICE}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Recap read-only cuando los criterios ya fueron recolectados (wizard). */}
       {lockCriteria && (
@@ -214,6 +227,7 @@ export function LushaPreviewPanel({
           countryCode={countryCode}
           sectorKey={sectorKey}
           searchText={searchText}
+          recap={lockedRecap}
         />
       )}
 
@@ -370,16 +384,62 @@ function LockedCriteriaRecap({
   countryCode,
   sectorKey,
   searchText,
+  recap,
 }: {
   countryCode: string;
   sectorKey: string;
   searchText: string;
+  /**
+   * Q3F-5BB.3F — cuando se define, muestra el recap enriquecido con labels
+   * humanos del wizard (sector, subindustria, tamaño, proveedor, costo). País se
+   * resuelve siempre desde `countryCode`. Sin `recap`, se usa el recap mínimo.
+   */
+  recap?: WizardFinalRecap;
 }) {
   const country = LATAM_COUNTRIES.find((c) => c.code === countryCode);
   const countryLabel = country ? `${getFlagEmoji(country.code)} ${country.name}` : countryCode;
-  const sectorLabel = resolveLushaSectorOption(sectorKey)?.label ?? sectorKey;
   const trimmedSearch = searchText.trim();
 
+  // Rich recap for the final review step ("Revisa tu búsqueda").
+  if (recap) {
+    return (
+      <SurfaceCard>
+        <SurfaceCardHeader title={recap.title} description={recap.description} />
+        <div className="space-y-3" data-testid="lusha-locked-criteria-recap">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <RecapItem label="País" value={countryLabel} />
+            <RecapItem label="Sector" value={recap.sectorLabel} />
+            {recap.subIndustryLabel && (
+              <RecapItem label="Subindustria" value={recap.subIndustryLabel} />
+            )}
+            <RecapItem label="Tamaño" value={recap.sizeLabel} />
+            {recap.criteriaLabel && (
+              <RecapItem
+                label="Criterio adicional"
+                value={recap.criteriaLabel}
+                className="col-span-2"
+                wrap
+              />
+            )}
+            <RecapItem
+              label="Fuente usada"
+              value={`Proveedor configurado: ${recap.providerLabel}`}
+            />
+            <RecapItem label="Costo estimado" value={recap.costLabel} />
+          </div>
+          <p
+            className="border-t border-border/60 pt-3 text-xs text-muted-foreground leading-relaxed"
+            data-testid="lusha-locked-criteria-readonly-note"
+          >
+            {recap.readOnlyNote}
+          </p>
+        </div>
+      </SurfaceCard>
+    );
+  }
+
+  // Minimal recap fallback (no enriched wizard labels available).
+  const sectorLabel = resolveLushaSectorOption(sectorKey)?.label ?? sectorKey;
   return (
     <SurfaceCard>
       <SurfaceCardHeader
@@ -403,6 +463,34 @@ function LockedCriteriaRecap({
         )}
       </div>
     </SurfaceCard>
+  );
+}
+
+// ── Recap item ────────────────────────────────────────────────────────────────
+
+function RecapItem({
+  label,
+  value,
+  className,
+  wrap = false,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+  wrap?: boolean;
+}) {
+  return (
+    <div className={['min-w-0', className ?? ''].join(' ')}>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p
+        className={[
+          'mt-0.5 font-medium text-foreground',
+          wrap ? 'break-words' : 'truncate',
+        ].join(' ')}
+      >
+        {value}
+      </p>
+    </div>
   );
 }
 

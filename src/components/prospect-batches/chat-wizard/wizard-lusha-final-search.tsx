@@ -24,6 +24,7 @@ import {
   type RunLushaPreview,
 } from '@/components/prospect-batches/lusha-preview-drawer';
 import type { WizardLushaInput } from '@/modules/prospect-batches/wizard-lusha-criteria';
+import type { WizardFinalRecap } from '@/modules/prospect-batches/wizard-final-summary';
 
 export const WIZARD_LUSHA_SEARCH_LABEL = 'Buscar con IA';
 export const WIZARD_LUSHA_SEARCH_LOADING_LABEL = 'Buscando con IA…';
@@ -38,14 +39,20 @@ export interface WizardLushaFinalSearchProps {
    * usa la server action real (`previewLushaCompaniesAction`).
    */
   runLushaPreview?: RunLushaPreview;
+  /**
+   * Q3F-5BB.3F — Recap enriquecido (labels humanos del wizard) para el paso
+   * final "Revisa tu búsqueda". Solo presentación; no altera la request a Lusha.
+   */
+  recap?: WizardFinalRecap;
 }
 
-export function WizardLushaFinalSearch({ input, runLushaPreview }: WizardLushaFinalSearchProps) {
+export function WizardLushaFinalSearch({ input, runLushaPreview, recap }: WizardLushaFinalSearchProps) {
   return (
     <div data-testid="wizard-lusha-final-search">
       <LushaPreviewPanel
         {...(runLushaPreview ? { runPreview: runLushaPreview } : {})}
         lockCriteria
+        {...(recap ? { lockedRecap: recap } : {})}
         initialCountryCode={input.countryCode}
         initialSectorKey={input.sectorKey}
         initialSubIndustryId={input.subIndustryId}

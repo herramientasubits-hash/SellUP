@@ -303,7 +303,7 @@ export function deriveWizardMessages(
       role: 'assistant',
       messageType: 'confirmation',
       content:
-        'La búsqueda fue validada correctamente. Puedes proceder a generar los prospectos.',
+        'La búsqueda fue validada correctamente. Puedes buscar empresas candidatas. Los resultados serán de solo lectura y todavía no se guardarán en SellUp.',
       step: 'validated',
     });
   }
