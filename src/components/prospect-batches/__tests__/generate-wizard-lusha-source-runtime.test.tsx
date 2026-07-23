@@ -1,20 +1,18 @@
 /**
- * Q3F-5BB.3E — Final search step RUNTIME contract (real render).
+ * Q3F-5BB.4 — Final search step RUNTIME contract (real render).
  *
  * Renders the ACTUAL `WizardLushaFinalSearch` — the hidden-Lusha search surface
- * shown at the END of the conversational wizard — and asserts the product
- * decision:
- *   - There are NO source tabs (no "Búsqueda con IA" / "Lusha" tab switch).
- *   - Criteria are locked (already collected conversationally): a read-only recap
- *     is shown, not editable país/sector selectors.
- *   - NO auto-run: Lusha is not called on mount.
- *   - Lusha runs exactly once, only after the explicit "Buscar con IA" click, and
- *     receives the seeded criteria (país CO, sector healthcare).
- *   - Results surface human labels (Colombia, Salud, Hospitals & Clinics) and the
- *     "Fuente usada: Lusha" traceability line — NOT a selectable source.
- *   - The read-only "not saved" footer stays; no persistence CTA.
- * The server action is mocked (no network / DB / credit); a spy is injected via
- * `runLushaPreview` to observe invocation and the seeded input.
+ * shown at the END of the conversational wizard — and asserts the NEW behavior:
+ *   - Criteria are locked (read-only recap), no editable país/sector selectors.
+ *   - NO auto-run: persistence is not called on mount.
+ *   - The explicit "Buscar con IA" click runs the persist action exactly once and
+ *     shows an IA step loader while it runs.
+ *   - On success the drawer shows a BRIEF confirmation ("Empresas candidatas
+ *     listas para revisión"), NOT a long result-card list. It surfaces the
+ *     provider traceability, credits, "Nada fue enviado a HubSpot", "Ninguna
+ *     empresa fue creada todavía", plus "Ver prospectos" / "Generar otra
+ *     búsqueda" CTAs — and NO create/save/approve/HubSpot/enrich CTA.
+ * The persist action is injected via `runPersist` (no network / DB / credit).
  */
 
 import { JSDOM } from 'jsdom';
@@ -59,8 +57,8 @@ for (const proto of [dom.window.HTMLElement.prototype, dom.window.Element.protot
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import type { PreviewLushaCompaniesActionResult } from '@/modules/prospect-batches/lusha-preview-actions';
-import type { RunLushaPreview } from '@/components/prospect-batches/lusha-preview-drawer';
+import type { GenerateLushaPendingReviewBatchActionResult } from '@/modules/prospect-batches/lusha-pending-review-actions';
+import type { RunLushaPendingReviewSearch } from '../chat-wizard/wizard-lusha-final-search';
 import type { WizardLushaInput } from '@/modules/prospect-batches/wizard-lusha-criteria';
 
 let render: (typeof import('@testing-library/react'))['render'];
@@ -70,46 +68,35 @@ let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 
 // Boundary mock: replace the server action module so its server-only imports
-// (supabase/server, next/navigation) never load in the test process.
-mock.module('@/modules/prospect-batches/lusha-preview-actions', {
+// (supabase/server, next/cache) never load in the test process.
+mock.module('@/modules/prospect-batches/lusha-pending-review-actions', {
   namedExports: {
-    previewLushaCompaniesAction: async () => OK_RESULT,
+    generateLushaPendingReviewBatchAction: async () => SUCCESS_RESULT,
   },
 });
 
-// Result with human labels: Colombia / Salud / Hospitals & Clinics.
-const OK_RESULT: PreviewLushaCompaniesActionResult = {
+const SUCCESS_RESULT: GenerateLushaPendingReviewBatchActionResult = {
   ok: true,
   status: 'success',
-  results: [
-    {
-      providerCompanyId: 'lusha-1',
-      name: 'Clínica Demo',
-      domain: 'clinicademo.co',
-      country: 'Colombia',
-      countryIso2: 'CO',
-      industry: 'Hospitals & Clinics',
-      employeesExact: 320,
-      employeesMin: null,
-      employeesMax: null,
-      linkedinUrl: null,
-      score: 88,
-      passesGate: true,
-      issues: [],
-    },
-  ],
-  billing: { creditsCharged: 1, resultsReturned: 1, expectedMaxCredits: 1 },
-  warnings: [],
-  requestSummary: {
-    country: 'Colombia',
-    countryCode: 'CO',
-    sector: 'Salud',
-    sectorKey: 'healthcare',
-    mainIndustriesIds: [11],
-    subIndustryId: null,
-    sizeBand: { min: 201, max: 5000 },
-    hasSearchText: false,
-  },
+  batchId: 'abcdef12-3456-7890-abcd-ef1234567890',
+  createdCandidatesCount: 7,
+  skippedCount: 3,
+  creditsCharged: 1,
+  resultsReturned: 10,
+  reviewUrl: '/accounts?tab=prospectos',
+  message: 'Encontramos 7 empresas candidatas para revisar.',
+};
+
+const EMPTY_RESULT: GenerateLushaPendingReviewBatchActionResult = {
+  ok: true,
+  status: 'empty',
+  batchId: null,
+  createdCandidatesCount: 0,
+  skippedCount: 0,
+  creditsCharged: 1,
+  resultsReturned: 0,
+  reviewUrl: '/accounts?tab=prospectos',
+  message: 'La búsqueda no devolvió empresas nuevas para revisar.',
 };
 
 // The seeded criteria the conversational wizard would resolve (país CO, Salud).
@@ -121,7 +108,7 @@ const SEEDED_INPUT: WizardLushaInput = {
   searchText: null,
 };
 
-const mockRun = mock.fn<RunLushaPreview>(async () => OK_RESULT);
+const mockPersist = mock.fn<RunLushaPendingReviewSearch>(async () => SUCCESS_RESULT);
 
 let WizardLushaFinalSearch: (typeof import('../chat-wizard/wizard-lusha-final-search'))['WizardLushaFinalSearch'];
 
@@ -132,64 +119,123 @@ before(async () => {
 });
 
 beforeEach(() => {
-  mockRun.mock.resetCalls();
+  mockPersist.mock.resetCalls();
+  mockPersist.mock.mockImplementation(async () => SUCCESS_RESULT);
 });
 
 afterEach(() => {
   cleanup();
 });
 
-describe('WizardLushaFinalSearch — Lusha as hidden provider at the final step', () => {
-  it('renders locked criteria (no editable tabs) and does NOT auto-run Lusha', () => {
+describe('WizardLushaFinalSearch — persist results as pending review (Q3F-5BB.4)', () => {
+  it('29. renders locked criteria recap and does NOT auto-run persistence', () => {
     render(
-      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runLushaPreview: mockRun }),
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runPersist: mockPersist }),
     );
-
-    // The final search surface is present with an explicit run button…
     assert.ok(screen.getByTestId('wizard-lusha-final-search'));
     assert.ok(screen.getByTestId('lusha-preview-run'));
-    // …criteria are locked (recap shown), no editable "Criterios de búsqueda" card.
+    // Criteria are locked (recap), no editable "Criterios de búsqueda" card.
     assert.ok(screen.getByTestId('lusha-locked-criteria-recap'));
     assert.equal(screen.queryByText('Criterios de búsqueda'), null);
-    // …no visible source tabs / selector.
-    assert.equal(screen.queryByText('Búsqueda con IA'), null);
-    assert.equal(screen.queryByText('Fuente de generación'), null);
     // No auto-run on mount.
-    assert.equal(mockRun.mock.callCount(), 0);
+    assert.equal(mockPersist.mock.callCount(), 0);
   });
 
-  it('runs Lusha exactly once on the explicit search click with the seeded criteria', async () => {
+  it('30/18. runs persistence exactly once on click, forwarding the seeded criteria', async () => {
     render(
-      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runLushaPreview: mockRun }),
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runPersist: mockPersist }),
     );
-
-    // Still no call before clicking the search button.
-    assert.equal(mockRun.mock.callCount(), 0);
+    assert.equal(mockPersist.mock.callCount(), 0);
 
     fireEvent.click(screen.getByTestId('lusha-preview-run'));
 
     await waitFor(() => {
-      assert.equal(mockRun.mock.callCount(), 1);
+      assert.equal(mockPersist.mock.callCount(), 1);
     });
-
-    // The seeded criteria were forwarded to the provider call.
-    const call = mockRun.mock.calls[0].arguments[0];
+    const call = mockPersist.mock.calls[0].arguments[0];
     assert.equal(call.countryCode, 'CO');
     assert.equal(call.sectorKey, 'healthcare');
+  });
 
-    // Human labels surfaced in the read-only result (not codes).
+  it('20/21/22/23. success shows a brief confirmation with provider + credits', async () => {
+    render(
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runPersist: mockPersist }),
+    );
+    fireEvent.click(screen.getByTestId('lusha-preview-run'));
+
     await waitFor(() => {
-      assert.ok(screen.getByText('Hospitals & Clinics', { exact: false }));
+      assert.ok(screen.getByTestId('wizard-lusha-persist-confirmation'));
     });
-    assert.ok(screen.getAllByText(/Colombia/).length >= 1);
-    assert.ok(screen.getAllByText(/Salud/).length >= 1);
+    assert.ok(screen.getByText('Empresas candidatas listas para revisión'));
+    assert.ok(screen.getByText(/Encontramos 7 empresas/));
+    // Provider traceability (not a selector).
+    assert.equal(screen.getByTestId('wizard-lusha-persist-provider').textContent, 'Lusha');
+    // Credits surfaced.
+    assert.ok(screen.getByText('Créditos consumidos'));
+  });
 
-    // Provider shown ONLY as traceability, not as a selector.
-    const trace = screen.getByTestId('lusha-preview-provider-traceability');
-    assert.match(trace.textContent ?? '', /Fuente usada:/);
-    assert.match(trace.textContent ?? '', /Lusha/);
+  it('24/25. confirmation states nothing went to HubSpot and no company was created', async () => {
+    const { container } = render(
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runPersist: mockPersist }),
+    );
+    fireEvent.click(screen.getByTestId('lusha-preview-run'));
+    await waitFor(() => {
+      assert.ok(screen.getByTestId('wizard-lusha-persist-confirmation'));
+    });
+    const text = container.textContent ?? '';
+    assert.match(text, /Nada fue enviado a HubSpot/);
+    assert.match(text, /Ninguna empresa fue creada todavía/);
+  });
 
-    // Read-only "not saved" footer still shown — no persistence CTA.
-    assert.ok(screen.getByTestId('lusha-preview-not-saved'));
+  it('26/27. exposes "Ver prospectos" and "Generar otra búsqueda" CTAs', async () => {
+    const onView = mock.fn();
+    const onAnother = mock.fn();
+    render(
+      React.createElement(WizardLushaFinalSearch, {
+        input: SEEDED_INPUT,
+        runPersist: mockPersist,
+        onViewProspects: onView,
+        onGenerateAnother: onAnother,
+      }),
+    );
+    fireEvent.click(screen.getByTestId('lusha-preview-run'));
+    await waitFor(() => {
+      assert.ok(screen.getByTestId('wizard-lusha-view-prospects'));
+    });
+    fireEvent.click(screen.getByTestId('wizard-lusha-view-prospects'));
+    assert.equal(onView.mock.callCount(), 1);
+
+    fireEvent.click(screen.getByTestId('wizard-lusha-generate-another'));
+    assert.equal(onAnother.mock.callCount(), 1);
+  });
+
+  it('19/28. destination is a confirmation, not a card list, and has no create/save/approve/HubSpot/enrich CTA', async () => {
+    const { container } = render(
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runPersist: mockPersist }),
+    );
+    fireEvent.click(screen.getByTestId('lusha-preview-run'));
+    await waitFor(() => {
+      assert.ok(screen.getByTestId('wizard-lusha-persist-confirmation'));
+    });
+    const text = container.textContent ?? '';
+    // No per-company result cards / "not saved" footer as the destination.
+    assert.equal(screen.queryByTestId('lusha-preview-not-saved'), null);
+    assert.equal(screen.queryByText('Score'), null);
+    // No forbidden persistence CTAs inside the drawer.
+    assert.doesNotMatch(text, /Enviar a HubSpot|Crear cuenta|Aprobar|Guardar en HubSpot/);
+    assert.equal(screen.queryByRole('button', { name: /Aprobar/i }), null);
+  });
+
+  it('12/empty. empty result shows an empty state and "Generar otra búsqueda"', async () => {
+    mockPersist.mock.mockImplementation(async () => EMPTY_RESULT);
+    render(
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runPersist: mockPersist }),
+    );
+    fireEvent.click(screen.getByTestId('lusha-preview-run'));
+    await waitFor(() => {
+      assert.ok(screen.getByTestId('wizard-lusha-empty'));
+    });
+    assert.equal(screen.queryByTestId('wizard-lusha-persist-confirmation'), null);
+    assert.ok(screen.getByTestId('wizard-lusha-generate-another'));
   });
 });

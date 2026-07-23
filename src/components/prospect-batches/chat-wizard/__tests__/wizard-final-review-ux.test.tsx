@@ -59,6 +59,7 @@ import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PreviewLushaCompaniesActionResult } from '@/modules/prospect-batches/lusha-preview-actions';
+import type { GenerateLushaPendingReviewBatchActionResult } from '@/modules/prospect-batches/lusha-pending-review-actions';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type {
   ProspectWizardState,
@@ -92,12 +93,50 @@ const EMPTY_OK: PreviewLushaCompaniesActionResult = {
 
 const mockRun = mock.fn<() => Promise<PreviewLushaCompaniesActionResult>>(async () => EMPTY_OK);
 
-// Boundary mock: replace the server action module so its server-only imports
-// never load. The wizard renders the panel WITHOUT injecting runPreview, so the
-// panel uses this mocked default export — letting us observe invocation.
+const PERSIST_OK: GenerateLushaPendingReviewBatchActionResult = {
+  ok: true,
+  status: 'success',
+  batchId: 'abcdef12-0000-0000-0000-000000000000',
+  createdCandidatesCount: 4,
+  skippedCount: 0,
+  creditsCharged: 1,
+  resultsReturned: 4,
+  reviewUrl: '/accounts?tab=prospectos',
+  message: 'Encontramos 4 empresas candidatas para revisar.',
+};
+
+const mockPersist = mock.fn<() => Promise<GenerateLushaPendingReviewBatchActionResult>>(
+  async () => PERSIST_OK,
+);
+
+// Boundary mocks: replace the server action modules so their server-only imports
+// never load. The final-search calls the persist action; observing `mockPersist`
+// lets us assert the no-auto-run + single-click contract.
 mock.module('@/modules/prospect-batches/lusha-preview-actions', {
   namedExports: {
     previewLushaCompaniesAction: (...args: unknown[]) => mockRun(...(args as [])),
+  },
+});
+mock.module('@/modules/prospect-batches/lusha-pending-review-actions', {
+  namedExports: {
+    generateLushaPendingReviewBatchAction: (...args: unknown[]) => mockPersist(...(args as [])),
+  },
+});
+// The validated panel uses next/navigation router for the "Ver prospectos" CTA.
+mock.module('next/navigation', {
+  namedExports: {
+    useRouter: () => ({
+      push: () => {},
+      replace: () => {},
+      refresh: () => {},
+      back: () => {},
+      forward: () => {},
+      prefetch: () => {},
+    }),
+    usePathname: () => '/accounts',
+    useSearchParams: () => new URLSearchParams(),
+    redirect: () => {},
+    notFound: () => {},
   },
 });
 
@@ -175,6 +214,7 @@ before(async () => {
 
 beforeEach(() => {
   mockRun.mock.resetCalls();
+  mockPersist.mock.resetCalls();
 });
 
 afterEach(() => {
@@ -235,12 +275,16 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     assert.equal(screen.queryByRole('button', { name: /^Lusha$/ }), null);
   });
 
-  it('does NOT auto-run Lusha; runs exactly once on the explicit click', async () => {
+  it('does NOT auto-run; persists exactly once on the explicit click', async () => {
     renderFinalReview();
-    assert.equal(mockRun.mock.callCount(), 0);
+    assert.equal(mockPersist.mock.callCount(), 0);
     fireEvent.click(screen.getByTestId('lusha-preview-run'));
     await waitFor(() => {
-      assert.equal(mockRun.mock.callCount(), 1);
+      assert.equal(mockPersist.mock.callCount(), 1);
+    });
+    // The brief confirmation replaces the recap — not a results-card list.
+    await waitFor(() => {
+      assert.ok(screen.getByTestId('wizard-lusha-persist-confirmation'));
     });
   });
 });
