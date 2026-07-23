@@ -280,6 +280,106 @@ describe('EC-SCVS-11-PRETOOL — helper allowlist', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
+// A2) EC-SCVS-12FIX regression — harness must bucket the corrected adapter
+//     statuses. The EC-SCVS-11B pilot saw an invalid RUC surface as
+//     no_match / no_snapshot_match_by_ruc; after the fix the adapter returns
+//     skipped / invalid_ruc_format and the harness must count it as skipped,
+//     not no_match — while the other canonical outcomes stay unchanged.
+// ════════════════════════════════════════════════════════════════════════════
+
+function stubStatus(output: Omit<SourceEnrichmentOutput, 'sourceKey'>) {
+  stubEcAdapter(() => ({ sourceKey: 'ec_scvs', ...output }));
+}
+
+describe('EC-SCVS-12FIX — controlled harness status bucketing', () => {
+  it('invalid RUC (skipped / invalid_ruc_format) → skippedCount, NOT noMatchCount', async () => {
+    stubStatus({
+      status: 'skipped',
+      matchedBy: null,
+      confidence: 0,
+      priorityBoost: 0,
+      reason: 'invalid_ruc_format: all_zero_ruc',
+    });
+    const { client } = makeFakeSupabase([ecCandidate('c1')]);
+    const result = await enrichEcBatchWithValidatedSources(client, 'batch-1', {
+      candidateIds: ['c1'],
+      dryRun: true,
+    });
+    assert.equal(result.skippedCount, 1, 'invalid RUC must count as skipped');
+    assert.equal(result.noMatchCount, 0, 'invalid RUC must NOT count as no_match (11B deviation)');
+
+    const summary = summarizeEcScvsControlledRun('batch-1', 1, result);
+    assert.equal(summary.status_distribution.skipped, 1);
+    assert.equal(summary.status_distribution.no_match, 0);
+  });
+
+  it('missing RUC (skipped / missing_ruc) still counts as skipped', async () => {
+    stubStatus({
+      status: 'skipped',
+      matchedBy: null,
+      confidence: 0,
+      priorityBoost: 0,
+      reason: 'missing_ruc',
+    });
+    const { client } = makeFakeSupabase([ecCandidate('c1')]);
+    const result = await enrichEcBatchWithValidatedSources(client, 'batch-1', {
+      candidateIds: ['c1'],
+      dryRun: true,
+    });
+    assert.equal(result.skippedCount, 1);
+    assert.equal(result.noMatchCount, 0);
+  });
+
+  it('unique match (matched) still counts as matched', async () => {
+    stubMatched();
+    const { client } = makeFakeSupabase([ecCandidate('c1')]);
+    const result = await enrichEcBatchWithValidatedSources(client, 'batch-1', {
+      candidateIds: ['c1'],
+      dryRun: true,
+    });
+    assert.equal(result.matchedCount, 1);
+    assert.equal(result.skippedCount, 0);
+  });
+
+  it('genuine no-snapshot (no_match / no_snapshot_match_by_ruc) still counts as no_match', async () => {
+    stubStatus({
+      status: 'no_match',
+      matchedBy: null,
+      confidence: 0,
+      priorityBoost: 0,
+      reason: 'no_snapshot_match_by_ruc',
+    });
+    const { client } = makeFakeSupabase([ecCandidate('c1')]);
+    const result = await enrichEcBatchWithValidatedSources(client, 'batch-1', {
+      candidateIds: ['c1'],
+      dryRun: true,
+    });
+    assert.equal(result.noMatchCount, 1);
+    assert.equal(result.skippedCount, 0);
+    assert.equal(result.ambiguousCount, 0);
+  });
+
+  it('RUC multiplicity (no_match + ruc_multiplicity signal) still counts as ambiguous', async () => {
+    stubStatus({
+      status: 'no_match',
+      matchedBy: null,
+      confidence: 0,
+      priorityBoost: 0,
+      reason: 'ruc_multiplicity_detected: 2 expedientes',
+      signals: { ruc_multiplicity: 'multiple', record_count: 2, human_review_required: true },
+    });
+    const { client } = makeFakeSupabase([ecCandidate('c1')]);
+    const result = await enrichEcBatchWithValidatedSources(client, 'batch-1', {
+      candidateIds: ['c1'],
+      dryRun: true,
+    });
+    assert.equal(result.ambiguousCount, 1);
+    assert.equal(result.noMatchCount, 0);
+    assert.equal(result.skippedCount, 0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // B) Runner core — args / decision / orchestration
 // ════════════════════════════════════════════════════════════════════════════
 
