@@ -37,7 +37,20 @@ const SELECTED_CONFIRM =
 const RUN_DONE = 'Listo. Creé el run y revisé los contactos existentes antes de enriquecer.';
 
 const REQUEST_DONE =
-  'Listo. Preparé el contexto de esta empresa. Elige un proveedor para buscar contactos.';
+  'Listo. Preparé el contexto de esta empresa. Cuando quieras, busco contactos automáticamente.';
+
+// ── Automatic routing copy (AGENT2-ROUTING-WIRE-1) ────────────────────────────
+
+const AUTOMATIC_SEARCHING = 'Voy a buscar contactos automáticamente…';
+
+const AUTOMATIC_DONE =
+  'Busqué contactos automáticamente. Los candidatos quedaron listos para tu revisión. No creé contactos finales: requieren tu aprobación.';
+
+const AUTOMATIC_ROUTING_DISABLED =
+  'La búsqueda automática de contactos no está activada en este entorno. No se ejecutó ninguna búsqueda ni se crearon candidatos.';
+
+const AUTOMATIC_BLOCKED =
+  'No fue posible completar la búsqueda automática de contactos en este momento. No se crearon contactos finales.';
 
 const APOLLO_SEARCHING = 'Voy a buscar perfiles relevantes en Apollo…';
 
@@ -166,6 +179,7 @@ export function createInitialContactEnrichmentChatState(
     selectedProvider: 'apollo',
     apolloResult: null,
     lushaResult: null,
+    automaticResult: null,
     errorMessage: null,
   };
 
@@ -449,6 +463,38 @@ export function contactEnrichmentChatReducer(
         lushaResult: action.result,
         ...(action.runResult ? { runResult: action.runResult } : {}),
         ...appendMessages(state, [{ role: 'system', content: reason, tone: 'warning' }]),
+      };
+    }
+
+    case 'AUTOMATIC_ROUTING_START': {
+      if (state.step !== 'done') return state;
+      return {
+        ...state,
+        step: 'searching_contacts',
+        errorMessage: null,
+        ...appendMessages(state, [
+          { role: 'user', content: 'Buscar contactos con IA' },
+          { role: 'assistant', content: AUTOMATIC_SEARCHING },
+        ]),
+      };
+    }
+
+    case 'AUTOMATIC_ROUTING_SETTLED': {
+      // Three outcomes, all landing back on 'done':
+      //  • flag off               → safe no-op notice (QA-visible "routing disabled")
+      //  • a search actually ran  → candidates left in pending_review for approval
+      //  • blocked before a search → neutral could-not-complete notice
+      const content = !action.result.automaticRoutingEnabled
+        ? AUTOMATIC_ROUTING_DISABLED
+        : action.result.attempt1AttemptId != null
+          ? AUTOMATIC_DONE
+          : AUTOMATIC_BLOCKED;
+      const tone = content === AUTOMATIC_DONE ? undefined : 'warning';
+      return {
+        ...state,
+        step: 'done',
+        automaticResult: action.result,
+        ...appendMessages(state, [{ role: 'assistant', content, tone }]),
       };
     }
 

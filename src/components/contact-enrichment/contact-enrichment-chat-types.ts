@@ -6,6 +6,12 @@ import type { AgentChatMessage } from '@/components/agent-chat';
 import type { CompanyCandidate, ContactEnrichmentRunResult } from '@/modules/contact-enrichment/types';
 
 // ── Provider selection (17B.4K) ───────────────────────────────────────────────
+//
+// Retained as an internal enum only. Since AGENT2-ROUTING-WIRE-1 the user never
+// picks a provider: Apollo runs as primary and Lusha as fallback automatically
+// via runAutomaticContactEnrichmentForRequestAction. `selectedProvider` stays in
+// state (defaulting to 'apollo') purely so the result-snapshot copy can special-
+// case a Lusha attempt; it is no longer a user-facing decision.
 
 export type ContactEnrichmentProvider = 'apollo' | 'lusha';
 
@@ -19,9 +25,28 @@ export type ContactEnrichmentChatStep =
   | 'confirming' // a candidate is ready — user confirms
   | 'creating_run' // creating the run + reading existing contacts
   | 'done' // run created — snapshot shown
-  | 'searching_apollo' // querying Apollo for real candidates (Hito 17A.3A)
-  | 'searching_lusha' // querying Lusha for contacts (17B.4K)
+  | 'searching_contacts' // automatic Apollo→Lusha routing in flight (ROUTING-WIRE-1)
+  | 'searching_apollo' // querying Apollo for real candidates (Hito 17A.3A) — legacy manual path, no longer wired to the wizard CTA
+  | 'searching_lusha' // querying Lusha for contacts (17B.4K) — legacy manual path, no longer wired to the wizard CTA
   | 'error'; // controlled error
+
+// ── Automatic routing result (AGENT2-ROUTING-WIRE-1) ──────────────────────────
+//
+// Structural mirror of RunAutomaticContactEnrichmentForRequestResult
+// (modules/contact-enrichment/automatic-routing-action-core.ts). Kept as a
+// local, server-free shape so this pure types file stays importable from unit
+// tests. `status` is widened to string on purpose — the wizard forwards the
+// server result verbatim and never re-narrows it.
+
+export interface AutomaticRoutingUiResult {
+  success: boolean;
+  status: string;
+  automaticRoutingEnabled: boolean;
+  fallbackExecuted: boolean;
+  attempt1AttemptId: string | null;
+  attempt2AttemptId: string | null;
+  blockedReason: string | null;
+}
 
 // ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────
 
@@ -107,6 +132,9 @@ export interface ContactEnrichmentChatState {
   apolloResult: ApolloEnrichmentUiResult | null;
   /** Lusha candidate-sourcing result (17B.4K). Null until Lusha runs. */
   lushaResult: LushaEnrichmentUiResult | null;
+  /** Automatic Apollo→Lusha routing result (ROUTING-WIRE-1). Null until the
+   *  automatic search runs; set once it settles so the CTA is not shown again. */
+  automaticResult: AutomaticRoutingUiResult | null;
   errorMessage: string | null;
 }
 
@@ -132,6 +160,8 @@ export type ContactEnrichmentChatAction =
   | { type: 'LUSHA_START' }
   | { type: 'LUSHA_SUCCEEDED'; result: LushaEnrichmentUiResult; runResult?: ContactEnrichmentRunResult }
   | { type: 'LUSHA_FAILED'; result: LushaEnrichmentUiResult; runResult?: ContactEnrichmentRunResult }
+  | { type: 'AUTOMATIC_ROUTING_START' }
+  | { type: 'AUTOMATIC_ROUTING_SETTLED'; result: AutomaticRoutingUiResult }
   | { type: 'RESET' };
 
 // ── Manual contact context (Hito 17A.7C.2) ────────────────────────────────────

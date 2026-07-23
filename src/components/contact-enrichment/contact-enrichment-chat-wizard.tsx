@@ -14,11 +14,12 @@ import {
 import {
   resolveContactEnrichmentCompanyAction,
   createContactEnrichmentRequestAction,
-  runContactEnrichmentApolloForRequestAction,
-  runContactEnrichmentLushaForRequestAction,
-  isLushaEnabledAction,
 } from '@/modules/contact-enrichment/actions';
-import type { ContactEnrichmentRunResult } from '@/modules/contact-enrichment/types';
+// AGENT2-ROUTING-WIRE-1: the wizard CTA runs the automatic Apollo→Lusha router.
+// It no longer imports the manual per-provider request actions — the user never
+// picks a provider; routing is decided by the orchestrator behind
+// ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING.
+import { runAutomaticContactEnrichmentForRequestAction } from '@/modules/contact-enrichment/automatic-routing-actions';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
   contactEnrichmentChatReducer,
@@ -30,10 +31,9 @@ import {
 import type {
   ContactEnrichmentChatStep,
   ContactEnrichmentInitialCompany,
-  ContactEnrichmentProvider,
 } from './contact-enrichment-chat-types';
-import { SourceBadge, CompanyChip, RunResultSnapshot, ApolloPreflightCard } from './contact-enrichment-chat-result';
-import { LushaCredentialDiagnosticCard } from './lusha-credential-diagnostic-card';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { SourceBadge, CompanyChip, RunResultSnapshot } from './contact-enrichment-chat-result';
 import type { ManualContactContext } from './contact-enrichment-chat-types';
 
 // ── Composer copy by step ──────────────────────────────────────────────────────
@@ -52,6 +52,8 @@ function composerPlaceholder(step: ContactEnrichmentChatStep): string {
       return 'Confirma la empresa para continuar';
     case 'creating_run':
       return 'Creando run…';
+    case 'searching_contacts':
+      return 'Buscando contactos…';
     case 'searching_apollo':
       return 'Buscando en Apollo…';
     case 'searching_lusha':
@@ -68,6 +70,7 @@ function composerPlaceholder(step: ContactEnrichmentChatStep): string {
 function typingLabelForStep(step: ContactEnrichmentChatStep): string {
   if (step === 'resolving') return 'Buscando en SellUp y HubSpot…';
   if (step === 'creating_run') return 'Creando run y revisando contactos existentes…';
+  if (step === 'searching_contacts') return 'Buscando contactos con el proveedor configurado…';
   if (step === 'searching_apollo') return 'Buscando perfiles relevantes en Apollo…';
   if (step === 'searching_lusha') return 'Buscando perfiles en Lusha…';
   return 'escribiendo';
@@ -91,17 +94,13 @@ export function ContactEnrichmentChatWizard({
   );
 
   const [composerText, setComposerText] = React.useState('');
-  const [lushaEnabled, setLushaEnabled] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    isLushaEnabledAction().then(setLushaEnabled).catch(() => setLushaEnabled(false));
-  }, []);
 
   const { visibleCount, isRevealing } = useProgressiveReveal(state.messages.length);
   const isLoadingStep =
     state.step === 'resolving' ||
     state.step === 'creating_run' ||
+    state.step === 'searching_contacts' ||
     state.step === 'searching_apollo' ||
     state.step === 'searching_lusha';
   const isTyping = isRevealing || isLoadingStep;
@@ -175,85 +174,34 @@ export function ContactEnrichmentChatWizard({
     dispatch({ type: 'REQUEST_CREATED', requestId: result.requestId });
   }
 
-  /** Placeholder run snapshot for display — the real attempt (with existing-
-   *  contacts snapshot) is created server-side inside the request-level
-   *  action; candidatesCount is always read from apolloResult/lushaResult. */
-  function placeholderRunResult(attemptId: string): ContactEnrichmentRunResult {
-    return { runId: attemptId, agentRunId: attemptId, status: 'ready_to_enrich', candidatesCount: 0 };
-  }
-
-  async function handleSearchApollo() {
+  /**
+   * AGENT2-ROUTING-WIRE-1 — single automatic search entry point.
+   *
+   * Runs the Apollo→Lusha automatic router via the existing
+   * runAutomaticContactEnrichmentForRequestAction. The user picks nothing: the
+   * primary provider (Apollo) and the fallback provider (Lusha) are decided by
+   * the orchestrator, gated by ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING.
+   *
+   * The action always leaves candidates in pending_review — it never approves
+   * or creates official contacts and never writes to HubSpot. With the flag off
+   * (the production default) it is a safe no-op and the UI shows a "routing
+   * disabled" notice for QA.
+   */
+  async function handleSearchContacts() {
     const requestId = state.requestId;
     if (!requestId || state.step !== 'done') return;
-    dispatch({ type: 'APOLLO_START' });
+    dispatch({ type: 'AUTOMATIC_ROUTING_START' });
 
-    const result = await runContactEnrichmentApolloForRequestAction(requestId);
+    const result = await runAutomaticContactEnrichmentForRequestAction(requestId);
 
-    if (!result.attemptId) {
-      dispatch({ type: 'RUN_FAILED', message: result.error ?? 'Error preparando el intento de enriquecimiento' });
+    if (!result.success) {
+      dispatch({
+        type: 'RUN_FAILED',
+        message: result.blockedReason ?? 'No se pudo iniciar la búsqueda de contactos',
+      });
       return;
     }
-
-    const uiResult = {
-      status: result.status ?? 'error',
-      candidatesCreated: result.candidatesCreated ?? 0,
-      duplicatesSkipped: result.duplicatesSkipped ?? 0,
-      possibleDuplicates: result.possibleDuplicates ?? 0,
-      totalCandidates: result.totalCandidates ?? 0,
-      rawResultsCount: result.rawResultsCount ?? 0,
-      rejectedByRelevance: result.rejectedByRelevance ?? 0,
-      noReviewableContactsFound: result.noReviewableContactsFound ?? false,
-      completionAttempted: result.completionAttempted ?? 0,
-      actionableContactsCount: result.actionableContactsCount ?? 0,
-      noActionableContactsFound: result.noActionableContactsFound ?? false,
-      providerStatus: result.providerStatus ?? 'error',
-      estimatedCostUsd: result.estimatedCostUsd ?? 0,
-      costGuardrail: result.costGuardrail,
-      searchGuardrail: result.searchGuardrail,
-      error: result.error,
-    };
-    const runResult = placeholderRunResult(result.attemptId);
-
-    if (!result.success || result.providerStatus !== 'success') {
-      dispatch({ type: 'APOLLO_FAILED', result: uiResult, runResult });
-      return;
-    }
-    dispatch({ type: 'APOLLO_SUCCEEDED', result: uiResult, runResult });
-  }
-
-  async function handleSearchLusha() {
-    const requestId = state.requestId;
-    if (!requestId || state.step !== 'done') return;
-    dispatch({ type: 'LUSHA_START' });
-
-    const result = await runContactEnrichmentLushaForRequestAction(requestId);
-
-    if (!result.attemptId) {
-      dispatch({ type: 'RUN_FAILED', message: result.error ?? 'Error preparando el intento de enriquecimiento' });
-      return;
-    }
-
-    const uiResult = {
-      status: result.status ?? 'error',
-      candidatesCreated: result.candidatesCreated ?? 0,
-      duplicatesSkipped: result.duplicatesSkipped ?? 0,
-      rawResultsCount: result.rawResultsCount ?? 0,
-      creditsUsed: result.creditsUsed ?? null,
-      providerStatus: result.providerStatus ?? 'error',
-      noReviewableContactsFound: result.noReviewableContactsFound ?? true,
-      error: result.error,
-    } as const;
-    const runResult = placeholderRunResult(result.attemptId);
-
-    if (!result.success || result.providerStatus !== 'success') {
-      dispatch({ type: 'LUSHA_FAILED', result: uiResult, runResult });
-      return;
-    }
-    dispatch({ type: 'LUSHA_SUCCEEDED', result: uiResult, runResult });
-  }
-
-  function handleProviderChange(provider: ContactEnrichmentProvider) {
-    dispatch({ type: 'SELECT_PROVIDER', provider });
+    dispatch({ type: 'AUTOMATIC_ROUTING_SETTLED', result });
   }
 
   function handleReset() {
@@ -349,26 +297,12 @@ export function ContactEnrichmentChatWizard({
                     }
                   />
                 )}
-                {!state.apolloResult && !state.lushaResult && (
+                {!state.automaticResult && (
                   <>
-                    <ApolloPreflightCard provider={state.selectedProvider} />
-                    {lushaEnabled && (
-                      <ProviderSelector
-                        selected={state.selectedProvider}
-                        onChange={handleProviderChange}
-                      />
-                    )}
-                    {lushaEnabled && state.selectedProvider === 'lusha' && (
-                      <LushaCredentialDiagnosticCard />
-                    )}
-                    <Button
-                      onClick={state.selectedProvider === 'lusha' ? handleSearchLusha : handleSearchApollo}
-                      className="w-full"
-                    >
+                    <AutomaticEnrichmentInfoCard />
+                    <Button onClick={handleSearchContacts} className="w-full">
                       <Sparkles className="mr-2 h-4 w-4" aria-hidden />
-                      {state.selectedProvider === 'lusha'
-                        ? 'Buscar contactos con Lusha'
-                        : 'Buscar contactos con control de créditos'}
+                      Buscar contactos con IA
                     </Button>
                   </>
                 )}
@@ -442,56 +376,33 @@ function SecondaryReset({ onReset, label }: { onReset: () => void; label: string
   );
 }
 
-// ── Provider selector (17B.4K) ───────────────────────────────────────────────
+// ── Automatic enrichment info (AGENT2-ROUTING-WIRE-1) ─────────────────────────
+//
+// Replaces the former ProviderSelector. The user no longer chooses a provider:
+// this is a neutral notice describing that routing (primary + optional fallback)
+// happens automatically. Deliberately names no provider as a user decision.
 
-function ProviderSelector({
-  selected,
-  onChange,
-}: {
-  selected: ContactEnrichmentProvider;
-  onChange: (p: ContactEnrichmentProvider) => void;
-}) {
+function AutomaticEnrichmentInfoCard() {
   return (
-    <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-        Proveedor de enriquecimiento
-      </p>
-      <div className="space-y-2">
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-muted/40 transition-colors">
-          <input
-            type="radio"
-            name="enrichment-provider"
-            value="apollo"
-            checked={selected === 'apollo'}
-            onChange={() => onChange('apollo')}
-            className="mt-0.5 accent-su-brand"
-          />
-          <div>
-            <p className="text-sm font-medium">Apollo</p>
-            <p className="text-xs text-muted-foreground">
-              Recomendado · proveedor principal para búsqueda y enriquecimiento de contactos.
-            </p>
-          </div>
-        </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-muted/40 transition-colors">
-          <input
-            type="radio"
-            name="enrichment-provider"
-            value="lusha"
-            checked={selected === 'lusha'}
-            onChange={() => onChange('lusha')}
-            className="mt-0.5 accent-su-brand"
-          />
-          <div>
-            <p className="text-sm font-medium">Lusha</p>
-            <p className="text-xs text-muted-foreground">
-              Proveedor alternativo en validación. Revela email corporativo cuando está disponible.
-              Teléfono deshabilitado en esta fase.
-            </p>
-          </div>
-        </label>
+    <SurfaceCard className="space-y-2 p-4">
+      <div className="flex items-center gap-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-su-brand-soft">
+          <Sparkles className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+        </div>
+        <p className="text-sm font-semibold text-foreground">Búsqueda automática de contactos</p>
       </div>
-    </div>
+      <p className="text-xs text-muted-foreground">
+        SellUp buscará contactos automáticamente usando el proveedor configurado.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Si el proveedor principal no encuentra resultados suficientes, SellUp podrá intentar un
+        proveedor alternativo según configuración.
+      </p>
+      <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+        Los candidatos quedan en revisión humana; no se crean contactos finales ni se escribe en
+        HubSpot sin tu aprobación. El teléfono personal queda fuera de alcance.
+      </p>
+    </SurfaceCard>
   );
 }
 
