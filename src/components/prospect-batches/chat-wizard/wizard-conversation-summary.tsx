@@ -15,6 +15,7 @@ import type {
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { buildWizardFinalRecap } from '@/modules/prospect-batches/wizard-final-summary';
+import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { WizardLushaFinalSearch } from './wizard-lusha-final-search';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -60,6 +61,7 @@ export function WizardConversationSummary({
         onExecute={onExecute}
         executionError={state.executionError}
         onEditSearch={onEditSearch}
+        onClose={onClose}
         lushaPreviewEnabled={lushaPreviewEnabled}
         lushaCriteria={lushaCriteria}
       />
@@ -127,11 +129,13 @@ type ValidatedPanelProps = {
   onExecute: () => void;
   executionError: { code: string; message: string; retryable: boolean } | null;
   onEditSearch: () => void;
+  onClose: () => void;
   lushaPreviewEnabled: boolean;
   lushaCriteria: WizardLushaCriteriaDecision;
 };
 
-function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, lushaPreviewEnabled, lushaCriteria }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria }: ValidatedPanelProps) {
+  const router = useRouter();
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
   // (explicit click only, no persistence). Otherwise the existing IA generation
@@ -178,11 +182,22 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         </div>
       )}
 
-      {/* Hidden Lusha provider — final read-only "Revisa tu búsqueda" surface.
-          The recap (país/sector/subindustria/tamaño/criterio/proveedor/costo),
-          the credit banner and the primary "Buscar con IA" CTA all live inside. */}
+      {/* Hidden Lusha provider — final "Revisa tu búsqueda" surface. The recap
+          (país/sector/subindustria/tamaño/criterio/proveedor/costo), the credit
+          banner and the primary "Buscar con IA" CTA all live inside. On click it
+          persists the results as pending-review prospects and shows a brief
+          confirmation (NOT a results list) with "Ver prospectos". */}
       {useLushaFinalSearch && lushaCriteria.input && (
-        <WizardLushaFinalSearch input={lushaCriteria.input} recap={finalRecap} />
+        <WizardLushaFinalSearch
+          input={lushaCriteria.input}
+          recap={finalRecap}
+          onViewProspects={() => {
+            router.push(PROSPECTOS_TAB_ROUTE);
+            router.refresh();
+            onClose();
+          }}
+          onGenerateAnother={() => dispatch({ type: 'CONFIRM_RESTART' })}
+        />
       )}
 
       {/* Real IA generation — only when explicitly enabled and Lusha is not backing this search. */}

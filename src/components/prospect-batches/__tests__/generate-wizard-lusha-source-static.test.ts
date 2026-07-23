@@ -110,7 +110,7 @@ describe('"Generar con IA" remains the single entry point and receives the flag'
   });
 });
 
-describe('Final search step wires Lusha as a hidden provider', () => {
+describe('Final search step persists Lusha results as pending review (Q3F-5BB.4)', () => {
   it('the summary gates the final Lusha search on provider === "lusha"', () => {
     assert.match(sources.summary, /WizardLushaFinalSearch/);
     assert.match(sources.summary, /lushaCriteria\.provider === 'lusha'/);
@@ -120,16 +120,22 @@ describe('Final search step wires Lusha as a hidden provider', () => {
     assert.match(sources.wizard, /resolveWizardLushaCriteria/);
   });
 
-  it('the final-search component reuses LushaPreviewPanel (no duplicated Lusha logic)', () => {
-    assert.match(sources.finalSearch, /LushaPreviewPanel/);
+  it('the final-search reuses the shared Lusha recap (no duplicated criteria logic)', () => {
+    assert.match(sources.finalSearch, /LockedCriteriaRecap/);
   });
 
   it('the final-search CTA copy is "Buscar con IA"', () => {
     assert.match(sources.finalSearch, /Buscar con IA/);
   });
 
-  it('shows provider traceability only in results (no visible selector)', () => {
-    assert.match(sources.finalSearch, /providerTraceabilityLabel/);
+  it('persists via the dedicated batch/candidate server action', () => {
+    assert.match(sources.finalSearch, /generateLushaPendingReviewBatchAction/);
+  });
+
+  it('shows provider traceability only in the confirmation (no visible selector)', () => {
+    assert.match(sources.finalSearch, /Fuente usada/);
+    assert.match(sources.finalSearch, /Lusha/);
+    assert.doesNotMatch(sources.finalSearch, /role="tab"/);
   });
 
   it('does NOT auto-run: no useEffect / useLayoutEffect in the final-search component', () => {
@@ -137,11 +143,16 @@ describe('Final search step wires Lusha as a hidden provider', () => {
     assert.doesNotMatch(sources.finalSearch, /useLayoutEffect/);
   });
 
-  it('exposes NO persistence / HubSpot / enrichment CTA in the final-search surface', () => {
-    assert.doesNotMatch(sources.finalSearch, /HubSpot|hubspot/);
-    assert.doesNotMatch(sources.finalSearch, /enrich|Enrich/);
-    assert.doesNotMatch(sources.finalSearch, /Crear prospecto|Guardar|Aprobar|Enviar a HubSpot/);
+  it('exposes NO account / HubSpot-sync / enrichment / approve CTA in the drawer', () => {
+    // The only CTAs are "Ver prospectos" and "Generar otra búsqueda". These check
+    // real CTA phrasings + import specifiers (not the file's own safety docstring).
+    assert.doesNotMatch(sources.finalSearch, /Aprobar/);
+    assert.doesNotMatch(sources.finalSearch, /Crear cuenta|Enviar a HubSpot|Sincronizar con/);
     assert.doesNotMatch(sources.finalSearch, /generateAIProspectBatch/);
+    // Never imports HubSpot / enrichment / accounts / people modules.
+    for (const m of [...sources.finalSearch.matchAll(/from\s+'([^']+)'/g)].map((x) => x[1])) {
+      assert.doesNotMatch(m, /hubspot|enrich|apollo|tavily|accounts|people/i);
+    }
   });
 });
 

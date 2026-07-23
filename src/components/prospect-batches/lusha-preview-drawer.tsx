@@ -380,7 +380,7 @@ export function LushaPreviewPanel({
 // collected país/sector/criterio, so we recap them read-only instead of showing
 // the editable selectors again. Human labels only — no codes.
 
-function LockedCriteriaRecap({
+export function LockedCriteriaRecap({
   countryCode,
   sectorKey,
   searchText,
