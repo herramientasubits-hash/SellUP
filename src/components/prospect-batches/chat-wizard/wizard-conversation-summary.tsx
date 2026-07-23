@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, Pencil, RotateCcw, X, AlertTriangle, XCircle, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { CheckCircle2, Pencil, RotateCcw, AlertTriangle, XCircle, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -14,6 +14,7 @@ import type {
 } from '@/modules/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
+import { buildWizardFinalRecap } from '@/modules/prospect-batches/wizard-final-summary';
 import { WizardLushaFinalSearch } from './wizard-lusha-final-search';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -52,8 +53,9 @@ export function WizardConversationSummary({
   if (state.currentStep === 'validated') {
     return (
       <ValidatedPanel
+        state={state}
+        catalog={catalog}
         dispatch={dispatch}
-        onClose={onClose}
         executionEnabled={executionEnabled}
         onExecute={onExecute}
         executionError={state.executionError}
@@ -118,8 +120,9 @@ function ValidatingPanel() {
 // ── Validated panel ───────────────────────────────────────────────────────────
 
 type ValidatedPanelProps = {
+  state: ProspectWizardState;
+  catalog: ActiveIndustryCatalog;
   dispatch: React.Dispatch<ProspectWizardAction>;
-  onClose: () => void;
   executionEnabled: boolean;
   onExecute: () => void;
   executionError: { code: string; message: string; retryable: boolean } | null;
@@ -128,7 +131,7 @@ type ValidatedPanelProps = {
   lushaCriteria: WizardLushaCriteriaDecision;
 };
 
-function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, executionError, onEditSearch, lushaPreviewEnabled, lushaCriteria }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, lushaPreviewEnabled, lushaCriteria }: ValidatedPanelProps) {
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
   // (explicit click only, no persistence). Otherwise the existing IA generation
@@ -136,14 +139,23 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
   const useLushaFinalSearch =
     lushaPreviewEnabled && lushaCriteria.provider === 'lusha' && lushaCriteria.input !== null;
 
+  // Q3F-5BB.3F — human labels (país/sector/subindustria/tamaño/criterio) resolved
+  // from the wizard's own catalog for the final "Revisa tu búsqueda" recap.
+  // Display only — never alters the Lusha request.
+  const finalRecap = React.useMemo(
+    () => buildWizardFinalRecap(state, catalog),
+    [state, catalog],
+  );
+
   const validBody = useLushaFinalSearch
-    ? 'Revisa los criterios y ejecuta la búsqueda. Los resultados son de solo lectura: nada se guarda todavía.'
+    ? 'Revisa los criterios y ejecuta la búsqueda. Nada se guarda todavía.'
     : executionEnabled
       ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
       : 'La generación real todavía no está habilitada.';
 
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
+      {/* Banner A — validation (positive). */}
       <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
         <CheckCircle2
           className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
@@ -166,9 +178,11 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
         </div>
       )}
 
-      {/* Hidden Lusha provider — final read-only search surface. */}
+      {/* Hidden Lusha provider — final read-only "Revisa tu búsqueda" surface.
+          The recap (país/sector/subindustria/tamaño/criterio/proveedor/costo),
+          the credit banner and the primary "Buscar con IA" CTA all live inside. */}
       {useLushaFinalSearch && lushaCriteria.input && (
-        <WizardLushaFinalSearch input={lushaCriteria.input} />
+        <WizardLushaFinalSearch input={lushaCriteria.input} recap={finalRecap} />
       )}
 
       {/* Real IA generation — only when explicitly enabled and Lusha is not backing this search. */}
@@ -184,37 +198,28 @@ function ValidatedPanel({ dispatch, onClose, executionEnabled, onExecute, execut
         </Button>
       )}
 
-      <div className="flex flex-col gap-2 sm:flex-row">
+      {/* Action hierarchy: primary = "Buscar con IA" (inside the panel above);
+          secondary = "Editar búsqueda"; tertiary = "Comenzar de nuevo" (link).
+          Close lives on the drawer's top X, not competing here. */}
+      <div className="space-y-2 pt-1">
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="flex-1 gap-1.5"
+          className="w-full gap-1.5"
           onClick={onEditSearch}
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden />
           Editar búsqueda
         </Button>
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="sm"
-          className="flex-1 gap-1.5 text-muted-foreground"
+          className="mx-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
           onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
         >
-          <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+          <RotateCcw className="h-3 w-3" aria-hidden />
           Comenzar de nuevo
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="flex-1 gap-1.5 text-muted-foreground"
-          onClick={onClose}
-        >
-          <X className="h-3.5 w-3.5" aria-hidden />
-          Cerrar
-        </Button>
+        </button>
       </div>
     </div>
   );
