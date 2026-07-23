@@ -36,6 +36,25 @@ export type ContactSource =
 
 export type ConfidenceLevel = 'unknown' | 'low' | 'medium' | 'high' | 'verified';
 
+// PHONE-3C: vocabulario estable de tipo/fuente de teléfono del contacto oficial.
+// Espejo del módulo puro phone-classification.ts y del CHECK de la migración 094.
+export type ContactPhoneType =
+  | 'personal_mobile'
+  | 'mobile'
+  | 'direct_dial'
+  | 'work'
+  | 'hq'
+  | 'other'
+  | 'unknown';
+
+export type ContactPhoneSource =
+  | 'apollo_search'
+  | 'apollo_reveal'
+  | 'lusha_reveal'
+  | 'provider_payload'
+  | 'manual'
+  | 'unknown';
+
 export type ContactAuditAction =
   | 'contact_created'
   | 'contact_updated'
@@ -63,6 +82,13 @@ export interface Contact {
   hubspot_contact_id: string | null;
   email_confidence: ConfidenceLevel | null;
   phone_confidence: ConfidenceLevel | null;
+  // PHONE-3C: tipo/fuente de teléfono trasladados desde el candidato al aprobar.
+  // Aditivos y nullable; el teléfono nunca es obligatorio y no se revela aquí.
+  phone_type: ContactPhoneType | null;
+  phone_source: ContactPhoneSource | null;
+  phone_raw_type: string | null;
+  phone_revealed_at: string | null;
+  phone_processing_basis: string | null;
   is_primary: boolean;
   notes: string | null;
   metadata: Record<string, unknown>;

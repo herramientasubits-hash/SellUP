@@ -19,6 +19,8 @@ import type {
   ContactSource as CandidateSource,
   ContactCandidateStatus,
   ContactDuplicateStatus,
+  PhoneType,
+  PhoneSource,
 } from './types';
 
 // ── Normalización de claves de deduplicación ───────────────────
@@ -234,6 +236,13 @@ export interface ContactInsertPayload {
   seniority: ContactSeniority | null;
   source: OfficialContactSource;
   contact_status: 'active';
+  // PHONE-3C: metadata de teléfono trasladada desde el candidato enriquecido.
+  // Aditivo y nullable — el teléfono nunca es obligatorio y NO se revela aquí.
+  phone_type: PhoneType | null;
+  phone_source: PhoneSource | null;
+  phone_raw_type: string | null;
+  phone_revealed_at: string | null;
+  phone_processing_basis: string | null;
   metadata: Record<string, unknown>;
   created_by: string;
   updated_by: string;
@@ -254,6 +263,90 @@ export function buildContactTraceMetadata(candidate: CandidateRecord): Record<st
     completion: (meta.completion ?? meta.contact_completion ?? null) as unknown,
     post_completion: (meta.post_completion ?? null) as unknown,
     company_consistency: (meta.company_consistency ?? null) as unknown,
+  };
+}
+
+// ── Copia de metadata de teléfono al contacto oficial (PHONE-3C) ─
+// Traslada el tipo/fuente/raw_type que PHONE-3A ya conservó de forma gratuita
+// en `enrichment_metadata.phone` (payload de búsqueda de Apollo). NO revela
+// teléfonos, NO llama proveedores, NO gasta créditos: solo mueve metadata ya
+// existente. Valores de tipo/fuente fuera del vocabulario estable → null.
+
+const ALLOWED_PHONE_TYPES: readonly PhoneType[] = [
+  'personal_mobile',
+  'mobile',
+  'direct_dial',
+  'work',
+  'hq',
+  'other',
+  'unknown',
+];
+
+const ALLOWED_PHONE_SOURCES: readonly PhoneSource[] = [
+  'apollo_search',
+  'apollo_reveal',
+  'lusha_reveal',
+  'provider_payload',
+  'manual',
+  'unknown',
+];
+
+function normalizePhoneType(value: unknown): PhoneType | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  return (ALLOWED_PHONE_TYPES as readonly string[]).includes(v) ? (v as PhoneType) : null;
+}
+
+function normalizePhoneSource(value: unknown): PhoneSource | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  return (ALLOWED_PHONE_SOURCES as readonly string[]).includes(v) ? (v as PhoneSource) : null;
+}
+
+export interface ContactPhoneMetadataCopy {
+  phone_type: PhoneType | null;
+  phone_source: PhoneSource | null;
+  phone_raw_type: string | null;
+  phone_revealed_at: string | null;
+  phone_processing_basis: string | null;
+}
+
+/**
+ * Extrae la metadata de teléfono a copiar en el contacto oficial desde
+ * `candidate.enrichment_metadata.phone`. Si no hay metadata, todos los campos
+ * quedan null (comportamiento actual intacto: el teléfono nunca es obligatorio).
+ *
+ * `phone_revealed_at` y `phone_processing_basis` quedan SIEMPRE null en este
+ * hito: no se revela ningún teléfono (apollo_search entrega el tipo gratis en
+ * la búsqueda) y no hay una política legal de reveal definida todavía.
+ */
+export function buildContactPhoneMetadata(
+  candidate: Pick<CandidateRecord, 'enrichment_metadata'>,
+): ContactPhoneMetadataCopy {
+  const empty: ContactPhoneMetadataCopy = {
+    phone_type: null,
+    phone_source: null,
+    phone_raw_type: null,
+    phone_revealed_at: null,
+    phone_processing_basis: null,
+  };
+
+  const phoneMeta = candidate.enrichment_metadata?.phone as
+    | { type?: unknown; source?: unknown; raw_type?: unknown }
+    | null
+    | undefined;
+  if (!phoneMeta || typeof phoneMeta !== 'object') return empty;
+
+  const rawType = typeof phoneMeta.raw_type === 'string' ? phoneMeta.raw_type : null;
+
+  return {
+    phone_type: normalizePhoneType(phoneMeta.type),
+    phone_source: normalizePhoneSource(phoneMeta.source),
+    phone_raw_type: cleanString(rawType),
+    // No reveal en este hito → siempre null para apollo_search / search-derived.
+    phone_revealed_at: null,
+    // Sin política legal de reveal definida → null para apollo_search.
+    phone_processing_basis: null,
   };
 }
 
@@ -286,6 +379,10 @@ export function buildContactInsertPayload(args: {
   const titleNormalization =
     (candidate.enrichment_metadata?.apollo_title_normalization as Record<string, unknown> | null | undefined) ?? null;
 
+  // PHONE-3C: traslada tipo/fuente de teléfono ya conservados por PHONE-3A.
+  // Sin metadata ⇒ todos null (el teléfono nunca es obligatorio).
+  const phoneMetadata = buildContactPhoneMetadata(candidate);
+
   return {
     account_id: accountId,
     first_name: firstName,
@@ -299,6 +396,11 @@ export function buildContactInsertPayload(args: {
     seniority: mapCandidateSeniority(candidate.seniority),
     source: mapCandidateSource(candidate.source),
     contact_status: 'active',
+    phone_type: phoneMetadata.phone_type,
+    phone_source: phoneMetadata.phone_source,
+    phone_raw_type: phoneMetadata.phone_raw_type,
+    phone_revealed_at: phoneMetadata.phone_revealed_at,
+    phone_processing_basis: phoneMetadata.phone_processing_basis,
     metadata: {
       ...buildContactTraceMetadata(candidate),
       normalization: { status: 'normalized', fields: normalizedFields },
