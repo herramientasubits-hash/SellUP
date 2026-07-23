@@ -1,16 +1,20 @@
 /**
- * Q3F-5BB.3D — Hidden-provider criteria section RUNTIME contract (real render).
+ * Q3F-5BB.3E — Final search step RUNTIME contract (real render).
  *
- * Renders the ACTUAL `ProspectCriteriaSection` (the in-wizard, Lusha-backed
- * "Empresas por criterios" form) and asserts the product decision:
+ * Renders the ACTUAL `WizardLushaFinalSearch` — the hidden-Lusha search surface
+ * shown at the END of the conversational wizard — and asserts the product
+ * decision:
  *   - There are NO source tabs (no "Búsqueda con IA" / "Lusha" tab switch).
+ *   - Criteria are locked (already collected conversationally): a read-only recap
+ *     is shown, not editable país/sector selectors.
  *   - NO auto-run: Lusha is not called on mount.
- *   - Lusha runs exactly once, only after the explicit "Buscar empresas" click.
+ *   - Lusha runs exactly once, only after the explicit "Buscar con IA" click, and
+ *     receives the seeded criteria (país CO, sector healthcare).
  *   - Results surface human labels (Colombia, Salud, Hospitals & Clinics) and the
  *     "Fuente usada: Lusha" traceability line — NOT a selectable source.
  *   - The read-only "not saved" footer stays; no persistence CTA.
  * The server action is mocked (no network / DB / credit); a spy is injected via
- * `runLushaPreview` to observe invocation.
+ * `runLushaPreview` to observe invocation and the seeded input.
  */
 
 import { JSDOM } from 'jsdom';
@@ -56,6 +60,8 @@ import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PreviewLushaCompaniesActionResult } from '@/modules/prospect-batches/lusha-preview-actions';
+import type { RunLushaPreview } from '@/components/prospect-batches/lusha-preview-drawer';
+import type { WizardLushaInput } from '@/modules/prospect-batches/wizard-lusha-criteria';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -106,14 +112,23 @@ const OK_RESULT: PreviewLushaCompaniesActionResult = {
   },
 };
 
-const mockRun = mock.fn<() => Promise<PreviewLushaCompaniesActionResult>>(async () => OK_RESULT);
+// The seeded criteria the conversational wizard would resolve (país CO, Salud).
+const SEEDED_INPUT: WizardLushaInput = {
+  countryCode: 'CO',
+  sectorKey: 'healthcare',
+  subIndustryId: null,
+  sizeBandKey: '201-5000',
+  searchText: null,
+};
 
-let ProspectCriteriaSection: (typeof import('../generate-wizard-source-section'))['ProspectCriteriaSection'];
+const mockRun = mock.fn<RunLushaPreview>(async () => OK_RESULT);
+
+let WizardLushaFinalSearch: (typeof import('../chat-wizard/wizard-lusha-final-search'))['WizardLushaFinalSearch'];
 
 before(async () => {
   ({ render, screen, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
-  const mod = await import('../generate-wizard-source-section');
-  ProspectCriteriaSection = mod.ProspectCriteriaSection;
+  const mod = await import('../chat-wizard/wizard-lusha-final-search');
+  WizardLushaFinalSearch = mod.WizardLushaFinalSearch;
 });
 
 beforeEach(() => {
@@ -124,24 +139,29 @@ afterEach(() => {
   cleanup();
 });
 
-describe('ProspectCriteriaSection — Lusha as hidden provider (no tabs)', () => {
-  it('renders the criteria form with NO source tabs and does NOT auto-run Lusha', () => {
-    render(React.createElement(ProspectCriteriaSection, { runLushaPreview: mockRun }));
+describe('WizardLushaFinalSearch — Lusha as hidden provider at the final step', () => {
+  it('renders locked criteria (no editable tabs) and does NOT auto-run Lusha', () => {
+    render(
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runLushaPreview: mockRun }),
+    );
 
-    // The criteria section is present…
-    assert.ok(screen.getByTestId('prospect-criteria-section'));
-    // …with the run button, but no visible source tabs.
+    // The final search surface is present with an explicit run button…
+    assert.ok(screen.getByTestId('wizard-lusha-final-search'));
     assert.ok(screen.getByTestId('lusha-preview-run'));
-    assert.equal(screen.queryByTestId('generation-source-ia'), null);
-    assert.equal(screen.queryByTestId('generation-source-lusha'), null);
+    // …criteria are locked (recap shown), no editable "Criterios de búsqueda" card.
+    assert.ok(screen.getByTestId('lusha-locked-criteria-recap'));
+    assert.equal(screen.queryByText('Criterios de búsqueda'), null);
+    // …no visible source tabs / selector.
     assert.equal(screen.queryByText('Búsqueda con IA'), null);
     assert.equal(screen.queryByText('Fuente de generación'), null);
     // No auto-run on mount.
     assert.equal(mockRun.mock.callCount(), 0);
   });
 
-  it('runs Lusha exactly once on the explicit search click and shows human labels + traceability', async () => {
-    render(React.createElement(ProspectCriteriaSection, { runLushaPreview: mockRun }));
+  it('runs Lusha exactly once on the explicit search click with the seeded criteria', async () => {
+    render(
+      React.createElement(WizardLushaFinalSearch, { input: SEEDED_INPUT, runLushaPreview: mockRun }),
+    );
 
     // Still no call before clicking the search button.
     assert.equal(mockRun.mock.callCount(), 0);
@@ -151,6 +171,11 @@ describe('ProspectCriteriaSection — Lusha as hidden provider (no tabs)', () =>
     await waitFor(() => {
       assert.equal(mockRun.mock.callCount(), 1);
     });
+
+    // The seeded criteria were forwarded to the provider call.
+    const call = mockRun.mock.calls[0].arguments[0];
+    assert.equal(call.countryCode, 'CO');
+    assert.equal(call.sectorKey, 'healthcare');
 
     // Human labels surfaced in the read-only result (not codes).
     await waitFor(() => {
