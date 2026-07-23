@@ -1,14 +1,14 @@
 /**
- * Q3F-5BB.3C — Generation source section RUNTIME contract (real render).
+ * Q3F-5BB.3D — Hidden-provider criteria section RUNTIME contract (real render).
  *
- * Renders the ACTUAL `GenerationSourceSection` (the in-wizard Lusha source) and
- * asserts:
- *   - Default source is IA: the IA body renders; the Lusha panel does not.
- *   - Switching to the Lusha tab reveals the read-only Lusha panel but does NOT
- *     auto-run Lusha (spy uncalled on switch).
- *   - Lusha runs exactly once, only after the explicit "Previsualizar en Lusha"
- *     click inside the panel.
- *   - Human labels render in results: Colombia, Salud, Hospitals & Clinics.
+ * Renders the ACTUAL `ProspectCriteriaSection` (the in-wizard, Lusha-backed
+ * "Empresas por criterios" form) and asserts the product decision:
+ *   - There are NO source tabs (no "Búsqueda con IA" / "Lusha" tab switch).
+ *   - NO auto-run: Lusha is not called on mount.
+ *   - Lusha runs exactly once, only after the explicit "Buscar empresas" click.
+ *   - Results surface human labels (Colombia, Salud, Hospitals & Clinics) and the
+ *     "Fuente usada: Lusha" traceability line — NOT a selectable source.
+ *   - The read-only "not saved" footer stays; no persistence CTA.
  * The server action is mocked (no network / DB / credit); a spy is injected via
  * `runLushaPreview` to observe invocation.
  */
@@ -64,7 +64,7 @@ let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 
 // Boundary mock: replace the server action module so its server-only imports
-// never load in the test process.
+// (supabase/server, next/navigation) never load in the test process.
 mock.module('@/modules/prospect-batches/lusha-preview-actions', {
   namedExports: {
     previewLushaCompaniesAction: async () => OK_RESULT,
@@ -108,26 +108,12 @@ const OK_RESULT: PreviewLushaCompaniesActionResult = {
 
 const mockRun = mock.fn<() => Promise<PreviewLushaCompaniesActionResult>>(async () => OK_RESULT);
 
-let GenerationSourceSection: (typeof import('../generate-wizard-source-section'))['GenerationSourceSection'];
-let LUSHA_READONLY_NOTICE: string;
-
-// Small stateful harness so the controlled source tab actually switches.
-function Harness() {
-  const [source, setSource] = React.useState<'ia' | 'lusha'>('ia');
-  return React.createElement(GenerationSourceSection, {
-    source,
-    onSourceChange: setSource,
-    iaContent: React.createElement('div', { 'data-testid': 'ia-body' }, 'Cuerpo IA'),
-    runLushaPreview: mockRun,
-  });
-}
+let ProspectCriteriaSection: (typeof import('../generate-wizard-source-section'))['ProspectCriteriaSection'];
 
 before(async () => {
   ({ render, screen, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
   const mod = await import('../generate-wizard-source-section');
-  GenerationSourceSection = mod.GenerationSourceSection;
-  const panelMod = await import('../lusha-preview-drawer');
-  LUSHA_READONLY_NOTICE = panelMod.LUSHA_PREVIEW_READONLY_NOTICE;
+  ProspectCriteriaSection = mod.ProspectCriteriaSection;
 });
 
 beforeEach(() => {
@@ -138,36 +124,26 @@ afterEach(() => {
   cleanup();
 });
 
-describe('GenerationSourceSection — in-wizard Lusha source', () => {
-  it('defaults to the IA source: IA body shows, Lusha panel hidden, no Lusha call', () => {
-    render(React.createElement(Harness));
-    assert.ok(screen.getByTestId('ia-body'));
-    assert.equal(screen.queryByTestId('generation-source-lusha-panel'), null);
+describe('ProspectCriteriaSection — Lusha as hidden provider (no tabs)', () => {
+  it('renders the criteria form with NO source tabs and does NOT auto-run Lusha', () => {
+    render(React.createElement(ProspectCriteriaSection, { runLushaPreview: mockRun }));
+
+    // The criteria section is present…
+    assert.ok(screen.getByTestId('prospect-criteria-section'));
+    // …with the run button, but no visible source tabs.
+    assert.ok(screen.getByTestId('lusha-preview-run'));
+    assert.equal(screen.queryByTestId('generation-source-ia'), null);
+    assert.equal(screen.queryByTestId('generation-source-lusha'), null);
+    assert.equal(screen.queryByText('Búsqueda con IA'), null);
+    assert.equal(screen.queryByText('Fuente de generación'), null);
+    // No auto-run on mount.
     assert.equal(mockRun.mock.callCount(), 0);
   });
 
-  it('switching to the Lusha tab reveals the panel but does NOT auto-run Lusha', async () => {
-    render(React.createElement(Harness));
+  it('runs Lusha exactly once on the explicit search click and shows human labels + traceability', async () => {
+    render(React.createElement(ProspectCriteriaSection, { runLushaPreview: mockRun }));
 
-    fireEvent.click(screen.getByTestId('generation-source-lusha'));
-
-    await waitFor(() => {
-      assert.ok(screen.getByTestId('generation-source-lusha-panel'));
-    });
-    // IA body is replaced by the Lusha panel.
-    assert.equal(screen.queryByTestId('ia-body'), null);
-    // Read-only notice present.
-    assert.ok(screen.getByText(LUSHA_READONLY_NOTICE));
-    // No auto-run on switch.
-    assert.equal(mockRun.mock.callCount(), 0);
-  });
-
-  it('runs Lusha exactly once on the explicit preview click and shows human labels', async () => {
-    render(React.createElement(Harness));
-    fireEvent.click(screen.getByTestId('generation-source-lusha'));
-    await waitFor(() => screen.getByTestId('lusha-preview-run'));
-
-    // Still no call before clicking the preview button.
+    // Still no call before clicking the search button.
     assert.equal(mockRun.mock.callCount(), 0);
 
     fireEvent.click(screen.getByTestId('lusha-preview-run'));
@@ -182,6 +158,12 @@ describe('GenerationSourceSection — in-wizard Lusha source', () => {
     });
     assert.ok(screen.getAllByText(/Colombia/).length >= 1);
     assert.ok(screen.getAllByText(/Salud/).length >= 1);
+
+    // Provider shown ONLY as traceability, not as a selector.
+    const trace = screen.getByTestId('lusha-preview-provider-traceability');
+    assert.match(trace.textContent ?? '', /Fuente usada:/);
+    assert.match(trace.textContent ?? '', /Lusha/);
+
     // Read-only "not saved" footer still shown — no persistence CTA.
     assert.ok(screen.getByTestId('lusha-preview-not-saved'));
   });

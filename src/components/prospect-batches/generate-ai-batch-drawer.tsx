@@ -15,10 +15,7 @@ import {
 } from 'lucide-react';
 import { ExploratorySearchFormV2 } from '@/components/prospect-batches/exploratory-search-form-v2';
 import { ProspectChatWizard } from '@/components/prospect-batches/chat-wizard';
-import {
-  GenerationSourceSection,
-  type GenerationSource,
-} from '@/components/prospect-batches/generate-wizard-source-section';
+import { ProspectCriteriaSection } from '@/components/prospect-batches/generate-wizard-source-section';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { GenerateProspectsExperience } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -219,9 +216,10 @@ type GenerateAIBatchDrawerProps = {
   /** When true, the chat wizard will show the real generation CTA. Default false. */
   executionEnabled?: boolean;
   /**
-   * Q3F-5BB.3C — When true, the wizard shows a "Fuente de generación" selector
-   * with a read-only Lusha preview source. Gated by ENABLE_LUSHA_PREVIEW upstream.
-   * Default false → wizard behaves exactly as before (IA only, no Lusha section).
+   * Q3F-5BB.3D — When true, the wizard's body becomes the "Empresas por
+   * criterios" form backed by Lusha as a HIDDEN discovery provider (no source
+   * tabs, no provider choice). Gated by ENABLE_LUSHA_PREVIEW upstream. Default
+   * false → wizard behaves exactly as before (existing IA flow, no Lusha).
    */
   lushaPreviewEnabled?: boolean;
 };
@@ -231,9 +229,6 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
   const [result, setResult] = React.useState(EMPTY_RESULT);
-  // Q3F-5BB.3C — generation source ('ia' default). Only surfaced when
-  // lushaPreviewEnabled. Reset to 'ia' on close so re-opening starts on IA.
-  const [source, setSource] = React.useState<GenerationSource>('ia');
   const [progressSteps, setProgressSteps] = React.useState<string[]>([]);
   const typingStepIndex = React.useRef(0);
   const showTyping = React.useRef(false);
@@ -256,27 +251,15 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
     setForm(EMPTY_FORM);
     setResult(EMPTY_RESULT);
     setProgressSteps([]);
-    // Q3F-5BB.3C — clear source so any Lusha preview state unmounts and the
-    // wizard re-opens on the IA source. (LushaPreviewPanel state lives in the
-    // Sheet body, which unmounts on close.)
-    setSource('ia');
   }
 
-  // Q3F-5BB.3C — when Lusha preview is enabled, wrap the IA body in a source
-  // selector. Lusha lives WITHIN the wizard; when active the IA generation
-  // footer is suppressed (Lusha is read-only, no persistence CTA).
-  const lushaActive = lushaPreviewEnabled && source === 'lusha';
+  // Q3F-5BB.3D — when Lusha preview is enabled, the wizard body IS the
+  // "Empresas por criterios" form backed by Lusha as a HIDDEN provider (no
+  // source tabs, no provider choice). The read-only criteria section owns its
+  // own explicit search button, so the IA generation footer is suppressed.
+  // When the flag is off, the wizard renders the existing IA body unchanged.
   const renderBody = (iaContent: React.ReactNode): React.ReactNode =>
-    lushaPreviewEnabled ? (
-      <GenerationSourceSection
-        source={source}
-        onSourceChange={setSource}
-        disabled={drawer.generating}
-        iaContent={iaContent}
-      />
-    ) : (
-      iaContent
-    );
+    lushaPreviewEnabled ? <ProspectCriteriaSection /> : iaContent;
 
   function handleGoToBatch() {
     if (!result.generatedBatchId) return;
@@ -475,7 +458,7 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
       icon={<Sparkles className="h-4 w-4 text-su-brand" />}
       size="xl"
       footer={
-        lushaActive ? undefined : (
+        lushaPreviewEnabled ? undefined : (
           <DrawerFooter
             showPreflightResult={showPreflightResult}
             generating={drawer.generating}
