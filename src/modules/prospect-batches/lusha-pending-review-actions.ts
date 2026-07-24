@@ -43,7 +43,7 @@ import {
 } from '@/server/prospect-batches/lusha-preview';
 import {
   persistLushaPendingReviewBatch,
-  LUSHA_PENDING_REVIEW_URL,
+  buildLushaPendingReviewFailure,
   type LushaPendingReviewBatchRow,
   type LushaPendingReviewCandidateRow,
   type PersistLushaPendingReviewResult,
@@ -66,34 +66,10 @@ const GenerateInputSchema = z.object({
 export type GenerateLushaPendingReviewBatchInput = z.infer<typeof GenerateInputSchema>;
 
 /** Client-facing result — never exposes raw provider payloads or secrets. */
-export type GenerateLushaPendingReviewBatchActionResult =
-  | PersistLushaPendingReviewResult
-  | {
-      ok: false;
-      status: 'error';
-      batchId: null;
-      createdCandidatesCount: 0;
-      skippedCount: 0;
-      creditsCharged: null;
-      resultsReturned: null;
-      reviewUrl: string;
-      message: string;
-      error: string;
-    };
+export type GenerateLushaPendingReviewBatchActionResult = PersistLushaPendingReviewResult;
 
 function invalidInputResult(): GenerateLushaPendingReviewBatchActionResult {
-  return {
-    ok: false,
-    status: 'error',
-    batchId: null,
-    createdCandidatesCount: 0,
-    skippedCount: 0,
-    creditsCharged: null,
-    resultsReturned: null,
-    reviewUrl: LUSHA_PENDING_REVIEW_URL,
-    message: 'Parámetros de búsqueda inválidos.',
-    error: 'invalid_input',
-  };
+  return buildLushaPendingReviewFailure('Parámetros de búsqueda inválidos.', 'invalid_input');
 }
 
 /**
@@ -189,17 +165,9 @@ export async function generateLushaPendingReviewBatchAction(
     return result;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error desconocido';
-    return {
-      ok: false,
-      status: 'error',
-      batchId: null,
-      createdCandidatesCount: 0,
-      skippedCount: 0,
-      creditsCharged: null,
-      resultsReturned: null,
-      reviewUrl: LUSHA_PENDING_REVIEW_URL,
-      message: 'No fue posible guardar los prospectos. Intenta de nuevo.',
-      error: msg.slice(0, 200),
-    };
+    return buildLushaPendingReviewFailure(
+      'No fue posible guardar los prospectos. Intenta de nuevo.',
+      msg.slice(0, 200),
+    );
   }
 }

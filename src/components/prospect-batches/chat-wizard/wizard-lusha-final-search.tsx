@@ -31,10 +31,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  LockedCriteriaRecap,
-  LUSHA_PREVIEW_COST_NOTICE,
-} from '@/components/prospect-batches/lusha-preview-drawer';
+import { LockedCriteriaRecap } from '@/components/prospect-batches/lusha-preview-drawer';
 import {
   generateLushaPendingReviewBatchAction,
   type GenerateLushaPendingReviewBatchActionResult,
@@ -46,6 +43,14 @@ export const WIZARD_LUSHA_SEARCH_LABEL = 'Buscar con IA';
 export const WIZARD_LUSHA_SEARCH_LOADING_LABEL = 'Buscando con IA…';
 /** Discreet traceability shown only after persistence (never a selector). */
 export const WIZARD_LUSHA_PROVIDER_LABEL = 'Lusha';
+/**
+ * Pre-search notice (Q3F-5BB.7B): the search may consult a second page to top up
+ * useful candidates, so it can consume up to 2 credits total.
+ */
+export const WIZARD_LUSHA_TOPUP_COST_NOTICE =
+  'Esta búsqueda puede consumir hasta 2 créditos si se necesita completar candidatos útiles.';
+/** Display-only mirror of the server-authoritative page cap (LUSHA_PENDING_REVIEW_MAX_PAGES). */
+const LUSHA_MAX_PAGES = 2;
 
 /** Injectable persist runner (tests). Default = real server action. */
 export type RunLushaPendingReviewSearch = (
@@ -109,6 +114,15 @@ export function WizardLushaFinalSearch({
         reviewUrl: '/accounts?tab=prospectos',
         message: 'No fue posible guardar los prospectos. Intenta de nuevo.',
         error: err instanceof Error ? err.message.slice(0, 200) : 'error',
+        pagesRequested: 0,
+        expectedMaxCredits: 2,
+        creditsChargedTotal: null,
+        usefulCandidatesCount: 0,
+        excludedExactDuplicatesCount: 0,
+        skippedActiveDuplicatesCount: 0,
+        possibleDuplicatesCount: 0,
+        insertedCandidatesCount: 0,
+        topUpTriggered: false,
       });
     } finally {
       setStatus('done');
@@ -156,7 +170,7 @@ export function WizardLushaFinalSearch({
         <Alert variant="warning">
           <Info className="h-4 w-4" />
           <AlertDescription className="text-xs" data-testid="lusha-preview-cost-notice">
-            {LUSHA_PREVIEW_COST_NOTICE}
+            {WIZARD_LUSHA_TOPUP_COST_NOTICE}
           </AlertDescription>
         </Alert>
 
@@ -240,8 +254,12 @@ function PersistConfirmation({
   onGenerateAnother?: () => void;
 }) {
   const count = result.createdCandidatesCount;
-  const credits = result.creditsCharged;
+  const creditsUsed = result.creditsChargedTotal ?? result.creditsCharged;
   const shortBatch = result.batchId ? result.batchId.slice(0, 8) : '—';
+  const creditsLabel =
+    creditsUsed === null
+      ? `— / máx ${result.expectedMaxCredits}`
+      : `${creditsUsed} / máx ${result.expectedMaxCredits}`;
 
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-persist-confirmation">
@@ -261,13 +279,40 @@ function PersistConfirmation({
         </div>
       </div>
 
-      <dl className="rounded-xl border border-border bg-card divide-y divide-border/60 text-sm">
+      <dl
+        className="rounded-xl border border-border bg-card divide-y divide-border/60 text-sm"
+        data-testid="wizard-lusha-persist-metrics"
+      >
         <DetailRow
           label="Fuente usada"
           value={WIZARD_LUSHA_PROVIDER_LABEL}
           testId="wizard-lusha-persist-provider"
         />
-        <DetailRow label="Créditos consumidos" value={credits === null ? '—' : String(credits)} />
+        <DetailRow
+          label="Enviadas a revisión"
+          value={String(count)}
+          testId="wizard-lusha-persist-useful"
+        />
+        <DetailRow
+          label="Posibles duplicados"
+          value={String(result.possibleDuplicatesCount)}
+          testId="wizard-lusha-persist-possible"
+        />
+        <DetailRow
+          label="Duplicados confirmados excluidos"
+          value={String(result.excludedExactDuplicatesCount)}
+          testId="wizard-lusha-persist-excluded"
+        />
+        <DetailRow
+          label="Páginas consultadas"
+          value={`${result.pagesRequested} / ${LUSHA_MAX_PAGES}`}
+          testId="wizard-lusha-persist-pages"
+        />
+        <DetailRow
+          label="Créditos consumidos"
+          value={creditsLabel}
+          testId="wizard-lusha-persist-credits"
+        />
         <DetailRow label="Lote" value={shortBatch} />
       </dl>
 

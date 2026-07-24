@@ -32,8 +32,15 @@ import {
 
 // ─── Guardrails de crédito (server-authoritative) ────────────────────────────
 
-/** Página forzada. Base 0 (OpenAPI V3). */
+/** Página base forzada. Base 0 (OpenAPI V3). */
 export const LUSHA_PREVIEW_PAGE = 0;
+/**
+ * Página máxima permitida (server-authoritative). El preview siempre usa page 0;
+ * el único caller que puede pedir page 1 es el top-up controlado de
+ * `persistLushaPendingReviewBatch` (Q3F-5BB.7B) cuando quedan < 5 candidatos
+ * útiles. NUNCA se acepta una página > 1: paginación profunda queda prohibida.
+ */
+export const LUSHA_PREVIEW_MAX_PAGE = 1;
 /** Tamaño de página forzado. Mínimo aceptado por Lusha V3 (Q3F-5E). */
 export const LUSHA_PREVIEW_SIZE = 10;
 /** Crédito máximo esperado por preview (1 crédito/página, Q3F-5BB.2B). */
@@ -165,6 +172,21 @@ export interface BuildLushaPreviewRequestInput {
   subIndustryId?: number | null;
   sizeBand?: { min?: number; max?: number } | null;
   searchText?: string | null;
+  /** Página solicitada. Por defecto 0; clamp a [0, LUSHA_PREVIEW_MAX_PAGE]. */
+  page?: number | null;
+}
+
+/**
+ * Clamp de página server-authoritative. Solo se permiten page 0 y 1. Cualquier
+ * valor no numérico, negativo o > LUSHA_PREVIEW_MAX_PAGE colapsa dentro del rango
+ * — el cliente NUNCA puede forzar paginación profunda.
+ */
+export function clampLushaPreviewPage(page: number | null | undefined): number {
+  if (typeof page !== 'number' || !Number.isFinite(page)) return LUSHA_PREVIEW_PAGE;
+  const truncated = Math.trunc(page);
+  if (truncated < LUSHA_PREVIEW_PAGE) return LUSHA_PREVIEW_PAGE;
+  if (truncated > LUSHA_PREVIEW_MAX_PAGE) return LUSHA_PREVIEW_MAX_PAGE;
+  return truncated;
 }
 
 /**
@@ -203,7 +225,7 @@ export function buildLushaPreviewRequest(
 
   return {
     filters: { companies: { include } },
-    pagination: { page: LUSHA_PREVIEW_PAGE, size: LUSHA_PREVIEW_SIZE },
+    pagination: { page: clampLushaPreviewPage(input.page), size: LUSHA_PREVIEW_SIZE },
     options: { includePartialProfiles: false },
     // signals intencionalmente ausente — nunca se emite en preview.
   };
@@ -390,6 +412,13 @@ export interface LushaPreviewInput {
   subIndustryId?: number | null;
   sizeBandKey?: string | null;
   searchText?: string | null;
+  /**
+   * Página a consultar. Ausente/0 = comportamiento del preview (page 0). El único
+   * caller que pasa page 1 es el top-up controlado de la persistencia pending-review
+   * (Q3F-5BB.7B). Se hace clamp a [0, LUSHA_PREVIEW_MAX_PAGE]; nunca paginación
+   * profunda. No forma parte de la superficie del cliente (no viaja desde el navegador).
+   */
+  page?: number | null;
 }
 
 export type LushaPreviewStatus =
@@ -535,6 +564,7 @@ export async function executeLushaPreview(
     subIndustryId: effectiveSubId,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     searchText: hasSearchText ? trimmedSearch : null,
+    page: input.page,
   });
 
   const providerResult = await deps.searchCompanies(apiKey, request);
