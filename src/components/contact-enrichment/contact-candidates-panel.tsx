@@ -8,6 +8,13 @@ import { ContactCandidatesDataTableClient } from '@/components/contact-enrichmen
 import { getPendingContactCandidates } from '@/modules/contact-enrichment/actions';
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import { getCurrentUser } from '@/modules/access/actions';
+import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
+
+// Roles autorizados a revelar teléfono (PHONE-3D.4). Espejo del gate del server
+// action (PHONE_REVEAL_AUTHORIZED_ROLE_KEYS en phone-reveal-core): Administrador
+// y Manager comercial. Resuelto server-side; el server action revalida el rol.
+const PHONE_REVEAL_AUTHORIZED_ROLE_KEYS = ['admin', 'commercial_manager'] as const;
 
 /**
  * Tab "Candidatos por revisar" del módulo Contactos (Hito 17A.4A).
@@ -19,12 +26,24 @@ import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-sco
  * conversacional ni "Crear contacto".
  */
 export async function ContactCandidatesPanel() {
-  const [candidates, accountsList, accounts, scopeFilterOptions] = await Promise.all([
-    getPendingContactCandidates(),
-    getAccountsList(),
-    getActiveAccountsForPicker(),
-    getCommercialScopeFilterOptions(),
-  ]);
+  const [candidates, accountsList, accounts, scopeFilterOptions, currentUser] =
+    await Promise.all([
+      getPendingContactCandidates(),
+      getAccountsList(),
+      getActiveAccountsForPicker(),
+      getCommercialScopeFilterOptions(),
+      getCurrentUser(),
+    ]);
+
+  // Gobierno del reveal de teléfono (PHONE-3D.4): el flag y el rol se resuelven
+  // aquí (server component) y viajan como booleanos planos. Con el flag OFF
+  // (default de producción) el botón "Revelar teléfono" no se renderiza.
+  const phoneRevealEnabled = isApolloPhoneRevealEnabled();
+  const phoneRevealAuthorized =
+    !!currentUser?.role_key &&
+    (PHONE_REVEAL_AUTHORIZED_ROLE_KEYS as readonly string[]).includes(
+      currentUser.role_key,
+    );
 
   const accountOwners = new Map(
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
@@ -97,6 +116,8 @@ export async function ContactCandidatesPanel() {
         candidates={candidates}
         accountOwners={accountOwners}
         scopeFilterOptions={scopeFilterOptions}
+        phoneRevealEnabled={phoneRevealEnabled}
+        phoneRevealAuthorized={phoneRevealAuthorized}
       />
     </DataTablePage>
   );

@@ -196,6 +196,7 @@ function makeCandidate(
     enrichment_metadata: {},
     enrichment_run_id: 'run-001',
     created_at: '2026-07-08T00:00:00.000Z',
+    phone_reveal_status: null,
     company_name: 'Empresa SAS',
     company_domain: 'empresa.com',
     account_id: 'acc-001',

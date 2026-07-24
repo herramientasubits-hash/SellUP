@@ -33,6 +33,7 @@ import type {
   ContactCandidateStatus,
   ContactDuplicateStatus,
   ContactEnrichmentRunStatus,
+  PhoneRevealStatus,
 } from './types';
 import { createInitialContactEnrichmentAttempt } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-attempt-creator';
 import {
@@ -322,6 +323,7 @@ function firstRun(run: unknown): CandidateRunContext | null {
 const CANDIDATE_SELECT =
   `id, full_name, title, email, linkedin_url, phone, source, status,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
+   phone_reveal_status,
    run:contact_enrichment_runs ( company_name, company_domain, account_id, hubspot_company_id )`;
 
 /** Mapea una fila cruda de Supabase a la proyección de solo lectura. */
@@ -343,6 +345,8 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
       (record.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
     enrichment_run_id: (record.enrichment_run_id as string | null) ?? null,
     created_at: record.created_at as string,
+    phone_reveal_status:
+      (record.phone_reveal_status as PhoneRevealStatus | null) ?? null,
     company_name: run?.company_name ?? null,
     company_domain: run?.company_domain ?? null,
     account_id: run?.account_id ?? null,
