@@ -103,6 +103,14 @@ export type AiFlowStatus =
   // limitados bajo esa política. NO implica generación live automática ni
   // expansión completa. Presentacional.
   | 'limited_manual_expansion'
+  // Pendiente diseño de integración: la fuente está clasificada e identificada,
+  // pero todavía NO existe un diseño de integración. No es apta para conexión
+  // inmediata. Presentacional — no habilita ningún flujo.
+  | 'pending_integration_design'
+  // Requiere validación: la fuente necesita validación de uso, cobertura,
+  // términos y legalidad antes de considerar cualquier diseño de integración.
+  // No es fuente operativa. Presentacional — no habilita ningún flujo.
+  | 'requires_validation'
   | 'paused'
   | 'not_applicable'
   | 'pending_classification';

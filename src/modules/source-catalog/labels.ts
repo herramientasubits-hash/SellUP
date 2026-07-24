@@ -197,6 +197,8 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   dry_run_validated: 'Dry-run validado',
   controlled_pilot: 'Piloto controlado',
   limited_manual_expansion: 'Expansión limitada manual',
+  pending_integration_design: 'Pendiente diseño de integración',
+  requires_validation: 'Requiere validación',
   paused: 'Pausada',
   not_applicable: 'No aplica',
   pending_classification: 'Pendiente clasificación',
@@ -228,6 +230,14 @@ export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
     // mismo acento ámbar (precaución controlada) que el piloto controlado.
     case 'limited_manual_expansion':
       return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    // No conectada / no operativa: fuente clasificada pero sin integración —
+    // acento neutro para no sugerir que está lista o conectada.
+    case 'pending_integration_design':
+      return 'border-border/40 bg-muted/30 text-muted-foreground';
+    // Requiere validación previa (uso/cobertura/legalidad): acento neutro con
+    // matiz de precaución, sin implicar operatividad.
+    case 'requires_validation':
+      return 'border-border/40 bg-muted/30 text-muted-foreground';
     case 'paused':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'not_applicable':

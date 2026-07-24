@@ -1,4 +1,4 @@
-import type { ConnectionMode } from '@/server/agents/prospecting-toolkit/types';
+import type { AiFlowStatus, ConnectionMode } from '@/server/agents/prospecting-toolkit/types';
 
 /**
  * Presentación de la columna "Acción" del catálogo de fuentes.
@@ -22,10 +22,21 @@ export type SourceActionPresentation = {
 
 export function getSourceActionPresentation(input: {
   connectionMode: ConnectionMode;
+  aiFlowStatus?: AiFlowStatus;
 }): SourceActionPresentation {
   switch (input.connectionMode) {
-    // Sin conexión: única acción que ofrece iniciar una conexión real.
+    // Sin conexión: por defecto se ofrece "Conectar" (única acción que ofrece
+    // iniciar una conexión real). PERO una fuente no conectada que solo está
+    // clasificada —pendiente de diseño de integración o que requiere validación
+    // previa (uso/cobertura/legalidad)— NO es apta para conexión inmediata: abre
+    // el detalle de solo lectura en vez de ofrecer "Conectar".
     case 'not_connected':
+      if (
+        input.aiFlowStatus === 'pending_integration_design' ||
+        input.aiFlowStatus === 'requires_validation'
+      ) {
+        return { kind: 'view_detail', label: 'Ver detalle' };
+      }
       return { kind: 'connect', label: 'Conectar' };
     // Señal read-only: revisar señales capturadas.
     case 'read_only_signal':
