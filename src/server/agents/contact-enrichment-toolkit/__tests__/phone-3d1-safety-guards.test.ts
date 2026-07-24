@@ -158,11 +158,14 @@ describe('PHONE-3D.1 — no hay superficie de reveal (action/UI/migración)', ()
     }
   });
 
-  it('la UI de detalle no crea botón "Revelar teléfono" ni modal de costo de teléfono', () => {
+  it('la UI de detalle no expone reveal_phone_number (aislado a este helper)', () => {
+    // NOTA (PHONE-3D.4): el botón "Revelar teléfono" + modal de costo son parte
+    // de PHONE-3D.4, no de 3D.1. La invariante que sigue importándole a 3D.1 es
+    // que la literal `reveal_phone_number` viva SOLO en este helper y nunca en
+    // la UI. La presencia del botón/modal la verifica el guard de 3D.4.
     const detailSheet = readRepo(
       'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
     );
-    assert.equal(/revelar tel[eé]fono/i.test(detailSheet), false);
     assert.equal(/reveal_phone_number/.test(detailSheet), false);
   });
 

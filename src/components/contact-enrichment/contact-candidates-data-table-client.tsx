@@ -139,12 +139,21 @@ interface ContactCandidatesDataTableClientProps {
   /** owner_id keyed by account_id — used for scope pre-filtering (candidate → account → owner). */
   accountOwners?: Map<string, string>;
   scopeFilterOptions?: ScopeFilterOptions;
+  /**
+   * ENABLE_APOLLO_PHONE_REVEAL resuelto server-side (PHONE-3D.4). Se propaga tal
+   * cual al detalle del candidato para gobernar el botón "Revelar teléfono".
+   */
+  phoneRevealEnabled?: boolean;
+  /** true si el rol del actor autenticado puede revelar (resuelto server-side). */
+  phoneRevealAuthorized?: boolean;
 }
 
 export function ContactCandidatesDataTableClient({
   candidates,
   accountOwners,
   scopeFilterOptions,
+  phoneRevealEnabled = false,
+  phoneRevealAuthorized = false,
 }: ContactCandidatesDataTableClientProps) {
   // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
   // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
@@ -376,6 +385,8 @@ export function ContactCandidatesDataTableClient({
       candidateId={detailId}
       open={detailOpen}
       onClose={() => setDetailOpen(false)}
+      phoneRevealEnabled={phoneRevealEnabled}
+      phoneRevealAuthorized={phoneRevealAuthorized}
     />
     </>
   );

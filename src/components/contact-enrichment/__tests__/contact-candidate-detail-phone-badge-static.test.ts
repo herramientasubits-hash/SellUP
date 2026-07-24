@@ -10,8 +10,6 @@
  *  - No `reveal_phone_number` (mucho menos `: true`).
  *  - No toca `automaticPhoneRevealEnabled`.
  *  - No toca `isLushaPhoneRevealEnabled` ni `phone_reveal_enabled`.
- *  - No agrega botón "Revelar teléfono".
- *  - No introduce confirmación de costo de teléfono.
  *  - No llama a proveedores reales (Apollo/Lusha) ni hace fetch.
  *  - No modifica el run viewer / history para mostrar teléfono.
  */
@@ -46,16 +44,13 @@ describe('PHONE-3B — static safety guards', () => {
     assert.equal(/phone_reveal_enabled/.test(detailSheet), false);
   });
 
-  it('no agrega un botón "Revelar teléfono"', () => {
-    assert.equal(/revelar\s+tel[eé]fono/i.test(detailSheet), false);
-    // Tampoco un verbo de reveal genérico en botones/labels visibles.
-    assert.equal(/reveal\s*phone/i.test(detailSheet), false);
-  });
-
-  it('no introduce confirmación de costo de teléfono en este hito', () => {
-    assert.equal(/confirmar\s+costo/i.test(detailSheet), false);
-    assert.equal(/confirmPhoneCost/i.test(detailSheet), false);
-  });
+  // NOTA (PHONE-3D.4): el botón "Revelar teléfono" y la confirmación de costo se
+  // introdujeron deliberadamente en PHONE-3D.4 (UI modal de reveal). Las dos
+  // aserciones "no botón" / "no costo" que vivían aquí quedaron OBSOLETAS y se
+  // trasladaron al guard de ese hito
+  // (contact-candidate-detail-phone-reveal-ui-3d4-static.test.ts), que ahora
+  // verifica su PRESENCIA junto con las invariantes de privacidad. El resto de
+  // los guards de PHONE-3B siguen vigentes.
 
   it('no llama a proveedores reales ni hace fetch desde el componente', () => {
     assert.equal(/\bfetch\s*\(/.test(detailSheet), false);

@@ -291,6 +291,14 @@ export interface PendingContactCandidate {
   enrichment_metadata: ContactCandidateEnrichmentMetadata;
   enrichment_run_id: string | null;
   created_at: string;
+  /**
+   * Estado del reveal de teléfono (PHONE-3D.2 audit column). Solo lectura para
+   * la UI de revisión: alimenta la elegibilidad del botón "Revelar teléfono"
+   * (PHONE-3D.4) — `revealed`/`no_phone_found` ocultan el botón. `null` en
+   * candidatos legacy previos a la migración 095. El reveal real y su
+   * enforcement siguen siendo autoridad del server action (PHONE-3D.3).
+   */
+  phone_reveal_status: PhoneRevealStatus | null;
   // Contexto de empresa (desde el run que originó al candidato)
   company_name: string | null;
   company_domain: string | null;
