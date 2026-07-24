@@ -193,3 +193,58 @@ describe('getCandidateLinkedInDisplay', () => {
     assert.equal(getCandidateLinkedInDisplay(null), null);
   });
 });
+
+// ─── Q3F-5BB.7D: flat metadata.linkedin_url + enrichment/import fallbacks ─────
+
+describe('getCandidateLinkedInUrl — Q3F-5BB.7D fallbacks', () => {
+  it('reads flat metadata.linkedin_url (Lusha writer path)', () => {
+    const metadata = { linkedin_url: 'https://www.linkedin.com/company/lusha-co' };
+    assert.equal(getCandidateLinkedInUrl(metadata), 'https://www.linkedin.com/company/lusha-co');
+  });
+
+  it('prioritizes canonical linkedin_enrichment.company_url over flat linkedin_url', () => {
+    const metadata = {
+      linkedin_enrichment: { status: 'found', company_url: 'https://www.linkedin.com/company/canonical' },
+      linkedin_url: 'https://www.linkedin.com/company/flat',
+    };
+    assert.equal(getCandidateLinkedInUrl(metadata), 'https://www.linkedin.com/company/canonical');
+  });
+
+  it('reads enrichment.web.linkedin_company.url', () => {
+    const metadata = { enrichment: { web: { linkedin_company: { url: 'https://www.linkedin.com/company/webco' } } } };
+    assert.equal(getCandidateLinkedInUrl(metadata), 'https://www.linkedin.com/company/webco');
+  });
+
+  it('reads external.linkedin_url and import.linkedin_url', () => {
+    assert.equal(
+      getCandidateLinkedInUrl({ external: { linkedin_url: 'https://www.linkedin.com/company/extco' } }),
+      'https://www.linkedin.com/company/extco',
+    );
+    assert.equal(
+      getCandidateLinkedInUrl({ import: { linkedin_url: 'https://www.linkedin.com/company/impco' } }),
+      'https://www.linkedin.com/company/impco',
+    );
+  });
+
+  it('rejects a flat linkedin_url that is a personal /in/ profile', () => {
+    assert.equal(getCandidateLinkedInUrl({ linkedin_url: 'https://www.linkedin.com/in/someone' }), null);
+  });
+
+  it('does not surface LinkedIn for a candidate with no LinkedIn data (non-Lusha safe)', () => {
+    assert.equal(getCandidateLinkedInUrl({ provider: 'agent_1', score: 90 }), null);
+  });
+});
+
+describe('getCandidateLinkedInDisplay — Q3F-5BB.7D fallbacks', () => {
+  it('returns found for a flat metadata.linkedin_url company profile', () => {
+    const result = getCandidateLinkedInDisplay({ linkedin_url: 'https://www.linkedin.com/company/lusha-co' });
+    assert.ok(result !== null);
+    assert.equal(result!.status, 'found');
+    assert.equal(result!.url, 'https://www.linkedin.com/company/lusha-co');
+    assert.equal(result!.reviewRequired, false);
+  });
+
+  it('returns null for a flat linkedin_url that is not a company profile', () => {
+    assert.equal(getCandidateLinkedInDisplay({ linkedin_url: 'https://www.linkedin.com/in/someone' }), null);
+  });
+});

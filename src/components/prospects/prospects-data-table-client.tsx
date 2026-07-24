@@ -6,6 +6,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import {
   Building2,
   Globe,
+  Link2,
   ShieldCheck,
   ExternalLink,
   Sparkles,
@@ -49,6 +50,7 @@ import {
 } from '@/components/data-table';
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
+import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import { TERMINAL_STATUS } from '@/components/prospects/prospect-review-decision-utils';
 import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
 import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
@@ -588,7 +590,10 @@ function QualityCell({ candidate }: { candidate: Row }) {
       || getNestedValue(candidate.metadata, ['enrichment', 'linkedin_url'])
       || getNestedValue(candidate.metadata, ['enrichment', 'linkedin'])
       || getNestedValue(candidate.metadata, ['external', 'linkedin_url'])
-      || getNestedValue(candidate.metadata, ['import', 'linkedin_url']);
+      || getNestedValue(candidate.metadata, ['import', 'linkedin_url'])
+      // Q3F-5BB.7D: also recognize the canonical helper paths (linkedin_enrichment
+      // .company_url + Lusha's flat metadata.linkedin_url). Purely additive.
+      || getCandidateLinkedInUrl(candidate.metadata);
     if (!linkedinUrl) missingFields.push('linkedin_url');
     if (!candidate.tax_identifier) missingFields.push('tax_identifier');
     if (!candidate.industry && !(candidate.metadata?.enrichment as Record<string, unknown> | undefined)?.sector_description) missingFields.push('industry');
@@ -927,6 +932,9 @@ export function ProspectsDataTableClient({
           // El país ya tiene columna propia — aquí solo ciudad para no duplicar señal
           const location = c.city ?? null;
           const domain = c.website ? extractDomainFromUrl(c.website) : null;
+          // Q3F-5BB.7D: surface the corporate LinkedIn (incl. Lusha's flat
+          // metadata.linkedin_url) when present, from the canonical helper.
+          const companyLinkedInUrl = getCandidateLinkedInUrl(c.metadata);
 
           return (
             <div className="min-w-0 space-y-1 max-w-[220px]">
@@ -963,6 +971,19 @@ export function ProspectsDataTableClient({
                 >
                   <Globe className="h-2.5 w-2.5" />
                   <span className="truncate max-w-[150px]">{domain ?? c.website}</span>
+                  <ExternalLink className="h-2 w-2 opacity-60" />
+                </a>
+              )}
+              {companyLinkedInUrl && (
+                <a
+                  href={companyLinkedInUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Link2 className="h-2.5 w-2.5" />
+                  <span className="truncate max-w-[150px]">LinkedIn</span>
                   <ExternalLink className="h-2 w-2 opacity-60" />
                 </a>
               )}
