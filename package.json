@@ -195,7 +195,8 @@
     "test:agent2a:phone-badge-ui": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-badge.test.tsx src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-badge-static.test.ts",
     "test:agent2a:phone-metadata-contacts": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-review-phone-metadata-3c.test.ts",
     "test:agent2a:phone-reveal-scaffold": "node --import tsx --test src/server/agents/contact-enrichment-toolkit/__tests__/apollo-phone-reveal.test.ts src/server/agents/contact-enrichment-toolkit/__tests__/phone-3d1-safety-guards.test.ts",
-    "test:agent2a:phone-reveal-schema": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-phone-reveal-audit-schema-3d2.test.ts"
+    "test:agent2a:phone-reveal-schema": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-phone-reveal-audit-schema-3d2.test.ts",
+    "test:agent2a:phone-reveal-action": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-action-3d3.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

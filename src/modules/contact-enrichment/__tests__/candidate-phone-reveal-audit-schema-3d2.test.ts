@@ -311,10 +311,16 @@ describe('PHONE-3D.2 — reveal_phone_number: true sigue aislado en el helper', 
 });
 
 describe('PHONE-3D.2 — no hay server action ni UI de reveal', () => {
-  it('no existe server action revealCandidatePhone en módulos de contact-enrichment', () => {
+  // La server action revealCandidatePhone la introduce PHONE-3D.3 en archivos
+  // dedicados (phone-reveal-actions.ts / phone-reveal-core.ts). La invariante de
+  // 3D.2 que sigue vigente: la acción no se filtra a otros módulos y la UI de
+  // reveal (botón/modal) sigue sin existir en este milestone.
+  it('revealCandidatePhone solo vive en los archivos dedicados de 3D.3', () => {
     const modulesDir = join(REPO_ROOT, 'src', 'modules', 'contact-enrichment');
+    const DEDICATED_3D3 = new Set(['phone-reveal-actions.ts', 'phone-reveal-core.ts']);
     const files = readdirSync(modulesDir).filter((f) => f.endsWith('.ts'));
     for (const f of files) {
+      if (DEDICATED_3D3.has(f)) continue;
       const source = readFileSync(join(modulesDir, f), 'utf8');
       assert.equal(
         /revealCandidatePhone/.test(source),

@@ -138,10 +138,17 @@ describe('PHONE-3D.1 — flags de reveal siguen apagados', () => {
 });
 
 describe('PHONE-3D.1 — no hay superficie de reveal (action/UI/migración)', () => {
-  it('no existe server action revealCandidatePhone en el árbol de módulos', () => {
+  // PHONE-3D.3 introduce legítimamente la server action revealCandidatePhone en
+  // los archivos dedicados phone-reveal-actions.ts / phone-reveal-core.ts. La
+  // invariante de 3D.1 que sigue vigente es que la acción NO se filtra a módulos
+  // no relacionados y sigue detrás del flag (sin UI). Los archivos dedicados de
+  // 3D.3 quedan exentos de este chequeo.
+  it('revealCandidatePhone solo aparece en los archivos dedicados de 3D.3', () => {
     const modulesDir = join(repoRoot, 'src', 'modules', 'contact-enrichment');
+    const DEDICATED_3D3 = new Set(['phone-reveal-actions.ts', 'phone-reveal-core.ts']);
     const files = readdirSync(modulesDir).filter((f) => f.endsWith('.ts'));
     for (const f of files) {
+      if (DEDICATED_3D3.has(f)) continue;
       const source = readFileSync(join(modulesDir, f), 'utf8');
       assert.equal(
         /revealCandidatePhone/.test(source),
