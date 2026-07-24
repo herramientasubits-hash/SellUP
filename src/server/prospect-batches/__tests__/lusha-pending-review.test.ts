@@ -124,8 +124,32 @@ function errorResult(): LushaPreviewResult {
   };
 }
 
+/** Empty second page — the default top-up response so single-page fixtures keep
+ *  single-page semantics (page 1 adds nothing, charges nothing). */
+function emptySecondPage(): LushaPreviewResult {
+  return {
+    ok: true,
+    status: 'empty',
+    results: [],
+    billing: { creditsCharged: null, resultsReturned: 0, expectedMaxCredits: 1 },
+    warnings: [],
+    requestSummary: {
+      country: 'Colombia',
+      countryCode: 'CO',
+      sector: 'Salud',
+      sectorKey: 'healthcare',
+      mainIndustriesIds: [11],
+      subIndustryId: null,
+      sizeBand: { min: 201, max: 5000 },
+      hasSearchText: false,
+    },
+  };
+}
+
 // Spy deps: record every write. Absence of any other dep proves no side effects.
-function makeDeps(search: LushaPreviewResult) {
+// runSearch is page-aware: page 0 returns the fixture, page 1 (top-up) returns
+// `secondPage` (default = empty) — Q3F-5BB.7B top-up fires whenever useful < 5.
+function makeDeps(search: LushaPreviewResult, secondPage: LushaPreviewResult = emptySecondPage()) {
   const calls = {
     searchInputs: [] as LushaPreviewInput[],
     batches: [] as LushaPendingReviewBatchRow[],
@@ -136,7 +160,7 @@ function makeDeps(search: LushaPreviewResult) {
   const deps: PersistLushaPendingReviewDeps = {
     runSearch: async (input) => {
       calls.searchInputs.push(input);
-      return search;
+      return (input.page ?? 0) > 0 ? secondPage : search;
     },
     insertBatch: async (row) => {
       calls.batches.push(row);
@@ -186,7 +210,16 @@ describe('dedupeLushaCompanies', () => {
 
 describe('builders', () => {
   it('14/15. batch row carries provider metadata + review status/source', () => {
-    const row = buildLushaPendingReviewBatchRow(INPUT, ACTOR, successResult([company()]), 1);
+    const row = buildLushaPendingReviewBatchRow(INPUT, ACTOR, successResult([company()]), 1, {
+      pagesRequested: 1,
+      creditsChargedTotal: 1,
+      resultsReturnedTotal: 1,
+      usefulCandidatesCount: 1,
+      possibleDuplicatesCount: 0,
+      excludedExactDuplicatesCount: 0,
+      skippedActiveDuplicatesCount: 0,
+      topUpTriggered: false,
+    });
     assert.equal(row.source, LUSHA_PENDING_REVIEW_BATCH_SOURCE);
     assert.equal(row.status, LUSHA_PENDING_REVIEW_BATCH_STATUS);
     assert.equal(row.owner_id, 'user-1');
@@ -196,7 +229,7 @@ describe('builders', () => {
     assert.equal(row.metadata.do_not_call_enrichment, true);
     // Safe billing metadata only — no api key, no raw payload.
     const billing = row.metadata.billing as Record<string, unknown>;
-    assert.equal(billing.expected_max_credits, 1);
+    assert.equal(billing.expected_max_credits, 2); // pending-review ceiling (Q3F-5BB.7B)
     assert.doesNotMatch(JSON.stringify(row), /apiKey|api_key|authorization/i);
   });
 
@@ -212,6 +245,7 @@ describe('builders', () => {
           hubSpotDuplicateCheck: 'performed_no_match',
           activeCandidateDuplicateCheck: 'performed_no_match',
           activeGuardReason: null,
+          duplicateDetails: null,
         },
       },
     ]);

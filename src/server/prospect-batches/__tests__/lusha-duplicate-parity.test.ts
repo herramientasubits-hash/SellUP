@@ -140,8 +140,18 @@ function hubspotPossible(hsId: string): DuplicateMatch {
 
 // ── Flow harness: configurable read-only deps, spy on writes ──────────────────
 
+function emptySecondPage(): LushaPreviewResult {
+  return {
+    ...successResult([]),
+    billing: { creditsCharged: null, resultsReturned: 0, expectedMaxCredits: 1 },
+  };
+}
+
 function makeFlow(opts: {
   results: LushaPreviewCompany[];
+  /** Optional page-1 top-up results (default = empty, so single-page fixtures
+   *  keep single-page skip/credit semantics under Q3F-5BB.7B top-up). */
+  secondPageResults?: LushaPreviewCompany[];
   checker?: (input: DuplicateCheckInput) => DuplicateCheckResult;
   active?: ActiveCandidateRecord[];
 }) {
@@ -149,9 +159,18 @@ function makeFlow(opts: {
     batches: [] as LushaPendingReviewBatchRow[],
     candidateRows: [] as LushaPendingReviewCandidateRow[],
     duplicateInputs: [] as DuplicateCheckInput[],
+    searchPages: [] as number[],
   };
   const deps: PersistLushaPendingReviewDeps = {
-    runSearch: async () => successResult(opts.results),
+    runSearch: async (input) => {
+      calls.searchPages.push(input.page ?? 0);
+      if ((input.page ?? 0) > 0) {
+        return opts.secondPageResults
+          ? successResult(opts.secondPageResults)
+          : emptySecondPage();
+      }
+      return successResult(opts.results);
+    },
     insertBatch: async (row) => {
       calls.batches.push(row);
       return { id: 'batch-1' };
@@ -298,17 +317,36 @@ describe('duplicate-check + guard input adapters', () => {
 // ── persist flow (end-to-end with doubles) ────────────────────────────────────
 
 describe('persistLushaPendingReviewBatch — duplicate parity flow', () => {
-  it('11. persists exact_duplicate when the checker reports a SellUp match (not hardcoded no_match)', async () => {
+  it('11 (Q3F-5BB.7B). exact_duplicate is EXCLUDED from persisted candidates + counted', async () => {
+    // Only company is an exact SellUp match → nothing useful to review.
     const { res, calls } = await run({
       results: [company()],
       checker: () => dupResult({ sellup: [sellupExact(ACCOUNT_UUID)] }),
     });
+    assert.equal(res.status, 'empty');
+    assert.equal(calls.batches.length, 0);
+    assert.equal(calls.candidateRows.length, 0);
+    assert.equal(res.excludedExactDuplicatesCount, 1);
+    assert.equal(res.usefulCandidatesCount, 0);
+  });
+
+  it('11b. exact_duplicate is excluded but useful siblings still persist', async () => {
+    const { res, calls } = await run({
+      results: [
+        company({ domain: 'exact.com', name: 'Exact' }),
+        company({ domain: 'clean.com', name: 'Clean' }),
+      ],
+      checker: (input) =>
+        input.domain === 'exact.com'
+          ? dupResult({ sellup: [sellupExact(ACCOUNT_UUID)] })
+          : dupResult({}),
+    });
     assert.equal(res.status, 'success');
-    const row = calls.candidateRows[0];
-    assert.equal(row.duplicate_status, 'exact_duplicate');
-    assert.equal(row.matched_account_id, ACCOUNT_UUID);
-    assert.equal((row.source_trace as Record<string, unknown>).accountDuplicateCheck, 'performed_matched');
-    assert.notEqual((row.source_trace as Record<string, unknown>).accountDuplicateCheck, 'not_performed');
+    assert.equal(calls.candidateRows.length, 1);
+    assert.equal(calls.candidateRows[0].domain, 'clean.com');
+    assert.equal(calls.candidateRows[0].duplicate_status, 'no_match');
+    assert.equal(res.excludedExactDuplicatesCount, 1);
+    assert.equal(res.usefulCandidatesCount, 1);
   });
 
   it('12/13. matched_account_id and matched_hubspot_company_id persisted', async () => {
@@ -396,17 +434,17 @@ describe('ScotiaTech regression — scotiabank.com must not persist as clean no_
   const scotia = () =>
     company({ name: 'ScotiaTech', domain: 'scotiabank.com', providerCompanyId: 'pc-scotia' });
 
-  it('29. checker returns SellUp match → persisted as exact_duplicate + matched_account_id', async () => {
-    const { calls } = await run({
+  it('29 (Q3F-5BB.7B). checker returns SellUp exact match → EXCLUDED, never persisted', async () => {
+    const { res, calls } = await run({
       results: [scotia()],
       checker: (input) =>
         input.domain === 'scotiabank.com'
           ? dupResult({ sellup: [sellupExact(ACCOUNT_UUID)] })
           : dupResult({}),
     });
-    const row = calls.candidateRows[0];
-    assert.equal(row.duplicate_status, 'exact_duplicate');
-    assert.equal(row.matched_account_id, ACCOUNT_UUID);
+    assert.equal(calls.candidateRows.length, 0);
+    assert.equal(res.excludedExactDuplicatesCount, 1);
+    assert.equal(res.status, 'empty');
   });
 
   it('30. checker returns HubSpot possible risk → NOT persisted as clean no_match', async () => {
@@ -443,13 +481,26 @@ describe('approval eligibility parity for Lusha candidates', () => {
     assert.equal(decision.decision, 'convert');
   });
 
-  it('27. an exact_duplicate Lusha candidate is blocked, like canonical candidates', async () => {
+  it('27 (Q3F-5BB.7B). exact_duplicate is excluded; a legacy exact row still blocks approval', async () => {
+    // New batches never persist exact duplicates → nothing to approve.
     const { calls } = await run({
       results: [company()],
       checker: () => dupResult({ sellup: [sellupExact(ACCOUNT_UUID)] }),
     });
-    const decision = evaluateConvertApproveEligibility(snapshot(calls.candidateRows[0]));
-    assert.deepEqual(decision, { decision: 'reject', reason: 'duplicate_blocked' });
+    assert.equal(calls.candidateRows.length, 0);
+
+    // Legacy safety: a pre-existing exact_duplicate row is still blocked at approval.
+    const legacyExactSnapshot = {
+      status: 'needs_review',
+      recordOrigin: 'production',
+      duplicateStatus: 'exact_duplicate',
+      convertedAccountId: null,
+      matchedHubspotCompanyId: null,
+    };
+    assert.deepEqual(evaluateConvertApproveEligibility(legacyExactSnapshot), {
+      decision: 'reject',
+      reason: 'duplicate_blocked',
+    });
   });
 
   it('26. a possible_duplicate Lusha candidate requires explicit confirmation', async () => {

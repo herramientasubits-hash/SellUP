@@ -85,6 +85,15 @@ const SUCCESS_RESULT: GenerateLushaPendingReviewBatchActionResult = {
   resultsReturned: 10,
   reviewUrl: '/accounts?tab=prospectos',
   message: 'Encontramos 7 empresas candidatas para revisar.',
+  pagesRequested: 1,
+  expectedMaxCredits: 2,
+  creditsChargedTotal: 1,
+  usefulCandidatesCount: 7,
+  excludedExactDuplicatesCount: 0,
+  skippedActiveDuplicatesCount: 0,
+  possibleDuplicatesCount: 0,
+  insertedCandidatesCount: 7,
+  topUpTriggered: false,
 };
 
 const EMPTY_RESULT: GenerateLushaPendingReviewBatchActionResult = {
@@ -97,6 +106,15 @@ const EMPTY_RESULT: GenerateLushaPendingReviewBatchActionResult = {
   resultsReturned: 0,
   reviewUrl: '/accounts?tab=prospectos',
   message: 'La búsqueda no devolvió empresas nuevas para revisar.',
+  pagesRequested: 1,
+  expectedMaxCredits: 2,
+  creditsChargedTotal: 1,
+  usefulCandidatesCount: 0,
+  excludedExactDuplicatesCount: 0,
+  skippedActiveDuplicatesCount: 0,
+  possibleDuplicatesCount: 0,
+  insertedCandidatesCount: 0,
+  topUpTriggered: false,
 };
 
 // The seeded criteria the conversational wizard would resolve (país CO, Salud).
