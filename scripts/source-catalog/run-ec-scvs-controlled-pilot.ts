@@ -38,17 +38,20 @@ import {
   parseEcScvsControlledPilotArgs,
   runEcScvsControlledPilot,
   resolveSupabaseProjectRef,
-  EC_SCVS_CONTROLLED_PILOT_CONFIRM_PHRASE,
+  EC_SCVS_CONFIRM_PHRASE_BY_INTENT,
+  EC_SCVS_DEFAULT_EXECUTION_INTENT,
   EC_SCVS_CONTROLLED_PILOT_MAX_CANDIDATES,
   type EcScvsControlledPilotArgs,
 } from '../../src/server/source-catalog/enrichment/ec-scvs-controlled-pilot';
 import { createSupabaseAdminClient } from '../../src/lib/supabase/admin';
 
 function printHeader(args: EcScvsControlledPilotArgs, willAttemptWrite: boolean): void {
+  const intent = args.executionIntent ?? EC_SCVS_DEFAULT_EXECUTION_INTENT;
   console.log('\n═══════════════════════════════════════════════════════════════════');
   console.log(' EC SCVS — Controlled live-pilot runner — EC-SCVS-11-PRETOOL');
   console.log('═══════════════════════════════════════════════════════════════════');
   console.log(`  batch_id:            ${args.batchId}`);
+  console.log(`  execution_intent:    ${intent}`);
   console.log(`  requested_candidates: ${args.candidateIds.length} (max ${EC_SCVS_CONTROLLED_PILOT_MAX_CANDIDATES})`);
   console.log(`  mode:                ${willAttemptWrite ? '⚠️  EXECUTE (writes)' : 'DRY-RUN (no write)'}`);
   console.log(`  delegates to:        enrichEcBatchWithValidatedSources (allowlist, EC-only)`);
@@ -62,7 +65,9 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error(`\n[error] ${err instanceof Error ? err.message : String(err)}`);
     console.error(
-      `\n  Recordatorio: writes exigen --execute y --confirm "${EC_SCVS_CONTROLLED_PILOT_CONFIRM_PHRASE}".`,
+      `\n  Recordatorio: writes exigen --execute y --confirm con la frase del intent:` +
+        `\n    - controlled_pilot:  "${EC_SCVS_CONFIRM_PHRASE_BY_INTENT.controlled_pilot}"` +
+        `\n    - limited_expansion: "${EC_SCVS_CONFIRM_PHRASE_BY_INTENT.limited_expansion}"`,
     );
     process.exit(1);
     return;
@@ -77,6 +82,19 @@ async function main(): Promise<void> {
     // The admin client is created ONLY when the decision gate passes.
     createSupabaseClient: createSupabaseAdminClient,
     projectRef,
+    // Read-only batch-metadata accessor for the limited-expansion seed guard.
+    // Invoked only after the phrase/ref gate passes, strictly before any write.
+    loadBatchMetadata: async (batchId) => {
+      const client = createSupabaseAdminClient();
+      const { data, error } = await client
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      if (error || !data) return null;
+      const meta = (data as { metadata?: unknown }).metadata;
+      return meta && typeof meta === 'object' ? (meta as Record<string, unknown>) : null;
+    },
     log: (message) => console.log(message),
   });
 
