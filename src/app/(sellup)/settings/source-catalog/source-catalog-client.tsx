@@ -325,6 +325,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         cell: ({ row }) => {
           const action = getSourceActionPresentation({
             connectionMode: row.original.connectionMode,
+            aiFlowStatus: row.original.aiFlowStatus,
           });
           // "Conectar" es la única acción con estilo primario porque inicia una
           // conexión real; el resto son enlaces ghost que abren el detalle

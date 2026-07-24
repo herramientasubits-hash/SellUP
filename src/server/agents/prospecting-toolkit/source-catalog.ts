@@ -1117,6 +1117,18 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'ec_sercop',
     name: 'SERCOP (Compras Públicas Ecuador)',
+    // Clasificación (EC-SOURCES-21): SERCOP (Servicio Nacional de Contratación
+    // Pública) es la autoridad nacional de compras públicas del Ecuador. Sus
+    // registros son específicos de proveedores del Estado — NO es un registro
+    // societario/registral base del mercado general (ese rol lo cubre ec_scvs,
+    // única fuente operativa de enrichment de Ecuador bajo expansión limitada
+    // manual). Su rol natural en SellUp sería señal comercial complementaria de
+    // contratación pública, aún NO conectada y sin diseño de integración.
+    sellupUse: 'commercial_signal',
+    aiFlowStatus: 'pending_integration_design',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Diseñar integración como señal complementaria de contratación pública. No es fuente registral base — ec_scvs (SCVS/Supercias) es la única fuente operativa de enrichment de Ecuador.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1124,12 +1136,27 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     type: 'procurement',
     url: 'https://www.sercop.gob.ec/',
     automationLevel: 'high',
-    recommendedUse: 'Identificar proveedores del Estado ecuatoriano. Señal de empresa activa.',
-    limitations: ['Solo empresas contratistas del Estado'],
+    recommendedUse:
+      'Señal comercial complementaria B2G: identificar empresas ecuatorianas que participan/contratan con el Estado a través del Sistema Oficial de Contratación Pública (SOCE). No es fuente registral base ni de validación societaria — complementa, no reemplaza, a SCVS/Supercias. No conectada.',
+    limitations: [
+      'Cubre solo proveedores/contratistas del Estado ecuatoriano — no el mercado general.',
+      'No es registro societario ni fuente registral base (ese rol lo cubre SCVS/Supercias).',
+      'No conectada — requiere diseño de integración antes de cualquier uso automático.',
+    ],
   },
   {
     key: 'ec_ekos',
     name: 'EKOS Ecuador',
+    // Clasificación (EC-SOURCES-21): EKOS (Ekos Negocios) es un medio/editorial
+    // privado de negocios (noticias, rankings, contenido comercial), NO un
+    // registro oficial. Su rol potencial sería señal editorial/directorio, pero
+    // requiere validación de uso, cobertura, términos y legalidad antes de
+    // considerar cualquier diseño de integración. NO es fuente operativa.
+    sellupUse: 'contextual_signal',
+    aiFlowStatus: 'requires_validation',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Validar uso, cobertura, términos y legalidad antes de diseñar integración. Fuente editorial/directorio privada — no oficial y no operativa.',
     countryCodes: ['EC'],
     sectors: ['manufactura', 'tecnologia', 'agronegocio', 'servicios'],
     priority: 'P1',
@@ -1137,8 +1164,14 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     type: 'commercial_provider',
     url: 'https://www.ekosnegocios.com/',
     automationLevel: 'medium',
-    recommendedUse: 'Base de datos de empresas ecuatorianas. Directorio con información de contacto y rubro empresarial.',
-    limitations: ['Datos de fuente comercial tercero', 'Cobertura parcial de mercado ecuatoriano'],
+    recommendedUse:
+      'Fuente privada editorial/directorio de negocios (rankings, contenido comercial). Señal futura potencial — no oficial. Requiere validación de uso, cobertura, términos y legalidad antes de cualquier integración. No conectada, no operativa.',
+    limitations: [
+      'Fuente comercial/editorial de tercero — no es registro oficial.',
+      'Cobertura parcial del mercado ecuatoriano.',
+      'Requiere validación de uso, cobertura, términos y legalidad antes de integrar.',
+      'No conectada — no operativa.',
+    ],
   },
 
   // ── Guatemala ───────────────────────────────────────────────────────────────
