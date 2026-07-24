@@ -1094,13 +1094,16 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     key: 'ec_scvs',
     name: 'SCVS / Supercias Ecuador',
     // Estado operativo real (EC-SCVS): snapshot productivo cargado + adapter de
-    // enrichment conectado, pero el flujo IA sigue en piloto controlado. NO live
-    // automático y NO listo para expansión (siguiente hito: EC-SCVS-13B, segundo
-    // piloto live controlado). Enrichment post-discovery vía el adapter `ln`.
+    // enrichment conectado. Existe política oficial de expansión limitada
+    // manual-controlada (EC-SCVS-18, docs/source-catalog/ec-scvs-limited-expansion-policy.md):
+    // un operador humano puede ejecutar lotes limitados bajo esa política. NO
+    // implica generación live automática NI expansión completa. Enrichment
+    // post-discovery vía el adapter `ln`.
     sellupUse: 'enrichment',
-    aiFlowStatus: 'controlled_pilot',
+    aiFlowStatus: 'limited_manual_expansion',
     connectionMode: 'backend_connected',
-    nextAction: 'Segundo piloto live controlado (EC-SCVS-13B)',
+    nextAction:
+      'Ejecutar lote limitado bajo política oficial de expansión limitada manual (docs/source-catalog/ec-scvs-limited-expansion-policy.md)',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P0',
