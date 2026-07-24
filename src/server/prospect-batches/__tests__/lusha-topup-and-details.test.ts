@@ -227,15 +227,18 @@ describe('Q3F-5BB.7B top-up pagination', () => {
   });
 
   it('4. size is always 10 and page is clamped to [0,1] in the request', () => {
-    const req0 = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 0 });
-    assert.equal(req0.pagination.size, LUSHA_PREVIEW_SIZE);
-    assert.equal(req0.pagination.size, 10);
-    assert.equal(req0.pagination.page, 0);
-    const req1 = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 1 });
-    assert.equal(req1.pagination.page, 1);
+    const p0 = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 0 }).pagination;
+    assert.ok(p0);
+    assert.equal(p0.size, LUSHA_PREVIEW_SIZE);
+    assert.equal(p0.size, 10);
+    assert.equal(p0.page, 0);
+    const p1 = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 1 }).pagination;
+    assert.ok(p1);
+    assert.equal(p1.page, 1);
     // deep pagination is impossible — clamps to MAX_PAGE
-    const reqDeep = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 99 });
-    assert.equal(reqDeep.pagination.page, LUSHA_PREVIEW_MAX_PAGE);
+    const pDeep = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 99 }).pagination;
+    assert.ok(pDeep);
+    assert.equal(pDeep.page, LUSHA_PREVIEW_MAX_PAGE);
     assert.equal(clampLushaPreviewPage(99), 1);
     assert.equal(clampLushaPreviewPage(-5), 0);
     assert.equal(clampLushaPreviewPage(undefined), 0);
