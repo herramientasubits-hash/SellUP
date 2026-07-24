@@ -28,6 +28,26 @@ import {
   applyOptimisticCandidateConversionUpdate,
   type ExistingAccountMatchBy,
 } from './approval-idempotency';
+import {
+  resolveCandidateAccountLinkedInUrl,
+  insertAccountWithLinkedInFallback,
+} from './account-linkedin';
+
+// Q3F-5BB.7E — fields read from the account row returned by the conversion
+// insert. The Supabase client is untyped, so we annotate the returned row.
+type ConvertedAccountRow = {
+  id: string;
+  name: string;
+  legal_name: string | null;
+  website: string | null;
+  domain: string | null;
+  country: string | null;
+  country_code: string | null;
+  city: string | null;
+  region: string | null;
+  company_size: string | null;
+  tax_identifier: string | null;
+};
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
 import { evaluateAutoEnrichmentEligibility } from '@/server/prospect-batches/candidate-enrichment-eligibility';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
@@ -1371,9 +1391,20 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
   const candidateMetaForMerge = (candidateRaw.metadata as Record<string, unknown> | null) ?? {};
   const accountMetaFinal = mergePeruSunatMetadataIntoAccountMetadata(accountMeta, candidateMetaForMerge);
 
-  const { data: account, error: accountError } = await supabase
-    .from('accounts')
-    .insert({
+  // Q3F-5BB.7E — corporate LinkedIn transferred to the account on creation
+  // (company URL only; null when absent). Insert falls back without the column
+  // if migration 096 has not been applied yet.
+  const candidateLinkedInUrl = resolveCandidateAccountLinkedInUrl({
+    metadata: candidate.metadata as Record<string, unknown> | null,
+    linkedin_url: (candidate as Record<string, unknown>).linkedin_url,
+  });
+
+  const { data: account, error: accountError } = await insertAccountWithLinkedInFallback<ConvertedAccountRow>(
+    async (payload) => {
+      const res = await supabase.from('accounts').insert(payload).select().single();
+      return { data: res.data as ConvertedAccountRow | null, error: res.error };
+    },
+    {
       name: candidate.name,
       legal_name: candidate.legal_name ?? null,
       normalized_name: candidate.normalized_name ?? null,
@@ -1391,9 +1422,9 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       pipeline_status: 'new',
       created_by: internalUserId,
       metadata: accountMetaFinal,
-    })
-    .select()
-    .single();
+    },
+    candidateLinkedInUrl,
+  );
 
   if (accountError || !account) {
     throw new Error(`Error al crear cuenta: ${accountError?.message}`);
@@ -1734,9 +1765,20 @@ export async function approveAndConvertCandidateAction(
       newAccountMeta.commercial_fit_status = (candidate.commercial_fit_status as string | null) ?? null;
     }
 
-    const { data: newAccount, error: accountError } = await supabase
-      .from('accounts')
-      .insert({
+    // Q3F-5BB.7E — corporate LinkedIn transferred to the new account (company
+    // URL only; null when absent). Backward-compatible insert: retries without
+    // linkedin_url if migration 096 has not been applied yet.
+    const candidateLinkedInUrl = resolveCandidateAccountLinkedInUrl({
+      metadata: candidate.metadata as Record<string, unknown> | null,
+      linkedin_url: (candidate as Record<string, unknown>).linkedin_url,
+    });
+
+    const { data: newAccount, error: accountError } = await insertAccountWithLinkedInFallback<ConvertedAccountRow>(
+      async (payload) => {
+        const res = await supabase.from('accounts').insert(payload).select().single();
+        return { data: res.data as ConvertedAccountRow | null, error: res.error };
+      },
+      {
         name: candidate.name,
         legal_name: candidate.legal_name ?? null,
         normalized_name: candidate.normalized_name ?? null,
@@ -1754,9 +1796,9 @@ export async function approveAndConvertCandidateAction(
         pipeline_status: 'new',
         created_by: internalUserId,
         metadata: newAccountMeta,
-      })
-      .select()
-      .single();
+      },
+      candidateLinkedInUrl,
+    );
 
     if (accountError || !newAccount) {
       return {

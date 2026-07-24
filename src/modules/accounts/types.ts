@@ -54,6 +54,10 @@ export interface Account {
   created_by: string | null;
   updated_by: string | null;
   hubspot_company_id: string | null;
+  // Q3F-5BB.7E — corporate LinkedIn company URL, populated on conversion from an
+  // approved prospect candidate. Optional: absent until migration 096 is applied
+  // (getAccountById reads `select('*')`, so the key is simply missing before then).
+  linkedin_url?: string | null;
   metadata: Record<string, unknown>;
   notes: string | null;
   created_at: string;

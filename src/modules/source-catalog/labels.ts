@@ -196,6 +196,7 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   snapshot_persisted: 'Snapshot persistido',
   dry_run_validated: 'Dry-run validado',
   controlled_pilot: 'Piloto controlado',
+  limited_manual_expansion: 'Expansión limitada manual',
   paused: 'Pausada',
   not_applicable: 'No aplica',
   pending_classification: 'Pendiente clasificación',
@@ -222,6 +223,10 @@ export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
     case 'dry_run_validated':
       return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
     case 'controlled_pilot':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    // Expansión limitada manual: estado positivo pero gated/manual — se usa el
+    // mismo acento ámbar (precaución controlada) que el piloto controlado.
+    case 'limited_manual_expansion':
       return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
     case 'paused':
       return 'border-destructive/30 bg-destructive/10 text-destructive';

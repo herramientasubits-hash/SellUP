@@ -9,8 +9,9 @@ import type { ConnectionMode } from '@/server/agents/prospecting-toolkit/types';
  * de solo lectura en el cliente.
  *
  * Diseñada para extenderse a medida que se añaden estados operativos (p.ej.
- * `backend_connected` para fuentes en piloto controlado como EC-SCVS). Añadir un
- * `case` aquí es la forma soportada de introducir una nueva acción visual.
+ * `backend_connected` para fuentes en expansión limitada manual como EC-SCVS).
+ * Añadir un `case` aquí es la forma soportada de introducir una nueva acción
+ * visual.
  */
 export type SourceActionKind = 'connect' | 'view_signals' | 'view_status' | 'view_detail';
 

@@ -5,6 +5,7 @@ import {
   Users,
   Activity,
   Globe,
+  Link2,
   MapPin,
   Tag,
   Hash,
@@ -168,6 +169,18 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                       className="text-su-brand hover:underline"
                     >
                       {account.domain ?? account.website}
+                    </a>
+                  </DetailRow>
+                )}
+                {account.linkedin_url && (
+                  <DetailRow icon={Link2} label="LinkedIn">
+                    <a
+                      href={account.linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-su-brand hover:underline break-all"
+                    >
+                      {account.linkedin_url.replace(/^https?:\/\/(www\.)?/i, '')}
                     </a>
                   </DetailRow>
                 )}

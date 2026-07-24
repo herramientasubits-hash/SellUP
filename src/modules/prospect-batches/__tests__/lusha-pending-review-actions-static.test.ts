@@ -106,17 +106,19 @@ describe('Pure core cannot perform I/O of its own', () => {
 });
 
 describe('No new migrations ship with this feature', () => {
-  it('the highest migration number stays at the current 095 baseline', () => {
-    // Baseline is 095 (candidate phone reveal audit, PR #93 — unrelated to this
-    // feature). Q3F-5BB.7 adds NO migration: it reuses existing nullable columns
-    // (duplicate_status / matched_account_id / matched_hubspot_company_id) that the
-    // canonical candidate-writer already populates. This pin guards against a new one.
+  it('the highest migration number stays at the current 096 baseline', () => {
+    // Baseline tracks the repo max, currently 096 (Q3F-5BB.7E accounts.linkedin_url
+    // — a DIFFERENT, authorized feature). Q3F-5BB.7 itself adds NO migration: it
+    // reuses existing nullable columns (duplicate_status / matched_account_id /
+    // matched_hubspot_company_id) that the canonical candidate-writer already
+    // populates. The precise name-based guards below prove no Lusha pending-review
+    // migration was added; this coarse pin just bounds the repo max.
     const dir = join(ROOT, 'supabase/migrations');
     const numbers = readdirSync(dir)
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .filter((n) => Number.isFinite(n));
     const max = Math.max(...numbers);
-    assert.ok(max <= 95, `unexpected migration number ${max} — this feature must not add migrations`);
+    assert.ok(max <= 96, `unexpected migration number ${max} — this feature must not add migrations`);
   });
 
   it('no migration references a lusha pending-review schema change', () => {
