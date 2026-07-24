@@ -188,8 +188,8 @@ describe('WizardLushaFinalSearch — persist results as pending review (Q3F-5BB.
     assert.ok(screen.getByText(/Encontramos 7 empresas/));
     // Provider traceability (not a selector).
     assert.equal(screen.getByTestId('wizard-lusha-persist-provider').textContent, 'Lusha');
-    // Credits surfaced.
-    assert.ok(screen.getByText('Créditos consumidos'));
+    // Lusha-reported credits surfaced (real value, not a "/ máx N" promise) — Q3F-5BB.10A.
+    assert.ok(screen.getByText('Créditos reportados por Lusha'));
   });
 
   it('24/25. confirmation states nothing went to HubSpot and no company was created', async () => {
