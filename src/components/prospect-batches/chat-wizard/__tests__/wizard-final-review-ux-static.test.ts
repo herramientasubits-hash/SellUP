@@ -24,6 +24,9 @@ const FILES = {
   messages: join(ROOT, 'src/modules/prospect-batches/chat-wizard/wizard-messages.ts'),
   lushaDrawer: join(ROOT, 'src/components/prospect-batches/lusha-preview-drawer.tsx'),
   finalSearch: join(ROOT, 'src/components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx'),
+  finalSummary: join(ROOT, 'src/modules/prospect-batches/wizard-final-summary.ts'),
+  pendingReview: join(ROOT, 'src/server/prospect-batches/lusha-pending-review.ts'),
+  preview: join(ROOT, 'src/server/prospect-batches/lusha-preview.ts'),
 };
 
 const src = {
@@ -33,6 +36,9 @@ const src = {
   messages: readFileSync(FILES.messages, 'utf-8'),
   lushaDrawer: readFileSync(FILES.lushaDrawer, 'utf-8'),
   finalSearch: readFileSync(FILES.finalSearch, 'utf-8'),
+  finalSummary: readFileSync(FILES.finalSummary, 'utf-8'),
+  pendingReview: readFileSync(FILES.pendingReview, 'utf-8'),
+  preview: readFileSync(FILES.preview, 'utf-8'),
 };
 
 describe('Blocked composer hidden at the final review step', () => {
@@ -83,5 +89,47 @@ describe('Final review keeps the hidden-provider contract', () => {
 
   it('final-search CTA copy stays "Buscar con IA"', () => {
     assert.match(src.finalSearch, /Buscar con IA/);
+  });
+});
+
+describe('Q3F-5BB.10A — Lusha billing copy is non-contractual (copy/UI only)', () => {
+  it('final-search + final-summary drop every fixed-credit promise', () => {
+    for (const s of [src.finalSearch, src.finalSummary]) {
+      assert.doesNotMatch(s, /hasta 2 créditos/i);
+      assert.doesNotMatch(s, /máx 2 créditos/i);
+      assert.doesNotMatch(s, /máximo 2 créditos/i);
+      assert.doesNotMatch(s, /Hasta 1 crédito/i);
+    }
+    // The "N / máx {expectedMaxCredits}" reading is gone from the confirmation.
+    assert.doesNotMatch(src.finalSearch, /máx \$\{result\.expectedMaxCredits\}/);
+  });
+
+  it('final-search states the honest guardrail shape + billing basis', () => {
+    assert.match(src.finalSearch, /sin signals/i);
+    assert.match(src.finalSearch, /facturable según tu plan de Lusha/i);
+    assert.match(src.finalSearch, /costo real/i);
+    // Numbers come from display-only constants (no magic numbers in prose).
+    assert.match(src.finalSearch, /LUSHA_EXPECTED_RESULTS_PER_PAGE/);
+    assert.match(src.finalSearch, /LUSHA_EXPECTED_MAX_RESULTS/);
+  });
+
+  it('final-summary estimated cost is a non-contractual descriptor', () => {
+    assert.match(src.finalSummary, /Según tu plan de Lusha/);
+  });
+
+  it('confirmation reads real Lusha-reported credits + returned results', () => {
+    assert.match(src.finalSearch, /result\.creditsChargedTotal \?\? result\.creditsCharged/);
+    assert.match(src.finalSearch, /result\.resultsReturned/);
+  });
+
+  // Behavior guardrails untouched — copy fix must not move any server dial.
+  it('server MAX_PAGES stays 2 and page size stays 10', () => {
+    assert.match(src.pendingReview, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2\b/);
+    assert.match(src.preview, /LUSHA_PREVIEW_SIZE\s*=\s*10\b/);
+  });
+
+  it('preview core still never emits signals', () => {
+    assert.match(src.preview, /signals intencionalmente ausente/i);
+    assert.doesNotMatch(src.preview, /\bsignals\s*:/);
   });
 });

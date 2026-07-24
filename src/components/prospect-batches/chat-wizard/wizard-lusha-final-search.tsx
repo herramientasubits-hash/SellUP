@@ -43,14 +43,30 @@ export const WIZARD_LUSHA_SEARCH_LABEL = 'Buscar con IA';
 export const WIZARD_LUSHA_SEARCH_LOADING_LABEL = 'Buscando con IA…';
 /** Discreet traceability shown only after persistence (never a selector). */
 export const WIZARD_LUSHA_PROVIDER_LABEL = 'Lusha';
+
 /**
- * Pre-search notice (Q3F-5BB.7B): the search may consult a second page to top up
- * useful candidates, so it can consume up to 2 credits total.
+ * Display-only mirrors of the server-authoritative guardrails
+ * (LUSHA_PENDING_REVIEW_MAX_PAGES / page size). These are used ONLY to build
+ * UI copy — they never alter the request sent to Lusha.
+ */
+const LUSHA_MAX_PAGES = 2;
+const LUSHA_EXPECTED_RESULTS_PER_PAGE = 10;
+/** Upper bound of companies a search can return (pages × page size). */
+const LUSHA_EXPECTED_MAX_RESULTS = LUSHA_MAX_PAGES * LUSHA_EXPECTED_RESULTS_PER_PAGE;
+
+/**
+ * Pre-search cost notice (Q3F-5BB.10A).
+ *
+ * IMPORTANT: We do NOT promise a fixed credit count. Lusha may bill per company
+ * returned (api_search), so the honest guardrail is the search *shape* (pages /
+ * page size / max companies) plus the fact that billing follows the user's Lusha
+ * plan. The real cost + returned results are shown after the search finishes.
  */
 export const WIZARD_LUSHA_TOPUP_COST_NOTICE =
-  'Esta búsqueda puede consumir hasta 2 créditos si se necesita completar candidatos útiles.';
-/** Display-only mirror of the server-authoritative page cap (LUSHA_PENDING_REVIEW_MAX_PAGES). */
-const LUSHA_MAX_PAGES = 2;
+  `Esta búsqueda puede revisar hasta ${LUSHA_MAX_PAGES} páginas de Lusha ` +
+  `(${LUSHA_EXPECTED_RESULTS_PER_PAGE} resultados por página, hasta ${LUSHA_EXPECTED_MAX_RESULTS} empresas devueltas), sin signals. ` +
+  `Cada empresa devuelta puede ser facturable según tu plan de Lusha. ` +
+  `El costo real se muestra al finalizar.`;
 
 /** Injectable persist runner (tests). Default = real server action. */
 export type RunLushaPendingReviewSearch = (
@@ -256,10 +272,11 @@ function PersistConfirmation({
   const count = result.createdCandidatesCount;
   const creditsUsed = result.creditsChargedTotal ?? result.creditsCharged;
   const shortBatch = result.batchId ? result.batchId.slice(0, 8) : '—';
-  const creditsLabel =
-    creditsUsed === null
-      ? `— / máx ${result.expectedMaxCredits}`
-      : `${creditsUsed} / máx ${result.expectedMaxCredits}`;
+  // Q3F-5BB.10A — show what Lusha actually reported, never a "/ máx N créditos"
+  // promise. Credits and returned companies are read directly from the result.
+  const creditsLabel = creditsUsed === null ? '—' : String(creditsUsed);
+  const resultsReturnedLabel =
+    result.resultsReturned === null ? '—' : String(result.resultsReturned);
 
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-persist-confirmation">
@@ -294,6 +311,11 @@ function PersistConfirmation({
           testId="wizard-lusha-persist-useful"
         />
         <DetailRow
+          label="Empresas devueltas por Lusha"
+          value={resultsReturnedLabel}
+          testId="wizard-lusha-persist-results-returned"
+        />
+        <DetailRow
           label="Posibles duplicados"
           value={String(result.possibleDuplicatesCount)}
           testId="wizard-lusha-persist-possible"
@@ -309,7 +331,7 @@ function PersistConfirmation({
           testId="wizard-lusha-persist-pages"
         />
         <DetailRow
-          label="Créditos consumidos"
+          label="Créditos reportados por Lusha"
           value={creditsLabel}
           testId="wizard-lusha-persist-credits"
         />
@@ -317,6 +339,10 @@ function PersistConfirmation({
       </dl>
 
       <div className="rounded-lg bg-muted/40 px-4 py-3 space-y-1">
+        <p className="text-xs text-muted-foreground" data-testid="wizard-lusha-persist-billing-note">
+          Lusha puede devolver hasta {LUSHA_EXPECTED_MAX_RESULTS} empresas ({LUSHA_MAX_PAGES}{' '}
+          páginas × {LUSHA_EXPECTED_RESULTS_PER_PAGE}). El costo depende de tu plan de Lusha.
+        </p>
         <p className="text-xs text-muted-foreground">Nada fue enviado a HubSpot.</p>
         <p className="text-xs text-muted-foreground">Ninguna empresa fue creada todavía.</p>
       </div>
