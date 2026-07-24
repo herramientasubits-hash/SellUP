@@ -145,6 +145,7 @@ function makeCandidate(
     title: 'Directora de Compras',
     email: 'andrea@empresa.com',
     linkedin_url: null,
+    source_contact_id: null,
     phone: null,
     source: 'apollo',
     status: 'pending_review',
