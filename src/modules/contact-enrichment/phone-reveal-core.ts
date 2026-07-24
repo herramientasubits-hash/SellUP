@@ -200,6 +200,8 @@ export type RevealCandidatePhoneStatus =
   | 'invalid_processing_basis'
   | 'processing_basis_note_required'
   | 'candidate_not_found'
+  // Reservado por compatibilidad: ya no se emite. account_id es opcional para el
+  // reveal (ver paso 8 en runRevealCandidatePhone). No reintroducir como gate.
   | 'candidate_account_invalid'
   | 'already_revealed'
   | 'do_not_contact'
@@ -309,8 +311,20 @@ export async function runRevealCandidatePhone(
   const candidate = await deps.loadCandidate(candidateId);
   if (!candidate) return fail('candidate_not_found');
 
-  // 8. Debe pertenecer a una cuenta SellUp válida.
-  if (!cleanText(candidate.accountId)) return fail('candidate_account_invalid');
+  // 8. account_id es OPCIONAL — NO se bloquea por su ausencia.
+  //    Un run sin cuenta SellUp resuelta (empresa proveniente de HubSpot o
+  //    candidato de contactos aún pendiente de revisión) es un estado legítimo
+  //    del pipeline (ver contact_enrichment_runs.account_id null = empresa
+  //    HubSpot-only / sin cuenta SellUp todavía, en lusha-enrichment-runner) y la
+  //    UI ofrece explícitamente el reveal para estos candidatos (PHONE-3D.6B: la
+  //    elegibilidad del botón NO exige account_id). El reveal de Apollo se
+  //    resuelve por IDENTIDAD (source_contact_id / email / linkedin, validada en
+  //    el paso 11), nunca por la cuenta. do_not_contact (paso 10) sí sigue
+  //    bloqueando cuando hay forma de evaluarlo; sin cuenta+identidad no hay
+  //    forma segura y el wrapper devuelve false (igual que el resto del
+  //    pipeline). Ningún otro gate (flag / rol / costo / basis / re-reveal /
+  //    identidad) se debilita. El estado `candidate_account_invalid` se conserva
+  //    en la unión por compatibilidad, pero ya no se emite.
 
   // 9. Bloquear re-reveal: ya revelado o ya tiene teléfono de apollo_reveal.
   if (
