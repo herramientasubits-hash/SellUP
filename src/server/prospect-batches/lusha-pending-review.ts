@@ -34,6 +34,7 @@
  */
 
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
+import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   checkActiveCandidateDuplicate,
   type ActiveCandidateRecord,
@@ -173,6 +174,40 @@ export interface LushaCandidateDuplicateResolution {
 export interface ResolvedLushaCandidate {
   company: LushaPreviewCompany;
   resolution: LushaCandidateDuplicateResolution;
+}
+
+// ─── Excluded exact-duplicate audit detail (Q3F-5BB.7D) ────────────────────────
+
+/**
+ * Auditable record of ONE exact-duplicate company that was excluded from the
+ * persisted (reviewable) candidates. Stored in `prospect_batches.metadata
+ * .excludedExactDuplicates` so an auditor can see WHICH company was dropped and
+ * WHO it coincided with — without ever inserting it as a reviewable candidate.
+ *
+ * Only safe fields are copied (name/domain + the same reviewer-facing
+ * `LushaDuplicateDetailSource` entries used for persisted candidates). NEVER
+ * contains raw provider payloads, headers, tokens or other sensitive data.
+ */
+export interface LushaExcludedExactDuplicate {
+  name: string;
+  domain: string | null;
+  duplicateStatus: 'exact_duplicate';
+  sources: LushaDuplicateDetailSource[];
+  reviewerMessage: string | null;
+}
+
+/** Build the safe excluded-duplicate audit entry for one excluded exact match. */
+export function buildLushaExcludedExactDuplicate(
+  resolved: ResolvedLushaCandidate,
+): LushaExcludedExactDuplicate {
+  const { company, resolution } = resolved;
+  return {
+    name: company.name ?? '',
+    domain: normalizeDomain(company.domain),
+    duplicateStatus: 'exact_duplicate',
+    sources: resolution.duplicateDetails?.sources ?? [],
+    reviewerMessage: resolution.duplicateDetails?.reviewerMessage ?? null,
+  };
 }
 
 // ─── Row shapes handed to the injected insert deps ────────────────────────────
@@ -654,6 +689,9 @@ export interface LushaPendingReviewBatchMetrics {
   excludedExactDuplicatesCount: number;
   skippedActiveDuplicatesCount: number;
   topUpTriggered: boolean;
+  /** Auditable detail of every excluded exact duplicate (Q3F-5BB.7D). Optional so
+   *  legacy callers keep compiling; treated as `[]` when omitted. */
+  excludedExactDuplicates?: LushaExcludedExactDuplicate[];
 }
 
 /** Build the batch insert row (deterministic — no clocks, no randomness). */
@@ -667,6 +705,7 @@ export function buildLushaPendingReviewBatchRow(
   const rs = search.requestSummary;
   const sectorLabel = rs.sector ?? input.sectorKey;
   const countryLabel = rs.country ?? input.countryCode;
+  const excludedExactDuplicates = metrics.excludedExactDuplicates ?? [];
 
   return {
     name: `Búsqueda con IA · ${sectorLabel} · ${countryLabel}`,
@@ -712,7 +751,13 @@ export function buildLushaPendingReviewBatchRow(
         active_duplicates_skipped: metrics.skippedActiveDuplicatesCount,
         pages_requested: metrics.pagesRequested,
         top_up_triggered: metrics.topUpTriggered,
+        // Length of the auditable excluded-duplicate detail array (Q3F-5BB.7D).
+        excluded_details_count: excludedExactDuplicates.length,
       },
+      // Auditable per-company detail of the exact duplicates that were EXCLUDED
+      // from the reviewable candidates (Q3F-5BB.7D). Safe fields only — no raw
+      // payloads, headers or secrets. Empty array when nothing was excluded.
+      excludedExactDuplicates,
     },
   };
 }
@@ -863,7 +908,20 @@ export function buildLushaPendingReviewCandidateRows(
       score: company.score,
       passes_gate: company.passesGate,
       issues: company.issues,
+      // Flat path kept for backward compatibility (existing batches read it).
       linkedin_url: company.linkedinUrl,
+      // Canonical path the review UI already reads via getCandidateLinkedInUrl /
+      // getCandidateLinkedInDisplay (Q3F-5BB.7D). Only written when Lusha returned
+      // a real company profile URL — never fabricated.
+      ...(isLinkedInCompanyUrl(company.linkedinUrl)
+        ? {
+            linkedin_enrichment: {
+              status: 'found' as const,
+              company_url: company.linkedinUrl,
+              source: LUSHA_PENDING_REVIEW_PROVIDER,
+            },
+          }
+        : {}),
       employees: {
         exact: company.employeesExact,
         min: company.employeesMin,
@@ -972,7 +1030,9 @@ export async function persistLushaPendingReviewBatch(
 ): Promise<PersistLushaPendingReviewResult> {
   const seen = new Set<string>(); // cross-page dedupe keys
   const useful: ResolvedLushaCandidate[] = [];
-  let excludedExactDuplicatesCount = 0;
+  // Auditable detail of every excluded exact duplicate (Q3F-5BB.7D). Its length
+  // is the authoritative excluded count surfaced everywhere below.
+  const excludedExactDuplicates: LushaExcludedExactDuplicate[] = [];
   let skippedActiveDuplicatesCount = 0;
   let skippedUnusableCount = 0;
   let creditsChargedTotal: number | null = null;
@@ -1019,13 +1079,15 @@ export async function persistLushaPendingReviewBatch(
     for (const candidate of resolved) {
       if (candidate.resolution.dbDuplicateStatus === 'exact_duplicate') {
         // Exact duplicates are excluded from persistence — never reviewable.
-        excludedExactDuplicatesCount++;
+        // We keep a safe, auditable detail record (Q3F-5BB.7D).
+        excludedExactDuplicates.push(buildLushaExcludedExactDuplicate(candidate));
       } else {
         useful.push(candidate);
       }
     }
   }
 
+  const excludedExactDuplicatesCount = excludedExactDuplicates.length;
   const totalSkipped = skippedUnusableCount + skippedActiveDuplicatesCount;
   const topUpTriggered = pagesRequested > 1;
   const possibleDuplicatesCount = useful.filter(
@@ -1077,6 +1139,7 @@ export async function persistLushaPendingReviewBatch(
       excludedExactDuplicatesCount,
       skippedActiveDuplicatesCount,
       topUpTriggered,
+      excludedExactDuplicates,
     },
   );
   const { id: batchId } = await deps.insertBatch(batchRow);
