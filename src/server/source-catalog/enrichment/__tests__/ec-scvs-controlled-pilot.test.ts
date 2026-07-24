@@ -25,11 +25,14 @@ import type { SourceEnrichmentAdapter, SourceEnrichmentOutput } from '../types';
 import {
   parseEcScvsControlledPilotArgs,
   decideEcScvsControlledPilot,
+  decideLimitedExpansionBatchMetadata,
   resolveSupabaseProjectRef,
   runEcScvsControlledPilot,
   EC_SCVS_CONTROLLED_PILOT_CONFIRM_PHRASE,
+  EC_SCVS_LIMITED_EXPANSION_CONFIRM_PHRASE,
   EC_SCVS_EXPECTED_PROJECT_REF,
   EC_SCVS_CONTROLLED_PILOT_MAX_CANDIDATES,
+  EC_SCVS_LIMITED_EXPANSION_MAX_CANDIDATES,
 } from '../ec-scvs-controlled-pilot';
 
 // ── Fake Supabase (captures updates; select is allowlist-agnostic) ──────────────
@@ -611,5 +614,362 @@ describe('EC-SCVS-11-PRETOOL — static safety guards', () => {
   it('helper never persists raw_data and stays EC-only', () => {
     assert.ok(!helperSrc.includes("'raw_data'") && !helperSrc.includes('"raw_data"'));
     assert.ok(helperSrc.includes("EC_COUNTRY_CODE = 'EC'"));
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// EC-SCVS-15FIX — execution intent & the intent-specific confirmation contract
+//
+// Fixes the gap where a single hardcoded controlled-pilot phrase also authorized
+// a limited-expansion write. The phrase is now intent-specific and the two are
+// never interchangeable.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('EC-SCVS-15FIX — execution intent parsing', () => {
+  it('defaults execution intent to controlled_pilot when omitted', () => {
+    const args = parseEcScvsControlledPilotArgs(['--batch-id', 'b1', '--candidate-ids', 'c1']);
+    assert.equal(args.executionIntent, 'controlled_pilot');
+  });
+
+  it('parses --execution-intent limited_expansion', () => {
+    const args = parseEcScvsControlledPilotArgs([
+      '--batch-id', 'b1',
+      '--candidate-ids', 'c1',
+      '--execution-intent', 'limited_expansion',
+    ]);
+    assert.equal(args.executionIntent, 'limited_expansion');
+  });
+
+  it('throws on an unknown --execution-intent value', () => {
+    assert.throws(() =>
+      parseEcScvsControlledPilotArgs(['--batch-id', 'b1', '--execution-intent', 'full_expansion']),
+    );
+  });
+});
+
+describe('EC-SCVS-15FIX — intent-specific confirmation phrase', () => {
+  const okRef = { projectRef: EC_SCVS_EXPECTED_PROJECT_REF };
+
+  it('controlled_pilot + controlled phrase → write authorized', () => {
+    const d = decideEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_CONTROLLED_PILOT_CONFIRM_PHRASE, executionIntent: 'controlled_pilot',
+      },
+      okRef,
+    );
+    assert.deepEqual([d.ok, d.willWrite], [true, true]);
+  });
+
+  it('controlled_pilot + limited phrase → rejected (phrases are not interchangeable)', () => {
+    const d = decideEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_LIMITED_EXPANSION_CONFIRM_PHRASE, executionIntent: 'controlled_pilot',
+      },
+      okRef,
+    );
+    assert.equal(d.ok, false);
+    assert.equal(d.willWrite, false);
+    assert.equal(d.code, 'confirmation_required');
+  });
+
+  it('limited_expansion + limited phrase → write authorized', () => {
+    const d = decideEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_LIMITED_EXPANSION_CONFIRM_PHRASE, executionIntent: 'limited_expansion',
+      },
+      okRef,
+    );
+    assert.deepEqual([d.ok, d.willWrite], [true, true]);
+  });
+
+  it('limited_expansion + controlled phrase → rejected', () => {
+    const d = decideEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_CONTROLLED_PILOT_CONFIRM_PHRASE, executionIntent: 'limited_expansion',
+      },
+      okRef,
+    );
+    assert.equal(d.ok, false);
+    assert.equal(d.willWrite, false);
+    assert.equal(d.code, 'confirmation_required');
+  });
+
+  it('the two confirmation phrases are distinct', () => {
+    assert.notEqual(EC_SCVS_CONTROLLED_PILOT_CONFIRM_PHRASE, EC_SCVS_LIMITED_EXPANSION_CONFIRM_PHRASE);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// EC-SCVS-15FIX — limited-expansion seed-batch metadata guard
+// ════════════════════════════════════════════════════════════════════════════
+
+function validLimitedExpansionBatchMetadata(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    limited_expansion_seed: true,
+    runner_required: true,
+    provider_calls_allowed: false,
+    do_not_sync_hubspot: true,
+    do_not_notify_slack: true,
+    max_candidates: 5,
+    ...overrides,
+  };
+}
+
+describe('EC-SCVS-15FIX — decideLimitedExpansionBatchMetadata (pure)', () => {
+  it('accepts a fully-compliant seed batch', () => {
+    const d = decideLimitedExpansionBatchMetadata(validLimitedExpansionBatchMetadata());
+    assert.equal(d.ok, true);
+  });
+
+  it('rejects null / non-object metadata', () => {
+    assert.equal(decideLimitedExpansionBatchMetadata(null).code, 'batch_metadata_missing');
+    assert.equal(decideLimitedExpansionBatchMetadata(undefined).code, 'batch_metadata_missing');
+  });
+
+  it('rejects a batch not flagged limited_expansion_seed', () => {
+    const d = decideLimitedExpansionBatchMetadata(
+      validLimitedExpansionBatchMetadata({ limited_expansion_seed: false }),
+    );
+    assert.equal(d.code, 'batch_not_limited_expansion_seed');
+  });
+
+  it('rejects a batch that does not require the runner', () => {
+    const d = decideLimitedExpansionBatchMetadata(
+      validLimitedExpansionBatchMetadata({ runner_required: false }),
+    );
+    assert.equal(d.code, 'batch_runner_not_required');
+  });
+
+  it('rejects a batch that allows provider calls', () => {
+    const d = decideLimitedExpansionBatchMetadata(
+      validLimitedExpansionBatchMetadata({ provider_calls_allowed: true }),
+    );
+    assert.equal(d.code, 'batch_provider_calls_allowed');
+  });
+
+  it('rejects a batch missing the provider_calls_allowed=false flag', () => {
+    const md = validLimitedExpansionBatchMetadata();
+    delete md.provider_calls_allowed;
+    assert.equal(decideLimitedExpansionBatchMetadata(md).code, 'batch_provider_calls_allowed');
+  });
+
+  it('rejects a batch that would sync HubSpot or notify Slack', () => {
+    assert.equal(
+      decideLimitedExpansionBatchMetadata(validLimitedExpansionBatchMetadata({ do_not_sync_hubspot: false })).code,
+      'batch_hubspot_sync_not_blocked',
+    );
+    assert.equal(
+      decideLimitedExpansionBatchMetadata(validLimitedExpansionBatchMetadata({ do_not_notify_slack: false })).code,
+      'batch_slack_notify_not_blocked',
+    );
+  });
+
+  it('rejects a batch whose max_candidates exceeds the ceiling or is not a positive integer', () => {
+    assert.equal(
+      decideLimitedExpansionBatchMetadata(
+        validLimitedExpansionBatchMetadata({ max_candidates: EC_SCVS_LIMITED_EXPANSION_MAX_CANDIDATES + 1 }),
+      ).code,
+      'batch_max_candidates_out_of_range',
+    );
+    assert.equal(
+      decideLimitedExpansionBatchMetadata(validLimitedExpansionBatchMetadata({ max_candidates: 0 })).code,
+      'batch_max_candidates_out_of_range',
+    );
+    assert.equal(
+      decideLimitedExpansionBatchMetadata(validLimitedExpansionBatchMetadata({ max_candidates: 2.5 })).code,
+      'batch_max_candidates_out_of_range',
+    );
+  });
+});
+
+describe('EC-SCVS-15FIX — limited-expansion orchestration (fake client + loader)', () => {
+  const okRef = EC_SCVS_EXPECTED_PROJECT_REF;
+
+  it('writes the allowlisted id when the seed batch metadata is compatible', async () => {
+    stubMatched();
+    const { client, updates } = makeFakeSupabase([ecCandidate('c1'), ecCandidate('c2')]);
+    const out = await runEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_LIMITED_EXPANSION_CONFIRM_PHRASE, executionIntent: 'limited_expansion',
+      },
+      {
+        createSupabaseClient: () => client,
+        projectRef: okRef,
+        loadBatchMetadata: async () => validLimitedExpansionBatchMetadata(),
+      },
+    );
+    assert.equal(out.ok, true);
+    assert.equal(out.willWrite, true);
+    assert.deepEqual(updates.map((u) => u.id), ['c1']);
+  });
+
+  it('refuses (0 writes, no write client) when the seed batch metadata is incompatible', async () => {
+    stubMatched();
+    let created = 0;
+    const { client, updates } = makeFakeSupabase([ecCandidate('c1')]);
+    const out = await runEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_LIMITED_EXPANSION_CONFIRM_PHRASE, executionIntent: 'limited_expansion',
+      },
+      {
+        createSupabaseClient: () => {
+          created++;
+          return client;
+        },
+        projectRef: okRef,
+        loadBatchMetadata: async () =>
+          validLimitedExpansionBatchMetadata({ provider_calls_allowed: true }),
+      },
+    );
+    assert.equal(out.refused, true);
+    assert.equal(out.code, 'batch_provider_calls_allowed');
+    assert.equal(created, 0, 'no write client created when the batch guard refuses');
+    assert.equal(updates.length, 0);
+  });
+
+  it('refuses fail-closed when no batch-metadata loader is provided', async () => {
+    stubMatched();
+    let created = 0;
+    const { client, updates } = makeFakeSupabase([ecCandidate('c1')]);
+    const out = await runEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_LIMITED_EXPANSION_CONFIRM_PHRASE, executionIntent: 'limited_expansion',
+      },
+      {
+        createSupabaseClient: () => {
+          created++;
+          return client;
+        },
+        projectRef: okRef,
+      },
+    );
+    assert.equal(out.refused, true);
+    assert.equal(out.code, 'batch_metadata_unavailable');
+    assert.equal(created, 0);
+    assert.equal(updates.length, 0);
+  });
+
+  it('an incorrect confirmation for the intent fails closed with 0 writes and no client', async () => {
+    let created = 0;
+    const { updates } = makeFakeSupabase([ecCandidate('c1')]);
+    const out = await runEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: true,
+        confirm: EC_SCVS_CONTROLLED_PILOT_CONFIRM_PHRASE, executionIntent: 'limited_expansion',
+      },
+      {
+        createSupabaseClient: () => {
+          created++;
+          return makeFakeSupabase([ecCandidate('c1')]).client;
+        },
+        projectRef: okRef,
+        loadBatchMetadata: async () => validLimitedExpansionBatchMetadata(),
+      },
+    );
+    assert.equal(out.refused, true);
+    assert.equal(out.code, 'confirmation_required');
+    assert.equal(created, 0, 'no client created on a confirmation refusal');
+    assert.equal(updates.length, 0);
+  });
+
+  it('a limited-expansion dry-run does not require batch metadata and never writes', async () => {
+    stubMatched();
+    const { client, updates } = makeFakeSupabase([ecCandidate('c1')]);
+    const out = await runEcScvsControlledPilot(
+      {
+        batchId: 'b1', candidateIds: ['c1'], execute: false,
+        confirm: null, executionIntent: 'limited_expansion',
+      },
+      { createSupabaseClient: () => client, projectRef: okRef },
+    );
+    assert.equal(out.ok, true);
+    assert.equal(out.dryRun, true);
+    assert.equal(updates.length, 0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// EC-SCVS-15FIX — persisted metadata contract for a matched EC-SCVS candidate
+//
+// Reconciles tests with what the runner actually writes. Earlier plan postchecks
+// asserted a candidate lifecycle-status flip and a top-level human_review_required
+// that this path never produces — assert the REAL contract instead.
+// ════════════════════════════════════════════════════════════════════════════
+
+function makeFakeSupabaseCapturingPayload(candidates: Array<Record<string, unknown>>) {
+  const updatePayloads: Array<{ id: unknown; payload: Record<string, unknown> }> = [];
+  const client = {
+    from() {
+      return {
+        select() {
+          return { eq() { return Promise.resolve({ data: candidates, error: null }); } };
+        },
+        update(payload: Record<string, unknown>) {
+          return {
+            eq(_col: string, val: unknown) {
+              updatePayloads.push({ id: val, payload });
+              return Promise.resolve({ error: null });
+            },
+          };
+        },
+      };
+    },
+  };
+  return {
+    client: client as unknown as Parameters<typeof enrichEcBatchWithValidatedSources>[0],
+    updatePayloads,
+  };
+}
+
+describe('EC-SCVS-15FIX — matched metadata contract', () => {
+  it('persists the real ec_scvs matched contract (status/confidence/source_year/signals)', async () => {
+    stubMatched();
+    const { client, updates } = makeFakeSupabase([ecCandidate('c1')]);
+    await enrichEcBatchWithValidatedSources(client, 'batch-1', { candidateIds: ['c1'] });
+
+    const se = updates[0].metadata.source_enrichment as Record<string, unknown>;
+    const ec = se.ec_scvs as Record<string, unknown>;
+    assert.equal(ec.status, 'matched');
+    assert.ok(typeof ec.confidence === 'number' && (ec.confidence as number) > 0);
+    assert.ok(ec.source_year != null, 'source_year is present on a match');
+    const signals = ec.signals as Record<string, unknown>;
+    assert.ok('record_identity_key' in signals, 'signals.record_identity_key present on a match');
+    // Contract keys that must always be present on the ec_scvs block.
+    for (const key of ['matched_by', 'reason', 'priority_boost', 'financials']) {
+      assert.ok(key in ec, `ec_scvs.${key} present`);
+    }
+  });
+
+  it('writes ONLY the metadata column — never flips the candidate lifecycle status', async () => {
+    stubMatched();
+    const { client, updatePayloads } = makeFakeSupabaseCapturingPayload([ecCandidate('c1')]);
+    await enrichEcBatchWithValidatedSources(client, 'batch-1', { candidateIds: ['c1'] });
+
+    assert.equal(updatePayloads.length, 1);
+    // The update payload touches exactly one column: metadata. The prospect
+    // candidate lifecycle `status` column is never part of the write.
+    assert.deepEqual(Object.keys(updatePayloads[0].payload), ['metadata']);
+  });
+
+  it('does NOT write a top-level human_review_required on the candidate metadata', async () => {
+    stubMatched();
+    const { client, updates } = makeFakeSupabase([ecCandidate('c1')]);
+    await enrichEcBatchWithValidatedSources(client, 'batch-1', { candidateIds: ['c1'] });
+
+    // human_review_required lives ONLY inside source_enrichment._summary, never at
+    // the top level of the candidate metadata.
+    assert.equal(
+      (updates[0].metadata as Record<string, unknown>).human_review_required,
+      undefined,
+    );
   });
 });

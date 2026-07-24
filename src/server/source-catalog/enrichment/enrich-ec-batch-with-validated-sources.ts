@@ -20,6 +20,27 @@
  *   - Metadata lands under metadata.source_enrichment.ec_scvs (+ _summary).
  *   - No raw_data is persisted (the adapter never emits it) and no full RUC is
  *     ever logged.
+ *
+ * Persisted write contract (EC-SCVS-15FIX — reconciled with what runs actually
+ * write; earlier plans/postchecks asserted fields this helper never produces):
+ *   WHAT IS WRITTEN — a single `.update({ metadata })` per processed candidate:
+ *     metadata.source_enrichment.ec_scvs = {
+ *       status,        // 'matched' | 'no_match' | 'skipped' | 'error'
+ *       matched_by,    // string | null
+ *       confidence,    // number (> 0 on a match)
+ *       source_year,   // number | null (present on a match)
+ *       signals,       // object — includes signals.record_identity_key on a match
+ *       financials,    // object (may be empty)
+ *       priority_boost,// number
+ *       reason,        // string | null
+ *     }
+ *     metadata.source_enrichment._summary = { status, enriched_at, country_code,
+ *       source_keys_attempted, source_keys_matched, human_review_required, reason }
+ *   WHAT IS NOT WRITTEN (do NOT postcheck these — they never change here):
+ *     - the prospect_candidates lifecycle `status` COLUMN (stays 'generated');
+ *     - any TOP-LEVEL `human_review_required` on the candidate row (that flag
+ *       lives ONLY inside metadata.source_enrichment._summary);
+ *     - raw_data, the full RUC, or any provider/HubSpot/Slack side effect.
  *   - Uses the existing validated-source helper + adapter registry; no
  *     tax-grain helpers, no single-row probes here (the ec_scvs adapter owns the
  *     snapshot read under NATIVE_RECORD_GRAIN).
