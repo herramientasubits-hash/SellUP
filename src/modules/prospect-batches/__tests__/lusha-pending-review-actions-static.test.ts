@@ -106,18 +106,57 @@ describe('Pure core cannot perform I/O of its own', () => {
 });
 
 describe('No new migrations ship with this feature', () => {
-  it('the highest migration number is unchanged at the 094 baseline', () => {
+  it('the highest migration number stays at the current 095 baseline', () => {
+    // Baseline is 095 (candidate phone reveal audit, PR #93 — unrelated to this
+    // feature). Q3F-5BB.7 adds NO migration: it reuses existing nullable columns
+    // (duplicate_status / matched_account_id / matched_hubspot_company_id) that the
+    // canonical candidate-writer already populates. This pin guards against a new one.
     const dir = join(ROOT, 'supabase/migrations');
     const numbers = readdirSync(dir)
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .filter((n) => Number.isFinite(n));
     const max = Math.max(...numbers);
-    assert.ok(max <= 94, `unexpected migration number ${max} — this feature must not add migrations`);
+    assert.ok(max <= 95, `unexpected migration number ${max} — this feature must not add migrations`);
   });
 
   it('no migration references a lusha pending-review schema change', () => {
     const dir = join(ROOT, 'supabase/migrations');
     const offending = readdirSync(dir).filter((f) => /pending[_-]?review/i.test(f));
     assert.deepEqual(offending, [], 'this feature must not add a pending-review migration');
+  });
+
+  it('no migration references a duplicate-parity schema change', () => {
+    const dir = join(ROOT, 'supabase/migrations');
+    const offending = readdirSync(dir).filter((f) => /duplicate[_-]?parity/i.test(f));
+    assert.deepEqual(offending, [], 'this feature must not add a duplicate-parity migration');
+  });
+});
+
+describe('Duplicate parity is wired to canonical READ-ONLY helpers (Q3F-5BB.7)', () => {
+  it('the action injects the canonical SellUp+HubSpot checker + active-candidate prefetch', () => {
+    assert.match(src.action, /checkCompanyDuplicate/);
+    assert.match(src.action, /fetchActiveCandidatesForGuard/);
+    // Wired as core deps, not a bespoke reimplementation.
+    assert.match(src.action, /checkCompanyDuplicate:/);
+    assert.match(src.action, /fetchActiveCandidates:/);
+  });
+
+  it('the core reuses the canonical pure active-candidate guard + toolkit types', () => {
+    const paths = importPaths(src.core);
+    assert.ok(paths.some((p) => /active-candidate-identity-guard/.test(p)));
+    assert.match(src.core, /checkActiveCandidateDuplicate/);
+    // The canonical checker is INJECTED (read-only), never imported into the pure core.
+    assert.doesNotMatch(src.core, /from '@\/server\/agents\/prospecting-toolkit\/duplicate-checker'/);
+  });
+
+  it('the core no longer hardcodes duplicate_status; it derives it from the resolver', () => {
+    // The persisted status flows from resolveLushaCandidateDuplicateState, not a constant.
+    assert.match(src.core, /resolveLushaCandidateDuplicateState/);
+    assert.match(src.core, /resolution\.dbDuplicateStatus/);
+    // The old always-on 'not_performed' trace is gone.
+    assert.doesNotMatch(src.core, /accountDuplicateCheck:\s*'not_performed'/);
+    // Matched-id columns are populated from the resolution.
+    assert.match(src.core, /matched_account_id:\s*resolution\.matchedAccountId/);
+    assert.match(src.core, /matched_hubspot_company_id:\s*resolution\.matchedHubspotCompanyId/);
   });
 });
