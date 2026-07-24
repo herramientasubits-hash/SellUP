@@ -212,9 +212,16 @@ export interface ContactCandidatePhoneMetadata {
 // la migración 095_candidate_phone_reveal_audit.sql. En este hito NO se revela
 // nada: estos tipos solo describen las columnas aditivas y nullable.
 
-/** Estado del intento de reveal de teléfono. */
+/**
+ * Estado del intento de reveal de teléfono. `requested`/`pending` son estados
+ * EN VUELO del flujo asíncrono (APOLLO-PHONE-ASYNC-1): la solicitud fue aceptada
+ * por Apollo y se espera el webhook (o un poll de recuperación). El teléfono
+ * solo existe en estado `revealed`.
+ */
 export type PhoneRevealStatus =
   | 'not_requested'
+  | 'requested'
+  | 'pending'
   | 'revealed'
   | 'no_phone_found'
   | 'error';
@@ -247,6 +254,14 @@ export interface ContactCandidatePhoneRevealAudit {
   phone_reveal_error_code?: string | null;
   phone_processing_basis?: PhoneProcessingBasis | null;
   phone_processing_basis_note?: string | null;
+  // ── Correlación async (APOLLO-PHONE-ASYNC-1, migración 097) ──
+  /** Id de correlación de Apollo para el reveal async (opaco, no PII). */
+  phone_reveal_request_id?: string | null;
+  phone_reveal_requested_at?: string | null;
+  phone_reveal_completed_at?: string | null;
+  phone_reveal_webhook_received_at?: string | null;
+  phone_reveal_attempt_count?: number | null;
+  phone_reveal_last_checked_at?: string | null;
 }
 
 export interface ContactCandidateEnrichmentMetadata {

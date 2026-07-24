@@ -1,0 +1,143 @@
+// Agente 2A — Apollo Phone Reveal WEBHOOK route (APOLLO-PHONE-ASYNC-1)
+//
+// Public callback endpoint where Apollo delivers the phone numbers of an async
+// reveal started by revealCandidatePhoneAction. Thin adapter over the pure core
+// (phone-reveal-webhook-core.ts): it wires the expected secret token (env),
+// parses the JSON body WITHOUT logging it, and injects the service-role
+// candidate lookup / persistence / usage-log. All validation, correlation and
+// PII-free decisions live in the core.
+//
+// Security (Apollo does NOT document a webhook signature): the endpoint is
+// protected by a shared secret token in the URL query param `token`, compared
+// in constant time inside the core. If APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN is not
+// configured, the core returns 401 (fail-closed) and nothing is processed.
+//
+// This route never creates an official contact, never approves a candidate,
+// never writes HubSpot, never touches Lusha, and never prints the raw body or
+// any phone / email / name / linkedin. The whole reveal path stays gated behind
+// ENABLE_APOLLO_PHONE_REVEAL, which is OFF in every environment.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import {
+  runApolloPhoneRevealWebhook,
+  type ApolloPhoneRevealWebhookPayload,
+  type WebhookCandidateRecord,
+  type WebhookRevealPersistencePatch,
+  type WebhookUsageLogEntry,
+} from '@/modules/contact-enrichment/phone-reveal-webhook-core';
+import type { ContactCandidateEnrichmentMetadata } from '@/modules/contact-enrichment/types';
+
+/** Nombre de la env con la URL pública del webhook (solo referencia). */
+export const APOLLO_PHONE_REVEAL_WEBHOOK_URL_ENV = 'APOLLO_PHONE_REVEAL_WEBHOOK_URL';
+/** Nombre de la env con el token secreto del webhook. */
+export const APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN_ENV = 'APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN';
+
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+const WEBHOOK_CANDIDATE_SELECT =
+  'id, enrichment_metadata, phone_reveal_status, run:contact_enrichment_runs ( account_id )';
+
+function mapWebhookCandidate(row: Record<string, unknown>): WebhookCandidateRecord {
+  const runRaw = row.run;
+  const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
+    | { account_id: string | null }
+    | null
+    | undefined;
+  return {
+    id: row.id as string,
+    accountId: run?.account_id ?? null,
+    enrichmentMetadata:
+      (row.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
+    phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
+  };
+}
+
+/** Extrae el token del query param `token` (o el header equivalente). */
+function extractToken(request: NextRequest): string | null {
+  const fromQuery = request.nextUrl.searchParams.get('token');
+  if (typeof fromQuery === 'string' && fromQuery.trim()) return fromQuery;
+  const fromHeader = request.headers.get('x-apollo-webhook-token');
+  if (typeof fromHeader === 'string' && fromHeader.trim()) return fromHeader;
+  return null;
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const nowIso = new Date().toISOString();
+  const expectedToken = process.env[APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN_ENV] ?? null;
+  const tokenProvided = extractToken(request);
+
+  // Body: se parsea sin loguearlo jamás. Un JSON inválido queda como payload null.
+  let payload: ApolloPhoneRevealWebhookPayload | null = null;
+  try {
+    const text = await request.text();
+    if (text) payload = JSON.parse(text) as ApolloPhoneRevealWebhookPayload;
+  } catch {
+    payload = null;
+  }
+
+  const admin = getAdminClient();
+  if (!admin) {
+    // No confirmamos si el token es válido: fail-closed genérico.
+    return NextResponse.json({ ok: false }, { status: 500 });
+  }
+
+  const result = await runApolloPhoneRevealWebhook(
+    { tokenProvided, payload },
+    {
+      expectedToken,
+      nowIso,
+      loadCandidateByRequestId: async (
+        requestId,
+      ): Promise<WebhookCandidateRecord | null> => {
+        const { data, error } = await admin
+          .from('contact_enrichment_candidates')
+          .select(WEBHOOK_CANDIDATE_SELECT)
+          .eq('phone_reveal_request_id', requestId)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data ? mapWebhookCandidate(data as Record<string, unknown>) : null;
+      },
+      persist: async (
+        candidateId,
+        patch: WebhookRevealPersistencePatch,
+      ): Promise<void> => {
+        const update: Record<string, unknown> = {
+          phone_reveal_status: patch.phone_reveal_status,
+          phone_reveal_completed_at: patch.phone_reveal_completed_at,
+          phone_reveal_webhook_received_at: patch.phone_reveal_webhook_received_at,
+          phone_reveal_provider: patch.phone_reveal_provider,
+          phone_reveal_cost_credits: patch.phone_reveal_cost_credits,
+          phone_reveal_error_code: patch.phone_reveal_error_code,
+        };
+        if (patch.phone !== undefined) update.phone = patch.phone;
+        if (patch.enrichment_metadata !== undefined) {
+          update.enrichment_metadata = patch.enrichment_metadata;
+        }
+        const { error } = await admin
+          .from('contact_enrichment_candidates')
+          .update(update)
+          .eq('id', candidateId);
+        if (error) throw new Error(error.message);
+      },
+      logUsage: async (entry: WebhookUsageLogEntry): Promise<void> => {
+        await logProviderUsage({
+          provider_key: entry.provider,
+          operation_key: entry.operationKey,
+          credits_used: entry.creditsUsed ?? undefined,
+          status: entry.status,
+          results_returned: entry.metadata.phone_revealed ? 1 : 0,
+          metadata: entry.metadata,
+        });
+      },
+    },
+  );
+
+  return NextResponse.json({ ok: result.httpStatus < 400 }, { status: result.httpStatus });
+}

@@ -1,15 +1,25 @@
-// Agente 2A — Apollo Phone Reveal: Core (PHONE-3D.3)
+// Agente 2A — Apollo Phone Reveal: START core (APOLLO-PHONE-ASYNC-1)
 //
 // Pure, dependency-injected orchestration for the explicit, per-candidate Apollo
-// phone reveal. This module owns ONLY validation + decision logic + the shape of
-// the DB patch and the (PII-free) usage-log entry. It performs NO I/O directly:
-// the flag value, the actor, the candidate load, the do-not-contact check, the
-// Apollo call, the persistence write and the usage-log write are all injected as
-// deps, so the whole contract is testable offline with no Supabase, no network
-// and no real provider.
+// phone reveal — now ASYNCHRONOUS. This module owns ONLY validation + decision
+// logic + the shape of the DB patch and the (PII-free) usage-log entry. It
+// performs NO I/O directly: the flag value, the actor, the candidate load, the
+// do-not-contact check, the webhook URL, the Apollo START call, the persistence
+// write and the usage-log write are all injected as deps, so the whole contract
+// is testable offline with no Supabase, no network and no real provider.
 //
-// Legal/product contract enforced here (never by migration 095, which only added
-// the nullable audit columns):
+// WHY ASYNC (confirmed Apollo contract):
+//   * people/match with reveal_phone_number:true REQUIRES a webhook_url; without
+//     it Apollo returns HTTP 422.
+//   * the immediate response does NOT carry phone numbers — only a correlation
+//     id (request_id). The phones arrive LATER on the webhook callback
+//     (see phone-reveal-webhook-core.ts).
+// This core therefore only STARTS the reveal: it validates, calls Apollo to
+// obtain a request_id, and persists an in-flight `requested` state. It never
+// reads phone_numbers from the immediate response (the old synchronous model,
+// which could not work).
+//
+// Legal/product contract enforced here (never by a migration):
 //   * reveal is INDIVIDUAL per candidate — one candidateId, never an array
 //   * human cost confirmation mandatory (up to 8 Apollo credits per candidate)
 //   * phone_processing_basis mandatory; note required for other_approved_basis
@@ -18,9 +28,9 @@
 //   * Apollo only — no Lusha, no HubSpot, no auto-write, no auto-approve
 //   * no phone / email / linkedin / name / raw payload in the usage-log metadata
 //
-// The `reveal_phone_number: true` flag lives ONLY in the PHONE-3D.1 helper
-// (buildApolloPhoneRevealMatchParams); this core calls that helper and never
-// writes the literal itself. Real reveal stays gated behind
+// The `reveal_phone_number: true` + `webhook_url` literals live ONLY in the
+// helper (buildApolloPhoneRevealMatchParams); this core calls that helper and
+// never writes those literals itself. Real reveal stays gated behind
 // ENABLE_APOLLO_PHONE_REVEAL, which this milestone does NOT activate.
 
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
@@ -28,11 +38,6 @@ import {
   buildApolloPhoneRevealMatchParams,
   type ApolloPhoneRevealInput,
 } from '@/server/agents/contact-enrichment-toolkit/apollo-phone-reveal';
-import {
-  pickBestApolloPhone,
-  type ApolloPhoneNumber,
-  type ClassifiedPhone,
-} from '@/server/agents/contact-enrichment-toolkit/phone-classification';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import type {
   ContactCandidateEnrichmentMetadata,
@@ -67,6 +72,12 @@ export const VALID_PHONE_PROCESSING_BASES: readonly PhoneProcessingBasis[] = [
   'other_approved_basis',
 ];
 
+/** Estados en vuelo que bloquean un segundo reveal del mismo candidato. */
+export const PHONE_REVEAL_IN_FLIGHT_STATUSES: readonly string[] = [
+  'requested',
+  'pending',
+];
+
 // ── Entrada de la acción ───────────────────────────────────────
 
 /**
@@ -89,10 +100,11 @@ export interface RevealCandidatePhoneInput {
 // ── Registro del candidato (proyección mínima para el reveal) ───
 
 /**
- * Proyección de solo lectura del candidato necesaria para el reveal. Incluye la
- * identidad para Apollo (source_contact_id / email / linkedin), el contexto de
- * empresa, la metadata de enriquecimiento (para preservar/mergear el teléfono) y
- * el estado de reveal previo (para bloquear re-reveal).
+ * Proyección de solo lectura del candidato necesaria para iniciar el reveal.
+ * Incluye la identidad para Apollo (source_contact_id / email / linkedin), el
+ * contexto de empresa, la metadata de enriquecimiento (para preservar/mergear el
+ * teléfono) y el estado de reveal previo (para bloquear re-reveal / reveal en
+ * vuelo).
  */
 export interface RevealCandidateRecord {
   id: string;
@@ -106,31 +118,40 @@ export interface RevealCandidateRecord {
   existingPhone: string | null;
   enrichmentMetadata: ContactCandidateEnrichmentMetadata;
   phoneRevealStatus: string | null;
+  /** Nº de intentos previos (migración 097). Default 0 en filas nuevas. */
+  phoneRevealAttemptCount?: number | null;
 }
 
-// ── Respuesta del reveal Apollo (inyectada) ────────────────────
+// ── Respuesta del START de Apollo (inyectada) ──────────────────
 
 /**
- * Resultado normalizado de la llamada de reveal a Apollo. El wrapper 'use server'
- * es el único que llama a `matchApolloPerson`; aquí solo recibimos la lista de
- * teléfonos ya devuelta o un código de error seguro (sin PII, sin payload crudo).
+ * Resultado normalizado del INICIO del reveal asíncrono en Apollo. No trae
+ * teléfonos: solo el id de correlación (request_id) o un código de error seguro
+ * (sin PII, sin payload crudo). El teléfono llega después por el webhook.
  */
-export type ApolloPhoneRevealCallResult =
-  | { ok: true; phoneNumbers: ReadonlyArray<ApolloPhoneNumber> }
+export type ApolloPhoneRevealStartCallResult =
+  | { ok: true; requestId: string | null }
   | { ok: false; errorCode: string };
 
-// ── Patch de persistencia (describe el UPDATE, no lo ejecuta) ───
+// ── Patch de persistencia del START (describe el UPDATE, no lo ejecuta) ──
 
-export interface RevealPersistencePatch {
-  phone?: string | null;
-  enrichment_metadata?: ContactCandidateEnrichmentMetadata;
-  phone_reveal_status: 'revealed' | 'no_phone_found' | 'error';
-  phone_revealed_at: string;
+/**
+ * Patch escrito al INICIAR el reveal. No toca `phone` ni el teléfono existente:
+ * el número real solo se persiste cuando llegue el webhook. En `requested`
+ * guardamos el request_id de correlación y el timestamp; en `error` (start
+ * fallido) guardamos el código seguro y NO tocamos el teléfono previo.
+ */
+export interface RevealStartPersistencePatch {
+  phone_reveal_status: 'requested' | 'error';
+  phone_reveal_request_id: string | null;
+  phone_reveal_requested_at: string | null;
+  phone_reveal_completed_at: string | null;
   phone_revealed_by: string;
   phone_reveal_provider: 'apollo';
   phone_reveal_cost_credits: number | null;
   phone_reveal_cost_usd: number | null;
   phone_reveal_error_code: string | null;
+  phone_reveal_attempt_count: number;
   phone_processing_basis: PhoneProcessingBasis;
   phone_processing_basis_note: string | null;
 }
@@ -138,8 +159,10 @@ export interface RevealPersistencePatch {
 // ── Entrada del usage-log (SIN PII) ────────────────────────────
 
 /**
- * Metadata permitida en provider_usage_logs. Deliberadamente NO contiene
- * teléfono, email, linkedin, nombre ni payload crudo del proveedor.
+ * Metadata permitida en provider_usage_logs para el START. Deliberadamente NO
+ * contiene teléfono, email, linkedin, nombre ni payload crudo. El request_id es
+ * un id opaco de correlación (no dato personal). Al iniciar NO se cobran
+ * créditos (el costo real llega con el webhook), así que credits_used = null.
  */
 export interface PhoneRevealUsageLogEntry {
   operationKey: typeof PHONE_REVEAL_OPERATION_KEY;
@@ -154,7 +177,8 @@ export interface PhoneRevealUsageLogEntry {
     account_id: string | null;
     provider: 'apollo';
     reveal_status: string;
-    phone_revealed: boolean;
+    reveal_phase: 'start';
+    request_id: string | null;
     credits_used: number | null;
     cost_usd: number | null;
     processing_basis: PhoneProcessingBasis;
@@ -171,6 +195,12 @@ export interface RevealCandidatePhoneDeps {
   actor: { internalUserId: string; roleKey: string | null };
   /** Timestamp ISO estable (inyectado para tests deterministas). */
   nowIso: string;
+  /**
+   * URL pública del webhook de Apollo (env APOLLO_PHONE_REVEAL_WEBHOOK_URL,
+   * resuelta por el wrapper). Si es null/vacía el reveal se bloquea con
+   * `provider_not_configured` ANTES de llamar a Apollo (Apollo respondería 422).
+   */
+  webhookUrl: string | null;
   /** Carga la proyección del candidato. Devuelve null si no existe. */
   loadCandidate: (candidateId: string) => Promise<RevealCandidateRecord | null>;
   /**
@@ -179,12 +209,18 @@ export interface RevealCandidatePhoneDeps {
    * detectar). Si devuelve true, el reveal se bloquea antes de llamar a Apollo.
    */
   isDoNotContact: (candidate: RevealCandidateRecord) => Promise<boolean>;
-  /** Ejecuta el reveal en Apollo (única llamada de red, en el wrapper). */
-  revealViaApollo: (
+  /**
+   * Inicia el reveal asíncrono en Apollo (única llamada de red, en el wrapper).
+   * Devuelve el request_id de correlación, nunca teléfonos.
+   */
+  startRevealViaApollo: (
     params: MatchPersonParams,
-  ) => Promise<ApolloPhoneRevealCallResult>;
+  ) => Promise<ApolloPhoneRevealStartCallResult>;
   /** Aplica el UPDATE de auditoría sobre el candidato (service role). */
-  persist: (candidateId: string, patch: RevealPersistencePatch) => Promise<void>;
+  persist: (
+    candidateId: string,
+    patch: RevealStartPersistencePatch,
+  ) => Promise<void>;
   /** Registra el uso/costo en provider_usage_logs (metadata sin PII). */
   logUsage: (entry: PhoneRevealUsageLogEntry) => Promise<void>;
 }
@@ -204,19 +240,22 @@ export type RevealCandidatePhoneStatus =
   // reveal (ver paso 8 en runRevealCandidatePhone). No reintroducir como gate.
   | 'candidate_account_invalid'
   | 'already_revealed'
+  | 'already_pending'
   | 'do_not_contact'
   | 'insufficient_identity'
-  | 'revealed'
-  | 'no_phone_found'
+  | 'provider_not_configured'
+  // Estado feliz del START asíncrono: solicitud aceptada, esperando webhook.
+  | 'requested'
   | 'error';
 
 export interface RevealCandidatePhoneResult {
   ok: boolean;
   status: RevealCandidatePhoneStatus;
-  /** true solo cuando Apollo devolvió un teléfono y se persistió. */
-  phoneRevealed: boolean;
-  /** Tipo normalizado del teléfono revelado (no es PII). null si no aplica. */
-  phoneType: string | null;
+  /**
+   * true solo cuando Apollo aceptó la solicitud asíncrona y quedó un request_id
+   * persistido. El teléfono NO está disponible aún (llega por webhook).
+   */
+  requestAccepted: boolean;
   /** Código de error seguro (sin PII) cuando status = error. */
   errorCode: string | null;
 }
@@ -227,7 +266,7 @@ function fail(
   status: RevealCandidatePhoneStatus,
   errorCode: string | null = null,
 ): RevealCandidatePhoneResult {
-  return { ok: false, status, phoneRevealed: false, phoneType: null, errorCode };
+  return { ok: false, status, requestAccepted: false, errorCode };
 }
 
 function cleanText(value: string | null | undefined): string | null {
@@ -251,14 +290,14 @@ function existingPhoneSource(
   return typeof source === 'string' ? source : null;
 }
 
-// ── Orquestación pura ──────────────────────────────────────────
+// ── Orquestación pura del START ────────────────────────────────
 
 /**
- * Ejecuta el reveal explícito de teléfono para UN candidato. Todas las
- * validaciones fail-closed corren ANTES de cualquier llamada a Apollo o
+ * INICIA el reveal explícito de teléfono para UN candidato (asíncrono). Todas
+ * las validaciones fail-closed corren ANTES de cualquier llamada a Apollo o
  * escritura en DB, en orden barato→caro. Con el flag apagado (default de
  * producción) retorna `disabled` sin tocar ninguna dep salvo la lectura del
- * propio flag.
+ * propio flag. NO lee teléfonos: el resultado real llega por el webhook.
  */
 export async function runRevealCandidatePhone(
   input: RevealCandidatePhoneInput,
@@ -311,20 +350,11 @@ export async function runRevealCandidatePhone(
   const candidate = await deps.loadCandidate(candidateId);
   if (!candidate) return fail('candidate_not_found');
 
-  // 8. account_id es OPCIONAL — NO se bloquea por su ausencia.
-  //    Un run sin cuenta SellUp resuelta (empresa proveniente de HubSpot o
-  //    candidato de contactos aún pendiente de revisión) es un estado legítimo
-  //    del pipeline (ver contact_enrichment_runs.account_id null = empresa
-  //    HubSpot-only / sin cuenta SellUp todavía, en lusha-enrichment-runner) y la
-  //    UI ofrece explícitamente el reveal para estos candidatos (PHONE-3D.6B: la
-  //    elegibilidad del botón NO exige account_id). El reveal de Apollo se
-  //    resuelve por IDENTIDAD (source_contact_id / email / linkedin, validada en
-  //    el paso 11), nunca por la cuenta. do_not_contact (paso 10) sí sigue
-  //    bloqueando cuando hay forma de evaluarlo; sin cuenta+identidad no hay
-  //    forma segura y el wrapper devuelve false (igual que el resto del
-  //    pipeline). Ningún otro gate (flag / rol / costo / basis / re-reveal /
-  //    identidad) se debilita. El estado `candidate_account_invalid` se conserva
-  //    en la unión por compatibilidad, pero ya no se emite.
+  // 8. account_id es OPCIONAL — NO se bloquea por su ausencia (PHONE-3D.6C). El
+  //    reveal se resuelve por IDENTIDAD (source_contact_id / email / linkedin,
+  //    validada en el paso 12). do_not_contact (paso 11) sí sigue bloqueando
+  //    cuando hay forma de evaluarlo. `candidate_account_invalid` se conserva en
+  //    la unión por compatibilidad, pero ya no se emite.
 
   // 9. Bloquear re-reveal: ya revelado o ya tiene teléfono de apollo_reveal.
   if (
@@ -334,10 +364,25 @@ export async function runRevealCandidatePhone(
     return fail('already_revealed');
   }
 
-  // 10. do_not_contact bloquea el reveal (si hay forma de detectarlo).
+  // 10. Bloquear reveal en vuelo: ya hay una solicitud requested/pending
+  //     esperando su webhook. Sin reintento automático.
+  if (
+    typeof candidate.phoneRevealStatus === 'string' &&
+    PHONE_REVEAL_IN_FLIGHT_STATUSES.includes(candidate.phoneRevealStatus)
+  ) {
+    return fail('already_pending');
+  }
+
+  // 11. do_not_contact bloquea el reveal (si hay forma de detectarlo).
   if (await deps.isDoNotContact(candidate)) return fail('do_not_contact');
 
-  // 11. Identidad suficiente para Apollo (id / email / linkedin) — helper 3D.1.
+  // 12. webhook_url obligatoria ANTES de gastar la llamada (Apollo → 422 sin
+  //     ella). Fail-closed cuando el entorno no está configurado.
+  const webhookUrl = cleanText(deps.webhookUrl);
+  if (!webhookUrl) return fail('provider_not_configured');
+
+  // 13. Identidad suficiente + payload asíncrono (helper: único punto con
+  //     reveal_phone_number: true + webhook_url).
   const identity: ApolloPhoneRevealInput = {
     sourceContactId: candidate.sourceContactId,
     email: candidate.email,
@@ -345,24 +390,38 @@ export async function runRevealCandidatePhone(
     firstName: candidate.firstName,
     lastName: candidate.lastName,
     organizationName: candidate.organizationName,
+    webhookUrl,
   };
   const built = buildApolloPhoneRevealMatchParams(identity);
-  if (!built.ok) return fail('insufficient_identity');
+  if (!built.ok) {
+    if (built.error === 'webhook_url_required') {
+      return fail('provider_not_configured');
+    }
+    return fail('insufficient_identity');
+  }
 
-  // 12. Llamada real a Apollo (única red, en el wrapper).
-  const apollo = await deps.revealViaApollo(built.params);
+  const nextAttempt = (candidate.phoneRevealAttemptCount ?? 0) + 1;
 
-  // 13a. Error Apollo → no borrar teléfono existente, código seguro sin PII.
-  if (!apollo.ok) {
-    const errorCode = cleanText(apollo.errorCode) ?? 'apollo_reveal_failed';
-    const patch: RevealPersistencePatch = {
+  // 14. Iniciar el reveal asíncrono en Apollo (única red, en el wrapper).
+  const started = await deps.startRevealViaApollo(built.params);
+
+  // 15a. Error o request_id ausente → estado error, código seguro sin PII.
+  //      Sin request_id no hay forma de correlacionar el webhook.
+  if (!started.ok || !cleanText(started.requestId)) {
+    const errorCode = !started.ok
+      ? cleanText(started.errorCode) ?? 'apollo_reveal_start_failed'
+      : 'missing_request_id';
+    const patch: RevealStartPersistencePatch = {
       phone_reveal_status: 'error',
-      phone_revealed_at: deps.nowIso,
+      phone_reveal_request_id: null,
+      phone_reveal_requested_at: deps.nowIso,
+      phone_reveal_completed_at: deps.nowIso,
       phone_revealed_by: deps.actor.internalUserId,
       phone_reveal_provider: PHONE_REVEAL_PROVIDER,
       phone_reveal_cost_credits: null,
       phone_reveal_cost_usd: null,
       phone_reveal_error_code: errorCode,
+      phone_reveal_attempt_count: nextAttempt,
       phone_processing_basis: basis,
       phone_processing_basis_note: note,
     };
@@ -372,71 +431,28 @@ export async function runRevealCandidatePhone(
         candidate,
         actorId: deps.actor.internalUserId,
         revealStatus: 'error',
-        phoneRevealed: false,
-        credits: null,
+        requestId: null,
         basis,
         errorCode,
       }),
     );
-    return { ok: false, status: 'error', phoneRevealed: false, phoneType: null, errorCode };
+    return { ok: false, status: 'error', requestAccepted: false, errorCode };
   }
 
-  // 13b. Éxito con teléfono → clasificar y marcar source apollo_reveal.
-  const best = pickBestApolloPhone(apollo.phoneNumbers);
-  if (best) {
-    const revealedPhone: ClassifiedPhone = { ...best, source: 'apollo_reveal' };
-    const phoneMetadata: ContactCandidatePhoneMetadata = {
-      number: revealedPhone.number,
-      type: revealedPhone.type,
-      source: 'apollo_reveal',
-      raw_type: revealedPhone.raw_type,
-    };
-    const patch: RevealPersistencePatch = {
-      phone: revealedPhone.number,
-      enrichment_metadata: {
-        ...candidate.enrichmentMetadata,
-        phone: phoneMetadata,
-      },
-      phone_reveal_status: 'revealed',
-      phone_revealed_at: deps.nowIso,
-      phone_revealed_by: deps.actor.internalUserId,
-      phone_reveal_provider: PHONE_REVEAL_PROVIDER,
-      phone_reveal_cost_credits: APOLLO_PHONE_REVEAL_CREDITS,
-      phone_reveal_cost_usd: null,
-      phone_reveal_error_code: null,
-      phone_processing_basis: basis,
-      phone_processing_basis_note: note,
-    };
-    await deps.persist(candidateId, patch);
-    await deps.logUsage(
-      buildUsageLogEntry({
-        candidate,
-        actorId: deps.actor.internalUserId,
-        revealStatus: 'revealed',
-        phoneRevealed: true,
-        credits: APOLLO_PHONE_REVEAL_CREDITS,
-        basis,
-        errorCode: null,
-      }),
-    );
-    return {
-      ok: true,
-      status: 'revealed',
-      phoneRevealed: true,
-      phoneType: revealedPhone.type,
-      errorCode: null,
-    };
-  }
-
-  // 13c. Éxito sin teléfono → no inventar dato, preservar el existente.
-  const patch: RevealPersistencePatch = {
-    phone_reveal_status: 'no_phone_found',
-    phone_revealed_at: deps.nowIso,
+  // 15b. Solicitud aceptada → estado requested + request_id. Sin créditos aún
+  //      (el costo real llega con el webhook). Sin teléfono todavía.
+  const requestId = cleanText(started.requestId);
+  const patch: RevealStartPersistencePatch = {
+    phone_reveal_status: 'requested',
+    phone_reveal_request_id: requestId,
+    phone_reveal_requested_at: deps.nowIso,
+    phone_reveal_completed_at: null,
     phone_revealed_by: deps.actor.internalUserId,
     phone_reveal_provider: PHONE_REVEAL_PROVIDER,
-    phone_reveal_cost_credits: APOLLO_PHONE_REVEAL_CREDITS,
+    phone_reveal_cost_credits: null,
     phone_reveal_cost_usd: null,
     phone_reveal_error_code: null,
+    phone_reveal_attempt_count: nextAttempt,
     phone_processing_basis: basis,
     phone_processing_basis_note: note,
   };
@@ -445,20 +461,13 @@ export async function runRevealCandidatePhone(
     buildUsageLogEntry({
       candidate,
       actorId: deps.actor.internalUserId,
-      revealStatus: 'no_phone_found',
-      phoneRevealed: false,
-      credits: APOLLO_PHONE_REVEAL_CREDITS,
+      revealStatus: 'requested',
+      requestId,
       basis,
       errorCode: null,
     }),
   );
-  return {
-    ok: true,
-    status: 'no_phone_found',
-    phoneRevealed: false,
-    phoneType: null,
-    errorCode: null,
-  };
+  return { ok: true, status: 'requested', requestAccepted: true, errorCode: null };
 }
 
 // ── Constructor del log de uso (sin PII) ───────────────────────
@@ -466,9 +475,8 @@ export async function runRevealCandidatePhone(
 function buildUsageLogEntry(args: {
   candidate: RevealCandidateRecord;
   actorId: string;
-  revealStatus: 'revealed' | 'no_phone_found' | 'error';
-  phoneRevealed: boolean;
-  credits: number | null;
+  revealStatus: 'requested' | 'error';
+  requestId: string | null;
   basis: PhoneProcessingBasis;
   errorCode: string | null;
 }): PhoneRevealUsageLogEntry {
@@ -476,7 +484,7 @@ function buildUsageLogEntry(args: {
     operationKey: PHONE_REVEAL_OPERATION_KEY,
     provider: 'apollo',
     triggeredBy: args.actorId,
-    creditsUsed: args.credits,
+    creditsUsed: null,
     costUsd: null,
     status: args.revealStatus === 'error' ? 'error' : 'success',
     errorCode: args.errorCode,
@@ -485,8 +493,9 @@ function buildUsageLogEntry(args: {
       account_id: args.candidate.accountId,
       provider: 'apollo',
       reveal_status: args.revealStatus,
-      phone_revealed: args.phoneRevealed,
-      credits_used: args.credits,
+      reveal_phase: 'start',
+      request_id: args.requestId,
+      credits_used: null,
       cost_usd: null,
       processing_basis: args.basis,
       error_code: args.errorCode,

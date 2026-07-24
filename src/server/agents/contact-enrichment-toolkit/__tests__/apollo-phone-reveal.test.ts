@@ -1,9 +1,14 @@
 /**
- * Tests — Apollo Phone Reveal payload helper (Agente 2A, PHONE-3D.1)
+ * Tests — Apollo Phone Reveal payload helper (Agente 2A)
+ * PHONE-3D.1 (payload) + APOLLO-PHONE-ASYNC-1 (webhook_url obligatorio).
  *
  * Lógica pura: sin red, sin DB, sin proveedores, sin env. Node.js built-in
  * test runner. El helper es el único lugar autorizado para
- * `reveal_phone_number: true`, pero NO ejecuta reveal alguno.
+ * `reveal_phone_number: true` + `webhook_url`, pero NO ejecuta reveal alguno.
+ *
+ * Contrato async confirmado: el reveal de Apollo exige `webhook_url` (sin él
+ * responde HTTP 422). El helper lo incrusta y rechaza con `webhook_url_required`
+ * si falta.
  *
  * También cubre el contrato del flag ENABLE_APOLLO_PHONE_REVEAL (OFF por
  * default, true solo con el valor exacto "true").
@@ -14,9 +19,21 @@ import assert from 'node:assert/strict';
 
 import {
   buildApolloPhoneRevealMatchParams,
+  type ApolloPhoneRevealInput,
   type ApolloPhoneRevealResult,
 } from '../apollo-phone-reveal';
 import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
+
+// URL pública del webhook usada en los tests (nunca contiene PII).
+const WEBHOOK_URL =
+  'https://app.example.com/api/integrations/apollo/phone-reveal/webhook?token=secret';
+
+/** Añade webhookUrl por defecto a cualquier input de identidad. */
+function withWebhook(
+  input: ApolloPhoneRevealInput,
+): ApolloPhoneRevealInput {
+  return { webhookUrl: WEBHOOK_URL, ...input };
+}
 
 // ── Helpers de aserción ────────────────────────────────────────
 
@@ -29,35 +46,39 @@ function expectOk(result: ApolloPhoneRevealResult) {
 // ── Construcción con identidad fuerte ──────────────────────────
 
 describe('buildApolloPhoneRevealMatchParams — identidad fuerte', () => {
-  it('con sourceContactId (person id) → reveal_phone_number: true', () => {
+  it('con sourceContactId (person id) → reveal_phone_number + webhook_url', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams({
-        sourceContactId: 'apollo-person-id',
-        firstName: 'Ana',
-        lastName: 'Gómez',
-        organizationName: 'Empresa',
-      }),
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({
+          sourceContactId: 'apollo-person-id',
+          firstName: 'Ana',
+          lastName: 'Gómez',
+          organizationName: 'Empresa',
+        }),
+      ),
     );
     assert.equal(params.reveal_phone_number, true);
+    assert.equal(params.webhook_url, WEBHOOK_URL);
     assert.equal(params.id, 'apollo-person-id');
     assert.equal(params.first_name, 'Ana');
     assert.equal(params.last_name, 'Gómez');
     assert.equal(params.organization_name, 'Empresa');
   });
 
-  it('con email → reveal_phone_number: true', () => {
+  it('con email → reveal_phone_number + webhook_url', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams({ email: 'ana@empresa.com' }),
+      buildApolloPhoneRevealMatchParams(withWebhook({ email: 'ana@empresa.com' })),
     );
     assert.equal(params.reveal_phone_number, true);
+    assert.equal(params.webhook_url, WEBHOOK_URL);
     assert.equal(params.email, 'ana@empresa.com');
   });
 
-  it('con linkedinUrl → reveal_phone_number: true', () => {
+  it('con linkedinUrl → reveal_phone_number + webhook_url', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams({
-        linkedinUrl: 'https://linkedin.com/in/ana',
-      }),
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({ linkedinUrl: 'https://linkedin.com/in/ana' }),
+      ),
     );
     assert.equal(params.reveal_phone_number, true);
     assert.equal(params.linkedin_url, 'https://linkedin.com/in/ana');
@@ -65,23 +86,58 @@ describe('buildApolloPhoneRevealMatchParams — identidad fuerte', () => {
 
   it('prefiere sourceContactId como identificador más fuerte (lo incluye)', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams({
-        sourceContactId: 'pid-1',
-        email: 'ana@empresa.com',
-        linkedinUrl: 'https://linkedin.com/in/ana',
-      }),
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({
+          sourceContactId: 'pid-1',
+          email: 'ana@empresa.com',
+          linkedinUrl: 'https://linkedin.com/in/ana',
+        }),
+      ),
     );
     assert.equal(params.id, 'pid-1');
-    // Los identificadores adicionales también viajan, pero el id está presente.
     assert.equal(params.email, 'ana@empresa.com');
     assert.equal(params.linkedin_url, 'https://linkedin.com/in/ana');
   });
 
-  it('recorta espacios en los campos de identidad', () => {
+  it('recorta espacios en los campos de identidad y el webhook', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams({ sourceContactId: '  pid-2  ' }),
+      buildApolloPhoneRevealMatchParams({
+        sourceContactId: '  pid-2  ',
+        webhookUrl: `  ${WEBHOOK_URL}  `,
+      }),
     );
     assert.equal(params.id, 'pid-2');
+    assert.equal(params.webhook_url, WEBHOOK_URL);
+  });
+});
+
+// ── webhook_url obligatorio (contrato async) ───────────────────
+
+describe('buildApolloPhoneRevealMatchParams — webhook_url obligatorio', () => {
+  it('sin webhookUrl (identidad fuerte) → webhook_url_required, sin params', () => {
+    const result = buildApolloPhoneRevealMatchParams({ sourceContactId: 'pid-1' });
+    assert.equal(result.ok, false);
+    if (result.ok) throw new Error('unreachable');
+    assert.equal(result.error, 'webhook_url_required');
+  });
+
+  it('webhookUrl en blanco → webhook_url_required', () => {
+    const result = buildApolloPhoneRevealMatchParams({
+      email: 'ana@empresa.com',
+      webhookUrl: '   ',
+    });
+    assert.equal(result.ok, false);
+    if (result.ok) throw new Error('unreachable');
+    assert.equal(result.error, 'webhook_url_required');
+  });
+
+  it('identidad insuficiente tiene prioridad sobre webhook_url', () => {
+    // Sin identidad fuerte: se rechaza por insufficient_identity aunque falte
+    // el webhook (no gastamos una llamada que Apollo rechazaría igualmente).
+    const result = buildApolloPhoneRevealMatchParams({ firstName: 'Ana' });
+    assert.equal(result.ok, false);
+    if (result.ok) throw new Error('unreachable');
+    assert.equal(result.error, 'insufficient_identity');
   });
 });
 
@@ -90,7 +146,7 @@ describe('buildApolloPhoneRevealMatchParams — identidad fuerte', () => {
 describe('buildApolloPhoneRevealMatchParams — minimización de datos', () => {
   it('NO agrega reveal_personal_emails (no lo exige el reveal de teléfono)', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams({ sourceContactId: 'pid-1' }),
+      buildApolloPhoneRevealMatchParams(withWebhook({ sourceContactId: 'pid-1' })),
     );
     assert.equal('reveal_personal_emails' in params, false);
     assert.equal(params.reveal_personal_emails, undefined);
@@ -98,11 +154,12 @@ describe('buildApolloPhoneRevealMatchParams — minimización de datos', () => {
 
   it('NO incluye ningún número/campo de teléfono en el payload', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams({ sourceContactId: 'pid-1' }),
+      buildApolloPhoneRevealMatchParams(withWebhook({ sourceContactId: 'pid-1' })),
     );
-    // Solo claves de identidad + la bandera de reveal; ningún campo de número.
+    // Solo claves de identidad + reveal + webhook; ningún campo de número.
     const ALLOWED_KEYS = new Set([
       'reveal_phone_number',
+      'webhook_url',
       'id',
       'email',
       'linkedin_url',
@@ -114,10 +171,8 @@ describe('buildApolloPhoneRevealMatchParams — minimización de datos', () => {
     for (const key of Object.keys(params)) {
       assert.equal(ALLOWED_KEYS.has(key), true, `clave inesperada en payload: ${key}`);
     }
-    // No hay campos de valor de teléfono (Apollo entrega el número, nunca lo enviamos).
     assert.equal('phone' in params, false);
     assert.equal('phone_number' in params, false);
-    // El único campo relacionado con teléfono es la bandera de reveal.
     assert.equal(params.reveal_phone_number, true);
   });
 });
@@ -133,22 +188,26 @@ describe('buildApolloPhoneRevealMatchParams — identidad insuficiente', () => {
   });
 
   it('rechaza solo nombre + empresa (sin id/email/linkedin)', () => {
-    const result = buildApolloPhoneRevealMatchParams({
-      firstName: 'Ana',
-      lastName: 'Gómez',
-      organizationName: 'Empresa',
-    });
+    const result = buildApolloPhoneRevealMatchParams(
+      withWebhook({
+        firstName: 'Ana',
+        lastName: 'Gómez',
+        organizationName: 'Empresa',
+      }),
+    );
     assert.equal(result.ok, false);
     if (result.ok) throw new Error('unreachable');
     assert.equal(result.error, 'insufficient_identity');
   });
 
   it('rechaza campos de identidad en blanco/whitespace', () => {
-    const result = buildApolloPhoneRevealMatchParams({
-      sourceContactId: '   ',
-      email: '',
-      linkedinUrl: null,
-    });
+    const result = buildApolloPhoneRevealMatchParams(
+      withWebhook({
+        sourceContactId: '   ',
+        email: '',
+        linkedinUrl: null,
+      }),
+    );
     assert.equal(result.ok, false);
     if (result.ok) throw new Error('unreachable');
     assert.equal(result.error, 'insufficient_identity');
@@ -164,14 +223,18 @@ describe('buildApolloPhoneRevealMatchParams — identidad insuficiente', () => {
 
 describe('buildApolloPhoneRevealMatchParams — pureza', () => {
   it('no muta el input', () => {
-    const input = { sourceContactId: 'pid-1', firstName: 'Ana' };
+    const input = { sourceContactId: 'pid-1', firstName: 'Ana', webhookUrl: WEBHOOK_URL };
     const snapshot = JSON.stringify(input);
     buildApolloPhoneRevealMatchParams(input);
     assert.equal(JSON.stringify(input), snapshot);
   });
 
   it('es determinista para el mismo input', () => {
-    const input = { sourceContactId: 'pid-1', email: 'ana@empresa.com' };
+    const input = {
+      sourceContactId: 'pid-1',
+      email: 'ana@empresa.com',
+      webhookUrl: WEBHOOK_URL,
+    };
     const a = buildApolloPhoneRevealMatchParams(input);
     const b = buildApolloPhoneRevealMatchParams(input);
     assert.deepEqual(a, b);

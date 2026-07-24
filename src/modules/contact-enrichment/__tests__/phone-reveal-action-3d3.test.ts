@@ -1,22 +1,23 @@
 /**
- * Agente 2A — Apollo Phone Reveal action (PHONE-3D.3)
+ * Agente 2A — Apollo Phone Reveal START action (APOLLO-PHONE-ASYNC-1)
  *
- * Pruebas offline/DI del core puro `runRevealCandidatePhone` + guards estáticos.
- * Sin red, sin Supabase, sin proveedores reales: todas las dependencias
- * (flag, actor, carga de candidato, do_not_contact, llamada Apollo, persistencia
- * y usage-log) se inyectan y se capturan en memoria.
+ * Pruebas offline/DI del core puro `runRevealCandidatePhone` (ahora ASÍNCRONO) +
+ * guards estáticos. Sin red, sin Supabase, sin proveedores reales: todas las
+ * dependencias (flag, actor, webhookUrl, carga de candidato, do_not_contact,
+ * START de Apollo, persistencia y usage-log) se inyectan y se capturan en
+ * memoria.
  *
- * Contrato verificado:
+ * Contrato async verificado:
  *  - Flag OFF → disabled (no Apollo, no DB).
- *  - Confirmación de costo obligatoria.
- *  - phone_processing_basis obligatorio + válido; nota para other_approved_basis.
- *  - Rol autorizado (admin / commercial_manager).
- *  - Identidad suficiente antes de gastar reveal.
- *  - Éxito con/sin teléfono, error seguro sin PII, re-reveal bloqueado,
- *    do_not_contact bloquea.
- *  - No bulk (candidateId único).
- *  - Usage-log sin PII.
- *  - reveal_phone_number: true aislado al helper 3D.1; sin Lusha/HubSpot/UI.
+ *  - webhook_url ausente → provider_not_configured (sin Apollo).
+ *  - Confirmación de costo obligatoria; basis obligatorio + válido; nota si other.
+ *  - Rol autorizado (admin / commercial_manager); identidad suficiente.
+ *  - START feliz → status requested + request_id persistido, SIN teléfono (el
+ *    teléfono llega por webhook, nunca en la respuesta inmediata).
+ *  - request_id ausente / error Apollo → status error seguro (sin PII).
+ *  - Re-reveal (revealed) y reveal en vuelo (requested/pending) bloqueados.
+ *  - do_not_contact bloquea. No bulk. Usage-log sin PII.
+ *  - reveal_phone_number/webhook_url aislados al helper; sin Lusha/HubSpot/UI.
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -27,13 +28,12 @@ import { dirname, join } from 'node:path';
 
 import {
   runRevealCandidatePhone,
-  APOLLO_PHONE_REVEAL_CREDITS,
   PHONE_REVEAL_OPERATION_KEY,
   type RevealCandidatePhoneInput,
   type RevealCandidatePhoneDeps,
   type RevealCandidateRecord,
-  type ApolloPhoneRevealCallResult,
-  type RevealPersistencePatch,
+  type ApolloPhoneRevealStartCallResult,
+  type RevealStartPersistencePatch,
   type PhoneRevealUsageLogEntry,
 } from '../phone-reveal-core';
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
@@ -50,6 +50,9 @@ function readRepo(rel: string): string {
 
 const NOW = '2026-07-24T12:00:00.000Z';
 const ACTOR = { internalUserId: 'user-admin-1', roleKey: 'admin' };
+const WEBHOOK_URL =
+  'https://app.example.com/api/integrations/apollo/phone-reveal/webhook?token=secret';
+const REQUEST_ID = 'apollo-req-123';
 
 function baseCandidate(
   overrides: Partial<RevealCandidateRecord> = {},
@@ -66,13 +69,14 @@ function baseCandidate(
     existingPhone: null,
     enrichmentMetadata: {},
     phoneRevealStatus: null,
+    phoneRevealAttemptCount: 0,
     ...overrides,
   };
 }
 
 interface Capture {
   apolloCalls: MatchPersonParams[];
-  persisted: Array<{ id: string; patch: RevealPersistencePatch }>;
+  persisted: Array<{ id: string; patch: RevealStartPersistencePatch }>;
   logs: PhoneRevealUsageLogEntry[];
   doNotContactChecked: number;
   candidateLoaded: number;
@@ -83,15 +87,17 @@ function makeDeps(
   opts: {
     flagEnabled?: boolean;
     actor?: { internalUserId: string; roleKey: string | null };
+    webhookUrl?: string | null;
     candidate?: RevealCandidateRecord | null;
     isDoNotContact?: boolean;
-    apollo?: ApolloPhoneRevealCallResult;
+    apollo?: ApolloPhoneRevealStartCallResult;
   } = {},
 ): RevealCandidatePhoneDeps {
   return {
     flagEnabled: opts.flagEnabled ?? true,
     actor: opts.actor ?? ACTOR,
     nowIso: NOW,
+    webhookUrl: opts.webhookUrl === undefined ? WEBHOOK_URL : opts.webhookUrl,
     loadCandidate: async () => {
       cap.candidateLoaded += 1;
       return opts.candidate === undefined ? baseCandidate() : opts.candidate;
@@ -100,14 +106,9 @@ function makeDeps(
       cap.doNotContactChecked += 1;
       return opts.isDoNotContact ?? false;
     },
-    revealViaApollo: async (params) => {
+    startRevealViaApollo: async (params) => {
       cap.apolloCalls.push(params);
-      return (
-        opts.apollo ?? {
-          ok: true,
-          phoneNumbers: [{ sanitized_number: '+573001112233', type: 'mobile' }],
-        }
-      );
+      return opts.apollo ?? { ok: true, requestId: REQUEST_ID };
     },
     persist: async (id, patch) => {
       cap.persisted.push({ id, patch });
@@ -119,13 +120,7 @@ function makeDeps(
 }
 
 function freshCapture(): Capture {
-  return {
-    apolloCalls: [],
-    persisted: [],
-    logs: [],
-    doNotContactChecked: 0,
-    candidateLoaded: 0,
-  };
+  return { apolloCalls: [], persisted: [], logs: [], doNotContactChecked: 0, candidateLoaded: 0 };
 }
 
 function validInput(
@@ -146,12 +141,9 @@ beforeEach(() => {
 
 // ── 1. Flag OFF ────────────────────────────────────────────────
 
-describe('PHONE-3D.3 — flag OFF', () => {
+describe('ASYNC-1 — flag OFF', () => {
   it('retorna disabled sin llamar Apollo ni escribir DB', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput(),
-      makeDeps(cap, { flagEnabled: false }),
-    );
+    const res = await runRevealCandidatePhone(validInput(), makeDeps(cap, { flagEnabled: false }));
     assert.equal(res.status, 'disabled');
     assert.equal(res.ok, false);
     assert.equal(cap.apolloCalls.length, 0);
@@ -161,32 +153,42 @@ describe('PHONE-3D.3 — flag OFF', () => {
   });
 });
 
-// ── 2. Confirmación de costo ───────────────────────────────────
+// ── 2. webhook_url ausente → provider_not_configured ───────────
 
-describe('PHONE-3D.3 — confirmación de costo', () => {
-  it('confirmCost !== true → cost_confirmation_required, sin Apollo/DB', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput({ confirmCost: false }),
-      makeDeps(cap),
-    );
-    assert.equal(res.status, 'cost_confirmation_required');
+describe('ASYNC-1 — webhook_url no configurado', () => {
+  it('webhookUrl null → provider_not_configured, sin Apollo/DB', async () => {
+    const res = await runRevealCandidatePhone(validInput(), makeDeps(cap, { webhookUrl: null }));
+    assert.equal(res.status, 'provider_not_configured');
     assert.equal(cap.apolloCalls.length, 0);
     assert.equal(cap.persisted.length, 0);
   });
 
+  it('webhookUrl en blanco → provider_not_configured', async () => {
+    const res = await runRevealCandidatePhone(validInput(), makeDeps(cap, { webhookUrl: '   ' }));
+    assert.equal(res.status, 'provider_not_configured');
+    assert.equal(cap.apolloCalls.length, 0);
+  });
+});
+
+// ── 3. Confirmación de costo ───────────────────────────────────
+
+describe('ASYNC-1 — confirmación de costo', () => {
+  it('confirmCost !== true → cost_confirmation_required, sin Apollo/DB', async () => {
+    const res = await runRevealCandidatePhone(validInput({ confirmCost: false }), makeDeps(cap));
+    assert.equal(res.status, 'cost_confirmation_required');
+    assert.equal(cap.apolloCalls.length, 0);
+  });
+
   it('expectedMaxCredits por debajo del costo (8) → cost_confirmation_required', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput({ expectedMaxCredits: 4 }),
-      makeDeps(cap),
-    );
+    const res = await runRevealCandidatePhone(validInput({ expectedMaxCredits: 4 }), makeDeps(cap));
     assert.equal(res.status, 'cost_confirmation_required');
     assert.equal(cap.apolloCalls.length, 0);
   });
 });
 
-// ── 3. Processing basis ────────────────────────────────────────
+// ── 4. Processing basis ────────────────────────────────────────
 
-describe('PHONE-3D.3 — processing basis', () => {
+describe('ASYNC-1 — processing basis', () => {
   it('basis ausente → processing_basis_required', async () => {
     const res = await runRevealCandidatePhone(
       validInput({ phoneProcessingBasis: null }),
@@ -214,7 +216,7 @@ describe('PHONE-3D.3 — processing basis', () => {
     assert.equal(cap.apolloCalls.length, 0);
   });
 
-  it('other_approved_basis con nota → procede', async () => {
+  it('other_approved_basis con nota → procede (requested)', async () => {
     const res = await runRevealCandidatePhone(
       validInput({
         phoneProcessingBasis: 'other_approved_basis',
@@ -222,7 +224,7 @@ describe('PHONE-3D.3 — processing basis', () => {
       }),
       makeDeps(cap),
     );
-    assert.equal(res.status, 'revealed');
+    assert.equal(res.status, 'requested');
     assert.equal(cap.persisted[0].patch.phone_processing_basis, 'other_approved_basis');
     assert.equal(
       cap.persisted[0].patch.phone_processing_basis_note,
@@ -233,7 +235,7 @@ describe('PHONE-3D.3 — processing basis', () => {
 
 // ── Rol ────────────────────────────────────────────────────────
 
-describe('PHONE-3D.3 — gate de rol', () => {
+describe('ASYNC-1 — gate de rol', () => {
   it('rol no autorizado → unauthorized_role, sin Apollo', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
@@ -246,11 +248,9 @@ describe('PHONE-3D.3 — gate de rol', () => {
   it('commercial_manager sí puede', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, {
-        actor: { internalUserId: 'u3', roleKey: 'commercial_manager' },
-      }),
+      makeDeps(cap, { actor: { internalUserId: 'u3', roleKey: 'commercial_manager' } }),
     );
-    assert.equal(res.status, 'revealed');
+    assert.equal(res.status, 'requested');
   });
 
   it('sin rol → unauthorized_role', async () => {
@@ -262,18 +262,14 @@ describe('PHONE-3D.3 — gate de rol', () => {
   });
 });
 
-// ── 4. Identidad insuficiente ──────────────────────────────────
+// ── Identidad insuficiente / candidato inválido ────────────────
 
-describe('PHONE-3D.3 — identidad insuficiente', () => {
+describe('ASYNC-1 — identidad insuficiente', () => {
   it('sin id/email/linkedin → insufficient_identity, sin Apollo', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
       makeDeps(cap, {
-        candidate: baseCandidate({
-          sourceContactId: null,
-          email: null,
-          linkedinUrl: null,
-        }),
+        candidate: baseCandidate({ sourceContactId: null, email: null, linkedinUrl: null }),
       }),
     );
     assert.equal(res.status, 'insufficient_identity');
@@ -282,94 +278,78 @@ describe('PHONE-3D.3 — identidad insuficiente', () => {
   });
 });
 
-describe('PHONE-3D.3 — candidato inválido / inexistente', () => {
+describe('ASYNC-1 — candidato inválido / inexistente', () => {
   it('candidateId vacío → invalid_candidate', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput({ candidateId: '   ' }),
-      makeDeps(cap),
-    );
+    const res = await runRevealCandidatePhone(validInput({ candidateId: '   ' }), makeDeps(cap));
     assert.equal(res.status, 'invalid_candidate');
     assert.equal(cap.candidateLoaded, 0);
   });
 
   it('candidato inexistente → candidate_not_found', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput(),
-      makeDeps(cap, { candidate: null }),
-    );
+    const res = await runRevealCandidatePhone(validInput(), makeDeps(cap, { candidate: null }));
     assert.equal(res.status, 'candidate_not_found');
     assert.equal(cap.apolloCalls.length, 0);
   });
-
 });
 
-// ── PHONE-3D.6C — account_id null NO bloquea (Lusha/HubSpot-only) ───────────────
-//
-// Fix del primer QA real: un candidato de contactos pendiente de revisión
-// (source Lusha, con email/LinkedIn, sin teléfono) cuyo run no tiene account_id
-// resuelto. La UI ofrece el botón de reveal (PHONE-3D.6B no exige account_id),
-// pero el core rechazaba con `candidate_account_invalid` ANTES de Apollo, que la
-// UI colapsaba en el mensaje genérico "No fue posible revelar el teléfono".
-// Ahora account_id es opcional: el reveal procede por identidad. No hay
-// reintento, no se toca Lusha ni HubSpot, y el usage-log queda sin PII con
-// account_id null.
+// ── 5. START feliz: request_id, sin teléfono ───────────────────
 
-describe('PHONE-3D.6C — candidato sin account_id (identidad suficiente)', () => {
+describe('ASYNC-1 — START aceptado', () => {
+  it('llama a Apollo con reveal_phone_number + webhook_url y persiste requested', async () => {
+    const res = await runRevealCandidatePhone(validInput(), makeDeps(cap));
+    assert.equal(res.status, 'requested');
+    assert.equal(res.ok, true);
+    assert.equal(res.requestAccepted, true);
+
+    // Una sola llamada, con reveal_phone_number: true y webhook_url (vía helper).
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal(cap.apolloCalls[0].reveal_phone_number, true);
+    assert.equal(cap.apolloCalls[0].webhook_url, WEBHOOK_URL);
+
+    const { patch } = cap.persisted[0];
+    assert.equal(patch.phone_reveal_status, 'requested');
+    assert.equal(patch.phone_reveal_request_id, REQUEST_ID);
+    assert.equal(patch.phone_reveal_requested_at, NOW);
+    assert.equal(patch.phone_reveal_completed_at, null);
+    assert.equal(patch.phone_revealed_by, ACTOR.internalUserId);
+    assert.equal(patch.phone_reveal_provider, 'apollo');
+    assert.equal(patch.phone_reveal_attempt_count, 1);
+    // Sin créditos al iniciar (llegan con el webhook) y sin error.
+    assert.equal(patch.phone_reveal_cost_credits, null);
+    assert.equal(patch.phone_reveal_error_code, null);
+  });
+
+  it('NO persiste teléfono en el START (no lee phone_numbers de la respuesta)', async () => {
+    await runRevealCandidatePhone(validInput(), makeDeps(cap));
+    const patch = cap.persisted[0].patch as unknown as Record<string, unknown>;
+    assert.equal('phone' in patch, false);
+    assert.equal('enrichment_metadata' in patch, false);
+  });
+
+  it('incrementa attempt_count desde el valor previo', async () => {
+    await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, { candidate: baseCandidate({ phoneRevealAttemptCount: 2 }) }),
+    );
+    assert.equal(cap.persisted[0].patch.phone_reveal_attempt_count, 3);
+  });
+});
+
+// ── account_id null soportado ──────────────────────────────────
+
+describe('ASYNC-1 — candidato sin account_id (identidad suficiente)', () => {
   function lushaNoAccountCandidate(): RevealCandidateRecord {
-    // Espejo del QA real: sin cuenta SellUp, con email + LinkedIn, sin teléfono.
-    return baseCandidate({
-      accountId: null,
-      sourceContactId: null,
-      firstName: null,
-      lastName: null,
-    });
+    return baseCandidate({ accountId: null, sourceContactId: null, firstName: null, lastName: null });
   }
 
-  it('Apollo success → revealed (procede sin account_id, una sola llamada)', async () => {
+  it('START procede sin account_id (una sola llamada)', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, {
-        candidate: lushaNoAccountCandidate(),
-        apollo: {
-          ok: true,
-          phoneNumbers: [{ sanitized_number: '+573001112233', type: 'mobile' }],
-        },
-      }),
+      makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
     );
-    assert.equal(res.status, 'revealed');
-    assert.equal(res.ok, true);
-    // No retry: exactamente una llamada a Apollo.
+    assert.equal(res.status, 'requested');
     assert.equal(cap.apolloCalls.length, 1);
-    assert.equal(cap.persisted[0].patch.phone_reveal_status, 'revealed');
-  });
-
-  it('Apollo no phone → no_phone_found (no error genérico, no inventa dato)', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput(),
-      makeDeps(cap, {
-        candidate: lushaNoAccountCandidate(),
-        apollo: { ok: true, phoneNumbers: [] },
-      }),
-    );
-    assert.equal(res.status, 'no_phone_found');
-    assert.equal(res.phoneRevealed, false);
-    assert.equal(cap.apolloCalls.length, 1);
-    assert.equal(cap.persisted[0].patch.phone_reveal_status, 'no_phone_found');
-    assert.equal(cap.persisted[0].patch.phone, undefined);
-  });
-
-  it('Apollo error → status error con código seguro (sin PII)', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput(),
-      makeDeps(cap, {
-        candidate: lushaNoAccountCandidate(),
-        apollo: { ok: false, errorCode: 'HTTP_402' },
-      }),
-    );
-    assert.equal(res.status, 'error');
-    assert.equal(res.errorCode, 'HTTP_402');
-    assert.equal(cap.apolloCalls.length, 1);
-    assert.equal(cap.persisted[0].patch.phone_reveal_error_code, 'HTTP_402');
+    assert.equal(cap.persisted[0].patch.phone_reveal_status, 'requested');
   });
 
   it('nunca emite candidate_account_invalid con identidad suficiente', async () => {
@@ -380,129 +360,55 @@ describe('PHONE-3D.6C — candidato sin account_id (identidad suficiente)', () =
     assert.notEqual(res.status, 'candidate_account_invalid');
   });
 
-  it('do_not_contact sigue bloqueando aunque account_id sea null', async () => {
-    // Preserva el gate legal: si HAY forma de evaluar do_not_contact (dep true),
-    // se bloquea antes de Apollo incluso sin cuenta.
-    const res = await runRevealCandidatePhone(
-      validInput(),
-      makeDeps(cap, {
-        candidate: lushaNoAccountCandidate(),
-        isDoNotContact: true,
-      }),
-    );
-    assert.equal(res.status, 'do_not_contact');
-    assert.equal(cap.apolloCalls.length, 0);
-    assert.equal(cap.persisted.length, 0);
-  });
-
-  it('usage-log sin PII y con account_id null en la metadata', async () => {
+  it('usage-log sin PII y con account_id null', async () => {
     await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, {
-        candidate: lushaNoAccountCandidate(),
-        apollo: {
-          ok: true,
-          phoneNumbers: [{ sanitized_number: '+573001112233', type: 'mobile' }],
-        },
-      }),
+      makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
     );
     assert.equal(cap.logs.length, 1);
     const serialized = JSON.stringify(cap.logs[0]);
-    assert.equal(serialized.includes('+573001112233'), false);
     assert.equal(serialized.includes('jane.doe@acme.com'), false);
     assert.equal(serialized.includes('linkedin.com/in/jane-doe'), false);
     assert.equal(cap.logs[0].metadata.account_id, null);
   });
 });
 
-// ── 5. Éxito con teléfono ──────────────────────────────────────
+// ── 6. request_id ausente / error Apollo ───────────────────────
 
-describe('PHONE-3D.3 — éxito con teléfono', () => {
-  it('revela vía helper (reveal_phone_number: true) y persiste apollo_reveal', async () => {
+describe('ASYNC-1 — START fallido', () => {
+  it('Apollo error (HTTP_422) → status error, código seguro, sin teléfono', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, {
-        apollo: {
-          ok: true,
-          phoneNumbers: [
-            { sanitized_number: '+573001112233', type: 'mobile' },
-            { sanitized_number: '+571234567', type: 'hq' },
-          ],
-        },
-      }),
-    );
-    assert.equal(res.status, 'revealed');
-    assert.equal(res.ok, true);
-    assert.equal(res.phoneRevealed, true);
-    assert.equal(res.phoneType, 'mobile');
-
-    // El reveal_phone_number: true llegó a Apollo SOLO vía el helper 3D.1.
-    assert.equal(cap.apolloCalls.length, 1);
-    assert.equal(cap.apolloCalls[0].reveal_phone_number, true);
-
-    const { patch } = cap.persisted[0];
-    assert.equal(patch.phone, '+573001112233');
-    assert.equal(patch.phone_reveal_status, 'revealed');
-    assert.equal(patch.phone_revealed_at, NOW);
-    assert.equal(patch.phone_revealed_by, ACTOR.internalUserId);
-    assert.equal(patch.phone_reveal_provider, 'apollo');
-    assert.equal(patch.phone_reveal_cost_credits, APOLLO_PHONE_REVEAL_CREDITS);
-    assert.equal(patch.phone_reveal_error_code, null);
-    const meta = patch.enrichment_metadata?.phone;
-    assert.equal(meta?.source, 'apollo_reveal');
-    assert.equal(meta?.number, '+573001112233');
-    assert.equal(meta?.type, 'mobile');
-  });
-});
-
-// ── 6. Sin teléfono ────────────────────────────────────────────
-
-describe('PHONE-3D.3 — sin teléfono', () => {
-  it('Apollo sin phone → no_phone_found, no inventa dato', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput(),
-      makeDeps(cap, { apollo: { ok: true, phoneNumbers: [] } }),
-    );
-    assert.equal(res.status, 'no_phone_found');
-    assert.equal(res.phoneRevealed, false);
-    const { patch } = cap.persisted[0];
-    assert.equal(patch.phone_reveal_status, 'no_phone_found');
-    assert.equal(patch.phone, undefined); // no toca phone existente
-    assert.equal(patch.enrichment_metadata, undefined);
-    assert.equal(patch.phone_reveal_cost_credits, APOLLO_PHONE_REVEAL_CREDITS);
-  });
-});
-
-// ── 7. Error Apollo ────────────────────────────────────────────
-
-describe('PHONE-3D.3 — error Apollo', () => {
-  it('error → status error, código seguro, no borra phone existente', async () => {
-    const res = await runRevealCandidatePhone(
-      validInput(),
-      makeDeps(cap, {
-        candidate: baseCandidate({ existingPhone: '+573009998877' }),
-        apollo: { ok: false, errorCode: 'HTTP_500' },
-      }),
+      makeDeps(cap, { apollo: { ok: false, errorCode: 'HTTP_422' } }),
     );
     assert.equal(res.status, 'error');
-    assert.equal(res.errorCode, 'HTTP_500');
+    assert.equal(res.errorCode, 'HTTP_422');
+    assert.equal(cap.apolloCalls.length, 1);
     const { patch } = cap.persisted[0];
     assert.equal(patch.phone_reveal_status, 'error');
-    assert.equal(patch.phone_reveal_error_code, 'HTTP_500');
-    assert.equal(patch.phone, undefined); // no borra teléfono existente
+    assert.equal(patch.phone_reveal_error_code, 'HTTP_422');
+    assert.equal(patch.phone_reveal_request_id, null);
     assert.equal(patch.phone_reveal_cost_credits, null);
+  });
+
+  it('respuesta sin request_id → status error (missing_request_id)', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, { apollo: { ok: true, requestId: null } }),
+    );
+    assert.equal(res.status, 'error');
+    assert.equal(res.errorCode, 'missing_request_id');
+    assert.equal(cap.persisted[0].patch.phone_reveal_status, 'error');
   });
 });
 
-// ── 8. Re-reveal bloqueado ─────────────────────────────────────
+// ── 7. Re-reveal + reveal en vuelo bloqueados ──────────────────
 
-describe('PHONE-3D.3 — re-reveal bloqueado', () => {
+describe('ASYNC-1 — re-reveal / en vuelo bloqueado', () => {
   it('phone_reveal_status = revealed → already_revealed, sin Apollo', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, {
-        candidate: baseCandidate({ phoneRevealStatus: 'revealed' }),
-      }),
+      makeDeps(cap, { candidate: baseCandidate({ phoneRevealStatus: 'revealed' }) }),
     );
     assert.equal(res.status, 'already_revealed');
     assert.equal(cap.apolloCalls.length, 0);
@@ -522,26 +428,42 @@ describe('PHONE-3D.3 — re-reveal bloqueado', () => {
     assert.equal(res.status, 'already_revealed');
     assert.equal(cap.apolloCalls.length, 0);
   });
-});
 
-// ── 9. do_not_contact ──────────────────────────────────────────
-
-describe('PHONE-3D.3 — do_not_contact', () => {
-  it('do_not_contact = true → bloquea, sin Apollo', async () => {
+  it('status requested (en vuelo) → already_pending, sin Apollo', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, { isDoNotContact: true }),
+      makeDeps(cap, { candidate: baseCandidate({ phoneRevealStatus: 'requested' }) }),
     );
+    assert.equal(res.status, 'already_pending');
+    assert.equal(cap.apolloCalls.length, 0);
+    assert.equal(cap.persisted.length, 0);
+  });
+
+  it('status pending (en vuelo) → already_pending', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, { candidate: baseCandidate({ phoneRevealStatus: 'pending' }) }),
+    );
+    assert.equal(res.status, 'already_pending');
+    assert.equal(cap.apolloCalls.length, 0);
+  });
+});
+
+// ── 8. do_not_contact ──────────────────────────────────────────
+
+describe('ASYNC-1 — do_not_contact', () => {
+  it('do_not_contact = true → bloquea, sin Apollo', async () => {
+    const res = await runRevealCandidatePhone(validInput(), makeDeps(cap, { isDoNotContact: true }));
     assert.equal(res.status, 'do_not_contact');
     assert.equal(cap.apolloCalls.length, 0);
     assert.equal(cap.persisted.length, 0);
   });
 });
 
-// ── 11. No PII en logs ─────────────────────────────────────────
+// ── 9. No PII en logs ──────────────────────────────────────────
 
-describe('PHONE-3D.3 — usage-log sin PII', () => {
-  it('metadata no contiene teléfono/email/linkedin/nombre ni payload crudo', async () => {
+describe('ASYNC-1 — usage-log sin PII', () => {
+  it('metadata no contiene teléfono/email/linkedin/nombre; sí request_id + phase', async () => {
     await runRevealCandidatePhone(
       validInput(),
       makeDeps(cap, {
@@ -551,39 +473,32 @@ describe('PHONE-3D.3 — usage-log sin PII', () => {
           firstName: 'Jane',
           lastName: 'Doe',
         }),
-        apollo: {
-          ok: true,
-          phoneNumbers: [{ sanitized_number: '+573001112233', type: 'mobile' }],
-        },
       }),
     );
     assert.equal(cap.logs.length, 1);
     const serialized = JSON.stringify(cap.logs[0]);
-    assert.equal(serialized.includes('+573001112233'), false);
     assert.equal(serialized.includes('jane.doe@acme.com'), false);
     assert.equal(serialized.includes('linkedin.com/in/jane-doe'), false);
     assert.equal(/jane/i.test(serialized), false);
     assert.equal(/doe/i.test(serialized), false);
-    // Sí incluye la telemetría segura.
     assert.equal(cap.logs[0].operationKey, PHONE_REVEAL_OPERATION_KEY);
-    assert.equal(cap.logs[0].metadata.reveal_status, 'revealed');
-    assert.equal(cap.logs[0].metadata.phone_revealed, true);
-    assert.equal(cap.logs[0].metadata.credits_used, APOLLO_PHONE_REVEAL_CREDITS);
+    assert.equal(cap.logs[0].metadata.reveal_status, 'requested');
+    assert.equal(cap.logs[0].metadata.reveal_phase, 'start');
+    assert.equal(cap.logs[0].metadata.request_id, REQUEST_ID);
+    // Al iniciar no se cobran créditos (llegan con el webhook).
+    assert.equal(cap.logs[0].metadata.credits_used, null);
   });
 });
 
-// ── 10 + 12. Guards estáticos ──────────────────────────────────
+// ── 10. Guards estáticos ───────────────────────────────────────
 
-describe('PHONE-3D.3 — guards estáticos', () => {
+describe('ASYNC-1 — guards estáticos', () => {
   const CORE_REL = 'src/modules/contact-enrichment/phone-reveal-core.ts';
   const ACTION_REL = 'src/modules/contact-enrichment/phone-reveal-actions.ts';
   const rawCore = readRepo(CORE_REL);
   const rawAction = readRepo(ACTION_REL);
   const REVEAL_TRUE = /reveal_phone_number\s*:\s*true/;
 
-  // Los guards de contenido se evalúan sobre el CÓDIGO, no sobre los comentarios
-  // (que mencionan intencionalmente "Lusha", "HubSpot" o "reveal_phone_number:
-  // true" para documentar qué NO se hace / dónde vive el flag).
   const stripComments = (src: string) =>
     src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   const core = stripComments(rawCore);
@@ -600,13 +515,17 @@ describe('PHONE-3D.3 — guards estáticos', () => {
     assert.equal(REVEAL_TRUE.test(action), false);
   });
 
-  it('el core usa el helper 3D.1 (buildApolloPhoneRevealMatchParams)', () => {
+  it('el core usa el helper (buildApolloPhoneRevealMatchParams)', () => {
     assert.equal(/buildApolloPhoneRevealMatchParams/.test(core), true);
   });
 
   it('el action es un server action ("use server") y lee el flag', () => {
     assert.equal(/^['"]use server['"];/m.test(rawAction), true);
     assert.equal(/isApolloPhoneRevealEnabled/.test(action), true);
+  });
+
+  it('el action inicia el reveal async (startApolloPhoneReveal), no sync match', () => {
+    assert.equal(/startApolloPhoneReveal/.test(action), true);
   });
 
   it('no toca Lusha (sin imports/refs de Lusha en código)', () => {
@@ -620,7 +539,6 @@ describe('PHONE-3D.3 — guards estáticos', () => {
   });
 
   it('no crea contacto oficial ni aprueba candidato', () => {
-    assert.equal(/runApproveCandidate|insertContact|from\(['"]contacts['"]\)\s*\n?\s*\.insert/i.test(core), false);
     assert.equal(/runApproveCandidate|approveContactCandidate/.test(action), false);
   });
 
@@ -644,6 +562,14 @@ describe('PHONE-3D.3 — guards estáticos', () => {
     assert.equal(isApolloPhoneRevealEnabled(), false);
   });
 
+  it('el flag del webhook token no se expone como NEXT_PUBLIC', () => {
+    assert.equal(/NEXT_PUBLIC_APOLLO_PHONE_REVEAL_WEBHOOK/.test(rawAction), false);
+    const route = readRepo(
+      'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
+    );
+    assert.equal(/NEXT_PUBLIC_APOLLO_PHONE_REVEAL_WEBHOOK/.test(route), false);
+  });
+
   it('completion / runner / routing / bulk siguen sin reveal_phone_number: true', () => {
     const files = [
       'src/server/agents/contact-enrichment-toolkit/contact-completion-adapter.ts',
@@ -656,9 +582,13 @@ describe('PHONE-3D.3 — guards estáticos', () => {
     }
   });
 
-  it('la migración 095 sigue existiendo y no ejecuta reveal', () => {
-    const mig = 'supabase/migrations/095_candidate_phone_reveal_audit.sql';
-    assert.equal(existsSync(join(REPO_ROOT, mig)), true);
-    assert.equal(REVEAL_TRUE.test(readRepo(mig)), false);
+  it('las migraciones 095 y 097 existen y no ejecutan reveal', () => {
+    for (const mig of [
+      'supabase/migrations/095_candidate_phone_reveal_audit.sql',
+      'supabase/migrations/097_apollo_phone_reveal_async.sql',
+    ]) {
+      assert.equal(existsSync(join(REPO_ROOT, mig)), true, `${mig} debe existir`);
+      assert.equal(REVEAL_TRUE.test(readRepo(mig)), false);
+    }
   });
 });

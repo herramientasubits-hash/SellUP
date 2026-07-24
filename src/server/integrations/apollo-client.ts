@@ -153,6 +153,35 @@ export interface MatchPersonParams {
   reveal_personal_emails?: boolean;
   /** Revelar teléfono. No activar: phone reveal está desactivado por política del plan. */
   reveal_phone_number?: boolean;
+  /**
+   * URL pública de webhook para el reveal de teléfono ASÍNCRONO de Apollo.
+   * Contrato confirmado: cuando `reveal_phone_number` es true, Apollo EXIGE
+   * `webhook_url` (sin él responde HTTP 422) y entrega los teléfonos más tarde
+   * por callback a esta URL; la respuesta inmediata solo trae un `request_id`.
+   * Se fija únicamente en el helper de reveal (apollo-phone-reveal.ts).
+   */
+  webhook_url?: string;
+}
+
+/**
+ * Respuesta inmediata (síncrona) de un reveal de teléfono ASÍNCRONO. No trae
+ * teléfonos: solo el id de correlación con el que Apollo luego llama al webhook
+ * y con el que se puede consultar el resultado. Apollo no documenta un nombre
+ * único para este id, así que se aceptan las variantes observadas.
+ */
+export interface ApolloPhoneRevealStartResponse {
+  request_id?: string | null;
+  /** Variante alterna observada del id de correlación. */
+  async_task_id?: string | null;
+  /** Variante alterna observada del id de correlación. */
+  id?: string | null;
+}
+
+export interface ApolloPhoneRevealStartResult {
+  success: boolean;
+  /** Id de correlación normalizado (request_id ?? async_task_id ?? id). */
+  requestId?: string | null;
+  error?: ApolloApiError;
 }
 
 export interface ApolloSearchResult<T> {
@@ -352,5 +381,52 @@ export async function matchApolloPerson(
   return {
     success: true,
     data: result.data?.person,
+  };
+}
+
+// ============================================================
+// Inicio de reveal de teléfono ASÍNCRONO
+// POST https://api.apollo.io/api/v1/people/match  (con webhook_url)
+//
+// NOTA: Consume créditos del plan Apollo. El teléfono NO llega aquí: la
+// respuesta inmediata solo trae el id de correlación (request_id). Apollo
+// entrega los teléfonos más tarde por callback al webhook_url. Sin webhook_url
+// (cuando reveal_phone_number es true) Apollo responde HTTP 422.
+//
+// Esta función NO lee teléfonos de la respuesta: devuelve solo el requestId,
+// nunca dato personal. El reveal real sigue gated por ENABLE_APOLLO_PHONE_REVEAL.
+// ============================================================
+
+export async function startApolloPhoneReveal(
+  params: MatchPersonParams
+): Promise<ApolloPhoneRevealStartResult> {
+  const result = await apolloFetch<ApolloPhoneRevealStartResponse>(
+    '/api/v1/people/match',
+    {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }
+  );
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: {
+        error: `HTTP_${result.status}`,
+        message: result.errorBody ?? 'Error al iniciar el reveal de teléfono',
+        statusCode: result.status,
+      },
+    };
+  }
+
+  const requestId =
+    result.data?.request_id ??
+    result.data?.async_task_id ??
+    result.data?.id ??
+    null;
+
+  return {
+    success: true,
+    requestId: typeof requestId === 'string' ? requestId : null,
   };
 }
