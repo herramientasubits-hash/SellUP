@@ -103,6 +103,15 @@ const PERSIST_OK: GenerateLushaPendingReviewBatchActionResult = {
   resultsReturned: 4,
   reviewUrl: '/accounts?tab=prospectos',
   message: 'Encontramos 4 empresas candidatas para revisar.',
+  pagesRequested: 1,
+  expectedMaxCredits: 2,
+  creditsChargedTotal: 1,
+  usefulCandidatesCount: 4,
+  excludedExactDuplicatesCount: 0,
+  skippedActiveDuplicatesCount: 0,
+  possibleDuplicatesCount: 0,
+  insertedCandidatesCount: 4,
+  topUpTriggered: false,
 };
 
 const mockPersist = mock.fn<() => Promise<GenerateLushaPendingReviewBatchActionResult>>(
@@ -251,7 +260,7 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     assert.ok(screen.getByTestId('lusha-preview-cost-notice'));
     assert.equal(
       screen.getByTestId('lusha-preview-cost-notice').textContent,
-      'Esta búsqueda puede consumir hasta 1 crédito.',
+      'Esta búsqueda puede consumir hasta 2 créditos si se necesita completar candidatos útiles.',
     );
     // The old permanent read-only Alert banner is suppressed at the final step.
     assert.equal(screen.queryByTestId('lusha-preview-readonly-notice'), null);
