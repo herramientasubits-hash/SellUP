@@ -282,7 +282,7 @@ describe('PHONE-3D.3 — identidad insuficiente', () => {
   });
 });
 
-describe('PHONE-3D.3 — candidato inválido / sin cuenta', () => {
+describe('PHONE-3D.3 — candidato inválido / inexistente', () => {
   it('candidateId vacío → invalid_candidate', async () => {
     const res = await runRevealCandidatePhone(
       validInput({ candidateId: '   ' }),
@@ -301,13 +301,117 @@ describe('PHONE-3D.3 — candidato inválido / sin cuenta', () => {
     assert.equal(cap.apolloCalls.length, 0);
   });
 
-  it('candidato sin cuenta → candidate_account_invalid', async () => {
+});
+
+// ── PHONE-3D.6C — account_id null NO bloquea (Lusha/HubSpot-only) ───────────────
+//
+// Fix del primer QA real: un candidato de contactos pendiente de revisión
+// (source Lusha, con email/LinkedIn, sin teléfono) cuyo run no tiene account_id
+// resuelto. La UI ofrece el botón de reveal (PHONE-3D.6B no exige account_id),
+// pero el core rechazaba con `candidate_account_invalid` ANTES de Apollo, que la
+// UI colapsaba en el mensaje genérico "No fue posible revelar el teléfono".
+// Ahora account_id es opcional: el reveal procede por identidad. No hay
+// reintento, no se toca Lusha ni HubSpot, y el usage-log queda sin PII con
+// account_id null.
+
+describe('PHONE-3D.6C — candidato sin account_id (identidad suficiente)', () => {
+  function lushaNoAccountCandidate(): RevealCandidateRecord {
+    // Espejo del QA real: sin cuenta SellUp, con email + LinkedIn, sin teléfono.
+    return baseCandidate({
+      accountId: null,
+      sourceContactId: null,
+      firstName: null,
+      lastName: null,
+    });
+  }
+
+  it('Apollo success → revealed (procede sin account_id, una sola llamada)', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, { candidate: baseCandidate({ accountId: null }) }),
+      makeDeps(cap, {
+        candidate: lushaNoAccountCandidate(),
+        apollo: {
+          ok: true,
+          phoneNumbers: [{ sanitized_number: '+573001112233', type: 'mobile' }],
+        },
+      }),
     );
-    assert.equal(res.status, 'candidate_account_invalid');
+    assert.equal(res.status, 'revealed');
+    assert.equal(res.ok, true);
+    // No retry: exactamente una llamada a Apollo.
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal(cap.persisted[0].patch.phone_reveal_status, 'revealed');
+  });
+
+  it('Apollo no phone → no_phone_found (no error genérico, no inventa dato)', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        candidate: lushaNoAccountCandidate(),
+        apollo: { ok: true, phoneNumbers: [] },
+      }),
+    );
+    assert.equal(res.status, 'no_phone_found');
+    assert.equal(res.phoneRevealed, false);
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal(cap.persisted[0].patch.phone_reveal_status, 'no_phone_found');
+    assert.equal(cap.persisted[0].patch.phone, undefined);
+  });
+
+  it('Apollo error → status error con código seguro (sin PII)', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        candidate: lushaNoAccountCandidate(),
+        apollo: { ok: false, errorCode: 'HTTP_402' },
+      }),
+    );
+    assert.equal(res.status, 'error');
+    assert.equal(res.errorCode, 'HTTP_402');
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal(cap.persisted[0].patch.phone_reveal_error_code, 'HTTP_402');
+  });
+
+  it('nunca emite candidate_account_invalid con identidad suficiente', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
+    );
+    assert.notEqual(res.status, 'candidate_account_invalid');
+  });
+
+  it('do_not_contact sigue bloqueando aunque account_id sea null', async () => {
+    // Preserva el gate legal: si HAY forma de evaluar do_not_contact (dep true),
+    // se bloquea antes de Apollo incluso sin cuenta.
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        candidate: lushaNoAccountCandidate(),
+        isDoNotContact: true,
+      }),
+    );
+    assert.equal(res.status, 'do_not_contact');
     assert.equal(cap.apolloCalls.length, 0);
+    assert.equal(cap.persisted.length, 0);
+  });
+
+  it('usage-log sin PII y con account_id null en la metadata', async () => {
+    await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        candidate: lushaNoAccountCandidate(),
+        apollo: {
+          ok: true,
+          phoneNumbers: [{ sanitized_number: '+573001112233', type: 'mobile' }],
+        },
+      }),
+    );
+    assert.equal(cap.logs.length, 1);
+    const serialized = JSON.stringify(cap.logs[0]);
+    assert.equal(serialized.includes('+573001112233'), false);
+    assert.equal(serialized.includes('jane.doe@acme.com'), false);
+    assert.equal(serialized.includes('linkedin.com/in/jane-doe'), false);
+    assert.equal(cap.logs[0].metadata.account_id, null);
   });
 });
 
