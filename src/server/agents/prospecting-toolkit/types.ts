@@ -98,6 +98,11 @@ export type AiFlowStatus =
   // Piloto controlado: snapshot productivo cargado y adapter conectado, pero el
   // flujo IA sigue en piloto controlado (NO live automático). Presentacional.
   | 'controlled_pilot'
+  // Expansión limitada manual: existe política oficial de expansión limitada
+  // manual-controlada (EC-SCVS-18). El operador humano puede ejecutar lotes
+  // limitados bajo esa política. NO implica generación live automática ni
+  // expansión completa. Presentacional.
+  | 'limited_manual_expansion'
   | 'paused'
   | 'not_applicable'
   | 'pending_classification';

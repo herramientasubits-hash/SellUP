@@ -1,14 +1,17 @@
 /**
- * Tests: EC-SCVS operational status alignment — SOURCE-CATALOG-STATUS-ALIGN-1
+ * Tests: EC-SCVS operational status alignment — SOURCE-CATALOG-STATUS-ALIGN (EC-SCVS-19)
  *
- * La fila `ec_scvs` del catálogo debe reflejar el estado operativo real:
+ * La fila `ec_scvs` del catálogo debe reflejar el estado operativo real tras la
+ * política oficial de expansión limitada manual-controlada (EC-SCVS-18):
  *   - fuente validada (snapshot productivo cargado)
  *   - backend/adapter conectado
- *   - flujo IA en piloto controlado
- *   - siguiente hito: segundo piloto live controlado (EC-SCVS-13B)
+ *   - flujo IA en expansión limitada manual (política oficial activa)
+ *   - siguiente acción: ejecutar lote limitado bajo la política oficial
  *
- * Y NO debe volver a mostrar el estado "pendiente / no conectada" que provenía
- * del fallback de clasificación operativa.
+ * Y NO debe mostrar:
+ *   - el estado "pendiente / no conectada" del fallback de clasificación
+ *   - piloto controlado pendiente (estado previo a la política)
+ *   - live automático ni expansión completa
  *
  * Este hito es solo de presentación: no toca DB, runner, adapter ni lógica IA.
  */
@@ -40,8 +43,8 @@ describe('EC-SCVS — clasificación operativa (read-model)', () => {
     assert.equal(ecScvs().sellupUse, 'enrichment');
   });
 
-  it('aiFlowStatus = controlled_pilot (piloto controlado)', () => {
-    assert.equal(ecScvs().aiFlowStatus, 'controlled_pilot');
+  it('aiFlowStatus = limited_manual_expansion (expansión limitada manual)', () => {
+    assert.equal(ecScvs().aiFlowStatus, 'limited_manual_expansion');
   });
 
   it('connectionMode = backend_connected (backend/adapter conectado)', () => {
@@ -52,8 +55,22 @@ describe('EC-SCVS — clasificación operativa (read-model)', () => {
     assert.equal(ecScvs().operationalStatus, 'validated');
   });
 
-  it('nextAction apunta al segundo piloto live controlado (EC-SCVS-13B)', () => {
-    assert.match(ecScvs().nextAction, /Segundo piloto live controlado/);
+  it('nextAction apunta a ejecutar un lote limitado bajo política oficial', () => {
+    assert.match(ecScvs().nextAction, /lote limitado/i);
+  });
+
+  it('nextAction referencia el documento de política oficial de expansión limitada', () => {
+    assert.match(
+      ecScvs().nextAction,
+      /docs\/source-catalog\/ec-scvs-limited-expansion-policy\.md/,
+    );
+  });
+
+  it('nextAction NO promete live automático ni expansión completa', () => {
+    const nextAction = ecScvs().nextAction;
+    assert.doesNotMatch(nextAction, /live/i);
+    assert.doesNotMatch(nextAction, /autom[aá]tic/i);
+    assert.doesNotMatch(nextAction, /expansi[oó]n completa/i);
   });
 });
 
@@ -68,8 +85,8 @@ describe('EC-SCVS — labels visibles', () => {
     assert.equal(CONNECTION_MODE_LABELS[ecScvs().connectionMode], 'Conectada backend');
   });
 
-  it('muestra "Piloto controlado" como estado de flujo IA', () => {
-    assert.equal(AI_FLOW_STATUS_LABELS[ecScvs().aiFlowStatus], 'Piloto controlado');
+  it('muestra "Expansión limitada manual" como estado de flujo IA', () => {
+    assert.equal(AI_FLOW_STATUS_LABELS[ecScvs().aiFlowStatus], 'Expansión limitada manual');
   });
 
   it('muestra "Enrichment" como uso en SellUp', () => {
@@ -96,6 +113,11 @@ describe('EC-SCVS — no muestra estados pendientes', () => {
 
   it('nextAction NO es el fallback de clasificación pendiente', () => {
     assert.doesNotMatch(ecScvs().nextAction, /Pendiente clasificación/);
+  });
+
+  it('YA NO aparece como piloto controlado pendiente', () => {
+    assert.notEqual(ecScvs().aiFlowStatus, 'controlled_pilot');
+    assert.doesNotMatch(ecScvs().nextAction, /piloto/i);
   });
 });
 
