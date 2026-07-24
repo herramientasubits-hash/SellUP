@@ -34,6 +34,23 @@ import type {
   LushaPreviewResult,
   LushaPreviewInput,
 } from '@/server/prospect-batches/lusha-preview';
+import type {
+  DuplicateCheckInput,
+  DuplicateCheckResult,
+} from '@/server/agents/prospecting-toolkit/types';
+import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
+
+/** A canonical "checked, no duplicate" result (SellUp + HubSpot both clean). */
+function noDuplicateResult(input: DuplicateCheckInput): DuplicateCheckResult {
+  return {
+    status: 'new_candidate',
+    confidence: 85,
+    input,
+    matches: [],
+    summary: 'nuevo',
+    checkedSources: ['sellup', 'hubspot'],
+  };
+}
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -113,6 +130,8 @@ function makeDeps(search: LushaPreviewResult) {
     searchInputs: [] as LushaPreviewInput[],
     batches: [] as LushaPendingReviewBatchRow[],
     candidateBatches: [] as LushaPendingReviewCandidateRow[][],
+    duplicateInputs: [] as DuplicateCheckInput[],
+    guardFetches: [] as Array<{ domains: string[]; countryCode: string | null }>,
   };
   const deps: PersistLushaPendingReviewDeps = {
     runSearch: async (input) => {
@@ -126,6 +145,15 @@ function makeDeps(search: LushaPreviewResult) {
     insertCandidates: async (rows) => {
       calls.candidateBatches.push(rows);
       return { insertedCount: rows.length };
+    },
+    // Read-only duplicate parity deps: default = no duplicates anywhere.
+    checkCompanyDuplicate: async (input) => {
+      calls.duplicateInputs.push(input);
+      return noDuplicateResult(input);
+    },
+    fetchActiveCandidates: async (domains, countryCode) => {
+      calls.guardFetches.push({ domains, countryCode });
+      return [] as ActiveCandidateRecord[];
     },
   };
   return { deps, calls };
@@ -172,17 +200,36 @@ describe('builders', () => {
     assert.doesNotMatch(JSON.stringify(row), /apiKey|api_key|authorization/i);
   });
 
-  it('15. candidate rows use needs_review + production + lusha + no_match', () => {
-    const rows = buildLushaPendingReviewCandidateRows('batch-x', [company()]);
+  it('15. candidate rows use needs_review + production + lusha + resolved no_match', () => {
+    const rows = buildLushaPendingReviewCandidateRows('batch-x', [
+      {
+        company: company(),
+        resolution: {
+          dbDuplicateStatus: 'no_match',
+          matchedAccountId: null,
+          matchedHubspotCompanyId: null,
+          accountDuplicateCheck: 'performed_no_match',
+          hubSpotDuplicateCheck: 'performed_no_match',
+          activeCandidateDuplicateCheck: 'performed_no_match',
+          activeGuardReason: null,
+        },
+      },
+    ]);
     const row = rows[0];
     assert.equal(row.status, LUSHA_PENDING_REVIEW_CANDIDATE_STATUS);
     assert.equal(row.record_origin, LUSHA_PENDING_REVIEW_RECORD_ORIGIN);
     assert.equal(row.source_primary, LUSHA_PENDING_REVIEW_CANDIDATE_SOURCE);
     assert.equal(row.duplicate_status, LUSHA_PENDING_REVIEW_DUPLICATE_STATUS);
+    assert.equal(row.matched_account_id, null);
+    assert.equal(row.matched_hubspot_company_id, null);
     assert.equal(row.batch_id, 'batch-x');
     assert.equal(row.domain, 'clinicaandes.com');
-    assert.equal((row.source_trace as Record<string, unknown>).sourceProvider, 'lusha');
-    assert.equal((row.source_trace as Record<string, unknown>).accountDuplicateCheck, 'not_performed');
+    const trace = row.source_trace as Record<string, unknown>;
+    assert.equal(trace.sourceProvider, 'lusha');
+    // Q3F-5BB.7: the check now RAN — it is no longer 'not_performed'.
+    assert.equal(trace.accountDuplicateCheck, 'performed_no_match');
+    assert.notEqual(trace.accountDuplicateCheck, 'not_performed');
+    assert.equal(trace.duplicateResolutionVersion, 'lusha_duplicate_parity_v1');
   });
 });
 
@@ -257,11 +304,21 @@ describe('persistLushaPendingReviewBatch', () => {
     assert.equal(res.skippedCount, 1);
   });
 
-  it('3/4/5/6/7. only insertBatch + insertCandidates deps exist (no account/hubspot/enrich/usage/agent-run write path)', async () => {
+  it('3/4/5/6/7. write surface is exactly insertBatch + insertCandidates; duplicate deps are read-only', async () => {
     const { deps } = makeDeps(successResult([company()]));
     const depKeys = Object.keys(deps).sort();
-    assert.deepEqual(depKeys, ['insertBatch', 'insertCandidates', 'runSearch']);
-    // There is no dep that could create an account, call HubSpot/enrichment, or
-    // write provider_usage_logs / agent_runs. The write surface is exactly two.
+    assert.deepEqual(depKeys, [
+      'checkCompanyDuplicate',
+      'fetchActiveCandidates',
+      'insertBatch',
+      'insertCandidates',
+      'runSearch',
+    ]);
+    // The ONLY write deps are insertBatch + insertCandidates. checkCompanyDuplicate
+    // and fetchActiveCandidates are read-only duplicate detectors — there is still
+    // no dep that could create an account, WRITE to HubSpot/enrichment, or write
+    // provider_usage_logs / agent_runs.
+    const writeDepNames = depKeys.filter((k) => /^insert/i.test(k));
+    assert.deepEqual(writeDepNames, ['insertBatch', 'insertCandidates']);
   });
 });

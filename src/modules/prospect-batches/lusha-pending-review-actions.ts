@@ -13,11 +13,20 @@
  *   - Injects DB writes SCOPED to prospect_batches + prospect_candidates using
  *     the RLS session client (bounded by `has_active_access`).
  *
- * Hard limits (authorized scope Q3F-5BB.4):
+ * Q3F-5BB.7 adds duplicate parity: before candidates are persisted, the pure core
+ * runs the canonical SellUp + HubSpot duplicate checker and the active-candidate
+ * guard through two READ-ONLY injected deps. Those checkers query accounts /
+ * HubSpot / prospect_candidates for READS only — they never create or mutate a
+ * record. Account/company creation, HubSpot writes and enrichment remain
+ * impossible (no such dep exists).
+ *
+ * Hard limits (authorized scope Q3F-5BB.4 + Q3F-5BB.7):
  *   - DB writes limited to prospect_batches + prospect_candidates. Nothing else.
- *   - Does NOT create accounts/companies. Does NOT call HubSpot. Does NOT call
+ *   - Does NOT create accounts/companies. Does NOT WRITE to HubSpot. Does NOT call
  *     enrichment / people search / Apollo / Tavily. Does NOT write
  *     provider_usage_logs or agent_runs.
+ *   - Duplicate checks are read-only (SellUp accounts + HubSpot + active
+ *     candidates) and run before insert to populate duplicate_status / matched ids.
  *   - No auto-run: invoked only from the explicit "Buscar con IA" click.
  *   - Never returns raw provider payloads or secrets.
  */
@@ -39,6 +48,12 @@ import {
   type LushaPendingReviewCandidateRow,
   type PersistLushaPendingReviewResult,
 } from '@/server/prospect-batches/lusha-pending-review';
+// Read-only duplicate parity (Q3F-5BB.7). Both helpers query for READS only:
+//   - checkCompanyDuplicate       → SellUp accounts + HubSpot (read-only checkers).
+//   - fetchActiveCandidatesForGuard → active prospect_candidates prefetch (read-only).
+// Neither can create/mutate anything; the pure core has no write dep for them.
+import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit/duplicate-checker';
+import { fetchActiveCandidatesForGuard } from '@/server/agents/prospecting-toolkit/candidate-writer';
 
 const GenerateInputSchema = z.object({
   countryCode: z.string().trim().min(2).max(4),
@@ -137,6 +152,18 @@ export async function generateLushaPendingReviewBatchAction(
             throw new Error(`No se pudieron crear los candidatos: ${error.message}`);
           }
           return { insertedCount: data?.length ?? 0 };
+        },
+        // Read-only dep #1 — canonical SellUp + HubSpot duplicate checker.
+        checkCompanyDuplicate: (dupInput) => checkCompanyDuplicate(dupInput),
+        // Read-only dep #2 — active prospect_candidates prefetch for the guard.
+        // Uses the RLS-bounded session client; degrades gracefully (returns []).
+        fetchActiveCandidates: async (domains, countryCode) => {
+          const prefetch = await fetchActiveCandidatesForGuard(
+            supabase,
+            domains,
+            countryCode,
+          );
+          return prefetch.records;
         },
       },
       parsed.data,
