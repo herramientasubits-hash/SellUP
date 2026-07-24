@@ -188,6 +188,7 @@ function makeCandidate(
     title: 'VP de Ventas',
     email: 'carolina@empresa.com',
     linkedin_url: null,
+    source_contact_id: null,
     phone: null,
     source: 'lusha',
     status: 'pending_review',

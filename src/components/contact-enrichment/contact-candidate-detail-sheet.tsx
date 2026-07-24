@@ -550,11 +550,26 @@ export function ContactCandidateDetailSheet({
   const phoneTypeLabel = resolvePhoneTypeLabel(phoneMeta?.type);
   const phoneSourceLabel = resolvePhoneSourceLabel(phoneMeta?.source);
 
-  // Elegibilidad del botón "Revelar teléfono" (PHONE-3D.4). Fail-closed:
-  //  - flag OFF (o rol no autorizado) → no se renderiza (no gasta créditos).
+  // Identidad suficiente para intentar un reveal Apollo (PHONE-3D.6B). Espejo
+  // EXACTO del gate del server (`buildApolloPhoneRevealMatchParams`): basta un
+  // identificador fuerte — source_contact_id del proveedor, email o LinkedIn. El
+  // nombre + empresa por sí solos NO cuentan. La FUENTE del candidato (Apollo /
+  // Lusha / …) es IRRELEVANTE: un candidato Lusha con email o LinkedIn tiene
+  // identidad suficiente porque el reveal lo ejecuta Apollo con esos datos.
+  const hasSufficientPhoneRevealIdentity =
+    !!candidate?.source_contact_id?.trim() ||
+    !!candidate?.email?.trim() ||
+    !!candidate?.linkedin_url?.trim();
+
+  // Elegibilidad del botón "Revelar teléfono" (PHONE-3D.4 → PHONE-3D.6B).
+  // Alineada con la reachability real del server action: NO exige que el
+  // candidato venga de Apollo, NI que el run tenga account_id resuelto (el
+  // server revalida cuenta / rol / do_not_contact / re-reveal). Fail-closed en
+  // lo esencial (créditos + re-reveal + identidad):
+  //  - flag OFF (o rol no autorizado) → oculto (no gasta créditos).
   //  - ya revelado (status `revealed` o fuente `apollo_reveal`) → oculto.
   //  - `no_phone_found` → oculto (sin reintento).
-  //  - sin cuenta SellUp → oculto (el reveal exige cuenta).
+  //  - identidad insuficiente (sin id/email/linkedin) → oculto.
   // El server action revalida todos estos gates de todas formas.
   const phoneAlreadyRevealed =
     candidate?.phone_reveal_status === 'revealed' ||
@@ -564,7 +579,7 @@ export function ContactCandidateDetailSheet({
     !!candidate &&
     phoneRevealEnabled === true &&
     phoneRevealAuthorized === true &&
-    !!candidate.account_id &&
+    hasSufficientPhoneRevealIdentity &&
     !phoneAlreadyRevealed &&
     !phoneRevealExhausted;
   const companyConsistency =

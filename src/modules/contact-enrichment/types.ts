@@ -283,6 +283,15 @@ export interface PendingContactCandidate {
   title: string | null;
   email: string | null;
   linkedin_url: string | null;
+  /**
+   * Identificador de persona del proveedor (Apollo person id / Lusha contact id).
+   * Proyectado como señal de identidad para la elegibilidad del reveal
+   * (PHONE-3D.6B): espejo de `buildApolloPhoneRevealMatchParams`, donde
+   * `source_contact_id` cuenta como identidad fuerte junto a email/LinkedIn. Es
+   * un id interno del proveedor, no dato personal de contacto, y NUNCA se envía
+   * al server action (solo viaja `candidateId`).
+   */
+  source_contact_id: string | null;
   phone: string | null;
   source: ContactSource;
   status: ContactCandidateStatus;

@@ -321,7 +321,7 @@ function firstRun(run: unknown): CandidateRunContext | null {
 /** Columnas proyectadas para revisión humana — sin payloads crudos del
  *  proveedor. Compartido por el listado y el detalle del side panel. */
 const CANDIDATE_SELECT =
-  `id, full_name, title, email, linkedin_url, phone, source, status,
+  `id, full_name, title, email, linkedin_url, source_contact_id, phone, source, status,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
    phone_reveal_status,
    run:contact_enrichment_runs ( company_name, company_domain, account_id, hubspot_company_id )`;
@@ -336,6 +336,7 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
     title: (record.title as string | null) ?? null,
     email: (record.email as string | null) ?? null,
     linkedin_url: (record.linkedin_url as string | null) ?? null,
+    source_contact_id: (record.source_contact_id as string | null) ?? null,
     phone: (record.phone as string | null) ?? null,
     source: (record.source as ContactSource) ?? 'apollo',
     status: (record.status as ContactCandidateStatus) ?? 'pending_review',
