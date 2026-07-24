@@ -6,7 +6,8 @@
  *   - Summary shows human labels: País (Colombia), Sector (Tecnología),
  *     Subindustria (the user's selected label), Tamaño, Criterio adicional.
  *   - Provider is shown only as traceability ("Proveedor configurado: Lusha")
- *     and the estimated cost ("Hasta 1 crédito").
+ *     and the estimated cost as a non-contractual descriptor ("Según tu plan de
+ *     Lusha") — Q3F-5BB.10A: we never promise a fixed credit count.
  *   - Banned copy is gone: no "Preview read-only", no "proceder a generar".
  *   - Read-only intent stays via the recap note + credit banner (max 2 banners).
  *   - Action hierarchy: exactly one primary "Buscar con IA"; "Editar búsqueda"
@@ -240,7 +241,10 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     assert.ok(screen.getByText('Más de 200 empleados'), 'tamaño');
     assert.ok(screen.getByText(new RegExp(CRITERIA_TEXT)), 'criterio adicional');
     assert.ok(screen.getByText(/Proveedor configurado: Lusha/), 'proveedor traceability');
-    assert.ok(screen.getByText(/Hasta 1 crédito/), 'costo estimado');
+    assert.ok(screen.getByText(/Según tu plan de Lusha/), 'costo estimado no contractual');
+    // Q3F-5BB.10A — the estimated cost never promises a fixed credit count.
+    const bodyText = screen.getByRole('status').textContent ?? '';
+    assert.doesNotMatch(bodyText, /Hasta 1 crédito/i, 'no fixed-credit promise');
   });
 
   it('drops the banned read-only / generar copy and keeps read-only intent', () => {
@@ -258,12 +262,24 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     renderFinalReview();
     assert.ok(screen.getByText('La configuración es válida.'));
     assert.ok(screen.getByTestId('lusha-preview-cost-notice'));
-    assert.equal(
-      screen.getByTestId('lusha-preview-cost-notice').textContent,
-      'Esta búsqueda puede consumir hasta 2 créditos si se necesita completar candidatos útiles.',
-    );
     // The old permanent read-only Alert banner is suppressed at the final step.
     assert.equal(screen.queryByTestId('lusha-preview-readonly-notice'), null);
+  });
+
+  it('cost notice is non-contractual: no fixed credit promise, shape + billing basis (Q3F-5BB.10A)', () => {
+    renderFinalReview();
+    const notice = screen.getByTestId('lusha-preview-cost-notice').textContent ?? '';
+    // A — the banned fixed-credit promises are gone.
+    assert.doesNotMatch(notice, /hasta 2 créditos/i);
+    assert.doesNotMatch(notice, /máx 2 créditos/i);
+    assert.doesNotMatch(notice, /máximo 2 créditos/i);
+    // B — the honest guardrail shape + billing basis are present.
+    assert.match(notice, /2 páginas/i, 'max pages');
+    assert.match(notice, /10 resultados por página/i, 'page size');
+    assert.match(notice, /hasta 20 empresas/i, 'max returned companies');
+    assert.match(notice, /sin signals/i, 'no signals');
+    assert.match(notice, /facturable según tu plan de Lusha/i, 'billing basis');
+    assert.match(notice, /costo real/i, 'real cost reported later');
   });
 
   it('has one primary CTA "Buscar con IA"; edit secondary; restart de-emphasized; no Cerrar', () => {
@@ -295,5 +311,23 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     await waitFor(() => {
       assert.ok(screen.getByTestId('wizard-lusha-persist-confirmation'));
     });
+  });
+
+  it('confirmation shows Lusha-reported credits + returned results + pages, not a "máx N créditos" promise (Q3F-5BB.10A)', async () => {
+    renderFinalReview();
+    fireEvent.click(screen.getByTestId('lusha-preview-run'));
+    await waitFor(() => {
+      assert.ok(screen.getByTestId('wizard-lusha-persist-confirmation'));
+    });
+    // PERSIST_OK reports creditsChargedTotal=1, resultsReturned=4, pagesRequested=1.
+    assert.equal(screen.getByTestId('wizard-lusha-persist-credits').textContent, '1');
+    assert.equal(screen.getByTestId('wizard-lusha-persist-results-returned').textContent, '4');
+    assert.equal(screen.getByTestId('wizard-lusha-persist-pages').textContent, '1 / 2');
+    // No fixed-credit promise in the confirmation.
+    const confirmationText =
+      screen.getByTestId('wizard-lusha-persist-confirmation').textContent ?? '';
+    assert.doesNotMatch(confirmationText, /máx 2 créditos/i);
+    assert.doesNotMatch(confirmationText, /\/ máx 2/i);
+    assert.match(confirmationText, /hasta 20 empresas/i, 'billing basis note');
   });
 });

@@ -102,7 +102,16 @@ describe('Q3F-5BB.7B static safety', () => {
     assert.equal(files.some((f) => /5bb7b|topup|duplicate_details/i.test(f)), false);
   });
 
-  it('wizard shows the "up to 2 credits" pre-search notice', () => {
-    assert.match(read(WIZARD), /hasta 2 créditos/);
+  it('wizard pre-search notice is non-contractual: shape + billing basis, no fixed-credit promise (Q3F-5BB.10A)', () => {
+    const w = read(WIZARD);
+    // The old fixed-credit promise is gone.
+    assert.doesNotMatch(w, /hasta 2 créditos/);
+    assert.doesNotMatch(w, /máx 2 créditos/);
+    // The honest guardrail shape + billing basis are stated instead.
+    assert.match(w, /páginas de Lusha/i);
+    assert.match(w, /resultados por página/i);
+    assert.match(w, /sin signals/i);
+    assert.match(w, /facturable según tu plan de Lusha/i);
+    assert.match(w, /costo real/i);
   });
 });
