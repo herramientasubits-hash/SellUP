@@ -27,7 +27,22 @@ import type { MatchPersonParams } from '@/server/integrations/apollo-client';
  * un dato nuevo, nunca reenvía teléfonos ya conocidos.
  */
 export interface ApolloPhoneRevealInput {
-  /** Apollo person ID (people_search). Identificador más fuerte posible. */
+  /**
+   * Proveedor/origen del candidato (contact_enrichment_candidates.source):
+   * 'apollo' | 'lusha' | 'hubspot' | 'manual' | 'mock' | otros. Determina si
+   * `sourceContactId` puede reenviarse como Apollo person id. Sólo los
+   * candidatos origen Apollo tienen un id compatible con /people/match; el id de
+   * Lusha (u otros) es de OTRO espacio de identificadores (p.ej. `v1.<token>`) y
+   * Apollo lo rechaza con HTTP 422 ("... is not a valid ID"). Se acepta como
+   * string libre (dato externo) y se normaliza aquí.
+   */
+  sourceProvider?: string | null;
+  /**
+   * Identificador de persona del proveedor de origen (Apollo person id / Lusha
+   * contact id). SÓLO se envía a Apollo como `id` cuando `sourceProvider` es
+   * Apollo (ver `shouldSendApolloPersonId`). Para Lusha u otros proveedores se
+   * IGNORA como `id`: el match se resuelve por email/linkedin/name/company.
+   */
   sourceContactId?: string | null;
   /** Email confiable del candidato. */
   email?: string | null;
@@ -64,15 +79,63 @@ function clean(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** Proveedor de origen canónico para el reveal: minúsculas + trim, o null. */
+export function normalizeRevealSourceProvider(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * Prefijos de `source_contact_id` conocidos de proveedores NO-Apollo. Defensa
+ * SECUNDARIA (nunca la única): aunque un candidato viniera mal etiquetado como
+ * origen Apollo, un id con este prefijo pertenece a otro espacio de identidad y
+ * Apollo lo rechazaría. Hoy: Lusha usa `v1.<token>`.
+ */
+const NON_APOLLO_SOURCE_ID_PREFIXES: readonly string[] = ['v1.'];
+
+/**
+ * Decide si `sourceContactId` puede enviarse a Apollo como `id` (people/match).
+ *
+ * Regla (gate por proveedor PRIMERO, no por regex):
+ *   1. Debe existir un id no vacío.
+ *   2. El proveedor de origen normalizado debe ser exactamente `apollo`. Lusha,
+ *      hubspot, manual, mock, unknown/null y cualquier otro → NO se reenvía.
+ *   3. Defensa secundaria: aunque el proveedor diga apollo, un id con prefijo
+ *      conocido de otro proveedor (p.ej. `v1.` de Lusha) NO se reenvía.
+ *
+ * Esto impide la contaminación cross-provider que provocaba el HTTP 422 de
+ * Apollo ("v1.<token> is not a valid ID") al mandar ids de Lusha como Apollo id.
+ */
+export function shouldSendApolloPersonId(args: {
+  sourceProvider?: string | null;
+  sourceContactId?: string | null;
+}): boolean {
+  const id = clean(args.sourceContactId);
+  if (!id) return false;
+  // Gate primario: sólo candidatos origen Apollo.
+  if (normalizeRevealSourceProvider(args.sourceProvider) !== 'apollo') return false;
+  // Gate secundario defensivo: id con prefijo de otro proveedor → nunca.
+  const lowerId = id.toLowerCase();
+  if (NON_APOLLO_SOURCE_ID_PREFIXES.some((prefix) => lowerId.startsWith(prefix))) {
+    return false;
+  }
+  return true;
+}
+
 // ── Constructor del payload ────────────────────────────────────
 
 /**
  * Construye los params de people/match para un reveal explícito de teléfono.
  *
- * Requiere una identidad fuerte: Apollo person id, email o LinkedIn. El
- * nombre + empresa por sí solos NO bastan para gastar un reveal (mucho más
- * caro y sujeto a base legal), así que se rechazan con
- * `insufficient_identity`.
+ * Requiere una identidad fuerte: Apollo person id (SÓLO si el candidato es
+ * origen Apollo — ver `shouldSendApolloPersonId`), email o LinkedIn. El nombre +
+ * empresa por sí solos NO bastan para gastar un reveal (mucho más caro y sujeto
+ * a base legal), así que se rechazan con `insufficient_identity`. Un candidato
+ * origen Lusha (u otro) sigue siendo elegible por email/LinkedIn: Apollo hace el
+ * match con esos datos, sin recibir el id ajeno que rechazaría con HTTP 422.
  *
  * `reveal_phone_number: true` se fija aquí y solo aquí. `reveal_personal_emails`
  * NO se agrega: el reveal de teléfono no lo exige y evitarlo reduce el dato
@@ -87,12 +150,21 @@ function clean(value: string | null | undefined): string | null {
 export function buildApolloPhoneRevealMatchParams(
   input: ApolloPhoneRevealInput,
 ): ApolloPhoneRevealResult {
-  const id = clean(input.sourceContactId);
+  // `id` SÓLO cuenta como identidad Apollo cuando el candidato es origen Apollo.
+  // Un source_contact_id de Lusha (u otro proveedor) NO es un Apollo person id y
+  // no debe reenviarse ni contar como identidad fuerte para Apollo.
+  const apolloId = shouldSendApolloPersonId({
+    sourceProvider: input.sourceProvider,
+    sourceContactId: input.sourceContactId,
+  })
+    ? clean(input.sourceContactId)
+    : null;
   const email = clean(input.email);
   const linkedinUrl = clean(input.linkedinUrl);
 
-  // Identidad fuerte obligatoria: sin id/email/linkedin confiable no revelamos.
-  const hasStrongIdentity = !!id || !!email || !!linkedinUrl;
+  // Identidad fuerte obligatoria: sin Apollo id/email/linkedin confiable no
+  // revelamos. Para candidatos no-Apollo, email/linkedin son la vía de match.
+  const hasStrongIdentity = !!apolloId || !!email || !!linkedinUrl;
   if (!hasStrongIdentity) {
     return { ok: false, error: 'insufficient_identity' };
   }
@@ -109,7 +181,7 @@ export function buildApolloPhoneRevealMatchParams(
     webhook_url: webhookUrl,
   };
 
-  if (id) params.id = id;
+  if (apolloId) params.id = apolloId;
   if (email) params.email = email;
   if (linkedinUrl) params.linkedin_url = linkedinUrl;
 

@@ -19,6 +19,8 @@ import assert from 'node:assert/strict';
 
 import {
   buildApolloPhoneRevealMatchParams,
+  shouldSendApolloPersonId,
+  normalizeRevealSourceProvider,
   type ApolloPhoneRevealInput,
   type ApolloPhoneRevealResult,
 } from '../apollo-phone-reveal';
@@ -46,10 +48,11 @@ function expectOk(result: ApolloPhoneRevealResult) {
 // ── Construcción con identidad fuerte ──────────────────────────
 
 describe('buildApolloPhoneRevealMatchParams — identidad fuerte', () => {
-  it('con sourceContactId (person id) → reveal_phone_number + webhook_url', () => {
+  it('con sourceContactId (person id) origen Apollo → reveal_phone_number + webhook_url', () => {
     const params = expectOk(
       buildApolloPhoneRevealMatchParams(
         withWebhook({
+          sourceProvider: 'apollo',
           sourceContactId: 'apollo-person-id',
           firstName: 'Ana',
           lastName: 'Gómez',
@@ -84,10 +87,11 @@ describe('buildApolloPhoneRevealMatchParams — identidad fuerte', () => {
     assert.equal(params.linkedin_url, 'https://linkedin.com/in/ana');
   });
 
-  it('prefiere sourceContactId como identificador más fuerte (lo incluye)', () => {
+  it('prefiere sourceContactId Apollo como identificador más fuerte (lo incluye)', () => {
     const params = expectOk(
       buildApolloPhoneRevealMatchParams(
         withWebhook({
+          sourceProvider: 'apollo',
           sourceContactId: 'pid-1',
           email: 'ana@empresa.com',
           linkedinUrl: 'https://linkedin.com/in/ana',
@@ -102,6 +106,7 @@ describe('buildApolloPhoneRevealMatchParams — identidad fuerte', () => {
   it('recorta espacios en los campos de identidad y el webhook', () => {
     const params = expectOk(
       buildApolloPhoneRevealMatchParams({
+        sourceProvider: 'apollo',
         sourceContactId: '  pid-2  ',
         webhookUrl: `  ${WEBHOOK_URL}  `,
       }),
@@ -115,7 +120,10 @@ describe('buildApolloPhoneRevealMatchParams — identidad fuerte', () => {
 
 describe('buildApolloPhoneRevealMatchParams — webhook_url obligatorio', () => {
   it('sin webhookUrl (identidad fuerte) → webhook_url_required, sin params', () => {
-    const result = buildApolloPhoneRevealMatchParams({ sourceContactId: 'pid-1' });
+    const result = buildApolloPhoneRevealMatchParams({
+      sourceProvider: 'apollo',
+      sourceContactId: 'pid-1',
+    });
     assert.equal(result.ok, false);
     if (result.ok) throw new Error('unreachable');
     assert.equal(result.error, 'webhook_url_required');
@@ -146,7 +154,9 @@ describe('buildApolloPhoneRevealMatchParams — webhook_url obligatorio', () => 
 describe('buildApolloPhoneRevealMatchParams — minimización de datos', () => {
   it('NO agrega reveal_personal_emails (no lo exige el reveal de teléfono)', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams(withWebhook({ sourceContactId: 'pid-1' })),
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({ sourceProvider: 'apollo', sourceContactId: 'pid-1' }),
+      ),
     );
     assert.equal('reveal_personal_emails' in params, false);
     assert.equal(params.reveal_personal_emails, undefined);
@@ -154,7 +164,9 @@ describe('buildApolloPhoneRevealMatchParams — minimización de datos', () => {
 
   it('NO incluye ningún número/campo de teléfono en el payload', () => {
     const params = expectOk(
-      buildApolloPhoneRevealMatchParams(withWebhook({ sourceContactId: 'pid-1' })),
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({ sourceProvider: 'apollo', sourceContactId: 'pid-1' }),
+      ),
     );
     // Solo claves de identidad + reveal + webhook; ningún campo de número.
     const ALLOWED_KEYS = new Set([
@@ -238,6 +250,170 @@ describe('buildApolloPhoneRevealMatchParams — pureza', () => {
     const a = buildApolloPhoneRevealMatchParams(input);
     const b = buildApolloPhoneRevealMatchParams(input);
     assert.deepEqual(a, b);
+  });
+});
+
+// ── ASYNC-12: gate por proveedor del Apollo person id ──────────
+//
+// Regresión del HTTP 422: SellUp mandaba source_contact_id de Lusha (v1.<token>)
+// como Apollo `id`. Ahora `id` sólo se reenvía para candidatos origen Apollo.
+
+describe('shouldSendApolloPersonId — gate por proveedor', () => {
+  it('apollo + id → true', () => {
+    assert.equal(
+      shouldSendApolloPersonId({ sourceProvider: 'apollo', sourceContactId: 'pid-1' }),
+      true,
+    );
+  });
+
+  it('apollo case-insensitive / con espacios → true', () => {
+    assert.equal(
+      shouldSendApolloPersonId({ sourceProvider: '  APOLLO ', sourceContactId: 'pid-1' }),
+      true,
+    );
+  });
+
+  it('lusha + id v1.<token> → false (no contamina Apollo id)', () => {
+    assert.equal(
+      shouldSendApolloPersonId({
+        sourceProvider: 'lusha',
+        sourceContactId: 'v1.abcdef0123456789',
+      }),
+      false,
+    );
+  });
+
+  it('lusha + id sin prefijo v1 → false igualmente (gate primario por proveedor)', () => {
+    assert.equal(
+      shouldSendApolloPersonId({ sourceProvider: 'lusha', sourceContactId: 'lusha-123' }),
+      false,
+    );
+  });
+
+  it('proveedores no-apollo (hubspot/manual/mock/unknown/null) → false', () => {
+    for (const provider of ['hubspot', 'manual', 'mock', 'external', 'unknown', null, undefined]) {
+      assert.equal(
+        shouldSendApolloPersonId({ sourceProvider: provider, sourceContactId: 'pid-x' }),
+        false,
+        `esperaba false para proveedor ${String(provider)}`,
+      );
+    }
+  });
+
+  it('defensa secundaria: apollo mal etiquetado + id prefijo v1. → false', () => {
+    assert.equal(
+      shouldSendApolloPersonId({
+        sourceProvider: 'apollo',
+        sourceContactId: 'v1.leaked-lusha-token',
+      }),
+      false,
+    );
+  });
+
+  it('id vacío/whitespace → false aunque el proveedor sea apollo', () => {
+    assert.equal(
+      shouldSendApolloPersonId({ sourceProvider: 'apollo', sourceContactId: '   ' }),
+      false,
+    );
+    assert.equal(
+      shouldSendApolloPersonId({ sourceProvider: 'apollo', sourceContactId: null }),
+      false,
+    );
+  });
+});
+
+describe('normalizeRevealSourceProvider', () => {
+  it('minúsculas + trim; vacío/no-string → null', () => {
+    assert.equal(normalizeRevealSourceProvider('  Lusha '), 'lusha');
+    assert.equal(normalizeRevealSourceProvider('APOLLO'), 'apollo');
+    assert.equal(normalizeRevealSourceProvider('   '), null);
+    assert.equal(normalizeRevealSourceProvider(null), null);
+    assert.equal(normalizeRevealSourceProvider(undefined), null);
+  });
+});
+
+describe('buildApolloPhoneRevealMatchParams — contaminación cross-provider', () => {
+  it('candidato Lusha con id v1 + email/linkedin → NO envía id, sí email/linkedin', () => {
+    const params = expectOk(
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({
+          sourceProvider: 'lusha',
+          sourceContactId: 'v1.lusha-token-xyz',
+          email: 'ana@empresa.com',
+          linkedinUrl: 'https://linkedin.com/in/ana',
+          firstName: 'Ana',
+          lastName: 'Gómez',
+          organizationName: 'Empresa',
+        }),
+      ),
+    );
+    assert.equal('id' in params, false, 'NO debe reenviar el id de Lusha');
+    assert.equal(params.id, undefined);
+    assert.equal(params.email, 'ana@empresa.com');
+    assert.equal(params.linkedin_url, 'https://linkedin.com/in/ana');
+    assert.equal(params.first_name, 'Ana');
+    assert.equal(params.organization_name, 'Empresa');
+    assert.equal(params.reveal_phone_number, true);
+    assert.equal(params.webhook_url, WEBHOOK_URL);
+  });
+
+  it('candidato Lusha SÓLO con id v1 (sin email/linkedin/name) → insufficient_identity', () => {
+    const result = buildApolloPhoneRevealMatchParams(
+      withWebhook({ sourceProvider: 'lusha', sourceContactId: 'v1.only-id' }),
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) throw new Error('unreachable');
+    assert.equal(result.error, 'insufficient_identity');
+  });
+
+  it('candidato unknown/manual con id → NO envía id, usa email', () => {
+    for (const provider of ['manual', 'external', undefined]) {
+      const params = expectOk(
+        buildApolloPhoneRevealMatchParams(
+          withWebhook({
+            sourceProvider: provider,
+            sourceContactId: 'some-id',
+            email: 'ana@empresa.com',
+          }),
+        ),
+      );
+      assert.equal('id' in params, false, `no debe enviar id para ${String(provider)}`);
+      assert.equal(params.email, 'ana@empresa.com');
+    }
+  });
+
+  it('nunca reenvía un id con prefijo v1. hacia Apollo cuando source = lusha', () => {
+    const params = expectOk(
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({
+          sourceProvider: 'lusha',
+          sourceContactId: 'v1.MjM0NTY3',
+          email: 'lead@empresa.com',
+        }),
+      ),
+    );
+    assert.equal(params.id, undefined);
+    // Regresión estricta: ningún valor del payload empieza con v1.
+    for (const value of Object.values(params)) {
+      if (typeof value === 'string') {
+        assert.equal(value.startsWith('v1.'), false, `valor v1.* filtrado: ${value}`);
+      }
+    }
+  });
+
+  it('candidato Apollo conserva el id (comportamiento previo)', () => {
+    const params = expectOk(
+      buildApolloPhoneRevealMatchParams(
+        withWebhook({
+          sourceProvider: 'apollo',
+          sourceContactId: 'apollo-person-42',
+          email: 'ana@empresa.com',
+        }),
+      ),
+    );
+    assert.equal(params.id, 'apollo-person-42');
+    assert.equal(params.reveal_phone_number, true);
+    assert.equal(params.webhook_url, WEBHOOK_URL);
   });
 });
 

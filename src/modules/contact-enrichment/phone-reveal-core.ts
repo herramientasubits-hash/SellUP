@@ -39,9 +39,11 @@ import {
   type ApolloPhoneRevealInput,
 } from '@/server/agents/contact-enrichment-toolkit/apollo-phone-reveal';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
+import { normalizeRevealSourceProvider } from '@/server/agents/contact-enrichment-toolkit/apollo-phone-reveal';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
+  ContactSource,
   PhoneProcessingBasis,
 } from './types';
 
@@ -109,6 +111,15 @@ export interface RevealCandidatePhoneInput {
 export interface RevealCandidateRecord {
   id: string;
   accountId: string | null;
+  /**
+   * Proveedor/origen del candidato (contact_enrichment_candidates.source).
+   * Determina si `sourceContactId` puede reenviarse a Apollo como person id: sólo
+   * los candidatos origen Apollo tienen un id compatible. Para Lusha (u otros) el
+   * id es de otro espacio y Apollo lo rechaza (HTTP 422), así que se omite y el
+   * match se hace por email/linkedin/name/company. Opcional/nullable: ausente o
+   * distinto de 'apollo' ⇒ NO se reenvía el id (fail-closed anti-contaminación).
+   */
+  source?: ContactSource | null;
   sourceContactId: string | null;
   email: string | null;
   linkedinUrl: string | null;
@@ -195,6 +206,18 @@ export interface PhoneRevealUsageLogEntry {
      * sin secretos). null en el camino feliz. Diagnóstico del 422 sin schema.
      */
     apollo_error_hint: string | null;
+    /**
+     * true sólo si se envió `id` (Apollo person id) en el payload de match. Para
+     * candidatos Lusha/otros es false (el id ajeno se omite). Diagnóstico de
+     * contaminación cross-provider; no es PII (booleano derivado).
+     */
+    id_forwarded_to_apollo: boolean;
+    /**
+     * Proveedor de origen normalizado del candidato ('apollo' | 'lusha' | otro |
+     * null). NO es dato personal: es la fuente que encontró al candidato. Permite
+     * correlacionar el 422 con el origen sin exponer el id ni identidad alguna.
+     */
+    source_provider_for_id: string | null;
   };
 }
 
@@ -396,6 +419,10 @@ export async function runRevealCandidatePhone(
   // 13. Identidad suficiente + payload asíncrono (helper: único punto con
   //     reveal_phone_number: true + webhook_url).
   const identity: ApolloPhoneRevealInput = {
+    // El proveedor de origen decide si source_contact_id viaja como Apollo id.
+    // Sólo 'apollo' lo reenvía; Lusha/otros lo omiten (evita el HTTP 422 por id
+    // ajeno) y hacen match por email/linkedin/name/company.
+    sourceProvider: candidate.source ?? null,
     sourceContactId: candidate.sourceContactId,
     email: candidate.email,
     linkedinUrl: candidate.linkedinUrl,
@@ -411,6 +438,10 @@ export async function runRevealCandidatePhone(
     }
     return fail('insufficient_identity');
   }
+
+  // Observabilidad (sin PII): ¿se reenvió un Apollo id? ¿desde qué proveedor?
+  const idForwardedToApollo = Boolean(built.params.id);
+  const sourceProviderForId = normalizeRevealSourceProvider(candidate.source);
 
   const nextAttempt = (candidate.phoneRevealAttemptCount ?? 0) + 1;
 
@@ -451,6 +482,8 @@ export async function runRevealCandidatePhone(
         basis,
         errorCode,
         errorHint,
+        idForwardedToApollo,
+        sourceProviderForId,
       }),
     );
     return { ok: false, status: 'error', requestAccepted: false, errorCode };
@@ -483,6 +516,8 @@ export async function runRevealCandidatePhone(
       basis,
       errorCode: null,
       errorHint: null,
+      idForwardedToApollo,
+      sourceProviderForId,
     }),
   );
   return { ok: true, status: 'requested', requestAccepted: true, errorCode: null };
@@ -498,6 +533,8 @@ function buildUsageLogEntry(args: {
   basis: PhoneProcessingBasis;
   errorCode: string | null;
   errorHint: string | null;
+  idForwardedToApollo: boolean;
+  sourceProviderForId: string | null;
 }): PhoneRevealUsageLogEntry {
   return {
     operationKey: PHONE_REVEAL_OPERATION_KEY,
@@ -520,6 +557,8 @@ function buildUsageLogEntry(args: {
       processing_basis: args.basis,
       error_code: args.errorCode,
       apollo_error_hint: args.errorHint,
+      id_forwarded_to_apollo: args.idForwardedToApollo,
+      source_provider_for_id: args.sourceProviderForId,
     },
   };
 }
