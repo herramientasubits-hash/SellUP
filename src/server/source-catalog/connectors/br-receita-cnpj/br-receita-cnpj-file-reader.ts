@@ -241,6 +241,29 @@ const CNAES_CONFIG = cfg(['codigo', 'descricao'], ['codigo', 'descricao']);
 const NATUREZAS_CONFIG = cfg(['codigo', 'descricao'], ['codigo', 'descricao']);
 const MUNICIPIOS_CONFIG = cfg(['codigo', 'descricao'], ['codigo', 'descricao', 'uf']);
 
+/**
+ * The recognized Receita CNPJ layout file types (root/company + establishment +
+ * regime + reference catalogs). SOCIOS/QSA/CPF are deliberately absent — they are
+ * a categorically excluded personal-data file, never a valid layout.
+ */
+export type BrReceitaCnpjLayoutFileType =
+  | 'empresas'
+  | 'estabelecimentos'
+  | 'simples'
+  | 'cnaes'
+  | 'municipios'
+  | 'naturezas';
+
+/** Header configuration per layout file type — the single source of layout truth. */
+const FILE_HEADER_CONFIGS: Record<BrReceitaCnpjLayoutFileType, FileHeaderConfig> = {
+  empresas: EMPRESAS_CONFIG,
+  estabelecimentos: ESTABELECIMENTOS_CONFIG,
+  simples: SIMPLES_CONFIG,
+  cnaes: CNAES_CONFIG,
+  municipios: MUNICIPIOS_CONFIG,
+  naturezas: NATUREZAS_CONFIG,
+};
+
 // ─── CSV parsing (minimal, dependency-free, no streaming) ─────────────────────
 
 /**
@@ -316,18 +339,19 @@ interface ValidatedTable {
 }
 
 /**
- * Validates a parsed CSV table against a file config and returns a header index
- * plus data rows. Fail-closed on missing required headers, forbidden personal
- * columns, unknown sensitive columns, and (under `strict`) unknown columns.
+ * Fail-closed header validation shared by the table reader and the public
+ * header-only API. Normalizes the header cells and applies, in order:
+ *   1) forbidden personal-data tokens anywhere → hard failure;
+ *   2) required headers present;
+ *   3) unknown-header handling (sensitive token → forbidden; else strict-only).
  */
-function validateTable(
+function validateHeaderCells(
   file: string,
-  parsed: string[][],
+  headerCells: readonly string[],
   config: FileHeaderConfig,
   strict: boolean,
-): ValidatedTable {
-  const headerRow = parsed[0] ?? [];
-  const headers = headerRow.map(normalizeHeader);
+): string[] {
+  const headers = headerCells.map(normalizeHeader);
 
   // 1) Forbidden personal-data tokens anywhere → hard failure.
   for (const header of headers) {
@@ -355,6 +379,46 @@ function validateTable(
     }
     // Non-strict: silently ignore unknown, non-sensitive columns.
   }
+
+  return headers;
+}
+
+/**
+ * Validates ONLY a header row (the first CSV line) for a given Receita CNPJ
+ * layout file type, without touching data rows. Fail-closed and behaviorally
+ * identical to the reader's table validation. Exposed so the BR-SOURCE-6 manifest
+ * validator can layout-check a real file's header with a minimal, controlled read
+ * instead of duplicating the sanitization rules.
+ *
+ * @throws {BrReceitaCnpjMissingHeaderError} when a required header is absent.
+ * @throws {BrReceitaCnpjForbiddenColumnError} on a forbidden/sensitive column.
+ * @throws {BrReceitaCnpjUnknownColumnError} on an unknown column under `strict`.
+ * @throws {BrReceitaCnpjFileReaderError} for an unrecognized layout file type.
+ */
+export function validateBrReceitaCnpjHeaderCells(
+  fileType: BrReceitaCnpjLayoutFileType,
+  headerCells: readonly string[],
+  options: { strict?: boolean; fileLabel?: string } = {},
+): void {
+  const config = FILE_HEADER_CONFIGS[fileType];
+  if (config === undefined) {
+    throw new BrReceitaCnpjFileReaderError(`unrecognized layout file type "${fileType}"`);
+  }
+  validateHeaderCells(options.fileLabel ?? fileType, headerCells, config, options.strict ?? false);
+}
+
+/**
+ * Validates a parsed CSV table against a file config and returns a header index
+ * plus data rows. Fail-closed on missing required headers, forbidden personal
+ * columns, unknown sensitive columns, and (under `strict`) unknown columns.
+ */
+function validateTable(
+  file: string,
+  parsed: string[][],
+  config: FileHeaderConfig,
+  strict: boolean,
+): ValidatedTable {
+  const headers = validateHeaderCells(file, parsed[0] ?? [], config, strict);
 
   const index = new Map<string, number>();
   headers.forEach((header, i) => {

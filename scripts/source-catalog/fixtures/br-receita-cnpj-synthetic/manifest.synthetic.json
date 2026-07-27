@@ -1,0 +1,15 @@
+{
+  "sourceKey": "br_receita_cnpj_dados_abertos",
+  "countryCode": "BR",
+  "sourceYear": 2026,
+  "sourcePeriod": "2026-07",
+  "mode": "local_manifest_validation",
+  "files": [
+    { "fileType": "empresas", "path": "empresas.csv", "encoding": "utf8", "delimiter": "," },
+    { "fileType": "estabelecimentos", "path": "estabelecimentos.csv", "encoding": "utf8", "delimiter": "," },
+    { "fileType": "simples", "path": "simples.csv", "encoding": "utf8", "delimiter": "," },
+    { "fileType": "cnaes", "path": "cnaes.csv", "encoding": "utf8", "delimiter": "," },
+    { "fileType": "municipios", "path": "municipios.csv", "encoding": "utf8", "delimiter": "," },
+    { "fileType": "naturezas", "path": "naturezas.csv", "encoding": "utf8", "delimiter": "," }
+  ]
+}
