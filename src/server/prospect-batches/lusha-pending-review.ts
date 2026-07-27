@@ -52,6 +52,25 @@ import {
   type LushaPreviewInput,
   type LushaPreviewResult,
 } from './lusha-preview';
+// Q3F-5BB.10C2 — shared, provider-agnostic intake pipeline (pure). The barrel path
+// carries no forbidden substring; every function here is pure and every side
+// effect (official-source reads) arrives through an INJECTED resolver, so the core
+// stays free of supabase/env/fetch. See src/server/agents/prospect-intake/.
+import {
+  mapLushaCompanyToProviderDiscoveredCompany,
+  normalizeProviderDiscoveredCompany,
+  evaluateProspectIntakeGate,
+  buildProspectIntakeGateAuditEntry,
+  enrichNormalizedProspectWithOfficialSources,
+  buildOfficialSourceEnrichmentMetadata,
+  buildOfficialSourceTypedColumns,
+  type LushaRawCompany,
+  type ProspectSearchCriteria,
+  type NormalizedProspectCandidate,
+  type EnrichedProspectCandidateIdentity,
+  type OfficialSourceResolver,
+  type ProspectIntakeGateResult,
+} from '@/server/agents/prospect-intake';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -174,6 +193,15 @@ export interface LushaCandidateDuplicateResolution {
 export interface ResolvedLushaCandidate {
   company: LushaPreviewCompany;
   resolution: LushaCandidateDuplicateResolution;
+  /**
+   * Q3F-5BB.10C2 — official-source identity from the shared enrichment step.
+   * Optional so builder unit tests that construct a candidate directly keep
+   * compiling. When present + strong, its typed columns (tax_identifier, …) are
+   * persisted and its metadata is written under `metadata.source_enrichment`.
+   */
+  enriched?: EnrichedProspectCandidateIdentity;
+  /** Soft signals from the shared mandatory gate (reviewable_with_warnings). */
+  gateWarnings?: string[];
 }
 
 // ─── Excluded exact-duplicate audit detail (Q3F-5BB.7D) ────────────────────────
@@ -236,6 +264,13 @@ export interface LushaPendingReviewCandidateRow {
   country_code: string | null;
   industry: string | null;
   company_size: string | null;
+  // Q3F-5BB.10C2 — typed identity columns, populated ONLY on a STRONG official-source
+  // match (else null). Columns already exist on prospect_candidates (migrations
+  // 040/045); no migration is added here. `identity_key` is deliberately NOT touched.
+  tax_identifier: string | null;
+  tax_identifier_type: string | null;
+  legal_name: string | null;
+  legal_status: string | null;
   source_primary: typeof LUSHA_PENDING_REVIEW_CANDIDATE_SOURCE;
   sources_checked: string[];
   duplicate_status: LushaDbDuplicateStatus;
@@ -284,6 +319,15 @@ export interface PersistLushaPendingReviewDeps {
   // ── Read-only duplicate-parity deps (Q3F-5BB.7) — never write ──
   checkCompanyDuplicate: CheckLushaCompanyDuplicate;
   fetchActiveCandidates: FetchActiveCandidatesForLushaGuard;
+  /**
+   * Q3F-5BB.10C2 — READ-ONLY official-source resolvers injected for the shared
+   * enrichment step. Optional so legacy callers/tests keep compiling; when
+   * omitted (or empty) enrichment yields the shared "unsupported/unavailable"
+   * result and no strong identity is produced (taxIdentifier stays null →
+   * duplicate check behaves exactly as before). Resolvers can only READ (they
+   * are the ONLY new injected surface and add no write capability).
+   */
+  officialSourceResolvers?: OfficialSourceResolver[];
 }
 
 export type PersistLushaPendingReviewStatus = 'success' | 'empty' | 'error';
@@ -318,6 +362,13 @@ export interface PersistLushaPendingReviewResult {
   insertedCandidatesCount: number;
   /** True when page 1 was requested to top up useful candidates. */
   topUpTriggered: boolean;
+  // ── Shared intake pipeline metrics (Q3F-5BB.10C2) ──
+  // Optional so existing callers that build a result literal (UI fallbacks, older
+  // test doubles) keep compiling; the core always populates them.
+  /** Companies dropped by the shared mandatory gate (never reached duplicate check). */
+  hardExcludedByGateCount?: number;
+  /** Persisted candidates that got a STRONG official-source identity (typed columns filled). */
+  enrichedWithOfficialSourceCount?: number;
 }
 
 /** Baseline metrics used by non-success (error/empty) results. */
@@ -331,6 +382,8 @@ const EMPTY_TOPUP_METRICS = {
   possibleDuplicatesCount: 0,
   insertedCandidatesCount: 0,
   topUpTriggered: false,
+  hardExcludedByGateCount: 0,
+  enrichedWithOfficialSourceCount: 0,
 } as const;
 
 /**
@@ -431,10 +484,20 @@ export function dedupeLushaCompanies(
   return { unique, skippedCount };
 }
 
-/** Build the canonical duplicate-check input for a Lusha company. */
+/**
+ * Build the canonical duplicate-check input for a Lusha company.
+ *
+ * Q3F-5BB.10C2: Lusha company prospecting itself returns no fiscal identifier, but
+ * the shared official-source enrichment can supply a STRONG one (e.g. Colombia
+ * name→NIT). When an `enriched` identity is provided, its `taxIdentifier` /
+ * `legalName` are threaded into the checker so an exact tax-id match can surface a
+ * strong duplicate (see the SellUp checker's tax_identifier lookup). With no
+ * enrichment the behavior is unchanged (taxIdentifier stays null).
+ */
 export function buildLushaDuplicateCheckInput(
   company: LushaPreviewCompany,
   input: LushaPreviewInput,
+  enriched?: EnrichedProspectCandidateIdentity | null,
 ): DuplicateCheckInput {
   const domain = normalizeDomain(company.domain);
   return {
@@ -444,8 +507,61 @@ export function buildLushaDuplicateCheckInput(
     domain,
     country: company.country,
     countryCode: company.countryIso2 ?? input.countryCode ?? null,
-    // Lusha company prospecting does not return a fiscal identifier.
-    taxIdentifier: null,
+    // Strong official-source identity when available (else null — unchanged).
+    taxIdentifier: enriched?.taxIdentifier ?? null,
+    legalName: enriched?.legalName ?? null,
+  };
+}
+
+// ─── Shared intake pipeline adapters (Q3F-5BB.10C2) ───────────────────────────
+
+/**
+ * Map a preview-normalized `LushaPreviewCompany` into the raw structural shape the
+ * shared Lusha adapter consumes, then into a `ProviderDiscoveredCompany`. This
+ * routes Lusha through the SAME provider-agnostic mapper Apollo/Tavily use, so
+ * domain/website/LinkedIn/country/employees are mapped identically for every
+ * provider. Pure.
+ */
+export function lushaPreviewCompanyToProviderDiscoveredCompany(
+  company: LushaPreviewCompany,
+  criteria: ProspectSearchCriteria,
+) {
+  const raw: LushaRawCompany = {
+    id: company.providerCompanyId,
+    name: company.name,
+    domain: company.domain,
+    website: company.domain ? `https://${company.domain}` : null,
+    linkedin: company.linkedinUrl,
+    employeeCount: company.employeesExact,
+    industry: company.industry,
+    country: company.country,
+    countryCode: company.countryIso2,
+  };
+  return mapLushaCompanyToProviderDiscoveredCompany(raw, {
+    requestId: null,
+    searchCriteria: criteria,
+  });
+}
+
+/**
+ * Build the provider-neutral search criteria for the gate + enrichment from the
+ * wizard input and the server-authoritative request summary. `minEmployees` is the
+ * requested size-band minimum (the same band the preview already filtered by), so
+ * the gate's `known_employee_count_below_min` check enforces the requested floor.
+ * Pure.
+ */
+export function buildLushaProspectSearchCriteria(
+  input: LushaPreviewInput,
+  search: LushaPreviewResult,
+): ProspectSearchCriteria {
+  const rs = search.requestSummary;
+  return {
+    countryCode: input.countryCode ?? null,
+    country: rs.country ?? null,
+    sector: rs.sector ?? input.sectorKey ?? null,
+    minEmployees: rs.sizeBand?.min ?? null,
+    maxEmployees: rs.sizeBand?.max ?? null,
+    sourceProvider: LUSHA_PENDING_REVIEW_PROVIDER,
   };
 }
 
@@ -692,6 +808,14 @@ export interface LushaPendingReviewBatchMetrics {
   /** Auditable detail of every excluded exact duplicate (Q3F-5BB.7D). Optional so
    *  legacy callers keep compiling; treated as `[]` when omitted. */
   excludedExactDuplicates?: LushaExcludedExactDuplicate[];
+  // ── Shared intake pipeline metrics (Q3F-5BB.10C2). All optional so legacy
+  //    callers/tests keep compiling; omitted → absent from batch metadata. ──
+  /** Aggregate mandatory-gate outcome (hard/warning/clean + reason counts). */
+  gateSummary?: LushaGateSummary;
+  /** Bounded, PII-safe audit entries for companies the gate hard-excluded. */
+  excludedByMandatoryGate?: LushaGateAuditEntry[];
+  /** Aggregate official-source enrichment outcome. */
+  enrichmentSummary?: LushaOfficialSourceEnrichmentSummary;
 }
 
 /** Build the batch insert row (deterministic — no clocks, no randomness). */
@@ -706,6 +830,7 @@ export function buildLushaPendingReviewBatchRow(
   const sectorLabel = rs.sector ?? input.sectorKey;
   const countryLabel = rs.country ?? input.countryCode;
   const excludedExactDuplicates = metrics.excludedExactDuplicates ?? [];
+  const excludedByMandatoryGate = metrics.excludedByMandatoryGate ?? [];
 
   return {
     name: `Búsqueda con IA · ${sectorLabel} · ${countryLabel}`,
@@ -758,6 +883,25 @@ export function buildLushaPendingReviewBatchRow(
       // from the reviewable candidates (Q3F-5BB.7D). Safe fields only — no raw
       // payloads, headers or secrets. Empty array when nothing was excluded.
       excludedExactDuplicates,
+      // ── Shared intake pipeline summary (Q3F-5BB.10C2) ──
+      // Aggregate mandatory-gate outcome.
+      gate_summary: {
+        hard_excluded_count: metrics.gateSummary?.hardExcludedCount ?? 0,
+        warning_count: metrics.gateSummary?.warningCount ?? 0,
+        clean_count: metrics.gateSummary?.cleanCount ?? 0,
+        reason_counts: metrics.gateSummary?.reasonCounts ?? {},
+      },
+      // Bounded, PII-safe audit entries for companies the gate hard-excluded
+      // (never persisted as reviewable candidates). Empty when nothing excluded.
+      excludedByMandatoryGate,
+      // Aggregate official-source enrichment outcome.
+      source_enrichment_summary: {
+        matched_count: metrics.enrichmentSummary?.matchedCount ?? 0,
+        low_confidence_count: metrics.enrichmentSummary?.lowConfidenceCount ?? 0,
+        not_found_count: metrics.enrichmentSummary?.notFoundCount ?? 0,
+        unsupported_count: metrics.enrichmentSummary?.unsupportedCount ?? 0,
+        error_count: metrics.enrichmentSummary?.errorCount ?? 0,
+      },
     },
   };
 }
@@ -864,7 +1008,13 @@ export function buildLushaPendingReviewCandidateRows(
   batchId: string,
   resolved: ResolvedLushaCandidate[],
 ): LushaPendingReviewCandidateRow[] {
-  return resolved.map(({ company, resolution }) => ({
+  return resolved.map(({ company, resolution, enriched, gateWarnings }) => {
+    // Typed identity columns — filled ONLY on a STRONG official-source match.
+    const typedColumns = enriched
+      ? buildOfficialSourceTypedColumns(enriched)
+      : { tax_identifier: null, tax_identifier_type: null, legal_name: null, legal_status: null };
+
+    return {
     batch_id: batchId,
     name: company.name as string, // dedupe guarantees a non-empty name
     normalized_name: normalizeLushaCompanyName(company.name),
@@ -874,6 +1024,11 @@ export function buildLushaPendingReviewCandidateRows(
     country_code: company.countryIso2,
     industry: company.industry,
     company_size: employeesLabel(company),
+    // Strong official-source identity (or nulls) — Q3F-5BB.10C2.
+    tax_identifier: typedColumns.tax_identifier,
+    tax_identifier_type: typedColumns.tax_identifier_type,
+    legal_name: typedColumns.legal_name,
+    legal_status: typedColumns.legal_status,
     source_primary: LUSHA_PENDING_REVIEW_CANDIDATE_SOURCE,
     sources_checked: [LUSHA_PENDING_REVIEW_PROVIDER],
     duplicate_status: resolution.dbDuplicateStatus,
@@ -932,8 +1087,19 @@ export function buildLushaPendingReviewCandidateRows(
       // instead of a generic label (Q3F-5BB.7B).
       duplicate_check: buildLushaDuplicateCheckMetadata(resolution),
       validation: buildLushaValidationMetadata(resolution),
+      // ── Shared intake pipeline metadata (Q3F-5BB.10C2) ──
+      // Explicit provider tag (alongside the legacy `provider` key above).
+      source_provider: LUSHA_PENDING_REVIEW_PROVIDER,
+      // Bounded, PII-safe official-source outcome (never a taxId value in metadata —
+      // `taxIdentifierPresent` is a boolean; the value lives only in the typed column).
+      ...(enriched
+        ? { source_enrichment: buildOfficialSourceEnrichmentMetadata(enriched) }
+        : {}),
+      // Soft gate signals so a reviewer sees why the candidate was flagged.
+      ...(gateWarnings && gateWarnings.length > 0 ? { gate_warnings: gateWarnings } : {}),
     },
-  }));
+  };
+  });
 }
 
 function sanitizeError(message: string | undefined): string {
@@ -941,34 +1107,157 @@ function sanitizeError(message: string | undefined): string {
   return message.slice(0, 200);
 }
 
+// ─── Shared intake pipeline summaries (Q3F-5BB.10C2) ──────────────────────────
+
+/** Bounded, PII-safe audit entry for one gate-excluded company. */
+export type LushaGateAuditEntry = ReturnType<typeof buildProspectIntakeGateAuditEntry>;
+
+/** Aggregate mandatory-gate outcome for the batch summary. */
+export interface LushaGateSummary {
+  hardExcludedCount: number;
+  warningCount: number;
+  cleanCount: number;
+  reasonCounts: Record<string, number>;
+}
+
+/** Aggregate official-source enrichment outcome for the batch summary. */
+export interface LushaOfficialSourceEnrichmentSummary {
+  matchedCount: number;
+  lowConfidenceCount: number;
+  notFoundCount: number;
+  unsupportedCount: number;
+  errorCount: number;
+}
+
+function emptyGateSummary(): LushaGateSummary {
+  return { hardExcludedCount: 0, warningCount: 0, cleanCount: 0, reasonCounts: {} };
+}
+
+function emptyEnrichmentSummary(): LushaOfficialSourceEnrichmentSummary {
+  return {
+    matchedCount: 0,
+    lowConfidenceCount: 0,
+    notFoundCount: 0,
+    unsupportedCount: 0,
+    errorCount: 0,
+  };
+}
+
+/** Tally one enrichment outcome into the running summary (pure, in-place on a local). */
+function tallyEnrichmentStatus(
+  summary: LushaOfficialSourceEnrichmentSummary,
+  status: EnrichedProspectCandidateIdentity['officialSource']['status'],
+): void {
+  switch (status) {
+    case 'matched':
+      summary.matchedCount++;
+      break;
+    case 'low_confidence_match':
+      summary.lowConfidenceCount++;
+      break;
+    case 'not_found':
+      summary.notFoundCount++;
+      break;
+    case 'unsupported_country':
+    case 'source_catalog_unavailable':
+      summary.unsupportedCount++;
+      break;
+    case 'error':
+      summary.errorCount++;
+      break;
+    default:
+      break;
+  }
+}
+
 /**
- * Run duplicate parity for every deduped company. Fetches active candidates once,
- * then per company runs the canonical duplicate check + active-candidate guard.
+ * Run the shared, provider-agnostic intake pipeline for every deduped company:
+ *
+ *   map (shared Lusha adapter) → normalize → mandatory gate
+ *     → hard_excluded companies are separated and NEVER reach the duplicate check
+ *     → reviewable companies go through official-source enrichment (injected,
+ *       read-only resolvers) then the canonical active-candidate guard + duplicate
+ *       check, with any STRONG official-source taxIdentifier/legalName threaded in.
+ *
  * Strong active matches are skipped (returned via `guardSkippedCount`), matching
- * the canonical writer. Purely orchestrates injected read-only deps.
+ * the canonical writer. Purely orchestrates injected read-only deps — no I/O of
+ * its own. Returns the reviewable resolutions plus bounded gate + enrichment
+ * summaries for the batch metadata.
  */
 export async function resolveLushaCandidatesDuplicateState(
-  deps: Pick<PersistLushaPendingReviewDeps, 'checkCompanyDuplicate' | 'fetchActiveCandidates'>,
+  deps: Pick<
+    PersistLushaPendingReviewDeps,
+    'checkCompanyDuplicate' | 'fetchActiveCandidates' | 'officialSourceResolvers'
+  >,
   input: LushaPreviewInput,
   companies: LushaPreviewCompany[],
-): Promise<{ resolved: ResolvedLushaCandidate[]; guardSkippedCount: number }> {
+  criteria: ProspectSearchCriteria,
+): Promise<{
+  resolved: ResolvedLushaCandidate[];
+  guardSkippedCount: number;
+  hardExcluded: LushaGateAuditEntry[];
+  gate: LushaGateSummary;
+  enrichment: LushaOfficialSourceEnrichmentSummary;
+}> {
+  const resolvers = deps.officialSourceResolvers ?? [];
+
+  // ── 1. Map → normalize → mandatory gate. Hard-excluded never reach dup check. ──
+  const reviewable: Array<{
+    company: LushaPreviewCompany;
+    normalized: NormalizedProspectCandidate;
+    gate: ProspectIntakeGateResult;
+  }> = [];
+  const hardExcluded: LushaGateAuditEntry[] = [];
+  const gate = emptyGateSummary();
+
+  for (const company of companies) {
+    const discovered = lushaPreviewCompanyToProviderDiscoveredCompany(company, criteria);
+    const normalized = normalizeProviderDiscoveredCompany(discovered, criteria);
+    const gateResult = evaluateProspectIntakeGate(normalized, criteria);
+
+    for (const reason of [...gateResult.hardReasons, ...gateResult.warnings]) {
+      gate.reasonCounts[reason] = (gate.reasonCounts[reason] ?? 0) + 1;
+    }
+
+    if (gateResult.decision === 'hard_excluded') {
+      gate.hardExcludedCount++;
+      hardExcluded.push(buildProspectIntakeGateAuditEntry(normalized, gateResult));
+      continue; // NEVER sent to the duplicate check.
+    }
+    if (gateResult.decision === 'reviewable_with_warnings') gate.warningCount++;
+    else gate.cleanCount++;
+    reviewable.push({ company, normalized, gate: gateResult });
+  }
+
+  // ── 2. Prefetch active candidates once for the reviewable set (read-only). ──
   const guardDomains = Array.from(
     new Set(
-      companies
-        .map((c) => normalizeDomain(c.domain))
+      reviewable
+        .map((r) => normalizeDomain(r.company.domain))
         .filter((d): d is string => d !== null),
     ),
   );
-
   const activeCandidates = await deps.fetchActiveCandidates(
     guardDomains,
     input.countryCode ?? null,
   );
 
+  // ── 3. Per reviewable company: official-source enrichment → active guard →
+  //       duplicate check (with the strong official identity threaded in). ──
   const resolved: ResolvedLushaCandidate[] = [];
   let guardSkippedCount = 0;
+  const enrichment = emptyEnrichmentSummary();
 
-  for (const company of companies) {
+  for (const { company, normalized, gate: gateResult } of reviewable) {
+    // Official-source enrichment (fail_soft by default). Resolvers are injected +
+    // read-only; with none, this yields the shared unsupported/unavailable result.
+    const enriched = await enrichNormalizedProspectWithOfficialSources(
+      normalized,
+      criteria,
+      resolvers,
+    );
+    tallyEnrichmentStatus(enrichment, enriched.officialSource.status);
+
     const guardMatch = checkActiveCandidateDuplicate(
       buildLushaGuardInput(company),
       activeCandidates,
@@ -981,13 +1270,13 @@ export async function resolveLushaCandidatesDuplicateState(
     }
 
     const dupResult = await deps.checkCompanyDuplicate(
-      buildLushaDuplicateCheckInput(company, input),
+      buildLushaDuplicateCheckInput(company, input, enriched),
     );
     const resolution = resolveLushaCandidateDuplicateState(dupResult, guardMatch);
-    resolved.push({ company, resolution });
+    resolved.push({ company, resolution, enriched, gateWarnings: gateResult.warnings });
   }
 
-  return { resolved, guardSkippedCount };
+  return { resolved, guardSkippedCount, hardExcluded, gate, enrichment };
 }
 
 // ─── Core orchestrator ────────────────────────────────────────────────────────
@@ -1033,6 +1322,10 @@ export async function persistLushaPendingReviewBatch(
   // Auditable detail of every excluded exact duplicate (Q3F-5BB.7D). Its length
   // is the authoritative excluded count surfaced everywhere below.
   const excludedExactDuplicates: LushaExcludedExactDuplicate[] = [];
+  // Q3F-5BB.10C2 — shared intake pipeline accumulators (across pages).
+  const excludedByMandatoryGate: LushaGateAuditEntry[] = [];
+  const gateSummary = emptyGateSummary();
+  const enrichmentSummary = emptyEnrichmentSummary();
   let skippedActiveDuplicatesCount = 0;
   let skippedUnusableCount = 0;
   let creditsChargedTotal: number | null = null;
@@ -1069,12 +1362,27 @@ export async function persistLushaPendingReviewBatch(
     const { unique, skippedCount } = dedupeLushaCompanies(search.results ?? [], seen);
     skippedUnusableCount += skippedCount;
 
-    const { resolved, guardSkippedCount } = await resolveLushaCandidatesDuplicateState(
-      deps,
-      input,
-      unique,
-    );
+    // Provider-neutral criteria for the shared gate + enrichment. Built from the
+    // (server-authoritative) request summary; stable across pages.
+    const criteria = buildLushaProspectSearchCriteria(input, search);
+
+    const { resolved, guardSkippedCount, hardExcluded, gate, enrichment } =
+      await resolveLushaCandidatesDuplicateState(deps, input, unique, criteria);
     skippedActiveDuplicatesCount += guardSkippedCount;
+
+    // Merge the page's gate + enrichment summaries into the batch accumulators.
+    excludedByMandatoryGate.push(...hardExcluded);
+    gateSummary.hardExcludedCount += gate.hardExcludedCount;
+    gateSummary.warningCount += gate.warningCount;
+    gateSummary.cleanCount += gate.cleanCount;
+    for (const [reason, count] of Object.entries(gate.reasonCounts)) {
+      gateSummary.reasonCounts[reason] = (gateSummary.reasonCounts[reason] ?? 0) + count;
+    }
+    enrichmentSummary.matchedCount += enrichment.matchedCount;
+    enrichmentSummary.lowConfidenceCount += enrichment.lowConfidenceCount;
+    enrichmentSummary.notFoundCount += enrichment.notFoundCount;
+    enrichmentSummary.unsupportedCount += enrichment.unsupportedCount;
+    enrichmentSummary.errorCount += enrichment.errorCount;
 
     for (const candidate of resolved) {
       if (candidate.resolution.dbDuplicateStatus === 'exact_duplicate') {
@@ -1093,6 +1401,10 @@ export async function persistLushaPendingReviewBatch(
   const possibleDuplicatesCount = useful.filter(
     (c) => c.resolution.dbDuplicateStatus === 'possible_duplicate',
   ).length;
+  const hardExcludedByGateCount = excludedByMandatoryGate.length;
+  const enrichedWithOfficialSourceCount = useful.filter(
+    (c) => c.enriched?.strongIdentityAvailable === true,
+  ).length;
 
   const baseMetrics = {
     pagesRequested,
@@ -1102,6 +1414,8 @@ export async function persistLushaPendingReviewBatch(
     skippedActiveDuplicatesCount,
     possibleDuplicatesCount,
     topUpTriggered,
+    hardExcludedByGateCount,
+    enrichedWithOfficialSourceCount,
   };
 
   if (useful.length === 0) {
@@ -1140,6 +1454,9 @@ export async function persistLushaPendingReviewBatch(
       skippedActiveDuplicatesCount,
       topUpTriggered,
       excludedExactDuplicates,
+      gateSummary,
+      excludedByMandatoryGate,
+      enrichmentSummary,
     },
   );
   const { id: batchId } = await deps.insertBatch(batchRow);

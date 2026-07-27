@@ -181,6 +181,30 @@ export function isLushaPhoneRevealEnabled(): false {
 }
 
 // ============================================================
+// Lusha Company Discovery Preview (Agente 1 · Q3F-5BB.3 / 10C2)
+// ============================================================
+
+/** Flag name constant for the Lusha "Generar con IA" company discovery preview. */
+export const LUSHA_PREVIEW_FLAG = 'ENABLE_LUSHA_PREVIEW';
+
+/**
+ * Returns true when ENABLE_LUSHA_PREVIEW is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false. This gates the whole Lusha company-discovery preview + the
+ * "Buscar con IA" pending-review persistence. It was previously enforced ONLY in
+ * the UI (see prospects-module-panel), which meant a direct call to the server
+ * actions could still reach Lusha. Q3F-5BB.10C2 makes the gate authoritative
+ * SERVER-SIDE: with the flag off, `previewLushaCompaniesAction` and
+ * `generateLushaPendingReviewBatchAction` return a safe blocked result WITHOUT
+ * building the Lusha client, running a search, or writing to the database. Must
+ * not be enabled in any environment by this milestone.
+ */
+export function isLushaPreviewEnabled(): boolean {
+  return process.env[LUSHA_PREVIEW_FLAG]?.trim().toLowerCase() === 'true';
+}
+
+// ============================================================
 // Apollo Phone Reveal (Agente 2A · PHONE-3D.1)
 // ============================================================
 
