@@ -34,14 +34,26 @@ export function isManualSignalOnly(source: SourceConnectionFields): boolean {
  *   - not_applicable      → referencia manual pura (hn_ccic, hn_ccit)
  *   - read_only_signal    → señal read-only con revisión humana (sv_comprasal)
  *   - read_only_snapshot  → snapshot persistido (hn_contrataciones_abiertas, etc.)
- *   - dry_run + not_persisted → fuentes en validación dry-run
+ *   - dry_run + not_persisted → fuentes en validación dry-run (legacy)
+ *
+ * aiFlowStatus cubiertos (fuentes clasificadas pero NO aptas para conexión
+ * inmediata — coincide con la excepción "Ver detalle" de action-presentation.ts):
+ *   - pending_integration_design → sin diseño de integración (ec_sercop,
+ *     br_receita_dados_abertos, br_receita_cnpj)
+ *   - requires_validation        → requiere validación de uso/legalidad previa
+ *     (ec_ekos, br_cnpj_ws)
+ * Estas fuentes no ofrecen "Conectar" y tampoco deben mostrar paneles de prueba
+ * de conexión: la exclusión solo OCULTA paneles, nunca expone una conexión.
  */
 export function shouldSkipGenericConnectionPanels(source: SourceConnectionFields): boolean {
   const cm = source.connectionMode;
+  const flow = source.aiFlowStatus;
   return (
     cm === 'not_applicable' ||
     cm === 'read_only_signal' ||
     cm === 'read_only_snapshot' ||
-    (source.aiFlowStatus === 'dry_run_validated' && cm === 'not_persisted')
+    (flow === 'dry_run_validated' && cm === 'not_persisted') ||
+    flow === 'pending_integration_design' ||
+    flow === 'requires_validation'
   );
 }
