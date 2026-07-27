@@ -34,6 +34,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
+import { isLushaPreviewEnabled } from '@/lib/feature-flags.server';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { searchLushaCompaniesV3 } from '@/server/integrations/lusha-client';
@@ -48,6 +49,13 @@ import {
   type LushaPendingReviewCandidateRow,
   type PersistLushaPendingReviewResult,
 } from '@/server/prospect-batches/lusha-pending-review';
+// Q3F-5BB.10C2 — read-only official-source resolvers (injected into the pure core)
+// + server-side flag gate. Neither path carries a forbidden import substring.
+import { buildLushaOfficialSourceResolvers } from '@/server/prospect-batches/lusha-official-source-resolvers';
+import {
+  guardLushaPreviewEnabled,
+  buildLushaPendingReviewDisabledResult,
+} from '@/modules/prospect-batches/lusha-preview-flag-guard';
 // Read-only duplicate parity (Q3F-5BB.7). Both helpers query for READS only:
 //   - checkCompanyDuplicate       → SellUp accounts + HubSpot (read-only checkers).
 //   - fetchActiveCandidatesForGuard → active prospect_candidates prefetch (read-only).
@@ -77,6 +85,20 @@ function invalidInputResult(): GenerateLushaPendingReviewBatchActionResult {
  * prospects. Returns counts + safe billing metadata for the confirmation UI.
  */
 export async function generateLushaPendingReviewBatchAction(
+  rawInput: GenerateLushaPendingReviewBatchInput,
+): Promise<GenerateLushaPendingReviewBatchActionResult> {
+  // Q3F-5BB.10C2 — server-side ENABLE_LUSHA_PREVIEW gate (P0). When the flag is
+  // off, `guardLushaPreviewEnabled` returns the disabled result WITHOUT running
+  // the callback — so no Lusha client is built, no search runs, and nothing is
+  // written, even on a direct call that bypasses the UI gate.
+  return guardLushaPreviewEnabled(
+    isLushaPreviewEnabled(),
+    buildLushaPendingReviewDisabledResult,
+    async () => runGenerateLushaPendingReviewBatch(rawInput),
+  );
+}
+
+async function runGenerateLushaPendingReviewBatch(
   rawInput: GenerateLushaPendingReviewBatchInput,
 ): Promise<GenerateLushaPendingReviewBatchActionResult> {
   // Auth: active internal user (RLS-scoped session). Redirects to /login if not.
@@ -141,6 +163,10 @@ export async function generateLushaPendingReviewBatchAction(
           );
           return prefetch.records;
         },
+        // Read-only official-source resolvers (Q3F-5BB.10C2). Today: Colombia
+        // (co_siis) name→NIT via an approved service-role read. Best-effort:
+        // yields [] when a safe client is unavailable → enrichment fails soft.
+        officialSourceResolvers: buildLushaOfficialSourceResolvers(),
       },
       parsed.data,
       { internalUserId },

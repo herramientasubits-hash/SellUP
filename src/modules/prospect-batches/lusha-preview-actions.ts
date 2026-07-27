@@ -16,6 +16,7 @@
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
+import { isLushaPreviewEnabled } from '@/lib/feature-flags.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { searchLushaCompaniesV3 } from '@/server/integrations/lusha-client';
 import {
@@ -23,6 +24,10 @@ import {
   LUSHA_PREVIEW_TIMEOUT_MS,
   type LushaPreviewResult,
 } from '@/server/prospect-batches/lusha-preview';
+import {
+  guardLushaPreviewEnabled,
+  buildLushaPreviewDisabledResult,
+} from '@/modules/prospect-batches/lusha-preview-flag-guard';
 
 const PreviewInputSchema = z.object({
   countryCode: z.string().trim().min(2).max(4),
@@ -44,6 +49,20 @@ export type PreviewLushaCompaniesActionResult =
  * normalizados con gate de calidad — sin persistir absolutamente nada.
  */
 export async function previewLushaCompaniesAction(
+  rawInput: PreviewLushaCompaniesInput,
+): Promise<PreviewLushaCompaniesActionResult> {
+  // Q3F-5BB.10C2 — server-side ENABLE_LUSHA_PREVIEW gate (P0). When the flag is
+  // off, `guardLushaPreviewEnabled` returns the disabled result WITHOUT running
+  // the callback below — so no Supabase client is built, no Lusha search runs, and
+  // nothing is read/written, even on a direct call that bypasses the UI gate.
+  return guardLushaPreviewEnabled(
+    isLushaPreviewEnabled(),
+    buildLushaPreviewDisabledResult,
+    async () => runPreviewLushaCompanies(rawInput),
+  );
+}
+
+async function runPreviewLushaCompanies(
   rawInput: PreviewLushaCompaniesInput,
 ): Promise<PreviewLushaCompaniesActionResult> {
   const supabase = await createClient();
