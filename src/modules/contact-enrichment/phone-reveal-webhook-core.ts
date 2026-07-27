@@ -135,7 +135,9 @@ export interface ApolloPhoneRevealWebhookDeps {
 export type WebhookOutcome =
   | 'not_configured'
   | 'unauthorized'
-  | 'missing_request_id'
+  // Token válido pero sin request_id (body vacío o ping de validación de Apollo).
+  // 200 no-op, sin escrituras: evita 422/reintentos destructivos.
+  | 'validation_ack'
   | 'unknown_request_id'
   | 'already_terminal'
   | 'revealed'
@@ -169,6 +171,23 @@ function constantTimeEquals(a: string, b: string): boolean {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
+}
+
+/**
+ * Verificación pura del token del webhook (query param o header). Fail-closed:
+ * token esperado ausente/vacío ⇒ false; token provisto ausente ⇒ false; en otro
+ * caso compara en tiempo constante. Reutilizado por el handler de validación
+ * (GET/HEAD/OPTIONS/POST-ping) para NUNCA responder 2xx sin token válido.
+ */
+export function isApolloWebhookTokenAuthorized(
+  tokenProvided: string | null,
+  expectedToken: string | null,
+): boolean {
+  const expected = cleanText(expectedToken);
+  if (!expected) return false;
+  const provided = cleanText(tokenProvided);
+  if (!provided) return false;
+  return constantTimeEquals(provided, expected);
 }
 
 const TERMINAL_STATUSES: readonly string[] = [
@@ -257,9 +276,12 @@ export async function runApolloPhoneRevealWebhook(
     return { httpStatus: 401, outcome: 'unauthorized' };
   }
 
-  // 3. request_id ausente → 400 seguro (malformado, no reintentar sirve).
+  // 3. request_id ausente → 200 validation_ack, SIN escrituras. Cubre el body
+  //    vacío / ping de validación de Apollo y cualquier callback sin id de
+  //    correlación (sin id no hay forma de procesar, y un 4xx dispararía
+  //    reintentos/422 innecesarios). Idempotente y seguro.
   const requestId = extractWebhookRequestId(input.payload);
-  if (!requestId) return { httpStatus: 400, outcome: 'missing_request_id' };
+  if (!requestId) return { httpStatus: 200, outcome: 'validation_ack' };
 
   // 4. Candidato desconocido → 200 (ack idempotente, sin PII, sin escribir).
   const candidate = await deps.loadCandidateByRequestId(requestId);
