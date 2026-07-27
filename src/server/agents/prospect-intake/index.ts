@@ -33,3 +33,18 @@ export {
   type WebAiRawCompany,
   type WebAiAdapterContext,
 } from './adapters/tavily';
+
+export {
+  evaluateProspectIntakeGate,
+  buildProspectIntakeGateAuditEntry,
+  getProspectIntakeGateReasonSeverity,
+  DEFAULT_PROSPECT_INTAKE_GATE_POLICY,
+} from './gate';
+export type {
+  ProspectIntakeGateDecision,
+  ProspectIntakeGateReason,
+  ProspectIntakeGateSeverity,
+  ProspectIntakeGatePolicy,
+  ProspectIntakeGateAudit,
+  ProspectIntakeGateResult,
+} from './gate';
