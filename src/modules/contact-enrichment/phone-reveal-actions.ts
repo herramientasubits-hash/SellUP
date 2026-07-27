@@ -40,7 +40,7 @@ import {
   type RevealStartPersistencePatch,
   type PhoneRevealUsageLogEntry,
 } from './phone-reveal-core';
-import type { ContactCandidateEnrichmentMetadata } from './types';
+import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 // Env con la URL pública del webhook async de Apollo (sin NEXT_PUBLIC). No se
 // exporta: este archivo es 'use server' y solo puede exportar async actions.
@@ -102,7 +102,7 @@ async function resolveActorForReveal(): Promise<{
 
 // ── Carga del candidato ────────────────────────────────────────
 
-const REVEAL_CANDIDATE_SELECT = `id, source_contact_id, email, linkedin_url,
+const REVEAL_CANDIDATE_SELECT = `id, source, source_contact_id, email, linkedin_url,
    first_name, last_name, phone, enrichment_metadata, phone_reveal_status,
    phone_reveal_attempt_count,
    run:contact_enrichment_runs ( account_id, company_name )`;
@@ -117,6 +117,9 @@ function mapRevealCandidate(row: unknown): RevealCandidateRecord {
   return {
     id: r.id as string,
     accountId: run?.account_id ?? null,
+    // Origen del candidato: gate anti-contaminación del Apollo id (sólo 'apollo'
+    // reenvía source_contact_id como Apollo person id; Lusha/otros lo omiten).
+    source: (r.source as ContactSource | null) ?? null,
     sourceContactId: (r.source_contact_id as string | null) ?? null,
     email: (r.email as string | null) ?? null,
     linkedinUrl: (r.linkedin_url as string | null) ?? null,

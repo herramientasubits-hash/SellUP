@@ -64,6 +64,7 @@ function baseCandidate(
   return {
     id: 'cand-1',
     accountId: 'acct-1',
+    source: 'apollo',
     sourceContactId: 'apollo-person-1',
     email: 'jane.doe@acme.com',
     linkedinUrl: 'https://linkedin.com/in/jane-doe',
@@ -593,6 +594,128 @@ describe('ASYNC-1 — usage-log sin PII', () => {
     assert.equal(cap.logs[0].metadata.request_id, REQUEST_ID);
     // Al iniciar no se cobran créditos (llegan con el webhook).
     assert.equal(cap.logs[0].metadata.credits_used, null);
+  });
+});
+
+// ── ASYNC-12: gate por proveedor del Apollo person id ──────────
+//
+// Regresión del HTTP 422: no reenviar source_contact_id de Lusha (v1.<token>)
+// como Apollo `id`. El reveal sigue siendo Apollo, pero para candidatos no-Apollo
+// el match va por email/linkedin/name/company.
+
+describe('ASYNC-12 — contaminación cross-provider del Apollo id', () => {
+  function lushaCandidate(
+    overrides: Partial<RevealCandidateRecord> = {},
+  ): RevealCandidateRecord {
+    return baseCandidate({
+      source: 'lusha',
+      sourceContactId: 'v1.lusha-token-xyz',
+      email: 'lead@empresa.com',
+      linkedinUrl: 'https://linkedin.com/in/lead',
+      ...overrides,
+    });
+  }
+
+  it('candidato Lusha elegible → Apollo SIN id, con webhook + email/linkedin', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, { candidate: lushaCandidate() }),
+    );
+    assert.equal(res.status, 'requested');
+    assert.equal(cap.apolloCalls.length, 1);
+    const params = cap.apolloCalls[0];
+    assert.equal('id' in params, false, 'NO debe enviar el id de Lusha a Apollo');
+    assert.equal(params.id, undefined);
+    assert.equal(params.reveal_phone_number, true);
+    assert.equal(params.webhook_url, WEBHOOK_URL);
+    assert.equal(params.email, 'lead@empresa.com');
+    assert.equal(params.linkedin_url, 'https://linkedin.com/in/lead');
+  });
+
+  it('candidato Apollo elegible → Apollo CON id (comportamiento preservado)', async () => {
+    const res = await runRevealCandidatePhone(validInput(), makeDeps(cap));
+    assert.equal(res.status, 'requested');
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal(cap.apolloCalls[0].id, 'apollo-person-1');
+    assert.equal(cap.apolloCalls[0].reveal_phone_number, true);
+    assert.equal(cap.apolloCalls[0].webhook_url, WEBHOOK_URL);
+  });
+
+  it('candidato Lusha SÓLO con id v1 (sin email/linkedin/name) → insufficient_identity, sin Apollo', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        candidate: lushaCandidate({
+          email: null,
+          linkedinUrl: null,
+          firstName: null,
+          lastName: null,
+        }),
+      }),
+    );
+    assert.equal(res.status, 'insufficient_identity');
+    assert.equal(cap.apolloCalls.length, 0);
+    assert.equal(cap.persisted.length, 0);
+  });
+
+  it('unknown/manual con id → Apollo SIN id, usa email', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        candidate: baseCandidate({
+          source: 'manual',
+          sourceContactId: 'manual-123',
+          email: 'lead@empresa.com',
+          linkedinUrl: null,
+        }),
+      }),
+    );
+    assert.equal(res.status, 'requested');
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal('id' in cap.apolloCalls[0], false);
+    assert.equal(cap.apolloCalls[0].email, 'lead@empresa.com');
+  });
+
+  it('observabilidad: id_forwarded_to_apollo + source_provider_for_id (Lusha)', async () => {
+    await runRevealCandidatePhone(validInput(), makeDeps(cap, { candidate: lushaCandidate() }));
+    assert.equal(cap.logs.length, 1);
+    assert.equal(cap.logs[0].metadata.id_forwarded_to_apollo, false);
+    assert.equal(cap.logs[0].metadata.source_provider_for_id, 'lusha');
+  });
+
+  it('observabilidad: id_forwarded_to_apollo true para Apollo', async () => {
+    await runRevealCandidatePhone(validInput(), makeDeps(cap));
+    assert.equal(cap.logs[0].metadata.id_forwarded_to_apollo, true);
+    assert.equal(cap.logs[0].metadata.source_provider_for_id, 'apollo');
+  });
+
+  it('metadata NO contiene el source_contact_id (ni id v1) — sin PII', async () => {
+    await runRevealCandidatePhone(validInput(), makeDeps(cap, { candidate: lushaCandidate() }));
+    const serialized = JSON.stringify(cap.logs[0]);
+    assert.equal(serialized.includes('v1.lusha-token-xyz'), false);
+    assert.equal(serialized.includes('lead@empresa.com'), false);
+    assert.equal(serialized.includes('linkedin.com/in/lead'), false);
+  });
+
+  it('nunca envía a Apollo un id con prefijo v1. aunque source diga apollo (defensa)', async () => {
+    const res = await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        candidate: baseCandidate({
+          source: 'apollo',
+          sourceContactId: 'v1.leaked-lusha-token',
+          email: 'lead@empresa.com',
+        }),
+      }),
+    );
+    assert.equal(res.status, 'requested');
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal('id' in cap.apolloCalls[0], false);
+    for (const value of Object.values(cap.apolloCalls[0])) {
+      if (typeof value === 'string') {
+        assert.equal(value.startsWith('v1.'), false);
+      }
+    }
   });
 });
 
