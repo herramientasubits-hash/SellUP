@@ -1316,6 +1316,18 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'discovery',
     aiFlowStatus: 'dry_run_validated',
     connectionMode: 'not_persisted',
+    // Reconciliación de clave (BR-SOURCE-8-UI-FIX1): la UI/registry conserva la
+    // clave existente `br_receita_dados_abertos` para no duplicar la fuente de
+    // Brasil. Los contratos técnicos (parser, staging, dry-run) usan la clave
+    // canónica `br_receita_cnpj_dados_abertos`. No se renombra `key` porque ya
+    // está en uso por la UI y las rutas del catálogo.
+    canonicalTechnicalSourceKey: 'br_receita_cnpj_dados_abertos',
+    sourceKeyReconciliation: {
+      registrySourceKey: 'br_receita_dados_abertos',
+      canonicalTechnicalSourceKey: 'br_receita_cnpj_dados_abertos',
+      reason:
+        'La clave existente del catálogo/UI se conserva para evitar duplicar la fuente de Brasil; los contratos técnicos de parser, staging y dry-run usan la clave canónica br_receita_cnpj_dados_abertos.',
+    },
     nextAction:
       'Preparación técnica lista (parser, validador de manifiesto, dry-run local). Import, runtime, HubSpot y generación live permanecen bloqueados hasta un hito separado con aprobación explícita.',
     countryCodes: ['BR'],

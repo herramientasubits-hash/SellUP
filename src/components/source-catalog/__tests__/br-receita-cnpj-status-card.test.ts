@@ -12,6 +12,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   BR_RECEITA_CNPJ_SOURCE_KEY,
+  BR_RECEITA_REGISTRY_SOURCE_KEY,
+  BR_RECEITA_CANONICAL_TECHNICAL_SOURCE_KEY,
+  BR_RECEITA_SOURCE_KEY_RECONCILIATION_COPY,
   BR_RECEITA_READY_ITEMS,
   BR_RECEITA_BLOCKED_ITEMS,
   isBrReceitaLegalApproved,
@@ -60,6 +63,33 @@ describe('BR-SOURCE-8-UI — BrReceitaCnpjStatusCard', () => {
     assert.equal(isBrReceitaAgent1LiveEnabled(), false);
     assert.equal(isBrReceitaHubspotSyncEnabled(), false);
     assert.equal(isBrReceitaLiveGenerationEnabled(), false);
+  });
+
+  it('exposes the source key reconciliation (registry key preserved)', () => {
+    assert.equal(BR_RECEITA_REGISTRY_SOURCE_KEY, 'br_receita_dados_abertos');
+    assert.equal(BR_RECEITA_CNPJ_SOURCE_KEY, BR_RECEITA_REGISTRY_SOURCE_KEY);
+    assert.equal(
+      BR_RECEITA_CANONICAL_TECHNICAL_SOURCE_KEY,
+      'br_receita_cnpj_dados_abertos',
+    );
+    assert.notEqual(
+      BR_RECEITA_REGISTRY_SOURCE_KEY,
+      BR_RECEITA_CANONICAL_TECHNICAL_SOURCE_KEY,
+    );
+  });
+
+  it('reconciliation copy names the canonical technical key', () => {
+    assert.ok(
+      BR_RECEITA_SOURCE_KEY_RECONCILIATION_COPY.includes(
+        'br_receita_cnpj_dados_abertos',
+      ),
+      'la copy debe mencionar la clave canónica',
+    );
+    const copy = BR_RECEITA_SOURCE_KEY_RECONCILIATION_COPY.toLowerCase();
+    assert.ok(!/\bimportar\b/.test(copy), 'la copy no debe invitar a importar');
+    assert.ok(!/\bconectar\b/.test(copy), 'la copy no debe invitar a conectar');
+    assert.ok(!/\bactivar\b/.test(copy), 'la copy no debe invitar a activar');
+    assert.ok(!/\bdescargar\b/.test(copy), 'la copy no debe invitar a descargar');
   });
 
   it('no item text implies an active/connected/importable state', () => {

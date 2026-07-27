@@ -173,6 +173,21 @@ export type CatalogSource = {
   connectionMode?: ConnectionMode;
   /** Texto corto de siguiente acción para UI */
   nextAction?: string;
+  /**
+   * Clave técnica canónica usada por los contratos de parser/staging/dry-run
+   * cuando difiere de `key` (la clave del registry/UI). Se documenta para
+   * reconciliar sin duplicar la fuente ni renombrar la clave existente.
+   */
+  canonicalTechnicalSourceKey?: string;
+  /**
+   * Reconciliación explícita entre la clave del registry/UI y la clave técnica
+   * canónica. Presentacional/documental — no altera rutas ni contratos.
+   */
+  sourceKeyReconciliation?: {
+    registrySourceKey: string;
+    canonicalTechnicalSourceKey: string;
+    reason: string;
+  };
 };
 
 export type CatalogContextInput = {

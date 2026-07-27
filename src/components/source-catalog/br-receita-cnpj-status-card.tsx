@@ -25,6 +25,21 @@ import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card
 
 export const BR_RECEITA_CNPJ_SOURCE_KEY = 'br_receita_dados_abertos';
 
+// ─── Reconciliación de clave (BR-SOURCE-8-UI-FIX1) ────────────────────────────
+// La UI/registry conserva la clave existente para no duplicar la fuente de
+// Brasil; los contratos técnicos (parser, staging, dry-run) usan la canónica.
+
+/** Clave existente del catálogo/UI (no se renombra: ya está en uso). */
+export const BR_RECEITA_REGISTRY_SOURCE_KEY = 'br_receita_dados_abertos';
+
+/** Clave técnica canónica en los contratos de parser/staging/dry-run. */
+export const BR_RECEITA_CANONICAL_TECHNICAL_SOURCE_KEY =
+  'br_receita_cnpj_dados_abertos';
+
+/** Copy presentacional que explica la reconciliación de claves. */
+export const BR_RECEITA_SOURCE_KEY_RECONCILIATION_COPY =
+  'La interfaz conserva la clave existente del catálogo para evitar duplicar la fuente. Los contratos técnicos de parser, staging y dry-run usan la clave canónica br_receita_cnpj_dados_abertos.';
+
 export type BrReceitaStatusItem = {
   label: string;
   detail: string;
@@ -117,6 +132,33 @@ export function BrReceitaCnpjStatusCard() {
         title="Estado técnico — Brasil · Receita CNPJ"
         description="Preparación técnica / dry-run local listo. La fuente aún no importa, no escribe en Supabase y no alimenta el runtime de prospección."
       />
+
+      <div className="mb-4 rounded-md border border-border/50 bg-muted/30 px-3 py-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Reconciliación de clave
+        </p>
+        <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div>
+            <dt className="text-[11px] text-muted-foreground">
+              Clave de catálogo existente
+            </dt>
+            <dd className="font-mono text-xs text-foreground">
+              {BR_RECEITA_REGISTRY_SOURCE_KEY}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] text-muted-foreground">
+              Clave técnica canónica
+            </dt>
+            <dd className="font-mono text-xs text-foreground">
+              {BR_RECEITA_CANONICAL_TECHNICAL_SOURCE_KEY}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          {BR_RECEITA_SOURCE_KEY_RECONCILIATION_COPY}
+        </p>
+      </div>
 
       <dl className="grid gap-3 sm:grid-cols-2">
         {BR_RECEITA_READY_ITEMS.map((item) => (

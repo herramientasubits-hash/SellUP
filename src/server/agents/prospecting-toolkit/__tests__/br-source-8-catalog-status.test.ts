@@ -84,6 +84,54 @@ describe('BR-SOURCE-8-UI — br_receita_dados_abertos catalog status', () => {
   });
 });
 
+describe('BR-SOURCE-8-UI-FIX1 — Brazil source_key reconciliation', () => {
+  it('registry/UI source key is preserved (br_receita_dados_abertos)', () => {
+    assert.equal(receita?.key, 'br_receita_dados_abertos');
+  });
+
+  it('exposes the canonical technical source key (br_receita_cnpj_dados_abertos)', () => {
+    assert.equal(
+      receita?.canonicalTechnicalSourceKey,
+      'br_receita_cnpj_dados_abertos',
+    );
+  });
+
+  it('documents the reconciliation between registry and canonical keys', () => {
+    const rec = receita?.sourceKeyReconciliation;
+    assert.ok(rec, 'sourceKeyReconciliation debe existir');
+    assert.equal(rec?.registrySourceKey, 'br_receita_dados_abertos');
+    assert.equal(
+      rec?.canonicalTechnicalSourceKey,
+      'br_receita_cnpj_dados_abertos',
+    );
+    assert.ok(
+      /canónica|canonica/i.test(rec?.reason ?? ''),
+      'reason debe explicar la clave canónica',
+    );
+  });
+
+  it('does NOT duplicate Brazil as a second canonical-keyed source', () => {
+    const canonicalKeyed = CATALOG_SOURCES.filter(
+      (s) => s.key === 'br_receita_cnpj_dados_abertos',
+    );
+    assert.equal(
+      canonicalKeyed.length,
+      0,
+      'la clave canónica no debe existir como entrada de catálogo separada',
+    );
+    const bulkBrazil = CATALOG_SOURCES.filter(
+      (s) => s.key === 'br_receita_dados_abertos',
+    );
+    assert.equal(bulkBrazil.length, 1, 'la fuente bulk de Brasil debe ser única');
+  });
+
+  it('reconciliation does not flip status to active/live', () => {
+    assert.equal(receita?.operationalStatus, 'dry_run_validated');
+    assert.equal(receita?.aiFlowStatus, 'dry_run_validated');
+    assert.equal(receita?.connectionMode, 'not_persisted');
+  });
+});
+
 describe('BR-SOURCE-8-UI — isolation of unrelated sources', () => {
   it('br_receita_cnpj (institucional) unchanged: validation_only', () => {
     assert.ok(receitaInstitucional);
