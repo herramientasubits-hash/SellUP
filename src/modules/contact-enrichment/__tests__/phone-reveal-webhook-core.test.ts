@@ -29,6 +29,7 @@ import {
   extractWebhookRequestId,
   collectWebhookPhoneNumbers,
   sumWebhookCredits,
+  isApolloWebhookTokenAuthorized,
   type ApolloPhoneRevealWebhookDeps,
   type ApolloPhoneRevealWebhookInput,
   type ApolloPhoneRevealWebhookPayload,
@@ -126,6 +127,28 @@ describe('ASYNC-1 webhook — helpers puros', () => {
   });
 });
 
+// ── ASYNC-9: verificación pura del token (validation handshake) ─
+
+describe('ASYNC-9 webhook — isApolloWebhookTokenAuthorized', () => {
+  it('token correcto → true', () => {
+    assert.equal(isApolloWebhookTokenAuthorized(TOKEN, TOKEN), true);
+  });
+
+  it('token incorrecto → false', () => {
+    assert.equal(isApolloWebhookTokenAuthorized('wrong', TOKEN), false);
+  });
+
+  it('token provisto ausente/vacío → false', () => {
+    assert.equal(isApolloWebhookTokenAuthorized(null, TOKEN), false);
+    assert.equal(isApolloWebhookTokenAuthorized('   ', TOKEN), false);
+  });
+
+  it('token esperado ausente/vacío (no configurado) → false (fail-closed)', () => {
+    assert.equal(isApolloWebhookTokenAuthorized(TOKEN, null), false);
+    assert.equal(isApolloWebhookTokenAuthorized(TOKEN, '   '), false);
+  });
+});
+
 // ── Token ──────────────────────────────────────────────────────
 
 describe('ASYNC-1 webhook — token', () => {
@@ -162,11 +185,21 @@ describe('ASYNC-1 webhook — token', () => {
 // ── request_id ─────────────────────────────────────────────────
 
 describe('ASYNC-1 webhook — request_id', () => {
-  it('request_id ausente → 400 seguro, sin persistir', async () => {
+  it('request_id ausente → 200 validation_ack, sin persistir (validation-safe)', async () => {
     const res = await runApolloPhoneRevealWebhook(input({}), makeDeps(cap));
-    assert.equal(res.httpStatus, 400);
-    assert.equal(res.outcome, 'missing_request_id');
+    assert.equal(res.httpStatus, 200);
+    assert.equal(res.outcome, 'validation_ack');
     assert.equal(cap.persisted.length, 0);
+    assert.equal(cap.logs.length, 0);
+    assert.equal(cap.loadedRequestIds.length, 0);
+  });
+
+  it('body null (token válido) → 200 validation_ack, sin escrituras', async () => {
+    const res = await runApolloPhoneRevealWebhook(input(null), makeDeps(cap));
+    assert.equal(res.httpStatus, 200);
+    assert.equal(res.outcome, 'validation_ack');
+    assert.equal(cap.persisted.length, 0);
+    assert.equal(cap.logs.length, 0);
   });
 
   it('request_id desconocido → 200 no-op, sin persistir ni PII', async () => {
@@ -320,5 +353,30 @@ describe('ASYNC-1 webhook — guards de la ruta', () => {
 
   it('reveal_phone_number: true NO aparece en la ruta', () => {
     assert.equal(/reveal_phone_number\s*:\s*true/.test(code), false);
+  });
+
+  // ── ASYNC-9: handlers del handshake de validación ──────────────
+
+  it('expone GET / HEAD / OPTIONS además de POST', () => {
+    assert.equal(/export\s+async\s+function\s+GET\s*\(/.test(code), true);
+    assert.equal(/export\s+async\s+function\s+HEAD\s*\(/.test(code), true);
+    assert.equal(/export\s+async\s+function\s+OPTIONS\s*\(/.test(code), true);
+    assert.equal(/export\s+async\s+function\s+POST\s*\(/.test(code), true);
+  });
+
+  it('los handlers de validación están gateados por token (isApolloWebhookTokenAuthorized)', () => {
+    assert.equal(/isApolloWebhookTokenAuthorized/.test(code), true);
+    // Gate reutilizado; sin token válido no hay 2xx (401 por defecto).
+    assert.equal(/401/.test(code), true);
+  });
+
+  it('el GET de validación responde un JSON seguro sin secretos', () => {
+    assert.equal(/apollo_phone_reveal_webhook_validation/.test(code), true);
+  });
+
+  it('los handlers de validación no consultan candidato ni proveedor', () => {
+    // Ninguna de las funciones de validación referencia Apollo/reveal reales.
+    assert.equal(/startApolloPhoneReveal/.test(code), false);
+    assert.equal(/loadCandidateByRequestId[\s\S]*export\s+async\s+function\s+GET/.test(code), false);
   });
 });

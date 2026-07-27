@@ -16,12 +16,23 @@
 // never writes HubSpot, never touches Lusha, and never prints the raw body or
 // any phone / email / name / linkedin. The whole reveal path stays gated behind
 // ENABLE_APOLLO_PHONE_REVEAL, which is OFF in every environment.
+//
+// Webhook validation handshake (APOLLO-PHONE-ASYNC-9): Apollo may prevalidate
+// `webhook_url` before accepting the async reveal (verb/expectation undocumented)
+// — a non-2xx probe (405/400/401) would make Apollo reject the reveal with HTTP
+// 422. To stay validation-safe this route also answers GET / HEAD / OPTIONS and
+// a POST "ping" (valid token but no request_id) with a 2xx, but ONLY when the
+// shared token is valid: without a valid token nothing returns 2xx. Those
+// validation responses touch no Supabase, make no Apollo call, write nothing and
+// leak no secret.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
   runApolloPhoneRevealWebhook,
+  isApolloWebhookTokenAuthorized,
+  extractWebhookRequestId,
   type ApolloPhoneRevealWebhookPayload,
   type WebhookCandidateRecord,
   type WebhookRevealPersistencePatch,
@@ -68,6 +79,46 @@ function extractToken(request: NextRequest): string | null {
   return null;
 }
 
+/** ¿La petición trae un token válido? (mismo gate para GET/HEAD/OPTIONS/POST). */
+function isRequestAuthorized(request: NextRequest): boolean {
+  const expectedToken = process.env[APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN_ENV] ?? null;
+  return isApolloWebhookTokenAuthorized(extractToken(request), expectedToken);
+}
+
+// ── Handshake de validación de webhook ─────────────────────────
+//
+// Apollo puede prevalidar `webhook_url` antes de aceptar el reveal (sin
+// documentar método ni verbo). Si la URL respondiera no-2xx (405/400/401),
+// Apollo rechazaría el reveal con HTTP 422. Para evitarlo, respondemos 2xx a
+// GET/HEAD/OPTIONS y a POST-ping SOLO cuando el token es válido: sin token no
+// hay 2xx. Estos handlers NO tocan Supabase, NO llaman a Apollo, NO escriben,
+// NO loguean y NO exponen secretos.
+
+/** GET con token válido → 200 JSON seguro; sin token → 401. */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  if (!isRequestAuthorized(request)) {
+    return NextResponse.json({ ok: false }, { status: 401 });
+  }
+  return NextResponse.json(
+    { ok: true, purpose: 'apollo_phone_reveal_webhook_validation' },
+    { status: 200 },
+  );
+}
+
+/** HEAD con token válido → 200 sin body; sin token → 401. */
+export async function HEAD(request: NextRequest): Promise<NextResponse> {
+  return new NextResponse(null, {
+    status: isRequestAuthorized(request) ? 200 : 401,
+  });
+}
+
+/** OPTIONS con token válido → 204; sin token → 401. */
+export async function OPTIONS(request: NextRequest): Promise<NextResponse> {
+  return new NextResponse(null, {
+    status: isRequestAuthorized(request) ? 204 : 401,
+  });
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const nowIso = new Date().toISOString();
   const expectedToken = process.env[APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN_ENV] ?? null;
@@ -80,6 +131,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (text) payload = JSON.parse(text) as ApolloPhoneRevealWebhookPayload;
   } catch {
     payload = null;
+  }
+
+  // Token inválido/ausente → 401 (fail-closed, sin tocar Supabase).
+  if (!isApolloWebhookTokenAuthorized(tokenProvided, expectedToken)) {
+    return NextResponse.json({ ok: false }, { status: 401 });
+  }
+
+  // Ping de validación: token válido pero sin request_id (body vacío o callback
+  // sin id de correlación) → 200 no-op. SIN Supabase, SIN escrituras, SIN logs.
+  if (!extractWebhookRequestId(payload)) {
+    return NextResponse.json({ ok: true, status: 'validation_ack' }, { status: 200 });
   }
 
   const admin = getAdminClient();
