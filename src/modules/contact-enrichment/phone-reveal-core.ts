@@ -128,10 +128,15 @@ export interface RevealCandidateRecord {
  * Resultado normalizado del INICIO del reveal asíncrono en Apollo. No trae
  * teléfonos: solo el id de correlación (request_id) o un código de error seguro
  * (sin PII, sin payload crudo). El teléfono llega después por el webhook.
+ *
+ * `errorHint` (opcional) es una razón corta ya sanitizada/allowlisted (sin PII,
+ * sin body crudo, sin secretos) que el wrapper extrae del error de Apollo para
+ * diagnóstico. Se registra SOLO en provider_usage_logs.metadata; nunca sustituye
+ * al `errorCode` mecánico (p.ej. HTTP_422) ni toca el schema del candidato.
  */
 export type ApolloPhoneRevealStartCallResult =
   | { ok: true; requestId: string | null }
-  | { ok: false; errorCode: string };
+  | { ok: false; errorCode: string; errorHint?: string | null };
 
 // ── Patch de persistencia del START (describe el UPDATE, no lo ejecuta) ──
 
@@ -179,10 +184,17 @@ export interface PhoneRevealUsageLogEntry {
     reveal_status: string;
     reveal_phase: 'start';
     request_id: string | null;
+    /** true cuando Apollo devolvió un request_id de correlación (START aceptado). */
+    has_request_id: boolean;
     credits_used: number | null;
     cost_usd: number | null;
     processing_basis: PhoneProcessingBasis;
     error_code: string | null;
+    /**
+     * Razón corta ya sanitizada del error de Apollo (sin PII, sin body crudo,
+     * sin secretos). null en el camino feliz. Diagnóstico del 422 sin schema.
+     */
+    apollo_error_hint: string | null;
   };
 }
 
@@ -411,6 +423,10 @@ export async function runRevealCandidatePhone(
     const errorCode = !started.ok
       ? cleanText(started.errorCode) ?? 'apollo_reveal_start_failed'
       : 'missing_request_id';
+    // Hint sanitizado (sin PII) solo cuando Apollo devolvió un error real; nunca
+    // se persiste en el candidato (solo en el usage-log). Sin request_id => hint
+    // no aplica.
+    const errorHint = !started.ok ? cleanText(started.errorHint) : null;
     const patch: RevealStartPersistencePatch = {
       phone_reveal_status: 'error',
       phone_reveal_request_id: null,
@@ -434,6 +450,7 @@ export async function runRevealCandidatePhone(
         requestId: null,
         basis,
         errorCode,
+        errorHint,
       }),
     );
     return { ok: false, status: 'error', requestAccepted: false, errorCode };
@@ -465,6 +482,7 @@ export async function runRevealCandidatePhone(
       requestId,
       basis,
       errorCode: null,
+      errorHint: null,
     }),
   );
   return { ok: true, status: 'requested', requestAccepted: true, errorCode: null };
@@ -479,6 +497,7 @@ function buildUsageLogEntry(args: {
   requestId: string | null;
   basis: PhoneProcessingBasis;
   errorCode: string | null;
+  errorHint: string | null;
 }): PhoneRevealUsageLogEntry {
   return {
     operationKey: PHONE_REVEAL_OPERATION_KEY,
@@ -495,10 +514,12 @@ function buildUsageLogEntry(args: {
       reveal_status: args.revealStatus,
       reveal_phase: 'start',
       request_id: args.requestId,
+      has_request_id: Boolean(args.requestId),
       credits_used: null,
       cost_usd: null,
       processing_basis: args.basis,
       error_code: args.errorCode,
+      apollo_error_hint: args.errorHint,
     },
   };
 }

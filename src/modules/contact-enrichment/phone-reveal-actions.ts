@@ -29,6 +29,7 @@ import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
 import { startApolloPhoneReveal } from '@/server/integrations/apollo-client';
+import { sanitizeApolloErrorMessage } from './apollo-error-hint';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
   runRevealCandidatePhone,
@@ -226,7 +227,13 @@ export async function revealCandidatePhoneAction(
     ): Promise<ApolloPhoneRevealStartCallResult> => {
       const result = await startApolloPhoneReveal(params);
       if (!result.success) {
-        return { ok: false, errorCode: safeApolloErrorCode(result.error?.error) };
+        // errorCode: mecánico (HTTP_422) → columna del candidato.
+        // errorHint: razón sanitizada del body → solo usage-log (sin PII/secretos).
+        return {
+          ok: false,
+          errorCode: safeApolloErrorCode(result.error?.error),
+          errorHint: sanitizeApolloErrorMessage(result.error?.message),
+        };
       }
       return { ok: true, requestId: result.requestId ?? null };
     },

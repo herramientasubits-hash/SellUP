@@ -38,6 +38,10 @@ import {
 } from '../phone-reveal-core';
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
 import { isApolloPhoneRevealEnabled, APOLLO_PHONE_REVEAL_FLAG } from '@/lib/feature-flags.server';
+import {
+  sanitizeApolloErrorMessage,
+  APOLLO_ERROR_HINT_MAX_LENGTH,
+} from '../apollo-error-hint';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // __tests__ → contact-enrichment → modules → src → repo root
@@ -399,6 +403,108 @@ describe('ASYNC-1 — START fallido', () => {
     assert.equal(res.status, 'error');
     assert.equal(res.errorCode, 'missing_request_id');
     assert.equal(cap.persisted[0].patch.phone_reveal_status, 'error');
+  });
+
+  // ── ASYNC-9: hint sanitizado del 422 en la metadata (NO en el candidato) ──
+
+  it('errorHint del START fluye SOLO a usage-log.metadata (has_request_id false)', async () => {
+    await runRevealCandidatePhone(
+      validInput(),
+      makeDeps(cap, {
+        apollo: {
+          ok: false,
+          errorCode: 'HTTP_422',
+          errorHint: "Please add a valid 'webhook_url' parameter",
+        },
+      }),
+    );
+    // El candidato solo guarda el código mecánico (sin body/hint en el schema).
+    assert.equal(cap.persisted[0].patch.phone_reveal_error_code, 'HTTP_422');
+    const patch = cap.persisted[0].patch as unknown as Record<string, unknown>;
+    assert.equal('apollo_error_hint' in patch, false);
+    // La metadata sí lleva el hint sanitizado + has_request_id.
+    assert.equal(
+      cap.logs[0].metadata.apollo_error_hint,
+      "Please add a valid 'webhook_url' parameter",
+    );
+    assert.equal(cap.logs[0].metadata.has_request_id, false);
+    assert.equal(cap.logs[0].metadata.error_code, 'HTTP_422');
+    assert.equal(cap.logs[0].metadata.reveal_phase, 'start');
+  });
+
+  it('camino feliz → metadata con apollo_error_hint null y has_request_id true', async () => {
+    await runRevealCandidatePhone(validInput(), makeDeps(cap));
+    assert.equal(cap.logs[0].metadata.apollo_error_hint, null);
+    assert.equal(cap.logs[0].metadata.has_request_id, true);
+  });
+});
+
+// ── ASYNC-9: sanitizador puro del error de Apollo (observabilidad segura) ──
+
+describe('ASYNC-9 — sanitizeApolloErrorMessage', () => {
+  it('extrae el mensaje del 422 real (JSON con campo error allowlisted)', () => {
+    const body = JSON.stringify({
+      error:
+        "Please add a valid 'webhook_url' parameter when using 'reveal_phone_number'",
+    });
+    const hint = sanitizeApolloErrorMessage(body);
+    assert.equal(
+      hint,
+      "Please add a valid 'webhook_url' parameter when using 'reveal_phone_number'",
+    );
+  });
+
+  it('acepta objeto ya parseado y concatena campos allowlisted (orden fijo)', () => {
+    // Orden de allowlist: error, message, error_message, code, status.
+    const hint = sanitizeApolloErrorMessage({ code: 422, message: 'unprocessable' });
+    assert.equal(hint, 'unprocessable | 422');
+  });
+
+  it('trunca a APOLLO_ERROR_HINT_MAX_LENGTH', () => {
+    // Palabras separadas por espacios (no un token largo, que se redactaría).
+    const long = 'unprocessable entity error '.repeat(20);
+    const hint = sanitizeApolloErrorMessage({ message: long });
+    assert.equal(hint?.length, APOLLO_ERROR_HINT_MAX_LENGTH);
+  });
+
+  it('redacta email / URL-con-query / token / teléfono / linkedin', () => {
+    const body = JSON.stringify({
+      message:
+        'failed for jane.doe@acme.com via https://app.example.com/webhook?token=supersecretvalue ' +
+        'phone +573001112233 profile https://www.linkedin.com/in/jane-doe key deadbeefdeadbeefdeadbeefdeadbeef00',
+    });
+    const hint = sanitizeApolloErrorMessage(body) ?? '';
+    // Nada de PII ni secretos en claro.
+    assert.equal(/jane\.doe@acme\.com/.test(hint), false);
+    assert.equal(/supersecretvalue/.test(hint), false);
+    assert.equal(/573001112233/.test(hint), false);
+    assert.equal(/linkedin\.com\/in\/jane-doe/.test(hint), false);
+    assert.equal(/deadbeefdeadbeef/.test(hint), false);
+    // Placeholders presentes.
+    assert.equal(hint.includes('[redacted_email]'), true);
+    assert.equal(hint.includes('[redacted_linkedin]'), true);
+  });
+
+  it('no filtra el body crudo cuando el JSON no trae campos allowlisted', () => {
+    const body = JSON.stringify({
+      webhook_url: 'https://app.example.com/webhook?token=supersecretvalue',
+      payload: { first_name: 'Jane', last_name: 'Doe' },
+    });
+    const hint = sanitizeApolloErrorMessage(body);
+    assert.equal(hint, null);
+  });
+
+  it('entradas vacías/no aptas → null', () => {
+    assert.equal(sanitizeApolloErrorMessage(null), null);
+    assert.equal(sanitizeApolloErrorMessage(undefined), null);
+    assert.equal(sanitizeApolloErrorMessage(''), null);
+    assert.equal(sanitizeApolloErrorMessage('   '), null);
+    assert.equal(sanitizeApolloErrorMessage({}), null);
+  });
+
+  it('string plano no-JSON se usa como mensaje y se redacta', () => {
+    const hint = sanitizeApolloErrorMessage('Unprocessable Entity for jane@acme.com');
+    assert.equal(hint, 'Unprocessable Entity for [redacted_email]');
   });
 });
 
