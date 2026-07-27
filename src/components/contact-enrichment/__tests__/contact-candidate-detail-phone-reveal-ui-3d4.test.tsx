@@ -1,23 +1,24 @@
 /**
- * Tests — UI de reveal de teléfono en revisión humana (Agente 2A · PHONE-3D.4)
+ * Tests — UI de reveal de teléfono en revisión humana (Agente 2A · one-click)
  *
- * Render real de React (jsdom + @testing-library/react) del detalle de
- * candidato con el botón + modal de reveal. NO toca el servidor, NO llama
- * proveedores, NO escribe en DB, NO revela teléfonos reales: el server action
- * `revealCandidatePhoneAction` está mockeado y devuelve resultados sintéticos.
+ * APOLLO-PHONE-ASYNC-5: producto eliminó el modal de confirmación/base legal.
+ * El botón "Revelar teléfono" ahora solicita la revelación asíncrona en UN clic,
+ * con base fija (interés legítimo B2B). Render real de React (jsdom +
+ * @testing-library/react) del detalle de candidato. NO toca el servidor, NO
+ * llama proveedores, NO escribe en DB, NO revela teléfonos reales: el server
+ * action `revealCandidatePhoneAction` está mockeado y devuelve resultados
+ * sintéticos.
  *
  * Invariantes verificados:
  *   - Con el feature OFF (o rol no autorizado) el botón NO aparece.
  *   - Con el feature ON + candidato elegible el botón aparece.
- *   - El modal muestra el costo "hasta 8 créditos".
- *   - La base de tratamiento es obligatoria (validación cliente).
- *   - other_approved_basis exige nota.
- *   - Confirmar llama al action con confirmCost=true, expectedMaxCredits=8 y la
- *     base; sin teléfono/email/linkedin/nombre.
- *   - revealed → cierra modal + refetch → teléfono + badge "Apollo reveal".
- *   - no_phone_found → mensaje "Teléfono no disponible tras reveal.".
- *   - error → mensaje seguro "No fue posible revelar el teléfono.".
- *   - already_revealed / do_not_contact bloquean el botón.
+ *   - El clic NO abre ningún modal/diálogo de reveal (no existe selector de base).
+ *   - El clic llama al action UNA sola vez con confirmCost=true,
+ *     expectedMaxCredits=8 y base legitimate_interest_b2b; sin PII.
+ *   - Doble clic no dispara dos actions; el botón queda deshabilitado (loading).
+ *   - requested/pending → "Revelación en proceso" y el botón se oculta.
+ *   - revealed → teléfono + badge "Apollo reveal".
+ *   - no_phone_found → mensaje seguro; error → mensaje seguro.
  *   - No hay reveal en lote; los botones Aprobar/Rechazar siguen intactos.
  *
  * Requiere --experimental-test-module-mocks (mock.module).
@@ -197,20 +198,12 @@ async function renderSheet(candidate: PendingContactCandidate, opts: RenderOpts 
   return { onClose };
 }
 
-/** Abre el modal de reveal haciendo click en el botón "Revelar teléfono". */
-async function openRevealDialog() {
-  fireEvent.click(screen.getByRole('button', { name: 'Revelar teléfono' }));
-  await waitFor(() => {
-    if (!screen.queryByText('Revelar teléfono del candidato')) {
-      throw new Error('reveal dialog not open yet');
-    }
-  });
+function revealButton() {
+  return screen.queryByRole('button', { name: 'Revelar teléfono' });
 }
 
-function clickConfirm() {
-  fireEvent.click(
-    screen.getByRole('button', { name: /Solicitar revelación \(hasta 8 créditos\)/ }),
-  );
+function clickReveal() {
+  fireEvent.click(screen.getByRole('button', { name: 'Revelar teléfono' }));
 }
 
 // ── Setup/Teardown ─────────────────────────────────────────────────────────────
@@ -243,19 +236,19 @@ after(() => {
 describe('Visibilidad del botón "Revelar teléfono"', () => {
   it('feature OFF → el botón NO aparece', async () => {
     await renderSheet(makeCandidate(), { phoneRevealEnabled: false, phoneRevealAuthorized: true });
-    assert.equal(screen.queryByRole('button', { name: 'Revelar teléfono' }), null);
+    assert.equal(revealButton(), null);
     cleanup();
   });
 
   it('feature ON pero rol no autorizado → el botón NO aparece', async () => {
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: false });
-    assert.equal(screen.queryByRole('button', { name: 'Revelar teléfono' }), null);
+    assert.equal(revealButton(), null);
     cleanup();
   });
 
   it('feature ON + autorizado + candidato elegible → el botón aparece', async () => {
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    assert.ok(screen.getByRole('button', { name: 'Revelar teléfono' }));
+    assert.ok(revealButton());
     cleanup();
   });
 
@@ -268,7 +261,7 @@ describe('Visibilidad del botón "Revelar teléfono"', () => {
       },
     });
     await renderSheet(candidate, { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    assert.equal(screen.queryByRole('button', { name: 'Revelar teléfono' }), null);
+    assert.equal(revealButton(), null);
     // Muestra el badge "Apollo reveal" del teléfono ya revelado.
     assert.ok(screen.getByText('Apollo reveal'));
     cleanup();
@@ -277,64 +270,46 @@ describe('Visibilidad del botón "Revelar teléfono"', () => {
   it('candidato con no_phone_found previo → el botón NO aparece (sin reintento)', async () => {
     const candidate = makeCandidate({ phone_reveal_status: 'no_phone_found' });
     await renderSheet(candidate, { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    assert.equal(screen.queryByRole('button', { name: 'Revelar teléfono' }), null);
+    assert.equal(revealButton(), null);
+    // Mensaje seguro, sin botón de reintento.
+    assert.ok(screen.getByText('Teléfono no disponible tras consultar Apollo.'));
     cleanup();
   });
 });
 
-// ── Modal: costo, base obligatoria, nota condicional ─────────────────────────
+// ── One-click: NO hay modal ni selector de base ──────────────────────────────
 
-describe('Modal de confirmación', () => {
-  it('muestra el título y el costo "hasta 8 créditos"', async () => {
+describe('One-click: sin modal ni selección de base', () => {
+  it('el clic NO abre ningún diálogo de reveal', async () => {
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    assert.ok(screen.getByText('Revelar teléfono del candidato'));
-    assert.ok(screen.getByText(/hasta 8 créditos Apollo/));
-    assert.ok(screen.getByRole('button', { name: /Solicitar revelación \(hasta 8 créditos\)/ }));
+    clickReveal();
+    await waitFor(() => {
+      if (mockReveal.mock.callCount() !== 1) throw new Error('action not called yet');
+    });
+    // No aparece el título del viejo modal ni el selector de base.
+    assert.equal(screen.queryByText('Revelar teléfono del candidato'), null);
+    assert.equal(screen.queryByRole('radiogroup', { name: /base de tratamiento/i }), null);
+    assert.equal(
+      screen.queryByRole('button', { name: /Solicitar revelación/ }),
+      null,
+    );
     cleanup();
   });
 
-  it('base obligatoria: confirmar sin base → validación y NO llama al action', async () => {
+  it('muestra el microcopy de costo/base junto al botón (no bloqueante)', async () => {
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    clickConfirm();
-    await waitFor(() => {
-      if (!screen.queryByText('Selecciona la base de tratamiento aplicable.')) {
-        throw new Error('validation not shown yet');
-      }
-    });
-    assert.equal(mockReveal.mock.callCount(), 0);
-    cleanup();
-  });
-
-  it('other_approved_basis exige nota: confirmar sin nota → validación y NO llama', async () => {
-    await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    fireEvent.click(screen.getByRole('radio', { name: 'Otra base aprobada' }));
-    await waitFor(() => {
-      if (!screen.queryByText('Justificación de la base aprobada')) {
-        throw new Error('note textarea not shown yet');
-      }
-    });
-    clickConfirm();
-    await waitFor(() => {
-      if (!screen.queryByText('La justificación de la base aprobada es obligatoria.')) {
-        throw new Error('note validation not shown yet');
-      }
-    });
-    assert.equal(mockReveal.mock.callCount(), 0);
+    assert.ok(screen.getByText(/hasta 8 créditos y tardar algunos minutos/));
+    assert.ok(screen.getByText('Base aplicada: interés legítimo B2B.'));
     cleanup();
   });
 });
 
-// ── Contrato de la llamada + estados de respuesta ────────────────────────────
+// ── Contrato de la llamada al action ─────────────────────────────────────────
 
-describe('Llamada al action y estados de respuesta', () => {
-  it('confirmar con base → llama al action con el payload mínimo (sin PII)', async () => {
+describe('El clic llama al action con el payload mínimo (sin PII)', () => {
+  it('un clic → action con confirmCost=true, créditos=8 y base fija', async () => {
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
-    clickConfirm();
+    clickReveal();
 
     await waitFor(() => {
       if (mockReveal.mock.callCount() !== 1) throw new Error('action not called yet');
@@ -344,7 +319,7 @@ describe('Llamada al action y estados de respuesta', () => {
     assert.equal(arg.confirmCost, true);
     assert.equal(arg.expectedMaxCredits, 8);
     assert.equal(arg.phoneProcessingBasis, 'legitimate_interest_b2b');
-    // Sin nota para bases distintas de other_approved_basis.
+    // Base fija: nunca se manda nota.
     assert.equal(arg.phoneProcessingBasisNote, undefined);
     // Sin PII: nada de teléfono / email / linkedin / nombre / payload.
     const keys = Object.keys(arg);
@@ -353,29 +328,79 @@ describe('Llamada al action y estados de respuesta', () => {
     }
     cleanup();
   });
+});
 
-  it('requested → cierra modal, refetch y muestra badge "Revelación en proceso"', async () => {
+// ── Loading + protección contra doble clic ───────────────────────────────────
+
+describe('Loading y protección contra doble clic', () => {
+  it('doble clic no dispara dos actions', async () => {
+    // El action queda pendiente hasta resolverlo manualmente para simular latencia.
+    let resolveReveal: (v: RevealResult) => void = () => {};
+    mockReveal.mock.mockImplementation(
+      () =>
+        new Promise<RevealResult>((resolve) => {
+          resolveReveal = resolve;
+        }),
+    );
+    await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
+    clickReveal();
+    // Segundo clic inmediato (antes de que resuelva la primera solicitud).
+    fireEvent.click(screen.getByRole('button', { name: 'Solicitando…' }));
+
+    assert.equal(mockReveal.mock.callCount(), 1, 'solo debe llamarse una vez');
+    // El botón está en estado loading y deshabilitado.
+    const loadingBtn = screen.getByRole('button', {
+      name: 'Solicitando…',
+    }) as HTMLButtonElement;
+    assert.equal(loadingBtn.disabled, true);
+
+    resolveReveal({ ok: true, status: 'requested', requestAccepted: true, errorCode: null });
+    cleanup();
+  });
+});
+
+// ── Estados de respuesta ─────────────────────────────────────────────────────
+
+describe('Estados de respuesta', () => {
+  it('requested → refetch y muestra "Revelación en proceso"; el botón se oculta', async () => {
     const inFlight = makeCandidate({ phone_reveal_status: 'requested' });
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
     // El refetch posterior devuelve el candidato en estado en vuelo.
     mockGetById.mock.mockImplementation(async () => inFlight);
-    clickConfirm();
+    clickReveal();
 
     await waitFor(() => {
       if (!screen.queryByText('Revelación en proceso')) {
         throw new Error('pending badge not shown yet');
       }
     });
-    // Modal cerrado y botón de reveal ya no disponible (reveal en vuelo).
-    assert.equal(screen.queryByText('Revelar teléfono del candidato'), null);
-    assert.equal(screen.queryByRole('button', { name: 'Revelar teléfono' }), null);
+    assert.equal(revealButton(), null);
     assert.ok(screen.getByText('Apollo puede tardar algunos minutos.'));
     cleanup();
   });
 
-  it('provider_not_configured → muestra mensaje seguro y mantiene el modal', async () => {
+  it('already_pending → muestra "Revelación en proceso" y oculta el botón', async () => {
+    const inFlight = makeCandidate({ phone_reveal_status: 'pending' });
+    mockReveal.mock.mockImplementation(async () => ({
+      ok: true,
+      status: 'already_pending',
+      requestAccepted: false,
+      errorCode: null,
+    }));
+    await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
+    mockGetById.mock.mockImplementation(async () => inFlight);
+    clickReveal();
+
+    await waitFor(() => {
+      if (!screen.queryByText('Revelación en proceso')) {
+        throw new Error('pending badge not shown yet');
+      }
+    });
+    assert.equal(revealButton(), null);
+    cleanup();
+  });
+
+  it('provider_not_configured → mensaje seguro junto al botón (sigue disponible)', async () => {
     mockReveal.mock.mockImplementation(async () => ({
       ok: false,
       status: 'provider_not_configured',
@@ -383,18 +408,18 @@ describe('Llamada al action y estados de respuesta', () => {
       errorCode: null,
     }));
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
-    clickConfirm();
+    clickReveal();
     await waitFor(() => {
       if (!screen.queryByText('La revelación de teléfono no está configurada.')) {
         throw new Error('provider_not_configured message not shown yet');
       }
     });
+    // El botón sigue visible para reintentar.
+    assert.ok(revealButton());
     cleanup();
   });
 
-  it('error → muestra mensaje seguro y mantiene el modal', async () => {
+  it('error → mensaje seguro (sin detalle técnico) y el botón sigue disponible', async () => {
     mockReveal.mock.mockImplementation(async () => ({
       ok: false,
       status: 'error',
@@ -402,16 +427,15 @@ describe('Llamada al action y estados de respuesta', () => {
       errorCode: 'HTTP_422',
     }));
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
-    clickConfirm();
+    clickReveal();
     await waitFor(() => {
       if (!screen.queryByText('No fue posible solicitar la revelación del teléfono.')) {
         throw new Error('safe error not shown yet');
       }
     });
-    // El modal sigue abierto para reintentar / cancelar.
-    assert.ok(screen.getByText('Revelar teléfono del candidato'));
+    // No filtra el código técnico del proveedor.
+    assert.equal(screen.queryByText(/HTTP_422/), null);
+    assert.ok(revealButton());
     cleanup();
   });
 
@@ -423,9 +447,7 @@ describe('Llamada al action y estados de respuesta', () => {
       errorCode: null,
     }));
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
-    await openRevealDialog();
-    fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
-    clickConfirm();
+    clickReveal();
     await waitFor(() => {
       if (!screen.queryByText('No tienes permisos para revelar teléfonos.')) {
         throw new Error('unauthorized message not shown yet');

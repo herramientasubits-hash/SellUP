@@ -312,18 +312,10 @@ describe('PHONE-3D.6B — casos que ocultan el botón (fail-closed)', () => {
 // ── Contrato del payload (sin PII) para un candidato Lusha ───────────────────
 
 describe('PHONE-3D.6B — payload mínimo del action (sin PII) para candidato Lusha', () => {
-  it('confirmar → llama al action con candidateId + confirmCost + créditos + base, sin PII', async () => {
+  it('un clic → llama al action con candidateId + confirmCost + créditos + base fija, sin PII', async () => {
     await renderSheet(makeLushaCandidate());
+    // One-click (APOLLO-PHONE-ASYNC-5): sin modal ni selección de base.
     fireEvent.click(screen.getByRole('button', { name: 'Revelar teléfono' }));
-    await waitFor(() => {
-      if (!screen.queryByText('Revelar teléfono del candidato')) {
-        throw new Error('reveal dialog not open yet');
-      }
-    });
-    fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
-    fireEvent.click(
-      screen.getByRole('button', { name: /Solicitar revelación \(hasta 8 créditos\)/ }),
-    );
 
     await waitFor(() => {
       if (mockReveal.mock.callCount() !== 1) throw new Error('action not called yet');
