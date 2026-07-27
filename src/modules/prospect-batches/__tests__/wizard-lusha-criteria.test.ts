@@ -32,13 +32,17 @@ const CATALOG: ActiveIndustryCatalog = {
 };
 
 describe('resolveWizardLushaCriteria', () => {
-  it('returns default_ai (input null) when the preview flag is off', () => {
+  it('BLOCKS (blocked_lusha_disabled, input null) when eligible but the flag is off', () => {
+    // Q3F-5BB.10C3-FIX-1 STRICT-ALL — an eligible search with the flag off must
+    // surface as blocked, NOT collapse into default_ai (which the UI would treat
+    // as a genuine Agent 1 / Apollo generation).
     const decision = resolveWizardLushaCriteria(
       { countryCode: 'CO', industryId: 'ind-health', subindustryIds: [], additionalCriteriaRaw: null },
       CATALOG,
       false,
     );
-    assert.equal(decision.provider, 'default_ai');
+    assert.equal(decision.provider, 'blocked_lusha_disabled');
+    assert.equal(decision.reason, 'lusha_preview_disabled');
     assert.equal(decision.input, null);
   });
 

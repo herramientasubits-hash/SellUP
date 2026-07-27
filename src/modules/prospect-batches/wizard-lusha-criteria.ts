@@ -84,8 +84,13 @@ export function resolveWizardLushaCriteria(
     countryCode: state.countryCode,
   });
 
+  // Only the `lusha` decision carries a read-only input. Q3F-5BB.10C3-FIX-1:
+  // preserve `blocked_lusha_disabled` (and `default_ai`) verbatim instead of
+  // collapsing everything non-lusha into `default_ai` — otherwise a blocked,
+  // Lusha-eligible search would look identical to a genuine default-AI search
+  // and the UI could fall through to the Agent 1 generation path.
   if (decision.provider !== 'lusha' || !sectorKey || !state.countryCode) {
-    return { provider: 'default_ai', reason: decision.reason, input: null };
+    return { provider: decision.provider, reason: decision.reason, input: null };
   }
 
   const searchText = state.additionalCriteriaRaw?.trim();
