@@ -236,9 +236,18 @@ export async function revealCandidatePhoneAction(
           ok: false,
           errorCode: safeApolloErrorCode(result.error?.error),
           errorHint: sanitizeApolloErrorMessage(result.error?.message),
+          trace: result.trace ?? null,
         };
       }
-      return { ok: true, requestId: result.requestId ?? null };
+      // HTTP 200: handle async (phone_enrichment.request_id) o, si no se creó job,
+      // el código específico (no_async_job_created / skipped_without_request_id).
+      // La traza técnica (sin PII) va al usage-log.
+      return {
+        ok: true,
+        requestId: result.requestId ?? null,
+        noAsyncJobCode: result.noAsyncJobCode ?? null,
+        trace: result.trace ?? null,
+      };
     },
 
     persist: async (
