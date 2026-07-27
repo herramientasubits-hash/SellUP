@@ -146,8 +146,12 @@ function renderBlocked() {
 before(async () => {
   ({ render, screen, cleanup } = await import('@testing-library/react'));
   WizardConversationSummary = (await import('../wizard-conversation-summary')).WizardConversationSummary;
+  // Relative specifier (not the `@/` alias): under Node 20 + module-mocks the
+  // dynamic-import loader does not apply tsconfig path aliases, so `@/...` here
+  // resolves relative to the test dir and fails in CI. A relative path always
+  // resolves.
   createInitialProspectWizardState = (
-    await import('@/modules/prospect-batches/chat-wizard')
+    await import('../../../../modules/prospect-batches/chat-wizard')
   ).createInitialProspectWizardState;
 });
 
