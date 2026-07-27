@@ -1,36 +1,49 @@
 'use server';
 
-// Agente 2A — Apollo Phone Reveal: Server Action wrapper (PHONE-3D.3)
+// Agente 2A — Apollo Phone Reveal: Server Action wrapper (APOLLO-PHONE-ASYNC-1)
 //
-// Thin 'use server' wrapper that wires real dependencies into the pure core
-// (phone-reveal-core.ts): the flag, the authenticated actor + role, the
-// candidate load, the do-not-contact check, the single Apollo call, the
-// service-role persistence write and the PII-free usage log. All validation and
-// decision logic live in the core so this file stays declarative.
+// Thin 'use server' wrapper that wires real dependencies into the pure START
+// core (phone-reveal-core.ts): the flag, the authenticated actor + role, the
+// public webhook URL (env), the candidate load, the do-not-contact check, the
+// single Apollo async-start call, the service-role persistence write and the
+// PII-free usage log. All validation and decision logic live in the core so
+// this file stays declarative.
+//
+// ASYNC contract (confirmed): Apollo phone reveal is asynchronous. This action
+// does NOT return a phone: it STARTS the reveal (Apollo requires a webhook_url
+// and returns only a request_id), persists a `requested` state and returns
+// `requested` to the UI. The phone arrives later on the webhook
+// (src/app/api/integrations/apollo/phone-reveal/webhook) which flips the
+// candidate to `revealed` / `no_phone_found`.
 //
 // Gated behind ENABLE_APOLLO_PHONE_REVEAL, which is OFF in every environment as
 // of this milestone: with the flag off the core short-circuits to `disabled`
-// before touching auth, Apollo or the DB. This milestone adds NO UI (no button,
-// no modal), NO migration, does NOT activate the flag and makes NO real provider
-// calls in tests. Apollo only — never Lusha, never HubSpot; the action neither
-// creates an official contact nor approves the candidate.
+// before touching auth, Apollo or the DB. If APOLLO_PHONE_REVEAL_WEBHOOK_URL is
+// missing the core returns `provider_not_configured` before any Apollo call.
+// This milestone does NOT activate the flag and makes NO real provider calls in
+// tests. Apollo only — never Lusha, never HubSpot; the action neither creates an
+// official contact nor approves the candidate.
 
 import { redirect } from 'next/navigation';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
-import { matchApolloPerson } from '@/server/integrations/apollo-client';
+import { startApolloPhoneReveal } from '@/server/integrations/apollo-client';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
   runRevealCandidatePhone,
   type RevealCandidatePhoneInput,
   type RevealCandidatePhoneResult,
   type RevealCandidateRecord,
-  type ApolloPhoneRevealCallResult,
-  type RevealPersistencePatch,
+  type ApolloPhoneRevealStartCallResult,
+  type RevealStartPersistencePatch,
   type PhoneRevealUsageLogEntry,
 } from './phone-reveal-core';
 import type { ContactCandidateEnrichmentMetadata } from './types';
+
+// Env con la URL pública del webhook async de Apollo (sin NEXT_PUBLIC). No se
+// exporta: este archivo es 'use server' y solo puede exportar async actions.
+const APOLLO_PHONE_REVEAL_WEBHOOK_URL_ENV = 'APOLLO_PHONE_REVEAL_WEBHOOK_URL';
 
 // ── Auth + rol del actor ──────────────────────────────────────
 
@@ -40,6 +53,12 @@ function getServiceRoleClient() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Supabase service credentials not configured');
   return createServiceRoleClient(url, key);
+}
+
+/** Resuelve la URL pública del webhook desde env (sin exponerla al cliente). */
+function resolveWebhookUrl(): string | null {
+  const raw = process.env[APOLLO_PHONE_REVEAL_WEBHOOK_URL_ENV];
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
 /**
@@ -84,6 +103,7 @@ async function resolveActorForReveal(): Promise<{
 
 const REVEAL_CANDIDATE_SELECT = `id, source_contact_id, email, linkedin_url,
    first_name, last_name, phone, enrichment_metadata, phone_reveal_status,
+   phone_reveal_attempt_count,
    run:contact_enrichment_runs ( account_id, company_name )`;
 
 function mapRevealCandidate(row: unknown): RevealCandidateRecord {
@@ -106,25 +126,30 @@ function mapRevealCandidate(row: unknown): RevealCandidateRecord {
     enrichmentMetadata:
       (r.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
     phoneRevealStatus: (r.phone_reveal_status as string | null) ?? null,
+    phoneRevealAttemptCount:
+      typeof r.phone_reveal_attempt_count === 'number'
+        ? r.phone_reveal_attempt_count
+        : 0,
   };
 }
 
 // ── Normalización del error Apollo (sin PII) ───────────────────
 
 function safeApolloErrorCode(raw: unknown): string {
-  if (typeof raw !== 'string' || !raw.trim()) return 'apollo_reveal_failed';
-  // Solo códigos cortos/mecánicos (p.ej. HTTP_500). Nada de mensajes libres.
+  if (typeof raw !== 'string' || !raw.trim()) return 'apollo_reveal_start_failed';
+  // Solo códigos cortos/mecánicos (p.ej. HTTP_422). Nada de mensajes libres.
   const code = raw.trim().slice(0, 40);
-  return /^[A-Za-z0-9_.-]+$/.test(code) ? code : 'apollo_reveal_failed';
+  return /^[A-Za-z0-9_.-]+$/.test(code) ? code : 'apollo_reveal_start_failed';
 }
 
 // ── Server Action ──────────────────────────────────────────────
 
 /**
- * Revela el teléfono de UN candidato vía Apollo, de forma explícita, confirmada
- * y auditada. Individual (no bulk), no automática, detrás de
- * ENABLE_APOLLO_PHONE_REVEAL. Devuelve un resultado seguro para la UI (sin PII;
- * el teléfono revelado se persiste en el candidato, no se retorna en crudo).
+ * INICIA el reveal asíncrono de teléfono de UN candidato vía Apollo, de forma
+ * explícita, confirmada y auditada. Individual (no bulk), no automática, detrás
+ * de ENABLE_APOLLO_PHONE_REVEAL. Devuelve un resultado seguro para la UI (sin
+ * PII): en el camino feliz devuelve `requested` (solicitud aceptada, esperando
+ * el webhook); el teléfono NO viaja en el resultado.
  */
 export async function revealCandidatePhoneAction(
   input: RevealCandidatePhoneInput,
@@ -136,9 +161,10 @@ export async function revealCandidatePhoneAction(
       flagEnabled: false,
       actor: { internalUserId: '', roleKey: null },
       nowIso: new Date().toISOString(),
+      webhookUrl: null,
       loadCandidate: async () => null,
       isDoNotContact: async () => false,
-      revealViaApollo: async () => ({ ok: false, errorCode: 'disabled' }),
+      startRevealViaApollo: async () => ({ ok: false, errorCode: 'disabled' }),
       persist: async () => {},
       logUsage: async () => {},
     });
@@ -152,6 +178,7 @@ export async function revealCandidatePhoneAction(
     flagEnabled: true,
     actor,
     nowIso: new Date().toISOString(),
+    webhookUrl: resolveWebhookUrl(),
 
     loadCandidate: async (candidateId): Promise<RevealCandidateRecord | null> => {
       const { data, error } = await supabase
@@ -194,30 +221,34 @@ export async function revealCandidatePhoneAction(
       });
     },
 
-    revealViaApollo: async (params): Promise<ApolloPhoneRevealCallResult> => {
-      const result = await matchApolloPerson(params);
+    startRevealViaApollo: async (
+      params,
+    ): Promise<ApolloPhoneRevealStartCallResult> => {
+      const result = await startApolloPhoneReveal(params);
       if (!result.success) {
         return { ok: false, errorCode: safeApolloErrorCode(result.error?.error) };
       }
-      return { ok: true, phoneNumbers: result.data?.phone_numbers ?? [] };
+      return { ok: true, requestId: result.requestId ?? null };
     },
 
-    persist: async (candidateId, patch: RevealPersistencePatch): Promise<void> => {
+    persist: async (
+      candidateId,
+      patch: RevealStartPersistencePatch,
+    ): Promise<void> => {
       const update: Record<string, unknown> = {
         phone_reveal_status: patch.phone_reveal_status,
-        phone_revealed_at: patch.phone_revealed_at,
+        phone_reveal_request_id: patch.phone_reveal_request_id,
+        phone_reveal_requested_at: patch.phone_reveal_requested_at,
+        phone_reveal_completed_at: patch.phone_reveal_completed_at,
         phone_revealed_by: patch.phone_revealed_by,
         phone_reveal_provider: patch.phone_reveal_provider,
         phone_reveal_cost_credits: patch.phone_reveal_cost_credits,
         phone_reveal_cost_usd: patch.phone_reveal_cost_usd,
         phone_reveal_error_code: patch.phone_reveal_error_code,
+        phone_reveal_attempt_count: patch.phone_reveal_attempt_count,
         phone_processing_basis: patch.phone_processing_basis,
         phone_processing_basis_note: patch.phone_processing_basis_note,
       };
-      if (patch.phone !== undefined) update.phone = patch.phone;
-      if (patch.enrichment_metadata !== undefined) {
-        update.enrichment_metadata = patch.enrichment_metadata;
-      }
       const { error } = await admin
         .from('contact_enrichment_candidates')
         .update(update)
@@ -234,7 +265,7 @@ export async function revealCandidatePhoneAction(
         status: entry.status,
         error_code: entry.errorCode ?? undefined,
         triggered_by: entry.triggeredBy,
-        results_returned: entry.metadata.phone_revealed ? 1 : 0,
+        results_returned: 0,
         metadata: entry.metadata,
       });
     },

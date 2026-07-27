@@ -322,7 +322,7 @@ describe('PHONE-3D.6B — payload mínimo del action (sin PII) para candidato Lu
     });
     fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
     fireEvent.click(
-      screen.getByRole('button', { name: /Revelar teléfono \(hasta 8 créditos\)/ }),
+      screen.getByRole('button', { name: /Solicitar revelación \(hasta 8 créditos\)/ }),
     );
 
     await waitFor(() => {
