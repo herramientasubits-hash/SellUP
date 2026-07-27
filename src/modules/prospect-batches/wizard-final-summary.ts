@@ -26,8 +26,15 @@ import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 export const WIZARD_FINAL_SIZE_LABEL = 'Más de 200 empleados';
 /** Discreet provider traceability, never a selector. */
 export const WIZARD_FINAL_PROVIDER_LABEL = 'Lusha';
-/** Estimated cost ceiling per search (server-authoritative guardrail). */
-export const WIZARD_FINAL_COST_LABEL = 'Hasta 1 crédito';
+/**
+ * Estimated-cost descriptor for the final review recap (Q3F-5BB.10A).
+ *
+ * We do NOT promise a fixed credit count here. Lusha may bill per company
+ * returned, so the cost follows the user's Lusha plan; the real cost + returned
+ * results are shown after the search finishes (see the wizard's post-search
+ * confirmation). This is display-only copy — it never alters the Lusha request.
+ */
+export const WIZARD_FINAL_COST_LABEL = 'Según tu plan de Lusha';
 export const WIZARD_FINAL_REVIEW_TITLE = 'Revisa tu búsqueda';
 export const WIZARD_FINAL_REVIEW_DESCRIPTION =
   'SellUp buscará empresas candidatas con estos criterios. Nada se guardará todavía.';
