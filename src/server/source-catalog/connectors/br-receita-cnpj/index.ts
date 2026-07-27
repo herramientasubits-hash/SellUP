@@ -10,3 +10,4 @@ export * from './br-cnpj';
 export * from './br-receita-cnpj-types';
 export * from './br-receita-cnpj-snapshot-builder';
 export * from './br-receita-cnpj-fixtures';
+export * from './br-receita-cnpj-file-reader';

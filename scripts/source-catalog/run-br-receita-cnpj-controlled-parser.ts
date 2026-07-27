@@ -17,15 +17,23 @@
  * forbidden runtime mode (input path, download, import, execute, supabase,
  * production, hubspot, …) is rejected before the parser is ever invoked.
  *
+ * Fixture modes:
+ *   --fixture synthetic      → the in-memory synthetic fixtures (BR-SOURCE-2/3).
+ *   --fixture synthetic-csv  → the internal synthetic CSV files, read + layout-
+ *                              validated by the sanitized file reader (BR-SOURCE-4).
+ * Neither mode reads a real dataset or an external path.
+ *
  * Usage:
  *   node --import tsx scripts/source-catalog/run-br-receita-cnpj-controlled-parser.ts --fixture synthetic
- *   node --import tsx scripts/source-catalog/run-br-receita-cnpj-controlled-parser.ts --fixture synthetic --format json
+ *   node --import tsx scripts/source-catalog/run-br-receita-cnpj-controlled-parser.ts --fixture synthetic-csv --format json
  */
 
 import {
   buildBrReceitaCnpjSnapshotRows,
   buildBrazilCnpjHash12,
   sampleParserInput,
+  readBrReceitaCnpjSyntheticCsvFixture,
+  BR_RECEITA_CNPJ_SYNTHETIC_CSV_FIXTURE,
   type BrReceitaCnpjParserInput,
   type BrReceitaCnpjParserResult,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj';
@@ -35,8 +43,15 @@ import {
 /** Ceiling on `--max-rows`; the controlled runner never processes more. */
 export const MAX_ROWS_LIMIT = 10 as const;
 
-/** The only fixture the runner accepts — 100% synthetic, no real data. */
+/** The in-memory synthetic fixture — 100% synthetic, no real data. */
 export const ALLOWED_FIXTURE = 'synthetic' as const;
+
+/** The synthetic-CSV fixture — internal CSV files read by the sanitized reader. */
+export const SYNTHETIC_CSV_FIXTURE = BR_RECEITA_CNPJ_SYNTHETIC_CSV_FIXTURE;
+
+/** Every fixture the runner accepts; both are synthetic and offline. */
+export const ALLOWED_FIXTURES = [ALLOWED_FIXTURE, SYNTHETIC_CSV_FIXTURE] as const;
+export type ControlledRunnerFixture = (typeof ALLOWED_FIXTURES)[number];
 
 /** Output formats the runner can render. */
 export const ALLOWED_FORMATS = ['text', 'json'] as const;
@@ -121,7 +136,7 @@ export class RunnerOutputSanitizationError extends Error {
 // ─── Options / report shapes ──────────────────────────────────────────────────
 
 export interface ControlledRunnerOptions {
-  readonly fixture: typeof ALLOWED_FIXTURE;
+  readonly fixture: ControlledRunnerFixture;
   readonly format: ControlledRunnerFormat;
   /** Optional cap on establishment rows fed to the parser (1..MAX_ROWS_LIMIT). */
   readonly maxRows: number | null;
@@ -151,7 +166,11 @@ export interface ControlledRunnerRejection {
 /** The sanitized, printable report. Contains no full CNPJ and no personal data. */
 export interface ControlledRunnerReport {
   readonly mode: 'fixture';
-  readonly fixture: typeof ALLOWED_FIXTURE;
+  readonly fixture: ControlledRunnerFixture;
+  /** Where the parser input came from: in-memory fixtures or the synthetic CSV files. */
+  readonly fixture_source: 'memory' | 'synthetic_csv';
+  /** Always `passed` when reached — the CSV reader fails closed before this point. */
+  readonly layout_validation: 'passed';
   readonly source_key: string;
   readonly source_year: number;
   readonly total_establishment_rows: number;
@@ -190,11 +209,11 @@ const SAFETY_ALL_FALSE: ControlledRunnerSafety = {
 
 // ─── Guards (Task 6) ──────────────────────────────────────────────────────────
 
-/** assertFixtureModeOnly: the runner only ever operates on the synthetic fixture. */
-export function assertFixtureModeOnly(fixture: string): asserts fixture is typeof ALLOWED_FIXTURE {
-  if (fixture !== ALLOWED_FIXTURE) {
+/** assertFixtureModeOnly: the runner only ever operates on a synthetic fixture. */
+export function assertFixtureModeOnly(fixture: string): asserts fixture is ControlledRunnerFixture {
+  if (!(ALLOWED_FIXTURES as readonly string[]).includes(fixture)) {
     throw new ForbiddenRuntimeModeError(
-      `only "--fixture ${ALLOWED_FIXTURE}" is supported; got "${fixture}"`,
+      `only "--fixture ${ALLOWED_FIXTURE}" or "--fixture ${SYNTHETIC_CSV_FIXTURE}" is supported; got "${fixture}"`,
     );
   }
 }
@@ -343,6 +362,15 @@ export function parseControlledRunnerArgs(argv: string[]): ControlledRunnerOptio
 // ─── Core run ──────────────────────────────────────────────────────────────────
 
 function buildFixtureInput(options: ControlledRunnerOptions): BrReceitaCnpjParserInput {
+  if (options.fixture === SYNTHETIC_CSV_FIXTURE) {
+    // Sanitized CSV reader: fixed internal fixture dir, layout-validated,
+    // fail-closed. It enforces its own row limit (rows may not exceed maxRows).
+    return readBrReceitaCnpjSyntheticCsvFixture({
+      fixture: SYNTHETIC_CSV_FIXTURE,
+      maxRows: options.maxRows ?? undefined,
+      strict: options.strict,
+    });
+  }
   const base = sampleParserInput();
   if (options.maxRows === null) return base;
   return {
@@ -387,6 +415,8 @@ export function runControlledParser(options: ControlledRunnerOptions): Controlle
   const report: ControlledRunnerReport = {
     mode: 'fixture',
     fixture: options.fixture,
+    fixture_source: options.fixture === SYNTHETIC_CSV_FIXTURE ? 'synthetic_csv' : 'memory',
+    layout_validation: 'passed',
     source_key: result.snapshots[0]?.source_key ?? 'br_receita_cnpj_dados_abertos',
     source_year: input.sourceYear,
     total_establishment_rows: result.summary.totalEstablishmentRows,
@@ -412,6 +442,8 @@ export function formatReportText(report: ControlledRunnerReport): string {
   lines.push('Brazil Receita CNPJ controlled parser run');
   lines.push(`mode: ${report.mode}`);
   lines.push(`fixture: ${report.fixture}`);
+  lines.push(`fixture_source: ${report.fixture_source}`);
+  lines.push(`layout_validation: ${report.layout_validation}`);
   lines.push(`source_key: ${report.source_key}`);
   lines.push(`source_year: ${report.source_year}`);
   lines.push(`total_establishment_rows: ${report.total_establishment_rows}`);
