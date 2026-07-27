@@ -24,7 +24,10 @@ import {
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
 import { loadActiveCatalog } from '@/modules/industry-catalog/loader';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
-import { isProspectChatWizardExecutionEnabled } from '@/lib/feature-flags.server';
+import {
+  isProspectChatWizardExecutionEnabled,
+  isLushaPreviewEnabled,
+} from '@/lib/feature-flags.server';
 
 /**
  * Query params understood by the Prospectos experience.
@@ -68,7 +71,12 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   const enableV2 = process.env.ENABLE_EXPLORATORY_SEARCH_FORM_V2 === 'true';
   // Q3F-5BB.3 / 5BB.3C — Lusha read-only preview lives INSIDE the "Generar con
   // IA" wizard (no standalone button). OFF por defecto (activar en QA/prod).
-  const enableLushaPreview = process.env.ENABLE_LUSHA_PREVIEW === 'true';
+  // Q3F-5BB.10C3-FIX-1 (P0-1): parse the flag through the canonical server-only
+  // helper (trim + toLowerCase) so the UI gate agrees exactly with the server
+  // guard. A strict `=== 'true'` here made `"TRUE"`/`" true"`/`"true\n"` read as
+  // OFF in the UI while the server read them as ON — the divergence that let a
+  // Lusha-eligible search silently fall through to Agent 1 / Apollo.
+  const enableLushaPreview = isLushaPreviewEnabled();
   // Execution only active when wizard is also active — flag parsed by the
   // canonical server-only helper (normalized: trim + toLowerCase).
   const wizardExecutionEnabled =

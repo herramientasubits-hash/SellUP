@@ -38,3 +38,9 @@ jobs:
 
       - name: Run automatic routing safety tests
         run: npm run test:agent2a:automatic-routing
+
+      # Q3F-5BB.10C3-FIX-1 — Lusha fail-closed routing (STRICT-ALL). Guards the
+      # invariant that a Lusha-eligible search with the preview flag off BLOCKS
+      # and never degrades to the Agent 1 / Apollo generation path.
+      - name: Run Lusha fail-closed routing tests
+        run: npm run test:lusha-fail-closed-routing

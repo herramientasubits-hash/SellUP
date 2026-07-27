@@ -28,7 +28,24 @@ export const COMPANIES_BY_CRITERIA_SEARCH_TYPES: ReadonlySet<string> = new Set([
   'companies_by_criteria',
 ]);
 
-export type ProspectDiscoveryProvider = 'lusha' | 'default_ai';
+/**
+ * Q3F-5BB.10C3-FIX-1 (P0-2): three-state routing.
+ *   - `lusha`                  — Lusha-eligible criteria AND the preview flag is on.
+ *   - `blocked_lusha_disabled` — Lusha-eligible criteria BUT the preview flag is
+ *                                off/absent. STRICT-ALL fail-closed: the wizard
+ *                                must BLOCK, never fall back to `default_ai`.
+ *   - `default_ai`             — the criteria are NOT Lusha-eligible; existing
+ *                                Agent 1 behavior is preserved unchanged.
+ *
+ * Invariant: a Lusha-eligible intent NEVER resolves to `default_ai`. Eligibility
+ * is decided BEFORE the flag, so the flag can only ever gate a Lusha row between
+ * `lusha` (on) and `blocked_lusha_disabled` (off) — it can never demote it to the
+ * default-AI generation path (the path that spends provider credits).
+ */
+export type ProspectDiscoveryProvider =
+  | 'lusha'
+  | 'blocked_lusha_disabled'
+  | 'default_ai';
 
 export interface ProspectDiscoveryCriteria {
   /** Mirrors ENABLE_LUSHA_PREVIEW — when false, Lusha is never selected. */
@@ -48,17 +65,38 @@ export interface ProspectDiscoveryDecision {
 }
 
 /**
+ * Pure predicate: are the given criteria Lusha-eligible? Eligibility is the
+ * search-shape test — companies-by-criteria + a mapped sector + a supported
+ * country — and is deliberately INDEPENDENT of the preview flag. The flag only
+ * decides whether an eligible search runs (`lusha`) or is blocked
+ * (`blocked_lusha_disabled`); it can never change eligibility.
+ */
+export function isProspectLushaEligible(
+  criteria: Omit<ProspectDiscoveryCriteria, 'lushaPreviewEnabled'>,
+): boolean {
+  const searchType = criteria.searchType?.trim() ?? '';
+  if (!COMPANIES_BY_CRITERIA_SEARCH_TYPES.has(searchType)) return false;
+  if (!resolveLushaSectorOption(criteria.sectorKey)) return false;
+  if (!resolveLushaCountryName(criteria.countryCode)) return false;
+  return true;
+}
+
+/**
  * Decide which discovery provider the wizard should use for the given criteria.
- * Returns `default_ai` (existing behavior) unless every Lusha precondition is
- * met, in which case it returns `lusha`.
+ *
+ * Q3F-5BB.10C3-FIX-1 (P0-2) — eligibility is resolved FIRST, then the flag:
+ *   - not Lusha-eligible                 → `default_ai` (existing behavior)
+ *   - Lusha-eligible + preview flag off  → `blocked_lusha_disabled` (FAIL CLOSED)
+ *   - Lusha-eligible + preview flag on   → `lusha`
+ *
+ * The previous ordering checked the flag first and returned `default_ai` when it
+ * was off — which, for Lusha-eligible criteria, silently degraded the request
+ * onto the Agent 1 generation path. Deciding eligibility first makes that
+ * impossible: an eligible intent can only be `lusha` or `blocked_lusha_disabled`.
  */
 export function resolveProspectDiscoveryProvider(
   criteria: ProspectDiscoveryCriteria,
 ): ProspectDiscoveryDecision {
-  if (!criteria.lushaPreviewEnabled) {
-    return { provider: 'default_ai', reason: 'lusha_preview_disabled' };
-  }
-
   const searchType = criteria.searchType?.trim() ?? '';
   if (!COMPANIES_BY_CRITERIA_SEARCH_TYPES.has(searchType)) {
     return { provider: 'default_ai', reason: 'search_type_not_criteria' };
@@ -70,6 +108,11 @@ export function resolveProspectDiscoveryProvider(
 
   if (!resolveLushaCountryName(criteria.countryCode)) {
     return { provider: 'default_ai', reason: 'country_not_supported' };
+  }
+
+  // Lusha-eligible from here down. The flag can only gate on/off — never demote.
+  if (!criteria.lushaPreviewEnabled) {
+    return { provider: 'blocked_lusha_disabled', reason: 'lusha_preview_disabled' };
   }
 
   return { provider: 'lusha', reason: 'criteria_compatible' };
