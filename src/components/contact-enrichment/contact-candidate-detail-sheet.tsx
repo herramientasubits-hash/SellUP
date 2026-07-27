@@ -182,20 +182,13 @@ function resolvePhoneSourceLabel(source: string | null | undefined): string | nu
 const PHONE_REVEAL_MAX_CREDITS = 8;
 
 /**
- * Vocabulario aprobado de base de tratamiento (espejo de `PhoneProcessingBasis`
- * y de la migración 095). Solo alimenta el selector del modal; el server action
- * revalida la base y exige nota cuando es `other_approved_basis`.
+ * Base legal FIJA del flujo one-click (APOLLO-PHONE-ASYNC-5). Producto eliminó
+ * el modal de confirmación/selección: la revelación es individual, asíncrona y
+ * se solicita con interés legítimo B2B. La base sigue viajando en el
+ * payload y el server action la revalida — el cambio es UX/payload del cliente,
+ * NO una relajación de las validaciones backend.
  */
-const PHONE_PROCESSING_BASIS_OPTIONS: ReadonlyArray<{
-  value: PhoneProcessingBasis;
-  label: string;
-}> = [
-  { value: 'legitimate_interest_b2b', label: 'Interés legítimo B2B' },
-  { value: 'consent_obtained', label: 'Consentimiento obtenido' },
-  { value: 'existing_business_relationship', label: 'Relación comercial existente' },
-  { value: 'customer_requested_contact', label: 'Contacto solicitado por cliente' },
-  { value: 'other_approved_basis', label: 'Otra base aprobada' },
-];
+const PHONE_REVEAL_PROCESSING_BASIS: PhoneProcessingBasis = 'legitimate_interest_b2b';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -278,16 +271,16 @@ export function ContactCandidateDetailSheet({
   const [overrideReason, setOverrideReason] = React.useState('');
   const [overrideValidationError, setOverrideValidationError] = React.useState<string | null>(null);
 
-  // Reveal de teléfono (PHONE-3D.4) — modal de confirmación de costo + base de
-  // tratamiento. Todo el estado es local; la autoridad real (flag, rol, costo,
-  // do_not_contact, re-reveal) vive en el server action.
-  const [showPhoneRevealDialog, setShowPhoneRevealDialog] = React.useState(false);
-  const [phoneRevealBasis, setPhoneRevealBasis] = React.useState<PhoneProcessingBasis | ''>('');
-  const [phoneRevealNote, setPhoneRevealNote] = React.useState('');
+  // Reveal de teléfono (APOLLO-PHONE-ASYNC-5) — flujo ONE-CLICK sin modal. Al
+  // hacer clic se solicita de inmediato la revelación asíncrona con base fija
+  // (interés legítimo B2B). Todo el estado es local; la autoridad real (flag,
+  // rol, costo, base, do_not_contact, re-reveal) vive en el server action.
   const [revealingPhone, setRevealingPhone] = React.useState(false);
   const [phoneRevealError, setPhoneRevealError] = React.useState<string | null>(null);
-  const [phoneRevealNoteError, setPhoneRevealNoteError] = React.useState<string | null>(null);
   const [phoneRevealNotice, setPhoneRevealNotice] = React.useState<string | null>(null);
+  // Guard síncrono contra doble clic: `revealingPhone` (estado) solo deshabilita
+  // el botón tras re-render; el ref corta una segunda invocación en el mismo tick.
+  const revealInFlightRef = React.useRef(false);
 
   const busy = approving || rejecting;
 
@@ -331,13 +324,10 @@ export function ContactCandidateDetailSheet({
         setOverrideAcknowledged(false);
         setOverrideReason('');
         setOverrideValidationError(null);
-        setShowPhoneRevealDialog(false);
-        setPhoneRevealBasis('');
-        setPhoneRevealNote('');
         setRevealingPhone(false);
         setPhoneRevealError(null);
-        setPhoneRevealNoteError(null);
         setPhoneRevealNotice(null);
+        revealInFlightRef.current = false;
       });
     }
   }, [open, candidateId]);
@@ -427,24 +417,7 @@ export function ContactCandidateDetailSheet({
     }
   }
 
-  // ── Reveal de teléfono (PHONE-3D.4) ──────────────────────────────────────
-  function closePhoneRevealDialog() {
-    setShowPhoneRevealDialog(false);
-    setPhoneRevealBasis('');
-    setPhoneRevealNote('');
-    setPhoneRevealError(null);
-    setPhoneRevealNoteError(null);
-  }
-
-  function openPhoneRevealDialog() {
-    setPhoneRevealNotice(null);
-    setPhoneRevealError(null);
-    setPhoneRevealNoteError(null);
-    setPhoneRevealBasis('');
-    setPhoneRevealNote('');
-    setShowPhoneRevealDialog(true);
-  }
-
+  // ── Reveal de teléfono (APOLLO-PHONE-ASYNC-5) — one-click, sin modal ───────
   /**
    * Traduce el resultado seguro del server action a estados de UI. El reveal es
    * ASÍNCRONO: en el camino feliz el action devuelve `requested` (solicitud
@@ -457,25 +430,22 @@ export function ContactCandidateDetailSheet({
   ) {
     switch (result.status) {
       case 'requested':
-        toast.success('Revelación solicitada.');
+        toast.success('Revelación solicitada. Apollo puede tardar algunos minutos.');
         setPhoneRevealNotice('Apollo puede tardar algunos minutos.');
-        closePhoneRevealDialog();
         void reloadCandidate();
         return;
       case 'already_pending':
         toast.info('Ya hay una revelación en proceso para este candidato.');
         setPhoneRevealNotice('Apollo puede tardar algunos minutos.');
-        closePhoneRevealDialog();
         void reloadCandidate();
         return;
       case 'already_revealed':
         toast.warning('Este teléfono ya fue revelado.');
-        closePhoneRevealDialog();
         void reloadCandidate();
         return;
       case 'do_not_contact':
         toast.warning('Este candidato/contacto está marcado como no contactar.');
-        closePhoneRevealDialog();
+        setPhoneRevealError('Este candidato está marcado como no contactar.');
         return;
       case 'disabled':
         setPhoneRevealError('La revelación de teléfono no está activada.');
@@ -491,52 +461,41 @@ export function ContactCandidateDetailSheet({
         return;
       case 'processing_basis_required':
       case 'invalid_processing_basis':
-        setPhoneRevealError('Selecciona una base de tratamiento válida.');
-        return;
       case 'processing_basis_note_required':
-        setPhoneRevealNoteError('La justificación de la base aprobada es obligatoria.');
-        return;
       case 'insufficient_identity':
-        setPhoneRevealError('No hay identidad suficiente para revelar teléfono.');
-        return;
       default:
-        // error, candidate_not_found, candidate_account_invalid, invalid_candidate
+        // error, insufficient_identity, base inválida, candidate_not_found,
+        // candidate_account_invalid, invalid_candidate → mensaje seguro único.
         setPhoneRevealError('No fue posible solicitar la revelación del teléfono.');
     }
   }
 
+  /**
+   * Solicita la revelación asíncrona en UN clic (sin modal). Base FIJA (interés
+   * legítimo B2B); el server action revalida flag/rol/costo/base/do_not_contact/
+   * re-reveal. Payload mínimo: id + confirmCost + créditos + base. NUNCA se envía
+   * teléfono, email, LinkedIn, nombre ni payload crudo. El ref corta un segundo
+   * clic antes de que el botón se deshabilite por re-render.
+   */
   async function handlePhoneReveal() {
-    if (!candidate || revealingPhone) return;
+    if (!candidate || revealInFlightRef.current) return;
+    revealInFlightRef.current = true;
     setPhoneRevealError(null);
-    setPhoneRevealNoteError(null);
-
-    // Validación cliente inmediata (el server action revalida igual).
-    if (!phoneRevealBasis) {
-      setPhoneRevealError('Selecciona la base de tratamiento aplicable.');
-      return;
-    }
-    const trimmedNote = phoneRevealNote.trim();
-    if (phoneRevealBasis === 'other_approved_basis' && trimmedNote.length === 0) {
-      setPhoneRevealNoteError('La justificación de la base aprobada es obligatoria.');
-      return;
-    }
-
+    setPhoneRevealNotice(null);
     setRevealingPhone(true);
     try {
-      // Payload mínimo: solo el id del candidato + la confirmación de costo y la
-      // base. NUNCA se envía teléfono, email, LinkedIn, nombre ni payload crudo.
       const result = await revealCandidatePhoneAction({
         candidateId: candidate.id,
         confirmCost: true,
         expectedMaxCredits: PHONE_REVEAL_MAX_CREDITS,
-        phoneProcessingBasis: phoneRevealBasis,
-        phoneProcessingBasisNote:
-          phoneRevealBasis === 'other_approved_basis' ? trimmedNote : undefined,
+        phoneProcessingBasis: PHONE_REVEAL_PROCESSING_BASIS,
+        phoneProcessingBasisNote: undefined,
       });
       applyPhoneRevealResult(result);
     } catch {
       setPhoneRevealError('No fue posible revelar el teléfono.');
     } finally {
+      revealInFlightRef.current = false;
       setRevealingPhone(false);
     }
   }
@@ -837,17 +796,38 @@ export function ContactCandidateDetailSheet({
                     <p className="text-[11px] text-muted-foreground">{phoneRevealNotice}</p>
                   )}
                   {canOfferPhoneReveal && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 gap-1.5 text-xs"
-                      disabled={busy || revealingPhone}
-                      onClick={openPhoneRevealDialog}
-                    >
-                      <PhoneCall className="h-3.5 w-3.5" />
-                      Revelar teléfono
-                    </Button>
+                    <div className="space-y-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        disabled={busy || revealingPhone}
+                        onClick={handlePhoneReveal}
+                      >
+                        {revealingPhone ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Solicitando…
+                          </>
+                        ) : (
+                          <>
+                            <PhoneCall className="h-3.5 w-3.5" />
+                            Revelar teléfono
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground">
+                        Consulta individual con Apollo. Puede consumir hasta{' '}
+                        {PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.
+                      </p>
+                      <p className="text-[11px] text-muted-foreground/70">
+                        Base aplicada: interés legítimo B2B.
+                      </p>
+                      {phoneRevealError && (
+                        <p className="text-[11px] text-destructive">{phoneRevealError}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               </DetailRow>
@@ -1186,104 +1166,6 @@ export function ContactCandidateDetailSheet({
       </DialogContent>
     </Dialog>
 
-    {/* Reveal de teléfono (PHONE-3D.4) — confirmación de costo + base de tratamiento */}
-    <Dialog
-      open={showPhoneRevealDialog}
-      onOpenChange={(v) => {
-        if (revealingPhone) return;
-        if (v) setShowPhoneRevealDialog(true);
-        else closePhoneRevealDialog();
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Revelar teléfono del candidato</DialogTitle>
-          <DialogDescription>
-            Esta acción puede consumir hasta {PHONE_REVEAL_MAX_CREDITS} créditos Apollo por
-            candidato y trata un dato personal. Selecciona la base de tratamiento aplicable.
-            Es una acción individual y asíncrona: Apollo puede tardar algunos minutos en
-            entregar el número, y no se garantiza que el proveedor entregue uno.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-foreground">Base de tratamiento</p>
-            <div role="radiogroup" aria-label="Base de tratamiento" className="grid gap-2">
-              {PHONE_PROCESSING_BASIS_OPTIONS.map((option) => (
-                <label
-                  key={option.value}
-                  className="flex items-center gap-2.5 rounded-lg border border-input px-3 py-2 text-sm transition-colors hover:bg-accent has-[:checked]:border-su-brand has-[:checked]:bg-su-brand-soft/50"
-                >
-                  <input
-                    type="radio"
-                    name="phone-reveal-basis"
-                    value={option.value}
-                    checked={phoneRevealBasis === option.value}
-                    disabled={revealingPhone}
-                    onChange={() => {
-                      setPhoneRevealBasis(option.value);
-                      setPhoneRevealError(null);
-                    }}
-                    className="h-4 w-4 accent-su-brand"
-                  />
-                  <span className="flex-1 text-foreground">{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          {phoneRevealBasis === 'other_approved_basis' && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">
-                Justificación de la base aprobada
-              </label>
-              <Textarea
-                value={phoneRevealNote}
-                onChange={(e) => {
-                  setPhoneRevealNote(e.target.value);
-                  setPhoneRevealNoteError(null);
-                }}
-                rows={3}
-                placeholder="Describe la base aprobada aplicable."
-                disabled={revealingPhone}
-                className="text-sm"
-              />
-              {phoneRevealNoteError && (
-                <p className="text-xs text-destructive">{phoneRevealNoteError}</p>
-              )}
-            </div>
-          )}
-          {phoneRevealError && (
-            <p className="text-xs text-destructive">{phoneRevealError}</p>
-          )}
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={revealingPhone}
-            onClick={closePhoneRevealDialog}
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={revealingPhone}
-            onClick={handlePhoneReveal}
-          >
-            {revealingPhone ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Solicitando…
-              </>
-            ) : (
-              `Solicitar revelación (hasta ${PHONE_REVEAL_MAX_CREDITS} créditos)`
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
     </>
   );
 }
