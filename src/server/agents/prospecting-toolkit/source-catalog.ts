@@ -1305,14 +1305,39 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'br_receita_dados_abertos',
     name: 'Receita Federal CNPJ Dados Abertos (Bulk)',
+    // Estado operativo real (BR-SOURCE-8-UI): preparación técnica completada.
+    // GO Legal/Privacy (BR-LEGAL-2), parser de muestra local (BR-SOURCE-2),
+    // validador de manifiesto (BR-SOURCE-6) y dry-run local sobre archivo real
+    // (BR-SOURCE-7) están listos. La importación, el runtime enrichment, la
+    // integración live con Agent 1 y la sincronización con HubSpot siguen
+    // BLOQUEADAS hasta un hito separado con aprobación explícita. Presentacional
+    // — no habilita ningún flujo. dry_run_validated + not_persisted hace que la
+    // ficha no muestre paneles de conexión ni CTAs de importación.
+    sellupUse: 'discovery',
+    aiFlowStatus: 'dry_run_validated',
+    connectionMode: 'not_persisted',
+    // Reconciliación de clave (BR-SOURCE-8-UI-FIX1): la UI/registry conserva la
+    // clave existente `br_receita_dados_abertos` para no duplicar la fuente de
+    // Brasil. Los contratos técnicos (parser, staging, dry-run) usan la clave
+    // canónica `br_receita_cnpj_dados_abertos`. No se renombra `key` porque ya
+    // está en uso por la UI y las rutas del catálogo.
+    canonicalTechnicalSourceKey: 'br_receita_cnpj_dados_abertos',
+    sourceKeyReconciliation: {
+      registrySourceKey: 'br_receita_dados_abertos',
+      canonicalTechnicalSourceKey: 'br_receita_cnpj_dados_abertos',
+      reason:
+        'La clave existente del catálogo/UI se conserva para evitar duplicar la fuente de Brasil; los contratos técnicos de parser, staging y dry-run usan la clave canónica br_receita_cnpj_dados_abertos.',
+    },
+    nextAction:
+      'Preparación técnica lista (parser, validador de manifiesto, dry-run local). Import, runtime, HubSpot y generación live permanecen bloqueados hasta un hito separado con aprobación explícita.',
     countryCodes: ['BR'],
     sectors: [],
     priority: 'P0',
-    operationalStatus: 'operational_verified',
+    operationalStatus: 'dry_run_validated',
     type: 'official_registry',
     url: 'https://dadosabertos.rfb.gov.br/CNPJ/',
     automationLevel: 'high',
-    recommendedUse: 'Fuente principal para ingesta masiva/offline de CNPJ. Dataset más completo de LATAM — ~60M CNPJs (~22M activos). Archivos ZIP: CNPJ, razão social, CNAE, município, situação cadastral, capital social, porte, quadro societário. Filtrar CNAE 62xx para tecnología. Usar esta fuente como punto de entrada para cualquier pipeline bulk de Brasil.',
+    recommendedUse: 'Dataset más completo de LATAM — ~60M CNPJs (~22M activos). Archivos ZIP: CNPJ, razão social, CNAE, município, situação cadastral, capital social, porte, quadro societário. Preparación técnica local lista (parser + validador de manifiesto + dry-run local), pero la ingesta masiva/offline permanece BLOQUEADA hasta un hito de importación con aprobación explícita.',
     limitations: [
       'Descarga ~4.7 GB comprimido / ~17 GB descomprimido — procesamiento batch offline obligatorio',
       'Acceso desde fuera de Brasil puede dar timeout; usar mirror: dados.gov.br o arquivos.receitafederal.gov.br',
@@ -1320,6 +1345,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Licencia CC BY-ND 3.0 — no permite derivados; verificar uso comercial con legal antes de producción',
     ],
     riskNotes: [
+      'Import, runtime enrichment, Agent 1 live y sincronización HubSpot BLOQUEADOS hasta hito separado con aprobación explícita',
       'Filtrar por situação cadastral: Ativa',
       'Verificar disponibilidad de mirror antes de procesar en producción',
     ],

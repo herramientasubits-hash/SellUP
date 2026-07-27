@@ -24,6 +24,10 @@ import { SvComprasalSignalsCard } from '@/components/source-catalog/sv-comprasal
 import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
 import { getHnContratacionesCoverageSummary } from '@/server/services/hn-contrataciones-coverage-summary';
 import {
+  BrReceitaCnpjStatusCard,
+  BR_RECEITA_CNPJ_SOURCE_KEY,
+} from '@/components/source-catalog/br-receita-cnpj-status-card';
+import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
   TYPE_LABELS,
@@ -71,6 +75,7 @@ export default async function SourceDetailPage({ params }: Props) {
   const isPaConvenio = source.key === 'pa_panamacompra_convenio';
   const isSvComprasal = source.key === 'sv_comprasal';
   const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
+  const isBrReceitaCnpj = source.key === BR_RECEITA_CNPJ_SOURCE_KEY;
   const isManualSignalOnly = checkIsManualSignalOnly(source);
   const skipConnectionPanels = shouldSkipGenericConnectionPanels(source);
 
@@ -245,7 +250,9 @@ export default async function SourceDetailPage({ params }: Props) {
       </div>
 
       {/* Acceso técnico / Credencial */}
-      {isManualSignalOnly ? (
+      {isBrReceitaCnpj ? (
+        <BrReceitaCnpjStatusCard />
+      ) : isManualSignalOnly ? (
         <SurfaceCard>
           <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">
             Estado de integración
