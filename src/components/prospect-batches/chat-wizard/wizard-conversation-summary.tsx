@@ -143,6 +143,12 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   const useLushaFinalSearch =
     lushaPreviewEnabled && lushaCriteria.provider === 'lusha' && lushaCriteria.input !== null;
 
+  // Q3F-5BB.10C3-FIX-1 (P0-2, STRICT-ALL) — the criteria are Lusha-eligible but
+  // the preview flag is off. This MUST fail closed: no Lusha search, and — the
+  // whole point of the fix — no fall-through to the Agent 1 / Apollo "Generar
+  // prospectos" button. We render a blocked notice and nothing that can spend.
+  const isLushaBlocked = lushaCriteria.provider === 'blocked_lusha_disabled';
+
   // Q3F-5BB.3F — human labels (país/sector/subindustria/tamaño/criterio) resolved
   // from the wizard's own catalog for the final "Revisa tu búsqueda" recap.
   // Display only — never alters the Lusha request.
@@ -150,6 +156,10 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
     () => buildWizardFinalRecap(state, catalog),
     [state, catalog],
   );
+
+  if (isLushaBlocked) {
+    return <LushaDisabledBlockedPanel onEditSearch={onEditSearch} dispatch={dispatch} />;
+  }
 
   const validBody = useLushaFinalSearch
     ? 'Revisa los criterios y ejecuta la búsqueda. Nada se guarda todavía.'
@@ -200,8 +210,12 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         />
       )}
 
-      {/* Real IA generation — only when explicitly enabled and Lusha is not backing this search. */}
-      {!useLushaFinalSearch && executionEnabled && (
+      {/* Real IA generation — only when explicitly enabled, Lusha is not backing
+          this search, and the search is not a blocked Lusha-eligible one. The
+          `!isLushaBlocked` guard is redundant with the early return above but is
+          kept explicit so this Apollo-capable button can never render for a
+          Lusha-eligible + flag-off search (Q3F-5BB.10C3-FIX-1, STRICT-ALL). */}
+      {!useLushaFinalSearch && !isLushaBlocked && executionEnabled && (
         <Button
           type="button"
           size="sm"
@@ -216,6 +230,65 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
       {/* Action hierarchy: primary = "Buscar con IA" (inside the panel above);
           secondary = "Editar búsqueda"; tertiary = "Comenzar de nuevo" (link).
           Close lives on the drawer's top X, not competing here. */}
+      <div className="space-y-2 pt-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full gap-1.5"
+          onClick={onEditSearch}
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+          Editar búsqueda
+        </Button>
+        <button
+          type="button"
+          className="mx-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
+        >
+          <RotateCcw className="h-3 w-3" aria-hidden />
+          Comenzar de nuevo
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Lusha-disabled blocked panel (Q3F-5BB.10C3-FIX-1, STRICT-ALL) ──────────────
+// Shown when the collected criteria are Lusha-eligible but the preview flag is
+// off. Fail closed: it offers only "Editar búsqueda" / "Comenzar de nuevo" — no
+// generation control of any kind, so nothing here can reach a provider, spend
+// Apollo credits, call Tavily, or create a batch.
+
+type LushaDisabledBlockedPanelProps = {
+  onEditSearch: () => void;
+  dispatch: React.Dispatch<ProspectWizardAction>;
+};
+
+function LushaDisabledBlockedPanel({ onEditSearch, dispatch }: LushaDisabledBlockedPanelProps) {
+  return (
+    <div
+      className="space-y-4 animate-su-fade-in"
+      role="alert"
+      data-testid="wizard-lusha-blocked-notice"
+    >
+      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
+        <AlertTriangle
+          className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+          aria-hidden
+        />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+            La generación con estos criterios no está disponible por ahora.
+          </p>
+          <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+            Esta búsqueda utiliza un proveedor que todavía no está habilitado. No
+            se ejecutará ninguna generación ni se consumirán créditos. Ajusta los
+            criterios o vuelve a intentarlo más tarde.
+          </p>
+        </div>
+      </div>
+
       <div className="space-y-2 pt-1">
         <Button
           type="button"
