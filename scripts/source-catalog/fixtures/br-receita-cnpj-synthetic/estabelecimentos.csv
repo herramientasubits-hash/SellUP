@@ -1,0 +1,7 @@
+cnpj_basico,cnpj_ordem,cnpj_dv,identificador_matriz_filial,nome_fantasia,situacao_cadastral,data_situacao_cadastral,motivo_situacao_cadastral,nome_cidade_exterior,pais,data_inicio_atividade,cnae_fiscal_principal,cnae_fiscal_secundaria,tipo_logradouro,logradouro,numero,complemento,bairro,cep,uf,municipio,ddd_1,telefone_1,ddd_2,telefone_2,ddd_fax,fax,correio_eletronico,situacao_especial,data_situacao_especial
+11222333,0001,81,1,SYNTHETIC TEC,02,2015-03-10,00,,,2015-03-10,6201501,6202300;6209100,RUA,SINTETICA,100,SALA 1,CENTRO,01000000,SP,7107,11,5551234,,,11,5551235,excluded@example.invalid,,
+11222333,0002,62,2,SYNTHETIC TEC FILIAL,02,,,,,2016-06-01,6201501,,,,,,,,SP,7107,,,,,,,,,
+12ABC345,0001,88,1,SYNTHETIC EDU,02,,,,,2018-09-15,8599604,,,,,,,,SP,7107,11,5559876,,,,,excluded2@example.invalid,,
+11222333,0003,00,,,02,,,,,,,,,,,,,,SP,7107,,,,,,,,,
+11222333,0001,81,1,,02,,,,,,,,,,,,,,SP,7107,,,,,,,,,
+99XYZ000,0001,80,,,02,,,,,,,,,,,,,,SP,7107,,,,,,,,,

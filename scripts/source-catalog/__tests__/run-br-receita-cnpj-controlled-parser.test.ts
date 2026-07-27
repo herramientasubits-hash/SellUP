@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import {
   MAX_ROWS_LIMIT,
   ALLOWED_FIXTURE,
+  SYNTHETIC_CSV_FIXTURE,
   FORBIDDEN_FLAGS,
   FORBIDDEN_OUTPUT_KEY_TOKENS,
   ForbiddenRuntimeModeError,
@@ -187,6 +188,92 @@ describe('runControlledParser — synthetic fixture', () => {
   it('honors --max-rows by capping establishment rows', () => {
     const { report } = synthReport(['--max-rows', '2']);
     assert.equal(report.total_establishment_rows, 2);
+  });
+
+  it('stamps fixture_source=memory and layout_validation=passed for the memory fixture', () => {
+    const { report } = synthReport();
+    assert.equal(report.fixture_source, 'memory');
+    assert.equal(report.layout_validation, 'passed');
+  });
+});
+
+// ─── Synthetic-CSV fixture (BR-SOURCE-4) ──────────────────────────────────────
+
+function csvReport(extraArgs: string[] = []) {
+  const options = parseControlledRunnerArgs(['--fixture', SYNTHETIC_CSV_FIXTURE, ...extraArgs]);
+  return runControlledParser(options);
+}
+
+describe('runControlledParser — synthetic-csv fixture', () => {
+  it('accepts --fixture synthetic-csv', () => {
+    const options = parseControlledRunnerArgs(['--fixture', SYNTHETIC_CSV_FIXTURE]);
+    assert.equal(options.fixture, SYNTHETIC_CSV_FIXTURE);
+  });
+
+  it('reads the synthetic CSV files and produces the same 3 accepted / 3 rejected result', () => {
+    const { report } = csvReport();
+    assert.equal(report.mode, 'fixture');
+    assert.equal(report.fixture, SYNTHETIC_CSV_FIXTURE);
+    assert.equal(report.snapshots_created, 3);
+    assert.equal(report.rejected_rows, 3);
+    assert.equal(report.total_establishment_rows, 6);
+  });
+
+  it('stamps fixture_source=synthetic_csv and layout_validation=passed', () => {
+    const { report } = csvReport();
+    assert.equal(report.fixture_source, 'synthetic_csv');
+    assert.equal(report.layout_validation, 'passed');
+  });
+
+  it('carries an all-false safety block', () => {
+    const { report } = csvReport();
+    for (const value of Object.values(report.safety)) {
+      assert.equal(value, false);
+    }
+  });
+
+  it('renders sanitized text output with no full CNPJ', () => {
+    const { report, sensitiveFullCnpjs } = csvReport();
+    const text = formatReportText(report);
+    assert.match(text, /fixture_source: synthetic_csv/);
+    assert.match(text, /layout_validation: passed/);
+    assert.doesNotMatch(text, FULL_CNPJ_PATTERN);
+    assert.doesNotMatch(text, FOURTEEN_DIGITS_PATTERN);
+    for (const cnpj of sensitiveFullCnpjs) {
+      assert.ok(!text.includes(cnpj), 'full CNPJ leaked into synthetic-csv text output');
+    }
+    assert.doesNotThrow(() => assertSanitizedRunnerOutput(text, sensitiveFullCnpjs));
+  });
+
+  it('renders valid JSON with no full CNPJ and hash12 identifiers', () => {
+    const { report, sensitiveFullCnpjs } = csvReport(['--format', 'json']);
+    const json = formatReportJson(report);
+    const parsed = JSON.parse(json) as ControlledRunnerReport;
+    assert.equal(parsed.fixture_source, 'synthetic_csv');
+    assert.equal(parsed.layout_validation, 'passed');
+    assert.doesNotMatch(json, FULL_CNPJ_PATTERN);
+    assert.doesNotMatch(json, FOURTEEN_DIGITS_PATTERN);
+    for (const hash of parsed.valid_cnpj_hashes) {
+      assert.match(hash, /^[0-9a-f]{12}$/);
+    }
+    for (const cnpj of sensitiveFullCnpjs) {
+      assert.ok(!json.includes(cnpj), 'full CNPJ leaked into synthetic-csv json output');
+    }
+  });
+
+  it('output object contains no forbidden data keys', () => {
+    const { report } = csvReport();
+    assert.doesNotThrow(() => assertNoForbiddenKeysInOutput(report));
+  });
+
+  it('still rejects forbidden ingestion/runtime flags in csv mode', () => {
+    for (const flag of ['input', 'download', 'import', 'execute', 'supabase', 'production']) {
+      assert.throws(
+        () => parseControlledRunnerArgs(['--fixture', SYNTHETIC_CSV_FIXTURE, `--${flag}`]),
+        ForbiddenRuntimeModeError,
+        `expected --${flag} to be rejected in csv mode`,
+      );
+    }
   });
 });
 
