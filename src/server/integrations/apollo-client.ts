@@ -18,7 +18,14 @@
  *   🔜 matchPerson             — Preparado. Consume créditos.
  */
 
+import { randomUUID } from 'node:crypto';
 import { getApolloApiKey } from '@/server/services/apollo-connection';
+import {
+  interpretApolloPhoneRevealStartResponse,
+  OUTBOUND_TRANSACTION_HEADER,
+  type ApolloPhoneRevealStartBody,
+  type ApolloPhoneRevealTraceMetadata,
+} from './apollo-phone-reveal-response';
 
 const APOLLO_BASE_URL = 'https://api.apollo.io';
 
@@ -163,24 +170,22 @@ export interface MatchPersonParams {
   webhook_url?: string;
 }
 
-/**
- * Respuesta inmediata (síncrona) de un reveal de teléfono ASÍNCRONO. No trae
- * teléfonos: solo el id de correlación con el que Apollo luego llama al webhook
- * y con el que se puede consultar el resultado. Apollo no documenta un nombre
- * único para este id, así que se aceptan las variantes observadas.
- */
-export interface ApolloPhoneRevealStartResponse {
-  request_id?: string | null;
-  /** Variante alterna observada del id de correlación. */
-  async_task_id?: string | null;
-  /** Variante alterna observada del id de correlación. */
-  id?: string | null;
-}
-
 export interface ApolloPhoneRevealStartResult {
   success: boolean;
-  /** Id de correlación normalizado (request_id ?? async_task_id ?? id). */
+  /**
+   * Handle async del reveal: `phone_enrichment.request_id` (contrato confirmado
+   * por Apollo Support). El request_id top-level NO se usa como handle: es traza
+   * HTTP. null cuando Apollo respondió 200 pero no creó job async.
+   */
   requestId?: string | null;
+  /**
+   * Código de error seguro cuando `success` es true pero no hubo handle async
+   * ('no_async_job_created' | 'skipped_without_request_id'). null en el camino
+   * feliz. Permite clasificar sin el genérico 'missing_request_id'.
+   */
+  noAsyncJobCode?: string | null;
+  /** Metadata técnica de traza (sin PII) para provider_usage_logs. */
+  trace?: ApolloPhoneRevealTraceMetadata | null;
   error?: ApolloApiError;
 }
 
@@ -206,7 +211,14 @@ export interface ApolloEnrichResult<T> {
 async function apolloFetch<T>(
   path: string,
   options: RequestInit = {}
-): Promise<{ ok: boolean; data?: T; status: number; errorBody?: string }> {
+): Promise<{
+  ok: boolean;
+  data?: T;
+  status: number;
+  errorBody?: string;
+  /** Headers de la respuesta (traza técnica; los callers que no la usan la ignoran). */
+  headers?: Headers;
+}> {
   const apiKey = await getApolloApiKey();
 
   if (!apiKey) {
@@ -226,11 +238,11 @@ async function apolloFetch<T>(
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '');
-    return { ok: false, status, errorBody: errorBody.slice(0, 500) };
+    return { ok: false, status, errorBody: errorBody.slice(0, 500), headers: response.headers };
   }
 
   const data = await response.json().catch(() => undefined) as T;
-  return { ok: true, data, status };
+  return { ok: true, data, status, headers: response.headers };
 }
 
 // ============================================================
@@ -388,23 +400,34 @@ export async function matchApolloPerson(
 // Inicio de reveal de teléfono ASÍNCRONO
 // POST https://api.apollo.io/api/v1/people/match  (con webhook_url)
 //
-// NOTA: Consume créditos del plan Apollo. El teléfono NO llega aquí: la
-// respuesta inmediata solo trae el id de correlación (request_id). Apollo
-// entrega los teléfonos más tarde por callback al webhook_url. Sin webhook_url
-// (cuando reveal_phone_number es true) Apollo responde HTTP 422.
+// NOTA: El teléfono NO llega aquí. Contrato confirmado por Apollo Support:
+//   * El handle async correcto es `response.body.phone_enrichment.request_id`.
+//     Apollo entrega los teléfonos más tarde por callback al webhook_url usando
+//     ese handle.
+//   * El `request_id` de nivel superior del body NO es el handle async: es traza
+//     HTTP (equivale al header x-http-request-id). NUNCA se usa para poll/webhook.
+//   * HTTP 200 sin `phone_enrichment` ⇒ no se creó job async: no webhook, no
+//     pending, no créditos (se clasifica como 'no_async_job_created').
 //
-// Esta función NO lee teléfonos de la respuesta: devuelve solo el requestId,
-// nunca dato personal. El reveal real sigue gated por ENABLE_APOLLO_PHONE_REVEAL.
+// Esta función NO lee teléfonos de la respuesta: devuelve solo el handle async y
+// metadata técnica de traza (sin PII). Envía un `X-Transaction-Id` propio (UUID)
+// que Apollo refleja en `x-transaction-id` y loguea server-side. El reveal real
+// sigue gated por ENABLE_APOLLO_PHONE_REVEAL.
 // ============================================================
 
 export async function startApolloPhoneReveal(
   params: MatchPersonParams
 ): Promise<ApolloPhoneRevealStartResult> {
-  const result = await apolloFetch<ApolloPhoneRevealStartResponse>(
+  // UUID de correlación propio por intento (server-side). Apollo lo refleja en
+  // x-transaction-id y lo loguea; nos permite cruzar trazas con Apollo Support.
+  const outboundTransactionId = randomUUID();
+
+  const result = await apolloFetch<ApolloPhoneRevealStartBody>(
     '/api/v1/people/match',
     {
       method: 'POST',
       body: JSON.stringify(params),
+      headers: { [OUTBOUND_TRANSACTION_HEADER]: outboundTransactionId },
     }
   );
 
@@ -419,14 +442,17 @@ export async function startApolloPhoneReveal(
     };
   }
 
-  const requestId =
-    result.data?.request_id ??
-    result.data?.async_task_id ??
-    result.data?.id ??
-    null;
+  const headers = result.headers;
+  const interpretation = interpretApolloPhoneRevealStartResponse({
+    body: result.data ?? null,
+    getHeader: (name) => (headers ? headers.get(name) : null),
+    outboundTransactionId,
+  });
 
   return {
     success: true,
-    requestId: typeof requestId === 'string' ? requestId : null,
+    requestId: interpretation.asyncRequestId,
+    noAsyncJobCode: interpretation.noAsyncJobCode,
+    trace: interpretation.trace,
   };
 }

@@ -34,6 +34,7 @@
 // ENABLE_APOLLO_PHONE_REVEAL, which this milestone does NOT activate.
 
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
+import type { ApolloPhoneRevealTraceMetadata } from '@/server/integrations/apollo-phone-reveal-response';
 import {
   buildApolloPhoneRevealMatchParams,
   type ApolloPhoneRevealInput,
@@ -146,8 +147,26 @@ export interface RevealCandidateRecord {
  * al `errorCode` mecánico (p.ej. HTTP_422) ni toca el schema del candidato.
  */
 export type ApolloPhoneRevealStartCallResult =
-  | { ok: true; requestId: string | null }
-  | { ok: false; errorCode: string; errorHint?: string | null };
+  | {
+      ok: true;
+      requestId: string | null;
+      /**
+       * Código de error seguro cuando Apollo respondió 200 pero NO creó job async
+       * (sin phone_enrichment.request_id): 'no_async_job_created' |
+       * 'skipped_without_request_id'. Sustituye al genérico 'missing_request_id'.
+       * null en el camino feliz (hay requestId).
+       */
+      noAsyncJobCode?: string | null;
+      /** Metadata técnica de traza (sin PII) para el usage-log. */
+      trace?: ApolloPhoneRevealTraceMetadata | null;
+    }
+  | {
+      ok: false;
+      errorCode: string;
+      errorHint?: string | null;
+      /** Metadata técnica de traza (sin PII) para el usage-log. */
+      trace?: ApolloPhoneRevealTraceMetadata | null;
+    };
 
 // ── Patch de persistencia del START (describe el UPDATE, no lo ejecuta) ──
 
@@ -218,6 +237,13 @@ export interface PhoneRevealUsageLogEntry {
      * correlacionar el 422 con el origen sin exponer el id ni identidad alguna.
      */
     source_provider_for_id: string | null;
+    /**
+     * Traza técnica del START de Apollo (presencia de phone_enrichment/person,
+     * request/transaction ids de traza HTTP). SIN PII: sólo booleanos de presencia
+     * e ids técnicos de correlación (nunca teléfono/email/linkedin/nombre/body).
+     * null cuando Apollo no devolvió una respuesta interpretable (p.ej. error HTTP).
+     */
+    apollo_trace: ApolloPhoneRevealTraceMetadata | null;
   };
 }
 
@@ -450,14 +476,20 @@ export async function runRevealCandidatePhone(
 
   // 15a. Error o request_id ausente → estado error, código seguro sin PII.
   //      Sin request_id no hay forma de correlacionar el webhook.
+  //      Cuando Apollo respondió 200 pero NO creó job async (sin
+  //      phone_enrichment.request_id) el cliente entrega un código específico
+  //      ('no_async_job_created' | 'skipped_without_request_id') que usamos en
+  //      lugar del genérico 'missing_request_id'. En ese caso NO se espera
+  //      webhook, NO se marca pending y NO se consumen créditos.
   if (!started.ok || !cleanText(started.requestId)) {
     const errorCode = !started.ok
       ? cleanText(started.errorCode) ?? 'apollo_reveal_start_failed'
-      : 'missing_request_id';
+      : cleanText(started.noAsyncJobCode) ?? 'missing_request_id';
     // Hint sanitizado (sin PII) solo cuando Apollo devolvió un error real; nunca
     // se persiste en el candidato (solo en el usage-log). Sin request_id => hint
     // no aplica.
     const errorHint = !started.ok ? cleanText(started.errorHint) : null;
+    const trace = started.trace ?? null;
     const patch: RevealStartPersistencePatch = {
       phone_reveal_status: 'error',
       phone_reveal_request_id: null,
@@ -484,6 +516,7 @@ export async function runRevealCandidatePhone(
         errorHint,
         idForwardedToApollo,
         sourceProviderForId,
+        trace,
       }),
     );
     return { ok: false, status: 'error', requestAccepted: false, errorCode };
@@ -518,6 +551,7 @@ export async function runRevealCandidatePhone(
       errorHint: null,
       idForwardedToApollo,
       sourceProviderForId,
+      trace: started.trace ?? null,
     }),
   );
   return { ok: true, status: 'requested', requestAccepted: true, errorCode: null };
@@ -535,6 +569,7 @@ function buildUsageLogEntry(args: {
   errorHint: string | null;
   idForwardedToApollo: boolean;
   sourceProviderForId: string | null;
+  trace: ApolloPhoneRevealTraceMetadata | null;
 }): PhoneRevealUsageLogEntry {
   return {
     operationKey: PHONE_REVEAL_OPERATION_KEY,
@@ -559,6 +594,7 @@ function buildUsageLogEntry(args: {
       apollo_error_hint: args.errorHint,
       id_forwarded_to_apollo: args.idForwardedToApollo,
       source_provider_for_id: args.sourceProviderForId,
+      apollo_trace: args.trace,
     },
   };
 }
