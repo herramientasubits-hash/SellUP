@@ -104,8 +104,7 @@ let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 type RevealResult = {
   ok: boolean;
   status: string;
-  phoneRevealed: boolean;
-  phoneType: string | null;
+  requestAccepted: boolean;
   errorCode: string | null;
 };
 
@@ -210,7 +209,7 @@ async function openRevealDialog() {
 
 function clickConfirm() {
   fireEvent.click(
-    screen.getByRole('button', { name: /Revelar teléfono \(hasta 8 créditos\)/ }),
+    screen.getByRole('button', { name: /Solicitar revelación \(hasta 8 créditos\)/ }),
   );
 }
 
@@ -229,9 +228,8 @@ beforeEach(() => {
   mockRouterRefresh.mock.resetCalls();
   mockReveal.mock.mockImplementation(async () => ({
     ok: true,
-    status: 'revealed',
-    phoneRevealed: true,
-    phoneType: 'mobile',
+    status: 'requested',
+    requestAccepted: true,
     errorCode: null,
   }));
 });
@@ -292,7 +290,7 @@ describe('Modal de confirmación', () => {
     await openRevealDialog();
     assert.ok(screen.getByText('Revelar teléfono del candidato'));
     assert.ok(screen.getByText(/hasta 8 créditos Apollo/));
-    assert.ok(screen.getByRole('button', { name: /Revelar teléfono \(hasta 8 créditos\)/ }));
+    assert.ok(screen.getByRole('button', { name: /Solicitar revelación \(hasta 8 créditos\)/ }));
     cleanup();
   });
 
@@ -356,37 +354,32 @@ describe('Llamada al action y estados de respuesta', () => {
     cleanup();
   });
 
-  it('revealed → cierra modal, refetch y muestra teléfono + badge "Apollo reveal"', async () => {
-    const revealed = makeCandidate({
-      phone: '+573001112233',
-      phone_reveal_status: 'revealed',
-      enrichment_metadata: {
-        phone: { number: '+573001112233', type: 'mobile', source: 'apollo_reveal', raw_type: 'mobile' },
-      },
-    });
+  it('requested → cierra modal, refetch y muestra badge "Revelación en proceso"', async () => {
+    const inFlight = makeCandidate({ phone_reveal_status: 'requested' });
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
     await openRevealDialog();
     fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
-    // El refetch posterior devuelve el candidato ya revelado.
-    mockGetById.mock.mockImplementation(async () => revealed);
+    // El refetch posterior devuelve el candidato en estado en vuelo.
+    mockGetById.mock.mockImplementation(async () => inFlight);
     clickConfirm();
 
     await waitFor(() => {
-      if (!screen.queryByText('Apollo reveal')) throw new Error('revealed badge not shown yet');
+      if (!screen.queryByText('Revelación en proceso')) {
+        throw new Error('pending badge not shown yet');
+      }
     });
-    // Modal cerrado y botón de reveal ya no disponible.
+    // Modal cerrado y botón de reveal ya no disponible (reveal en vuelo).
     assert.equal(screen.queryByText('Revelar teléfono del candidato'), null);
     assert.equal(screen.queryByRole('button', { name: 'Revelar teléfono' }), null);
-    assert.ok(screen.getByText('+573001112233'));
+    assert.ok(screen.getByText('Apollo puede tardar algunos minutos.'));
     cleanup();
   });
 
-  it('no_phone_found → muestra "Teléfono no disponible tras reveal."', async () => {
+  it('provider_not_configured → muestra mensaje seguro y mantiene el modal', async () => {
     mockReveal.mock.mockImplementation(async () => ({
-      ok: true,
-      status: 'no_phone_found',
-      phoneRevealed: false,
-      phoneType: null,
+      ok: false,
+      status: 'provider_not_configured',
+      requestAccepted: false,
       errorCode: null,
     }));
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
@@ -394,8 +387,8 @@ describe('Llamada al action y estados de respuesta', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
     clickConfirm();
     await waitFor(() => {
-      if (!screen.queryByText('Teléfono no disponible tras reveal.')) {
-        throw new Error('no_phone_found notice not shown yet');
+      if (!screen.queryByText('La revelación de teléfono no está configurada.')) {
+        throw new Error('provider_not_configured message not shown yet');
       }
     });
     cleanup();
@@ -405,16 +398,15 @@ describe('Llamada al action y estados de respuesta', () => {
     mockReveal.mock.mockImplementation(async () => ({
       ok: false,
       status: 'error',
-      phoneRevealed: false,
-      phoneType: null,
-      errorCode: 'apollo_reveal_failed',
+      requestAccepted: false,
+      errorCode: 'HTTP_422',
     }));
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });
     await openRevealDialog();
     fireEvent.click(screen.getByRole('radio', { name: 'Interés legítimo B2B' }));
     clickConfirm();
     await waitFor(() => {
-      if (!screen.queryByText('No fue posible revelar el teléfono.')) {
+      if (!screen.queryByText('No fue posible solicitar la revelación del teléfono.')) {
         throw new Error('safe error not shown yet');
       }
     });
@@ -427,8 +419,7 @@ describe('Llamada al action y estados de respuesta', () => {
     mockReveal.mock.mockImplementation(async () => ({
       ok: false,
       status: 'unauthorized_role',
-      phoneRevealed: false,
-      phoneType: null,
+      requestAccepted: false,
       errorCode: null,
     }));
     await renderSheet(makeCandidate(), { phoneRevealEnabled: true, phoneRevealAuthorized: true });

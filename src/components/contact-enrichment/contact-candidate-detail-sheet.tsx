@@ -446,22 +446,25 @@ export function ContactCandidateDetailSheet({
   }
 
   /**
-   * Traduce el resultado seguro del server action a estados de UI. El teléfono
-   * revelado NUNCA vuelve en el resultado (queda persistido en el candidato); un
-   * refetch silencioso lo trae a pantalla. No se hace console.log del resultado.
+   * Traduce el resultado seguro del server action a estados de UI. El reveal es
+   * ASÍNCRONO: en el camino feliz el action devuelve `requested` (solicitud
+   * aceptada, esperando el webhook de Apollo). El teléfono NUNCA vuelve en el
+   * resultado; un refetch silencioso refleja el estado en vuelo y, más tarde, el
+   * número cuando el webhook complete. No se hace console.log del resultado.
    */
   function applyPhoneRevealResult(
     result: Awaited<ReturnType<typeof revealCandidatePhoneAction>>,
   ) {
     switch (result.status) {
-      case 'revealed':
-        toast.success('Teléfono revelado.');
-        setPhoneRevealNotice(null);
+      case 'requested':
+        toast.success('Revelación solicitada.');
+        setPhoneRevealNotice('Apollo puede tardar algunos minutos.');
         closePhoneRevealDialog();
         void reloadCandidate();
         return;
-      case 'no_phone_found':
-        setPhoneRevealNotice('Teléfono no disponible tras reveal.');
+      case 'already_pending':
+        toast.info('Ya hay una revelación en proceso para este candidato.');
+        setPhoneRevealNotice('Apollo puede tardar algunos minutos.');
         closePhoneRevealDialog();
         void reloadCandidate();
         return;
@@ -476,6 +479,9 @@ export function ContactCandidateDetailSheet({
         return;
       case 'disabled':
         setPhoneRevealError('La revelación de teléfono no está activada.');
+        return;
+      case 'provider_not_configured':
+        setPhoneRevealError('La revelación de teléfono no está configurada.');
         return;
       case 'unauthorized_role':
         setPhoneRevealError('No tienes permisos para revelar teléfonos.');
@@ -495,7 +501,7 @@ export function ContactCandidateDetailSheet({
         return;
       default:
         // error, candidate_not_found, candidate_account_invalid, invalid_candidate
-        setPhoneRevealError('No fue posible revelar el teléfono.');
+        setPhoneRevealError('No fue posible solicitar la revelación del teléfono.');
     }
   }
 
@@ -575,13 +581,19 @@ export function ContactCandidateDetailSheet({
     candidate?.phone_reveal_status === 'revealed' ||
     phoneMeta?.source === 'apollo_reveal';
   const phoneRevealExhausted = candidate?.phone_reveal_status === 'no_phone_found';
+  // Reveal ASÍNCRONO en vuelo (APOLLO-PHONE-ASYNC-1): solicitud aceptada,
+  // esperando el webhook de Apollo. Oculta el botón y muestra "en proceso".
+  const phoneRevealInFlight =
+    candidate?.phone_reveal_status === 'requested' ||
+    candidate?.phone_reveal_status === 'pending';
   const canOfferPhoneReveal =
     !!candidate &&
     phoneRevealEnabled === true &&
     phoneRevealAuthorized === true &&
     hasSufficientPhoneRevealIdentity &&
     !phoneAlreadyRevealed &&
-    !phoneRevealExhausted;
+    !phoneRevealExhausted &&
+    !phoneRevealInFlight;
   const companyConsistency =
     (candidate?.enrichment_metadata?.company_consistency as
       | ContactCandidateCompanyConsistency
@@ -805,7 +817,23 @@ export function ContactCandidateDetailSheet({
                   ) : (
                     <Fallback />
                   )}
-                  {phoneRevealNotice && (
+                  {phoneRevealInFlight && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Revelación en proceso
+                      </Badge>
+                      <span className="text-[11px] text-muted-foreground">
+                        Apollo puede tardar algunos minutos.
+                      </span>
+                    </span>
+                  )}
+                  {phoneRevealExhausted && !phoneRevealInFlight && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Teléfono no disponible tras consultar Apollo.
+                    </p>
+                  )}
+                  {phoneRevealNotice && !phoneRevealInFlight && (
                     <p className="text-[11px] text-muted-foreground">{phoneRevealNotice}</p>
                   )}
                   {canOfferPhoneReveal && (
@@ -1173,7 +1201,8 @@ export function ContactCandidateDetailSheet({
           <DialogDescription>
             Esta acción puede consumir hasta {PHONE_REVEAL_MAX_CREDITS} créditos Apollo por
             candidato y trata un dato personal. Selecciona la base de tratamiento aplicable.
-            Es una acción individual; no se garantiza que el proveedor entregue un número.
+            Es una acción individual y asíncrona: Apollo puede tardar algunos minutos en
+            entregar el número, y no se garantiza que el proveedor entregue uno.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -1246,10 +1275,10 @@ export function ContactCandidateDetailSheet({
             {revealingPhone ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Revelando…
+                Solicitando…
               </>
             ) : (
-              `Revelar teléfono (hasta ${PHONE_REVEAL_MAX_CREDITS} créditos)`
+              `Solicitar revelación (hasta ${PHONE_REVEAL_MAX_CREDITS} créditos)`
             )}
           </Button>
         </DialogFooter>

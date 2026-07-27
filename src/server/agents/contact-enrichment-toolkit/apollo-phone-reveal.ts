@@ -36,6 +36,13 @@ export interface ApolloPhoneRevealInput {
   firstName?: string | null;
   lastName?: string | null;
   organizationName?: string | null;
+  /**
+   * URL pública del webhook de Apollo para el reveal ASÍNCRONO. Obligatoria:
+   * el contrato confirmado de Apollo exige `webhook_url` cuando
+   * `reveal_phone_number` es true (sin ella responde HTTP 422). Nunca contiene
+   * dato personal; es una ruta pública protegida por un token secreto.
+   */
+  webhookUrl?: string | null;
 }
 
 // ── Resultado ──────────────────────────────────────────────────
@@ -45,7 +52,9 @@ export type ApolloPhoneRevealResult =
   | { ok: false; error: ApolloPhoneRevealError };
 
 /** Motivo por el que no se puede construir un payload de reveal seguro. */
-export type ApolloPhoneRevealError = 'insufficient_identity';
+export type ApolloPhoneRevealError =
+  | 'insufficient_identity'
+  | 'webhook_url_required';
 
 // ── Helpers puros ──────────────────────────────────────────────
 
@@ -68,6 +77,12 @@ function clean(value: string | null | undefined): string | null {
  * `reveal_phone_number: true` se fija aquí y solo aquí. `reveal_personal_emails`
  * NO se agrega: el reveal de teléfono no lo exige y evitarlo reduce el dato
  * personal que se solicita (minimización). El payload nunca incluye teléfonos.
+ *
+ * `webhook_url` es OBLIGATORIA: el reveal de Apollo es asíncrono y sin webhook
+ * responde HTTP 422. Se rechaza con `webhook_url_required` si falta, para que
+ * nunca se dispare una llamada que Apollo va a rechazar. El id de correlación
+ * (request_id) lo devuelve Apollo en la respuesta inmediata; el teléfono llega
+ * después por el webhook.
  */
 export function buildApolloPhoneRevealMatchParams(
   input: ApolloPhoneRevealInput,
@@ -82,8 +97,17 @@ export function buildApolloPhoneRevealMatchParams(
     return { ok: false, error: 'insufficient_identity' };
   }
 
-  // Único punto autorizado para reveal_phone_number: true.
-  const params: MatchPersonParams = { reveal_phone_number: true };
+  // webhook_url obligatoria para el reveal asíncrono (sin ella → HTTP 422).
+  const webhookUrl = clean(input.webhookUrl);
+  if (!webhookUrl) {
+    return { ok: false, error: 'webhook_url_required' };
+  }
+
+  // Único punto autorizado para reveal_phone_number: true + webhook_url.
+  const params: MatchPersonParams = {
+    reveal_phone_number: true,
+    webhook_url: webhookUrl,
+  };
 
   if (id) params.id = id;
   if (email) params.email = email;
