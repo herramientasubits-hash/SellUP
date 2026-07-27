@@ -48,3 +48,21 @@ export type {
   ProspectIntakeGateAudit,
   ProspectIntakeGateResult,
 } from './gate';
+
+export {
+  enrichNormalizedProspectWithOfficialSources,
+  buildOfficialSourceEnrichmentMetadata,
+  buildOfficialSourceTypedColumns,
+  DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY,
+  OFFICIAL_SOURCE_WARNING,
+  OFFICIAL_SOURCE_ISSUE,
+} from './source-enrichment';
+export type {
+  OfficialSourceEnrichmentStatus,
+  OfficialSourceMatchMethod,
+  OfficialSourceEnrichmentResult,
+  OfficialSourceEnrichmentPolicy,
+  OfficialSourceResolverInput,
+  OfficialSourceResolver,
+  EnrichedProspectCandidateIdentity,
+} from './source-enrichment';
