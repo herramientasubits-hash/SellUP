@@ -1305,17 +1305,24 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'br_receita_dados_abertos',
     name: 'Receita Federal CNPJ Dados Abertos (Bulk)',
-    // Estado operativo real (BR-SOURCE-8-UI): preparación técnica completada.
-    // GO Legal/Privacy (BR-LEGAL-2), parser de muestra local (BR-SOURCE-2),
-    // validador de manifiesto (BR-SOURCE-6) y dry-run local sobre archivo real
-    // (BR-SOURCE-7) están listos. La importación, el runtime enrichment, la
-    // integración live con Agent 1 y la sincronización con HubSpot siguen
-    // BLOQUEADAS hasta un hito separado con aprobación explícita. Presentacional
-    // — no habilita ningún flujo. dry_run_validated + not_persisted hace que la
-    // ficha no muestre paneles de conexión ni CTAs de importación.
+    // Estado operativo real (BR-SOURCE-8B-UI-STANDARDIZE): preparación técnica
+    // local lista, pero la fuente NO está conectada ni operativa. GO Legal/Privacy
+    // (BR-LEGAL-2), parser de muestra local (BR-SOURCE-2), validador de manifiesto
+    // (BR-SOURCE-6) y dry-run local sobre archivo real (BR-SOURCE-7) están listos.
+    // La importación, el runtime enrichment, la integración live con Agent 1 y la
+    // sincronización con HubSpot siguen BLOQUEADAS hasta un hito separado con
+    // aprobación explícita. Presentacional — no habilita ningún flujo.
+    //
+    // Alineación con el estándar del catálogo (mismo patrón que ec_sercop): usa
+    // los estados existentes `pending_integration_design` + `not_connected` en
+    // lugar de los estados experimentales `dry_run_validated`/`not_persisted`.
+    // Con ello el listado muestra labels estándar ("Pendiente diseño de
+    // integración", "No conectada", "Solo validación"), la acción es "Ver detalle"
+    // (nunca "Conectar", ver action-presentation.ts) y la ficha de detalle omite
+    // los paneles de conexión (ver shouldSkipGenericConnectionPanels).
     sellupUse: 'discovery',
-    aiFlowStatus: 'dry_run_validated',
-    connectionMode: 'not_persisted',
+    aiFlowStatus: 'pending_integration_design',
+    connectionMode: 'not_connected',
     // Reconciliación de clave (BR-SOURCE-8-UI-FIX1): la UI/registry conserva la
     // clave existente `br_receita_dados_abertos` para no duplicar la fuente de
     // Brasil. Los contratos técnicos (parser, staging, dry-run) usan la clave
@@ -1333,7 +1340,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     countryCodes: ['BR'],
     sectors: [],
     priority: 'P0',
-    operationalStatus: 'dry_run_validated',
+    operationalStatus: 'validation_only',
     type: 'official_registry',
     url: 'https://dadosabertos.rfb.gov.br/CNPJ/',
     automationLevel: 'high',
@@ -1353,6 +1360,16 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'br_receita_cnpj',
     name: 'Receita Federal CNPJ (Referencia institucional)',
+    // Clasificación (BR-SOURCE-8B-UI-STANDARDIZE): referencia institucional
+    // complementaria, NO una segunda fuente operativa de Brasil. Se clasifica
+    // explícitamente (mismo patrón que ec_sercop) para que salga del tab
+    // "Operativas IA", no muestre CTA "Conectar" y abra el detalle de solo
+    // lectura. La ingesta bulk la cubre br_receita_dados_abertos.
+    sellupUse: 'manual_reference',
+    aiFlowStatus: 'pending_integration_design',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Referencia institucional para validación puntual de CNPJ. No conectada y sin diseño de integración — la ingesta bulk la cubre br_receita_dados_abertos. Sin importación ni runtime.',
     countryCodes: ['BR'],
     sectors: [],
     priority: 'P1',
@@ -1367,10 +1384,20 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'br_cnpj_ws',
     name: 'cnpj.ws (API tercero)',
+    // Clasificación (BR-SOURCE-8B-UI-STANDARDIZE): candidato / API de tercero no
+    // oficial, NO fuente activa. Se clasifica como requiere-validación (mismo
+    // patrón que ec_ekos) para que salga del tab "Operativas IA", no muestre CTA
+    // "Conectar" y abra el detalle de solo lectura. Requiere validación de TOS,
+    // SLA y legalidad antes de considerar cualquier diseño de integración.
+    sellupUse: 'pending_classification',
+    aiFlowStatus: 'requires_validation',
+    connectionMode: 'not_connected',
+    nextAction:
+      'Tercero no oficial sobre datos de Receita Federal. Requiere validación de TOS, SLA y legalidad antes de considerar cualquier integración. No conectada, no operativa.',
     countryCodes: ['BR'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'connection_required',
+    operationalStatus: 'pending_validation',
     type: 'commercial_provider',
     url: 'https://www.cnpj.ws/',
     automationLevel: 'high',
