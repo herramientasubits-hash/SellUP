@@ -388,6 +388,58 @@ stop condition; it does not lift it.
 
 ---
 
+## 10.3. Company↔establishment bounded join dry-run (BR-SOURCE-10G)
+
+BR-SOURCE-10F established that `estabelecimentos` rows must **not** be classified in
+isolation — they carry no natureza jurídica, so their eligibility can only be affirmed
+with the empresas (company) context (they land in `pending_company_join_context`).
+BR-SOURCE-10G adds the **first bounded, offline dry-run that associates an establishment
+to its company context** by the structural join identifier Receita uses
+(`cnpj_basico` / raiz), with **aggregate metrics only** and **no import authorization**.
+
+**The join uses a structural identifier held ONLY in memory.** The dry-run
+(`br-receita-cnpj-company-establishment-join-dry-run.ts`) samples a bounded set of
+empresas rows into an **ephemeral in-memory index** keyed by the structural join id,
+then samples a bounded set of estabelecimentos rows and looks each one up. The join key
+(`cnpj_basico`) is **never printed, never returned, never hashed, never persisted, never
+logged, and never placed in an error** — it is consumed by a `Map` lookup and discarded
+when the run returns. No row hash is ever derived from it.
+
+**Per-row eligibility reuses the classifier (no second classifier).** Both families are
+scored with the exact BR-SOURCE-10E/10F `classifyRow` contract; the join dry-run adds
+**only** the association logic on top. A company's context resolves to a machine kind —
+join-usable (`eligible_for_future_import` / `needs_legal_review`), blocked by a privacy
+signal (person/PII/forbidden token), or blocked by an unsupported legal nature — and
+that kind (never a value) is what the index stores.
+
+**Join statuses (per establishment, exactly one).**
+`joined_with_sampled_company_context`, `missing_sampled_company_context`,
+`excluded_due_to_company_context`, `excluded_due_to_establishment_privacy_signal`,
+`pending_full_join_context`. **None is importable:** a "join" only means a company
+context was found **within the bounded sample**; a full-dataset join and a separate
+legal GO are still required.
+
+**Establishments remain non-importable on their own.** A structural association inside a
+20×20 sample proves the mechanism, not eligibility. The bounded samples of the two files
+rarely overlap, so most establishments honestly resolve to `missing_sampled_company_context`
+or `pending_full_join_context` — which is exactly why a **full** join (out of scope here)
+is required before any import.
+
+**Sanitized output (§ 9 preserved).** The dry-run emits `join_counts`,
+`join_reason_counts`, `company_classification_counts`, and
+`establishment_classification_counts` — **aggregate counts only** — plus an
+all-false safety block including `join_keys_printed: false`. No raw row, cell value, full
+CNPJ, CNPJ básico, CPF, razão social, nome fantasia, address, contact, or join key is ever
+emitted; the runner additionally trips a sensitive-output assertion on any 8-/11-/14-digit
+literal, email marker, or forbidden key (including `join_key` / `cnpj_basico`).
+
+**What stays blocked (unchanged).** This milestone does **not** authorize import,
+production import, Supabase writes, migrations, runtime, Agent 1, HubSpot/Slack, provider
+calls, or live prospect generation — all remain **blocked**. It is an observational,
+privacy-safe validation of the § 2 join precondition; it does not lift it.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each
@@ -422,6 +474,9 @@ OPS_BR_PRIVACY_SAFE_BOUNDED_DRY_RUN_CLASSIFIER_OFFICIAL = false (not an operatio
 
 OPS_BR_LEGAL_NATURE_ELIGIBILITY_CALIBRATION_PR_READY = true   (BR-SOURCE-10F — calibration opened as a PR)
 OPS_BR_LEGAL_NATURE_ELIGIBILITY_CALIBRATION_OFFICIAL = false  (not an operational authorization)
+
+OPS_BR_COMPANY_ESTABLISHMENT_JOIN_DRY_RUN_PR_READY = true   (BR-SOURCE-10G — bounded join dry-run opened as a PR)
+OPS_BR_COMPANY_ESTABLISHMENT_JOIN_DRY_RUN_OFFICIAL = false  (not an operational authorization)
 
 OPS_BR_READY_FOR_IMPORT             = false
 OPS_BR_READY_FOR_PRODUCTION_IMPORT  = false

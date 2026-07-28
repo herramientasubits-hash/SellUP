@@ -443,6 +443,47 @@ generation all stay **blocked**.
 
 ---
 
+### 11.3. Company↔establishment bounded join dry-run (BR-SOURCE-10G)
+
+BR-SOURCE-10G adds a **bounded, privacy-safe dry-run that associates an establishment
+to its company context** by the structural join id (`cnpj_basico` / raiz), producing
+**aggregate join metrics only** (see design
+[§ 10.3](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)). It reuses the
+same manifest validation and per-row classifier; the join key is held **only in an
+ephemeral in-memory index** and is **never printed, returned, hashed, or persisted**.
+Run it with independent company / establishment bounds:
+
+```bash
+node --import tsx scripts/source-catalog/run-br-receita-cnpj-company-establishment-join-dry-run.ts \
+  --manifest ~/Downloads/sellup-source-data/br/receita-cnpj/<YYYY-MM>/manifest.headerless.json \
+  --allow-local-manifest \
+  --format json \
+  --strict \
+  --max-company-rows 20 \
+  --max-establishment-rows 20
+```
+
+What the sanitized output reports:
+
+- `companies_sampled`, `companies_indexed_for_join`, `companies_excluded_from_join`;
+- `establishments_sampled`;
+- `join_counts` — each establishment resolves to exactly one of
+  `joined_with_sampled_company_context`, `missing_sampled_company_context`,
+  `excluded_due_to_company_context`, `excluded_due_to_establishment_privacy_signal`,
+  or `pending_full_join_context`;
+- `join_reason_counts`, `company_classification_counts`,
+  `establishment_classification_counts` — **counts only**;
+- an all-false safety block including `join_keys_printed: false`.
+
+A "join" here only means a company context was found **within the bounded sample**; the
+two files' small samples rarely overlap, so most establishments honestly resolve to
+`missing_sampled_company_context` / `pending_full_join_context`. Establishments remain
+**non-importable on their own**, and import / production import / Supabase writes /
+migrations / runtime / Agent 1 / HubSpot / Slack / provider calls / live prospect
+generation all stay **blocked**. This dry-run authorizes none of them.
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:
@@ -528,4 +569,5 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10D** | Privacy-safe import eligibility **design** (docs-only). | Merged design; authorizes no import. |
 | **BR-SOURCE-10E** | Privacy-safe bounded dry-run **classifier** (§ 11.1): aggregate eligibility counts, no rows, no values. | Additive to the § 11 hard-block; authorizes no import. |
 | **BR-SOURCE-10F** | Eligibility & legal-nature **calibration** (§ 11.2): lookups → `not_applicable_lookup`, establishments → `pending_company_join_context`, MEI/EI excluded; adds risk-class & positive-signal counts. | Legal nature is a signal, not an authorization; authorizes no import. |
-| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + explicit approval first. |
+| **BR-SOURCE-10G** | Company↔establishment bounded **join dry-run** (§ 11.3): associates establishments to company context by a structural, in-memory-only join id; aggregate join metrics, no rows, no values, no join keys. | Bounded sample only; establishments stay non-importable; authorizes no import. |
+| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + explicit approval first. |

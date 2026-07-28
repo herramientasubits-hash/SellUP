@@ -392,7 +392,7 @@ function assertClassifierGatesOrThrow(options: BrReceitaCnpjPrivacyClassifierOpt
 
 // ─── Manifest descriptor re-read (paths only; NEVER header validation) ─────────
 
-interface ClassifierFileDescriptor {
+export interface ClassifierFileDescriptor {
   readonly fileType: BrReceitaCnpjManifestFileType;
   readonly resolvedPath: string;
   readonly delimiter: string;
@@ -419,7 +419,7 @@ function isWithinBaseDir(baseDir: string, resolvedTarget: string): boolean {
  * header + forbidden-token checks live in `validateBrReceitaCnpjLocalManifest`.
  * Every path is defensively re-guarded (absolute / traversal / URL) here.
  */
-async function readValidatedManifestDescriptors(
+export async function readValidatedManifestDescriptors(
   manifestPath: string,
 ): Promise<ClassifierFileDescriptor[]> {
   const resolvedManifestPath = path.resolve(manifestPath);
@@ -473,7 +473,7 @@ interface BoundedSampleOutcome {
  * file can never be fully read. Returns raw lines for structural splitting only —
  * the caller must never surface their content.
  */
-async function readBoundedSampleLines(
+export async function readBoundedSampleLines(
   filePath: string,
   encoding: BrReceitaCnpjManifestEncoding,
   maxLines: number,
@@ -532,7 +532,7 @@ function splitCompleteLines(text: string, maxLines: number, includeTrailing: boo
  * counting logic in `countBrReceitaCnpjDelimitedColumns`. Returns cell STRINGS
  * that are scanned in memory and then discarded — they never leave this module.
  */
-function splitDelimitedCells(line: string, delimiter: string): string[] {
+export function splitDelimitedCells(line: string, delimiter: string): string[] {
   const trimmed = line.replace(/\r$/, '');
   const cells: string[] = [];
   let field = '';
@@ -584,7 +584,7 @@ function isPersistibleIndex(fileType: BrReceitaCnpjLayoutFileType, index: number
   return true;
 }
 
-function familyOf(fileType: BrReceitaCnpjManifestFileType | 'unknown'): BrReceitaCnpjPrivacyFileFamily {
+export function familyOf(fileType: BrReceitaCnpjManifestFileType | 'unknown'): BrReceitaCnpjPrivacyFileFamily {
   if (BR_RECEITA_COMPANY_FAMILIES.has(fileType)) return 'company';
   if (BR_RECEITA_REFERENCE_FAMILIES.has(fileType)) return 'reference';
   return 'unknown';
@@ -597,10 +597,21 @@ function familyOf(fileType: BrReceitaCnpjManifestFileType | 'unknown'): BrReceit
  * a determination is meaningful, and any positive company signals observed. All
  * three are machine values — a row, cell value, full CNPJ, or CPF is NEVER carried.
  */
-interface RowClassification {
+export interface RowClassification {
   readonly reason: BrReceitaPrivacyEligibilityReason;
   readonly legalNatureRiskClass?: BrReceitaLegalNatureRiskClass;
   readonly positiveSignals: readonly BrReceitaPositiveCompanySignal[];
+}
+
+/**
+ * Maps a per-row eligibility reason to its single canonical status. Exposed so a
+ * layered dry-run (e.g. the company↔establishment join) can reuse the exact same
+ * reason→status contract instead of re-deriving it. Pure lookup; no value read.
+ */
+export function eligibilityStatusForReason(
+  reason: BrReceitaPrivacyEligibilityReason,
+): BrReceitaPrivacyEligibilityStatus {
+  return REASON_TO_STATUS[reason];
 }
 
 /**
@@ -611,7 +622,7 @@ interface RowClassification {
  * recorded only on rows not pre-empted by a PII/token/guard exclusion. NEVER
  * returns a value — only machine codes.
  */
-function classifyRow(
+export function classifyRow(
   fileType: BrReceitaCnpjLayoutFileType,
   family: BrReceitaCnpjPrivacyFileFamily,
   cells: readonly string[],
