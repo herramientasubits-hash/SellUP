@@ -115,6 +115,16 @@ export interface RecoverApolloPhoneRevealInput {
    * registra su presencia (`has_reason`) en el usage-log.
    */
   reason?: string | null;
+  /**
+   * Modo simulación. Cuando es true la recuperación corre TODAS las validaciones
+   * fail-closed y resuelve el recovery id, pero NO consulta Apollo (no llama a
+   * `fetchWebhookResult`), NO persiste y NO registra usage-log: solo reporta que el
+   * candidato es elegible y qué haría (`dry_run_eligible`). Default (undefined) =
+   * ejecución normal. Permite que un runtime admin-gated valide sin gastar ni
+   * escribir. NO existía en el hito RECOVERY-AUTOMATION-1; es aditivo y no cambia
+   * el comportamiento cuando se omite.
+   */
+  dryRun?: boolean;
 }
 
 // ── Patch de persistencia (describe el UPDATE, no lo ejecuta) ──
@@ -221,6 +231,8 @@ export type RecoveryOutcome =
   | 'already_has_phone'
   | 'not_in_flight'
   | 'missing_recovery_request_id'
+  // Simulación (dryRun): elegible, recovery id resuelto, SIN poll/persist/log:
+  | 'dry_run_eligible'
   // Terminales tras el poll:
   | 'revealed'
   | 'no_phone_found'
@@ -238,6 +250,12 @@ export interface RecoverApolloPhoneRevealResult {
   creditsUsed: number | null;
   /** true si se resolvió un recovery id (apollo_http_request_id). Sin PII. */
   recoveryRequestIdPresent: boolean;
+  /**
+   * Categoría del teléfono recuperado (mobile / direct_dial / work / other …) o
+   * null. NO es PII: es una etiqueta de tipo, nunca el número. Solo se rellena en
+   * el camino `revealed`; null en cualquier otro outcome.
+   */
+  phoneType: string | null;
 }
 
 // ── Helpers puros ──────────────────────────────────────────────
@@ -279,6 +297,7 @@ function toResult(
     phoneRevealed: extra.phoneRevealed ?? false,
     creditsUsed: extra.creditsUsed ?? null,
     recoveryRequestIdPresent: extra.recoveryRequestIdPresent ?? false,
+    phoneType: extra.phoneType ?? null,
   };
 }
 
@@ -329,6 +348,14 @@ export async function recoverApolloPhoneRevealForCandidate(
   // phone_enrichment.request_id (ese devuelve 404 en /webhook_result/).
   const recoveryRequestId = cleanText(await deps.resolveRecoveryRequestId(candidateId));
   if (!recoveryRequestId) return toResult('missing_recovery_request_id');
+
+  // Simulación: el candidato es elegible y el recovery id está resuelto, pero NO
+  // se consulta Apollo, NO se persiste y NO se registra usage-log. Corta aquí
+  // (después de todas las validaciones fail-closed) para que un runtime pueda
+  // validar sin gastar créditos ni escribir. NO usa `fetchWebhookResult`.
+  if (input.dryRun === true) {
+    return toResult('dry_run_eligible', { recoveryRequestIdPresent: true });
+  }
 
   // UN poll GET /webhook_result/{apollo_http_request_id}. Sin retry, sin loop.
   const pollable: PollableCandidateRecord = {
@@ -454,6 +481,8 @@ async function handleRecoveredPayload(args: {
       phoneRevealed: true,
       creditsUsed: credits,
       recoveryRequestIdPresent: true,
+      // Etiqueta de tipo (no el número): mobile / direct_dial / work / other …
+      phoneType: revealed.type,
     });
   }
 
