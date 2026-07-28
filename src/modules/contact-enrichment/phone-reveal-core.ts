@@ -81,6 +81,18 @@ export const PHONE_REVEAL_IN_FLIGHT_STATUSES: readonly string[] = [
   'pending',
 ];
 
+/**
+ * Código de error seguro (sin PII) cuando el START de Apollo aceptó el job async
+ * (hay `phone_enrichment.request_id`) pero su respuesta NO trajo el identificador
+ * recuperable `apollo_http_request_id`. Sin ese id no hay forma de recuperar el
+ * resultado por `GET /webhook_result/{id}` (contrato ASYNC-21C), así que el
+ * candidato NO puede quedar en vuelo (`requested`/`pending`): se marca `error`.
+ * Espeja el vocabulario del recovery core (`RecoveryOutcome`) para diagnóstico
+ * consistente. Invariante START-CONTRACT-1.
+ */
+export const MISSING_RECOVERY_REQUEST_ID_ERROR_CODE =
+  'missing_recovery_request_id';
+
 // ── Entrada de la acción ───────────────────────────────────────
 
 /**
@@ -471,25 +483,16 @@ export async function runRevealCandidatePhone(
 
   const nextAttempt = (candidate.phoneRevealAttemptCount ?? 0) + 1;
 
-  // 14. Iniciar el reveal asíncrono en Apollo (única red, en el wrapper).
-  const started = await deps.startRevealViaApollo(built.params);
-
-  // 15a. Error o request_id ausente → estado error, código seguro sin PII.
-  //      Sin request_id no hay forma de correlacionar el webhook.
-  //      Cuando Apollo respondió 200 pero NO creó job async (sin
-  //      phone_enrichment.request_id) el cliente entrega un código específico
-  //      ('no_async_job_created' | 'skipped_without_request_id') que usamos en
-  //      lugar del genérico 'missing_request_id'. En ese caso NO se espera
-  //      webhook, NO se marca pending y NO se consumen créditos.
-  if (!started.ok || !cleanText(started.requestId)) {
-    const errorCode = !started.ok
-      ? cleanText(started.errorCode) ?? 'apollo_reveal_start_failed'
-      : cleanText(started.noAsyncJobCode) ?? 'missing_request_id';
-    // Hint sanitizado (sin PII) solo cuando Apollo devolvió un error real; nunca
-    // se persiste en el candidato (solo en el usage-log). Sin request_id => hint
-    // no aplica.
-    const errorHint = !started.ok ? cleanText(started.errorHint) : null;
-    const trace = started.trace ?? null;
+  // Cierre común del START fallido: persiste estado `error` (sin tocar el
+  // teléfono previo, sin créditos) + usage-log sin PII, y devuelve el resultado
+  // de error. Lo comparten TODOS los caminos de fallo del START: error real de
+  // Apollo, HTTP 200 sin job async, y HTTP 200 con handle pero sin identificador
+  // recuperable. Mantiene un único punto de verdad para el patch de error.
+  const persistStartError = async (
+    errorCode: string,
+    errorHint: string | null,
+    trace: ApolloPhoneRevealTraceMetadata | null,
+  ): Promise<RevealCandidatePhoneResult> => {
     const patch: RevealStartPersistencePatch = {
       phone_reveal_status: 'error',
       phone_reveal_request_id: null,
@@ -520,10 +523,55 @@ export async function runRevealCandidatePhone(
       }),
     );
     return { ok: false, status: 'error', requestAccepted: false, errorCode };
+  };
+
+  // 14. Iniciar el reveal asíncrono en Apollo (única red, en el wrapper).
+  const started = await deps.startRevealViaApollo(built.params);
+
+  // 15a. Error o request_id ausente → estado error, código seguro sin PII.
+  //      Sin request_id no hay forma de correlacionar el webhook.
+  //      Cuando Apollo respondió 200 pero NO creó job async (sin
+  //      phone_enrichment.request_id) el cliente entrega un código específico
+  //      ('no_async_job_created' | 'skipped_without_request_id') que usamos en
+  //      lugar del genérico 'missing_request_id'. En ese caso NO se espera
+  //      webhook, NO se marca pending y NO se consumen créditos.
+  if (!started.ok || !cleanText(started.requestId)) {
+    const errorCode = !started.ok
+      ? cleanText(started.errorCode) ?? 'apollo_reveal_start_failed'
+      : cleanText(started.noAsyncJobCode) ?? 'missing_request_id';
+    // Hint sanitizado (sin PII) solo cuando Apollo devolvió un error real; nunca
+    // se persiste en el candidato (solo en el usage-log). Sin request_id => hint
+    // no aplica.
+    const errorHint = !started.ok ? cleanText(started.errorHint) : null;
+    return persistStartError(errorCode, errorHint, started.trace ?? null);
   }
 
-  // 15b. Solicitud aceptada → estado requested + request_id. Sin créditos aún
-  //      (el costo real llega con el webhook). Sin teléfono todavía.
+  // 15b. INVARIANTE DE RECUPERABILIDAD (APOLLO-PHONE-REVEAL-START-CONTRACT-1):
+  //      un candidato SOLO puede quedar en vuelo (`requested`/`pending`) si
+  //      existe un identificador ACTIVAMENTE recuperable: el
+  //      `apollo_http_request_id` (top-level request_id / x-http-request-id) con
+  //      el que el recovery hace GET /webhook_result/{id} (contrato ASYNC-21C).
+  //      El handle async `phone_enrichment.request_id` NO sirve para recovery
+  //      (devuelve 404). Si Apollo aceptó el job pero su respuesta NO trajo un
+  //      apollo_http_request_id, el reveal no sería recuperable por poll y
+  //      quedaría colgado en "Revelación en proceso" para siempre si el webhook
+  //      nunca llega. Fail-closed: se marca `error` (no `requested`), sin
+  //      créditos. La traza (con apollo_http_request_id: null) va al usage-log
+  //      para diagnóstico; el candidato queda terminal y reintentable.
+  const recoveryRequestId = cleanText(
+    started.trace?.apollo_http_request_id ?? null,
+  );
+  if (!recoveryRequestId) {
+    return persistStartError(
+      MISSING_RECOVERY_REQUEST_ID_ERROR_CODE,
+      null,
+      started.trace ?? null,
+    );
+  }
+
+  // 15c. Solicitud aceptada + id recuperable presente → estado requested +
+  //      request_id. Sin créditos aún (el costo real llega con el webhook). Sin
+  //      teléfono todavía.
   const requestId = cleanText(started.requestId);
   const patch: RevealStartPersistencePatch = {
     phone_reveal_status: 'requested',
