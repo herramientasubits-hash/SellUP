@@ -103,7 +103,8 @@ Keep everything **outside the repository**. Recommended layout:
 Rules:
 
 - The repository must **never** contain the dataset (no ZIP, no CSV, no TXT).
-- `<YYYY-MM>` is the monthly period tag of the Receita release you downloaded.
+- `<YYYY-MM>` is the monthly period tag of the Receita release you downloaded. It must match the
+  actual month published in the official portal (`Dados → Cadastros → CNPJ → <YYYY-MM>/`, see § 5).
 - The manifest lives at the top of that folder; data files live under
   `extracted/`. Manifest paths are written **relative to the manifest's own
   directory** (see § 8). Example relative path: `extracted/empresas.csv`.
@@ -113,15 +114,57 @@ Rules:
 ## 5. What the user downloads manually
 
 The operator must manually obtain the public **Receita Federal CNPJ Dados
-Abertos** files from the official source already documented for this project.
-Per the project blueprint (`br-source-classification-and-activation-blueprint.md`),
-the approved access points are the official government mirrors
-(`dados.gov.br` / `arquivos.receitafederal.gov.br`); downloads from outside
-Brazil can time out, so a mirror may be required.
+Abertos** files from the official source. As of BR-SOURCE-10A-SOURCE-VERIFY, the
+official source is still available but the access path moved to the official
+public file share on the Receita Federal domain.
 
-Do **not** rely on any URL that is not already documented as a project-approved
-source. This runbook does not embed a download link and does not download on the
+Go to the official entry point:
+
+```text
+https://arquivos.receitafederal.gov.br/
+```
+
+Navigate manually:
+
+```text
+Dados → Cadastros → CNPJ → <YYYY-MM>/
+```
+
+where `<YYYY-MM>` matches the actual month published in the portal.
+
+**Do not use the deprecated flat paths** (they return 404 / no longer resolve):
+
+- `/dados/cnpj/`
+- `/dados/cnpj/dados_abertos_cnpj/`
+- `/cnpj/dados_abertos_cnpj/`
+
+The official references (`dados.gov.br` dataset catalog, `gov.br` Receita
+cadastros page, official CNPJ layout PDF) remain authoritative. Do **not** rely
+on any URL that is not already documented as a project-approved source, and do
+**not** use third-party mirrors such as Casa dos Dados, Base dos Dados, GitHub
+mirrors, blogs, or community archives unless separately reviewed and approved.
+This runbook does not embed a download link and does not download on the
 operator's behalf.
+
+**Aggregated `cnpj.tar.gz`.** An aggregated official artifact may appear at
+`Dados → Cadastros → CNPJ → cnpj.tar.gz`. Do **not** use `cnpj.tar.gz` in the
+standard family-ZIP manifest until a separate evaluation milestone approves that
+artifact; the manifest and dry-run below expect the per-family files.
+
+**First-QA minimal families.** The first QA can start with a minimal set of
+family files:
+
+```text
+empresas
+estabelecimentos
+naturezas
+municipios
+cnaes
+```
+
+(`empresas` + `estabelecimentos` are still the two required files for the
+dry-run.) `socios` / `qsa` / CPF / person / contact files **remain forbidden**
+(see the forbidden list below).
 
 **Allowed file families** (company / reference grain only):
 
