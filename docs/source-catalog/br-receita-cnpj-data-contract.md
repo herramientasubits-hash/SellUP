@@ -5,7 +5,7 @@
 **Status:** Contract of record (decision) — **not** a build authorization
 **Predecessor:** BR-SOURCE-0 — `BRSOURCE0A — BRAZIL_PRIMARY_SOURCE_CANDIDATE_IDENTIFIED`
 **Pattern analog:** [EC SCVS Operational Closeout](./ec-scvs-operational-closeout.md) · source-family-registry (`src/server/source-catalog/record-identity/source-family-registry.ts`) · snapshot read contract (`src/server/source-catalog/snapshot-read/snapshot-read-contract.ts`)
-**Last reviewed:** 2026-07-24
+**Last reviewed:** 2026-07-28 (§ 2 official access updated — BR-SOURCE-10A-SOURCE-VERIFY)
 
 ---
 
@@ -47,7 +47,8 @@ Those remain separate, individually-approved milestones. See § 10 (Safety confi
 | Owner | Receita Federal do Brasil (RFB) |
 | Dataset (official) | https://dados.gov.br/dados/conjuntos-dados/cadastro-nacional-da-pessoa-juridica---cnpj |
 | Portal (official) | https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/dados-abertos/cadastros |
-| File server | https://arquivos.receitafederal.gov.br/dados/cnpj/ |
+| File access (current) | Entry point `https://arquivos.receitafederal.gov.br/`, then navigate `Dados → Cadastros → CNPJ → <YYYY-MM>/` (official public file share on the Receita Federal domain — see § 2.1) |
+| File server (deprecated) | ~~`https://arquivos.receitafederal.gov.br/dados/cnpj/`~~ — returns 404 / no longer resolves as of BR-SOURCE-10A-SOURCE-VERIFY (§ 2.1) |
 | Layout authority | https://www.gov.br/receitafederal/dados/cnpj-metadados.pdf |
 | Access | Public bulk download — no auth, no contract |
 | Refresh | Monthly |
@@ -61,6 +62,45 @@ against both existing keys and reads as "CNPJ bulk open data". When (and only wh
 milestone lands, the display catalog entry and the `source-family-registry` registration must both
 adopt `br_receita_cnpj_dados_abertos` so the display catalog, the family registry, and the snapshot
 `source_key` agree. This document does **not** change any code today; it records the target key.
+
+### 2.1 Official source access (BR-SOURCE-10A-SOURCE-VERIFY update)
+
+The official Receita CNPJ source **remains available**, but the access path changed. The old flat
+file-server paths no longer resolve; access now goes through the official public file share on the
+same Receita Federal domain.
+
+**Deprecated historical file server path (no longer usable for manual download):**
+
+- `https://arquivos.receitafederal.gov.br/dados/cnpj/`
+- Related flat paths (also 404): `https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/`,
+  `https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/`.
+- **Status as of BR-SOURCE-10A-SOURCE-VERIFY:** returns 404 / no longer resolves for manual download.
+
+**Current official file access:**
+
+- **Entry point:** `https://arquivos.receitafederal.gov.br/`
+- **Access model:** official public share / file portal on the Receita Federal domain (no auth, no contract).
+- **Manual navigation path:** `Dados → Cadastros → CNPJ → <YYYY-MM>/`, where `<YYYY-MM>` is the monthly
+  period actually published in the portal.
+
+**Aggregated official artifact (`cnpj.tar.gz`).** An aggregated official artifact was observed at
+`Dados → Cadastros → CNPJ → cnpj.tar.gz`. This does **not** automatically replace the per-family ZIP
+workflow (§ 5) and must be evaluated separately before any import/runtime use. It is **not** approved
+for the standard family-ZIP flow under this document.
+
+**Official references (unchanged, authoritative):**
+
+- `dados.gov.br` dataset catalog page (§ 2 table).
+- `gov.br` Receita Federal open-data / cadastros institutional page (§ 2 table).
+- Official CNPJ layout / metadados PDF (§ 1 naming note, § 2 table) — binding layout authority.
+
+**Third-party mirrors remain unapproved.** Third-party mirrors such as Casa dos Dados, Base dos
+Dados, GitHub mirrors, blogs, or community archives are **not** approved sources for SellUp unless
+separately reviewed and approved.
+
+**This update does not authorize** dataset download, import, Supabase writes, production import,
+runtime, Agent 1, HubSpot sync, or live prospect generation. It is a documentation-only correction of
+the official access path.
 
 ---
 
@@ -309,8 +349,10 @@ Illustrative (non-normative) accepted-row shape:
 5. **Volume / ETL** — GB-scale offline processing (~4.7 GB compressed / ~17 GB uncompressed,
    ~60M CNPJs / ~22M active), chunking/partitioning, and **no massive download under this or any
    milestone until authorized**.
-6. **External-access / mirror verification** — access from outside Brazil may time out; confirm the
-   `arquivos.receitafederal.gov.br` mirror at build time.
+6. **External-access / path verification** — the official source moved from the deprecated flat paths
+   to the official file share (§ 2.1); enter at `https://arquivos.receitafederal.gov.br/` and navigate
+   `Dados → Cadastros → CNPJ → <YYYY-MM>/`. Access from outside Brazil may still time out; confirm the
+   current portal path at build time. Third-party mirrors remain unapproved (§ 2.1).
 7. **`source_year` semantics** — monthly dataset; decide how the monthly snapshot maps to
    `source_year` (explicit input, never hardcoded — EC SCVS builder discipline).
 8. **No contact data in source scope** — contact enrichment remains a separate, gated path (§ 5.3).
