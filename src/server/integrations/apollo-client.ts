@@ -26,6 +26,7 @@ import {
   type ApolloPhoneRevealStartBody,
   type ApolloPhoneRevealTraceMetadata,
 } from './apollo-phone-reveal-response';
+import { appendOpaqueWebhookRef } from './apollo-webhook-ref';
 
 const APOLLO_BASE_URL = 'https://api.apollo.io';
 
@@ -420,13 +421,24 @@ export async function startApolloPhoneReveal(
 ): Promise<ApolloPhoneRevealStartResult> {
   // UUID de correlación propio por intento (server-side). Apollo lo refleja en
   // x-transaction-id y lo loguea; nos permite cruzar trazas con Apollo Support.
+  // El MISMO UUID se usa como `ref` opaco del webhook_url para correlación
+  // robusta del callback (Apollo no garantiza request_id en el payload). Así
+  // sellup_transaction_id === webhook_ref por intento (ambos sin PII).
   const outboundTransactionId = randomUUID();
+  const webhookRef = outboundTransactionId;
+
+  // Añade `?ref=<uuid>` preservando el `token` existente, vía URL API (no se
+  // pre-encodea la URL completa). Inmutable: no muta `params`.
+  const outboundParams: MatchPersonParams =
+    typeof params.webhook_url === 'string' && params.webhook_url
+      ? { ...params, webhook_url: appendOpaqueWebhookRef(params.webhook_url, webhookRef) }
+      : params;
 
   const result = await apolloFetch<ApolloPhoneRevealStartBody>(
     '/api/v1/people/match',
     {
       method: 'POST',
-      body: JSON.stringify(params),
+      body: JSON.stringify(outboundParams),
       headers: { [OUTBOUND_TRANSACTION_HEADER]: outboundTransactionId },
     }
   );
@@ -447,6 +459,7 @@ export async function startApolloPhoneReveal(
     body: result.data ?? null,
     getHeader: (name) => (headers ? headers.get(name) : null),
     outboundTransactionId,
+    webhookRef,
   });
 
   return {

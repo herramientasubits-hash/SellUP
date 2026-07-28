@@ -79,6 +79,13 @@ export type ApolloPhoneRevealStartOutcome =
 export interface ApolloPhoneRevealTraceMetadata {
   /** true si se extrajo phone_enrichment.request_id (handle async real). */
   apollo_async_request_id_present: boolean;
+  /**
+   * Valor del `phone_enrichment.request_id` (handle async / job/enrichment id
+   * interno de Apollo, p.ej. `6a6826ba...`). Es un id opaco de correlación con el
+   * webhook — NO es PII y NO sirve para el recovery polling (ver
+   * `apollo_http_request_id`). null si no se creó job async.
+   */
+  apollo_phone_enrichment_request_id: string | null;
   /** true si el body trae el bloque phone_enrichment. */
   apollo_phone_enrichment_present: boolean;
   /** status del phone_enrichment ('pending' | 'skipped' | ...) o null. */
@@ -89,7 +96,12 @@ export interface ApolloPhoneRevealTraceMetadata {
   apollo_person_id_present: boolean;
   /** true si el body trae request_id top-level (traza HTTP, no handle async). */
   apollo_top_level_request_id_present: boolean;
-  /** x-http-request-id (header) o, en su defecto, el request_id top-level del body. */
+  /**
+   * x-http-request-id (header) o, en su defecto, el request_id top-level del body.
+   * Es el `request_id` (signed 64-bit int como string, p.ej. `-4594297923800105423`)
+   * que Apollo espera para el RECOVERY POLLING: GET /api/v1/webhook_result/{este id}.
+   * NUNCA es el phone_enrichment.request_id.
+   */
   apollo_http_request_id: string | null;
   /** x-transaction-id devuelto por Apollo (traza técnica). */
   apollo_transaction_id: string | null;
@@ -97,6 +109,13 @@ export interface ApolloPhoneRevealTraceMetadata {
   sellup_transaction_id: string | null;
   /** true si Apollo reflejó exactamente el X-Transaction-Id enviado. */
   apollo_transaction_echoed: boolean;
+  /**
+   * ref opaco que SellUp añadió al webhook_url (`?ref=<uuid>`) para correlación
+   * robusta del webhook cuando el payload no trae request_id confiable. Por
+   * convención coincide con `sellup_transaction_id` (mismo UUID por intento).
+   * Opaco, sin PII. null si el intento no adjuntó ref.
+   */
+  webhook_ref: string | null;
 }
 
 export interface ApolloPhoneRevealStartInterpretation {
@@ -152,6 +171,12 @@ export function interpretApolloPhoneRevealStartResponse(args: {
   body: ApolloPhoneRevealStartBody | null | undefined;
   getHeader: (name: string) => string | null;
   outboundTransactionId: string | null;
+  /**
+   * ref opaco que SellUp añadió al webhook_url para este intento (query `ref`).
+   * Se guarda en la traza para permitir la correlación robusta del webhook. Por
+   * convención = outboundTransactionId. Opcional/nullable (sin ref ⇒ null).
+   */
+  webhookRef?: string | null;
 }): ApolloPhoneRevealStartInterpretation {
   const body = args.body ?? null;
   const phoneEnrichment = body?.phone_enrichment ?? null;
@@ -172,6 +197,7 @@ export function interpretApolloPhoneRevealStartResponse(args: {
   const headerHttpRequestId = cleanText(args.getHeader(APOLLO_HTTP_REQUEST_ID_HEADER));
   const transactionId = cleanText(args.getHeader(APOLLO_TRANSACTION_ID_HEADER));
   const outboundTransactionId = cleanText(args.outboundTransactionId);
+  const webhookRef = cleanText(args.webhookRef);
 
   let outcome: ApolloPhoneRevealStartOutcome;
   if (asyncRequestId) {
@@ -184,6 +210,7 @@ export function interpretApolloPhoneRevealStartResponse(args: {
 
   const trace: ApolloPhoneRevealTraceMetadata = {
     apollo_async_request_id_present: !!asyncRequestId,
+    apollo_phone_enrichment_request_id: asyncRequestId,
     apollo_phone_enrichment_present: phoneEnrichmentPresent,
     apollo_phone_enrichment_status: enrichmentStatus,
     apollo_person_present: personPresent,
@@ -197,6 +224,7 @@ export function interpretApolloPhoneRevealStartResponse(args: {
       !!outboundTransactionId &&
       !!transactionId &&
       transactionId === outboundTransactionId,
+    webhook_ref: webhookRef,
   };
 
   return {

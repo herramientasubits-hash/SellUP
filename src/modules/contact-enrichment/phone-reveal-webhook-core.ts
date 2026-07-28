@@ -14,9 +14,16 @@
 //     (APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN), compared in constant time.
 //   * if the token is not configured, the endpoint is fail-closed (rejected).
 //
-// Correlation (Apollo does NOT document custom metadata pass-through):
-//   * the webhook payload carries the same request_id returned at start; we look
-//     the candidate up by request_id (partial-unique in migration 097).
+// Correlation (ASYNC-21 — Apollo does NOT guarantee request_id in the payload):
+//   * PRIMARY when present: the payload's request_id (async handle) matches the
+//     candidate stored at start (phone_reveal_request_id, partial-unique in
+//     migration 097). Kept as the backward-compatible fast path.
+//   * ROBUST FALLBACK: our own opaque `ref` (query param added to webhook_url at
+//     start; Apollo reflects query params on the callback). The route resolves
+//     the start log by that ref (safe metadata webhook_ref / sellup_transaction_id)
+//     and hands us the candidate — used whenever the payload has no reliable
+//     request_id or the request_id yields no candidate. If neither correlates we
+//     never persist a phone against the wrong candidate.
 //
 // Safety contract:
 //   * never logs the raw body / phones / emails / names / linkedin.
@@ -103,7 +110,12 @@ export interface WebhookUsageLogEntry {
     provider: 'apollo';
     reveal_status: 'revealed' | 'no_phone_found';
     reveal_phase: 'webhook';
-    request_id: string;
+    /** request_id de correlación del payload (async handle). null si correlacionó por ref. */
+    request_id: string | null;
+    /** ref opaco del webhook_url usado para correlacionar (null si vino por request_id). */
+    webhook_ref: string | null;
+    /** Estrategia que resolvió el candidato: por request_id del payload o por ref opaco. */
+    correlation_source: 'request_id' | 'webhook_ref';
     phone_revealed: boolean;
     phone_type: string | null;
     credits_used: number | null;
@@ -117,9 +129,18 @@ export interface ApolloPhoneRevealWebhookDeps {
   expectedToken: string | null;
   /** Timestamp ISO estable (inyectado para tests deterministas). */
   nowIso: string;
-  /** Busca el candidato pendiente por request_id. null si no hay match. */
+  /** Busca el candidato pendiente por request_id (async handle). null si no hay match. */
   loadCandidateByRequestId: (
     requestId: string,
+  ) => Promise<WebhookCandidateRecord | null>;
+  /**
+   * Correlación robusta por ref opaco (ASYNC-21): resuelve el candidato desde el
+   * start log (metadata segura webhook_ref / sellup_transaction_id) cuando el
+   * payload no trae un request_id confiable. Opcional: si no se inyecta, sólo se
+   * usa la correlación por request_id. NUNCA recibe ni devuelve PII.
+   */
+  loadCandidateByWebhookRef?: (
+    ref: string,
   ) => Promise<WebhookCandidateRecord | null>;
   /** Aplica el UPDATE terminal (service role). */
   persist: (
@@ -153,6 +174,12 @@ export interface ApolloPhoneRevealWebhookInput {
   tokenProvided: string | null;
   /** Payload ya parseado (JSON). El wrapper NUNCA loguea el body crudo. */
   payload: ApolloPhoneRevealWebhookPayload | null;
+  /**
+   * ref opaco leído del query param `ref` del callback (ASYNC-21). Es la
+   * estrategia de correlación robusta cuando el payload no trae request_id
+   * confiable. Opaco, sin PII. Opcional/nullable.
+   */
+  ref?: string | null;
 }
 
 // ── Helpers puros ──────────────────────────────────────────────
@@ -276,15 +303,27 @@ export async function runApolloPhoneRevealWebhook(
     return { httpStatus: 401, outcome: 'unauthorized' };
   }
 
-  // 3. request_id ausente → 200 validation_ack, SIN escrituras. Cubre el body
-  //    vacío / ping de validación de Apollo y cualquier callback sin id de
-  //    correlación (sin id no hay forma de procesar, y un 4xx dispararía
-  //    reintentos/422 innecesarios). Idempotente y seguro.
+  // 3. Sin request_id NI ref → 200 validation_ack, SIN escrituras. Cubre el body
+  //    vacío / ping de validación de Apollo y cualquier callback sin señal de
+  //    correlación (un 4xx dispararía reintentos/422 innecesarios). Idempotente.
   const requestId = extractWebhookRequestId(input.payload);
-  if (!requestId) return { httpStatus: 200, outcome: 'validation_ack' };
+  const ref = cleanText(input.ref);
+  if (!requestId && !ref) return { httpStatus: 200, outcome: 'validation_ack' };
 
-  // 4. Candidato desconocido → 200 (ack idempotente, sin PII, sin escribir).
-  const candidate = await deps.loadCandidateByRequestId(requestId);
+  // 4. Resolver el candidato. PRIMARIO: request_id del payload (async handle) si
+  //    viene y matchea (fast path retrocompatible). FALLBACK ROBUSTO: ref opaco
+  //    (Apollo no garantiza request_id en el payload). Sin candidato por ninguna
+  //    vía → 200 ack idempotente, sin PII, sin escribir (nunca contra el
+  //    candidato equivocado).
+  let candidate: WebhookCandidateRecord | null = null;
+  let correlationSource: 'request_id' | 'webhook_ref' = 'request_id';
+  if (requestId) {
+    candidate = await deps.loadCandidateByRequestId(requestId);
+  }
+  if (!candidate && ref && deps.loadCandidateByWebhookRef) {
+    candidate = await deps.loadCandidateByWebhookRef(ref);
+    if (candidate) correlationSource = 'webhook_ref';
+  }
   if (!candidate) return { httpStatus: 200, outcome: 'unknown_request_id' };
 
   // 5. Ya terminal → 200 (idempotente: no reprocesar ni recobrar créditos).
@@ -335,6 +374,8 @@ export async function runApolloPhoneRevealWebhook(
         reveal_status: 'revealed',
         reveal_phase: 'webhook',
         request_id: requestId,
+        webhook_ref: ref,
+        correlation_source: correlationSource,
         phone_revealed: true,
         phone_type: revealed.type,
         credits_used: credits,
@@ -365,6 +406,8 @@ export async function runApolloPhoneRevealWebhook(
       reveal_status: 'no_phone_found',
       reveal_phase: 'webhook',
       request_id: requestId,
+      webhook_ref: ref,
+      correlation_source: correlationSource,
       phone_revealed: false,
       phone_type: null,
       credits_used: credits,
