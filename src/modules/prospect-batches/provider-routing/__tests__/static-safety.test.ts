@@ -46,15 +46,24 @@ const SOURCE_FILES = collectSourceFiles(ROOT);
 
 describe('Q3F-5BB.11B provider-routing — static safety', () => {
   it('collects the expected pure source files', () => {
-    assert.ok(SOURCE_FILES.length >= 4, 'should find types + registry + resolver + index');
+    assert.ok(SOURCE_FILES.length >= 5, 'should find types + registry + resolver + metadata + index');
     const names = SOURCE_FILES.map((p) => p.replace(ROOT + '/', ''));
     for (const expected of [
       'types.ts',
       'provider-registry.ts',
       'resolve-provider-routing-plan.ts',
+      // Q3F-5BB.11C — additive metadata contract (pure).
+      'metadata-contract.ts',
       'index.ts',
     ]) {
       assert.ok(names.includes(expected), `missing ${expected}`);
+    }
+  });
+
+  it('never reads a clock (pure — timestamps arrive via context)', () => {
+    for (const p of SOURCE_FILES) {
+      const code = readCode(p);
+      assert.doesNotMatch(code, /Date\.now\s*\(|new\s+Date\s*\(/, p);
     }
   });
 

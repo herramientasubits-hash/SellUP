@@ -51,3 +51,10 @@ jobs:
       # free. Fully deterministic: no env, no provider calls, no DB.
       - name: Run provider routing plan tests
         run: npm run test:provider-routing-plan
+
+      # Q3F-5BB.11C — Additive provider routing metadata contract. Guards that
+      # the metadata builders/merges stay pure and additive (existing batch /
+      # candidate keys preserved), unknown cost is never persisted as 0, and the
+      # candidate source_provider stays consistent with source_trace.sourceProvider.
+      - name: Run provider routing metadata tests
+        run: npm run test:provider-routing-metadata
