@@ -38,6 +38,7 @@ import {
   type WebhookRevealPersistencePatch,
   type WebhookUsageLogEntry,
 } from '@/modules/contact-enrichment/phone-reveal-webhook-core';
+import { PHONE_REVEAL_OPERATION_KEY } from '@/modules/contact-enrichment/phone-reveal-core';
 import type { ContactCandidateEnrichmentMetadata } from '@/modules/contact-enrichment/types';
 
 /** Nombre de la env con la URL pública del webhook (solo referencia). */
@@ -77,6 +78,12 @@ function extractToken(request: NextRequest): string | null {
   const fromHeader = request.headers.get('x-apollo-webhook-token');
   if (typeof fromHeader === 'string' && fromHeader.trim()) return fromHeader;
   return null;
+}
+
+/** Extrae el ref opaco de correlación del query param `ref` (ASYNC-21). */
+function extractRef(request: NextRequest): string | null {
+  const fromQuery = request.nextUrl.searchParams.get('ref');
+  return typeof fromQuery === 'string' && fromQuery.trim() ? fromQuery.trim() : null;
 }
 
 /** ¿La petición trae un token válido? (mismo gate para GET/HEAD/OPTIONS/POST). */
@@ -123,6 +130,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const nowIso = new Date().toISOString();
   const expectedToken = process.env[APOLLO_PHONE_REVEAL_WEBHOOK_TOKEN_ENV] ?? null;
   const tokenProvided = extractToken(request);
+  const ref = extractRef(request);
 
   // Body: se parsea sin loguearlo jamás. Un JSON inválido queda como payload null.
   let payload: ApolloPhoneRevealWebhookPayload | null = null;
@@ -138,9 +146,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  // Ping de validación: token válido pero sin request_id (body vacío o callback
-  // sin id de correlación) → 200 no-op. SIN Supabase, SIN escrituras, SIN logs.
-  if (!extractWebhookRequestId(payload)) {
+  // Ping de validación: token válido pero SIN request_id NI ref (body vacío o
+  // callback sin señal de correlación) → 200 no-op. SIN Supabase, SIN escrituras,
+  // SIN logs. Con ref presente se procesa abajo (correlación robusta ASYNC-21).
+  if (!extractWebhookRequestId(payload) && !ref) {
     return NextResponse.json({ ok: true, status: 'validation_ack' }, { status: 200 });
   }
 
@@ -151,7 +160,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const result = await runApolloPhoneRevealWebhook(
-    { tokenProvided, payload },
+    { tokenProvided, payload, ref },
     {
       expectedToken,
       nowIso,
@@ -162,6 +171,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .from('contact_enrichment_candidates')
           .select(WEBHOOK_CANDIDATE_SELECT)
           .eq('phone_reveal_request_id', requestId)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data ? mapWebhookCandidate(data as Record<string, unknown>) : null;
+      },
+      // Correlación robusta por ref opaco (ASYNC-21): resuelve el candidato desde
+      // el start log guardado en provider_usage_logs (metadata segura, sin PII).
+      // Sólo los logs del START tienen `apollo_trace.webhook_ref`, así que este
+      // filtro nunca colisiona con el log del propio webhook.
+      loadCandidateByWebhookRef: async (
+        webhookRef,
+      ): Promise<WebhookCandidateRecord | null> => {
+        const { data: startLog, error: logError } = await admin
+          .from('provider_usage_logs')
+          .select('metadata')
+          .eq('operation_key', PHONE_REVEAL_OPERATION_KEY)
+          .eq('metadata->apollo_trace->>webhook_ref', webhookRef)
+          .limit(1)
+          .maybeSingle();
+        if (logError) throw new Error(logError.message);
+        const meta = (startLog?.metadata as Record<string, unknown> | null) ?? null;
+        const candidateId =
+          meta && typeof meta.candidate_id === 'string' ? meta.candidate_id : null;
+        if (!candidateId) return null;
+        const { data, error } = await admin
+          .from('contact_enrichment_candidates')
+          .select(WEBHOOK_CANDIDATE_SELECT)
+          .eq('id', candidateId)
           .maybeSingle();
         if (error) throw new Error(error.message);
         return data ? mapWebhookCandidate(data as Record<string, unknown>) : null;

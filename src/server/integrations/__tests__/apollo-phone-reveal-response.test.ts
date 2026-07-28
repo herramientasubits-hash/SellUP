@@ -252,6 +252,7 @@ describe('ASYNC-15 — metadata de traza sin PII', () => {
     // Sólo claves técnicas esperadas.
     const KEYS = new Set([
       'apollo_async_request_id_present',
+      'apollo_phone_enrichment_request_id',
       'apollo_phone_enrichment_present',
       'apollo_phone_enrichment_status',
       'apollo_person_present',
@@ -261,10 +262,61 @@ describe('ASYNC-15 — metadata de traza sin PII', () => {
       'apollo_transaction_id',
       'sellup_transaction_id',
       'apollo_transaction_echoed',
+      'webhook_ref',
     ]);
     for (const key of Object.keys(r.trace)) {
       assert.equal(KEYS.has(key), true, `clave inesperada en trace: ${key}`);
     }
+  });
+});
+
+// ── 10. ASYNC-21: separación de ids + webhook_ref ──────────────
+
+describe('ASYNC-21 — separación enrichment id vs recovery id + webhook_ref', () => {
+  it('apollo_phone_enrichment_request_id = phone_enrichment.request_id (job id)', () => {
+    const r = interpret({
+      request_id: '-4594297923800105423', // recovery id (top-level / x-http-request-id)
+      phone_enrichment: { request_id: '6a6826ba804c600014ead739', status: 'pending' },
+    });
+    // enrichment/job id (handle async del webhook) — NO sirve para recovery.
+    assert.equal(r.trace.apollo_phone_enrichment_request_id, '6a6826ba804c600014ead739');
+    assert.equal(r.asyncRequestId, '6a6826ba804c600014ead739');
+    // recovery id (webhook_result polling) — top-level request_id / x-http-request-id.
+    assert.equal(r.trace.apollo_http_request_id, '-4594297923800105423');
+    // Son distintos: nunca se confunden.
+    assert.notEqual(
+      r.trace.apollo_phone_enrichment_request_id,
+      r.trace.apollo_http_request_id,
+    );
+  });
+
+  it('x-http-request-id del header gana como recovery id (signed int negativo)', () => {
+    const r = interpret(
+      { phone_enrichment: { request_id: 'pe-1' } },
+      { [APOLLO_HTTP_REQUEST_ID_HEADER]: '-4594297923800105423' },
+    );
+    assert.equal(r.trace.apollo_http_request_id, '-4594297923800105423');
+  });
+
+  it('webhook_ref se guarda cuando el intento lo adjuntó (= sellup_transaction_id)', () => {
+    const r = interpretApolloPhoneRevealStartResponse({
+      body: { phone_enrichment: { request_id: 'pe-1' } },
+      getHeader: NO_HEADERS,
+      outboundTransactionId: OUTBOUND_UUID,
+      webhookRef: OUTBOUND_UUID,
+    });
+    assert.equal(r.trace.webhook_ref, OUTBOUND_UUID);
+    assert.equal(r.trace.sellup_transaction_id, OUTBOUND_UUID);
+  });
+
+  it('sin webhookRef → webhook_ref null', () => {
+    const r = interpret({ phone_enrichment: { request_id: 'pe-1' } });
+    assert.equal(r.trace.webhook_ref, null);
+  });
+
+  it('no_async_job_created → apollo_phone_enrichment_request_id null', () => {
+    const r = interpret({ request_id: 'http-trace' });
+    assert.equal(r.trace.apollo_phone_enrichment_request_id, null);
   });
 });
 

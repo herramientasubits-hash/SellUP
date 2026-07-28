@@ -51,6 +51,7 @@ function baseTrace(
 ): ApolloPhoneRevealTraceMetadata {
   return {
     apollo_async_request_id_present: false,
+    apollo_phone_enrichment_request_id: null,
     apollo_phone_enrichment_present: false,
     apollo_phone_enrichment_status: null,
     apollo_person_present: false,
@@ -60,6 +61,7 @@ function baseTrace(
     apollo_transaction_id: null,
     sellup_transaction_id: '11111111-2222-4333-8444-555555555555',
     apollo_transaction_echoed: false,
+    webhook_ref: null,
     ...overrides,
   };
 }

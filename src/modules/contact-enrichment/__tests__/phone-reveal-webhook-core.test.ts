@@ -318,6 +318,114 @@ describe('ASYNC-1 webhook — idempotencia', () => {
   }
 });
 
+// ── ASYNC-21: correlación por ref opaco ────────────────────────
+
+describe('ASYNC-21 webhook — correlación por ref (fallback robusto)', () => {
+  const REF = '11111111-2222-4333-8444-555555555555';
+
+  function depsWithRef(
+    cap: Capture,
+    opts: {
+      byRequestId?: WebhookCandidateRecord | null;
+      byRef?: WebhookCandidateRecord | null;
+    },
+  ): ApolloPhoneRevealWebhookDeps {
+    return {
+      expectedToken: TOKEN,
+      nowIso: NOW,
+      loadCandidateByRequestId: async (rid) => {
+        cap.loadedRequestIds.push(rid);
+        return opts.byRequestId === undefined ? null : opts.byRequestId;
+      },
+      loadCandidateByWebhookRef: async (ref) => {
+        assert.equal(ref, REF);
+        return opts.byRef === undefined ? null : opts.byRef;
+      },
+      persist: async (id, patch) => {
+        cap.persisted.push({ id, patch });
+      },
+      logUsage: async (entry) => {
+        cap.logs.push(entry);
+      },
+    };
+  }
+
+  it('sin request_id en payload pero con ref → correlaciona por ref y revela', async () => {
+    const c = fresh();
+    const res = await runApolloPhoneRevealWebhook(
+      {
+        tokenProvided: TOKEN,
+        payload: { phone_numbers: [{ sanitized_number: MOBILE, type_cd: 'mobile', credits_consumed: 8 }] },
+        ref: REF,
+      },
+      depsWithRef(c, { byRef: baseCandidate() }),
+    );
+    assert.equal(res.outcome, 'revealed');
+    assert.equal(c.persisted[0].patch.phone, MOBILE);
+    assert.equal(c.logs[0].metadata.correlation_source, 'webhook_ref');
+    assert.equal(c.logs[0].metadata.webhook_ref, REF);
+    assert.equal(c.logs[0].metadata.request_id, null);
+    // Sin PII en el log serializado.
+    assert.equal(JSON.stringify(c.logs[0]).includes(MOBILE), false);
+  });
+
+  it('request_id presente y matchea → fallback actual (no usa ref)', async () => {
+    const c = fresh();
+    const res = await runApolloPhoneRevealWebhook(
+      {
+        tokenProvided: TOKEN,
+        payload: { request_id: REQUEST_ID, phone_numbers: [{ sanitized_number: MOBILE, type_cd: 'mobile' }] },
+        ref: REF,
+      },
+      depsWithRef(c, { byRequestId: baseCandidate() }),
+    );
+    assert.equal(res.outcome, 'revealed');
+    assert.equal(c.loadedRequestIds[0], REQUEST_ID);
+    assert.equal(c.logs[0].metadata.correlation_source, 'request_id');
+    assert.equal(c.logs[0].metadata.request_id, REQUEST_ID);
+  });
+
+  it('request_id no matchea pero ref sí → cae a ref', async () => {
+    const c = fresh();
+    const res = await runApolloPhoneRevealWebhook(
+      {
+        tokenProvided: TOKEN,
+        payload: { request_id: 'stale', phone_numbers: [{ sanitized_number: MOBILE, type_cd: 'mobile' }] },
+        ref: REF,
+      },
+      depsWithRef(c, { byRequestId: null, byRef: baseCandidate() }),
+    );
+    assert.equal(res.outcome, 'revealed');
+    assert.equal(c.logs[0].metadata.correlation_source, 'webhook_ref');
+  });
+
+  it('ni request_id ni ref correlacionan → unknown, NO persiste teléfono', async () => {
+    const c = fresh();
+    const res = await runApolloPhoneRevealWebhook(
+      {
+        tokenProvided: TOKEN,
+        payload: { request_id: 'stale', phone_numbers: [{ sanitized_number: MOBILE, type_cd: 'mobile' }] },
+        ref: REF,
+      },
+      depsWithRef(c, { byRequestId: null, byRef: null }),
+    );
+    assert.equal(res.outcome, 'unknown_request_id');
+    assert.equal(c.persisted.length, 0);
+    assert.equal(c.logs.length, 0);
+  });
+
+  it('sin request_id NI ref → validation_ack (ping), sin escrituras', async () => {
+    const c = fresh();
+    const res = await runApolloPhoneRevealWebhook(
+      { tokenProvided: TOKEN, payload: {}, ref: null },
+      depsWithRef(c, {}),
+    );
+    assert.equal(res.outcome, 'validation_ack');
+    assert.equal(c.persisted.length, 0);
+    assert.equal(c.loadedRequestIds.length, 0);
+  });
+});
+
 // ── Guards estáticos de la ruta ────────────────────────────────
 
 describe('ASYNC-1 webhook — guards de la ruta', () => {
@@ -378,5 +486,21 @@ describe('ASYNC-1 webhook — guards de la ruta', () => {
     // Ninguna de las funciones de validación referencia Apollo/reveal reales.
     assert.equal(/startApolloPhoneReveal/.test(code), false);
     assert.equal(/loadCandidateByRequestId[\s\S]*export\s+async\s+function\s+GET/.test(code), false);
+  });
+
+  // ── ASYNC-21: correlación por ref + endpoint correcto ──────────
+
+  it('la ruta lee el query param ref para correlación robusta', () => {
+    assert.equal(/searchParams\.get\(['"]ref['"]\)/.test(code), true);
+    assert.equal(/loadCandidateByWebhookRef/.test(code), true);
+  });
+
+  it('la correlación por ref usa la metadata segura del start log (apollo_trace.webhook_ref)', () => {
+    assert.equal(/apollo_trace->>webhook_ref/.test(code), true);
+    assert.equal(/PHONE_REVEAL_OPERATION_KEY/.test(code), true);
+  });
+
+  it('la ruta NO usa el endpoint incorrecto people/match/result para recovery', () => {
+    assert.equal(/people\/match\/result/.test(code), false);
   });
 });
