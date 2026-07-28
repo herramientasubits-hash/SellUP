@@ -18,6 +18,23 @@ import { runWizardApolloSearch } from './wizard-apollo-executor';
 import type { WizardApolloRunner } from './wizard-apollo-executor';
 import { resolveWizardDiscoveryProvider } from './wizard-provider-resolver';
 import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
+// Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
+// (no env, no provider client, no Supabase, no contact-enrichment / phone reveal).
+// The barrel exposes the pure 11B resolver + 11C metadata builder. This produces
+// routing metadata + a safety assert ONLY; it never decides the provider
+// (resolveWizardDiscoveryProvider does) nor runs / enables Apollo.
+import {
+  buildApolloRoutingCriteria,
+  buildApolloRoutingConfig,
+  buildApolloObservationalRegistry,
+  assertApolloRoutingPlanSafe,
+} from '@/modules/prospect-batches/apollo-provider-routing-adapter';
+import {
+  resolveProviderRoutingPlan,
+  buildProviderRoutingMetadata,
+  BATCH_PROVIDER_ROUTING_KEY,
+  type ProviderRoutingEnvironment,
+} from '@/modules/prospect-batches/provider-routing';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
@@ -181,6 +198,19 @@ export async function executeProspectWizardGenerationAction(
 //   10. Credit reconciliation
 //   11. Success result
 
+/**
+ * Q3F-5BB.11E — Resolve the runtime environment server-side (the pure routing
+ * adapter never reads env). Mirrors the repo's Vercel/NODE_ENV convention; used
+ * only to gate provider capability in the OBSERVATIONAL plan.
+ */
+function resolveRoutingEnvironment(): ProviderRoutingEnvironment {
+  const vercelEnv = process.env.VERCEL_ENV?.trim().toLowerCase();
+  if (vercelEnv === 'production') return 'production';
+  if (vercelEnv === 'preview') return 'preview';
+  if (process.env.NODE_ENV === 'production') return 'production';
+  return 'development';
+}
+
 export async function executeProspectWizardGeneration(
   request: unknown,
   deps: WizardExecutionDeps,
@@ -241,6 +271,52 @@ export async function executeProspectWizardGeneration(
 
   // 5a. Resolve discovery provider (server-side, double gate)
   const discoveryProvider: WizardDiscoveryProviderKey = (deps.resolveProvider ?? resolveWizardDiscoveryProvider)();
+
+  // 5a-bis. Q3F-5BB.11E — OBSERVATIONAL provider-routing metadata for Apollo.
+  // Runs ONLY when the server-side double gate (resolveWizardDiscoveryProvider)
+  // already selected Apollo COMPANY discovery. It emits the standard routing
+  // observation (11B plan → 11C metadata) so the batch is comparable with the
+  // Lusha path (11D). Strictly OBSERVATIONAL:
+  //   - does NOT decide the provider (already decided above),
+  //   - does NOT run or enable Apollo, adds NO fallback, never diverts to Lusha,
+  //   - is scoped to COMPANY discovery — never phone/contact enrichment.
+  // Apollo lives in the default_ai world: intended='default_ai', selected='apollo'.
+  // Computed BEFORE any budget/slot reservation so a routing inconsistency fails
+  // closed with zero side effects. The metadata is stashed and injected into the
+  // batch additively via the existing extraBatchMetadata seam (never a 2nd write).
+  let apolloRoutingExtraMetadata: Record<string, unknown> | undefined;
+  if (discoveryProvider === 'apollo_organizations') {
+    try {
+      const environment = resolveRoutingEnvironment();
+      // We are inside the apollo_organizations branch, which the resolver only
+      // returns when BOTH gates are ON (AGENT1_WIZARD_DISCOVERY_PROVIDER +
+      // ENABLE_APOLLO_COMPANY_SEARCH) — so Apollo is enabled here.
+      const routingPlan = resolveProviderRoutingPlan(
+        buildApolloRoutingCriteria({
+          countryCode: req.countryCode,
+          sectorKey: catalogResolution.industry.slug,
+        }),
+        buildApolloRoutingConfig({ environment, apolloEnabled: true }),
+        buildApolloObservationalRegistry(),
+      );
+      assertApolloRoutingPlanSafe(routingPlan, { apolloEnabled: true });
+      const routingMetadata = buildProviderRoutingMetadata(routingPlan, {
+        environment,
+        fallbackAllowed: false,
+        fallbackReason: 'apollo_company_discovery_no_fallback',
+      });
+      apolloRoutingExtraMetadata = { [BATCH_PROVIDER_ROUTING_KEY]: routingMetadata };
+    } catch {
+      // Fail-closed: a routing inconsistency (assert throw) must not run a
+      // mis-routed provider. Never falls through to another provider.
+      return {
+        ok: false,
+        code: 'GENERATION_FAILED',
+        message: 'No se pudo validar el enrutamiento del proveedor de búsqueda.',
+        retryable: false,
+      };
+    }
+  }
 
   // 5b. Tavily availability — only checked when Tavily is the selected provider
   if (discoveryProvider === 'tavily') {
@@ -360,7 +436,12 @@ export async function executeProspectWizardGeneration(
       if (!apolloRunner) {
         throw new Error('apollo_pipeline_not_configured');
       }
-      pipelineResult = await apolloRunner({ resolved, reservedBatchId });
+      pipelineResult = await apolloRunner({
+        resolved,
+        reservedBatchId,
+        // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
+        extraBatchMetadata: apolloRoutingExtraMetadata,
+      });
     } else {
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
     }
