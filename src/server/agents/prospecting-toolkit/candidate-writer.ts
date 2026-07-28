@@ -86,13 +86,16 @@ import type {
   RichProfileEnrichmentProviderResult,
 } from './rich-profile-enrichment';
 // Q3F-5BB.11F.1 — Apollo batch provider_attempts[] (observational, additive).
+// Q3F-5BB.11F.2 — Apollo per-candidate provider_trace + source_trace (additive).
 import {
   BATCH_PROVIDER_ROUTING_KEY,
   mergeProviderAttemptsBatchMetadata,
+  mergeCandidateProviderMetadata,
 } from '@/modules/prospect-batches/provider-routing';
 import {
   shouldEmitApolloBatchProviderAttempts,
   buildApolloBatchProviderAttempt,
+  buildApolloCandidateProviderTrace,
   APOLLO_PROVIDER_USAGE_KEY,
   APOLLO_ORGANIZATIONS_OPERATION_KEY,
 } from './provider-routing-attempts';
@@ -2063,7 +2066,7 @@ export async function writeProspectingCandidates(
       countryCode: candidate.countryCode ?? null,
     });
 
-    const candidateInsert = {
+    const candidateInsertBase = {
       batch_id: batchId,
       name: persistedName,
       normalized_name: normalizeName(persistedName),
@@ -2170,6 +2173,52 @@ export async function writeProspectingCandidates(
         },
       },
     };
+
+    // ── Q3F-5BB.11F.2 — Apollo candidate provider_trace + source_trace ────────
+    // Additive & observational. Mirror of the Lusha 11D per-candidate stamping:
+    // stamp `metadata.source_provider` + `metadata.provider_trace` and keep
+    // `source_trace.sourceProvider` consistent — ONLY for Apollo COMPANY
+    // discovery (web_search_provider === 'apollo_organizations') AND only when
+    // 11E already stamped provider_routing. The guard is checked on
+    // preMergedMetadata because finalMetadata (which spreads preMergedMetadata)
+    // is only assembled AFTER this loop; provider_routing arrives via the 11E
+    // extraBatchMetadata seam, so both guards observe the same value. Every
+    // other provider path (Tavily / mock / …) leaves candidateInsert
+    // byte-for-byte unchanged (no source_trace / provider_trace / source_provider
+    // keys). A provider mismatch fails closed via ProviderMetadataConsistencyError
+    // rather than silently overwriting provenance. Per-candidate cost stays
+    // null/null — batch credits are never split per candidate.
+    const apolloProviderTrace = shouldEmitApolloBatchProviderAttempts({
+      webSearchProvider: pipelineMeta?.provider,
+      hasProviderRouting: preMergedMetadata[BATCH_PROVIDER_ROUTING_KEY] != null,
+    })
+      ? buildApolloCandidateProviderTrace()
+      : null;
+
+    // Fail-closed consistency check + source_trace derivation via the 11C merge
+    // (mirrors Lusha 11D). Agent-1 web candidates carry no prior provider marker,
+    // so this adopts 'apollo'; a conflicting existing marker throws
+    // ProviderMetadataConsistencyError rather than silently overwriting. The
+    // typed provider_trace / source_provider additions come from the concrete
+    // trace object (keeping candidate.metadata's precise type for the insert).
+    const apolloCandidateSourceTrace = apolloProviderTrace
+      ? mergeCandidateProviderMetadata(
+          { metadata: candidateInsertBase.metadata, source_trace: undefined },
+          apolloProviderTrace,
+        ).source_trace
+      : null;
+
+    const candidateInsert = apolloProviderTrace
+      ? {
+          ...candidateInsertBase,
+          metadata: {
+            ...candidateInsertBase.metadata,
+            source_provider: apolloProviderTrace.source_provider,
+            provider_trace: apolloProviderTrace,
+          },
+          source_trace: apolloCandidateSourceTrace,
+        }
+      : candidateInsertBase;
 
     try {
       const { data: created, error: insertErr } = await admin

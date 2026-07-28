@@ -24,9 +24,11 @@
  *   - Any unknown count stays null (never 0).
  */
 
-import type {
-  ProviderAttemptMetadata,
-  ProviderAttemptStatus,
+import {
+  buildCandidateProviderTraceMetadata,
+  type CandidateProviderTraceMetadata,
+  type ProviderAttemptMetadata,
+  type ProviderAttemptStatus,
 } from '@/modules/prospect-batches/provider-routing/metadata-contract';
 import type { RoutingProviderId } from '@/modules/prospect-batches/provider-routing/types';
 
@@ -136,4 +138,32 @@ export function buildApolloBatchProviderAttempt(
     quality_score: null,
     failure_reason: status === 'error' ? sanitizeFailureReason(input.failureReason) : null,
   };
+}
+
+/**
+ * Q3F-5BB.11F.2 — Pure Apollo per-candidate `provider_trace` builder
+ * (OBSERVATIONAL). Wraps the 11C candidate-trace builder with the fixed Apollo
+ * COMPANY-discovery provenance so every Apollo candidate carries the same
+ * minimal trace, mirroring the Lusha 11D per-candidate stamping.
+ *
+ * Fixed shape (no runtime signals — this is discovery provenance, not phone /
+ * contact enrichment):
+ *   - provider          = 'apollo'  (the routing/source-identity id)
+ *   - role              = 'primary' (Apollo is the discovery provider, never a
+ *                         fallback here)
+ *   - attempt_index     = 0         (references batch provider_attempts[0], the
+ *                         single Apollo attempt stamped by 11F.1)
+ *   - source_provider   = 'apollo'  (kept consistent with source_trace.sourceProvider)
+ *   - cost_attribution  = null / null (per-candidate cost is NEVER split from the
+ *                         batch-level credit total; unknown stays null, never 0)
+ *
+ * Pure: no env, no Supabase, no fetch, no provider clients, no
+ * contact-enrichment / phone-reveal references.
+ */
+export function buildApolloCandidateProviderTrace(): CandidateProviderTraceMetadata {
+  return buildCandidateProviderTraceMetadata(
+    { sourceProvider: APOLLO_ROUTING_PROVIDER_ID },
+    { provider: APOLLO_ROUTING_PROVIDER_ID, role: 'primary' },
+    { attemptIndex: 0, creditsUsed: null, estimatedCostUsd: null },
+  );
 }
