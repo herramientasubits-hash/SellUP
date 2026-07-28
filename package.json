@@ -59,6 +59,7 @@
     "test:provider-routing-metadata": "node --import tsx --test src/modules/prospect-batches/provider-routing/__tests__/metadata-contract.test.ts src/modules/prospect-batches/provider-routing/__tests__/static-safety.test.ts",
     "test:lusha-provider-routing-wiring": "node --import tsx --test src/modules/prospect-batches/__tests__/lusha-provider-routing-wiring.test.ts",
     "test:apollo-provider-routing-wiring": "node --import tsx --test src/modules/prospect-batches/__tests__/apollo-provider-routing-wiring.test.ts",
+    "test:apollo-provider-attempts": "node --import tsx --test src/modules/prospect-batches/provider-routing/__tests__/provider-attempts-merge.test.ts src/server/agents/prospecting-toolkit/__tests__/candidate-writer-provider-attempts.test.ts",
     "test:account-linkedin-transfer": "node --import tsx --test src/modules/prospect-batches/__tests__/account-linkedin-transfer.test.ts src/modules/prospect-batches/__tests__/account-linkedin-static-safety.test.ts",
     "test:wizard-pilot-guardrails": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-pilot-guardrails.test.ts",
     "test:wizard-budget-integration": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-budget-integration.test.ts",

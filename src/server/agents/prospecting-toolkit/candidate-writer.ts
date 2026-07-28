@@ -85,6 +85,17 @@ import type {
   RichProfileEnrichmentUsageLoggerFn,
   RichProfileEnrichmentProviderResult,
 } from './rich-profile-enrichment';
+// Q3F-5BB.11F.1 — Apollo batch provider_attempts[] (observational, additive).
+import {
+  BATCH_PROVIDER_ROUTING_KEY,
+  mergeProviderAttemptsBatchMetadata,
+} from '@/modules/prospect-batches/provider-routing';
+import {
+  shouldEmitApolloBatchProviderAttempts,
+  buildApolloBatchProviderAttempt,
+  APOLLO_PROVIDER_USAGE_KEY,
+  APOLLO_ORGANIZATIONS_OPERATION_KEY,
+} from './provider-routing-attempts';
 
 // ─── Batch validation error ───────────────────────────────────────────────────
 
@@ -553,6 +564,48 @@ export type RichProfileEnrichmentOverride = {
   /** Logger para usage payloads. Requerido para Tavily real con dryRun=false. */
   usageLoggerFn?: RichProfileEnrichmentUsageLoggerFn;
 };
+
+/**
+ * Q3F-5BB.11F.1 — Reconcile Apollo COMPANY-discovery credit spend for a batch
+ * from `provider_usage_logs`, filtered STRICTLY to
+ * `provider_key='apollo'` + `operation_key='organizations_search'`. This
+ * structurally excludes phone reveal (`person_phone_reveal`), organization
+ * enrichment (`organization_enrichment`), and any contact-enrichment rows.
+ *
+ * Fail-soft & conservative: returns the summed `credits_used` of matching rows
+ * with a numeric credit value; returns `null` (NEVER 0) when the query errors,
+ * no matching rows exist, or no row carries a numeric credit — "unknown" is
+ * never reported as a real 0 spend. Reads only; never writes.
+ */
+export async function reconcileApolloOrganizationsCredits(
+  admin: SupabaseClient,
+  batchId: string,
+): Promise<number | null> {
+  try {
+    const { data, error } = await admin
+      .from('provider_usage_logs')
+      .select('credits_used')
+      .eq('batch_id', batchId)
+      .eq('provider_key', APOLLO_PROVIDER_USAGE_KEY)
+      .eq('operation_key', APOLLO_ORGANIZATIONS_OPERATION_KEY);
+
+    if (error || !Array.isArray(data) || data.length === 0) return null;
+
+    let total = 0;
+    let sawNumericCredit = false;
+    for (const row of data) {
+      const credits = (row as { credits_used?: unknown }).credits_used;
+      if (typeof credits === 'number' && Number.isFinite(credits)) {
+        total += credits;
+        sawNumericCredit = true;
+      }
+    }
+    return sawNumericCredit ? total : null;
+  } catch {
+    // Non-critical: reconciliation failure must never affect the writer result.
+    return null;
+  }
+}
 
 export async function writeProspectingCandidates(
   input: CandidateWriterInput,
@@ -2516,18 +2569,54 @@ export async function writeProspectingCandidates(
       } satisfies IcpSizeGateBatchSummary,
     };
 
+    // ── Q3F-5BB.11F.1 — Apollo batch provider_attempts[] (OBSERVATIONAL) ──────
+    // Additive: emit metadata.provider_attempts[] ONLY for Apollo COMPANY
+    // discovery (web_search_provider === 'apollo_organizations') AND only when
+    // 11E already stamped metadata.provider_routing. Every other provider path
+    // (Tavily / mock / …) leaves the metadata byte-for-byte unchanged. Costs are
+    // reconciled strictly from provider_usage_logs (organizations_search only);
+    // unknown credit spend stays null (never 0) and estimated_cost_usd is null.
+    let metadataToPersist: Record<string, unknown> = finalMetadata;
+    if (
+      shouldEmitApolloBatchProviderAttempts({
+        webSearchProvider: pipelineMeta?.provider,
+        hasProviderRouting:
+          (finalMetadata as Record<string, unknown>)[BATCH_PROVIDER_ROUTING_KEY] != null,
+      })
+    ) {
+      const apolloCreditsUsed = await reconcileApolloOrganizationsCredits(admin, batchId);
+      const apolloAttempt = buildApolloBatchProviderAttempt({
+        writerStatus: status,
+        rawCount:
+          typeof pipelineMeta?.total_raw_evaluated === "number"
+            ? (pipelineMeta.total_raw_evaluated as number)
+            : null,
+        normalizedCount:
+          typeof pipelineOutput.summary?.returned === "number"
+            ? pipelineOutput.summary.returned
+            : null,
+        gateExcludedCount: qualitySkipped.length + identityGateTotal,
+        exactDuplicateCount: precisionGate.intraBatchDuplicateCount,
+        possibleDuplicateCount: duplicateGuardData.possibleDuplicateCount,
+        persistedCount: createdCandidateIds.length,
+        creditsUsed: apolloCreditsUsed,
+        failureReason: errors.length > 0 ? errors[0] : null,
+      });
+      metadataToPersist = mergeProviderAttemptsBatchMetadata(finalMetadata, [apolloAttempt]);
+    }
+
     if (candidatesCreated === 0 && errors.length === 0) {
       // All candidates were intentionally skipped (novelty / quality) — no new
       // content to review. Correct the status so the batch does not appear as
       // ready_for_review when it has nothing in it.
       await admin
         .from("prospect_batches")
-        .update({ status: "completed", metadata: finalMetadata })
+        .update({ status: "completed", metadata: metadataToPersist })
         .eq("id", batchId);
     } else {
       await admin
         .from("prospect_batches")
-        .update({ metadata: finalMetadata })
+        .update({ metadata: metadataToPersist })
         .eq("id", batchId);
     }
   } catch (err) {

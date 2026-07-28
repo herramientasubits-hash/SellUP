@@ -37,6 +37,7 @@ import {
   type PhoneRevealUsageLogEntry,
 } from '../phone-reveal-core';
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
+import type { ApolloPhoneRevealTraceMetadata } from '@/server/integrations/apollo-phone-reveal-response';
 import { isApolloPhoneRevealEnabled, APOLLO_PHONE_REVEAL_FLAG } from '@/lib/feature-flags.server';
 import {
   sanitizeApolloErrorMessage,
@@ -57,6 +58,35 @@ const ACTOR = { internalUserId: 'user-admin-1', roleKey: 'admin' };
 const WEBHOOK_URL =
   'https://app.example.com/api/integrations/apollo/phone-reveal/webhook?token=secret';
 const REQUEST_ID = 'apollo-req-123';
+// START-CONTRACT-1: id recuperable (apollo_http_request_id) que Apollo devuelve
+// en el START. Sin él el core marca `error` (no `requested`).
+const HTTP_REQUEST_ID = '-4594297923800105423';
+
+/**
+ * Traza técnica mínima (sin PII) del START feliz: incluye el
+ * apollo_http_request_id recuperable requerido por START-CONTRACT-1. Los tests
+ * que ejercen otros gates reutilizan esta traza para que el camino feliz siga
+ * quedando `requested`.
+ */
+function baseTrace(
+  overrides: Partial<ApolloPhoneRevealTraceMetadata> = {},
+): ApolloPhoneRevealTraceMetadata {
+  return {
+    apollo_async_request_id_present: true,
+    apollo_phone_enrichment_request_id: REQUEST_ID,
+    apollo_phone_enrichment_present: true,
+    apollo_phone_enrichment_status: 'pending',
+    apollo_person_present: false,
+    apollo_person_id_present: false,
+    apollo_top_level_request_id_present: true,
+    apollo_http_request_id: HTTP_REQUEST_ID,
+    apollo_transaction_id: null,
+    sellup_transaction_id: '11111111-2222-4333-8444-555555555555',
+    apollo_transaction_echoed: false,
+    webhook_ref: '11111111-2222-4333-8444-555555555555',
+    ...overrides,
+  };
+}
 
 function baseCandidate(
   overrides: Partial<RevealCandidateRecord> = {},
@@ -113,7 +143,9 @@ function makeDeps(
     },
     startRevealViaApollo: async (params) => {
       cap.apolloCalls.push(params);
-      return opts.apollo ?? { ok: true, requestId: REQUEST_ID };
+      return (
+        opts.apollo ?? { ok: true, requestId: REQUEST_ID, trace: baseTrace() }
+      );
     },
     persist: async (id, patch) => {
       cap.persisted.push({ id, patch });

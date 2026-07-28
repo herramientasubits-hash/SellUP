@@ -199,6 +199,9 @@ describe('ASYNC-15 — skipped con request_id (handle conservado)', () => {
       apollo_async_request_id_present: true,
       apollo_phone_enrichment_present: true,
       apollo_phone_enrichment_status: 'skipped',
+      // START-CONTRACT-1: para quedar `requested` el START debe traer un id
+      // recuperable (apollo_http_request_id); sin él el core marca `error`.
+      apollo_http_request_id: 'http-trace-prev-77',
     });
     const res = await runRevealCandidatePhone(
       validInput(),
