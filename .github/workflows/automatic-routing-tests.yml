@@ -77,3 +77,15 @@ jobs:
       # Deterministic: no env activation, no provider calls, no DB.
       - name: Run Apollo provider routing wiring tests
         run: npm run test:apollo-provider-routing-wiring
+
+      # Q3F-5BB.11F.1 — Apollo batch provider_attempts[] OBSERVATIONAL metadata.
+      # Guards that the candidate-writer emits an additive batch provider_attempts[]
+      # entry ONLY for Apollo company discovery (web_search_provider=
+      # 'apollo_organizations') AND only when 11E already stamped provider_routing;
+      # that Tavily/mock metadata stays byte-for-byte unchanged; that credits are
+      # reconciled strictly from provider_usage_logs (apollo/organizations_search),
+      # estimated_cost_usd stays null, and unknown counts never become 0; and that
+      # the pure helper imports no Supabase/env/fetch/provider/contact-enrichment.
+      # Deterministic: no env activation, no provider calls, no real DB.
+      - name: Run Apollo provider attempts tests
+        run: npm run test:apollo-provider-attempts

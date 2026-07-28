@@ -28,6 +28,7 @@ export {
   buildProviderAttemptMetadata,
   buildCandidateProviderTraceMetadata,
   mergeProviderRoutingBatchMetadata,
+  mergeProviderAttemptsBatchMetadata,
   mergeCandidateProviderMetadata,
   resolveCandidateProviderConsistency,
 } from './metadata-contract';
