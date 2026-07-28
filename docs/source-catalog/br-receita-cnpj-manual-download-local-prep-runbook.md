@@ -385,6 +385,14 @@ Both runners emit only a **sanitized report**:
 > the company-name field, which the BR legal / privacy decision excludes. A
 > headerless **manifest validation** can pass while the **dry-run** is blocked for
 > this reason; that is a legitimate stop condition (§ 13), not a tooling bug.
+>
+> **BR-SOURCE-10D.** This exact stop condition was observed on real data in
+> BR-SOURCE-10C and is now formalized: the record-level privacy-safe eligibility
+> rules that any future import must satisfy (excluded records, persistible/prohibited
+> fields, guardrails, aggregated reporting, and open legal/privacy questions) are
+> defined in
+> [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md).
+> Import, runtime, and live generation stay blocked.
 
 The output never contains:
 
@@ -439,5 +447,6 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10A-PREP** | Create a manifest from the operator's prepared local folder. | Requires a prepared local folder (this runbook). |
 | **BR-SOURCE-10A** | Run the real local dry-run QA against that manifest. | Requires a validated manifest. |
 | **BR-SOURCE-10B** | Import **design only**, if QA passes. | Explicit approval; no writes. |
-| **BR-SOURCE-10C** | Controlled Supabase pilot. | Explicit approval only. |
-| _(later)_ | Lookup / enrichment adapter, then Agent 1 gated integration. | Adapter + gated runtime design first. |
+| **BR-SOURCE-10C** | Headerless real-file support (manifest validates; real dry-run blocked by PII guard). | Merged (PR #142). |
+| **BR-SOURCE-10D** | Privacy-safe import eligibility **design** (docs-only). | Merged design; authorizes no import. |
+| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + explicit approval first. |

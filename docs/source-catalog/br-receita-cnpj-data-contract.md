@@ -396,6 +396,14 @@ parser/builder design for the CNPJ bulk dataset following this contract (pure bu
 rows, DV validation, alphanumeric-safe normalization, PII exclusions). No download, parser, or
 import is authorized until BR-SOURCE-2 is explicitly approved with its own scope.
 
+> **Privacy-safe import eligibility (BR-SOURCE-10D).** The headerless real-file layout is now
+> supported and a real manifest can validate (BR-SOURCE-10C), but the real dry-run remains
+> **blocked by the anti-PII guard** and no import is authorized. The record-level eligibility
+> rules, excluded-record classes, persistible/prohibited fields, guardrails, and open
+> legal/privacy questions that any future import must satisfy are defined in
+> [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md).
+> Import, production import, runtime, and live prospect generation stay **blocked**.
+
 ---
 
 ## 10. Safety confirmation

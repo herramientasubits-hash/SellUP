@@ -422,6 +422,17 @@ OPS_BR_LIVE_PROSPECT_GENERATION_READY = false
 
 BR-SOURCE-6 should still perform **no Supabase writes** unless explicitly authorized. It is a design/dry-run/manifest milestone, not a write milestone.
 
+> **Privacy-safe eligibility gate (BR-SOURCE-10D).** Since this contract was written, the
+> headerless real-file layout became official (BR-SOURCE-10C): a real manifest can validate, but
+> the real local dry-run remains **blocked by the anti-PII guard** and import stays blocked. The
+> validation gates in § 12 are now joined by a mandatory **record-level privacy-safe eligibility
+> filter** — only records classified `eligible_for_future_import` may ever reach a writer, and any
+> natural-person / PII signal excludes the whole record. That eligibility contract (excluded-record
+> classes, persistible/prohibited fields, classification statuses, guardrails, aggregated reporting,
+> and open legal/privacy questions) is defined in
+> [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md).
+> Import, production import, runtime, and live prospect generation remain **blocked**.
+
 ---
 
 ## 24. Resulting operational flags
