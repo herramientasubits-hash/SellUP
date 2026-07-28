@@ -151,16 +151,20 @@ describe('runBrReceitaCnpjPrivacySafeClassifier — acceptance', () => {
     assert.equal(result.importExecuted, false);
   });
 
-  it('classifies a clean company row as needs_legal_review with no policy (fail-closed)', async () => {
+  it('holds a clean empresas row as needs_legal_review and an establishment as pending join (no policy)', async () => {
     const { manifestPath } = makeFixture({
       empresas: file([empresasRow()]),
       estabelecimentos: file([estabRow()]),
     });
     const result = await runBrReceitaCnpjPrivacySafeClassifier({ manifestPath, allowLocalManifest: true });
     assert.equal(result.classificationCounts.eligible_for_future_import, 0);
-    assert.equal(result.classificationCounts.needs_legal_review, 2);
+    // BR-SOURCE-10F: only the genuinely-undecided empresas nature holds for legal review;
+    // the establishment is a data-join hold, not a legal question.
+    assert.equal(result.classificationCounts.needs_legal_review, 1);
+    assert.equal(result.classificationCounts.pending_company_join_context, 1);
     assert.equal(result.exclusionCountsByReason.unknown_requires_legal_review, 1);
-    assert.equal(result.exclusionCountsByReason.insufficient_positive_company_signal, 1);
+    assert.equal(result.exclusionCountsByReason.establishment_requires_company_join_context, 1);
+    assert.equal(result.exclusionCountsByReason.insufficient_positive_company_signal, 0);
   });
 
   it('classifies a clean empresas row as eligible ONLY under an injected legal-nature policy', async () => {
@@ -211,7 +215,8 @@ describe('runBrReceitaCnpjPrivacySafeClassifier — PII risk', () => {
     });
     const result = await runBrReceitaCnpjPrivacySafeClassifier({ manifestPath, allowLocalManifest: true });
     assert.equal(result.classificationCounts.excluded_person_or_pii_risk, 0);
-    assert.equal(result.classificationCounts.needs_legal_review, 2);
+    assert.equal(result.classificationCounts.needs_legal_review, 1);
+    assert.equal(result.classificationCounts.pending_company_join_context, 1);
   });
 
   it('never surfaces a raw row, cell value, CPF, or full CNPJ in the output', async () => {
@@ -348,9 +353,12 @@ describe('runBrReceitaCnpjPrivacySafeClassifier — coexistence & aggregates', (
     });
     assert.equal(result.sampleRowsSeen, 5);
     assert.equal(result.classificationCounts.excluded_person_or_pii_risk, 1);
-    assert.equal(result.classificationCounts.needs_legal_review, 4);
+    // BR-SOURCE-10F: 2 clean empresas hold for legal review; 2 establishments become a
+    // distinct data-join hold instead of inflating needs_legal_review.
+    assert.equal(result.classificationCounts.needs_legal_review, 2);
+    assert.equal(result.classificationCounts.pending_company_join_context, 2);
     assert.equal(result.exclusionCountsByReason.unknown_requires_legal_review, 2);
-    assert.equal(result.exclusionCountsByReason.insufficient_positive_company_signal, 2);
+    assert.equal(result.exclusionCountsByReason.establishment_requires_company_join_context, 2);
     assert.equal(result.exclusionCountsByReason.cpf_like_token_detected, 1);
 
     const statusSum = Object.values(result.classificationCounts).reduce((a, b) => a + b, 0);

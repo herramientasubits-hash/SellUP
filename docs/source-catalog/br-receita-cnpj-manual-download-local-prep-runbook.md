@@ -395,15 +395,51 @@ ingestion / full-scan flag is rejected with
 `--fail-on-any-excluded` to flip that. A structural anomaly, a leak, a manifest
 failure, or a non-headerless file makes it `ok: false`.
 
-Each row resolves to exactly one status (BR-SOURCE-10D § 7):
-`eligible_for_future_import`, `excluded_person_or_pii_risk`,
+Each row resolves to exactly one status (BR-SOURCE-10D § 7, calibrated by
+BR-SOURCE-10F below): `eligible_for_future_import`, `excluded_person_or_pii_risk`,
 `excluded_forbidden_file_family`, `excluded_forbidden_token`,
-`excluded_unsupported_legal_nature`, `excluded_guard_triggered`, or
-`needs_legal_review`. **Nothing can be marked eligible today** unless a legal-nature
-policy is injected (the runner injects none), because BR-SOURCE-10D § 11 leaves the
-eligible-natureza allowlist, MEI policy, and full-CNPJ persistence undecided — so a
-clean company row falls, fail-closed, to `needs_legal_review`. Save the JSON output
-under `reports/` for the record.
+`excluded_unsupported_legal_nature`, `excluded_guard_triggered`,
+`needs_legal_review`, `not_applicable_lookup`, or `pending_company_join_context`.
+**Nothing can be marked eligible today** unless a legal-nature policy is injected
+(the runner injects none), because BR-SOURCE-10D § 11 leaves the eligible-natureza
+allowlist, MEI policy, and full-CNPJ persistence undecided — so a clean company row
+falls, fail-closed, to `needs_legal_review`. Save the JSON output under `reports/`
+for the record.
+
+### 11.2. Eligibility & legal-nature calibration (BR-SOURCE-10F)
+
+BR-SOURCE-10F calibrates the classifier so that structurally non-company rows stop
+inflating `needs_legal_review`, without changing any authorization (see design
+[§ 10.2](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)). Run it the
+same way, with `--max-sample-rows 20` for a fuller bounded sample:
+
+```bash
+node --import tsx scripts/source-catalog/run-br-receita-cnpj-privacy-safe-dry-run.ts \
+  --manifest ~/Downloads/sellup-source-data/br/receita-cnpj/<YYYY-MM>/manifest.headerless.json \
+  --allow-local-manifest \
+  --format json \
+  --strict \
+  --max-sample-rows 20
+```
+
+What changes in the sanitized output:
+
+- **Reference lookups** (`cnaes` / `municipios` / `naturezas`) are
+  `not_applicable_lookup` — catalog rows are structurally not company candidates,
+  and remain non-importable.
+- **Establishments** sampled in isolation are `pending_company_join_context` — a
+  data-join hold (reason `establishment_requires_company_join_context`), still
+  non-importable on their own.
+- **MEI / empresário individual** legal natures **exclude** by default
+  (`excluded_person_or_pii_risk`) instead of holding.
+- Two aggregate maps are added: `legal_nature_classification_counts` (risk classes)
+  and `positive_company_signal_counts` — **counts only**, no labels or values.
+
+Legal nature is a **classification signal, not an import authorization**: the
+classifier can reduce `needs_legal_review`, but it never marks a record importable.
+Establishments still require a future empresas join, lookups are never importable
+companies, and import / production import / runtime / Agent 1 / live prospect
+generation all stay **blocked**.
 
 ---
 
@@ -491,4 +527,5 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10C** | Headerless real-file support (manifest validates; real dry-run blocked by PII guard). | Merged (PR #142). |
 | **BR-SOURCE-10D** | Privacy-safe import eligibility **design** (docs-only). | Merged design; authorizes no import. |
 | **BR-SOURCE-10E** | Privacy-safe bounded dry-run **classifier** (§ 11.1): aggregate eligibility counts, no rows, no values. | Additive to the § 11 hard-block; authorizes no import. |
-| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + explicit approval first. |
+| **BR-SOURCE-10F** | Eligibility & legal-nature **calibration** (§ 11.2): lookups → `not_applicable_lookup`, establishments → `pending_company_join_context`, MEI/EI excluded; adds risk-class & positive-signal counts. | Legal nature is a signal, not an authorization; authorizes no import. |
+| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + explicit approval first. |
