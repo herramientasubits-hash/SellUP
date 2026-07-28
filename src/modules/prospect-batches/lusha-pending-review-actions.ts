@@ -56,6 +56,22 @@ import {
   guardLushaPreviewEnabled,
   buildLushaPendingReviewDisabledResult,
 } from '@/modules/prospect-batches/lusha-preview-flag-guard';
+// Q3F-5BB.11D — OBSERVATIONAL provider-routing wiring. The adapter is pure (no
+// env, no provider client, no Supabase). The barrel exposes the pure 11B resolver
+// + 11C metadata builder. This produces routing metadata + a safety assert ONLY;
+// it never decides eligibility (resolveWizardLushaCriteria) nor replaces the
+// server-side flag guard above.
+import {
+  buildLushaRoutingCriteria,
+  buildLushaRoutingConfig,
+  buildLushaObservationalRegistry,
+  assertLushaRoutingPlanSafe,
+} from '@/modules/prospect-batches/lusha-provider-routing-adapter';
+import {
+  resolveProviderRoutingPlan,
+  buildProviderRoutingMetadata,
+  type ProviderRoutingEnvironment,
+} from '@/modules/prospect-batches/provider-routing';
 // Read-only duplicate parity (Q3F-5BB.7). Both helpers query for READS only:
 //   - checkCompanyDuplicate       → SellUp accounts + HubSpot (read-only checkers).
 //   - fetchActiveCandidatesForGuard → active prospect_candidates prefetch (read-only).
@@ -78,6 +94,19 @@ export type GenerateLushaPendingReviewBatchActionResult = PersistLushaPendingRev
 
 function invalidInputResult(): GenerateLushaPendingReviewBatchActionResult {
   return buildLushaPendingReviewFailure('Parámetros de búsqueda inválidos.', 'invalid_input');
+}
+
+/**
+ * Resolve the runtime environment server-side (the pure routing adapter never
+ * reads env). Mirrors the repo's Vercel/NODE_ENV convention; only used to gate
+ * provider capability in the OBSERVATIONAL plan.
+ */
+function resolveRoutingEnvironment(): ProviderRoutingEnvironment {
+  const vercelEnv = process.env.VERCEL_ENV?.trim().toLowerCase();
+  if (vercelEnv === 'production') return 'production';
+  if (vercelEnv === 'preview') return 'preview';
+  if (process.env.NODE_ENV === 'production') return 'production';
+  return 'development';
 }
 
 /**
@@ -108,6 +137,28 @@ async function runGenerateLushaPendingReviewBatch(
   if (!parsed.success) {
     return invalidInputResult();
   }
+
+  // Q3F-5BB.11D — OBSERVATIONAL provider-routing plan. We are already inside the
+  // guard's run() (flag ON), so Lusha is enabled here. Build the pure plan,
+  // assert it is safe (never Apollo/Tavily; selected must be Lusha), and derive
+  // the additive routing metadata. This does NOT gate execution or eligibility —
+  // it only annotates the batch/candidates. If the plan is unsafe the assert
+  // throws and the outer try/catch fails the request closed (never a fallback).
+  const environment = resolveRoutingEnvironment();
+  const routingPlan = resolveProviderRoutingPlan(
+    buildLushaRoutingCriteria({
+      countryCode: parsed.data.countryCode,
+      sectorKey: parsed.data.sectorKey,
+    }),
+    buildLushaRoutingConfig({ environment, lushaEnabled: true }),
+    buildLushaObservationalRegistry(),
+  );
+  assertLushaRoutingPlanSafe(routingPlan);
+  const routingMetadata = buildProviderRoutingMetadata(routingPlan, {
+    environment,
+    fallbackAllowed: false,
+    fallbackReason: 'lusha_intent_never_chains',
+  });
 
   const supabase = await createClient();
 
@@ -170,6 +221,8 @@ async function runGenerateLushaPendingReviewBatch(
       },
       parsed.data,
       { internalUserId },
+      // Q3F-5BB.11D — additive OBSERVATIONAL routing metadata (never gates).
+      { routingMetadata, routingPlan },
     );
 
     // Safe server-side log — no secrets, no raw payload, no PII.

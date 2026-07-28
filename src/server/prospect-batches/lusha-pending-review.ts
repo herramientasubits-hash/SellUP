@@ -71,6 +71,18 @@ import {
   type OfficialSourceResolver,
   type ProspectIntakeGateResult,
 } from '@/server/agents/prospect-intake';
+// Q3F-5BB.11D — additive provider-routing metadata (pure 11B/11C contract). The
+// barrel path carries no forbidden substring; every helper is pure (no env, no
+// I/O, no provider client). Used ONLY to stamp OBSERVATIONAL routing metadata on
+// the batch + candidates; it never decides eligibility or executes anything.
+import {
+  buildProviderAttemptMetadata,
+  buildCandidateProviderTraceMetadata,
+  mergeProviderRoutingBatchMetadata,
+  mergeCandidateProviderMetadata,
+  type ProviderRoutingMetadata,
+  type ProviderRoutingPlan,
+} from '@/modules/prospect-batches/provider-routing';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -328,6 +340,21 @@ export interface PersistLushaPendingReviewDeps {
    * are the ONLY new injected surface and add no write capability).
    */
   officialSourceResolvers?: OfficialSourceResolver[];
+}
+
+/**
+ * Q3F-5BB.11D — OPTIONAL, OBSERVATIONAL provider-routing observation. When
+ * present, the core stamps the additive routing metadata (11C) onto the batch
+ * (`provider_routing` + `provider_attempts[]`) and each candidate
+ * (`provider_trace`, keeping `source_provider` / `source_trace.sourceProvider`
+ * consistent). Purely additive: when omitted (legacy callers / tests) behavior
+ * is byte-for-byte unchanged and no routing metadata is written. This never
+ * decides eligibility, never gates execution, and never changes which companies
+ * are persisted — the live guard is authoritative.
+ */
+export interface LushaProviderRoutingObservation {
+  routingMetadata?: ProviderRoutingMetadata;
+  routingPlan?: ProviderRoutingPlan;
 }
 
 export type PersistLushaPendingReviewStatus = 'success' | 'empty' | 'error';
@@ -1316,9 +1343,15 @@ export async function persistLushaPendingReviewBatch(
   deps: PersistLushaPendingReviewDeps,
   input: LushaPreviewInput,
   actor: PersistLushaPendingReviewActor,
+  routing?: LushaProviderRoutingObservation,
 ): Promise<PersistLushaPendingReviewResult> {
   const seen = new Set<string>(); // cross-page dedupe keys
   const useful: ResolvedLushaCandidate[] = [];
+  // Q3F-5BB.11D — observational counters for the provider attempt metadata.
+  // `rawCount` = raw provider results across pages (pre cross-page dedupe);
+  // `normalizedCount` = unique companies that entered the gate/dedupe pipeline.
+  let rawCount = 0;
+  let normalizedCount = 0;
   // Auditable detail of every excluded exact duplicate (Q3F-5BB.7D). Its length
   // is the authoritative excluded count surfaced everywhere below.
   const excludedExactDuplicates: LushaExcludedExactDuplicate[] = [];
@@ -1359,8 +1392,13 @@ export async function persistLushaPendingReviewBatch(
       break;
     }
 
+    // Observational: count raw provider results for this successful page before
+    // any cross-page dedupe (11D — never affects existing behavior).
+    rawCount += (search.results ?? []).length;
+
     const { unique, skippedCount } = dedupeLushaCompanies(search.results ?? [], seen);
     skippedUnusableCount += skippedCount;
+    normalizedCount += unique.length;
 
     // Provider-neutral criteria for the shared gate + enrichment. Built from the
     // (server-authoritative) request summary; stable across pages.
@@ -1459,10 +1497,67 @@ export async function persistLushaPendingReviewBatch(
       enrichmentSummary,
     },
   );
-  const { id: batchId } = await deps.insertBatch(batchRow);
+  // Q3F-5BB.11D — additively stamp the OBSERVATIONAL routing metadata on the
+  // batch (provider_routing + a single primary Lusha provider_attempt built from
+  // the real counters). Only when a routing observation was supplied; otherwise
+  // the batch metadata is byte-for-byte the pre-11D shape. Unknown USD cost stays
+  // null (never coerced to 0). All existing metadata keys are preserved.
+  const batchRowWithRouting = routing?.routingMetadata
+    ? {
+        ...batchRow,
+        metadata: mergeProviderRoutingBatchMetadata(
+          batchRow.metadata,
+          routing.routingMetadata,
+          [
+            buildProviderAttemptMetadata(
+              {
+                provider: LUSHA_PENDING_REVIEW_PROVIDER,
+                status: 'success',
+                usefulCandidateCount: useful.length,
+                creditsSpent: creditsChargedTotal,
+                // Lusha USD price is not authorized → unknown, never 0.
+                usdSpent: null,
+                error: null,
+              },
+              {
+                role: 'primary',
+                rawCount,
+                normalizedCount,
+                gateExcludedCount: hardExcludedByGateCount,
+                exactDuplicateCount: excludedExactDuplicatesCount,
+                possibleDuplicateCount: possibleDuplicatesCount,
+                persistedCount: useful.length,
+                estimatedCostUsd: null,
+                pagesRequested,
+                qualityScore: null,
+              },
+            ),
+          ],
+        ),
+      }
+    : batchRow;
+  const { id: batchId } = await deps.insertBatch(batchRowWithRouting);
 
   const candidateRows = buildLushaPendingReviewCandidateRows(batchId, useful);
-  const { insertedCount } = await deps.insertCandidates(candidateRows);
+  // Q3F-5BB.11D — additively stamp `provider_trace` on each candidate and keep
+  // `metadata.source_provider` / `source_trace.sourceProvider` consistent (they
+  // are already 'lusha' from the row builder, so the merge is a no-conflict
+  // enrichment). Preserves every existing candidate metadata / source_trace key.
+  const candidateRowsWithRouting = routing?.routingMetadata
+    ? candidateRows.map((row) => {
+        const trace = buildCandidateProviderTraceMetadata(
+          { sourceProvider: LUSHA_PENDING_REVIEW_PROVIDER },
+          { provider: LUSHA_PENDING_REVIEW_PROVIDER, role: 'primary' },
+          { attemptIndex: 0, creditsUsed: null, estimatedCostUsd: null },
+        );
+        const merged = mergeCandidateProviderMetadata(
+          { metadata: row.metadata, source_trace: row.source_trace },
+          trace,
+        );
+        return { ...row, metadata: merged.metadata, source_trace: merged.source_trace };
+      })
+    : candidateRows;
+  const { insertedCount } = await deps.insertCandidates(candidateRowsWithRouting);
 
   return {
     ok: true,
